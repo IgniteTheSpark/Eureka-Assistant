@@ -169,6 +169,17 @@ _adk_session_service = InMemorySessionService()
 APP_NAME = "eureka-chat"
 
 
+def _looks_like_leaked_call(text: str) -> bool:
+    """deepseek intermittently writes a tool call as plain text content
+    (function_call:{"call": ..., "arguments": ...}) instead of making a
+    structured call — ADK never executes it, so the raw JSON would surface as
+    the reply. Detect it so we can retry rather than show garbage."""
+    if not text:
+        return False
+    t = text.strip()
+    return "function_call" in t and ('"call"' in t or '"arguments"' in t)
+
+
 async def _stream_assistant(
     user_text: str,
     history_text: str,
@@ -197,43 +208,63 @@ async def _stream_assistant(
         session_subject_hint=session_subject_hint,
     )
 
-    # Fresh ADK in-memory session per request — persistence is our concern
-    adk_sid = str(uuid.uuid4())
-    await _adk_session_service.create_session(
-        app_name=APP_NAME, user_id=user_id, session_id=adk_sid,
-    )
-    runner = Runner(
-        agent=agent, app_name=APP_NAME, session_service=_adk_session_service,
-    )
-
     enriched = history_text + f"用户: {user_text}"
-    new_message = Content(role="user", parts=[Part(text=enriched)])
 
-    async for event in runner.run_async(
-        user_id=user_id, session_id=adk_sid, new_message=new_message,
-    ):
-        # Tool calls → emit one SSE 'tool_call' per call. ADK batches parallel
-        # calls into a single event; emit them ALL or multi-intent turns lose
-        # every card after the first (the bug behind the missing 联系人 card +
-        # the "no progress hint after the first asset" reports).
-        calls = event_tool_calls(event)
-        if calls:
-            for tc in calls:
-                yield ("tool_call", tc)
+    # deepseek sometimes emits a tool call as plain text instead of executing it
+    # (see _looks_like_leaked_call). When it does, no tool runs and nothing has
+    # streamed yet — so retry once with a nudge, suppressing the leaked attempt.
+    MAX_ATTEMPTS = 2
+    for attempt in range(MAX_ATTEMPTS):
+        # Fresh ADK in-memory session per attempt (no leaked-text contamination).
+        adk_sid = str(uuid.uuid4())
+        await _adk_session_service.create_session(
+            app_name=APP_NAME, user_id=user_id, session_id=adk_sid,
+        )
+        runner = Runner(
+            agent=agent, app_name=APP_NAME, session_service=_adk_session_service,
+        )
+        msg = enriched if attempt == 0 else (
+            enriched + "\n\n(系统提示:请直接调用工具完成,不要把工具调用写成文字输出。)"
+        )
+        new_message = Content(role="user", parts=[Part(text=msg)])
+
+        tool_seen = False
+        final_text = ""
+        async for event in runner.run_async(
+            user_id=user_id, session_id=adk_sid, new_message=new_message,
+        ):
+            # Tool calls → emit one SSE 'tool_call' per call. ADK batches parallel
+            # calls into one event; emit them ALL or multi-intent turns lose every
+            # card after the first.
+            calls = event_tool_calls(event)
+            if calls:
+                tool_seen = True
+                for tc in calls:
+                    yield ("tool_call", tc)
+                continue
+            # Tool results → emit one SSE 'tool_result' per result.
+            results = event_tool_results(event)
+            if results:
+                for tr in results:
+                    yield ("tool_result", tr)
+                continue
+            # Final response → hold the text until we know it's not a leak.
+            if hasattr(event, "is_final_response") and event.is_final_response():
+                t = event_text(event)
+                if t:
+                    final_text = t
+
+        is_leak = _looks_like_leaked_call(final_text)
+        # Clean leak (no tool ran) → retry once, suppressing this attempt.
+        if is_leak and not tool_seen and attempt < MAX_ATTEMPTS - 1:
             continue
-
-        # Tool results → emit one SSE 'tool_result' per result (same reason).
-        results = event_tool_results(event)
-        if results:
-            for tr in results:
-                yield ("tool_result", tr)
-            continue
-
-        # Final response → emit 'token' (whole reply)
-        if hasattr(event, "is_final_response") and event.is_final_response():
-            text = event_text(event)
-            if text:
-                yield ("token", {"text": text})
+        if is_leak:
+            # Out of retries (or leak after a tool) — never dump raw JSON.
+            yield ("token", {"text": "抱歉,刚才没能完成这个操作,请再说一次。"})
+            return
+        if final_text:
+            yield ("token", {"text": final_text})
+        return
 
 
 # ── Endpoint ───────────────────────────────────────────────────────────────────
