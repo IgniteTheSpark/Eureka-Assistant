@@ -83,19 +83,22 @@ export interface EventsResponse {
  * session_id). Use kind to discriminate.
  */
 export interface TimelineItem {
-  kind: "event" | "asset";
+  kind: "event" | "asset" | "contact" | "input_turn" | "file";
   id: string;
   effective_at: string;
   created_at: string;
   title: string;
   subtitle?: string;
-  source_input_turn_id: string | null;
+  source_input_turn_id?: string | null;
 
   // event-only
   event_id?: string;
   end_at?: string | null;
   location?: string | null;
   all_day?: boolean;
+
+  // contact-only
+  contact_id?: string;
 
   // asset-only
   skill_name?: string;

@@ -10,7 +10,7 @@ import { useSkillRegistry } from "@/hooks/useSkillRegistry";
 import { swrFetcher } from "@/lib/api";
 import { buildCard } from "@/lib/render-spec";
 import useSWR from "swr";
-import type { AssetsResponse, TimelineItem } from "@/lib/types";
+import type { AssetsResponse, ContactsResponse, TimelineItem } from "@/lib/types";
 
 /**
  * CalendarPage — Mobile-Redesign: a Segmented (流/月/年) control switches
@@ -33,10 +33,13 @@ export function CalendarPage() {
   const [dayDetailKey, setDayDetailKey] = useState<string | null>(null);
   const [openEventId, setOpenEventId]   = useState<string | null>(null);
   const [openAssetId, setOpenAssetId]   = useState<string | null>(null);
+  const [openContactId, setOpenContactId] = useState<string | null>(null);
 
   function handleItemTap(item: TimelineItem) {
     if (item.kind === "event") {
       setOpenEventId(item.event_id ?? item.id);
+    } else if (item.kind === "contact" || item.skill_name === "contact") {
+      setOpenContactId(item.contact_id ?? item.id);
     } else {
       setOpenAssetId(item.id);
     }
@@ -98,6 +101,13 @@ export function CalendarPage() {
         <AssetDetailModal
           assetId={openAssetId}
           onClose={() => setOpenAssetId(null)}
+        />
+      )}
+
+      {openContactId && (
+        <ContactDetailModal
+          contactId={openContactId}
+          onClose={() => setOpenContactId(null)}
         />
       )}
     </div>
@@ -178,6 +188,41 @@ function AssetDetailModal({ assetId, onClose }: { assetId: string; onClose: () =
       card={card}
       payload={asset.payload}
       sourceSessionId={asset.session_id}
+      onClose={onClose}
+    />
+  );
+}
+
+/**
+ * ContactDetailModal — opens AssetDetailDrawer for a 名片 (contact) timeline
+ * item. Contacts are a first-class entity (own table + /api/contacts), so we
+ * resolve the row and build a contact-shaped CardData (cardType="contact" so
+ * the drawer's edit/delete route to ContactForm + DELETE /api/contacts).
+ */
+function ContactDetailModal({ contactId, onClose }: { contactId: string; onClose: () => void }) {
+  const { data } = useSWR<ContactsResponse>("/api/contacts", swrFetcher);
+  const contact = data?.contacts.find((c) => c.id === contactId);
+  if (!contact) return null;
+
+  const payload = contact as unknown as Record<string, unknown>;
+  const card = buildCard({
+    payload,
+    spec: {
+      card_layout: "horizontal", icon: "👤", accent_color: "neutral",
+      primary_field: "name", secondary_field: "company",
+    },
+    assetId:     contact.id,
+    cardType:    "contact",
+    displayName: contact.name,
+  });
+  // Hero subtitle = 职位 · 公司 (buildCard's secondary_field gives only company).
+  card.subtitle = [contact.title ?? "", contact.company ?? ""].filter(Boolean).join(" · ");
+
+  return (
+    <AssetDetailDrawer
+      card={card}
+      payload={payload}
+      sourceSessionId={null}
       onClose={onClose}
     />
   );

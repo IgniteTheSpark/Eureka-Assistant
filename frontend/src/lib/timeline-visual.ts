@@ -44,6 +44,11 @@ export function timelineItemVisual(
   if (it.kind === "event") {
     return { glyph: "📅", glow: ACCENT_GLOW.purple };
   }
+  // Contacts (名片) are a first-class entity with no UserSkill render_spec —
+  // give them their own glyph so the row isn't a bare neutral dot.
+  if (it.kind === "contact" || it.skill_name === "contact") {
+    return { glyph: "👤", glow: ACCENT_GLOW.blue };
+  }
   const skill = it.skill_name ? bySkill.get(it.skill_name) : undefined;
   const glyph = skill?.render_spec?.icon || "•";
   const glow = ACCENT_GLOW[skill?.render_spec?.accent_color ?? "neutral"] ?? ACCENT_GLOW.neutral;

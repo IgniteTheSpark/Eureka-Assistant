@@ -42,7 +42,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import (
-    Asset, UserSkill, GlobalSkill, Event, InputTurn, File,
+    Asset, UserSkill, GlobalSkill, Event, InputTurn, File, Contact,
 )
 
 
@@ -231,6 +231,36 @@ def _input_turn_item(turn: InputTurn) -> dict:
     }
 
 
+def _contact_item(contact: Contact) -> dict:
+    """Timeline item for a contact (名片). Contacts are a first-class entity in
+    their own table — they were missing from the timeline entirely, so a newly
+    added 名片 never showed in 流 / 月 views. effective_at = created_at (a
+    contact isn't scheduled; it's "when I added this person")."""
+    role    = (contact.title or "").strip()      # job title
+    company = (contact.company or "").strip()
+    subtitle = " · ".join(x for x in (role, company) if x)
+    return {
+        "kind":         "contact",
+        "id":           str(contact.id),
+        "contact_id":   str(contact.id),
+        "effective_at": _iso(contact.created_at),
+        "created_at":   _iso(contact.created_at),
+        "title":        (contact.name or "联系人")[:120],
+        "subtitle":     subtitle[:120],
+        # skill_name lets the frontend's subKindOf / DayDetailSheet grouping
+        # bucket it as 名片 (they switch on skill_name === "contact").
+        "skill_name":   "contact",
+        "payload": {
+            "name":    contact.name,
+            "phone":   contact.phone,
+            "company": company,
+            "title":   role,
+            "email":   contact.email,
+            "notes":   contact.notes or [],
+        },
+    }
+
+
 def _file_item(file: File) -> dict:
     kind_label = "🎙 闪念录音" if file.source_tag == "flash" else (
                  "📁 会议录音" if file.source_tag == "meeting" else "📎 文件")
@@ -254,7 +284,7 @@ async def assemble_timeline(
     user_id: str,
     from_dt: Optional[datetime] = None,
     to_dt:   Optional[datetime] = None,
-    kinds:   Optional[set] = None,        # subset of {"asset", "event", "input_turn", "file"}
+    kinds:   Optional[set] = None,        # subset of {"asset", "event", "contact", "input_turn", "file"}
     skill_names: Optional[set] = None,    # restrict asset kind to specific skills
     limit: int = 500,
 ) -> list:
@@ -266,7 +296,7 @@ async def assemble_timeline(
     scale this is fine; for large data, push effective_at into SQL via
     GENERATED columns or CTE.
     """
-    kinds = kinds or {"asset", "event", "input_turn", "file"}
+    kinds = kinds or {"asset", "event", "contact", "input_turn", "file"}
     items: list = []
 
     # ── assets (joined to skill name) ──
@@ -289,6 +319,14 @@ async def assemble_timeline(
         events = (await db.execute(stmt)).scalars().all()
         for ev in events:
             items.append(_event_item(ev))
+
+    # ── contacts (first-class entity in its own table) ──
+    if "contact" in kinds:
+        contacts = (await db.execute(
+            select(Contact).where(Contact.user_id == user_id)
+        )).scalars().all()
+        for c in contacts:
+            items.append(_contact_item(c))
 
     # ── input_turns ──
     # Filter rule: typed inputs are "AI conversation history", not "life
