@@ -10,9 +10,13 @@ The design agent (agents/design_agent.py) produces a {name, display_name,
 payload_schema, render_spec, sample_payload} draft. The frontend shows
 the draft + preview, user tweaks, then POSTs /api/skills/confirm to land it.
 
-User-skill cap (May audit, decision):
-  USER_SKILL_CAP = 9 — measures the user-defined skills only (system
-  skills are excluded since their render_spec is null/JSON-null).
+User-skill cap:
+  USER_SKILL_CAP bounds how many skills a user can register. The count
+  (_count_user_skills) includes the seeded canonical skills (todo / idea /
+  notes / expense / misc) and first-class entity skills (contact / external_ref)
+  because they carry a render_spec — so a low cap fills up with framework
+  defaults and blocks custom-skill creation. Keep it generous; the library grid
+  scrolls.
 """
 import json
 import uuid
@@ -27,7 +31,7 @@ from core.auth import get_current_user_id
 from db.database import AsyncSessionLocal
 from db.models import GlobalSkill, UserSkill, Asset, AssetField, Session as DBSession, Task
 
-USER_SKILL_CAP = 9
+USER_SKILL_CAP = 30
 
 router = APIRouter()
 
@@ -210,7 +214,7 @@ async def confirm_skill(
         if existing.scalar_one_or_none():
             raise HTTPException(
                 status_code=409,
-                detail=f"skill already registered: {req.name}",
+                detail="已存在同名技能 — 换个描述再生成。",
             )
 
         # New skill lands at the END of the user's grid (max position + 1

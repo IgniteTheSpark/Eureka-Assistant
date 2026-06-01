@@ -201,11 +201,9 @@ function Body({ onClose, onCreated }: AddSkillWizardProps) {
       onCreated?.(draft.name);
       onClose();
     } catch (e) {
-      if (e instanceof ApiError && e.status === 409) {
-        setError("已存在同名技能 — 换个描述再生成。");
-      } else {
-        setError(errMsg(e));
-      }
+      // Show the backend's actual reason — 409 can mean "skill cap reached" OR
+      // "duplicate name"; it used to always say "已存在同名技能", hiding the cap.
+      setError(errMsg(e));
       setBusy(false);
     }
   }
@@ -933,8 +931,9 @@ function schemaFields(schema: Record<string, unknown>): Array<{ name: string; ty
 
 function errMsg(e: unknown): string {
   if (e instanceof ApiError) {
-    const body = e.body as { error?: string } | null;
-    return body?.error ?? `请求失败 (${e.status})`;
+    // FastAPI puts the human message in `detail`; some endpoints use `error`.
+    const body = e.body as { error?: string; detail?: string } | null;
+    return body?.error ?? body?.detail ?? `请求失败 (${e.status})`;
   }
   return e instanceof Error ? e.message : String(e);
 }

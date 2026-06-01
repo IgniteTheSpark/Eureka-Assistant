@@ -49,7 +49,7 @@ export interface SkillTileData {
 
 export type TileAccent = "blue" | "amber" | "green" | "neutral" | "purple";
 
-const SKILL_CAP = 9;
+const SKILL_CAP = 30;  // matches backend USER_SKILL_CAP; the grid scrolls
 const LONG_PRESS_MS = 480;
 const DRAG_THRESHOLD_PX = 8;
 
