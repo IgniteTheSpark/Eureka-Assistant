@@ -113,17 +113,18 @@ function AssetCardBody({ data, onOpen }: AssetCardInChatProps) {
   if (skillName === "contact" && (data.contact_id || data.name)) {
     const name    = String(data.name ?? "联系人");
     const company = typeof data.company === "string" ? data.company : "";
-    const action  = data.contact_action === "updated" ? "已更新" : "已新建";
+    const role    = typeof data.title === "string" ? data.title : "";   // job title
     const meta: CardData["metaFields"] = [];
     if (typeof data.phone === "string" && data.phone) meta.push({ field: "phone", value: data.phone });
-    if (typeof data.title === "string" && data.title) meta.push({ field: "title", value: data.title });
     const cardData: CardData = {
       cardType:    "contact",
       layout:      "horizontal",
       icon:        "👤",
       accentColor: "neutral",
       title:       name,
-      subtitle:    company ? `${action} · ${company}` : action,
+      // Identity, not status: 职位 · 公司 (drop the "已新建" action noise — the
+      // chat reply already says it was added).
+      subtitle:    [role, company].filter(Boolean).join(" · "),
       metaFields:  meta,
       actions:     [],
       assetId:     pickString(data, ["contact_id"]),

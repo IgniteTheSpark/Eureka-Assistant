@@ -354,6 +354,9 @@ export function AssetDetailDrawer({ card, payload, onClose, sourceSessionId }: A
           {/* Payload fields */}
           {Object.entries(payload).map(([key, value]) => {
             if (shouldSkipField(key, value)) return null;
+            // Contacts show name / 职位(title) / company in the hero — don't
+            // repeat them in the detail list (which then carries 电话/邮箱/备注).
+            if (isContact && (key === "name" || key === "company" || key === "title")) return null;
             // Arrays get a custom string-list renderer (attendees etc.)
             if (Array.isArray(value)) {
               return <ArrayField key={key} label={fieldLabel(key)} items={value} />;
@@ -379,6 +382,7 @@ export function AssetDetailDrawer({ card, payload, onClose, sourceSessionId }: A
 // Fields that are internal plumbing — never useful to show
 const SKIP_KEYS = new Set([
   "ok",                  // RV3: tool_result envelope flag, never user-facing
+  "contact_action",      // internal "created"/"updated" flag — not user content
   "when",                // OP12: synthetic subtitle field (event drawer)
   "card_type",           // RV3: synthesized by extractCardFromToolResult
   "kind",                // timeline kind discriminator
