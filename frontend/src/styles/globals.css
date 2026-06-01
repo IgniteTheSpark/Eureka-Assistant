@@ -94,6 +94,17 @@
   50%  { transform: rotate(0.9deg)  translate(0.5px, 0); }
   100% { transform: rotate(-0.9deg) translate(-0.5px, 0); }
 }
+/* Voice-equalizer bars for the「正在聆听」overlay — each bar scales its height
+ * on a staggered delay so it reads as "an agent listening to your voice". */
+@keyframes eu-eq {
+  0%, 100% { transform: scaleY(0.35); }
+  50%      { transform: scaleY(1); }
+}
+/* Slow breathing glow behind the listening orb (Siri-like ambient pulse). */
+@keyframes eu-breathe {
+  0%, 100% { transform: scale(0.92); opacity: 0.45; }
+  50%      { transform: scale(1.12); opacity: 0.85; }
+}
 @layer utilities {
   .eu-sheet-up   { animation: eu-sheet-up 280ms cubic-bezier(.2, .7, .3, 1) both; }
   .eu-sheet-left { animation: eu-sheet-left 280ms cubic-bezier(.2, .7, .3, 1) both; }
