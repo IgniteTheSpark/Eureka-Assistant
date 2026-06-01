@@ -98,6 +98,71 @@ def _format_history(messages: list[Message]) -> str:
     return "\n".join(lines) + "\n\n"
 
 
+# ── Card extraction for persistence ───────────────────────────────────────────
+# A multi-intent turn ("把上面每一项都生成待办" → 10 todos) calls create_* N
+# times, but the messages table holds only ONE tool_call/result pair — so on
+# reload only the first card replayed. Extract every created/updated card here
+# and persist them in Message.cards (the frontend replay already renders that
+# array, same as flash). Mirrors the frontend extractCardsFromToolResult.
+
+_QUERY_TOOLS = {
+    "tool_query_asset", "tool_query_event", "tool_query_contact",
+    "tool_query_input_turn", "tool_query_digest",
+}
+
+
+def _unwrap_tool_payloads(response) -> list[dict]:
+    """FastMCP envelope → candidate payload dicts (top-level / structuredContent
+    / JSON in content[0].text)."""
+    out: list[dict] = []
+    if not isinstance(response, dict):
+        return out
+    out.append(response)
+    sc = response.get("structuredContent")
+    if isinstance(sc, dict):
+        out.append(sc)
+    content = response.get("content")
+    if isinstance(content, list) and content and isinstance(content[0], dict):
+        text = content[0].get("text")
+        if isinstance(text, str):
+            try:
+                parsed = json.loads(text)
+                if isinstance(parsed, dict):
+                    out.append(parsed)
+            except (ValueError, TypeError):
+                pass
+    return out
+
+
+def _tag_card(d) -> dict | None:
+    """Stamp card_type so the frontend picks the right renderer (mirrors
+    tagByIdField). None = nothing renderable (e.g. a delete's {ok, asset_id})."""
+    if not isinstance(d, dict):
+        return None
+    if d.get("task_id"):       return {**d, "card_type": "task"}
+    if d.get("asset_id") and d.get("payload"):  return d   # create/update asset
+    if d.get("event_id") and d.get("title"):    return {**d, "card_type": "event"}
+    if d.get("contact_id") and d.get("name"):   return {**d, "card_type": "contact"}
+    return None
+
+
+def _cards_from_tool_result(name: str, response) -> list[dict]:
+    """Renderable card dict(s) from a create/update tool_result, for persistence.
+    Query/report tools contribute none (queries are intermediate; the report has
+    its own receipt via the tool_result pair)."""
+    if name in _QUERY_TOOLS or name == "tool_render_report":
+        return []
+    for c in _unwrap_tool_payloads(response):
+        for key in ("assets", "events", "contacts", "tasks"):
+            arr = c.get(key)
+            if isinstance(arr, list) and arr:
+                return [t for t in (_tag_card(x) for x in arr) if t]
+        single = _tag_card(c)
+        if single:
+            return [single]
+    return []
+
+
 # ── ADK runner helper ─────────────────────────────────────────────────────────
 
 _adk_session_service = InMemorySessionService()
@@ -241,13 +306,11 @@ async def chat(req: ChatRequest, user_id: str = Depends(get_current_user_id)):
         # Phase 2 — stream agent run, collect state for persistence
         history_text = _format_history(recent)
         agent_text_parts: list[str] = []
-        first_tool_call: dict | None = None
-        first_tool_result: dict | None = None
-        # html-summary: a SUMMARY turn makes TWO tool calls (query_* then
-        # tool_render_report). The messages table holds one tool_call /
-        # tool_result pair, so we capture the report pair separately and
-        # prefer it at persist time — otherwise reload would only replay the
-        # intermediate query and lose the report (breaks re-viewing).
+        # Persist EVERY created/updated card so a multi-intent turn replays all
+        # of them on reload (was: only the first tool pair → one card survived).
+        persist_cards: list = []
+        # html-summary: a SUMMARY turn calls tool_render_report; keep that pair
+        # so the report-receipt card (rendered from tool_result) survives reload.
         report_tool_call: dict | None = None
         report_tool_result: dict | None = None
 
@@ -265,26 +328,26 @@ async def chat(req: ChatRequest, user_id: str = Depends(get_current_user_id)):
                 if evt_type == "token":
                     agent_text_parts.append(payload.get("text", ""))
                 elif evt_type == "tool_call":
-                    if first_tool_call is None:
-                        first_tool_call = payload
                     if payload.get("name") == "tool_render_report":
                         report_tool_call = payload
                 elif evt_type == "tool_result":
-                    if first_tool_result is None:
-                        first_tool_result = payload
                     if payload.get("name") == "tool_render_report":
                         report_tool_result = payload
+                    else:
+                        persist_cards.extend(
+                            _cards_from_tool_result(payload.get("name", ""), payload.get("response", {}))
+                        )
         except Exception as e:
             yield sse_event("error", {"message": str(e)[:200]})
 
-        # Phase 3 — persist user + agent messages. Prefer the report pair so
-        # the receipt card survives reload.
-        persist_tool_call   = report_tool_call   or first_tool_call
-        persist_tool_result = report_tool_result or first_tool_result
-        # Strip the bulky html out of the *tool_call* args — the frontend
-        # reads the report from tool_result.response, so keeping it in the
-        # call args would just double the stored html.
-        if persist_tool_call is report_tool_call and report_tool_call:
+        # Phase 3 — persist user + agent messages. The report pair (if any)
+        # renders the receipt card via tool_result; all create/update cards
+        # persist via `cards` so every one replays (no first-only truncation).
+        persist_tool_call   = report_tool_call
+        persist_tool_result = report_tool_result
+        # Strip the bulky html out of the *tool_call* args — the frontend reads
+        # the report from tool_result.response, so keeping it would double it.
+        if report_tool_call:
             rc = dict(report_tool_call)
             args = dict(rc.get("args") or {})
             if isinstance(args.get("html"), str):
@@ -302,6 +365,7 @@ async def chat(req: ChatRequest, user_id: str = Depends(get_current_user_id)):
                     agent_text=agent_text,
                     tool_call=persist_tool_call,
                     tool_result=persist_tool_result,
+                    cards=persist_cards,
                     elapsed_ms=elapsed_ms,
                 )
                 msg_id = str(agent_msg.id)
