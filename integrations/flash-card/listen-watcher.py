@@ -20,6 +20,11 @@ import os
 import time
 import urllib.request
 
+from _env import load_env_file
+
+# Pick up flash-card.env when run bare (start.sh also sources it; shell wins).
+load_env_file(__file__)
+
 LOG_PATH = os.environ.get("FLASH_TYPE_LOG", os.path.expanduser("~/.flash-type/flash-type.log"))
 URL = os.environ.get("EUREKA_LISTENING_URL", "http://localhost:8000/api/flash/listening")
 

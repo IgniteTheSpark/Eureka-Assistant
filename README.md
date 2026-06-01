@@ -83,9 +83,20 @@ so you bring your own keys. Never commit a real key or token.
 
 ## Hardware voice capture (optional)
 
-`integrations/flash-card/` bridges a BLE voice card → local Whisper ASR →
-`POST /api/flash`. It's optional and standalone; see that folder for the
-bridge + listener scripts.
+`integrations/flash-card/` links the **W1/W2 BLE voice card** to Eureka: hold
+the card button → FlashType captures over BLE → local Whisper ASR → the flash
+pipeline, with a live 「正在聆听」 overlay. It wraps the third-party FlashType
+app (which owns BLE capture); the bridge, watcher, setup, and docs are here.
+
+```bash
+cd integrations/flash-card
+./setup.sh      # install whisper + model, write config, print FlashType wiring
+./start.sh      # run the listening watcher (foreground)
+./doctor.sh     # preflight when something doesn't connect
+```
+
+See [`integrations/flash-card/README.md`](integrations/flash-card/README.md)
+for the full setup, the chain diagram, and troubleshooting.
 
 ## Reset the database
 

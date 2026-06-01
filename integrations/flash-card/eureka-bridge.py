@@ -33,6 +33,12 @@ import subprocess
 import sys
 import urllib.request
 
+from _env import load_env_file
+
+# FlashType runs this command directly, so it won't have sourced flash-card.env.
+# Load it ourselves (env already set by a shell still wins) before reading config.
+load_env_file(__file__)
+
 HOME = os.path.expanduser("~")
 WHISPER_BIN   = os.environ.get("EUREKA_WHISPER_BIN", "/opt/homebrew/bin/whisper-cli")
 WHISPER_MODEL = os.environ.get("EUREKA_WHISPER_MODEL", f"{HOME}/.flash-type/models/ggml-base.bin")
@@ -78,7 +84,7 @@ def post_to_eureka(text: str) -> None:
 
 def main() -> int:
     wav = sys.argv[1] if len(sys.argv) > 1 else ""
-    language = sys.argv[2] if len(sys.argv) > 2 else "zh"
+    language = sys.argv[2] if len(sys.argv) > 2 else os.environ.get("EUREKA_WHISPER_LANG", "zh")
 
     if not wav or not os.path.exists(wav):
         log(f"missing/invalid wav path: {wav!r}")

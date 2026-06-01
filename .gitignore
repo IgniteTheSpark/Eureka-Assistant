@@ -4,6 +4,8 @@
 .env.*.local
 # Real third-party credential files live in mcp-credentials/ (its own .gitignore
 # keeps everything but the README).
+# Flash-card host config (local paths / endpoints); ship only the .example.
+integrations/flash-card/flash-card.env
 
 # ── OS ──────────────────────────────────────────────────────────────────
 .DS_Store
