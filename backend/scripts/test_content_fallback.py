@@ -52,7 +52,7 @@ async def main() -> int:
     ok &= check("'存到钉钉文档'(无引用) → False",
                 not _references_prior_content("存到钉钉文档"))
 
-    # ── DB recovery: latest substantive agent reply, skipping status echoes ──
+    # ── DB recovery: the SINGLE latest agent reply (no walk-back) ──
     print("[_recover_prior_reply]")
     uid = "default"
     sid = None
@@ -62,11 +62,11 @@ async def main() -> int:
         await db.flush()
         sid = sess.id
         base = datetime.now(timezone.utc)
-        # Real answer first, then a status echo as the MOST RECENT message —
-        # recovery must skip the echo and return the answer.
-        db.add(Message(session_id=sid, user_id=uid, role="agent", text=ANSWER,
+        # The answer is the most recent agent message (the realistic flow:
+        # [user asks][agent answers][user: save it]).
+        db.add(Message(session_id=sid, user_id=uid, role="agent", text="老的无关回答",
                        created_at=base))
-        db.add(Message(session_id=sid, user_id=uid, role="agent", text=ECHO,
+        db.add(Message(session_id=sid, user_id=uid, role="agent", text=ANSWER,
                        created_at=base + timedelta(seconds=1)))
         await db.commit()
 
@@ -74,10 +74,26 @@ async def main() -> int:
     task_id = asset_id = None
     try:
         recovered = await _recover_prior_reply(str(sid), uid)
-        ok &= check(f"recovers the answer, skips echo (got {recovered[:18]!r}…)",
+        ok &= check(f"recovers the latest answer (got {recovered[:18]!r}…)",
                     recovered == ANSWER)
         ok &= check("bad session_id → '' (no crash)",
                     await _recover_prior_reply("not-a-uuid", uid) == "")
+
+        # Safety: when the latest agent message is a status echo, return ""
+        # rather than walking back and grabbing stale/unrelated content (the
+        # flash day-long-session failure mode).
+        async with AsyncSessionLocal() as db:
+            db.add(Message(session_id=sid, user_id=uid, role="agent", text=ECHO,
+                           created_at=base + timedelta(seconds=2)))
+            await db.commit()
+        ok &= check("latest is echo → '' (no stale walk-back)",
+                    await _recover_prior_reply(str(sid), uid) == "")
+
+        # Remove the echo so the wiring test below sees the answer as latest.
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(Message).where(
+                Message.session_id == sid, Message.text == ECHO))
+            await db.commit()
 
         # ── End-to-end wiring: run_task_intent with empty content (the LLM
         #    dropped it) must hand the recovered body to the async tail. Stub

@@ -399,19 +399,23 @@ def _references_prior_content(user_text: str) -> bool:
 
 
 async def _recover_prior_reply(session_id: str, user_id: str) -> str:
-    """Most recent substantive assistant reply in the session — the body for a
+    """The single most recent assistant reply in the session — the body for a
     "把刚刚那个回答放到钉钉" request when the LLM forgot to copy it into `content`.
 
-    Skips short status echoes ("已记录 1 项内容" / "好的…") so we recover the
-    actual answer text, not a confirmation line. The current turn's user message
-    isn't persisted yet at call time, so the latest agent row is the prior reply.
+    Deliberately ONLY the latest agent message (not a walk-back): chat puts the
+    referenced answer immediately before the save request, but flash sessions are
+    day-long and reused, so reaching further back risks pulling stale, unrelated
+    content into the doc. If the latest reply is a status echo ("已记录…" /
+    "好的…") or empty, return "" — an empty body beats the wrong body.
+    The current turn's user message isn't persisted yet, so the latest agent row
+    is the prior reply.
     """
     try:
         sid = uuid.UUID(session_id)
     except (ValueError, AttributeError, TypeError):
         return ""
     async with AsyncSessionLocal() as db:
-        result = await db.execute(
+        row = (await db.execute(
             select(Message.text)
             .where(
                 Message.session_id == sid,
@@ -420,14 +424,14 @@ async def _recover_prior_reply(session_id: str, user_id: str) -> str:
                 Message.text != "",
             )
             .order_by(Message.created_at.desc())
-            .limit(5)
-        )
-        for (text,) in result.all():
-            t = (text or "").strip()
-            if not t or t.startswith("已记录") or t.startswith("好的"):
-                continue
-            return t
-    return ""
+            .limit(1)
+        )).first()
+    if not row:
+        return ""
+    t = (row[0] or "").strip()
+    if not t or t.startswith("已记录") or t.startswith("好的"):
+        return ""
+    return t
 
 
 _ID_KEYS = (
