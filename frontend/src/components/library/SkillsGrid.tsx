@@ -269,7 +269,7 @@ export function SkillsGrid({ tiles: initialTiles }: SkillsGridProps) {
                     position: "absolute", top: -6, left: -6,
                     width: 20, height: 20, borderRadius: 999,
                     background: "#1a1d28",
-                    border: "1.5px solid rgba(255,255,255,0.55)",
+                    border: "1.5px solid rgba(var(--eu-ink),0.55)",
                     color: "#fff",
                     display: "flex", alignItems: "center", justifyContent: "center",
                     cursor: "pointer",
@@ -299,25 +299,25 @@ export function SkillsGrid({ tiles: initialTiles }: SkillsGridProps) {
 /* ── Tile sub-views ──────────────────────────────────────────────────────── */
 
 const ACCENT_BG: Record<TileAccent, string> = {
-  blue:    "rgba(111,158,255,0.12)",
-  amber:   "rgba(245,201,119,0.12)",
-  green:   "rgba(134,224,165,0.12)",
-  purple:  "rgba(196,168,255,0.12)",
-  neutral: "rgba(255,255,255,0.04)",
+  blue:    "var(--eu-accent-blue-bg)",
+  amber:   "var(--eu-accent-amber-bg)",
+  green:   "var(--eu-accent-green-bg)",
+  purple:  "var(--eu-accent-purple-bg)",
+  neutral: "rgba(var(--eu-ink),0.04)",
 };
 const ACCENT_BORDER: Record<TileAccent, string> = {
-  blue:    "rgba(111,158,255,0.32)",
-  amber:   "rgba(245,201,119,0.32)",
-  green:   "rgba(134,224,165,0.32)",
-  purple:  "rgba(196,168,255,0.32)",
-  neutral: "rgba(255,255,255,0.08)",
+  blue:    "var(--eu-accent-blue-edge)",
+  amber:   "var(--eu-accent-amber-edge)",
+  green:   "var(--eu-accent-green-edge)",
+  purple:  "var(--eu-accent-purple-edge)",
+  neutral: "rgba(var(--eu-ink),0.08)",
 };
 const ACCENT_FG: Record<TileAccent, string> = {
-  blue:    "#6f9eff",
-  amber:   "#f5c977",
-  green:   "#86e0a5",
-  purple:  "#c4a8ff",
-  neutral: "rgba(255,255,255,0.55)",
+  blue:    "var(--eu-accent-blue-fg)",
+  amber:   "var(--eu-accent-amber-fg)",
+  green:   "var(--eu-accent-green-fg)",
+  purple:  "var(--eu-accent-purple-fg)",
+  neutral: "rgba(var(--eu-ink),0.55)",
 };
 
 function TileFace({ tile, dimmed }: { tile: SkillTileData; dimmed: boolean }) {
@@ -347,7 +347,7 @@ function TileFace({ tile, dimmed }: { tile: SkillTileData; dimmed: boolean }) {
         {tile.icon}
       </span>
       <div className="flex items-baseline justify-between" style={{ marginTop: "auto" }}>
-        <span style={{ fontSize: 12, fontWeight: 600, color: "#f4f7fb" }}>{tile.label}</span>
+        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--eu-text-hi)" }}>{tile.label}</span>
         <span
           className="font-mono"
           style={{ fontSize: 11, color: ACCENT_FG[tile.accent], fontWeight: 600 }}
@@ -381,14 +381,14 @@ function PlusTile({ onClick }: { onClick: () => void }) {
           background: "rgba(196,168,255,0.10)",
           border: "1px solid rgba(196,168,255,0.32)",
           display: "flex", alignItems: "center", justifyContent: "center",
-          color: "#c4a8ff",
+          color: "var(--eu-accent-purple-fg)",
           boxShadow: "inset 0 0 12px rgba(196,168,255,0.30)",
         }}
       >
         <Sparkles size={13} strokeWidth={1.75} />
       </span>
       <div className="flex items-baseline justify-between" style={{ marginTop: "auto" }}>
-        <span style={{ fontSize: 12, fontWeight: 600, color: "#f4f7fb" }}>新技能</span>
+        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--eu-text-hi)" }}>新技能</span>
         <span
           className="font-mono"
           style={{ fontSize: 10, color: "rgba(196,168,255,0.65)", letterSpacing: "0.14em" }}

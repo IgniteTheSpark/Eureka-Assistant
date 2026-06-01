@@ -48,7 +48,7 @@ export function Toast({ notif, onDone }: { notif: Notification; onDone: () => vo
         borderRadius: 14,
         background: "rgba(20,22,30,0.86)",
         backdropFilter: "blur(12px) saturate(1.4)",
-        border: "1px solid rgba(255,255,255,0.10)",
+        border: "1px solid rgba(var(--eu-ink),0.10)",
         boxShadow: "0 8px 28px rgba(0,0,0,0.40)",
         cursor: target ? "pointer" : "default",
       }}
@@ -65,13 +65,13 @@ export function Toast({ notif, onDone }: { notif: Notification; onDone: () => vo
         {m.icon}
       </span>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13.5, fontWeight: 600, color: "#f4f7fb", lineHeight: 1.3 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--eu-text-hi)", lineHeight: 1.3 }}>
           {notif.title}
         </div>
         {notif.body && (
           <div
             style={{
-              fontSize: 12, color: "rgba(255,255,255,0.62)", marginTop: 2, lineHeight: 1.35,
+              fontSize: 12, color: "rgba(var(--eu-ink),0.62)", marginTop: 2, lineHeight: 1.35,
               display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
             }}
           >
@@ -85,7 +85,7 @@ export function Toast({ notif, onDone }: { notif: Notification; onDone: () => vo
         onClick={(e) => { e.stopPropagation(); onDone(); }}
         style={{
           flex: "0 0 auto", padding: 2, borderRadius: 6,
-          color: "rgba(255,255,255,0.45)", background: "transparent", border: "none", cursor: "pointer",
+          color: "rgba(var(--eu-ink),0.45)", background: "transparent", border: "none", cursor: "pointer",
         }}
       >
         <X size={15} strokeWidth={2} />

@@ -129,8 +129,8 @@ export function DayDetailSheet({
             className="shrink-0"
             style={{
               width: 36, height: 36, borderRadius: 999,
-              background: "rgba(255,255,255,0.10)",
-              border: "1px solid rgba(255,255,255,0.18)",
+              background: "rgba(var(--eu-ink),0.10)",
+              border: "1px solid rgba(var(--eu-ink),0.18)",
               color: "#fff", fontSize: 16, cursor: "pointer",
               display: "flex", alignItems: "center", justifyContent: "center",
             }}
@@ -143,7 +143,7 @@ export function DayDetailSheet({
               style={{
                 fontSize: 22, fontWeight: 700, letterSpacing: "0.04em",
                 color: "#ffffff",
-                textShadow: "0 0 24px rgba(255,255,255,0.30)",
+                textShadow: "0 0 24px rgba(var(--eu-ink),0.30)",
               }}
             >
               {weekdayLabel(dayKey)}
@@ -151,7 +151,7 @@ export function DayDetailSheet({
             <div
               className="font-mono mt-0.5"
               style={{
-                fontSize: 11, color: "rgba(255,255,255,0.70)",
+                fontSize: 11, color: "rgba(var(--eu-ink),0.70)",
                 letterSpacing: "0.18em",
               }}
             >
@@ -170,10 +170,10 @@ export function DayDetailSheet({
               height: 36, padding: "0 13px", borderRadius: 999,
               background: view === "schedule"
                 ? "rgba(196,168,255,0.22)"
-                : "rgba(255,255,255,0.10)",
+                : "rgba(var(--eu-ink),0.10)",
               border: `1px solid ${view === "schedule"
                 ? "rgba(196,168,255,0.45)"
-                : "rgba(255,255,255,0.18)"}`,
+                : "rgba(var(--eu-ink),0.18)"}`,
               color: "#fff", fontSize: 12.5, fontWeight: 600,
               letterSpacing: "0.02em", cursor: "pointer",
               transition: "all 180ms cubic-bezier(.2,.7,.3,1)",
@@ -196,7 +196,7 @@ export function DayDetailSheet({
               <div
                 className="text-center"
                 style={{
-                  marginTop: 96, color: "rgba(255,255,255,0.55)",
+                  marginTop: 96, color: "rgba(var(--eu-ink),0.55)",
                   fontSize: 14, fontStyle: "italic",
                 }}
               >
@@ -225,14 +225,14 @@ export function DayDetailSheet({
             className="shrink-0 flex items-center gap-2"
             style={{
               padding: "8px 20px 14px",
-              borderBottom: "1px solid rgba(255,255,255,0.08)",
+              borderBottom: "1px solid rgba(var(--eu-ink),0.08)",
             }}
           >
             <span
               className="font-mono shrink-0"
               style={{
                 fontSize: 10, letterSpacing: "0.22em",
-                color: "rgba(255,255,255,0.50)", fontWeight: 600,
+                color: "rgba(var(--eu-ink),0.50)", fontWeight: 600,
               }}
             >
               全天
@@ -278,14 +278,14 @@ export function DayDetailSheet({
                   style={{
                     top: i * HOUR_HEIGHT,
                     height: HOUR_HEIGHT,
-                    borderTop: i > 0 ? "1px solid rgba(255,255,255,0.06)" : "none",
+                    borderTop: i > 0 ? "1px solid rgba(var(--eu-ink),0.06)" : "none",
                   }}
                 >
                   <span
                     className="font-mono shrink-0 text-right"
                     style={{
                       width: 64, paddingRight: 10, paddingTop: 4,
-                      fontSize: 10.5, color: "rgba(255,255,255,0.55)",
+                      fontSize: 10.5, color: "rgba(var(--eu-ink),0.55)",
                       letterSpacing: "0.06em",
                       whiteSpace: "nowrap",
                     }}
@@ -310,7 +310,7 @@ export function DayDetailSheet({
                     top: block.top, height: block.height,
                     left: 70, right: 14,
                     background: "linear-gradient(135deg, rgba(196,168,255,0.55) 0%, rgba(156,128,240,0.40) 100%)",
-                    borderLeft: "3px solid #c4a8ff",
+                    borderLeft: "3px solid var(--eu-accent-purple-fg)",
                     borderRadius: 10,
                     padding: "6px 12px",
                     cursor: "pointer",
@@ -334,7 +334,7 @@ export function DayDetailSheet({
                     <div
                       className="line-clamp-1"
                       style={{
-                        fontSize: 11, color: "rgba(255,255,255,0.72)",
+                        fontSize: 11, color: "rgba(var(--eu-ink),0.72)",
                         marginTop: 2,
                       }}
                     >
@@ -354,7 +354,7 @@ export function DayDetailSheet({
               className="absolute inset-x-0 text-center"
               style={{
                 top: HOUR_HEIGHT * 8 + 80,
-                color: "rgba(255,255,255,0.55)", fontSize: 14,
+                color: "rgba(var(--eu-ink),0.55)", fontSize: 14,
                 fontStyle: "italic",
               }}
             >
@@ -437,7 +437,7 @@ function AllDayChip({ item, onClick }: { item: TimelineItem; onClick: () => void
       title={item.title}
     >
       <span style={{
-        width: 5, height: 5, borderRadius: 999, background: "#c4a8ff",
+        width: 5, height: 5, borderRadius: 999, background: "var(--eu-accent-purple-fg)",
         boxShadow: "0 0 5px rgba(196,168,255,0.6)",
       }} />
       <span
@@ -485,12 +485,12 @@ function CapturedSection({
   return (
     <div
       className="shrink-0"
-      style={{ padding: "10px 20px 14px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}
+      style={{ padding: "10px 20px 14px", borderBottom: "1px solid rgba(var(--eu-ink),0.08)" }}
     >
       <div className="flex items-center justify-between mb-2">
         <span
           className="font-mono"
-          style={{ fontSize: 10, letterSpacing: "0.22em", color: "rgba(255,255,255,0.50)", fontWeight: 600 }}
+          style={{ fontSize: 10, letterSpacing: "0.22em", color: "rgba(var(--eu-ink),0.50)", fontWeight: 600 }}
         >
           今日捕捉
         </span>
@@ -509,9 +509,9 @@ function CapturedSection({
                   style={{
                     fontSize: 10.5, padding: "3px 9px", borderRadius: 999,
                     letterSpacing: "0.04em",
-                    background: isActive ? "rgba(255,255,255,0.16)" : "rgba(255,255,255,0.05)",
-                    color: isActive ? "#fff" : "rgba(255,255,255,0.55)",
-                    border: `1px solid ${isActive ? "rgba(255,255,255,0.24)" : "transparent"}`,
+                    background: isActive ? "rgba(var(--eu-ink),0.16)" : "rgba(var(--eu-ink),0.05)",
+                    color: isActive ? "#fff" : "rgba(var(--eu-ink),0.55)",
+                    border: `1px solid ${isActive ? "rgba(var(--eu-ink),0.24)" : "transparent"}`,
                     cursor: "pointer", whiteSpace: "nowrap",
                   }}
                 >

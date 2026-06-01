@@ -39,8 +39,8 @@ export function YearPane({ initialYear, onPickMonth }: YearPaneProps) {
     <div
       className="flex flex-col h-full"
       style={{
-        background: "#06070d",
-        color: "#d4dbe6",
+        background: "var(--eu-bg)",
+        color: "var(--eu-text)",
         fontFamily: '"Manrope","Noto Sans SC", system-ui, sans-serif',
       }}
     >
@@ -55,7 +55,7 @@ export function YearPane({ initialYear, onPickMonth }: YearPaneProps) {
         <div
           className="font-display"
           style={{
-            fontSize: 30, fontWeight: 700, color: "#a4c2ff",
+            fontSize: 30, fontWeight: 700, color: "var(--eu-brand)",
             letterSpacing: "-0.02em", textShadow: "0 0 20px rgba(111,158,255,0.45)",
             lineHeight: 1,
           }}
@@ -65,7 +65,7 @@ export function YearPane({ initialYear, onPickMonth }: YearPaneProps) {
         <YearStep dir="+" onClick={() => setYear((y) => y + 1)} />
         <span
           className="font-mono ml-auto"
-          style={{ fontSize: 10, letterSpacing: "0.18em", color: "rgba(255,255,255,0.35)" }}
+          style={{ fontSize: 10, letterSpacing: "0.18em", color: "rgba(var(--eu-ink),0.35)" }}
         >
           {activeDays.size} DAYS
         </span>
@@ -101,8 +101,8 @@ function YearStep({ dir, onClick }: { dir: "+" | "-"; onClick: () => void }) {
       className="font-mono"
       style={{
         width: 28, height: 28, borderRadius: 999,
-        background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
-        color: "rgba(255,255,255,0.7)", fontSize: 14, cursor: "pointer",
+        background: "rgba(var(--eu-ink),0.04)", border: "1px solid rgba(var(--eu-ink),0.08)",
+        color: "rgba(var(--eu-ink),0.7)", fontSize: 14, cursor: "pointer",
         display: "flex", alignItems: "center", justifyContent: "center",
       }}
     >
@@ -151,7 +151,7 @@ function MiniMonth({
         className="font-display"
         style={{
           fontSize: 12, fontWeight: 700,
-          color: isCurrentMonth ? "#a4c2ff" : "rgba(255,255,255,0.7)",
+          color: isCurrentMonth ? "var(--eu-brand)" : "rgba(var(--eu-ink),0.7)",
           letterSpacing: "0.02em",
           textShadow: isCurrentMonth ? "0 0 8px rgba(111,158,255,0.4)" : "none",
         }}
@@ -172,8 +172,8 @@ function MiniMonth({
                 height: 11, display: "flex", alignItems: "center", justifyContent: "center",
                 fontSize: 8.5, letterSpacing: "0.02em",
                 borderRadius: 999,
-                color: isToday ? "#1a1735" : active ? "#c4a8ff" : "rgba(255,255,255,0.42)",
-                background: isToday ? "#ffffff" : "transparent",
+                color: isToday ? "var(--eu-bg)" : active ? "var(--eu-accent-purple-fg)" : "rgba(var(--eu-ink),0.42)",
+                background: isToday ? "var(--eu-text-hi)" : "transparent",
                 fontWeight: isToday || active ? 700 : 400,
               }}
             >

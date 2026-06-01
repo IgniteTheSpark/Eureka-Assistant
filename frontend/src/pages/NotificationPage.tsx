@@ -31,10 +31,10 @@ export function NotificationPage() {
     >
       <header className="flex items-baseline justify-between shrink-0" style={{ padding: "8px 22px 14px" }}>
         <div>
-          <h1 className="font-display" style={{ fontSize: 26, fontWeight: 700, color: "#f4f7fb", letterSpacing: "-0.02em" }}>
+          <h1 className="font-display" style={{ fontSize: 26, fontWeight: 700, color: "var(--eu-text-hi)", letterSpacing: "-0.02em" }}>
             通知
           </h1>
-          <div className="font-mono" style={{ fontSize: 10.5, color: "rgba(255,255,255,0.45)", letterSpacing: "0.16em", marginTop: 4 }}>
+          <div className="font-mono" style={{ fontSize: 10.5, color: "rgba(var(--eu-ink),0.45)", letterSpacing: "0.16em", marginTop: 4 }}>
             {unread} UNREAD · {notifications.length} TOTAL
           </div>
         </div>

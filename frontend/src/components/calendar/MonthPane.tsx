@@ -97,8 +97,8 @@ export function MonthPane({
     <div
       className="relative flex flex-col h-full"
       style={{
-        background: "#06070d",
-        color: "#d4dbe6",
+        background: "var(--eu-bg)",
+        color: "var(--eu-text)",
         fontFamily: '"Manrope","Noto Sans SC", system-ui, sans-serif',
       }}
     >
@@ -107,12 +107,12 @@ export function MonthPane({
       {!embedded && (
       <header
         className="shrink-0 flex items-center justify-between"
-        style={{ padding: "16px 20px 12px", borderBottom: "1px solid rgba(255,255,255,0.06)" }}
+        style={{ padding: "16px 20px 12px", borderBottom: "1px solid rgba(var(--eu-ink),0.06)" }}
       >
         <div
           className="font-display"
           style={{
-            fontSize: 26, fontWeight: 700, color: "#a4c2ff",
+            fontSize: 26, fontWeight: 700, color: "var(--eu-brand)",
             letterSpacing: "-0.01em",
             textShadow: "0 0 18px rgba(111,158,255,0.4)",
           }}
@@ -131,10 +131,10 @@ export function MonthPane({
           className="font-mono"
           style={{
             fontSize: 11, letterSpacing: "0.16em",
-            color: "rgba(255,255,255,0.55)",
+            color: "rgba(var(--eu-ink),0.55)",
             padding: "4px 10px", borderRadius: 999,
-            background: "rgba(255,255,255,0.04)",
-            border: "1px solid rgba(255,255,255,0.08)",
+            background: "rgba(var(--eu-ink),0.04)",
+            border: "1px solid rgba(var(--eu-ink),0.08)",
             cursor: "pointer",
           }}
         >
@@ -195,7 +195,7 @@ function MonthBlock({
           className="font-display"
           style={{
             fontSize: 18, fontWeight: 700,
-            color: isCurrentMonth ? "#a4c2ff" : "#f4f7fb",
+            color: isCurrentMonth ? "var(--eu-brand)" : "var(--eu-text-hi)",
             letterSpacing: "-0.01em",
             textShadow: isCurrentMonth ? "0 0 14px rgba(111,158,255,0.4)" : "none",
           }}
@@ -204,7 +204,7 @@ function MonthBlock({
         </span>
         <span
           className="font-mono"
-          style={{ fontSize: 10.5, color: "rgba(255,255,255,0.35)", letterSpacing: "0.14em" }}
+          style={{ fontSize: 10.5, color: "rgba(var(--eu-ink),0.35)", letterSpacing: "0.14em" }}
         >
           {month.getFullYear()}
         </span>
@@ -216,7 +216,7 @@ function MonthBlock({
           <div
             key={i}
             className="font-mono text-center"
-            style={{ fontSize: 9.5, color: "rgba(255,255,255,0.28)", letterSpacing: "0.14em" }}
+            style={{ fontSize: 9.5, color: "rgba(var(--eu-ink),0.28)", letterSpacing: "0.14em" }}
           >
             {d}
           </div>
@@ -232,14 +232,14 @@ function MonthBlock({
           const isSelected = c.key === selected;
           const isOut = !c.inCursor;
 
-          let bg = "transparent", fg = "rgba(255,255,255,0.82)",
+          let bg = "transparent", fg = "rgba(var(--eu-ink),0.82)",
               border = "transparent", glow: string | undefined;
-          if (isOut) fg = "rgba(255,255,255,0.16)";
-          if (kind === "event") { bg = "rgba(156,128,240,0.26)"; border = "rgba(196,168,255,0.40)"; fg = "#e5d9ff"; }
-          if (kind === "todo")  { bg = "rgba(111,158,255,0.20)"; border = "rgba(138,180,255,0.40)"; fg = "#d4e2ff"; }
-          if (kind === "mixed") { bg = "rgba(156,128,240,0.30)"; border = "rgba(196,168,255,0.50)"; fg = "#e5d9ff"; }
-          if (isToday) { bg = "#ffffff"; fg = "#1a1735"; border = "transparent"; glow = "0 0 14px rgba(255,255,255,0.6)"; }
-          if (isSelected && !isToday) { border = "#6f9eff"; bg = "transparent"; fg = "#a4c2ff"; }
+          if (isOut) fg = "rgba(var(--eu-ink),0.16)";
+          if (kind === "event") { bg = "rgba(156,128,240,0.26)"; border = "rgba(196,168,255,0.40)"; fg = "var(--eu-accent-purple-fg)"; }
+          if (kind === "todo")  { bg = "rgba(111,158,255,0.20)"; border = "rgba(138,180,255,0.40)"; fg = "var(--eu-accent-blue-fg)"; }
+          if (kind === "mixed") { bg = "rgba(156,128,240,0.30)"; border = "rgba(196,168,255,0.50)"; fg = "var(--eu-accent-purple-fg)"; }
+          if (isToday) { bg = "var(--eu-text-hi)"; fg = "var(--eu-bg)"; border = "transparent"; glow = "0 0 14px rgba(var(--eu-ink),0.6)"; }
+          if (isSelected && !isToday) { border = "var(--eu-brand)"; bg = "transparent"; fg = "var(--eu-brand)"; }
 
           return (
             <button
@@ -283,7 +283,7 @@ function SelectedDayFooter({
     <div
       className="shrink-0 eu-noscroll"
       style={{
-        borderTop: "1px solid rgba(255,255,255,0.08)",
+        borderTop: "1px solid rgba(var(--eu-ink),0.08)",
         background: "rgba(0,0,0,0.20)",
         // Bottom padding clears the floating dock so the last item isn't
         // hidden behind it (this footer is pinned, not scrolled-through).
@@ -298,13 +298,13 @@ function SelectedDayFooter({
         className="font-mono"
         style={{
           fontSize: 10.5, letterSpacing: "0.20em",
-          color: "rgba(255,255,255,0.50)", fontWeight: 600, marginBottom: 10,
+          color: "rgba(var(--eu-ink),0.50)", fontWeight: 600, marginBottom: 10,
         }}
       >
         {fullDateLabel(dayKey)}
       </div>
       {items.length === 0 ? (
-        <div style={{ fontSize: 13, color: "rgba(255,255,255,0.40)", fontStyle: "italic" }}>
+        <div style={{ fontSize: 13, color: "rgba(var(--eu-ink),0.40)", fontStyle: "italic" }}>
           空闲
         </div>
       ) : (
@@ -321,7 +321,7 @@ function SelectedDayFooter({
               >
                 <span
                   className="font-mono"
-                  style={{ fontSize: 11, color: "rgba(255,255,255,0.55)", minWidth: 40 }}
+                  style={{ fontSize: 11, color: "rgba(var(--eu-ink),0.55)", minWidth: 40 }}
                 >
                   {formatTime(it)}
                 </span>
@@ -336,7 +336,7 @@ function SelectedDayFooter({
                 >
                   {glyph}
                 </span>
-                <span style={{ fontSize: 13.5, color: "#f4f7fb", fontWeight: 500 }}>
+                <span style={{ fontSize: 13.5, color: "var(--eu-text-hi)", fontWeight: 500 }}>
                   {it.title}
                 </span>
               </button>

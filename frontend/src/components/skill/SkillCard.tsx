@@ -246,7 +246,7 @@ function IconTile({
           "flex items-center justify-center",
           "font-mono font-semibold text-eu-md",
           a.iconBg, a.iconFg, "border", a.border,
-          "shadow-[inset_0_0_12px_rgba(255,255,255,0.04)]",
+          "shadow-[inset_0_0_12px_rgba(var(--eu-ink),0.04)]",
           check?.done ? "opacity-50" : "",
         ].join(" ")}
       >

@@ -506,7 +506,7 @@ function ClarifyStep({
       {/* Recap the original description so the user sees what they're refining. */}
       <div
         className="rounded-eu-md px-eu-md py-eu-sm border border-eu-rule"
-        style={{ background: "rgba(255,255,255,0.02)" }}
+        style={{ background: "rgba(var(--eu-ink),0.02)" }}
       >
         <div className="text-eu-xs uppercase tracking-eu-caps text-eu-text-lo font-mono mb-1">
           原始描述
@@ -789,20 +789,20 @@ function FieldConfigRow({
 function CalendarBulletPreview({
   title, accent,
 }: { title: string; accent: AccentColor }) {
-  const dotColor = ACCENT_SWATCH[accent] ?? "rgba(255,255,255,0.55)";
+  const dotColor = ACCENT_SWATCH[accent] ?? "rgba(var(--eu-ink),0.55)";
   return (
     <div
       className="flex items-center gap-3"
       style={{
         padding: "10px 14px",
         background: "rgba(0,0,0,0.20)",
-        border: "1px solid rgba(255,255,255,0.06)",
+        border: "1px solid rgba(var(--eu-ink),0.06)",
         borderRadius: 10,
       }}
     >
       <span
         className="font-mono"
-        style={{ fontSize: 11, color: "rgba(255,255,255,0.55)", minWidth: 40 }}
+        style={{ fontSize: 11, color: "rgba(var(--eu-ink),0.55)", minWidth: 40 }}
       >
         16:18
       </span>
@@ -813,7 +813,7 @@ function CalendarBulletPreview({
           boxShadow: `0 0 6px ${dotColor}`,
         }}
       />
-      <span style={{ fontSize: 13.5, color: "#f4f7fb", fontWeight: 500 }}>
+      <span style={{ fontSize: 13.5, color: "var(--eu-text-hi)", fontWeight: 500 }}>
         {title}
       </span>
     </div>

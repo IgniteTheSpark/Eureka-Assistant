@@ -4,6 +4,7 @@ import useSWR from "swr";
 import { EventCard } from "@/components/calendar/EventCard";
 import { SkillCard } from "@/components/skill/SkillCard";
 import { SkillsGrid, type SkillTileData, type TileAccent } from "@/components/library/SkillsGrid";
+import { HeaderControls } from "@/components/shell/HeaderControls";
 import { swrFetcher } from "@/lib/api";
 import { buildCard } from "@/lib/render-spec";
 import type { AccentColor } from "@/lib/render-spec";
@@ -73,13 +74,16 @@ interface TileKind {
 
 type LibAccent = "blue" | "amber" | "green" | "purple" | "neutral" | "cyan";
 
+// Token-backed so the tiles flip with the theme (the hardcoded dark-theme
+// hexes here used to render light-on-light in light mode). glow reuses the
+// accent edge tint.
 const LIB_ACCENT: Record<LibAccent, { fg: string; bg: string; edge: string; glow: string }> = {
-  blue:    { fg: "#8ab4ff", bg: "rgba(138,180,255,0.10)", edge: "rgba(138,180,255,0.24)", glow: "rgba(111,158,255,0.30)" },
-  amber:   { fg: "#f5c977", bg: "rgba(245,201,119,0.10)", edge: "rgba(245,201,119,0.24)", glow: "rgba(245,201,119,0.30)" },
-  green:   { fg: "#86e0a5", bg: "rgba(134,224,165,0.10)", edge: "rgba(134,224,165,0.24)", glow: "rgba(134,224,165,0.30)" },
-  purple:  { fg: "#c4a8ff", bg: "rgba(196,168,255,0.10)", edge: "rgba(196,168,255,0.24)", glow: "rgba(196,168,255,0.30)" },
-  neutral: { fg: "#d4dbe6", bg: "rgba(212,219,230,0.05)", edge: "rgba(212,219,230,0.16)", glow: "rgba(212,219,230,0.18)" },
-  cyan:    { fg: "#7dd3df", bg: "rgba(125,211,223,0.10)", edge: "rgba(125,211,223,0.24)", glow: "rgba(125,211,223,0.30)" },
+  blue:    { fg: "var(--eu-accent-blue-fg)",    bg: "var(--eu-accent-blue-bg)",    edge: "var(--eu-accent-blue-edge)",    glow: "var(--eu-accent-blue-edge)"    },
+  amber:   { fg: "var(--eu-accent-amber-fg)",   bg: "var(--eu-accent-amber-bg)",   edge: "var(--eu-accent-amber-edge)",   glow: "var(--eu-accent-amber-edge)"   },
+  green:   { fg: "var(--eu-accent-green-fg)",   bg: "var(--eu-accent-green-bg)",   edge: "var(--eu-accent-green-edge)",   glow: "var(--eu-accent-green-edge)"   },
+  purple:  { fg: "var(--eu-accent-purple-fg)",  bg: "var(--eu-accent-purple-bg)",  edge: "var(--eu-accent-purple-edge)",  glow: "var(--eu-accent-purple-edge)"  },
+  neutral: { fg: "var(--eu-accent-neutral-fg)", bg: "var(--eu-accent-neutral-bg)", edge: "var(--eu-accent-neutral-edge)", glow: "var(--eu-accent-neutral-edge)" },
+  cyan:    { fg: "var(--eu-accent-cyan-fg)",    bg: "var(--eu-accent-cyan-bg)",    edge: "var(--eu-accent-cyan-edge)",    glow: "var(--eu-accent-cyan-edge)"    },
 };
 
 // OP9: type tiles split into two semantic sections.
@@ -171,8 +175,8 @@ export function CategoryList() {
       className="flex flex-col h-full"
       style={{
         background:
-          "radial-gradient(800px 500px at 20% -10%, rgba(111,158,255,0.10), transparent 60%), #06070d",
-        color: "#d4dbe6",
+          "radial-gradient(800px 500px at 20% -10%, var(--eu-brand-faint), transparent 60%), var(--eu-bg)",
+        color: "var(--eu-text)",
         fontFamily: '"Manrope","Noto Sans SC", system-ui, sans-serif',
       }}
     >
@@ -185,7 +189,7 @@ export function CategoryList() {
           <h1
             className="font-display"
             style={{
-              fontSize: 26, fontWeight: 700, color: "#f4f7fb",
+              fontSize: 26, fontWeight: 700, color: "var(--eu-text-hi)",
               letterSpacing: "-0.02em",
             }}
           >
@@ -194,26 +198,29 @@ export function CategoryList() {
           <div
             className="font-mono"
             style={{
-              fontSize: 10.5, color: "rgba(255,255,255,0.45)",
+              fontSize: 10.5, color: "rgba(var(--eu-ink),0.45)",
               letterSpacing: "0.16em", marginTop: 4,
             }}
           >
             {totalCount} ITEMS · LAST 30D
           </div>
         </div>
-        <button
-          type="button"
-          className="font-mono"
-          style={{
-            width: 32, height: 32, borderRadius: 999,
-            background: "rgba(255,255,255,0.04)",
-            border: "1px solid rgba(255,255,255,0.08)",
-            color: "rgba(255,255,255,0.70)", fontSize: 13, cursor: "pointer",
-          }}
-          title="搜索"
-        >
-          ⌕
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="font-mono"
+            style={{
+              width: 32, height: 32, borderRadius: 999,
+              background: "var(--eu-surface)",
+              border: "1px solid var(--eu-border)",
+              color: "var(--eu-text-mid)", fontSize: 13, cursor: "pointer",
+            }}
+            title="搜索"
+          >
+            ⌕
+          </button>
+          <HeaderControls />
+        </div>
       </header>
 
       {/* ── Scrollable body: tiles + 最近 + 扩展 ───────────────────── */}
@@ -254,7 +261,7 @@ export function CategoryList() {
         {recent.length === 0 ? (
           <div
             className="font-mono"
-            style={{ fontSize: 11, color: "rgba(255,255,255,0.30)", padding: "10px 0" }}
+            style={{ fontSize: 11, color: "rgba(var(--eu-ink),0.30)", padding: "10px 0" }}
           >
             还没有资产 — 用底部 + 或 🎙 创建
           </div>
@@ -280,12 +287,12 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
         className="font-mono"
         style={{
           fontSize: 10.5, letterSpacing: "0.22em",
-          color: "rgba(255,255,255,0.55)", fontWeight: 600,
+          color: "rgba(var(--eu-ink),0.55)", fontWeight: 600,
         }}
       >
         {children}
       </span>
-      <span style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.05)" }} />
+      <span style={{ flex: 1, height: 1, background: "rgba(var(--eu-ink),0.05)" }} />
     </div>
   );
 }
@@ -298,7 +305,7 @@ function DayHeader({ label }: { label: string }) {
       className="font-mono"
       style={{
         fontSize: 10, letterSpacing: "0.14em",
-        color: "rgba(255,255,255,0.42)", fontWeight: 600,
+        color: "rgba(var(--eu-ink),0.42)", fontWeight: 600,
         marginTop: 4,
       }}
     >
@@ -332,7 +339,7 @@ function TypeTile({
         className="font-mono"
         style={{
           width: 28, height: 28, borderRadius: 8,
-          background: `linear-gradient(140deg, ${ac.bg}, rgba(255,255,255,0.02))`,
+          background: `linear-gradient(140deg, ${ac.bg}, rgba(var(--eu-ink),0.02))`,
           border: `1px solid ${ac.edge}`,
           boxShadow: `inset 0 0 12px ${ac.glow}`,
           display: "flex", alignItems: "center", justifyContent: "center",
@@ -342,7 +349,7 @@ function TypeTile({
         {tile.icon}
       </span>
       <div className="flex items-baseline justify-between" style={{ marginTop: "auto" }}>
-        <span style={{ fontSize: 12, fontWeight: 600, color: "#f4f7fb" }}>{tile.label}</span>
+        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--eu-text-hi)" }}>{tile.label}</span>
         <span className="font-mono" style={{ fontSize: 13, fontWeight: 600, color: ac.fg }}>{count}</span>
       </div>
     </Link>
@@ -459,7 +466,7 @@ function RecentCard({ item }: { item: RecentItem }) {
       </div>
       <div
         style={{
-          fontSize: 14, fontWeight: 600, color: "#f4f7fb",
+          fontSize: 14, fontWeight: 600, color: "var(--eu-text-hi)",
           letterSpacing: "-0.005em",
           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
         }}
@@ -468,7 +475,7 @@ function RecentCard({ item }: { item: RecentItem }) {
       </div>
       <div
         className="font-mono"
-        style={{ fontSize: 10, color: "rgba(255,255,255,0.45)", letterSpacing: "0.06em" }}
+        style={{ fontSize: 10, color: "rgba(var(--eu-ink),0.45)", letterSpacing: "0.06em" }}
       >
         {item.sub}
       </div>

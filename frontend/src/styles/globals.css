@@ -16,7 +16,8 @@
   html, body, #root {
     min-height: 100dvh;
   }
-  html.theme-atmosphere body {
+  html.theme-atmosphere body,
+  html.theme-light body {
     background: var(--eu-bg);
     color: var(--eu-text);
     font-family: var(--eu-font-sans);

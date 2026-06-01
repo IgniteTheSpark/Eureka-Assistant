@@ -9,6 +9,7 @@ import { CalendarPage } from "@/pages/CalendarPage";
 import { LibraryPage } from "@/pages/LibraryPage";
 import { NotificationPage } from "@/pages/NotificationPage";
 import { ModalProvider } from "@/context/ModalContext";
+import { ThemeProvider } from "@/context/ThemeContext";
 import { ListeningProvider, useListening } from "@/context/ListeningContext";
 import { PresentationModeProvider } from "@/context/PresentationModeContext";
 import { ToastProvider, useToast } from "@/context/ToastContext";
@@ -55,6 +56,7 @@ function NotificationsBridge() {
 
 export default function App() {
   return (
+    <ThemeProvider>
     <PresentationModeProvider>
       <ModalProvider>
         <ListeningProvider>
@@ -83,5 +85,6 @@ export default function App() {
         </ListeningProvider>
       </ModalProvider>
     </PresentationModeProvider>
+    </ThemeProvider>
   );
 }

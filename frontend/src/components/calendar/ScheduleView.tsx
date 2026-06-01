@@ -173,7 +173,7 @@ export function ScheduleView({ onItemTap, onDayTap, embedded }: ScheduleViewProp
   }
 
   return (
-    <div className="flex flex-col h-full" style={{ background: "#06070d" }}>
+    <div className="flex flex-col h-full" style={{ background: "var(--eu-bg)" }}>
       {/* ── Top header: month + tools ─── hidden when embedded under the
           CalendarPage Segmented control (redesign) ───────────────────── */}
       {!embedded && (
@@ -183,7 +183,7 @@ export function ScheduleView({ onItemTap, onDayTap, embedded }: ScheduleViewProp
           <span
             className="font-display font-bold"
             style={{
-              fontSize: 20, color: "#a4c2ff", letterSpacing: "-0.01em",
+              fontSize: 20, color: "var(--eu-brand)", letterSpacing: "-0.01em",
               textShadow: "0 0 14px rgba(111,158,255,0.4)",
             }}
           >
@@ -192,7 +192,7 @@ export function ScheduleView({ onItemTap, onDayTap, embedded }: ScheduleViewProp
           <span
             className="font-mono"
             style={{
-              fontSize: 11, color: "rgba(255,255,255,0.40)", letterSpacing: "0.14em",
+              fontSize: 11, color: "rgba(var(--eu-ink),0.40)", letterSpacing: "0.14em",
             }}
           >
             {new Date().getFullYear()}
@@ -208,9 +208,9 @@ export function ScheduleView({ onItemTap, onDayTap, embedded }: ScheduleViewProp
             style={{
               padding: "4px 10px", borderRadius: 999,
               fontSize: 10.5, letterSpacing: "0.16em",
-              background: showEmpty ? "rgba(111,158,255,0.14)" : "rgba(255,255,255,0.03)",
-              color: showEmpty ? "#a4c2ff" : "rgba(255,255,255,0.55)",
-              border: `1px solid ${showEmpty ? "rgba(111,158,255,0.32)" : "rgba(255,255,255,0.08)"}`,
+              background: showEmpty ? "rgba(111,158,255,0.14)" : "rgba(var(--eu-ink),0.03)",
+              color: showEmpty ? "var(--eu-brand)" : "rgba(var(--eu-ink),0.55)",
+              border: `1px solid ${showEmpty ? "rgba(111,158,255,0.32)" : "rgba(var(--eu-ink),0.08)"}`,
               cursor: "pointer",
             }}
             title={showEmpty ? "隐藏空闲日" : "显示空闲日"}
@@ -225,7 +225,7 @@ export function ScheduleView({ onItemTap, onDayTap, embedded }: ScheduleViewProp
       {/* RV2: filter chips removed — defaults to showing all types. Per-
           type display preferences will move to a Settings page in M5.
           A thin separator keeps the header / content visually divided. */}
-      <div style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }} />
+      <div style={{ borderBottom: "1px solid rgba(var(--eu-ink),0.04)" }} />
       </>
       )}
 
@@ -276,8 +276,8 @@ export function ScheduleView({ onItemTap, onDayTap, embedded }: ScheduleViewProp
             width: 44, height: 44, borderRadius: 999,
             background: "rgba(11,18,32,0.85)",
             backdropFilter: "blur(8px)",
-            border: "1px solid rgba(255,255,255,0.10)",
-            color: "rgba(255,255,255,0.85)",
+            border: "1px solid rgba(var(--eu-ink),0.10)",
+            color: "rgba(var(--eu-ink),0.85)",
             boxShadow: "0 6px 20px rgba(0,0,0,0.35)",
             fontSize: 18, cursor: "pointer",
             transition: "all 200ms cubic-bezier(.2,.7,.3,1)",
@@ -341,7 +341,7 @@ export function ScheduleView({ onItemTap, onDayTap, embedded }: ScheduleViewProp
                 className="relative flex flex-col items-end justify-start pt-3 pr-2"
                 style={{
                   height: tileHeight,
-                  borderRight: "1px solid rgba(255,255,255,0.04)",
+                  borderRight: "1px solid rgba(var(--eu-ink),0.04)",
                 }}
               >
                 {isToday && (
@@ -349,7 +349,7 @@ export function ScheduleView({ onItemTap, onDayTap, embedded }: ScheduleViewProp
                     className="absolute"
                     style={{
                       top: 10, bottom: 10, right: 0, width: 2,
-                      background: "#6f9eff",
+                      background: "var(--eu-brand)",
                       boxShadow: "0 0 8px rgba(111,158,255,0.7)",
                     }}
                   />
@@ -363,7 +363,7 @@ export function ScheduleView({ onItemTap, onDayTap, embedded }: ScheduleViewProp
                       transform: "rotate(180deg)",
                       top: 4, left: 4, bottom: 0,
                       fontSize: 10.5, letterSpacing: "0.20em",
-                      color: isCurrentMonth ? "#a4c2ff" : "rgba(255,255,255,0.32)",
+                      color: isCurrentMonth ? "var(--eu-brand)" : "rgba(var(--eu-ink),0.32)",
                       textShadow: isCurrentMonth ? "0 0 8px rgba(111,158,255,0.45)" : "none",
                       fontWeight: isCurrentMonth ? 600 : 500,
                       pointerEvents: "none",
@@ -376,7 +376,7 @@ export function ScheduleView({ onItemTap, onDayTap, embedded }: ScheduleViewProp
                   className="font-mono"
                   style={{
                     fontSize: 9.5, letterSpacing: "0.16em",
-                    color: isToday ? "#6f9eff" : "rgba(255,255,255,0.40)",
+                    color: isToday ? "var(--eu-brand)" : "rgba(var(--eu-ink),0.40)",
                   }}
                 >
                   {weekdayCap(dayKey)}
@@ -386,7 +386,7 @@ export function ScheduleView({ onItemTap, onDayTap, embedded }: ScheduleViewProp
                   style={{
                     fontSize: isToday ? 22 : 18,
                     fontWeight: isToday ? 700 : 500,
-                    color: isToday ? "#a4c2ff" : "rgba(255,255,255,0.85)",
+                    color: isToday ? "var(--eu-brand)" : "rgba(var(--eu-ink),0.85)",
                     letterSpacing: "-0.01em",
                     marginTop: 1,
                     textShadow: isToday ? "0 0 12px rgba(111,158,255,0.5)" : "none",
@@ -418,7 +418,7 @@ export function ScheduleView({ onItemTap, onDayTap, embedded }: ScheduleViewProp
                     style={{
                       top: 10, right: 14,
                       fontSize: 9.5, letterSpacing: "0.20em",
-                      color: "rgba(255,255,255,0.55)", fontWeight: 600,
+                      color: "rgba(var(--eu-ink),0.55)", fontWeight: 600,
                     }}
                   >
                     {label}
@@ -459,13 +459,13 @@ function GapRow({ count }: { count: number; onExpand?: () => void }) {
       className="grid"
       style={{ gridTemplateColumns: "64px 1fr", marginBottom: 6, paddingRight: 16 }}
     >
-      <div style={{ borderRight: "1px solid rgba(255,255,255,0.04)", height: h }} />
+      <div style={{ borderRight: "1px solid rgba(var(--eu-ink),0.04)", height: h }} />
       <div className="ml-1.5 flex items-center" style={{ height: h }}>
         <div
           style={{
             width: "100%",
             height: 1,
-            background: "linear-gradient(90deg, rgba(255,255,255,0.10), transparent)",
+            background: "linear-gradient(90deg, rgba(var(--eu-ink),0.10), transparent)",
           }}
         />
       </div>
@@ -532,9 +532,9 @@ function IconChip({ glyph }: { glyph: string }) {
       type="button"
       style={{
         width: 28, height: 28, borderRadius: 999,
-        background: "rgba(255,255,255,0.04)",
-        border: "1px solid rgba(255,255,255,0.08)",
-        color: "rgba(255,255,255,0.65)",
+        background: "rgba(var(--eu-ink),0.04)",
+        border: "1px solid rgba(var(--eu-ink),0.08)",
+        color: "rgba(var(--eu-ink),0.65)",
         fontSize: 13, cursor: "pointer",
         fontFamily: '"JetBrains Mono", monospace',
       }}
@@ -556,8 +556,8 @@ function IconChip({ glyph }: { glyph: string }) {
  */
 const TILE_BG     = "linear-gradient(135deg, rgba(111,158,255,0.20) 0%, rgba(82,128,200,0.10) 100%), #121a32";
 const TILE_TEXT   = "#ffffff";
-const TILE_META   = "rgba(255,255,255,0.65)";
-const TILE_DOT_FALLBACK = "rgba(255,255,255,0.55)";
+const TILE_META   = "rgba(var(--eu-ink),0.65)";
+const TILE_DOT_FALLBACK = "rgba(var(--eu-ink),0.55)";
 
 /** Backwards-compatible shape kept for the row renderer. */
 interface DayTone {
@@ -571,12 +571,12 @@ const UNIFORM_TONE: DayTone = {
 };
 
 const ACCENT_DOT: Record<string, string> = {
-  event:   "#c4a8ff",
-  todo:    "#8ab4ff",
-  idea:    "#f5c977",
-  expense: "#86e0a5",
-  contact: "#d4dbe6",
-  neutral: "rgba(255,255,255,0.55)",
+  event:   "var(--eu-accent-purple-fg)",
+  todo:    "var(--eu-accent-blue-fg)",
+  idea:    "var(--eu-accent-amber-fg)",
+  expense: "var(--eu-accent-green-fg)",
+  contact: "var(--eu-text)",
+  neutral: "rgba(var(--eu-ink),0.55)",
 };
 
 /* ── sub-kind derivation ──────────────────────────────────────────────── */

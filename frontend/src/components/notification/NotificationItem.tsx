@@ -41,11 +41,11 @@ export function NotificationItem({
           )}
           <span
             className="text-eu-sm font-medium truncate"
-            style={{ color: notif.read ? "rgba(255,255,255,0.72)" : "#f4f7fb" }}
+            style={{ color: notif.read ? "rgba(var(--eu-ink),0.72)" : "var(--eu-text-hi)" }}
           >
             {notif.title}
           </span>
-          <span className="ml-auto shrink-0 font-mono text-eu-xs" style={{ color: "rgba(255,255,255,0.35)" }}>
+          <span className="ml-auto shrink-0 font-mono text-eu-xs" style={{ color: "rgba(var(--eu-ink),0.35)" }}>
             {relativeTime(notif.created_at)}
           </span>
         </div>
@@ -53,7 +53,7 @@ export function NotificationItem({
           <div
             className="text-eu-xs mt-0.5"
             style={{
-              color: "rgba(255,255,255,0.50)",
+              color: "rgba(var(--eu-ink),0.50)",
               display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
             }}
           >
@@ -66,7 +66,7 @@ export function NotificationItem({
         aria-label="删除通知"
         onClick={(e) => { e.stopPropagation(); onDismiss(notif.id); }}
         className="shrink-0 p-1 rounded-eu-sm opacity-0 group-hover:opacity-100 transition-opacity"
-        style={{ color: "rgba(255,255,255,0.40)" }}
+        style={{ color: "rgba(var(--eu-ink),0.40)" }}
       >
         <X size={14} strokeWidth={2} />
       </button>

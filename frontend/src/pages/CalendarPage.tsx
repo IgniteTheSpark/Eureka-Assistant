@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { AssetDetailDrawer } from "@/components/asset/AssetDetailDrawer";
+import { HeaderControls } from "@/components/shell/HeaderControls";
 import { DayDetailSheet } from "@/components/calendar/DayDetailSheet";
 import { MonthPane } from "@/components/calendar/MonthPane";
 import { YearPane } from "@/components/calendar/YearPane";
@@ -57,9 +58,12 @@ export function CalendarPage() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Segmented 流/月/年 — the sole calendar nav (redesign). Month default. */}
-      <div className="shrink-0 flex justify-center px-eu-md pt-1 pb-2">
+      {/* Segmented 流/月/年 centered; bell + day/night toggle pinned right. */}
+      <div className="shrink-0 relative flex justify-center items-center px-eu-md pt-1 pb-2">
         <Segmented value={mode} onChange={setMode} />
+        <div className="absolute right-3 top-1/2 -translate-y-1/2">
+          <HeaderControls />
+        </div>
       </div>
 
       <div className="flex-1 min-h-0 overflow-hidden">
