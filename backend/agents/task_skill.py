@@ -40,7 +40,7 @@ from agents.mcp_toolset import get_all_external_toolsets
 from core.llm import TASK_MODEL
 from core.notifications import create_notification
 from db.database import AsyncSessionLocal
-from db.models import Task, Asset, UserSkill, GlobalSkill
+from db.models import Task, Asset, UserSkill, GlobalSkill, Message
 
 
 # ── Prompt for the async MCP runner agent ─────────────────────────────────────
@@ -140,6 +140,18 @@ async def run_task_intent(
     background via asyncio.create_task; clients poll /api/tasks/{id} or
     re-fetch the asset to see status=done.
     """
+    # ── Robustness net: recover the doc body when the LLM dropped it ──
+    # Confirmed root cause: the chat Assistant intermittently calls this with an
+    # empty `content` for "把刚刚那个回答/答案 放到钉钉文档" style requests, so the
+    # created doc ends up with only a title and an empty body. The body it should
+    # have carried lives in the previous assistant reply. When the request clearly
+    # references prior chat content and we have the session, pull the body from
+    # there instead of trusting the LLM to have copied it across the tool call.
+    if not content.strip() and session_id and _references_prior_content(user_text):
+        recovered = await _recover_prior_reply(session_id, user_id)
+        if recovered:
+            content = recovered
+
     # ── Resolve the external_ref UserSkill (seeded once at boot) ──
     async with AsyncSessionLocal() as db:
         user_skill_id = await _resolve_external_ref_skill(db, user_id)
@@ -367,6 +379,55 @@ def _derive_title(user_text: str) -> str:
     """Short placeholder title for the in-flight card."""
     s = user_text.strip()
     return s[:50] + ("…" if len(s) > 50 else "")
+
+
+# Markers that mean "the thing we were just talking about" — used to decide
+# whether an empty-content external-doc task should pull its body from the
+# previous assistant reply (simplified + traditional Chinese both covered).
+_PRIOR_REF_MARKERS = (
+    "刚刚", "剛剛", "刚才", "剛才", "上面", "上述", "前面", "之前", "上一",
+    "那个", "那個", "那条", "那條", "这个", "這個", "那段", "这段", "這段", "那篇",
+)
+
+
+def _references_prior_content(user_text: str) -> bool:
+    """True when the request points back at earlier chat content (e.g. 把刚刚那个
+    回答…), i.e. the body to write lives in a prior assistant message rather than
+    in this instruction."""
+    t = user_text or ""
+    return any(m in t for m in _PRIOR_REF_MARKERS)
+
+
+async def _recover_prior_reply(session_id: str, user_id: str) -> str:
+    """Most recent substantive assistant reply in the session — the body for a
+    "把刚刚那个回答放到钉钉" request when the LLM forgot to copy it into `content`.
+
+    Skips short status echoes ("已记录 1 项内容" / "好的…") so we recover the
+    actual answer text, not a confirmation line. The current turn's user message
+    isn't persisted yet at call time, so the latest agent row is the prior reply.
+    """
+    try:
+        sid = uuid.UUID(session_id)
+    except (ValueError, AttributeError, TypeError):
+        return ""
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(Message.text)
+            .where(
+                Message.session_id == sid,
+                Message.user_id == user_id,
+                Message.role == "agent",
+                Message.text != "",
+            )
+            .order_by(Message.created_at.desc())
+            .limit(5)
+        )
+        for (text,) in result.all():
+            t = (text or "").strip()
+            if not t or t.startswith("已记录") or t.startswith("好的"):
+                continue
+            return t
+    return ""
 
 
 _ID_KEYS = (
