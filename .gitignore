@@ -1,4 +1,33 @@
-
-# Secrets
+# ── Secrets (never commit) ──────────────────────────────────────────────
 .env
 .env.local
+.env.*.local
+# Real third-party credential files live in mcp-credentials/ (its own .gitignore
+# keeps everything but the README).
+
+# ── OS ──────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Python (backend) ────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── Node (belt-and-suspenders; frontend/* has its own too) ──────────────
+node_modules/
+
+# ── Logs ────────────────────────────────────────────────────────────────
+*.log
+uvicorn*.log
+
+# ── Editors / tooling ───────────────────────────────────────────────────
+.vscode/
+.idea/
+.claude/
+.gstack/
