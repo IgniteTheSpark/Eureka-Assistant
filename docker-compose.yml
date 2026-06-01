@@ -47,7 +47,11 @@ services:
       # OAuth credentials + cached tokens for third-party MCPs. Host folder
       # `./mcp-credentials/` is git-ignored; you place creds files here.
       - ./mcp-credentials:/mcp-credentials
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    # --timeout-graceful-shutdown: on a --reload restart, force-close after 3s
+    # instead of hanging forever on an open SSE connection (notifications
+    # stream). Without it, editing a backend file could wedge the server in
+    # "Waiting for connections to close" and the whole API stopped responding.
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload --timeout-graceful-shutdown 3
 
 volumes:
   pgdata:
