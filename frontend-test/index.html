@@ -1,0 +1,820 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Eureka Demo · Phase B v1.4.x</title>
+<style>
+  /* 简化版 B·Atmosphere tokens(够测试用即可)*/
+  :root {
+    --bg: #0b1220;
+    --surface: rgba(255,255,255,0.04);
+    --raised: rgba(255,255,255,0.07);
+    --border: rgba(255,255,255,0.08);
+    --border-strong: rgba(255,255,255,0.15);
+    --text-hi: #f4f7fb;
+    --text: #d4dbe6;
+    --text-mid: #9aa6b8;
+    --text-lo: #6c7689;
+    --brand: #6f9eff;
+    --blue: #6f9eff;
+    --amber: #e5b35a;
+    --green: #5fc685;
+    --red: #ec6a83;
+    --purple: #9c80f0;
+    --gray: #7c8898;
+    --neutral: #9aa6b8;
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg);
+    background-image: radial-gradient(at 20% 10%, rgba(111,158,255,0.07), transparent 50%),
+                      radial-gradient(at 80% 90%, rgba(156,128,240,0.05), transparent 50%);
+    color: var(--text);
+    font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    min-height: 100vh;
+  }
+  .app { max-width: 1280px; margin: 0 auto; padding: 24px; }
+  h1 { margin: 0 0 4px; color: var(--text-hi); font-weight: 600; font-size: 22px; }
+  h2 { margin: 0 0 12px; color: var(--text-hi); font-weight: 500; font-size: 16px;
+       display: flex; align-items: center; gap: 8px; }
+  h2 .badge { font-family: var(--mono); font-size: 11px; color: var(--text-mid);
+              padding: 2px 8px; background: var(--surface); border-radius: 4px;
+              border: 1px solid var(--border); }
+  .sub { color: var(--text-mid); font-size: 12px; }
+
+  .topbar { display: flex; align-items: center; gap: 16px;
+            padding: 12px 16px; background: var(--surface);
+            border: 1px solid var(--border); border-radius: 12px;
+            margin-bottom: 20px; }
+  .health { display: flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 12px; }
+  .health .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--gray); }
+  .health.ok .dot { background: var(--green); box-shadow: 0 0 8px rgba(95,198,133,0.6); }
+  .health.bad .dot { background: var(--red); }
+  .topbar .session { flex: 1; font-family: var(--mono); font-size: 11px; color: var(--text-mid); }
+  .topbar .session b { color: var(--text); }
+  .topbar button { padding: 6px 12px; background: var(--raised); border: 1px solid var(--border);
+                   color: var(--text); font-size: 12px; border-radius: 8px; cursor: pointer; }
+  .topbar button:hover { background: var(--border); }
+  .topbar button.danger { color: var(--red); border-color: rgba(236,106,131,0.3); }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .panel { background: var(--surface); border: 1px solid var(--border);
+           border-radius: 14px; padding: 18px; backdrop-filter: blur(20px); }
+  .panel + .panel { margin-top: 20px; }
+  .panel-full { grid-column: 1 / -1; }
+
+  textarea { width: 100%; min-height: 60px; resize: vertical;
+             background: rgba(0,0,0,0.25); border: 1px solid var(--border);
+             color: var(--text); border-radius: 10px; padding: 10px 12px;
+             font-family: inherit; font-size: 14px; line-height: 1.5; }
+  textarea:focus { outline: none; border-color: var(--brand);
+                   box-shadow: 0 0 0 3px rgba(111,158,255,0.15); }
+  .send-row { display: flex; gap: 8px; margin-top: 8px; }
+  button.primary { padding: 8px 16px; background: linear-gradient(135deg, var(--brand), #5b8def);
+                   border: none; color: white; font-weight: 500; border-radius: 8px; cursor: pointer;
+                   box-shadow: 0 4px 12px rgba(111,158,255,0.3); }
+  button.primary:disabled { opacity: 0.5; cursor: wait; }
+  button.secondary { padding: 8px 14px; background: var(--raised);
+                     border: 1px solid var(--border); color: var(--text);
+                     border-radius: 8px; cursor: pointer; font-size: 13px; }
+
+  /* Cards (assets / events) */
+  .cards { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; max-height: 320px; overflow-y: auto; }
+  .card {
+    display: flex; align-items: center; gap: 12px; padding: 10px 12px;
+    background: rgba(255,255,255,0.03); border: 1px solid var(--border);
+    border-radius: 10px; transition: background 0.15s;
+  }
+  .card:hover { background: var(--raised); }
+  .card .icon { font-size: 18px; width: 32px; height: 32px;
+                display: flex; align-items: center; justify-content: center;
+                background: var(--surface); border-radius: 8px;
+                border: 1px solid var(--border); }
+  .card .body { flex: 1; min-width: 0; }
+  .card .title { color: var(--text-hi); font-weight: 500; overflow: hidden;
+                 text-overflow: ellipsis; white-space: nowrap; }
+  .card .subtitle { color: var(--text-mid); font-size: 12px;
+                    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card .meta { font-family: var(--mono); font-size: 11px; color: var(--text-lo); }
+
+  /* Accent-tinted cards */
+  .card.todo .icon    { color: var(--blue);   background: rgba(111,158,255,0.10); border-color: rgba(111,158,255,0.22); }
+  .card.event .icon   { color: var(--purple); background: rgba(156,128,240,0.10); border-color: rgba(156,128,240,0.22); }
+  .card.expense .icon { color: var(--green);  background: rgba(95,198,133,0.10);  border-color: rgba(95,198,133,0.22); }
+  .card.idea .icon    { color: var(--amber);  background: rgba(229,179,90,0.10);  border-color: rgba(229,179,90,0.22); }
+  .card.notes .icon, .card.misc .icon { color: var(--gray); }
+  .card.contact .icon { color: var(--neutral); }
+  .card.error .icon   { color: var(--red); background: rgba(236,106,131,0.10); border-color: rgba(236,106,131,0.22); }
+  .card.input_turn .icon { color: var(--gray); }
+
+  /* Task card — async MCP work. Accent shifts with status. */
+  .card.task .icon              { color: var(--purple); background: rgba(156,128,240,0.10); border-color: rgba(156,128,240,0.22); }
+  .card.task.task-pending .icon,
+  .card.task.task-running .icon { color: var(--amber);  background: rgba(229,179,90,0.10); border-color: rgba(229,179,90,0.30); }
+  .card.task.task-done .icon    { color: var(--green);  background: rgba(95,198,133,0.10); border-color: rgba(95,198,133,0.30); }
+  .card.task.task-failed .icon  { color: var(--red);    background: rgba(236,106,131,0.10); border-color: rgba(236,106,131,0.30); }
+  .card.task.task-running       { animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: 0.65 } }
+
+  /* External-system link footer inside cards (Dingtalk / Notion / ... jump out) */
+  .ext-link { margin-top: 6px; font-size: 12px; }
+  .ext-link a {
+    color: var(--purple); text-decoration: none;
+    padding: 2px 6px; border-radius: 4px;
+    background: rgba(156,128,240,0.08);
+    transition: background 0.15s;
+  }
+  .ext-link a:hover { background: rgba(156,128,240,0.18); text-decoration: underline; }
+
+  /* Conversational reply bubble (qa-skill output) — not a card, just text */
+  .flash-reply {
+    padding: 12px 14px; margin-bottom: 4px;
+    background: rgba(156,128,240,0.06); border-left: 2px solid var(--purple);
+    border-radius: 4px; color: var(--text-hi); font-size: 14px;
+    line-height: 1.55; white-space: pre-wrap; word-break: break-word;
+  }
+  .flash-summary {
+    color: var(--text-lo); font-size: 12px; padding: 4px 2px; margin-top: 2px;
+  }
+  .card.file .icon    { color: var(--neutral); }
+
+  /* Chat */
+  .chat { display: flex; flex-direction: column; max-height: 480px; }
+  .messages { flex: 1; overflow-y: auto; padding: 4px 2px 12px; min-height: 200px;
+              display: flex; flex-direction: column; gap: 10px; }
+  .msg { display: flex; flex-direction: column; max-width: 85%; gap: 4px; }
+  .msg.user { align-self: flex-end; align-items: flex-end; }
+  .msg.agent { align-self: flex-start; align-items: flex-start; }
+  .msg .bubble {
+    padding: 10px 14px; border-radius: 14px; word-break: break-word; line-height: 1.5;
+  }
+  .msg.user .bubble {
+    background: linear-gradient(135deg, var(--brand), #5b8def); color: white;
+    box-shadow: 0 4px 12px rgba(111,158,255,0.25);
+  }
+  .msg.agent .bubble { background: transparent; color: var(--text); padding-left: 4px; }
+  .msg .tool {
+    background: rgba(95,198,133,0.08); border: 1px solid rgba(95,198,133,0.22);
+    color: var(--green); padding: 6px 10px; font-family: var(--mono); font-size: 11px;
+    border-radius: 8px; max-width: 100%; word-break: break-all;
+  }
+  .msg .tool b { color: var(--text-hi); }
+  .msg .err { background: rgba(236,106,131,0.10); color: var(--red);
+              border: 1px solid rgba(236,106,131,0.22); padding: 6px 10px;
+              font-family: var(--mono); font-size: 11px; border-radius: 8px; }
+
+  /* Lists (timeline, events, assets, sessions) */
+  .list { display: flex; flex-direction: column; gap: 6px;
+          max-height: 320px; overflow-y: auto; }
+  .item { display: grid; grid-template-columns: 80px 1fr 110px auto;
+          gap: 10px; align-items: center;
+          padding: 8px 10px; border-bottom: 1px dotted var(--border);
+          font-size: 13px; }
+  .item .kind { font-family: var(--mono); font-size: 10px; padding: 2px 6px;
+                background: var(--surface); border-radius: 4px; color: var(--text-mid);
+                text-transform: uppercase; letter-spacing: 0.05em; }
+  .item .label { color: var(--text-hi); overflow: hidden;
+                 text-overflow: ellipsis; white-space: nowrap; }
+  .item .sub { color: var(--text-mid); font-size: 11px; }
+  .item .time { font-family: var(--mono); font-size: 11px; color: var(--text-mid); text-align: right; }
+  .item .action { color: var(--brand); font-size: 11px; cursor: pointer; padding-left: 8px; }
+  .item .action:hover { text-decoration: underline; }
+
+  .empty { color: var(--text-lo); font-style: italic; padding: 14px;
+           text-align: center; font-size: 12px; }
+  .loading { color: var(--brand); font-size: 12px; padding: 4px 0; }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 4px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
+  .tab { padding: 6px 12px; cursor: pointer; color: var(--text-mid);
+         border-bottom: 2px solid transparent; font-size: 13px; }
+  .tab.active { color: var(--text-hi); border-bottom-color: var(--brand); }
+  .tab .count { font-family: var(--mono); font-size: 10px; opacity: 0.6; }
+
+  .row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+  .row label { color: var(--text-mid); font-size: 12px; }
+  .row input { background: rgba(0,0,0,0.25); border: 1px solid var(--border);
+               color: var(--text); border-radius: 6px; padding: 4px 8px;
+               font-family: var(--mono); font-size: 12px; width: 280px; }
+  pre.preview { background: rgba(0,0,0,0.3); border: 1px solid var(--border);
+                border-radius: 8px; padding: 10px; font-size: 11px; max-height: 200px;
+                overflow: auto; color: var(--text-mid); }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="topbar">
+    <span class="health" id="health"><span class="dot"></span><span id="health-text">检测中…</span></span>
+    <span class="session">chat session: <b id="cur-session">(无)</b></span>
+    <button onclick="loadAll()">🔄 刷新</button>
+    <button onclick="clearSession()">清 session 缓存</button>
+    <button class="danger" onclick="resetDB()">💣 清库重建</button>
+  </div>
+
+  <div class="grid">
+    <!-- LEFT COLUMN -->
+    <div>
+      <!-- Flash -->
+      <div class="panel">
+        <h2>🎙 闪念 (Flash) <span class="badge">/api/flash</span></h2>
+        <div class="sub">语音模拟:直接输入文字,后端按 voice 路径走 Flash Pipeline → 多意图 fan-out</div>
+        <textarea id="flash-text" placeholder="例: 明天下午6点跟客户开会会议室B,会前帮我准备PPT,午餐花了85"></textarea>
+        <div class="send-row">
+          <button class="primary" onclick="submitFlash()">提交闪念</button>
+          <button class="secondary" onclick="document.getElementById('flash-text').value=''">清空</button>
+        </div>
+        <div class="cards" id="flash-cards"></div>
+      </div>
+
+      <!-- Chat -->
+      <div class="panel">
+        <h2>💬 Chat (统一助手) <span class="badge">/api/chat · SSE</span></h2>
+        <div class="sub">跟 Assistant 对话。同 session 内能引用「刚刚那个」做 CRUD;event 详情页发起的 chat 自动注入 event 上下文</div>
+        <div id="event-banner" class="row" style="display:none;background:rgba(156,128,240,0.08);padding:8px 10px;border-radius:8px;border:1px solid rgba(156,128,240,0.22);margin-top:8px">
+          <span style="color:var(--purple)">📅 锚定 event:</span>
+          <span id="event-banner-id" class="sub" style="font-family:var(--mono)"></span>
+          <button class="secondary" style="margin-left:auto" onclick="clearEventAnchor()">取消锚定</button>
+        </div>
+        <div class="chat">
+          <div class="messages" id="messages">
+            <div class="empty">输入开始对话…</div>
+          </div>
+        </div>
+        <textarea id="chat-text" placeholder="例: 帮我把刚刚那个去香港的todo改成去成都"></textarea>
+        <div class="send-row">
+          <button class="primary" id="send-btn" onclick="submitChat()">发送</button>
+          <button class="secondary" onclick="clearSession();renderMessages()">新对话</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT COLUMN -->
+    <div>
+      <!-- Lists -->
+      <div class="panel">
+        <div class="tabs">
+          <div class="tab active" data-tab="timeline" onclick="switchTab('timeline')">📜 timeline <span class="count" id="cnt-timeline"></span></div>
+          <div class="tab" data-tab="events" onclick="switchTab('events')">📅 events <span class="count" id="cnt-events"></span></div>
+          <div class="tab" data-tab="assets" onclick="switchTab('assets')">📦 assets <span class="count" id="cnt-assets"></span></div>
+          <div class="tab" data-tab="sessions" onclick="switchTab('sessions')">🗂 sessions <span class="count" id="cnt-sessions"></span></div>
+        </div>
+        <div id="list-timeline" class="list"></div>
+        <div id="list-events" class="list" style="display:none"></div>
+        <div id="list-assets" class="list" style="display:none"></div>
+        <div id="list-sessions" class="list" style="display:none"></div>
+      </div>
+
+      <!-- Design Agent -->
+      <div class="panel">
+        <h2>✨ Design Agent (加 skill) <span class="badge">/api/skills</span></h2>
+        <div class="sub">用户描述新 skill,Gemini-style structured output 直接生成 render_spec + payload_schema</div>
+        <textarea id="design-text" placeholder="例: 我想记录每天跑步训练,要有距离、时长、配速、路线"></textarea>
+        <div class="send-row">
+          <button class="primary" onclick="submitDesign()">设计</button>
+        </div>
+        <pre class="preview" id="design-output"></pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = "http://localhost:8000";
+const SK = "eureka_session_id";          // localStorage chat session
+const EK = "eureka_event_anchor";        // localStorage chat event anchor
+
+// ─── icons / accent per kind ──────────────────────────────────
+const ICON = { todo: "✅", event: "📅", expense: "💰", idea: "💡",
+               notes: "📝", misc: "🗂", contact: "👤", qa: "❓",
+               error: "⚠️", input_turn: "🎙", file: "📎",
+               task: "⏳", pending_contact: "👥" };
+// task status → icon override (replaces the static ICON above when card is task-typed)
+const TASK_STATUS_ICON = { pending: "⏳", running: "⏳", done: "✅", failed: "❌" };
+const SYSTEM_LABEL = {
+  dingtalk_calendar: "钉钉日历", dingtalk_todo: "钉钉待办",
+  dingtalk_notes: "钉钉文档",   notion: "Notion",
+  google_calendar: "Google Calendar", fake_external: "fake",
+};
+
+// ─── topbar ───────────────────────────────────────────────────
+async function checkHealth() {
+  try {
+    const r = await fetch(`${API}/health`);
+    if (!r.ok) throw new Error();
+    const d = await r.json();
+    document.getElementById("health").className = "health ok";
+    document.getElementById("health-text").textContent = `backend ok · ${d.version || "?"}`;
+  } catch {
+    document.getElementById("health").className = "health bad";
+    document.getElementById("health-text").textContent = "backend offline";
+  }
+}
+
+function updateSessionDisplay() {
+  const sid = localStorage.getItem(SK);
+  document.getElementById("cur-session").textContent = sid ? sid.slice(0, 8) + "…" : "(无)";
+  const eid = localStorage.getItem(EK);
+  const banner = document.getElementById("event-banner");
+  if (eid) {
+    banner.style.display = "flex";
+    document.getElementById("event-banner-id").textContent = eid;
+  } else {
+    banner.style.display = "none";
+  }
+}
+
+function clearSession() {
+  localStorage.removeItem(SK);
+  localStorage.removeItem(EK);
+  updateSessionDisplay();
+}
+
+function clearEventAnchor() {
+  localStorage.removeItem(EK);
+  updateSessionDisplay();
+}
+
+async function resetDB() {
+  if (!confirm("⚠️ 这会清空所有 sessions/assets/events/messages,确认?")) return;
+  // 这是个客户端做不到的事(需要 docker compose) — 提示用户用 CLI
+  alert("浏览器里没法直接清库,在终端跑:\n\ncd Eureka-BrandNew\ndocker compose down -v && docker compose up -d\ndocker compose run --rm backend alembic upgrade head\ndocker compose run --rm backend python -m db.seed");
+}
+
+// ─── flash ────────────────────────────────────────────────────
+async function submitFlash() {
+  const text = document.getElementById("flash-text").value.trim();
+  if (!text) return;
+  const cards = document.getElementById("flash-cards");
+  cards.innerHTML = '<div class="loading">处理中(大约 15-30 秒)…</div>';
+  try {
+    const r = await fetch(`${API}/api/flash`, {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ text, source: "voice" }),
+    });
+    const d = await r.json();
+    if (!d.ok) {
+      cards.innerHTML = `<div class="card error"><div class="icon">⚠️</div><div class="body"><div class="title">失败</div><div class="subtitle">${d.error || "unknown"}</div></div></div>`;
+      return;
+    }
+    cards.innerHTML = "";
+    // Conversational reply (from qa-skill outputs) renders as a chat-bubble-
+    // style block, NOT as a card. Cards are reserved for asset/event handles.
+    if (d.reply) {
+      const bubble = document.createElement("div");
+      bubble.className = "flash-reply";
+      bubble.textContent = d.reply;
+      cards.appendChild(bubble);
+    }
+    for (const c of (d.cards || [])) {
+      cards.appendChild(renderCard(c));
+    }
+    if (!d.cards?.length && !d.reply) {
+      cards.innerHTML = `<div class="empty">${d.summary || "无产出"}</div>`;
+    } else if (d.summary && d.cards?.length) {
+      // Small status line under cards (e.g. "已记录 1 项内容。")
+      const status = document.createElement("div");
+      status.className = "flash-summary";
+      status.textContent = d.summary;
+      cards.appendChild(status);
+    }
+    // 缓存 session_id 让 chat 能在这个 flash session 里续聊
+    if (d.session_id) {
+      localStorage.setItem(SK, d.session_id);
+      updateSessionDisplay();
+      // Replay session messages into the chat panel — flash submits write
+      // to the messages table too (see api/flash.py persist_chat_turn), so
+      // the same session log shows both flash captures and chat turns.
+      await loadSessionHistory(d.session_id);
+    }
+    loadAll();
+  } catch (e) {
+    cards.innerHTML = `<div class="card error"><div class="icon">⚠️</div><div class="body"><div class="title">请求失败</div><div class="subtitle">${e.message}</div></div></div>`;
+  }
+}
+
+function renderCard(c) {
+  const el = document.createElement("div");
+  el.className = `card ${c.card_type || "misc"}`;
+  // Task cards override the static icon by status, and stash task_id on the
+  // element so the poller can locate them to refresh.
+  let icon = ICON[c.card_type] || "•";
+  if (c.card_type === "task" && c.status) {
+    icon = TASK_STATUS_ICON[c.status] || icon;
+    el.classList.add(`task-${c.status}`);
+    if (c.task_id) el.dataset.taskId = c.task_id;
+  }
+  // Title strips a leading status icon if the backend already baked one in
+  // (task subtitle pattern: "⏳ <title>" → display as just "<title>"
+  // because we're showing the status icon separately on the left).
+  const cleanTitle = String(c.title || "").replace(/^[⏳✅❌]\s*/, "");
+
+  // External link footer — clickable jump to Dingtalk / Notion / etc.
+  const extUrl = c.external_url || "";
+  const extSys = c.external_system || "";
+  const sysLabel = SYSTEM_LABEL[extSys] || extSys;
+  const linkRow = extUrl
+    ? `<div class="ext-link"><a href="${escapeAttr(extUrl)}" target="_blank" rel="noopener">→ 打开 ${escapeHtml(sysLabel)}</a></div>`
+    : "";
+
+  const handleMeta = c.event_id ? "event " + c.event_id.slice(0,8)
+    : c.task_id  ? "task "  + c.task_id.slice(0,8)
+    : c.asset_id ? "asset " + c.asset_id.slice(0,8) : "";
+
+  el.innerHTML = `
+    <div class="icon">${icon}</div>
+    <div class="body">
+      <div class="title">${escapeHtml(cleanTitle)}</div>
+      <div class="subtitle">${escapeHtml(c.subtitle || "")}</div>
+      ${linkRow}
+    </div>
+    <div class="meta">${handleMeta}</div>
+  `;
+  return el;
+}
+
+// HTML attribute escape (URLs especially — escapeHtml is for text, not href values)
+function escapeAttr(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+}
+
+// ── Pending-task poller ──────────────────────────────────────
+// Flash returns task cards as `pending`. The async worker finishes in a
+// few seconds and updates the asset+task rows. We poll /api/tasks/:id and
+// re-render any in-flight task cards inside #flash-cards so the user sees
+// status flip without manual refresh.
+function pollPendingTaskCards() {
+  const cards = document.getElementById("flash-cards");
+  if (!cards) return;
+  const pendingEls = cards.querySelectorAll(".card.task[data-task-id]");
+  pendingEls.forEach(async (el) => {
+    const tid = el.dataset.taskId;
+    const status = (el.className.match(/task-(\w+)/) || [])[1];
+    if (!tid || status === "done" || status === "failed") return;
+    try {
+      const r = await fetch(`${API}/api/tasks/${tid}`);
+      const d = await r.json();
+      const t = d.task;
+      if (!t) return;
+      if (t.status !== status) {
+        const card = {
+          card_type:       "task",
+          title:           el.querySelector(".title")?.textContent || "",
+          subtitle:        t.status === "failed"
+              ? (t.error_message || "失败").slice(0, 80)
+              : `→ ${SYSTEM_LABEL[t.mcp_target] || t.mcp_target || ""}`,
+          status:          t.status,
+          task_id:         t.id,
+          asset_id:        t.result_asset_id,
+          external_system: (t.result_asset_payload || {}).external_system,
+          external_url:    (t.result_asset_payload || {}).external_url,
+        };
+        el.replaceWith(renderCard(card));
+      }
+    } catch {}
+  });
+}
+setInterval(pollPendingTaskCards, 3000);
+
+// ─── chat (SSE) ───────────────────────────────────────────────
+let messages = [];
+
+function renderMessages() {
+  const box = document.getElementById("messages");
+  if (!messages.length) {
+    box.innerHTML = `<div class="empty">输入开始对话…</div>`;
+    return;
+  }
+  box.innerHTML = "";
+  for (const m of messages) {
+    const wrap = document.createElement("div");
+    wrap.className = `msg ${m.role}`;
+    if (m.role === "user") {
+      wrap.innerHTML = `<div class="bubble">${escapeHtml(m.text)}</div>`;
+    } else {
+      // agent: text + tool_calls + errors interleaved
+      for (const part of m.parts) {
+        const p = document.createElement("div");
+        if (part.type === "text") {
+          p.className = "bubble";
+          p.textContent = part.text;
+        } else if (part.type === "tool_call") {
+          p.className = "tool";
+          p.innerHTML = `🔧 <b>${escapeHtml(part.name)}</b>(${escapeHtml(JSON.stringify(part.args).slice(0, 220))})`;
+        } else if (part.type === "tool_result") {
+          p.className = "tool";
+          const content = part.response?.content?.[0]?.text || JSON.stringify(part.response).slice(0, 200);
+          p.innerHTML = `↩ <b>${escapeHtml(part.name)}</b>: ${escapeHtml(content.slice(0, 200))}`;
+        } else if (part.type === "cards") {
+          // Flash-session agent messages have cards attached — render them
+          // inline so history replay shows what got captured in that turn.
+          p.className = "cards-inline";
+          for (const c of part.cards) p.appendChild(renderCard(c));
+        } else if (part.type === "error") {
+          p.className = "err";
+          p.textContent = "⚠ " + part.message;
+        }
+        wrap.appendChild(p);
+      }
+    }
+    box.appendChild(wrap);
+  }
+  box.scrollTop = box.scrollHeight;
+}
+
+async function submitChat() {
+  const text = document.getElementById("chat-text").value.trim();
+  if (!text) return;
+  document.getElementById("chat-text").value = "";
+  document.getElementById("send-btn").disabled = true;
+
+  const sid = localStorage.getItem(SK) || "";
+  const eid = localStorage.getItem(EK) || "";
+
+  messages.push({ role: "user", text });
+  const agentMsg = { role: "agent", parts: [] };
+  messages.push(agentMsg);
+  renderMessages();
+
+  try {
+    const resp = await fetch(`${API}/api/chat`, {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ user_text: text, session_id: sid, event_id: eid }),
+    });
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      // parse SSE events (event: X\ndata: Y\n\n)
+      const events = buf.split(/\n\n/);
+      buf = events.pop() || "";
+      for (const ev of events) {
+        const lines = ev.split("\n");
+        let evtName = "", data = "";
+        for (const l of lines) {
+          if (l.startsWith("event:")) evtName = l.slice(6).trim();
+          else if (l.startsWith("data:")) data = l.slice(5).trim();
+        }
+        if (!evtName) continue;
+        let payload = {};
+        try { payload = JSON.parse(data); } catch {}
+        handleSSE(evtName, payload, agentMsg);
+        renderMessages();
+      }
+    }
+  } catch (e) {
+    agentMsg.parts.push({ type: "error", message: e.message });
+    renderMessages();
+  } finally {
+    document.getElementById("send-btn").disabled = false;
+    loadAll();
+  }
+}
+
+function handleSSE(evt, data, agentMsg) {
+  if (evt === "meta") {
+    if (data.session_id) {
+      localStorage.setItem(SK, data.session_id);
+      updateSessionDisplay();
+    }
+  } else if (evt === "token") {
+    // 累计 text(目前后端是按 turn 出一次 token,不是真 per-token 流)
+    const last = agentMsg.parts[agentMsg.parts.length - 1];
+    if (last && last.type === "text") last.text += data.text;
+    else agentMsg.parts.push({ type: "text", text: data.text });
+  } else if (evt === "tool_call") {
+    agentMsg.parts.push({ type: "tool_call", name: data.name, args: data.args });
+  } else if (evt === "tool_result") {
+    agentMsg.parts.push({ type: "tool_result", name: data.name, response: data.response });
+  } else if (evt === "error") {
+    agentMsg.parts.push({ type: "error", message: data.message });
+  } else if (evt === "done") {
+    // pass
+  }
+}
+
+// ─── lists (timeline / events / assets / sessions) ────────────
+async function loadAll() {
+  await Promise.all([loadTimeline(), loadEvents(), loadAssets(), loadSessions()]);
+}
+
+async function loadTimeline() {
+  try {
+    const r = await fetch(`${API}/api/timeline?limit=50`);
+    const d = await r.json();
+    document.getElementById("cnt-timeline").textContent = `${d.count}`;
+    const box = document.getElementById("list-timeline");
+    box.innerHTML = "";
+    if (!d.items?.length) { box.innerHTML = `<div class="empty">空</div>`; return; }
+    for (const it of d.items) {
+      const div = document.createElement("div");
+      div.className = "item";
+      const kindLabel = it.kind === "asset" ? (it.skill_name || "asset") : it.kind;
+      const time = formatTime(it.effective_at);
+      const action = it.kind === "event"
+        ? `<span class="action" onclick="anchorEvent('${it.event_id}')">📌 锚定 chat</span>` : "";
+      div.innerHTML = `
+        <span class="kind">${escapeHtml(kindLabel)}</span>
+        <div><div class="label">${escapeHtml(it.title || "")}</div>
+          <div class="sub">${escapeHtml(it.subtitle || "")}</div></div>
+        <span class="time">${time}</span>
+        ${action}
+      `;
+      box.appendChild(div);
+    }
+  } catch (e) {
+    document.getElementById("list-timeline").innerHTML = `<div class="empty">load 失败: ${e.message}</div>`;
+  }
+}
+
+async function loadEvents() {
+  try {
+    const r = await fetch(`${API}/api/events?limit=30`);
+    const d = await r.json();
+    document.getElementById("cnt-events").textContent = `${d.events?.length || 0}`;
+    const box = document.getElementById("list-events");
+    box.innerHTML = "";
+    if (!d.events?.length) { box.innerHTML = `<div class="empty">空</div>`; return; }
+    for (const ev of d.events) {
+      const div = document.createElement("div");
+      div.className = "item";
+      const attendees = (ev.attendees || []).map(a => a.name || a.contact_id).filter(Boolean).join(", ");
+      div.innerHTML = `
+        <span class="kind">event</span>
+        <div><div class="label">${escapeHtml(ev.title)}</div>
+          <div class="sub">${escapeHtml(ev.location || "")}${attendees ? " · " + escapeHtml(attendees) : ""}</div></div>
+        <span class="time">${formatTime(ev.start_at)}${ev.end_at ? "→" + formatTime(ev.end_at).split(" ")[1] : ""}</span>
+        <span class="action" onclick="anchorEvent('${ev.event_id}')">📌 锚定</span>
+      `;
+      box.appendChild(div);
+    }
+  } catch (e) {
+    document.getElementById("list-events").innerHTML = `<div class="empty">load 失败: ${e.message}</div>`;
+  }
+}
+
+async function loadAssets() {
+  try {
+    const r = await fetch(`${API}/api/assets?limit=50`);
+    const d = await r.json();
+    document.getElementById("cnt-assets").textContent = `${d.assets?.length || 0}`;
+    const box = document.getElementById("list-assets");
+    box.innerHTML = "";
+    if (!d.assets?.length) { box.innerHTML = `<div class="empty">空</div>`; return; }
+    for (const a of d.assets) {
+      const p = a.payload || {};
+      const div = document.createElement("div");
+      div.className = "item";
+      const title = p.content || p.title || p.name || (p.amount ? "¥" + p.amount : "") || "[asset]";
+      const sub = p.due_date || p.start_at || p.at || p.date || p.description || "";
+      div.innerHTML = `
+        <span class="kind">${escapeHtml(a.user_skill_name || "asset")}</span>
+        <div><div class="label">${escapeHtml(title)}</div>
+          <div class="sub">${escapeHtml(String(sub).slice(0, 60))}</div></div>
+        <span class="time">${formatTime(a.created_at)}</span>
+        <span></span>
+      `;
+      box.appendChild(div);
+    }
+  } catch (e) {
+    document.getElementById("list-assets").innerHTML = `<div class="empty">load 失败: ${e.message}</div>`;
+  }
+}
+
+async function loadSessions() {
+  try {
+    const r = await fetch(`${API}/api/sessions?limit=20`);
+    const d = await r.json();
+    document.getElementById("cnt-sessions").textContent = `${d.sessions?.length || 0}`;
+    const box = document.getElementById("list-sessions");
+    box.innerHTML = "";
+    if (!d.sessions?.length) { box.innerHTML = `<div class="empty">空</div>`; return; }
+    for (const s of d.sessions) {
+      const div = document.createElement("div");
+      div.className = "item";
+      div.innerHTML = `
+        <span class="kind">${escapeHtml(s.session_type)}</span>
+        <div><div class="label">${escapeHtml(s.title || "(无标题)")}</div>
+          <div class="sub" style="font-family:var(--mono);font-size:10px">${s.id}</div></div>
+        <span class="time">${s.date || formatTime(s.created_at)}</span>
+        <span class="action" onclick="switchToSession('${s.id}')">💬 切到这个</span>
+      `;
+      box.appendChild(div);
+    }
+  } catch (e) {
+    document.getElementById("list-sessions").innerHTML = `<div class="empty">load 失败: ${e.message}</div>`;
+  }
+}
+
+async function switchToSession(sid) {
+  localStorage.setItem(SK, sid);
+  localStorage.removeItem(EK);
+  updateSessionDisplay();
+  // Replay history from DB so the user sees prior turns + cards before
+  // continuing the conversation.
+  await loadSessionHistory(sid);
+}
+
+// Fetch persisted message log and convert each DB Message row into the
+// shape `renderMessages` expects ({role, text} for user, {role, parts:[]}
+// for agent). Both /api/chat and /api/flash write to the `messages` table
+// via persist_chat_turn, so this works for both surfaces.
+async function loadSessionHistory(sid) {
+  const box = document.getElementById("messages");
+  box.innerHTML = `<div class="empty">加载中…</div>`;
+  try {
+    const r = await fetch(`${API}/api/sessions/${sid}/messages`);
+    const d = await r.json();
+    messages = (d.messages || []).map(m => {
+      if (m.role === "user") return { role: "user", text: m.text || "" };
+      const parts = [];
+      if (m.tool_call)   parts.push({ type: "tool_call",   name: m.tool_call.name,   args: m.tool_call.args });
+      if (m.tool_result) parts.push({ type: "tool_result", name: m.tool_result.name, response: m.tool_result.response });
+      if (m.text)        parts.push({ type: "text",  text: m.text });
+      if (m.cards?.length) parts.push({ type: "cards", cards: m.cards });
+      return { role: m.role, parts };
+    });
+    renderMessages();
+  } catch (e) {
+    box.innerHTML = `<div class="empty">加载失败: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function anchorEvent(eid) {
+  localStorage.setItem(EK, eid);
+  // 锚定 event 时不复用之前的 session — 启新对话
+  localStorage.removeItem(SK);
+  updateSessionDisplay();
+  messages = [];
+  renderMessages();
+  alert("已锚定到 event " + eid.slice(0,8) + "…\n下条 chat 会自动注入这个 event 上下文(Assistant 会调 get_event)");
+}
+
+function switchTab(tab) {
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === tab));
+  for (const k of ["timeline", "events", "assets", "sessions"]) {
+    document.getElementById(`list-${k}`).style.display = k === tab ? "" : "none";
+  }
+}
+
+// ─── design agent ─────────────────────────────────────────────
+async function submitDesign() {
+  const desc = document.getElementById("design-text").value.trim();
+  if (!desc) return;
+  const out = document.getElementById("design-output");
+  out.textContent = "设计中(20-40 秒)…";
+  try {
+    const r = await fetch(`${API}/api/skills`, {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ description: desc }),
+    });
+    const d = await r.json();
+    out.textContent = JSON.stringify(d, null, 2);
+  } catch (e) {
+    out.textContent = "请求失败: " + e.message;
+  }
+}
+
+// ─── utils ────────────────────────────────────────────────────
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c =>
+    ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+function formatTime(iso) {
+  if (!iso) return "";
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso.slice(0, 16);
+    const M = d.getMonth() + 1, D = d.getDate();
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    return `${M}/${D} ${hh}:${mm}`;
+  } catch { return iso.slice(0, 16); }
+}
+
+// ─── boot ─────────────────────────────────────────────────────
+checkHealth();
+updateSessionDisplay();
+loadAll();
+// Replay prior turns if we have a cached session — so refresh / reload
+// doesn't wipe what the user sees, even though the DB has it all.
+(function bootHistory() {
+  const sid = localStorage.getItem(SK);
+  if (sid) loadSessionHistory(sid);
+})();
+setInterval(checkHealth, 15000);
+
+// 回车提交
+document.getElementById("chat-text").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submitChat();
+});
+document.getElementById("flash-text").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submitFlash();
+});
+</script>
+</body>
+</html>

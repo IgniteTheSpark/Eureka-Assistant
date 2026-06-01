@@ -1,0 +1,114 @@
+{
+  "$schema": "https://design-tokens.org/schema/draft.json",
+  "name": "Eureka · Lab",
+  "description": "Variation C — Editorial dark. Display sans + mono numerals, strong rules, accent markers + faint tint.",
+  "version": "0.1.0",
+  "mode": "dark",
+  "font": {
+    "family": {
+      "display": { "value": "\"Manrope\", \"Noto Sans SC\", system-ui, sans-serif" },
+      "sans":    { "value": "\"IBM Plex Sans\", \"Noto Sans SC\", system-ui, sans-serif" },
+      "mono":    { "value": "\"IBM Plex Mono\", ui-monospace, monospace" }
+    },
+    "size": {
+      "xs":   { "value": "10.5px" },
+      "sm":   { "value": "12px" },
+      "base": { "value": "13.5px" },
+      "md":   { "value": "15px" },
+      "lg":   { "value": "18px" },
+      "xl":   { "value": "24px" },
+      "2xl":  { "value": "30px" },
+      "3xl":  { "value": "38px" },
+      "4xl":  { "value": "64px" }
+    },
+    "weight": {
+      "regular":  { "value": 400 },
+      "medium":   { "value": 500 },
+      "semibold": { "value": 600 },
+      "bold":     { "value": 700 }
+    },
+    "lineHeight": {
+      "tight": { "value": 1.25 },
+      "body":  { "value": 1.6 },
+      "loose": { "value": 1.7 }
+    },
+    "letterSpacing": {
+      "display": { "value": "-0.035em" },
+      "body":    { "value": "0" },
+      "label":   { "value": "0.18em" },
+      "caps":    { "value": "0.22em" }
+    }
+  },
+  "color": {
+    "bg":             { "value": "#0a0c10" },
+    "surface":        { "value": "#11141a" },
+    "surface.raised": { "value": "#161a22" },
+    "surface.hover":  { "value": "#1d2230" },
+    "border":         { "value": "#22272f" },
+    "border.strong":  { "value": "#3a4150" },
+    "rule":           { "value": "#1e2330" },
+    "text.hi":        { "value": "#eef1f6" },
+    "text":           { "value": "#c8cfd9" },
+    "text.mid":       { "value": "#8a93a1" },
+    "text.lo":        { "value": "#5a626e" },
+    "text.muted":     { "value": "#3b4250" },
+    "brand":          { "value": "#7396d4" },
+    "brand.hi":       { "value": "#a0b8e0" },
+    "brand.faint":    { "value": "rgba(115,150,212,0.08)" },
+    "brand.line":     { "value": "rgba(115,150,212,0.28)" },
+    "accent.blue":    { "fg": "#88aae0", "bg": "rgba(136,170,224,0.06)", "edge": "rgba(136,170,224,0.22)", "marker": "#88aae0", "role": "default · todo" },
+    "accent.amber":   { "fg": "#d4b366", "bg": "rgba(212,179,102,0.06)", "edge": "rgba(212,179,102,0.22)", "marker": "#d4b366", "role": "idea · reminder" },
+    "accent.green":   { "fg": "#8cc09a", "bg": "rgba(140,192,154,0.06)", "edge": "rgba(140,192,154,0.22)", "marker": "#8cc09a", "role": "expense · positive" },
+    "accent.red":     { "fg": "#e08a98", "bg": "rgba(224,138,152,0.06)", "edge": "rgba(224,138,152,0.22)", "marker": "#e08a98", "role": "urgent · overdue" },
+    "accent.purple":  { "fg": "#b09cd8", "bg": "rgba(176,156,216,0.06)", "edge": "rgba(176,156,216,0.22)", "marker": "#b09cd8", "role": "event · calendar" },
+    "accent.gray":    { "fg": "#8a93a1", "bg": "rgba(138,147,161,0.06)", "edge": "rgba(138,147,161,0.20)", "marker": "#8a93a1", "role": "secondary" },
+    "accent.neutral": { "fg": "#c8cfd9", "bg": "rgba(200,207,217,0.04)", "edge": "rgba(200,207,217,0.16)", "marker": "#c8cfd9", "role": "no semantic · contact" },
+    "semantic.success": { "value": "#8cc09a" },
+    "semantic.warning": { "value": "#d4b366" },
+    "semantic.error":   { "value": "#e08a98" },
+    "semantic.info":    { "value": "#88aae0" }
+  },
+  "spacing": {
+    "xs":  { "value": "4px" },
+    "sm":  { "value": "8px" },
+    "md":  { "value": "12px" },
+    "lg":  { "value": "18px" },
+    "xl":  { "value": "28px" },
+    "2xl": { "value": "40px" },
+    "3xl": { "value": "56px" },
+    "4xl": { "value": "72px" }
+  },
+  "radius": {
+    "sm":   { "value": "2px" },
+    "md":   { "value": "4px" },
+    "lg":   { "value": "8px" },
+    "xl":   { "value": "12px" },
+    "full": { "value": "9999px" }
+  },
+  "shadow": {
+    "sm": { "value": "0 1px 0 rgba(0,0,0,0.40)" },
+    "md": { "value": "0 4px 12px rgba(0,0,0,0.40)" },
+    "lg": { "value": "0 12px 32px rgba(0,0,0,0.50)" }
+  },
+  "border": {
+    "rule":    { "value": "1px solid #1e2330" },
+    "default": { "value": "1px solid #22272f" },
+    "strong":  { "value": "1px solid #3a4150" }
+  },
+  "motion": {
+    "duration": {
+      "fast":   { "value": "120ms" },
+      "normal": { "value": "240ms" },
+      "slow":   { "value": "400ms" }
+    },
+    "easing": {
+      "inOut": { "value": "cubic-bezier(.2,.7,.3,1)" },
+      "out":   { "value": "cubic-bezier(.2,.8,.3,1)" },
+      "in":    { "value": "cubic-bezier(.5,0,.7,.3)" }
+    },
+    "stagger": {
+      "card":  { "value": "50ms" },
+      "token": { "value": "32ms" }
+    }
+  }
+}

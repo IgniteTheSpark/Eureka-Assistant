@@ -1,0 +1,111 @@
+{
+  "$schema": "https://design-tokens.org/schema/draft.json",
+  "name": "Eureka · Slate",
+  "description": "Variation A — Engineering-grade quiet tech. Dark-first, cool neutrals, low-saturation accents.",
+  "version": "0.1.0",
+  "mode": "dark",
+  "font": {
+    "family": {
+      "sans":  { "value": "\"IBM Plex Sans\", \"Noto Sans SC\", system-ui, sans-serif" },
+      "mono":  { "value": "\"IBM Plex Mono\", ui-monospace, monospace" }
+    },
+    "size": {
+      "xs":   { "value": "11px" },
+      "sm":   { "value": "12px" },
+      "base": { "value": "13px" },
+      "md":   { "value": "14px" },
+      "lg":   { "value": "16px" },
+      "xl":   { "value": "20px" },
+      "2xl":  { "value": "24px" },
+      "3xl":  { "value": "32px" },
+      "4xl":  { "value": "44px" }
+    },
+    "weight": {
+      "regular":  { "value": 400 },
+      "medium":   { "value": 500 },
+      "semibold": { "value": 600 }
+    },
+    "lineHeight": {
+      "tight":  { "value": 1.3 },
+      "body":   { "value": 1.5 },
+      "loose":  { "value": 1.65 }
+    },
+    "letterSpacing": {
+      "heading":  { "value": "-0.015em" },
+      "body":     { "value": "0" },
+      "caps":     { "value": "0.18em" },
+      "mono":     { "value": "0.02em" }
+    }
+  },
+  "color": {
+    "bg":            { "value": "#0d1117", "light": "#fafbfc" },
+    "surface":       { "value": "#161b22", "light": "#ffffff" },
+    "surface.raised":{ "value": "#1c2128", "light": "#f4f5f7" },
+    "surface.hover": { "value": "#22272e", "light": "#eceef2" },
+    "border":        { "value": "#2d333b", "light": "#d8dde3" },
+    "border.strong": { "value": "#444c56", "light": "#b3bac4" },
+    "text.hi":       { "value": "#e6edf3", "light": "#11151c" },
+    "text":          { "value": "#cdd9e5", "light": "#1f2731" },
+    "text.mid":      { "value": "#9aa5b1", "light": "#5a6470" },
+    "text.lo":       { "value": "#6e7681", "light": "#828a96" },
+    "text.muted":    { "value": "#4d555f", "light": "#a8b0bb" },
+    "brand":         { "value": "#5b8def", "light": "#2a4d8f" },
+    "brand.hi":      { "value": "#7aa2f7", "light": "#1f3d72" },
+    "brand.faint":   { "value": "rgba(91,141,239,0.10)", "light": "rgba(42,77,143,0.06)" },
+    "brand.line":    { "value": "rgba(91,141,239,0.30)", "light": "rgba(42,77,143,0.30)" },
+    "accent.blue":    { "fg": "#7aa2f7", "bg": "rgba(122,162,247,0.09)", "edge": "rgba(122,162,247,0.22)", "solid": "#5b8def", "role": "default · todo" },
+    "accent.amber":   { "fg": "#e0af68", "bg": "rgba(224,175,104,0.09)", "edge": "rgba(224,175,104,0.22)", "solid": "#d49a4d", "role": "idea · reminder" },
+    "accent.green":   { "fg": "#9ece6a", "bg": "rgba(158,206,106,0.09)", "edge": "rgba(158,206,106,0.22)", "solid": "#7fb950", "role": "expense · positive" },
+    "accent.red":     { "fg": "#f7768e", "bg": "rgba(247,118,142,0.09)", "edge": "rgba(247,118,142,0.22)", "solid": "#e25c75", "role": "urgent · overdue" },
+    "accent.purple":  { "fg": "#bb9af7", "bg": "rgba(187,154,247,0.09)", "edge": "rgba(187,154,247,0.22)", "solid": "#a07ce0", "role": "event · calendar" },
+    "accent.gray":    { "fg": "#9aa5b1", "bg": "rgba(154,165,177,0.08)", "edge": "rgba(154,165,177,0.20)", "solid": "#7a8593", "role": "secondary" },
+    "accent.neutral": { "fg": "#cdd9e5", "bg": "rgba(205,217,229,0.04)", "edge": "rgba(205,217,229,0.14)", "solid": "#9aa5b1", "role": "no semantic · contact" },
+    "semantic.success": { "value": "#9ece6a" },
+    "semantic.warning": { "value": "#e0af68" },
+    "semantic.error":   { "value": "#f7768e" },
+    "semantic.info":    { "value": "#7aa2f7" }
+  },
+  "spacing": {
+    "xs":  { "value": "4px" },
+    "sm":  { "value": "8px" },
+    "md":  { "value": "12px" },
+    "lg":  { "value": "16px" },
+    "xl":  { "value": "24px" },
+    "2xl": { "value": "32px" },
+    "3xl": { "value": "48px" },
+    "4xl": { "value": "64px" }
+  },
+  "radius": {
+    "sm":   { "value": "4px" },
+    "md":   { "value": "6px" },
+    "lg":   { "value": "10px" },
+    "xl":   { "value": "14px" },
+    "full": { "value": "9999px" }
+  },
+  "shadow": {
+    "sm": { "value": "0 1px 0 rgba(0,0,0,0.3)" },
+    "md": { "value": "0 2px 8px rgba(0,0,0,0.30), 0 0 0 1px rgba(0,0,0,0.25)" },
+    "lg": { "value": "0 8px 24px rgba(0,0,0,0.40), 0 0 0 1px rgba(0,0,0,0.25)" }
+  },
+  "border": {
+    "subtle":  { "value": "1px solid rgba(255,255,255,0.04)" },
+    "default": { "value": "1px solid #2d333b" },
+    "strong":  { "value": "1px solid #444c56" }
+  },
+  "motion": {
+    "duration": {
+      "fast":   { "value": "150ms" },
+      "normal": { "value": "250ms" },
+      "slow":   { "value": "400ms" }
+    },
+    "easing": {
+      "inOut": { "value": "cubic-bezier(.2,.7,.3,1)" },
+      "out":   { "value": "cubic-bezier(.2,.8,.3,1)" },
+      "in":    { "value": "cubic-bezier(.5,0,.7,.3)" }
+    },
+    "stagger": {
+      "card":  { "value": "60ms" },
+      "token": { "value": "32ms" }
+    }
+  }
+}

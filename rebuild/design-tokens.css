@@ -1,0 +1,200 @@
+/* tokens.css — Eureka design tokens (default: Variation A · Slate)
+ * Generated from tokens/eureka-tokens-a.json. Switch by overriding :root
+ * with one of .theme-atmosphere / .theme-lab.
+ * Light-mode values live on .theme-light (where defined).
+ */
+
+:root {
+  /* ── Font families ───────────────────────────── */
+  --eu-font-sans: "IBM Plex Sans", "Noto Sans SC", system-ui, sans-serif;
+  --eu-font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  /* ── Font sizes ──────────────────────────────── */
+  --eu-fs-xs:   11px;
+  --eu-fs-sm:   12px;
+  --eu-fs-base: 13px;
+  --eu-fs-md:   14px;
+  --eu-fs-lg:   16px;
+  --eu-fs-xl:   20px;
+  --eu-fs-2xl:  24px;
+  --eu-fs-3xl:  32px;
+  --eu-fs-4xl:  44px;
+
+  /* ── Font weights ────────────────────────────── */
+  --eu-fw-regular:  400;
+  --eu-fw-medium:   500;
+  --eu-fw-semibold: 600;
+
+  /* ── Line height ─────────────────────────────── */
+  --eu-lh-tight: 1.3;
+  --eu-lh-body:  1.5;
+  --eu-lh-loose: 1.65;
+
+  /* ── Letter spacing ──────────────────────────── */
+  --eu-ls-heading: -0.015em;
+  --eu-ls-body:    0;
+  --eu-ls-caps:    0.18em;
+  --eu-ls-mono:    0.02em;
+
+  /* ── Surfaces ────────────────────────────────── */
+  --eu-bg:             #0d1117;
+  --eu-surface:        #161b22;
+  --eu-surface-raised: #1c2128;
+  --eu-surface-hover:  #22272e;
+  --eu-border:         #2d333b;
+  --eu-border-strong:  #444c56;
+
+  /* ── Text ────────────────────────────────────── */
+  --eu-text-hi:    #e6edf3;
+  --eu-text:       #cdd9e5;
+  --eu-text-mid:   #9aa5b1;
+  --eu-text-lo:    #6e7681;
+  --eu-text-muted: #4d555f;
+
+  /* ── Brand ───────────────────────────────────── */
+  --eu-brand:        #5b8def;
+  --eu-brand-hi:     #7aa2f7;
+  --eu-brand-faint:  rgba(91,141,239,0.10);
+  --eu-brand-line:   rgba(91,141,239,0.30);
+
+  /* ── Accents (7 semantic slots) ──────────────── */
+  --eu-accent-blue-fg:    #7aa2f7;
+  --eu-accent-blue-bg:    rgba(122,162,247,0.09);
+  --eu-accent-blue-edge:  rgba(122,162,247,0.22);
+  --eu-accent-blue-solid: #5b8def;
+
+  --eu-accent-amber-fg:    #e0af68;
+  --eu-accent-amber-bg:    rgba(224,175,104,0.09);
+  --eu-accent-amber-edge:  rgba(224,175,104,0.22);
+  --eu-accent-amber-solid: #d49a4d;
+
+  --eu-accent-green-fg:    #9ece6a;
+  --eu-accent-green-bg:    rgba(158,206,106,0.09);
+  --eu-accent-green-edge:  rgba(158,206,106,0.22);
+  --eu-accent-green-solid: #7fb950;
+
+  --eu-accent-red-fg:    #f7768e;
+  --eu-accent-red-bg:    rgba(247,118,142,0.09);
+  --eu-accent-red-edge:  rgba(247,118,142,0.22);
+  --eu-accent-red-solid: #e25c75;
+
+  --eu-accent-purple-fg:    #bb9af7;
+  --eu-accent-purple-bg:    rgba(187,154,247,0.09);
+  --eu-accent-purple-edge:  rgba(187,154,247,0.22);
+  --eu-accent-purple-solid: #a07ce0;
+
+  --eu-accent-gray-fg:    #9aa5b1;
+  --eu-accent-gray-bg:    rgba(154,165,177,0.08);
+  --eu-accent-gray-edge:  rgba(154,165,177,0.20);
+  --eu-accent-gray-solid: #7a8593;
+
+  --eu-accent-neutral-fg:    #cdd9e5;
+  --eu-accent-neutral-bg:    rgba(205,217,229,0.04);
+  --eu-accent-neutral-edge:  rgba(205,217,229,0.14);
+  --eu-accent-neutral-solid: #9aa5b1;
+
+  /* ── Semantic (alias) ────────────────────────── */
+  --eu-success: var(--eu-accent-green-fg);
+  --eu-warning: var(--eu-accent-amber-fg);
+  --eu-error:   var(--eu-accent-red-fg);
+  --eu-info:    var(--eu-accent-blue-fg);
+
+  /* ── Spacing ─────────────────────────────────── */
+  --eu-sp-xs:  4px;
+  --eu-sp-sm:  8px;
+  --eu-sp-md:  12px;
+  --eu-sp-lg:  16px;
+  --eu-sp-xl:  24px;
+  --eu-sp-2xl: 32px;
+  --eu-sp-3xl: 48px;
+  --eu-sp-4xl: 64px;
+
+  /* ── Radius ──────────────────────────────────── */
+  --eu-r-sm:   4px;
+  --eu-r-md:   6px;
+  --eu-r-lg:   10px;
+  --eu-r-xl:   14px;
+  --eu-r-full: 9999px;
+
+  /* ── Shadow ──────────────────────────────────── */
+  --eu-shadow-sm: 0 1px 0 rgba(0,0,0,0.3);
+  --eu-shadow-md: 0 2px 8px rgba(0,0,0,0.30), 0 0 0 1px rgba(0,0,0,0.25);
+  --eu-shadow-lg: 0 8px 24px rgba(0,0,0,0.40), 0 0 0 1px rgba(0,0,0,0.25);
+
+  /* ── Motion ──────────────────────────────────── */
+  --eu-dur-fast:   150ms;
+  --eu-dur-normal: 250ms;
+  --eu-dur-slow:   400ms;
+  --eu-ease-in-out: cubic-bezier(.2,.7,.3,1);
+  --eu-ease-out:    cubic-bezier(.2,.8,.3,1);
+  --eu-ease-in:     cubic-bezier(.5,0,.7,.3);
+  --eu-stagger-card:  60ms;
+  --eu-stagger-token: 32ms;
+}
+
+/* ── Theme: Atmosphere ─────────────────────────── */
+.theme-atmosphere,
+[data-theme="atmosphere"] {
+  --eu-font-sans: "Manrope", "Noto Sans SC", system-ui, sans-serif;
+  --eu-font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --eu-bg: #0b1220;
+  --eu-surface: rgba(255,255,255,0.025);
+  --eu-surface-raised: rgba(255,255,255,0.045);
+  --eu-surface-hover: rgba(255,255,255,0.07);
+  --eu-border: rgba(255,255,255,0.07);
+  --eu-border-strong: rgba(255,255,255,0.14);
+
+  --eu-text-hi: #f4f7fb;
+  --eu-text: #d4dbe6;
+  --eu-text-mid: #9aa6b8;
+  --eu-text-lo: #6c7689;
+  --eu-text-muted: #4a5364;
+
+  --eu-brand: #6f9eff;
+  --eu-brand-hi: #a4c2ff;
+  --eu-brand-faint: rgba(111,158,255,0.12);
+  --eu-brand-line: rgba(111,158,255,0.32);
+  --eu-brand-glow: 0 0 24px rgba(111,158,255,0.35);
+
+  --eu-r-sm: 8px; --eu-r-md: 12px; --eu-r-lg: 16px; --eu-r-xl: 24px;
+  --eu-dur-fast: 150ms; --eu-dur-normal: 280ms; --eu-dur-slow: 420ms;
+}
+
+/* ── Theme: Lab ────────────────────────────────── */
+.theme-lab,
+[data-theme="lab"] {
+  --eu-font-sans: "IBM Plex Sans", "Noto Sans SC", system-ui, sans-serif;
+  --eu-font-display: "Manrope", "Noto Sans SC", system-ui, sans-serif;
+  --eu-font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --eu-bg: #0a0c10;
+  --eu-surface: #11141a;
+  --eu-surface-raised: #161a22;
+  --eu-surface-hover: #1d2230;
+  --eu-border: #22272f;
+  --eu-border-strong: #3a4150;
+  --eu-rule: #1e2330;
+
+  --eu-text-hi: #eef1f6;
+  --eu-text: #c8cfd9;
+  --eu-text-mid: #8a93a1;
+  --eu-text-lo: #5a626e;
+
+  --eu-brand: #7396d4;
+  --eu-brand-hi: #a0b8e0;
+  --eu-brand-faint: rgba(115,150,212,0.08);
+  --eu-brand-line: rgba(115,150,212,0.28);
+
+  --eu-r-sm: 2px; --eu-r-md: 4px; --eu-r-lg: 8px; --eu-r-xl: 12px;
+  --eu-dur-fast: 120ms; --eu-dur-normal: 240ms; --eu-dur-slow: 400ms;
+}
+
+/* ── Base ──────────────────────────────────────── */
+body.eu {
+  background: var(--eu-bg);
+  color: var(--eu-text);
+  font-family: var(--eu-font-sans);
+  font-size: var(--eu-fs-base);
+  line-height: var(--eu-lh-body);
+}

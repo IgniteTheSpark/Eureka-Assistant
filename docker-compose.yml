@@ -1,0 +1,53 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: eureka
+      POSTGRES_PASSWORD: eureka
+      POSTGRES_DB: eureka
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eureka"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://eureka:eureka@db:5432/eureka
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      USER_ID: default
+
+      # ── Third-party MCP toggles & credentials (v1.4.x) ──
+      # Toggle: which MCPs are enabled. Comma-separated names matching keys in
+      # backend/agents/mcp_config.MCP_SERVERS. Empty = only fake_external.
+      EUREKA_MCP_ENABLED: ${EUREKA_MCP_ENABLED:-fake_external}
+
+      # Google Calendar (nspady/google-calendar-mcp via npx)
+      GOOGLE_OAUTH_CREDENTIALS:        /mcp-credentials/google-calendar-creds.json
+      GOOGLE_CALENDAR_MCP_TOKEN_PATH:  /mcp-credentials/google-calendar-token.json
+
+      # Dingtalk AIHub — 官方托管 MCP (streamable_http transport,URL 里嵌 key).
+      # 每个 instance 一个 env var,URL 从 AIHub 实例页拷贝(含 ?key=…)
+      DINGTALK_AIHUB_URL_CALENDAR: ${DINGTALK_AIHUB_URL_CALENDAR:-}  # mcpId=1050 钉钉日历
+      DINGTALK_AIHUB_URL_TODO:     ${DINGTALK_AIHUB_URL_TODO:-}      # mcpId=2034 钉钉待办
+      DINGTALK_AIHUB_URL_NOTES:    ${DINGTALK_AIHUB_URL_NOTES:-}     # 钉钉笔记 / 文档
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      # OAuth credentials + cached tokens for third-party MCPs. Host folder
+      # `./mcp-credentials/` is git-ignored; you place creds files here.
+      - ./mcp-credentials:/mcp-credentials
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+volumes:
+  pgdata:

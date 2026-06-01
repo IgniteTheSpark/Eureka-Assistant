@@ -1,0 +1,4 @@
+# Anything in this folder is a secret. Never commit.
+*
+!.gitignore
+!README.md
