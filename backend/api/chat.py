@@ -33,8 +33,8 @@ from google.genai.types import Content, Part
 from agents.assistant import make_assistant_agent
 from core.auth import get_current_user_id
 from core.event_mapper import (
-    event_role, event_text, event_tool_call, event_tool_result,
-    is_streamable_token,
+    event_role, event_text,
+    event_tool_calls, event_tool_results, is_streamable_token,
 )
 from core.session_service import (
     get_or_create_chat_session,
@@ -147,16 +147,21 @@ async def _stream_assistant(
     async for event in runner.run_async(
         user_id=user_id, session_id=adk_sid, new_message=new_message,
     ):
-        # Tool call → emit SSE 'tool_call' event
-        tc = event_tool_call(event)
-        if tc:
-            yield ("tool_call", tc)
+        # Tool calls → emit one SSE 'tool_call' per call. ADK batches parallel
+        # calls into a single event; emit them ALL or multi-intent turns lose
+        # every card after the first (the bug behind the missing 联系人 card +
+        # the "no progress hint after the first asset" reports).
+        calls = event_tool_calls(event)
+        if calls:
+            for tc in calls:
+                yield ("tool_call", tc)
             continue
 
-        # Tool result → emit SSE 'tool_result' event
-        tr = event_tool_result(event)
-        if tr:
-            yield ("tool_result", tr)
+        # Tool results → emit one SSE 'tool_result' per result (same reason).
+        results = event_tool_results(event)
+        if results:
+            for tr in results:
+                yield ("tool_result", tr)
             continue
 
         # Final response → emit 'token' (whole reply)

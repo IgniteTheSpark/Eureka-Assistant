@@ -85,6 +85,20 @@ function AgentBubble({
           </div>
         )}
 
+        {/* Persistent "still working" hint between steps. A settled card /
+            result (or query chip) gives no signal that the agent is still
+            going, so multi-intent turns looked stalled after each asset. The
+            in-flight tool_call already shows its own "X中…" chip and streaming
+            text shows a cursor, so only fill the gap after a settled part. */}
+        {streaming && parts.length > 0 &&
+          parts[parts.length - 1].type !== "tool_call" &&
+          parts[parts.length - 1].type !== "text" && (
+          <div className="flex items-center gap-1.5 text-eu-sm text-eu-text-lo italic">
+            <Loader2 size={12} strokeWidth={1.75} className="animate-spin" />
+            处理中…
+          </div>
+        )}
+
         {/* Precipitate button only on completed agent messages with text */}
         {!streaming && fullText.length > 8 && onPrecipitate && (
           <button

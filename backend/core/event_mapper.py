@@ -49,36 +49,55 @@ def event_text(event: Any) -> str:
     return ""
 
 
-def event_tool_call(event: Any) -> Optional[dict]:
-    """If this event represents a tool call, return {name, args}; else None."""
+def event_tool_calls(event: Any) -> list[dict]:
+    """ALL tool calls in this event, as [{name, args}, ...].
+
+    ADK batches parallel function calls into ONE event (deepseek does this for
+    multi-intent turns like "记一笔账 + 建个事件 + 加个联系人"). The old singular
+    accessor returned only calls[0], so every call after the first executed on
+    the backend but was silently dropped from the SSE stream — the user saw one
+    card instead of all of them. Return every call so the stream is complete.
+    """
     if not hasattr(event, "get_function_calls"):
-        return None
-    calls = event.get_function_calls() or []
-    if not calls:
-        return None
-    fc = calls[0]
-    args = getattr(fc, "args", None) or {}
-    try:
-        args_dict = dict(args)
-    except (TypeError, ValueError):
-        args_dict = {"_raw": str(args)}
-    return {"name": getattr(fc, "name", "unknown"), "args": args_dict}
+        return []
+    out: list[dict] = []
+    for fc in event.get_function_calls() or []:
+        args = getattr(fc, "args", None) or {}
+        try:
+            args_dict = dict(args)
+        except (TypeError, ValueError):
+            args_dict = {"_raw": str(args)}
+        out.append({"name": getattr(fc, "name", "unknown"), "args": args_dict})
+    return out
+
+
+def event_tool_results(event: Any) -> list[dict]:
+    """ALL tool results in this event, as [{name, response}, ...]. See
+    event_tool_calls — parallel results were dropped the same way."""
+    if not hasattr(event, "get_function_responses"):
+        return []
+    out: list[dict] = []
+    for fr in event.get_function_responses() or []:
+        resp = getattr(fr, "response", None) or {}
+        try:
+            resp_dict = dict(resp)
+        except (TypeError, ValueError):
+            resp_dict = {"_raw": str(resp)}
+        out.append({"name": getattr(fr, "name", "unknown"), "response": resp_dict})
+    return out
+
+
+def event_tool_call(event: Any) -> Optional[dict]:
+    """First tool call as {name, args}, or None. (Back-compat singular; prefer
+    event_tool_calls for streaming so parallel calls aren't dropped.)"""
+    calls = event_tool_calls(event)
+    return calls[0] if calls else None
 
 
 def event_tool_result(event: Any) -> Optional[dict]:
-    """If this event represents a tool result, return {name, response}; else None."""
-    if not hasattr(event, "get_function_responses"):
-        return None
-    responses = event.get_function_responses() or []
-    if not responses:
-        return None
-    fr = responses[0]
-    resp = getattr(fr, "response", None) or {}
-    try:
-        resp_dict = dict(resp)
-    except (TypeError, ValueError):
-        resp_dict = {"_raw": str(resp)}
-    return {"name": getattr(fr, "name", "unknown"), "response": resp_dict}
+    """First tool result as {name, response}, or None. (Back-compat singular.)"""
+    results = event_tool_results(event)
+    return results[0] if results else None
 
 
 def is_streamable_token(event: Any) -> bool:

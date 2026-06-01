@@ -105,6 +105,38 @@ function AssetCardBody({ data, onOpen }: AssetCardInChatProps) {
     );
   }
 
+  // Contacts (tool_create_contact / tool_query_contact) come back FLAT —
+  // {contact_id, name, phone, company, title(=job), email, …} with NO payload.
+  // Their `title` field (the job title, often empty) would otherwise trip the
+  // prebuilt-card branch below into rendering an empty card (title=""). Handle
+  // them explicitly, mirroring the flash _contact_card shape (title=name).
+  if (skillName === "contact" && (data.contact_id || data.name)) {
+    const name    = String(data.name ?? "联系人");
+    const company = typeof data.company === "string" ? data.company : "";
+    const action  = data.contact_action === "updated" ? "已更新" : "已新建";
+    const meta: CardData["metaFields"] = [];
+    if (typeof data.phone === "string" && data.phone) meta.push({ field: "phone", value: data.phone });
+    if (typeof data.title === "string" && data.title) meta.push({ field: "title", value: data.title });
+    const cardData: CardData = {
+      cardType:    "contact",
+      layout:      "horizontal",
+      icon:        "👤",
+      accentColor: "neutral",
+      title:       name,
+      subtitle:    company ? `${action} · ${company}` : action,
+      metaFields:  meta,
+      actions:     [],
+      assetId:     pickString(data, ["contact_id"]),
+    };
+    return (
+      <SkillCard
+        data={cardData}
+        layoutOverride="horizontal"
+        onClick={onOpen ? () => onOpen(cardData, data, null) : undefined}
+      />
+    );
+  }
+
   // Flash pipeline emits a PRE-BUILT card: title/subtitle/icon/accent are
   // already computed server-side (via the skill's render_spec), shaped
   // {card_type, title, subtitle, icon, accent_color, meta_fields, actions,
