@@ -112,8 +112,8 @@ export function DayDetailSheet({
         className="fixed flex flex-col overflow-hidden"
         style={{
           inset: 0,
-          background: "linear-gradient(180deg, #1f3a7a 0%, #131f48 100%)",
-          color: "#ffffff",
+          background: "linear-gradient(180deg, var(--eu-brand-faint) 0%, transparent 38%), var(--eu-bg)",
+          color: "var(--eu-text)",
           fontFamily: '"Manrope","Noto Sans SC", system-ui, sans-serif',
         }}
       >
@@ -131,7 +131,7 @@ export function DayDetailSheet({
               width: 36, height: 36, borderRadius: 999,
               background: "rgba(var(--eu-ink),0.10)",
               border: "1px solid rgba(var(--eu-ink),0.18)",
-              color: "#fff", fontSize: 16, cursor: "pointer",
+              color: "var(--eu-text-hi)", fontSize: 16, cursor: "pointer",
               display: "flex", alignItems: "center", justifyContent: "center",
             }}
           >
@@ -142,7 +142,7 @@ export function DayDetailSheet({
               className="font-display"
               style={{
                 fontSize: 22, fontWeight: 700, letterSpacing: "0.04em",
-                color: "#ffffff",
+                color: "var(--eu-text-hi)",
                 textShadow: "0 0 24px rgba(var(--eu-ink),0.30)",
               }}
             >
@@ -174,7 +174,7 @@ export function DayDetailSheet({
               border: `1px solid ${view === "schedule"
                 ? "rgba(196,168,255,0.45)"
                 : "rgba(var(--eu-ink),0.18)"}`,
-              color: "#fff", fontSize: 12.5, fontWeight: 600,
+              color: "var(--eu-text-hi)", fontSize: 12.5, fontWeight: 600,
               letterSpacing: "0.02em", cursor: "pointer",
               transition: "all 180ms cubic-bezier(.2,.7,.3,1)",
             }}
@@ -324,7 +324,7 @@ export function DayDetailSheet({
                   <div
                     className="line-clamp-2"
                     style={{
-                      fontSize: 13, fontWeight: 600, color: "#ffffff",
+                      fontSize: 13, fontWeight: 600, color: "var(--eu-text-hi)",
                       letterSpacing: "-0.005em", lineHeight: 1.3,
                     }}
                   >
@@ -431,7 +431,7 @@ function AllDayChip({ item, onClick }: { item: TimelineItem; onClick: () => void
         padding: "5px 10px", borderRadius: 999,
         background: "rgba(196,168,255,0.20)",
         border: "1px solid rgba(196,168,255,0.40)",
-        color: "#ffffff", fontSize: 12,
+        color: "var(--eu-text-hi)", fontSize: 12,
         cursor: "pointer", maxWidth: 220,
       }}
       title={item.title}
@@ -510,7 +510,7 @@ function CapturedSection({
                     fontSize: 10.5, padding: "3px 9px", borderRadius: 999,
                     letterSpacing: "0.04em",
                     background: isActive ? "rgba(var(--eu-ink),0.16)" : "rgba(var(--eu-ink),0.05)",
-                    color: isActive ? "#fff" : "rgba(var(--eu-ink),0.55)",
+                    color: isActive ? "var(--eu-text-hi)" : "rgba(var(--eu-ink),0.55)",
                     border: `1px solid ${isActive ? "rgba(var(--eu-ink),0.24)" : "transparent"}`,
                     cursor: "pointer", whiteSpace: "nowrap",
                   }}

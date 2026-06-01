@@ -1,5 +1,8 @@
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import useSWR from "swr";
+
+import { AssetDetailDrawer } from "@/components/asset/AssetDetailDrawer";
 
 import { EventCard } from "@/components/calendar/EventCard";
 import { SkillCard } from "@/components/skill/SkillCard";
@@ -7,7 +10,7 @@ import { SkillsGrid, type SkillTileData, type TileAccent } from "@/components/li
 import { HeaderControls } from "@/components/shell/HeaderControls";
 import { swrFetcher } from "@/lib/api";
 import { buildCard } from "@/lib/render-spec";
-import type { AccentColor } from "@/lib/render-spec";
+import type { AccentColor, CardData } from "@/lib/render-spec";
 import type {
   Asset, AssetsResponse, ContactsResponse, Event,
   EventsResponse, FileRow, FilesResponse,
@@ -129,6 +132,8 @@ const HIDDEN_SKILL_NAMES = new Set(["external_ref", "qa", "contact"]);
 
 export function CategoryList() {
   const { skills } = useSkillRegistry();
+  // 最近 card → open its detail drawer (not the category list).
+  const [detail, setDetail] = useState<{ card: CardData; payload: Record<string, unknown>; sessionId: string | null } | null>(null);
 
   // Pull everything in parallel; SWR dedupes across the hub + drill-down pages.
   const allAssets = useSWR<AssetsResponse>("/api/assets?limit=500", swrFetcher);
@@ -205,22 +210,7 @@ export function CategoryList() {
             {totalCount} ITEMS · LAST 30D
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            className="font-mono"
-            style={{
-              width: 32, height: 32, borderRadius: 999,
-              background: "var(--eu-surface)",
-              border: "1px solid var(--eu-border)",
-              color: "var(--eu-text-mid)", fontSize: 13, cursor: "pointer",
-            }}
-            title="搜索"
-          >
-            ⌕
-          </button>
-          <HeaderControls />
-        </div>
+        <HeaderControls />
       </header>
 
       {/* ── Scrollable body: tiles + 最近 + 扩展 ───────────────────── */}
@@ -269,11 +259,20 @@ export function CategoryList() {
           groupByDay(recent).map(([dayKey, items]) => (
             <div key={dayKey} className="flex flex-col gap-2" style={{ marginBottom: 10 }}>
               <DayHeader label={dayHeaderLabel(dayKey)} />
-              {items.map((r) => <RecentCard key={r.id} item={r} />)}
+              {items.map((r) => <RecentCard key={r.id} item={r} onOpen={setDetail} />)}
             </div>
           ))
         )}
       </div>
+
+      {detail && (
+        <AssetDetailDrawer
+          card={detail.card}
+          payload={detail.payload}
+          sourceSessionId={detail.sessionId}
+          onClose={() => setDetail(null)}
+        />
+      )}
     </div>
   );
 }
@@ -374,8 +373,10 @@ interface RecentItem {
   asset?:   Asset;
 }
 
-function RecentCard({ item }: { item: RecentItem }) {
-  const navigate = useNavigate();
+function RecentCard({ item, onOpen }: {
+  item: RecentItem;
+  onOpen: (d: { card: CardData; payload: Record<string, unknown>; sessionId: string | null }) => void;
+}) {
   const { bySkill } = useSkillRegistry();
   const toggleTodo = useToggleTodo();
 
@@ -386,7 +387,17 @@ function RecentCard({ item }: { item: RecentItem }) {
     return (
       <EventCard
         event={item.event}
-        onClick={() => navigate(item.to)}
+        onClick={() => onOpen({
+          card: buildCard({
+            payload: item.event as unknown as Record<string, unknown>,
+            spec: { card_layout: "horizontal", icon: "📅", accent_color: "purple", primary_field: "title", secondary_field: "start_at", secondary_format: "absolute_date" },
+            assetId: item.event!.event_id,
+            cardType: "event",
+            displayName: item.event!.title,
+          }),
+          payload: item.event as unknown as Record<string, unknown>,
+          sessionId: null,
+        })}
         createdMeta={relativeTime(item.event.created_at)}
       />
     );
@@ -417,7 +428,7 @@ function RecentCard({ item }: { item: RecentItem }) {
         // than expense/event rows, making the list look ragged. Each skill's
         // natural layout still applies inside its own category view.
         layoutOverride="horizontal"
-        onClick={() => navigate(item.to)}
+        onClick={() => onOpen({ card, payload: item.asset!.payload, sessionId: item.asset!.session_id ?? null })}
         onToggleCheck={card.checkDone !== undefined && item.asset
           ? (next) => toggleTodo(item.asset!.id, next)
           : undefined}

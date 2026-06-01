@@ -1,3 +1,4 @@
+import { ArrowLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { NotificationItem } from "@/components/notification/NotificationItem";
@@ -24,18 +25,32 @@ export function NotificationPage() {
       className="flex flex-col h-full"
       style={{
         background:
-          "radial-gradient(800px 500px at 20% -10%, rgba(111,158,255,0.10), transparent 60%), #06070d",
-        color: "#d4dbe6",
+          "radial-gradient(800px 500px at 20% -10%, var(--eu-brand-faint), transparent 60%), var(--eu-bg)",
+        color: "var(--eu-text)",
         fontFamily: '"Manrope","Noto Sans SC", system-ui, sans-serif',
       }}
     >
-      <header className="flex items-baseline justify-between shrink-0" style={{ padding: "8px 22px 14px" }}>
-        <div>
-          <h1 className="font-display" style={{ fontSize: 26, fontWeight: 700, color: "var(--eu-text-hi)", letterSpacing: "-0.02em" }}>
-            通知
-          </h1>
-          <div className="font-mono" style={{ fontSize: 10.5, color: "rgba(var(--eu-ink),0.45)", letterSpacing: "0.16em", marginTop: 4 }}>
-            {unread} UNREAD · {notifications.length} TOTAL
+      <header className="flex items-center justify-between shrink-0" style={{ padding: "8px 22px 14px" }}>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            aria-label="关闭"
+            style={{
+              width: 32, height: 32, borderRadius: 999, display: "grid", placeItems: "center",
+              background: "var(--eu-surface)", border: "1px solid var(--eu-border)",
+              color: "var(--eu-text-mid)", cursor: "pointer",
+            }}
+          >
+            <ArrowLeft size={16} strokeWidth={1.75} />
+          </button>
+          <div>
+            <h1 className="font-display" style={{ fontSize: 26, fontWeight: 700, color: "var(--eu-text-hi)", letterSpacing: "-0.02em" }}>
+              通知
+            </h1>
+            <div className="font-mono" style={{ fontSize: 10.5, color: "rgba(var(--eu-ink),0.45)", letterSpacing: "0.16em", marginTop: 4 }}>
+              {unread} UNREAD · {notifications.length} TOTAL
+            </div>
           </div>
         </div>
         {unread > 0 && (

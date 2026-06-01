@@ -274,7 +274,7 @@ export function ScheduleView({ onItemTap, onDayTap, embedded }: ScheduleViewProp
           style={{
             bottom: 16, left: "50%", transform: "translateX(-50%)",
             width: 44, height: 44, borderRadius: 999,
-            background: "rgba(11,18,32,0.85)",
+            background: "var(--eu-surface-raised)",
             backdropFilter: "blur(8px)",
             border: "1px solid rgba(var(--eu-ink),0.10)",
             color: "rgba(var(--eu-ink),0.85)",
@@ -554,8 +554,8 @@ function IconChip({ glyph }: { glyph: string }) {
  * tint reads as "one continuous river of days" and lets per-item accent
  * dots inside the tile carry the type signal.
  */
-const TILE_BG     = "linear-gradient(135deg, rgba(111,158,255,0.20) 0%, rgba(82,128,200,0.10) 100%), #121a32";
-const TILE_TEXT   = "#ffffff";
+const TILE_BG     = "linear-gradient(135deg, var(--eu-brand-faint) 0%, transparent 100%), var(--eu-surface-raised)";
+const TILE_TEXT   = "var(--eu-text-hi)";
 const TILE_META   = "rgba(var(--eu-ink),0.65)";
 const TILE_DOT_FALLBACK = "rgba(var(--eu-ink),0.55)";
 

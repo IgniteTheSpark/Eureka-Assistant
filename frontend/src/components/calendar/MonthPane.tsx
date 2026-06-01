@@ -284,7 +284,7 @@ function SelectedDayFooter({
       className="shrink-0 eu-noscroll"
       style={{
         borderTop: "1px solid rgba(var(--eu-ink),0.08)",
-        background: "rgba(0,0,0,0.20)",
+        background: "rgba(var(--eu-ink),0.04)",
         // Bottom padding clears the floating dock so the last item isn't
         // hidden behind it (this footer is pinned, not scrolled-through).
         // Per-day creation is via the dock's global + (context-aware add
