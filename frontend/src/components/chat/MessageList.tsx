@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { Loader2 } from "lucide-react";
 
 import { MessageBubble } from "./MessageBubble";
 import type { ChatMessage } from "@/hooks/useChat";
@@ -14,9 +15,12 @@ interface MessageListProps {
   onPrecipitate?: (text: string) => void;
   /** Optional header shown above the first message (e.g. session title) */
   header?: React.ReactNode;
+  /** Flash capture is being processed (input shown, agent result pending) —
+   *  render a "正在整理…" indicator so the multi-second gap has feedback. */
+  analyzing?: boolean;
 }
 
-export function MessageList({ messages, onPrecipitate, header }: MessageListProps) {
+export function MessageList({ messages, onPrecipitate, header, analyzing }: MessageListProps) {
   const scrollRef  = useRef<HTMLDivElement>(null);
   const stickyRef  = useRef(true);
 
@@ -28,13 +32,14 @@ export function MessageList({ messages, onPrecipitate, header }: MessageListProp
     stickyRef.current = gap < 80;
   }
 
-  // After messages change, scroll to bottom if we're sticky
+  // After messages change (or the analyzing indicator toggles), scroll to
+  // bottom if we're sticky.
   useEffect(() => {
     if (!stickyRef.current) return;
     const el = scrollRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
-  }, [messages]);
+  }, [messages, analyzing]);
 
   if (messages.length === 0) {
     return (
@@ -61,6 +66,14 @@ export function MessageList({ messages, onPrecipitate, header }: MessageListProp
       {messages.map((m) => (
         <MessageBubble key={m.id} message={m} onPrecipitate={onPrecipitate} />
       ))}
+      {analyzing && (
+        <div className="flex justify-start">
+          <div className="flex items-center gap-1.5 text-eu-sm text-eu-text-lo italic">
+            <Loader2 size={12} strokeWidth={1.75} className="animate-spin" />
+            正在整理…
+          </div>
+        </div>
+      )}
     </div>
   );
 }

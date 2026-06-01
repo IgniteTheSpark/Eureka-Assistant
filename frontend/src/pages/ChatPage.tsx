@@ -94,6 +94,13 @@ export function ChatPage() {
     initialMessages,
   });
 
+  // Flash captures run server-side (no chat stream), so the agent result lands
+  // seconds after the input. While a flash session's last message is an
+  // unpaired user message, show a "正在整理…" indicator so the gap has feedback.
+  const lastMsg = chat.messages[chat.messages.length - 1];
+  const flashAnalyzing =
+    sessionDetail?.session_type === "flash" && !chat.streaming && lastMsg?.role === "user";
+
   // Seed the chat from DB history ONLY when we genuinely have nothing live.
   //
   // The naive `chat.reset(initialMessages)` on every initialMessages change
@@ -263,6 +270,7 @@ export function ChatPage() {
         <MessageList
           messages={chat.messages}
           onPrecipitate={handlePrecipitate}
+          analyzing={flashAnalyzing}
         />
 
         {/* Sticky bottom — AppShell's pb-0 on /chat lets this sit flush. */}
