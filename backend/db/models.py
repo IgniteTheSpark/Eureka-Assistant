@@ -29,6 +29,7 @@ from sqlalchemy import (
     ForeignKey, UniqueConstraint, Index, DateTime, JSON,
 )
 from sqlalchemy.types import TypeDecorator, CHAR
+from sqlalchemy.dialects.mysql import DATETIME as MySQLDateTime
 from sqlalchemy.orm import declarative_base
 from datetime import datetime, timezone
 import uuid
@@ -65,7 +66,15 @@ class GUID(TypeDecorator):
 
 # Kept name; on MySQL this maps to DATETIME (timezone flag ignored). The app
 # uses tz-aware UTC datetimes everywhere, so store/compare in UTC by convention.
-TIMESTAMPTZ = DateTime(timezone=True)
+#
+# fsp=6 (microsecond precision) on MySQL is REQUIRED for correct ordering:
+# plain DATETIME stores 0 fractional digits, so two rows written in the same
+# turn (user + agent message, or N assets from a multi-create) get an identical
+# created_at and `ORDER BY created_at` then resolves the tie in random
+# (UUID/storage) order → reversed chat replay, scrambled asset lists. Postgres
+# TIMESTAMPTZ keeps microseconds by default, so this only bit after the MySQL
+# migration. The variant keeps Postgres behavior unchanged.
+TIMESTAMPTZ = DateTime(timezone=True).with_variant(MySQLDateTime(fsp=6), "mysql")
 Base = declarative_base()
 
 

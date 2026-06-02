@@ -20,7 +20,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select, func
+from sqlalchemy import select, func, case
 
 from core.auth import get_current_user_id
 from db.database import AsyncSessionLocal
@@ -309,10 +309,14 @@ async def get_session_messages(
         raise HTTPException(status_code=400, detail="invalid session id")
 
     async with AsyncSessionLocal() as db:
+        # Tiebreak by role so a same-second user+agent pair (created in one turn)
+        # never replays inverted. MySQL DATETIME truncates created_at to whole
+        # seconds, so without this the tie resolves in random UUID order.
+        role_rank = case((Message.role == "user", 0), (Message.role == "tool", 1), else_=2)
         messages = (await db.execute(
             select(Message)
             .where(Message.session_id == sid, Message.user_id == user_id)
-            .order_by(Message.created_at.asc())
+            .order_by(Message.created_at.asc(), role_rank.asc())
         )).scalars().all()
 
     return {

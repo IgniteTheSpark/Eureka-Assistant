@@ -23,7 +23,7 @@ demand — NEVER auto-included in chat context.
 import uuid
 from typing import List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import (
@@ -138,10 +138,14 @@ async def load_recent_messages(
     Load the most recent `limit` messages for a session, returned oldest-first
     so they can be replayed into the ADK runner in chronological order.
     """
+    # Tiebreak by role so a same-second user+agent pair never inverts. Query is
+    # newest-first then reversed → use DESC rank (agent>tool>user) so the final
+    # chronological order is user → tool → agent within a tied second.
+    role_rank = case((Message.role == "user", 0), (Message.role == "tool", 1), else_=2)
     result = await db.execute(
         select(Message)
         .where(Message.session_id == uuid.UUID(session_id))
-        .order_by(Message.created_at.desc())
+        .order_by(Message.created_at.desc(), role_rank.desc())
         .limit(limit)
     )
     msgs = list(result.scalars().all())
