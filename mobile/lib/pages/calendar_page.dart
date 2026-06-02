@@ -193,10 +193,10 @@ class _TimelineView extends StatelessWidget {
     }
     final days = groupByDay(data.items);
     return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 80),
+      padding: const EdgeInsets.fromLTRB(12, 6, 16, 80),
       itemCount: days.length,
       itemBuilder: (_, i) =>
-          _DaySection(day: days[i].key, items: days[i].value, skills: data.skills),
+          _DayRow(day: days[i].key, items: days[i].value, skills: data.skills),
     );
   }
 }
@@ -410,49 +410,169 @@ class _YearView extends StatelessWidget {
 
 /* ── shared day section + item row (流 + 月) ────────────────────────────── */
 
-class _DaySection extends StatelessWidget {
+/// A day in the 流: a left date rail (weekday cap + big date, today brand line
+/// + glow) beside a colored tile (brand-faint gradient) holding the day's rows.
+/// Mirrors the web ScheduleView.
+class _DayRow extends StatelessWidget {
   final DateTime day;
   final List<TimelineItem> items;
   final Map<String, SkillMeta> skills;
-  const _DaySection({required this.day, required this.items, required this.skills});
+  const _DayRow({required this.day, required this.items, required this.skills});
 
-  static const _weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+  static const _wd = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 
   @override
   Widget build(BuildContext context) {
     final eu = context.eu;
     final now = DateTime.now();
     final isToday = day.year == now.year && day.month == now.month && day.day == now.day;
-    final label = '${day.month}月${day.day}日 · ${_weekdays[day.weekday - 1]}';
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(width: 54, child: _rail(eu, isToday)),
+            Expanded(child: _tile(eu)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _rail(EurekaColors eu, bool isToday) {
+    return Stack(
       children: [
         Padding(
-          padding: const EdgeInsets.only(top: 14, bottom: 6),
-          child: Row(
+          padding: const EdgeInsets.only(right: 8, top: 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(label,
+              Text(_wd[day.weekday % 7],
+                  style: euMono(
+                      fontSize: 9.5, letterSpacing: 1.4, color: isToday ? eu.brand : eu.textLo)),
+              const SizedBox(height: 2),
+              Text('${day.day}',
                   style: TextStyle(
-                      color: isToday ? eu.brand : eu.textMid,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600)),
-              if (isToday) ...[
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: eu.brand.withValues(alpha: 0.16),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text('今天',
-                      style: TextStyle(
-                          color: eu.brand, fontSize: 10, fontWeight: FontWeight.w600)),
-                ),
-              ],
+                    fontSize: isToday ? 22 : 18,
+                    fontWeight: isToday ? FontWeight.w700 : FontWeight.w500,
+                    color: isToday ? eu.brand : eu.textHi,
+                    shadows: isToday
+                        ? [Shadow(color: eu.brand.withValues(alpha: 0.5), blurRadius: 12)]
+                        : null,
+                  )),
             ],
           ),
         ),
-        for (final it in items) _ItemRow(item: it, skills: skills),
+        if (isToday)
+          Positioned(
+            right: 0,
+            top: 8,
+            bottom: 8,
+            child: Container(
+              width: 2,
+              decoration: BoxDecoration(
+                color: eu.brand,
+                boxShadow: [BoxShadow(color: eu.brand.withValues(alpha: 0.6), blurRadius: 8)],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _tile(EurekaColors eu) {
+    return Container(
+      margin: const EdgeInsets.only(left: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color.alphaBlend(eu.brand.withValues(alpha: 0.10), eu.surfaceRaised),
+            eu.surfaceRaised,
+          ],
+        ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: eu.border),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: eu.brightness == Brightness.dark ? 0.25 : 0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var i = 0; i < items.length; i++) ...[
+            if (i > 0) const SizedBox(height: 8),
+            _TileItemRow(item: items[i], skills: skills),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// A single row inside a 流 day tile (no own background).
+class _TileItemRow extends StatelessWidget {
+  final TimelineItem item;
+  final Map<String, SkillMeta> skills;
+  const _TileItemRow({required this.item, required this.skills});
+
+  String get _time =>
+      '${item.effectiveAt.hour.toString().padLeft(2, '0')}:${item.effectiveAt.minute.toString().padLeft(2, '0')}';
+
+  @override
+  Widget build(BuildContext context) {
+    final eu = context.eu;
+    final isFlash = item.kind == 'input_turn';
+    final entries =
+        isFlash ? item.derived.entries.where((e) => e.value > 0).toList() : const [];
+    final icon = isFlash
+        ? '⚡'
+        : item.kind == 'event'
+            ? '📅'
+            : item.kind == 'contact'
+                ? '👤'
+                : resolveMeta(item.skillName ?? 'misc', skills).icon;
+    final primary = isFlash
+        ? (entries.isEmpty
+            ? (item.title.isEmpty ? '闪念' : item.title)
+            : entries.map((e) {
+                final m = resolveMeta(e.key, skills);
+                return '${m.icon} ${m.label}×${e.value}';
+              }).join('  ·  '))
+        : item.title;
+    final secondary =
+        isFlash ? (entries.isNotEmpty ? item.title : '') : item.subtitle;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(width: 40, child: Text(_time, style: euMono(fontSize: 10.5, color: eu.textLo))),
+        Text(icon, style: const TextStyle(fontSize: 14)),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(primary,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      color: eu.textHi, fontSize: 13.5, fontWeight: FontWeight.w500)),
+              if (secondary.isNotEmpty)
+                Text(secondary,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: eu.textMid, fontSize: 11)),
+            ],
+          ),
+        ),
       ],
     );
   }
