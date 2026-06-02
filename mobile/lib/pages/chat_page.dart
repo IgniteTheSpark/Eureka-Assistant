@@ -19,6 +19,7 @@ class _ChatPageState extends State<ChatPage> {
   final _chat = ChatController();
   final _input = TextEditingController();
   final _scroll = ScrollController();
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
 
   @override
   void initState() {
@@ -65,17 +66,30 @@ class _ChatPageState extends State<ChatPage> {
     final eu = context.eu;
     final msgs = _chat.messages;
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor: eu.bg,
+      drawer: _SessionsDrawer(chat: _chat),
       body: SafeArea(
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+              padding: const EdgeInsets.fromLTRB(8, 8, 8, 6),
               child: Row(
                 children: [
+                  IconButton(
+                    tooltip: '历史对话',
+                    icon: Icon(Icons.history, color: eu.textMid),
+                    onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+                  ),
                   Text('Agent',
                       style: TextStyle(
                           color: eu.textHi, fontSize: 22, fontWeight: FontWeight.w700)),
+                  const Spacer(),
+                  IconButton(
+                    tooltip: '新对话',
+                    icon: Icon(Icons.add_comment_outlined, color: eu.textMid),
+                    onPressed: _chat.reset,
+                  ),
                 ],
               ),
             ),
@@ -175,6 +189,11 @@ class _Bubble extends StatelessWidget {
         if (cards.isEmpty) {
           return _chip(context, '↩ ${_toolLabel(name)} 完成', eu.textLo);
         }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [for (final c in cards) ChatCard(c)],
+        );
+      case CardsPart(:final cards):
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [for (final c in cards) ChatCard(c)],
@@ -317,6 +336,86 @@ class _PrecipitateMenuState extends State<_PrecipitateMenu> {
               Icon(Icons.arrow_drop_down, size: 16, color: eu.textLo),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Drawer listing the user's sessions; tap to replay one, or start 新对话.
+class _SessionsDrawer extends StatefulWidget {
+  final ChatController chat;
+  const _SessionsDrawer({required this.chat});
+
+  @override
+  State<_SessionsDrawer> createState() => _SessionsDrawerState();
+}
+
+class _SessionsDrawerState extends State<_SessionsDrawer> {
+  late final Future<List<SessionInfo>> _future = widget.chat.listSessions();
+
+  @override
+  Widget build(BuildContext context) {
+    final eu = context.eu;
+    return Drawer(
+      backgroundColor: eu.surface,
+      child: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 8, 8),
+              child: Row(
+                children: [
+                  Text('历史对话',
+                      style: TextStyle(
+                          color: eu.textHi, fontSize: 18, fontWeight: FontWeight.w700)),
+                  const Spacer(),
+                  TextButton.icon(
+                    onPressed: () {
+                      widget.chat.reset();
+                      Navigator.of(context).pop();
+                    },
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('新对话'),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: FutureBuilder<List<SessionInfo>>(
+                future: _future,
+                builder: (ctx, snap) {
+                  if (snap.connectionState != ConnectionState.done) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  final ss = snap.data ?? const [];
+                  if (ss.isEmpty) {
+                    return Center(child: Text('暂无会话', style: TextStyle(color: eu.textMid)));
+                  }
+                  return ListView.builder(
+                    itemCount: ss.length,
+                    itemBuilder: (_, i) {
+                      final s = ss[i];
+                      final active = s.id == widget.chat.sessionId;
+                      return ListTile(
+                        title: Text(s.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                color: active ? eu.brand : eu.textHi, fontSize: 14)),
+                        subtitle: Text('${s.createdAt.month}月${s.createdAt.day}日',
+                            style: TextStyle(color: eu.textLo, fontSize: 11)),
+                        onTap: () async {
+                          await widget.chat.loadSession(s.id);
+                          if (context.mounted) Navigator.of(context).pop();
+                        },
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
         ),
       ),
     );

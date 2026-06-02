@@ -26,6 +26,20 @@ class ErrorPart extends ChatPart {
   const ErrorPart(this.message);
 }
 
+/// Persisted created cards replayed from history (a message's `cards` field).
+class CardsPart extends ChatPart {
+  final List<Map<String, dynamic>> cards;
+  const CardsPart(this.cards);
+}
+
+/// A chat session entry for the sidebar.
+class SessionInfo {
+  final String id;
+  final String title;
+  final DateTime createdAt;
+  const SessionInfo(this.id, this.title, this.createdAt);
+}
+
 class ChatMessage {
   final String id;
   final bool isUser;
