@@ -18,7 +18,9 @@ class AppShell extends StatefulWidget {
 }
 
 class _AppShellState extends State<AppShell> {
-  int _index = 0; // 0 = Calendar, 1 = Library, 2 = Chat
+  // 0 = Calendar, 1 = Library, 2 = Chat. START_TAB lets a build boot into a
+  // specific surface (for screenshot/visual verification).
+  int _index = const int.fromEnvironment('START_TAB', defaultValue: 0);
 
   void _go(int i) => setState(() => _index = i);
 
