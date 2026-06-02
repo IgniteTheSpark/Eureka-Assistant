@@ -7,6 +7,6 @@ void main() {
   testWidgets('app shell renders the dock + default surface', (tester) async {
     await tester.pumpWidget(const ProviderScope(child: EurekaApp()));
     expect(find.text('Agent'), findsWidgets); // dock pill + chat header
-    expect(find.text('日历'), findsWidgets); // default (calendar) surface
+    expect(find.text('流'), findsWidgets); // calendar segmented (default surface)
   });
 }

@@ -6,9 +6,9 @@ import '../theme/eureka_colors.dart';
 import '../timeline/timeline.dart';
 import 'notifications_page.dart';
 
-/// Calendar surface — the 流 (schedule) view over GET /api/timeline. Flash
-/// captures render as ⚡ + a derived breakdown (待办×2 · 联系人×1) resolved via
-/// the skill registry. Month / year + day-color tiles are later polish.
+/// Calendar surface with a 流 / 月 / 年 segmented control over GET /api/timeline.
+/// 流 = schedule list (flash captures render as ⚡ + derived breakdown);
+/// 月 = dot grid + selected-day list; 年 = 12-month grid.
 class CalendarPage extends StatefulWidget {
   const CalendarPage({super.key});
 
@@ -19,12 +19,29 @@ class CalendarPage extends StatefulWidget {
 class _CalData {
   final List<TimelineItem> items;
   final Map<String, SkillMeta> skills;
-  _CalData(this.items, this.skills);
+  final Map<DateTime, List<TimelineItem>> byDay;
+  _CalData(this.items, this.skills) : byDay = _bucket(items);
+
+  static Map<DateTime, List<TimelineItem>> _bucket(List<TimelineItem> items) {
+    final m = <DateTime, List<TimelineItem>>{};
+    for (final it in items) {
+      final d = DateTime(it.effectiveAt.year, it.effectiveAt.month, it.effectiveAt.day);
+      m.putIfAbsent(d, () => []).add(it);
+    }
+    for (final v in m.values) {
+      v.sort((a, b) => a.effectiveAt.compareTo(b.effectiveAt));
+    }
+    return m;
+  }
 }
 
 class _CalendarPageState extends State<CalendarPage> {
   final _api = ApiClient();
   late Future<_CalData> _future = _load();
+
+  String _mode = 'timeline'; // timeline | month | year
+  late DateTime _focusMonth = DateTime(DateTime.now().year, DateTime.now().month);
+  DateTime? _selectedDay;
 
   Future<_CalData> _load() async {
     final r = await Future.wait([fetchTimeline(_api), fetchSkills(_api)]);
@@ -48,12 +65,13 @@ class _CalendarPageState extends State<CalendarPage> {
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 12, 8, 4),
+              padding: const EdgeInsets.fromLTRB(12, 10, 8, 6),
               child: Row(
                 children: [
-                  Text('日历',
-                      style: TextStyle(
-                          color: eu.textHi, fontSize: 22, fontWeight: FontWeight.w700)),
+                  _Segmented(
+                    value: _mode,
+                    onChanged: (v) => setState(() => _mode = v),
+                  ),
                   const Spacer(),
                   IconButton(
                       onPressed: _refresh,
@@ -81,17 +99,32 @@ class _CalendarPageState extends State<CalendarPage> {
                     );
                   }
                   final data = snap.data!;
-                  if (data.items.isEmpty) {
-                    return Center(
-                        child: Text('还没有内容', style: TextStyle(color: eu.textMid)));
+                  switch (_mode) {
+                    case 'month':
+                      return _MonthView(
+                        month: _focusMonth,
+                        byDay: data.byDay,
+                        skills: data.skills,
+                        selected: _selectedDay,
+                        onSelect: (d) => setState(() => _selectedDay = d),
+                        onPrevNext: (delta) => setState(() {
+                          _focusMonth = DateTime(_focusMonth.year, _focusMonth.month + delta);
+                          _selectedDay = null;
+                        }),
+                      );
+                    case 'year':
+                      return _YearView(
+                        year: _focusMonth.year,
+                        byDay: data.byDay,
+                        onPickMonth: (m) => setState(() {
+                          _focusMonth = m;
+                          _mode = 'month';
+                          _selectedDay = null;
+                        }),
+                      );
+                    default:
+                      return _TimelineView(data: data);
                   }
-                  final days = groupByDay(data.items);
-                  return ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 80),
-                    itemCount: days.length,
-                    itemBuilder: (_, i) => _DaySection(
-                        day: days[i].key, items: days[i].value, skills: data.skills),
-                  );
                 },
               ),
             ),
@@ -101,6 +134,281 @@ class _CalendarPageState extends State<CalendarPage> {
     );
   }
 }
+
+/* ── 流 / 月 / 年 segmented control ──────────────────────────────────────── */
+
+class _Segmented extends StatelessWidget {
+  final String value;
+  final ValueChanged<String> onChanged;
+  const _Segmented({required this.value, required this.onChanged});
+
+  static const _opts = [('timeline', '流'), ('month', '月'), ('year', '年')];
+
+  @override
+  Widget build(BuildContext context) {
+    final eu = context.eu;
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: eu.surfaceRaised,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: eu.border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final o in _opts)
+            GestureDetector(
+              onTap: () => onChanged(o.$1),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                decoration: BoxDecoration(
+                  color: value == o.$1 ? eu.brand : Colors.transparent,
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: Text(o.$2,
+                    style: TextStyle(
+                        color: value == o.$1 ? Colors.white : eu.textMid,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600)),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/* ── 流 timeline ────────────────────────────────────────────────────────── */
+
+class _TimelineView extends StatelessWidget {
+  final _CalData data;
+  const _TimelineView({required this.data});
+
+  @override
+  Widget build(BuildContext context) {
+    final eu = context.eu;
+    if (data.items.isEmpty) {
+      return Center(child: Text('还没有内容', style: TextStyle(color: eu.textMid)));
+    }
+    final days = groupByDay(data.items);
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 80),
+      itemCount: days.length,
+      itemBuilder: (_, i) =>
+          _DaySection(day: days[i].key, items: days[i].value, skills: data.skills),
+    );
+  }
+}
+
+/* ── 月 month grid + selected-day list ──────────────────────────────────── */
+
+class _MonthView extends StatelessWidget {
+  final DateTime month; // first of month
+  final Map<DateTime, List<TimelineItem>> byDay;
+  final Map<String, SkillMeta> skills;
+  final DateTime? selected;
+  final ValueChanged<DateTime> onSelect;
+  final ValueChanged<int> onPrevNext;
+  const _MonthView({
+    required this.month,
+    required this.byDay,
+    required this.skills,
+    required this.selected,
+    required this.onSelect,
+    required this.onPrevNext,
+  });
+
+  static const _wd = ['日', '一', '二', '三', '四', '五', '六'];
+
+  @override
+  Widget build(BuildContext context) {
+    final eu = context.eu;
+    final now = DateTime.now();
+    final first = DateTime(month.year, month.month, 1);
+    final daysIn = DateTime(month.year, month.month + 1, 0).day;
+    final lead = first.weekday % 7; // Sunday-first
+    final cells = <DateTime?>[
+      for (var i = 0; i < lead; i++) null,
+      for (var d = 1; d <= daysIn; d++) DateTime(month.year, month.month, d),
+    ];
+    final selDay = selected;
+    final selItems = selDay == null ? const <TimelineItem>[] : (byDay[selDay] ?? const []);
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 80),
+      children: [
+        Row(
+          children: [
+            IconButton(
+                onPressed: () => onPrevNext(-1),
+                icon: Icon(Icons.chevron_left, color: eu.textMid)),
+            Expanded(
+              child: Center(
+                child: Text('${month.year} 年 ${month.month} 月',
+                    style: TextStyle(
+                        color: eu.textHi, fontSize: 16, fontWeight: FontWeight.w700)),
+              ),
+            ),
+            IconButton(
+                onPressed: () => onPrevNext(1),
+                icon: Icon(Icons.chevron_right, color: eu.textMid)),
+          ],
+        ),
+        Row(
+          children: [
+            for (final w in _wd)
+              Expanded(
+                child: Center(
+                  child: Text(w, style: TextStyle(color: eu.textLo, fontSize: 11)),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        GridView.count(
+          crossAxisCount: 7,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          children: [
+            for (final d in cells)
+              if (d == null)
+                const SizedBox.shrink()
+              else
+                _DayCell(
+                  day: d,
+                  hasItems: (byDay[d]?.isNotEmpty ?? false),
+                  isToday: d.year == now.year && d.month == now.month && d.day == now.day,
+                  isSelected: selDay != null && d == selDay,
+                  onTap: () => onSelect(d),
+                ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        if (selDay != null) ...[
+          Text('${selDay.month}月${selDay.day}日 · ${selItems.length} 件事',
+              style: TextStyle(color: eu.textMid, fontSize: 13, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 6),
+          if (selItems.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Text('空闲', style: TextStyle(color: eu.textLo)),
+            )
+          else
+            for (final it in selItems) _ItemRow(item: it, skills: skills),
+        ] else
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text('点选某天查看', style: TextStyle(color: eu.textLo, fontSize: 13)),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _DayCell extends StatelessWidget {
+  final DateTime day;
+  final bool hasItems;
+  final bool isToday;
+  final bool isSelected;
+  final VoidCallback onTap;
+  const _DayCell({
+    required this.day,
+    required this.hasItems,
+    required this.isToday,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final eu = context.eu;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.all(3),
+        decoration: BoxDecoration(
+          color: isToday
+              ? eu.brand
+              : isSelected
+                  ? eu.brand.withValues(alpha: 0.16)
+                  : Colors.transparent,
+          shape: BoxShape.circle,
+          border: isSelected && !isToday ? Border.all(color: eu.brand) : null,
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text('${day.day}',
+                style: TextStyle(
+                    color: isToday ? Colors.white : eu.textHi, fontSize: 13)),
+            if (hasItems)
+              Container(
+                margin: const EdgeInsets.only(top: 2),
+                width: 4,
+                height: 4,
+                decoration: BoxDecoration(
+                    color: isToday ? Colors.white : eu.brand, shape: BoxShape.circle),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/* ── 年 month grid ──────────────────────────────────────────────────────── */
+
+class _YearView extends StatelessWidget {
+  final int year;
+  final Map<DateTime, List<TimelineItem>> byDay;
+  final ValueChanged<DateTime> onPickMonth;
+  const _YearView({required this.year, required this.byDay, required this.onPickMonth});
+
+  @override
+  Widget build(BuildContext context) {
+    final eu = context.eu;
+    final counts = List<int>.filled(12, 0);
+    byDay.forEach((d, items) {
+      if (d.year == year) counts[d.month - 1] += items.length;
+    });
+    return GridView.count(
+      crossAxisCount: 3,
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
+      childAspectRatio: 1.2,
+      children: [
+        for (var m = 1; m <= 12; m++)
+          GestureDetector(
+            onTap: () => onPickMonth(DateTime(year, m)),
+            child: Container(
+              margin: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: eu.surfaceRaised,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: eu.border),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text('$m 月',
+                      style: TextStyle(
+                          color: eu.textHi, fontSize: 16, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 4),
+                  Text(counts[m - 1] > 0 ? '${counts[m - 1]} 件' : '—',
+                      style: TextStyle(
+                          color: counts[m - 1] > 0 ? eu.brand : eu.textLo, fontSize: 12)),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/* ── shared day section + item row (流 + 月) ────────────────────────────── */
 
 class _DaySection extends StatelessWidget {
   final DateTime day;
@@ -167,11 +475,7 @@ class _ItemRow extends StatelessWidget {
         : item.kind == 'contact'
             ? '👤'
             : resolveMeta(item.skillName ?? 'misc', skills).icon;
-    return _shell(
-      eu,
-      crossStart: false,
-      child: _content(eu, icon, item.title, item.subtitle),
-    );
+    return _shell(eu, crossStart: false, child: _content(eu, icon, item.title, item.subtitle));
   }
 
   Widget _flash(EurekaColors eu) {
