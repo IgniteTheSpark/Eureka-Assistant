@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, History } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { useSWRConfig } from "swr";
 
+import { apiFetch } from "@/lib/api";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { MessageList } from "@/components/chat/MessageList";
 import { SessionSidebar } from "@/components/chat/SessionSidebar";
@@ -51,6 +53,7 @@ interface ChatRouteState {
 export function ChatPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { mutate } = useSWRConfig();
   // Read router state ONCE at mount — pendingSubject is a one-shot hint, not
   // a reactive prop. If we re-read it on every render, switching sessions
   // inside /chat would resurrect a stale pending subject.
@@ -175,11 +178,30 @@ export function ChatPage() {
     await chat.send(text);
   }, [pendingSubject, chat, activeSessionId]);
 
-  const handlePrecipitate = useCallback((_text: string) => {
-    // M2 placeholder — M5 / future will open the SkillCreateForm with the
-    // text pre-filled into the relevant skill (probably notes by default).
-    alert("「沉淀为资产」M5 接 design-agent 后会展开;\n目前先用 dock 的 + 按钮手动创建。");
-  }, []);
+  /**
+   * Precipitate a Q&A answer into an asset of the chosen skill (待办/笔记/想法/
+   * 其它). Creates it via POST /api/assets with the answer as `content`, linked
+   * to the current session for provenance, then refreshes the asset lists so it
+   * shows in Library. Throws on failure so PrecipitateMenu can show its error
+   * state.
+   */
+  const handlePrecipitate = useCallback(async (text: string, skill: string) => {
+    const payload: Record<string, unknown> = { content: text };
+    // notes / idea carry an optional title — derive a short one from line one.
+    if (skill === "notes" || skill === "idea") {
+      payload.title = text.replace(/\s+/g, " ").trim().slice(0, 24);
+    }
+    await apiFetch("/api/assets", {
+      method: "POST",
+      body: {
+        user_skill_name: skill,
+        payload,
+        session_id: activeSessionId ?? "",
+      },
+    });
+    // New asset should appear in Library without a manual refresh.
+    await mutate((key) => typeof key === "string" && key.startsWith("/api/assets"));
+  }, [activeSessionId, mutate]);
 
   // ── Back-button "上级" resolution (M3.5) ───────────────────────────────
   // Priority:

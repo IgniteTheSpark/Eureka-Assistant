@@ -33,7 +33,7 @@ from google.genai.types import Content, Part
 from agents.assistant import make_assistant_agent
 from core.auth import get_current_user_id
 from core.event_mapper import (
-    event_role, event_text,
+    event_role, event_text, event_usage,
     event_tool_calls, event_tool_results, is_streamable_token,
 )
 from core.session_service import (
@@ -214,6 +214,9 @@ async def _stream_assistant(
     # (see _looks_like_leaked_call). When it does, no tool runs and nothing has
     # streamed yet — so retry once with a nudge, suppressing the leaked attempt.
     MAX_ATTEMPTS = 2
+    # Sum reported token usage across the whole run (including a retry, which
+    # really does cost tokens) so the turn-cost footer reflects actual spend.
+    usage_total = 0
     for attempt in range(MAX_ATTEMPTS):
         # Fresh ADK in-memory session per attempt (no leaked-text contamination).
         adk_sid = str(uuid.uuid4())
@@ -233,6 +236,11 @@ async def _stream_assistant(
         async for event in runner.run_async(
             user_id=user_id, session_id=adk_sid, new_message=new_message,
         ):
+            # Accumulate token usage whenever the model reports it (LiteLLM
+            # forwards the provider's usage block through ADK usage_metadata).
+            u = event_usage(event)
+            if u.get("total_tokens"):
+                usage_total += u["total_tokens"]
             # Tool calls → emit one SSE 'tool_call' per call. ADK batches parallel
             # calls into one event; emit them ALL or multi-intent turns lose every
             # card after the first.
@@ -261,9 +269,13 @@ async def _stream_assistant(
         if is_leak:
             # Out of retries (or leak after a tool) — never dump raw JSON.
             yield ("token", {"text": "抱歉,刚才没能完成这个操作,请再说一次。"})
+            if usage_total:
+                yield ("usage", {"total_tokens": usage_total})
             return
         if final_text:
             yield ("token", {"text": final_text})
+        if usage_total:
+            yield ("usage", {"total_tokens": usage_total})
         return
 
 
@@ -344,6 +356,7 @@ async def chat(req: ChatRequest, user_id: str = Depends(get_current_user_id)):
         # so the report-receipt card (rendered from tool_result) survives reload.
         report_tool_call: dict | None = None
         report_tool_result: dict | None = None
+        usage_total = 0
 
         try:
             async for evt_type, payload in _stream_assistant(
@@ -355,6 +368,9 @@ async def chat(req: ChatRequest, user_id: str = Depends(get_current_user_id)):
                 session_context_hint=session_context_hint,
                 session_subject_hint=session_subject_hint,
             ):
+                if evt_type == "usage":
+                    usage_total = payload.get("total_tokens", 0) or usage_total
+                    continue
                 yield sse_event(evt_type, payload)
                 if evt_type == "token":
                     agent_text_parts.append(payload.get("text", ""))
@@ -403,7 +419,7 @@ async def chat(req: ChatRequest, user_id: str = Depends(get_current_user_id)):
         except Exception:
             msg_id = ""
 
-        yield sse_event("done", {"elapsed_ms": elapsed_ms, "message_id": msg_id})
+        yield sse_event("done", {"elapsed_ms": elapsed_ms, "message_id": msg_id, "total_tokens": usage_total})
 
     return StreamingResponse(
         with_heartbeats(stream()),

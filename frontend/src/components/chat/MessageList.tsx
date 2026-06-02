@@ -12,7 +12,7 @@ import type { ChatMessage } from "@/hooks/useChat";
 
 interface MessageListProps {
   messages: ChatMessage[];
-  onPrecipitate?: (text: string) => void;
+  onPrecipitate?: (text: string, skill: string) => Promise<void> | void;
   /** Optional header shown above the first message (e.g. session title) */
   header?: React.ReactNode;
   /** Flash capture is being processed (input shown, agent result pending) —

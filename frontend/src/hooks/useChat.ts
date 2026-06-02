@@ -41,6 +41,8 @@ export interface ChatMessage {
   parts?: ChatPart[];
   /** True while streaming */
   streaming?: boolean;
+  /** Turn cost from the `done` event (agent messages) — drives the cost footer */
+  meta?: { elapsedMs?: number; tokens?: number };
 }
 
 interface UseChatOptions {
@@ -203,8 +205,16 @@ export function useChat(opts: UseChatOptions = {}): UseChatReturn {
         }));
         return;
       }
-      case "done":
-        return; // finally block handles cleanup
+      case "done": {
+        // Stamp the turn-cost meta (time + tokens) onto the agent message; the
+        // finally block clears `streaming` right after, preserving this.
+        const d = data as { elapsed_ms?: number; total_tokens?: number };
+        patchAgent((m) => ({
+          ...m,
+          meta: { elapsedMs: d?.elapsed_ms, tokens: d?.total_tokens },
+        }));
+        return;
+      }
       default:
         return; // unknown frame types ignored
     }

@@ -1,4 +1,4 @@
-import { Wrench, AlertCircle, Bookmark, FileText, ChevronRight, ChevronDown, Loader2 } from "lucide-react";
+import { AlertCircle, Bookmark, Check, FileText, ChevronRight, ChevronDown, Loader2 } from "lucide-react";
 import { useState } from "react";
 
 import { AssetCardInChat } from "./AssetCardInChat";
@@ -24,15 +24,22 @@ interface ReportData { title: string; html: string }
 
 interface MessageBubbleProps {
   message: ChatMessage;
-  /** If user clicks "save as asset" button — wires PrecipitateButton */
-  onPrecipitate?: (text: string) => void;
+  /** Save a Q&A answer as an asset of the chosen skill (待办/笔记/想法/其它). */
+  onPrecipitate?: (text: string, skill: string) => Promise<void> | void;
 }
 
 export function MessageBubble({ message, onPrecipitate }: MessageBubbleProps) {
   if (message.role === "user") {
     return <UserBubble text={message.text ?? ""} />;
   }
-  return <AgentBubble parts={message.parts ?? []} streaming={message.streaming} onPrecipitate={onPrecipitate} />;
+  return (
+    <AgentBubble
+      parts={message.parts ?? []}
+      streaming={message.streaming}
+      meta={message.meta}
+      onPrecipitate={onPrecipitate}
+    />
+  );
 }
 
 function UserBubble({ text }: { text: string }) {
@@ -55,14 +62,24 @@ function UserBubble({ text }: { text: string }) {
 }
 
 function AgentBubble({
-  parts, streaming, onPrecipitate,
-}: { parts: ChatPart[]; streaming?: boolean; onPrecipitate?: (text: string) => void }) {
+  parts, streaming, meta, onPrecipitate,
+}: {
+  parts: ChatPart[];
+  streaming?: boolean;
+  meta?: { elapsedMs?: number; tokens?: number };
+  onPrecipitate?: (text: string, skill: string) => Promise<void> | void;
+}) {
   const [drawerCard, setDrawerCard] = useState<{ card: CardData; payload: Record<string, unknown>; sourceSessionId: string | null } | null>(null);
   const [openReport, setOpenReport] = useState<ReportData | null>(null);
 
   // Concatenate all text parts into one string for the "save as asset" action
   const fullText = parts.filter((p): p is Extract<ChatPart, { type: "text" }> => p.type === "text")
                         .map((p) => p.text).join("");
+  // Hide 沉淀 only when this turn actually CREATED an asset (it's already
+  // saved). A pure answer — even one that incidentally ran a query — should
+  // still offer 沉淀. (deepseek sometimes fires a stray query on a knowledge
+  // Q&A, so gating on "any tool activity" would wrongly hide the button.)
+  const createdCards = turnCreatedCards(parts);
 
   return (
     <div className="flex justify-start">
@@ -71,7 +88,7 @@ function AgentBubble({
           <PartRenderer
             key={idx}
             part={part}
-            streaming={streaming}
+            streaming={!!streaming}
             isLast={idx === parts.length - 1}
             onOpenCard={(card, payload, sourceSessionId) => setDrawerCard({ card, payload, sourceSessionId: sourceSessionId ?? null })}
             onOpenReport={setOpenReport}
@@ -99,22 +116,18 @@ function AgentBubble({
           </div>
         )}
 
-        {/* Precipitate button only on completed agent messages with text */}
-        {!streaming && fullText.length > 8 && onPrecipitate && (
-          <button
-            type="button"
-            onClick={() => onPrecipitate(fullText)}
-            className={[
-              "self-start mt-1 flex items-center gap-1.5",
-              "px-2 py-1 rounded-eu-sm text-eu-xs",
-              "text-eu-text-lo hover:text-eu-text-hi hover:bg-eu-surface-hover",
-              "border border-dashed border-eu-border hover:border-eu-border-strong",
-              "transition-colors duration-eu-fast",
-            ].join(" ")}
-          >
-            <Bookmark size={12} strokeWidth={1.75} />
-            沉淀为资产
-          </button>
+        {/* Precipitate is for turning a *Q&A answer* into an asset, so it only
+            shows on a pure text answer (no card / tool activity this turn). A
+            turn that already created cards is saved — offering 沉淀 there was
+            redundant (user feedback). */}
+        {!streaming && onPrecipitate && fullText.length > 8 &&
+          !createdCards && !isHtmlReportText(fullText) && (
+          <PrecipitateMenu onPick={(skill) => onPrecipitate(fullText, skill)} />
+        )}
+
+        {/* Turn cost footer — only on a settled agent turn that did real work. */}
+        {!streaming && meta && (meta.elapsedMs || meta.tokens) && (
+          <TurnCostFooter elapsedMs={meta.elapsedMs} tokens={meta.tokens} />
         )}
       </div>
 
@@ -271,6 +284,123 @@ function Cursor() {
   );
 }
 
+/* ── Precipitate (沉淀为资产) ───────────────────────────────────────────────── */
+
+/** The asset types that make sense for free-form Q&A text. Per user: todo /
+ *  notes / idea / misc (no expense/contact/event — those need structured input). */
+const PRECIPITATE_TYPES: { skill: string; label: string; icon: string }[] = [
+  { skill: "todo",  label: "待办", icon: "✅" },
+  { skill: "notes", label: "笔记", icon: "📝" },
+  { skill: "idea",  label: "想法", icon: "💡" },
+  { skill: "misc",  label: "其它", icon: "🗂" },
+];
+
+/**
+ * PrecipitateMenu — 沉淀为资产 control on a Q&A answer. Opens a small dropdown
+ * of the four free-text asset types; picking one calls onPick(skill) (which
+ * creates the asset) and shows inline saving / done / error state right where
+ * the user clicked.
+ */
+function PrecipitateMenu({ onPick }: { onPick: (skill: string) => Promise<void> | void }) {
+  const [open, setOpen] = useState(false);
+  const [state, setState] = useState<"idle" | "saving" | "done" | "error">("idle");
+  const [savedLabel, setSavedLabel] = useState("");
+
+  async function pick(skill: string, label: string) {
+    setOpen(false);
+    setState("saving");
+    try {
+      await onPick(skill);
+      setSavedLabel(label);
+      setState("done");
+    } catch {
+      setState("error");
+    }
+  }
+
+  if (state === "done") {
+    return (
+      <div className="self-start mt-1 flex items-center gap-1.5 px-2 py-1 text-eu-xs text-eu-accent-green-fg">
+        <Check size={12} strokeWidth={2} />
+        已沉淀为{savedLabel}
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative self-start mt-1">
+      <button
+        type="button"
+        onClick={() => (state === "error" ? setState("idle") : setOpen((o) => !o))}
+        className={[
+          "flex items-center gap-1.5 px-2 py-1 rounded-eu-sm text-eu-xs",
+          "transition-colors duration-eu-fast",
+          state === "error"
+            ? "text-eu-accent-red-fg border border-eu-accent-red-edge"
+            : "text-eu-text-lo hover:text-eu-text-hi hover:bg-eu-surface-hover border border-dashed border-eu-border hover:border-eu-border-strong",
+        ].join(" ")}
+      >
+        {state === "saving"
+          ? <Loader2 size={12} strokeWidth={1.75} className="animate-spin" />
+          : <Bookmark size={12} strokeWidth={1.75} />}
+        {state === "error" ? "沉淀失败,点此重试" : "沉淀为资产"}
+        {state === "idle" && <ChevronDown size={11} strokeWidth={2} className="opacity-60" />}
+      </button>
+
+      {open && state !== "saving" && (
+        <>
+          {/* click-away catcher */}
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div
+            className="absolute z-20 left-0 mt-1 min-w-[148px] rounded-eu-md overflow-hidden border border-eu-border"
+            style={{ background: "var(--eu-surface-raised)", boxShadow: "var(--eu-shadow-lg)" }}
+          >
+            <div className="px-3 pt-2 pb-1 text-eu-xs text-eu-text-lo">沉淀为…</div>
+            {PRECIPITATE_TYPES.map((t) => (
+              <button
+                key={t.skill}
+                type="button"
+                onClick={() => pick(t.skill, t.label)}
+                className="w-full flex items-center gap-2 px-3 py-2 text-eu-sm text-eu-text hover:bg-eu-surface-hover text-left"
+              >
+                <span className="text-eu-base">{t.icon}</span>
+                <span>{t.label}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ── Turn cost footer ──────────────────────────────────────────────────────── */
+
+/** Small "用时 3.2s · 1.4k tokens" line under a completed agent turn so the
+ *  user can see how long / how expensive the run was. Tokens omitted when the
+ *  model didn't report usage. */
+function TurnCostFooter({ elapsedMs, tokens }: { elapsedMs?: number; tokens?: number }) {
+  const bits: string[] = [];
+  if (elapsedMs && elapsedMs > 0) bits.push(`用时 ${formatElapsed(elapsedMs)}`);
+  if (tokens && tokens > 0) bits.push(`${formatTokens(tokens)} tokens`);
+  if (bits.length === 0) return null;
+  return (
+    <div className="self-start mt-0.5 text-[10px] leading-none text-eu-text-lo font-mono tracking-wide opacity-70">
+      {bits.join(" · ")}
+    </div>
+  );
+}
+
+function formatElapsed(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function formatTokens(n: number): string {
+  if (n < 1000) return String(n);
+  return `${(n / 1000).toFixed(1)}k`;
+}
+
 /**
  * Unwrap FastMCP-style nested response shapes into a list of card-shaped
  * dicts. Backend tools return one of:
@@ -288,6 +418,23 @@ function Cursor() {
  * Returns [] when the response shape has no renderable cards (e.g. delete_*
  * returns just `{ok, asset_id}` — we render the small "↩ 完成" chip instead).
  */
+/**
+ * Did this agent turn actually CREATE/UPDATE an asset (vs just answer or run a
+ * query)? Drives whether 沉淀为资产 shows — a created turn is already saved.
+ * A persisted `cards` part, or a non-query / non-report tool_result that yields
+ * renderable cards, counts as creation; query + report results do not.
+ */
+function turnCreatedCards(parts: ChatPart[]): boolean {
+  return parts.some((p) => {
+    if (p.type === "cards") return true;
+    if (p.type === "tool_result") {
+      if (QUERY_TOOLS.has(p.name) || p.name === "tool_render_report") return false;
+      return extractCardsFromToolResult(p.response).length > 0;
+    }
+    return false;
+  });
+}
+
 function extractCardsFromToolResult(response: Record<string, unknown>): Record<string, unknown>[] {
   if (!response) return [];
 

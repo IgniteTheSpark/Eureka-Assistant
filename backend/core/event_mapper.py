@@ -100,6 +100,40 @@ def event_tool_result(event: Any) -> Optional[dict]:
     return results[0] if results else None
 
 
+def event_usage(event: Any) -> dict:
+    """
+    Token usage for this event, if the model reported it.
+
+    ADK attaches a google.genai `usage_metadata` object to model-response
+    events; LiteLLM-backed models populate it when the upstream provider
+    returns a usage block. Returns {} when absent (e.g. tool-only events, or
+    providers that don't report usage) so callers degrade gracefully.
+
+    Keys (any subset, ints): prompt_tokens, completion_tokens, total_tokens.
+    Defensive across naming variants (google.genai vs OpenAI-style).
+    """
+    um = getattr(event, "usage_metadata", None)
+    if not um:
+        return {}
+
+    def _pick(*names: str) -> int:
+        for n in names:
+            v = getattr(um, n, None)
+            if isinstance(v, (int, float)) and v:
+                return int(v)
+        return 0
+
+    prompt     = _pick("prompt_token_count", "prompt_tokens", "input_tokens")
+    completion = _pick("candidates_token_count", "completion_tokens", "output_tokens")
+    total      = _pick("total_token_count", "total_tokens") or (prompt + completion)
+
+    out: dict = {}
+    if prompt:     out["prompt_tokens"] = prompt
+    if completion: out["completion_tokens"] = completion
+    if total:      out["total_tokens"] = total
+    return out
+
+
 def is_streamable_token(event: Any) -> bool:
     """
     Heuristic: is this a partial streaming token (not a complete final
