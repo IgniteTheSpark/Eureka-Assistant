@@ -276,9 +276,13 @@ class _LibraryPageState extends State<LibraryPage> {
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: eu.surfaceRaised,
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [accent.withValues(alpha: 0.07), eu.surfaceRaised],
+          ),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: eu.border),
+          border: Border.all(color: accent.withValues(alpha: 0.18)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -289,10 +293,10 @@ class _LibraryPageState extends State<LibraryPage> {
               alignment: Alignment.center,
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [accent.withValues(alpha: 0.18), accent.withValues(alpha: 0.05)],
+                  colors: [accent.withValues(alpha: 0.20), accent.withValues(alpha: 0.06)],
                 ),
                 borderRadius: BorderRadius.circular(11),
-                border: Border.all(color: accent.withValues(alpha: 0.30)),
+                border: Border.all(color: accent.withValues(alpha: 0.32)),
               ),
               child: Text(meta.icon, style: const TextStyle(fontSize: 19)),
             ),
