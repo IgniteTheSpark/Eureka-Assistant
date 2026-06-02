@@ -39,6 +39,8 @@ dependencies:
   flutter_riverpod: ^2.6.1
   # HTTP + SSE for the FastAPI backend.
   http: ^1.2.2
+  # Manrope (sans/display) + JetBrains Mono (mono) to match the web demo.
+  google_fonts: ^6.2.1
 
 dev_dependencies:
   flutter_test:
