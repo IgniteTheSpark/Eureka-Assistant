@@ -4,8 +4,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eureka/main.dart';
 
 void main() {
-  testWidgets('app renders the Eureka title', (tester) async {
+  testWidgets('app shell renders the dock + default surface', (tester) async {
     await tester.pumpWidget(const ProviderScope(child: EurekaApp()));
-    expect(find.text('Eureka'), findsOneWidget);
+    expect(find.text('Agent'), findsOneWidget); // dock pill
+    expect(find.text('日历'), findsWidgets); // default (calendar) surface
   });
 }
