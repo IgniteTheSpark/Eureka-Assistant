@@ -6,7 +6,7 @@ import 'package:eureka/main.dart';
 void main() {
   testWidgets('app shell renders the dock + default surface', (tester) async {
     await tester.pumpWidget(const ProviderScope(child: EurekaApp()));
-    expect(find.text('Agent'), findsOneWidget); // dock pill
+    expect(find.text('Agent'), findsWidgets); // dock pill + chat header
     expect(find.text('日历'), findsWidgets); // default (calendar) surface
   });
 }
