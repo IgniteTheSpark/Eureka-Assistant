@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../assets/assets.dart';
+import '../render/skill_card.dart';
 import '../theme/app_theme.dart';
 import '../timeline/timeline.dart';
 
@@ -27,33 +28,13 @@ class CategoryDetailPage extends StatelessWidget {
         itemCount: sorted.length,
         itemBuilder: (_, i) {
           final a = sorted[i];
-          return InkWell(
+          return GestureDetector(
             onTap: () => _showSheet(context, a),
-            borderRadius: BorderRadius.circular(12),
-            child: Container(
-              margin: const EdgeInsets.symmetric(vertical: 4),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              decoration: BoxDecoration(
-                color: eu.surfaceRaised,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: eu.border),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      a.title.isEmpty ? '(空)' : a.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: eu.textHi, fontSize: 14),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Text('${a.createdAt.month}月${a.createdAt.day}日',
-                      style: TextStyle(color: eu.textLo, fontSize: 11)),
-                ],
-              ),
-            ),
+            child: SkillCard({
+              'user_skill_name': a.skillName,
+              'payload': a.payload,
+              'asset_id': a.id,
+            }),
           );
         },
       ),
