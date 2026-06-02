@@ -1,5 +1,5 @@
 import { AlertCircle, Bookmark, Check, FileText, ChevronRight, ChevronDown, Loader2 } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import { AssetCardInChat } from "./AssetCardInChat";
 import { ReportSheet } from "./ReportSheet";
@@ -181,12 +181,19 @@ function PartRenderer({
         return <ReportReceiptCard report={salvaged} onOpen={() => onOpenReport(salvaged)} />;
       }
     }
-    return (
-      <div className="text-eu-base text-eu-text whitespace-pre-wrap leading-relaxed">
-        {part.text}
-        <Cursor />
-      </div>
-    );
+    // While this part is still streaming in, show it raw with a caret — parsing
+    // partial markdown (e.g. an unclosed **bold) mid-stream would flicker. Once
+    // settled, render the light markdown (bold / lists / inline code) so the
+    // bubble doesn't read as a raw markdown dump.
+    if (streaming && isLast) {
+      return (
+        <div className="text-eu-base text-eu-text whitespace-pre-wrap leading-relaxed">
+          {part.text}
+          <Cursor />
+        </div>
+      );
+    }
+    return <MarkdownText text={part.text} />;
   }
   if (part.type === "tool_call") {
     // Only the in-flight call (last part while streaming) shows a chip — and as
@@ -282,6 +289,135 @@ function Cursor() {
   return (
     <span className="inline-block w-0.5 h-3 -mb-0.5 ml-0.5 bg-eu-brand animate-pulse opacity-60" />
   );
+}
+
+/* ── Lightweight markdown rendering ─────────────────────────────────────────
+ * The agent replies in light markdown (**bold**, `code`, 1./- lists). Showing
+ * it raw made the bubble read as a markdown source dump (literal ** and -).
+ * This renders the small subset the agent actually emits, styled for chat (no
+ * big headings / heavy doc spacing). Inline parsing builds React nodes — no
+ * dangerouslySetInnerHTML, so there's nothing to sanitize. */
+
+/** Parse inline `**bold**`, `code`, `*italic*` within one line → React nodes. */
+function renderInline(text: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  const re = /(\*\*([^*]+)\*\*|`([^`]+)`|\*([^*\n]+)\*)/g;
+  let last = 0;
+  let key = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) nodes.push(text.slice(last, m.index));
+    if (m[2] !== undefined) {
+      nodes.push(<strong key={key++} className="font-semibold text-eu-text-hi">{m[2]}</strong>);
+    } else if (m[3] !== undefined) {
+      nodes.push(
+        <code key={key++} className="px-1 py-0.5 rounded bg-eu-surface-hover text-eu-accent-blue-fg font-mono text-[0.9em]">
+          {m[3]}
+        </code>,
+      );
+    } else if (m[4] !== undefined) {
+      nodes.push(<em key={key++}>{m[4]}</em>);
+    }
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) nodes.push(text.slice(last));
+  return nodes;
+}
+
+/** Render a block of agent text: paragraphs, bullet (-/*) and numbered (1.)
+ *  lists, and `#` headings (rendered light, not as big doc headers). */
+function MarkdownText({ text }: { text: string }) {
+  const lines = text.split("\n");
+  const blocks: ReactNode[] = [];
+  let i = 0;
+  let key = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Bullet list
+    if (/^\s*[-*]\s+/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^\s*[-*]\s+/, ""));
+        i++;
+      }
+      blocks.push(
+        <ul key={key++} className="flex flex-col gap-0.5">
+          {items.map((it, j) => (
+            <li key={j} className="flex gap-2">
+              <span className="text-eu-text-lo select-none leading-relaxed">·</span>
+              <span className="flex-1 min-w-0 leading-relaxed">{renderInline(it)}</span>
+            </li>
+          ))}
+        </ul>,
+      );
+      continue;
+    }
+
+    // Numbered list (preserve the authored numbers)
+    if (/^\s*\d+\.\s+/.test(line)) {
+      const items: { num: string; text: string }[] = [];
+      while (i < lines.length) {
+        const mm = lines[i].match(/^\s*(\d+)\.\s+(.*)/);
+        if (!mm) break;
+        items.push({ num: mm[1], text: mm[2] });
+        i++;
+      }
+      blocks.push(
+        <ol key={key++} className="flex flex-col gap-0.5">
+          {items.map((it, j) => (
+            <li key={j} className="flex gap-2">
+              <span className="text-eu-text-lo select-none tabular-nums leading-relaxed">{it.num}.</span>
+              <span className="flex-1 min-w-0 leading-relaxed">{renderInline(it.text)}</span>
+            </li>
+          ))}
+        </ol>,
+      );
+      continue;
+    }
+
+    // Heading → a light bold line (avoid the big-doc feel)
+    const h = line.match(/^#{1,6}\s+(.*)/);
+    if (h) {
+      blocks.push(
+        <div key={key++} className="font-semibold text-eu-text-hi leading-relaxed">{renderInline(h[1])}</div>,
+      );
+      i++;
+      continue;
+    }
+
+    // Blank line → collapse (the parent gap separates blocks)
+    if (line.trim() === "") {
+      i++;
+      continue;
+    }
+
+    // Paragraph: gather consecutive plain lines, keep their line breaks
+    const para: string[] = [];
+    while (
+      i < lines.length &&
+      lines[i].trim() !== "" &&
+      !/^\s*[-*]\s+/.test(lines[i]) &&
+      !/^\s*\d+\.\s+/.test(lines[i]) &&
+      !/^#{1,6}\s+/.test(lines[i])
+    ) {
+      para.push(lines[i]);
+      i++;
+    }
+    blocks.push(
+      <p key={key++} className="leading-relaxed">
+        {para.map((p, j) => (
+          <span key={j}>
+            {renderInline(p)}
+            {j < para.length - 1 && <br />}
+          </span>
+        ))}
+      </p>,
+    );
+  }
+
+  return <div className="text-eu-base text-eu-text flex flex-col gap-1.5">{blocks}</div>;
 }
 
 /* ── Precipitate (沉淀为资产) ───────────────────────────────────────────────── */
