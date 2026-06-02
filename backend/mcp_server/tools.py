@@ -336,6 +336,7 @@ async def create_contact(
     title: str = "",
     email: str = "",
     notes: str = "",
+    source_input_turn_id: str = "",
     user_id: str = "default",
 ) -> dict:
     if not name:
@@ -350,6 +351,7 @@ async def create_contact(
             title=title or None,
             email=email or None,
             notes=[notes] if notes else [],
+            source_input_turn_id=uuid.UUID(source_input_turn_id) if source_input_turn_id else None,
         )
         db.add(contact)
         await db.commit()
@@ -543,19 +545,28 @@ async def create_event(
     so we surface dispatcher mis-routes instead of silently creating residual
     events that can't render as calendar blocks.
     """
-    from datetime import datetime
+    from datetime import datetime, timezone, timedelta
+    # Canonical user timezone (Asia/Shanghai). Event times are user-intended
+    # LOCAL times ("下午4点"); a naive ISO (no offset) means local, not UTC. We
+    # attach local tz here so the UTCDateTime column converts it to a correct UTC
+    # instant — otherwise a naive 16:00 would be stored as 16:00 UTC (8h skew).
+    _LOCAL_TZ = timezone(timedelta(hours=8))
     if not title:
         return _err("title is required")
     try:
         start_dt = datetime.fromisoformat(start_at.replace("Z", "+00:00"))
     except (ValueError, AttributeError):
         return _err(f"invalid start_at ISO8601: {start_at}")
+    if start_dt.tzinfo is None:
+        start_dt = start_dt.replace(tzinfo=_LOCAL_TZ)
     end_dt = None
     if end_at:
         try:
             end_dt = datetime.fromisoformat(end_at.replace("Z", "+00:00"))
         except (ValueError, AttributeError):
             return _err(f"invalid end_at ISO8601: {end_at}")
+        if end_dt.tzinfo is None:
+            end_dt = end_dt.replace(tzinfo=_LOCAL_TZ)
 
     # ── Hard validation: time span required ──
     if not end_dt and not bool(all_day):

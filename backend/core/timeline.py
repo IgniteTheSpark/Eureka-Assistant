@@ -38,7 +38,7 @@ from typing import Optional, Any
 # with offset-aware values parsed from ISO8601)
 _EPOCH_MIN = datetime(1, 1, 1, tzinfo=timezone.utc)
 
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import (
@@ -216,18 +216,23 @@ def _event_item(event: Event) -> dict:
     }
 
 
-def _input_turn_item(turn: InputTurn) -> dict:
+def _input_turn_item(turn: InputTurn, derived: Optional[dict] = None) -> dict:
     text = turn.text or ""
+    derived = derived or {}
     return {
-        "kind":         "input_turn",
-        "id":           str(turn.id),
-        "effective_at": _iso(effective_at_for_input_turn(turn)),
-        "created_at":   _iso(turn.created_at),
-        "title":        text[:80] + ("…" if len(text) > 80 else ""),
-        "subtitle":     "",
-        "source":       turn.source,
-        "session_id":   str(turn.session_id) if turn.session_id else None,
-        "file_id":      str(turn.file_id) if turn.file_id else None,
+        "kind":          "input_turn",
+        "id":            str(turn.id),
+        "effective_at":  _iso(effective_at_for_input_turn(turn)),
+        "created_at":    _iso(turn.created_at),
+        "title":         text[:80] + ("…" if len(text) > 80 else ""),
+        "subtitle":      "",
+        "source":        turn.source,
+        "session_id":    str(turn.session_id) if turn.session_id else None,
+        "file_id":       str(turn.file_id) if turn.file_id else None,
+        # What this capture produced, keyed by skill_name | "event" | "contact".
+        # Powers the timeline ⚡ summary ("待办 ×2 · 联系人 ×1").
+        "derived":       derived,
+        "derived_total": sum(derived.values()),
     }
 
 
@@ -275,6 +280,58 @@ def _file_item(file: File) -> dict:
         "source_tag":   file.source_tag,
         "asr_status":   file.asr_status,
     }
+
+
+# ── derived breakdown (flash capture → what it produced) ──────────────────────
+
+async def _derived_breakdown(db: AsyncSession, user_id: str, turn_ids: list) -> dict:
+    """Count what each flash input_turn produced — assets (by skill name),
+    events, contacts — keyed by source_input_turn_id.
+
+    Returns {turn_id: {<key>: count}} where key ∈ skill_name | "event" |
+    "contact". Three grouped queries; empty input → {}.
+    """
+    if not turn_ids:
+        return {}
+    out: dict = {}
+
+    def _bump(tid, key, cnt):
+        if tid is None:
+            return
+        k = str(tid)
+        out.setdefault(k, {})
+        out[k][key] = out[k].get(key, 0) + int(cnt)
+
+    # assets grouped by (turn, skill_name)
+    rows = (await db.execute(
+        select(Asset.source_input_turn_id, GlobalSkill.name, func.count())
+        .join(UserSkill, Asset.user_skill_id == UserSkill.id)
+        .join(GlobalSkill, UserSkill.skill_id == GlobalSkill.id)
+        .where(Asset.user_id == user_id, Asset.source_input_turn_id.in_(turn_ids))
+        .group_by(Asset.source_input_turn_id, GlobalSkill.name)
+    )).all()
+    for tid, skill, cnt in rows:
+        _bump(tid, skill, cnt)
+
+    # events grouped by turn
+    rows = (await db.execute(
+        select(Event.source_input_turn_id, func.count())
+        .where(Event.user_id == user_id, Event.source_input_turn_id.in_(turn_ids))
+        .group_by(Event.source_input_turn_id)
+    )).all()
+    for tid, cnt in rows:
+        _bump(tid, "event", cnt)
+
+    # contacts grouped by turn (provenance column added in migration 0003)
+    rows = (await db.execute(
+        select(Contact.source_input_turn_id, func.count())
+        .where(Contact.user_id == user_id, Contact.source_input_turn_id.in_(turn_ids))
+        .group_by(Contact.source_input_turn_id)
+    )).all()
+    for tid, cnt in rows:
+        _bump(tid, "contact", cnt)
+
+    return out
 
 
 # ── Public: assemble_timeline ─────────────────────────────────────────────────
@@ -340,8 +397,9 @@ async def assemble_timeline(
             InputTurn.source != "typed",
         )
         turns = (await db.execute(stmt)).scalars().all()
+        breakdown = await _derived_breakdown(db, user_id, [str(t.id) for t in turns])
         for t in turns:
-            items.append(_input_turn_item(t))
+            items.append(_input_turn_item(t, breakdown.get(str(t.id))))
 
     # ── files ──
     if "file" in kinds:

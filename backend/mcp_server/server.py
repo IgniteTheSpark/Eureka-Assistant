@@ -205,9 +205,15 @@ async def tool_create_contact(
     title: str = "",
     email: str = "",
     notes: str = "",
+    source_input_turn_id: str = "",
 ) -> str:
-    """Create a new contact. name is required; other fields optional."""
-    return _jsonify(await create_contact(name, phone, company, title, email, notes))
+    """Create a new contact. name is required; other fields optional.
+
+    source_input_turn_id: when this contact was extracted from a voice flash,
+    pass the current input_turn UUID (provenance) — it links the contact to its
+    capture for the timeline's ⚡ summary. Leave empty for chat/manual creation.
+    """
+    return _jsonify(await create_contact(name, phone, company, title, email, notes, source_input_turn_id))
 
 
 @mcp.tool()

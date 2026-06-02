@@ -104,6 +104,11 @@ export interface TimelineItem {
   skill_name?: string;
   session_id?: string | null;
   payload?: Record<string, unknown>;
+
+  // input_turn-only (flash capture)
+  source?: string;                       // voice | typed | imported
+  derived?: Record<string, number>;      // {skill_name|"event"|"contact": count}
+  derived_total?: number;
 }
 
 export interface TimelineResponse {

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { AssetDetailDrawer } from "@/components/asset/AssetDetailDrawer";
 import { HeaderControls } from "@/components/shell/HeaderControls";
@@ -28,6 +29,7 @@ import type { AssetsResponse, ContactsResponse, TimelineItem } from "@/lib/types
 type CalMode = "timeline" | "month" | "year";
 
 export function CalendarPage() {
+  const navigate                        = useNavigate();
   const [cursor]                        = useState<Date>(() => new Date());
   const [mode, setMode]                 = useState<CalMode>("month"); // 流/月/年 — month default
   const [focusMonthKey, setFocusMonthKey] = useState<string | null>(null);
@@ -37,6 +39,16 @@ export function CalendarPage() {
   const [openContactId, setOpenContactId] = useState<string | null>(null);
 
   function handleItemTap(item: TimelineItem) {
+    if (item.kind === "input_turn") {
+      // Flash capture → open the chat session it landed in (same deep-link the
+      // flash-done notification uses).
+      if (item.session_id) {
+        window.localStorage.setItem("eureka:active_chat_session", item.session_id);
+        navigate("/chat");
+      }
+      setDayDetailKey(null);
+      return;
+    }
     if (item.kind === "event") {
       setOpenEventId(item.event_id ?? item.id);
     } else if (item.kind === "contact" || item.skill_name === "contact") {

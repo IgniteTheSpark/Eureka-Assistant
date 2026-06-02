@@ -503,6 +503,11 @@ function ItemRow({
   onClick: (e: React.MouseEvent) => void;
   bySkill: ReturnType<typeof useSkillRegistry>["bySkill"];
 }) {
+  // Flash capture: render as ⚡ + a breakdown of what it produced
+  // ("待办×2 · 联系人×1") instead of a plain transcript row.
+  if (item.kind === "input_turn") {
+    return <FlashItemRow item={item} tone={tone} onClick={onClick} bySkill={bySkill} />;
+  }
   const time = formatTime(item);
   const { glyph, glow } = timelineItemVisual(item, bySkill);
   return (
@@ -542,6 +547,124 @@ function ItemRow({
       >
         {item.title}
       </span>
+    </div>
+  );
+}
+
+/* ── Flash capture row (⚡ + derived breakdown) ────────────────────────────── */
+
+/** Built-in fallback icon + label per derived kind. Custom skills resolve via
+ *  the registry (see derivedMeta); this only covers keys the registry lacks. */
+const DERIVED_META: Record<string, { icon: string; label: string }> = {
+  todo:         { icon: "✅", label: "待办" },
+  event:        { icon: "📅", label: "日程" },
+  contact:      { icon: "👤", label: "联系人" },
+  idea:         { icon: "💡", label: "想法" },
+  notes:        { icon: "📝", label: "笔记" },
+  expense:      { icon: "💰", label: "记账" },
+  misc:         { icon: "🗂", label: "其它" },
+  external_ref: { icon: "🔗", label: "外部" },
+};
+
+/**
+ * Resolve a derived key (a skill_name, or "event" / "contact") to its icon +
+ * label. Custom user skills (e.g. water_intake) live only in the skill
+ * registry, so look there first for the real render_spec.icon + display_name —
+ * otherwise they fell back to "•" + the raw machine name. "event" is a
+ * first-class entity, not a UserSkill, so it uses the built-in map.
+ */
+function derivedMeta(
+  key: string,
+  bySkill: ReturnType<typeof useSkillRegistry>["bySkill"],
+): { icon: string; label: string } {
+  if (key === "event") return DERIVED_META.event;
+  const sk = bySkill.get(key);
+  if (sk) {
+    return {
+      icon:  sk.render_spec?.icon || DERIVED_META[key]?.icon || "•",
+      label: sk.display_name      || DERIVED_META[key]?.label || key,
+    };
+  }
+  return DERIVED_META[key] ?? { icon: "•", label: key };
+}
+
+/**
+ * FlashItemRow — a 闪念 capture in the timeline: a ⚡ marker + a summary of the
+ * assets it produced ("✅ 待办×2 · 👤 联系人×1"), with the transcript as faint
+ * context. The derived items themselves still appear on their own dates; this
+ * row sits at the capture moment. Tapping opens the capture's chat session.
+ */
+function FlashItemRow({
+  item, tone, onClick, bySkill,
+}: {
+  item: TimelineItem;
+  tone: DayTone;
+  onClick: (e: React.MouseEvent) => void;
+  bySkill: ReturnType<typeof useSkillRegistry>["bySkill"];
+}) {
+  const time = formatTime(item);
+  const derived = item.derived ?? {};
+  const entries = Object.entries(derived).filter(([, n]) => n > 0);
+  const transcript = item.title;
+  return (
+    <div
+      onClick={onClick}
+      className="flex items-start gap-3 active:scale-[0.99]"
+      style={{ cursor: "pointer" }}
+    >
+      <span
+        className="font-mono"
+        style={{
+          fontSize: 10.5, color: tone.meta, fontWeight: 500,
+          minWidth: 44, letterSpacing: "0.02em", paddingTop: 1,
+        }}
+      >
+        {time}
+      </span>
+      <span
+        style={{
+          flex: "0 0 17px", width: 17, height: 17,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 13, lineHeight: 1,
+          filter: "drop-shadow(0 0 5px rgba(245,201,119,0.6))",
+        }}
+      >
+        ⚡
+      </span>
+      <div className="flex-1 min-w-0">
+        {entries.length > 0 ? (
+          <div style={{ fontSize: 13, color: tone.text, fontWeight: 500, lineHeight: 1.35 }}>
+            {entries.map(([k, n], i) => {
+              const m = derivedMeta(k, bySkill);
+              return (
+                <span key={k}>
+                  {i > 0 && <span style={{ color: tone.meta, margin: "0 5px" }}>·</span>}
+                  {m.icon} {m.label}×{n}
+                </span>
+              );
+            })}
+          </div>
+        ) : (
+          <div
+            style={{
+              fontSize: 13, color: tone.text, fontWeight: 500, lineHeight: 1.35,
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            }}
+          >
+            {transcript || "闪念"}
+          </div>
+        )}
+        {entries.length > 0 && transcript && (
+          <div
+            style={{
+              fontSize: 11, color: tone.meta, lineHeight: 1.3, marginTop: 2, opacity: 0.85,
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            }}
+          >
+            {transcript}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

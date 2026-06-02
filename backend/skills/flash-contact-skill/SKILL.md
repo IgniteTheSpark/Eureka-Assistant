@@ -60,11 +60,14 @@ Call `tool_query_contact` with the extracted name.
 
 ## Step 3a — Create new contact
 
-Call `tool_create_contact` with a single `payload` JSON string containing all extracted fields.
+Call `tool_create_contact` with the extracted fields as named arguments.
+**Always pass `source_input_turn_id`** (the value you received above) so the
+contact is linked to this capture — the timeline shows a ⚡ summary of what each
+flash produced ("联系人 ×1"), and that link is how it's counted.
 
 Example:
 ```
-tool_create_contact(payload='{"name": "张三", "company": "A公司", "phone": "13812345678", "title": "产品经理"}')
+tool_create_contact(name="张三", company="A公司", phone="13812345678", title="产品经理", source_input_turn_id="<source_input_turn_id>")
 ```
 
 Only include fields the user explicitly stated. Never fabricate values.

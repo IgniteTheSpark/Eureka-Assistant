@@ -64,17 +64,51 @@ class GUID(TypeDecorator):
         return value if isinstance(value, uuid.UUID) else uuid.UUID(str(value))
 
 
-# Kept name; on MySQL this maps to DATETIME (timezone flag ignored). The app
-# uses tz-aware UTC datetimes everywhere, so store/compare in UTC by convention.
-#
-# fsp=6 (microsecond precision) on MySQL is REQUIRED for correct ordering:
-# plain DATETIME stores 0 fractional digits, so two rows written in the same
-# turn (user + agent message, or N assets from a multi-create) get an identical
-# created_at and `ORDER BY created_at` then resolves the tie in random
-# (UUID/storage) order → reversed chat replay, scrambled asset lists. Postgres
-# TIMESTAMPTZ keeps microseconds by default, so this only bit after the MySQL
-# migration. The variant keeps Postgres behavior unchanged.
-TIMESTAMPTZ = DateTime(timezone=True).with_variant(MySQLDateTime(fsp=6), "mysql")
+class UTCDateTime(TypeDecorator):
+    """Timezone-correct datetime across MySQL + Postgres.
+
+    Two problems this solves, both MySQL-specific (Postgres TIMESTAMPTZ already
+    behaves correctly):
+
+    1. **Timezone**: MySQL DATETIME has no timezone, so values round-trip as
+       NAIVE. `dt.isoformat()` then omits the offset → the frontend does
+       `new Date("2026-06-02T07:31:00")`, reads it as LOCAL time, and shows the
+       raw UTC clock value (an N-hour skew vs the user's wall clock). We
+       normalize to UTC on write and re-attach UTC on read, so every serialized
+       timestamp carries `+00:00` and the client converts to local correctly.
+
+    2. **Precision**: fsp=6 (microseconds) is required for stable ordering —
+       plain DATETIME truncates to whole seconds, so same-turn rows tie on
+       created_at and ORDER BY resolves the tie randomly (reversed chat replay,
+       scrambled lists).
+    """
+    impl = DateTime
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "mysql":
+            return dialect.type_descriptor(MySQLDateTime(fsp=6))
+        return dialect.type_descriptor(DateTime(timezone=True))
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)   # treat naive input as UTC
+        value = value.astimezone(timezone.utc)           # normalize to UTC
+        if dialect.name == "mysql":
+            value = value.replace(tzinfo=None)           # MySQL DATETIME stores naive
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)   # naive from MySQL == UTC
+        return value
+
+
+TIMESTAMPTZ = UTCDateTime()
 Base = declarative_base()
 
 
@@ -240,10 +274,15 @@ class Contact(Base):
     title      = Column(String(255))
     email      = Column(String(255))
     notes      = Column(JSON, default=list)   # was ARRAY(Text) on PG
+    # Provenance: the flash/voice input_turn that produced this contact (nullable —
+    # chat/manual contacts have none). Powers the timeline ⚡ capture summary
+    # ("联系人 ×1"). Other entities (asset/event) already carry this FK.
+    source_input_turn_id = Column(GUID(), ForeignKey("input_turns.id"))
     created_at = Column(TIMESTAMPTZ, default=_utcnow)
 
     __table_args__ = (
         Index("idx_contacts_name", "user_id", "name"),
+        Index("idx_contacts_input_turn", "user_id", "source_input_turn_id"),
     )
 
 
