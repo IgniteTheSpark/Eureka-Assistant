@@ -1,26 +1,31 @@
 services:
   db:
-    image: pgvector/pgvector:pg16
+    image: mysql:8.0
+    # utf8mb4 server-wide so Chinese text + emoji icons store/sort correctly.
+    command: >-
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
     environment:
-      POSTGRES_USER: eureka
-      POSTGRES_PASSWORD: eureka
-      POSTGRES_DB: eureka
+      MYSQL_DATABASE: eureka
+      MYSQL_USER: eureka
+      MYSQL_PASSWORD: eureka
+      MYSQL_ROOT_PASSWORD: eureka
     ports:
-      - "5432:5432"
+      - "3306:3306"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - mysqldata:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U eureka"]
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u eureka -peureka --silent"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 15
 
   backend:
     build: ./backend
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql://eureka:eureka@db:5432/eureka
+      DATABASE_URL: mysql://eureka:eureka@db:3306/eureka
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       USER_ID: default
@@ -54,4 +59,4 @@ services:
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload --timeout-graceful-shutdown 3
 
 volumes:
-  pgdata:
+  mysqldata:

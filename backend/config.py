@@ -2,7 +2,7 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    database_url:       str = "postgresql://eureka:eureka@localhost:5432/eureka"
+    database_url:       str = "mysql://eureka:eureka@localhost:3306/eureka"
     openrouter_api_key: str = ""   # Primary LLM gateway (current model: moonshotai/kimi-k2.5)
     openai_api_key:     str = ""   # Whisper ASR (audio path deferred)
     user_id:            str = "default"

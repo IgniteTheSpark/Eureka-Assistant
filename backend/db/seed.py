@@ -10,12 +10,11 @@ import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from db.models import GlobalSkill, UserSkill
-from db.database import DATABASE_URL
-
-engine = create_engine(DATABASE_URL)
+# Reuse the shared sync engine (pymysql driver). Building one here from the raw
+# DATABASE_URL (mysql://) would default to the missing MySQLdb C driver.
+from db.database import sync_engine as engine
 
 
 # ── Global skill catalog (machine names + human descriptions) ──────────────────

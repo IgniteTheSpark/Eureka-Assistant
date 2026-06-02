@@ -17,9 +17,12 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Override URL from env if set
+# Override URL from env if set. Alembic uses a SYNC engine → force the pymysql
+# driver (mysql:// would otherwise resolve to the missing mysqlclient C ext).
 db_url = os.environ.get("DATABASE_URL")
 if db_url:
+    if "://" in db_url and db_url.split("://", 1)[0].split("+", 1)[0] == "mysql":
+        db_url = "mysql+pymysql://" + db_url.split("://", 1)[1]
     config.set_main_option("sqlalchemy.url", db_url)
 
 target_metadata = Base.metadata

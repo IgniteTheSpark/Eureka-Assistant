@@ -2,52 +2,44 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 from sqlalchemy import create_engine
 from contextlib import asynccontextmanager
 from pathlib import Path
-from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
-import ssl, os
+import os
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://eureka:eureka@localhost:5432/eureka")
-
-def _strip_query_params(url: str, remove_keys: set) -> str:
-    """Remove specific query params from a DB URL (e.g. sslmode, channel_binding)."""
-    parsed = urlparse(url)
-    params = {k: v for k, v in parse_qs(parsed.query).items() if k not in remove_keys}
-    new_query = urlencode({k: v[0] for k, v in params.items()})
-    return urlunparse(parsed._replace(query=new_query))
-
-# asyncpg doesn't understand sslmode/channel_binding — strip them and pass ssl via connect_args
-_ASYNCPG_URL = _strip_query_params(
-    DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://").replace("postgres://", "postgresql+asyncpg://"),
-    {"sslmode", "channel_binding"},
+# MySQL is the relational store (matches the company stack). The vector store
+# (Postgres + pgvector) is a separate service added only when embeddings exist.
+DATABASE_URL = os.environ.get(
+    "DATABASE_URL", "mysql://eureka:eureka@localhost:3306/eureka"
 )
 
-# Enable SSL only for non-local hosts (cloud Postgres). The local docker
-# pgvector image rejects SSL upgrade, so passing an ssl context locally
-# breaks all queries with "rejected SSL upgrade".
-_parsed = urlparse(_ASYNCPG_URL)
-_is_local = (_parsed.hostname or "") in {"localhost", "127.0.0.1", "db"}
-if _is_local:
-    _connect_args: dict = {}
-else:
-    _ssl_ctx = ssl.create_default_context()
-    _ssl_ctx.check_hostname = False
-    _ssl_ctx.verify_mode = ssl.CERT_NONE
-    _connect_args = {"ssl": _ssl_ctx}
+
+def _with_driver(url: str, driver: str) -> str:
+    """Normalize mysql[+anydriver]://… → mysql+<driver>://… so the same
+    DATABASE_URL drives both the async app engine (aiomysql) and the sync
+    engine used by Alembic / seed (pymysql)."""
+    if "://" not in url:
+        return url
+    scheme, rest = url.split("://", 1)
+    base = scheme.split("+", 1)[0]  # 'mysql'
+    return f"{base}+{driver}://{rest}"
+
+
+_ASYNC_URL = _with_driver(DATABASE_URL, "aiomysql")
+_SYNC_URL = _with_driver(DATABASE_URL, "pymysql")
 
 async_engine = create_async_engine(
-    _ASYNCPG_URL,
+    _ASYNC_URL,
     echo=False,
-    pool_pre_ping=True,
+    pool_pre_ping=True,   # drop dead conns (MySQL wait_timeout) instead of erroring
+    pool_recycle=1800,    # recycle before MySQL's default 8h idle close
     pool_size=20,
     max_overflow=20,
-    connect_args=_connect_args,
 )
 AsyncSessionLocal = async_sessionmaker(async_engine, expire_on_commit=False)
 
-# Sync engine for Alembic migrations and seed scripts (psycopg2 handles sslmode natively)
-sync_engine = create_engine(DATABASE_URL, echo=False)
+# Sync engine for Alembic migrations and seed scripts.
+sync_engine = create_engine(_SYNC_URL, echo=False, pool_pre_ping=True)
 
 
 @asynccontextmanager

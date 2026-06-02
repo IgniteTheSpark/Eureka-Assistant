@@ -25,15 +25,47 @@ v1.3 baseline (kept):
 - file_id on InputTurn only, NOT on Session
 """
 from sqlalchemy import (
-    Column, String, Integer, Numeric, Text, Date, ARRAY,
-    ForeignKey, UniqueConstraint, Index, TIMESTAMP,
+    Column, String, Integer, Numeric, Text, Date,
+    ForeignKey, UniqueConstraint, Index, DateTime, JSON,
 )
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.types import TypeDecorator, CHAR
 from sqlalchemy.orm import declarative_base
-from sqlalchemy.sql import func
+from datetime import datetime, timezone
 import uuid
 
-TIMESTAMPTZ = TIMESTAMP(timezone=True)
+
+def _utcnow():
+    """Python-side timestamp default. MySQL has no INSERT...RETURNING, so a DB
+    server_default (func.now()) never flows back onto the ORM object — reading
+    obj.created_at after the session closes then raises DetachedInstanceError.
+    Setting the value in Python at flush populates the attribute on both
+    MySQL and Postgres."""
+    return datetime.now(timezone.utc)
+
+
+class GUID(TypeDecorator):
+    """Portable UUID stored as CHAR(36) so the schema runs on MySQL (which has
+    no native UUID / JSONB / ARRAY). Behaves like the old
+    postgresql UUID(as_uuid=True): accepts uuid.UUID or str, returns uuid.UUID.
+    All UUIDs are generated app-side (default=uuid.uuid4), so there's no DB
+    gen_random_uuid dependency to lose."""
+    impl = CHAR(36)
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        return str(value if isinstance(value, uuid.UUID) else uuid.UUID(str(value)))
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        return value if isinstance(value, uuid.UUID) else uuid.UUID(str(value))
+
+
+# Kept name; on MySQL this maps to DATETIME (timezone flag ignored). The app
+# uses tz-aware UTC datetimes everywhere, so store/compare in UTC by convention.
+TIMESTAMPTZ = DateTime(timezone=True)
 Base = declarative_base()
 
 
@@ -43,24 +75,24 @@ class GlobalSkill(Base):
     id          = Column(Integer, primary_key=True, autoincrement=True)
     name        = Column(String(50), unique=True, nullable=False)
     description = Column(Text)
-    created_at  = Column(TIMESTAMPTZ, server_default=func.now())
+    created_at  = Column(TIMESTAMPTZ, default=_utcnow)
 
 
 class UserSkill(Base):
     __tablename__ = "user_skills"
 
-    id               = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id               = Column(GUID(), primary_key=True, default=uuid.uuid4)
     user_id          = Column(String(50), nullable=False, server_default="default")
     skill_id         = Column(Integer, ForeignKey("global_skills.id"))
     display_name     = Column(String(100))
-    payload_schema   = Column(JSONB)   # nullable: system skills (e.g. qa) have no payload
-    render_spec      = Column(JSONB)   # nullable: skills that don't produce visible assets
-    queryable_fields = Column(JSONB)   # nullable
+    payload_schema   = Column(JSON)   # nullable: system skills (e.g. qa) have no payload
+    render_spec      = Column(JSON)   # nullable: skills that don't produce visible assets
+    queryable_fields = Column(JSON)   # nullable
     # Position drives the 3×3 SKILLS grid order in the library. 0-based,
     # contiguous within (user_id). Drag-to-reorder writes via
     # PUT /api/skills/reorder. New skills land at the end.
     position         = Column(Integer, nullable=False, server_default="0")
-    created_at       = Column(TIMESTAMPTZ, server_default=func.now())
+    created_at       = Column(TIMESTAMPTZ, default=_utcnow)
 
     __table_args__ = (
         UniqueConstraint("user_id", "skill_id", name="uq_user_skills_user_skill"),
@@ -70,7 +102,7 @@ class UserSkill(Base):
 class Session(Base):
     __tablename__ = "sessions"
 
-    id           = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id           = Column(GUID(), primary_key=True, default=uuid.uuid4)
     user_id      = Column(String(50), nullable=False, server_default="default")
     session_type = Column(String(20), nullable=False)   # flash | chat | meeting | manual
     title        = Column(String(255))
@@ -78,14 +110,14 @@ class Session(Base):
     # ── Subject FKs (M2.3) — each asset/entity has ONE home discussion
     # session. get-or-create on「在 chat 里讨论」. Exactly one of these is
     # set per chat-discussion session (manual/flash sessions have none set).
-    event_id          = Column(UUID(as_uuid=True), ForeignKey("events.id"))    # v1.4
-    contact_id        = Column(UUID(as_uuid=True), ForeignKey("contacts.id"))  # M2.3
-    file_id           = Column(UUID(as_uuid=True), ForeignKey("files.id"))     # M2.3
-    subject_asset_id  = Column(UUID(as_uuid=True), ForeignKey("assets.id"))    # M2.3
+    event_id          = Column(GUID(), ForeignKey("events.id"))    # v1.4
+    contact_id        = Column(GUID(), ForeignKey("contacts.id"))  # M2.3
+    file_id           = Column(GUID(), ForeignKey("files.id"))     # M2.3
+    subject_asset_id  = Column(GUID(), ForeignKey("assets.id"))    # M2.3
     # ── Additive context (M2.2) — assets pulled into discussion via
     # 「+ 添加资产」, mutable list. Distinct from subject FK above.
-    context_asset_ids = Column(ARRAY(UUID(as_uuid=True)), nullable=False, server_default="{}")
-    created_at   = Column(TIMESTAMPTZ, server_default=func.now())
+    context_asset_ids = Column(JSON, nullable=False, default=list)   # was ARRAY(UUID) on PG
+    created_at   = Column(TIMESTAMPTZ, default=_utcnow)
 
     __table_args__ = (
         Index("idx_sessions_user_date", "user_id", "date"),
@@ -97,14 +129,14 @@ class Session(Base):
 class File(Base):
     __tablename__ = "files"
 
-    id           = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id           = Column(GUID(), primary_key=True, default=uuid.uuid4)
     user_id      = Column(String(50), nullable=False)
     storage_url  = Column(Text)
     file_type    = Column(String(50))
     duration_sec = Column(Integer)
     source_tag   = Column(String(20))   # flash | meeting
     asr_status   = Column(String(20))   # pending | processing | completed | failed
-    created_at   = Column(TIMESTAMPTZ, server_default=func.now())
+    created_at   = Column(TIMESTAMPTZ, default=_utcnow)
 
 
 class InputTurn(Base):
@@ -129,18 +161,18 @@ class InputTurn(Base):
     """
     __tablename__ = "input_turns"
 
-    id                 = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id                 = Column(GUID(), primary_key=True, default=uuid.uuid4)
     user_id            = Column(String(50), nullable=False)
-    session_id         = Column(UUID(as_uuid=True), ForeignKey("sessions.id"), nullable=False)
+    session_id         = Column(GUID(), ForeignKey("sessions.id"), nullable=False)
     index              = Column(Integer, nullable=False)             # 0-based position within session
-    file_id            = Column(UUID(as_uuid=True), ForeignKey("files.id"))   # nullable: typed / chat has no file
+    file_id            = Column(GUID(), ForeignKey("files.id"))   # nullable: typed / chat has no file
     source_file_offset = Column(Integer)                              # ms in audio (meeting segment)
     text               = Column(Text, nullable=False)
-    segments           = Column(JSONB)                                # optional speaker / per-token detail
+    segments           = Column(JSON)                                # optional speaker / per-token detail
     source             = Column(String(20), nullable=False)           # voice | typed | imported (modality, NOT session_type)
     asr_provider       = Column(String(50))
     language           = Column(String(10))
-    created_at         = Column(TIMESTAMPTZ, server_default=func.now())
+    created_at         = Column(TIMESTAMPTZ, default=_utcnow)
 
     __table_args__ = (
         UniqueConstraint("session_id", "index", name="uq_input_turns_session_index"),
@@ -152,13 +184,13 @@ class InputTurn(Base):
 class Asset(Base):
     __tablename__ = "assets"
 
-    id                   = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id                   = Column(GUID(), primary_key=True, default=uuid.uuid4)
     user_id              = Column(String(50), nullable=False, server_default="default")
-    user_skill_id        = Column(UUID(as_uuid=True), ForeignKey("user_skills.id"), nullable=False)
-    session_id           = Column(UUID(as_uuid=True), ForeignKey("sessions.id"))
-    source_input_turn_id = Column(UUID(as_uuid=True), ForeignKey("input_turns.id"))   # nullable: manual session has no input_turn
-    payload              = Column(JSONB, nullable=False)
-    created_at           = Column(TIMESTAMPTZ, server_default=func.now())
+    user_skill_id        = Column(GUID(), ForeignKey("user_skills.id"), nullable=False)
+    session_id           = Column(GUID(), ForeignKey("sessions.id"))
+    source_input_turn_id = Column(GUID(), ForeignKey("input_turns.id"))   # nullable: manual session has no input_turn
+    payload              = Column(JSON, nullable=False)
+    created_at           = Column(TIMESTAMPTZ, default=_utcnow)
 
     __table_args__ = (
         Index("idx_assets_user",       "user_id", "created_at"),
@@ -171,7 +203,7 @@ class AssetField(Base):
     """Queryable field inverted index — one row per indexed field per asset."""
     __tablename__ = "asset_fields"
 
-    asset_id     = Column(UUID(as_uuid=True), ForeignKey("assets.id", ondelete="CASCADE"), primary_key=True)
+    asset_id     = Column(GUID(), ForeignKey("assets.id", ondelete="CASCADE"), primary_key=True)
     user_id      = Column(String(50), nullable=False, primary_key=True)
     field_name   = Column(String(100), nullable=False, primary_key=True)
     value_text   = Column(Text)
@@ -180,7 +212,10 @@ class AssetField(Base):
 
     __table_args__ = (
         Index("idx_asset_fields_num",  "user_id", "field_name", "value_number"),
-        Index("idx_asset_fields_text", "user_id", "field_name", "value_text"),
+        # value_text is TEXT (unbounded) → MySQL needs a key-length prefix to
+        # index it. 255 chars is plenty for the queryable-field value match.
+        Index("idx_asset_fields_text", "user_id", "field_name", "value_text",
+              mysql_length={"value_text": 255}),
         Index("idx_asset_fields_date", "user_id", "field_name", "value_date"),
     )
 
@@ -188,15 +223,15 @@ class AssetField(Base):
 class Contact(Base):
     __tablename__ = "contacts"
 
-    id         = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id         = Column(GUID(), primary_key=True, default=uuid.uuid4)
     user_id    = Column(String(50), nullable=False, server_default="default")
     name       = Column(String(255), nullable=False)
     phone      = Column(String(50))
     company    = Column(String(255))
     title      = Column(String(255))
     email      = Column(String(255))
-    notes      = Column(ARRAY(Text), server_default="{}")
-    created_at = Column(TIMESTAMPTZ, server_default=func.now())
+    notes      = Column(JSON, default=list)   # was ARRAY(Text) on PG
+    created_at = Column(TIMESTAMPTZ, default=_utcnow)
 
     __table_args__ = (
         Index("idx_contacts_name", "user_id", "name"),
@@ -221,7 +256,7 @@ class Event(Base):
     """
     __tablename__ = "events"
 
-    id               = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id               = Column(GUID(), primary_key=True, default=uuid.uuid4)
     user_id          = Column(String(50), nullable=False, server_default="default")
     title            = Column(String(255), nullable=False)
     start_at         = Column(TIMESTAMPTZ, nullable=False)
@@ -233,9 +268,9 @@ class Event(Base):
     status           = Column(String(20), server_default="scheduled")   # scheduled | cancelled | done
     sync_source      = Column(String(20))                     # manual | google | outlook | ... ; null = manual
     sync_external_id = Column(String(255))                    # upstream id for de-dup on sync
-    source_input_turn_id = Column(UUID(as_uuid=True), ForeignKey("input_turns.id"))   # provenance when voice-created
-    created_at       = Column(TIMESTAMPTZ, server_default=func.now())
-    updated_at       = Column(TIMESTAMPTZ, server_default=func.now(), onupdate=func.now())
+    source_input_turn_id = Column(GUID(), ForeignKey("input_turns.id"))   # provenance when voice-created
+    created_at       = Column(TIMESTAMPTZ, default=_utcnow)
+    updated_at       = Column(TIMESTAMPTZ, default=_utcnow, onupdate=_utcnow)
 
     __table_args__ = (
         Index("idx_events_user_start",         "user_id", "start_at"),
@@ -248,12 +283,12 @@ class EventAttendee(Base):
     """Join: event ↔ contact (or unresolved name when no contact match)."""
     __tablename__ = "event_attendees"
 
-    id         = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    event_id   = Column(UUID(as_uuid=True), ForeignKey("events.id", ondelete="CASCADE"), nullable=False)
-    contact_id = Column(UUID(as_uuid=True), ForeignKey("contacts.id"))   # nullable: name without contact match
+    id         = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    event_id   = Column(GUID(), ForeignKey("events.id", ondelete="CASCADE"), nullable=False)
+    contact_id = Column(GUID(), ForeignKey("contacts.id"))   # nullable: name without contact match
     name_raw   = Column(String(255))                                      # fallback display when contact_id null
     role       = Column(String(20), server_default="attendee")            # organizer | attendee | optional
-    created_at = Column(TIMESTAMPTZ, server_default=func.now())
+    created_at = Column(TIMESTAMPTZ, default=_utcnow)
 
     __table_args__ = (
         Index("idx_event_attendees_event",   "event_id"),
@@ -265,11 +300,11 @@ class EventFile(Base):
     """Join: event ↔ file (pre-meeting docs, recordings, notes attached to an event)."""
     __tablename__ = "event_files"
 
-    id          = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    event_id    = Column(UUID(as_uuid=True), ForeignKey("events.id", ondelete="CASCADE"), nullable=False)
-    file_id     = Column(UUID(as_uuid=True), ForeignKey("files.id"), nullable=False)
+    id          = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    event_id    = Column(GUID(), ForeignKey("events.id", ondelete="CASCADE"), nullable=False)
+    file_id     = Column(GUID(), ForeignKey("files.id"), nullable=False)
     kind        = Column(String(20), server_default="attachment")   # prep | recording | notes | attachment
-    attached_at = Column(TIMESTAMPTZ, server_default=func.now())
+    attached_at = Column(TIMESTAMPTZ, default=_utcnow)
 
     __table_args__ = (
         Index("idx_event_files_event", "event_id"),
@@ -280,16 +315,16 @@ class EventFile(Base):
 class Message(Base):
     __tablename__ = "messages"
 
-    id          = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    session_id  = Column(UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
+    id          = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    session_id  = Column(GUID(), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
     user_id     = Column(String(50), nullable=False, server_default="default")
     role        = Column(String(10), nullable=False)        # user | agent | tool
-    text        = Column(Text, nullable=False, server_default="")
-    tool_call   = Column(JSONB)                              # {name, args} when agent invokes a tool
-    tool_result = Column(JSONB)                              # tool output (role=tool)
-    cards       = Column(JSONB, server_default="[]")         # rendered asset card snapshots
+    text        = Column(Text, nullable=False, default="")   # MySQL TEXT can't take a server_default
+    tool_call   = Column(JSON)                              # {name, args} when agent invokes a tool
+    tool_result = Column(JSON)                              # tool output (role=tool)
+    cards       = Column(JSON, default=list)                # rendered asset card snapshots
     elapsed_ms  = Column(Integer)
-    created_at  = Column(TIMESTAMPTZ, server_default=func.now())
+    created_at  = Column(TIMESTAMPTZ, default=_utcnow)
 
     __table_args__ = (
         Index("idx_messages_session", "session_id", "created_at"),
@@ -312,18 +347,18 @@ class Task(Base):
     """
     __tablename__ = "tasks"
 
-    id                   = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id                   = Column(GUID(), primary_key=True, default=uuid.uuid4)
     user_id              = Column(String(50), nullable=False, server_default="default")
     user_text            = Column(Text, nullable=False)                       # original ask
     mcp_target           = Column(String(50))                                 # filled by agent after tool selection (notion/google_calendar/...)
     status               = Column(String(20), nullable=False, server_default="pending")  # pending | running | done | failed
     error_message        = Column(Text)
-    result_asset_id      = Column(UUID(as_uuid=True), ForeignKey("assets.id"))
-    session_id           = Column(UUID(as_uuid=True), ForeignKey("sessions.id"))
-    source_input_turn_id = Column(UUID(as_uuid=True), ForeignKey("input_turns.id"))
+    result_asset_id      = Column(GUID(), ForeignKey("assets.id"))
+    session_id           = Column(GUID(), ForeignKey("sessions.id"))
+    source_input_turn_id = Column(GUID(), ForeignKey("input_turns.id"))
     started_at           = Column(TIMESTAMPTZ)
     completed_at         = Column(TIMESTAMPTZ)
-    created_at           = Column(TIMESTAMPTZ, server_default=func.now())
+    created_at           = Column(TIMESTAMPTZ, default=_utcnow)
 
     __table_args__ = (
         Index("idx_tasks_user_status", "user_id", "status", "created_at"),
@@ -346,14 +381,14 @@ class Notification(Base):
     """
     __tablename__ = "notifications"
 
-    id         = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id         = Column(GUID(), primary_key=True, default=uuid.uuid4)
     user_id    = Column(String(50), nullable=False, server_default="default")
     type       = Column(String(20), nullable=False)   # flash_done | task_done | task_failed | reminder
     title      = Column(String(255), nullable=False)
     body       = Column(Text)
     link       = Column(String(255))                   # opaque deep-link target (asset/event id)
     read       = Column(Integer, nullable=False, server_default="0")  # 0/1
-    created_at = Column(TIMESTAMPTZ, server_default=func.now())
+    created_at = Column(TIMESTAMPTZ, default=_utcnow)
 
     __table_args__ = (
         Index("idx_notifications_user_created", "user_id", "created_at"),
