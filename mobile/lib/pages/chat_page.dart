@@ -3,11 +3,11 @@ import 'package:flutter/material.dart';
 import '../chat/chat_card.dart';
 import '../chat/chat_controller.dart';
 import '../chat/chat_models.dart';
+import '../chat/markdown_text.dart';
 import '../theme/app_theme.dart';
 
 /// Agent chat surface — streams POST /api/chat over SSE, renders the agent's
-/// text + created cards. Sessions sidebar, markdown, and precipitate are later
-/// E2 polish.
+/// markdown text + created cards, and offers 沉淀为资产 on pure Q&A answers.
 class ChatPage extends StatefulWidget {
   const ChatPage({super.key});
 
@@ -55,6 +55,11 @@ class _ChatPageState extends State<ChatPage> {
     _chat.send(t);
   }
 
+  Future<void> _precipitate(ChatMessage m, String skill) {
+    final text = m.parts.whereType<TextPart>().map((p) => p.text).join();
+    return _chat.precipitate(text, skill);
+  }
+
   @override
   Widget build(BuildContext context) {
     final eu = context.eu;
@@ -83,12 +88,14 @@ class _ChatPageState extends State<ChatPage> {
                       controller: _scroll,
                       padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                       itemCount: msgs.length,
-                      itemBuilder: (_, i) => _Bubble(msgs[i]),
+                      itemBuilder: (_, i) => _Bubble(
+                        msgs[i],
+                        onPrecipitate: (skill) => _precipitate(msgs[i], skill),
+                      ),
                     ),
             ),
             _InputBar(controller: _input, onSend: _send, streaming: _chat.streaming),
-            // Clearance for the floating dock.
-            const SizedBox(height: 80),
+            const SizedBox(height: 80), // dock clearance
           ],
         ),
       ),
@@ -98,7 +105,8 @@ class _ChatPageState extends State<ChatPage> {
 
 class _Bubble extends StatelessWidget {
   final ChatMessage m;
-  const _Bubble(this.m);
+  final Future<void> Function(String skill)? onPrecipitate;
+  const _Bubble(this.m, {this.onPrecipitate});
 
   @override
   Widget build(BuildContext context) {
@@ -122,6 +130,12 @@ class _Bubble extends StatelessWidget {
       );
     }
 
+    final fullText = m.parts.whereType<TextPart>().map((p) => p.text).join();
+    final hasCards = m.parts.any((p) =>
+        p is ToolResultPart && !isQueryTool(p.name) && extractCards(p.response).isNotEmpty);
+    final showPrecipitate =
+        !m.streaming && onPrecipitate != null && fullText.length > 8 && !hasCards;
+
     return Align(
       alignment: Alignment.centerLeft,
       child: Container(
@@ -134,6 +148,7 @@ class _Bubble extends StatelessWidget {
             if (m.streaming && m.parts.isEmpty)
               Text('分析中…',
                   style: TextStyle(color: eu.textLo, fontStyle: FontStyle.italic)),
+            if (showPrecipitate) _PrecipitateMenu(onPick: onPrecipitate!),
             if (!m.streaming && (m.elapsedMs != null || m.tokens != null))
               _costFooter(context, m),
           ],
@@ -148,7 +163,7 @@ class _Bubble extends StatelessWidget {
       case TextPart(:final text):
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 2),
-          child: Text(text, style: TextStyle(color: eu.text, height: 1.4)),
+          child: MarkdownText(text),
         );
       case ToolCallPart(:final name):
         return _chip(context, '${_toolLabel(name)}中…', eu.accentAmber);
@@ -198,8 +213,7 @@ class _Bubble extends StatelessWidget {
     if (bits.isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(top: 2),
-      child: Text(bits.join(' · '),
-          style: TextStyle(color: eu.textLo, fontSize: 10)),
+      child: Text(bits.join(' · '), style: TextStyle(color: eu.textLo, fontSize: 10)),
     );
   }
 
@@ -219,6 +233,95 @@ const _toolLabels = {
   'tool_create_task': '触发外部任务',
   'tool_render_report': '生成报告',
 };
+
+/// 沉淀为资产 — a dropdown of the four free-text asset types; picking one calls
+/// onPick(skill) and shows inline saving / done / error state.
+class _PrecipitateMenu extends StatefulWidget {
+  final Future<void> Function(String skill) onPick;
+  const _PrecipitateMenu({required this.onPick});
+
+  @override
+  State<_PrecipitateMenu> createState() => _PrecipitateMenuState();
+}
+
+class _PrecipitateMenuState extends State<_PrecipitateMenu> {
+  static const _types = [
+    ('todo', '✅', '待办'),
+    ('notes', '📝', '笔记'),
+    ('idea', '💡', '想法'),
+    ('misc', '🗂', '其它'),
+  ];
+
+  String _state = 'idle'; // idle | saving | done | error
+  String _label = '';
+
+  Future<void> _pick(String skill, String label) async {
+    setState(() => _state = 'saving');
+    try {
+      await widget.onPick(skill);
+      if (mounted) {
+        setState(() {
+          _state = 'done';
+          _label = label;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _state = 'error');
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final eu = context.eu;
+    if (_state == 'done') {
+      return Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.check, size: 14, color: eu.accentGreen),
+            const SizedBox(width: 4),
+            Text('已沉淀为$_label', style: TextStyle(color: eu.accentGreen, fontSize: 12)),
+          ],
+        ),
+      );
+    }
+    final isError = _state == 'error';
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: PopupMenuButton<String>(
+        enabled: _state != 'saving',
+        onSelected: (v) {
+          final t = _types.firstWhere((e) => e.$1 == v);
+          _pick(t.$1, t.$3);
+        },
+        itemBuilder: (_) => [
+          for (final t in _types) PopupMenuItem(value: t.$1, child: Text('${t.$2} ${t.$3}')),
+        ],
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: isError ? eu.accentRed : eu.border),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(_state == 'saving' ? Icons.hourglass_empty : Icons.bookmark_border,
+                  size: 13, color: isError ? eu.accentRed : eu.textLo),
+              const SizedBox(width: 4),
+              Text(isError ? '沉淀失败,重试' : '沉淀为资产',
+                  style: TextStyle(color: isError ? eu.accentRed : eu.textLo, fontSize: 12)),
+              Icon(Icons.arrow_drop_down, size: 16, color: eu.textLo),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class _InputBar extends StatelessWidget {
   final TextEditingController controller;
@@ -248,8 +351,7 @@ class _InputBar extends StatelessWidget {
                 hintStyle: TextStyle(color: eu.textLo),
                 filled: true,
                 fillColor: eu.surfaceRaised,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(22),
                   borderSide: BorderSide(color: eu.border),

@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../api/api_client.dart';
 import '../api/sse_client.dart';
 import 'chat_models.dart';
 
@@ -11,6 +12,30 @@ class ChatController extends ChangeNotifier {
   bool streaming = false;
   String? sessionId;
   String? error;
+
+  final ApiClient _api = ApiClient();
+
+  @override
+  void dispose() {
+    _api.close();
+    super.dispose();
+  }
+
+  /// 沉淀为资产 — turn a Q&A answer into an asset of [skill] (todo/notes/idea/
+  /// misc), linked to this session. Throws on failure so the UI can show it.
+  Future<void> precipitate(String text, String skill) async {
+    final payload = <String, dynamic>{'content': text};
+    if (skill == 'notes' || skill == 'idea') {
+      var title = text.trim().replaceAll(RegExp(r'\s+'), ' ');
+      if (title.length > 24) title = title.substring(0, 24);
+      payload['title'] = title;
+    }
+    await _api.postJson('/api/assets', {
+      'user_skill_name': skill,
+      'payload': payload,
+      'session_id': sessionId ?? '',
+    });
+  }
 
   Future<void> send(String text) async {
     final t = text.trim();
