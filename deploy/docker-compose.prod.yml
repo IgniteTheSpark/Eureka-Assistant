@@ -1,0 +1,84 @@
+# Production deploy — single cloud VM, Caddy (auto-HTTPS) in front of FastAPI.
+#
+# Run from the repo root:
+#   docker compose --env-file deploy/.env.prod -f deploy/docker-compose.prod.yml up -d --build
+#
+# Relative paths resolve from THIS file's directory (deploy/), so the backend
+# build context + mcp-credentials are reached via ../ .
+#
+# Differences vs the dev docker-compose.yml at the repo root:
+#   - no ./backend source bind-mount, no --reload (runs the code baked into the
+#     image; the Dockerfile CMD is `uvicorn ... ` with no reload)
+#   - MySQL is bound to localhost only (never exposed to the public internet)
+#   - Caddy terminates TLS and reverse-proxies to the backend
+#   - restart: unless-stopped on every service
+name: eureka-prod
+
+services:
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-eureka}
+      MYSQL_USER: ${MYSQL_USER:-eureka}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    # Bind to localhost only — the DB must NOT be reachable from the internet.
+    # (Lets you run `mysql` on the VM for admin; remove entirely to fully seal.)
+    ports:
+      - "127.0.0.1:3306:3306"
+    volumes:
+      - mysqldata:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u$$MYSQL_USER -p$$MYSQL_PASSWORD"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  backend:
+    build: ../backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      USER_ID: ${USER_ID:-default}
+      EUREKA_MCP_ENABLED: ${EUREKA_MCP_ENABLED:-fake_external}
+      GOOGLE_OAUTH_CREDENTIALS: /mcp-credentials/google-calendar-creds.json
+      GOOGLE_CALENDAR_MCP_TOKEN_PATH: /mcp-credentials/google-calendar-token.json
+      DINGTALK_AIHUB_URL_CALENDAR: ${DINGTALK_AIHUB_URL_CALENDAR:-}
+      DINGTALK_AIHUB_URL_TODO: ${DINGTALK_AIHUB_URL_TODO:-}
+      DINGTALK_AIHUB_URL_NOTES: ${DINGTALK_AIHUB_URL_NOTES:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ../mcp-credentials:/mcp-credentials:ro
+    # Internal only — Caddy reaches it on the compose network. One worker keeps
+    # a single reminder-scheduler loop (multiple workers would fire duplicate
+    # reminders); FastAPI is async so one worker serves many concurrent SSE
+    # streams fine for a beta.
+    expose:
+      - "8000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+
+volumes:
+  mysqldata:
+  caddy_data:
+  caddy_config:

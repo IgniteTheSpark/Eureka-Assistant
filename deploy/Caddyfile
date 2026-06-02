@@ -1,0 +1,17 @@
+# Caddy reverse proxy — automatic HTTPS via Let's Encrypt for $DOMAIN.
+# DOMAIN + ACME_EMAIL come from the environment (set in deploy/.env.prod).
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode gzip
+
+	reverse_proxy backend:8000 {
+		# SSE: the chat + flash endpoints stream tokens. Disable Caddy's
+		# response buffering so events reach the client live instead of in a
+		# batch at the end.
+		flush_interval -1
+	}
+}
