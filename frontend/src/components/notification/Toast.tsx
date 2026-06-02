@@ -46,10 +46,10 @@ export function Toast({ notif, onDone }: { notif: Notification; onDone: () => vo
         gap: 10,
         padding: "11px 12px",
         borderRadius: 14,
-        background: "rgba(20,22,30,0.86)",
+        background: "var(--eu-surface-overlay)",
         backdropFilter: "blur(12px) saturate(1.4)",
         border: "1px solid rgba(var(--eu-ink),0.10)",
-        boxShadow: "0 8px 28px rgba(0,0,0,0.40)",
+        boxShadow: "var(--eu-shadow-lg)",
         cursor: target ? "pointer" : "default",
       }}
     >

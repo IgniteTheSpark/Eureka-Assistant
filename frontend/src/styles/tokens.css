@@ -56,6 +56,10 @@
   --eu-surface-hover:  #22272e;
   --eu-border:         #2d333b;
   --eu-border-strong:  #444c56;
+  /* Elevated glass for transient overlays (toasts / popovers). Dark default;
+   * .theme-light flips it to a light glass so dark-tuned overlays don't render
+   * dark-on-light. Atmosphere/Lab inherit this dark value. */
+  --eu-surface-overlay: rgba(20,22,30,0.86);
 
   /* ── Text ────────────────────────────────────── */
   --eu-text-hi:    #e6edf3;
@@ -251,14 +255,19 @@
   /* Ink flips to warm near-black so rgba(var(--eu-ink), a) tints read on paper */
   --eu-ink: 26, 24, 16;
 
-  /* Surfaces — warm paper bg, tonal black surfaces, white raised cards */
+  /* Surfaces — warm paper bg, tonal black surfaces, warm off-white raised
+   * cards. Raised was pure #ffffff, which read as a cool/glaring block on the
+   * warm paper bg (user feedback); a warm near-white harmonizes with the paper
+   * while staying clearly lifted (cards also carry a soft warm shadow). */
   --eu-bg: #f4f2ec;
   --eu-surface: rgba(20,18,12,0.035);
-  --eu-surface-raised: #ffffff;
+  --eu-surface-raised: #fbfaf6;
   --eu-surface-hover: rgba(20,18,12,0.06);
   --eu-border: rgba(20,18,12,0.12);
   --eu-border-strong: rgba(20,18,12,0.24);
   --eu-rule: rgba(20,18,12,0.08);
+  /* Light glass for transient overlays (toasts / popovers) */
+  --eu-surface-overlay: rgba(252,251,247,0.94);
 
   /* Text — warm near-black descending to muted */
   --eu-text-hi: #1b1d22;

@@ -12,14 +12,17 @@ export interface NotifMeta {
   edge: string;
 }
 
+// Colors reference the accent tokens (not raw hex) so notification chips flip
+// with the theme — the old dark-tuned light-blue/green/etc. fg were near
+// invisible on the light-mode toast / bell / page.
 const META: Record<string, NotifMeta> = {
-  flash_done:  { icon: "⚡", fg: "#a4c2ff", bg: "rgba(111,158,255,0.12)", edge: "rgba(111,158,255,0.28)" },
-  task_done:   { icon: "✓", fg: "#86e0a5", bg: "rgba(134,224,165,0.12)", edge: "rgba(134,224,165,0.28)" },
-  task_failed: { icon: "!", fg: "#ff9b9b", bg: "rgba(255,138,138,0.12)", edge: "rgba(255,138,138,0.30)" },
-  reminder:    { icon: "⏰", fg: "#c4a8ff", bg: "rgba(196,168,255,0.12)", edge: "rgba(196,168,255,0.28)" },
+  flash_done:  { icon: "⚡", fg: "var(--eu-accent-blue-fg)",   bg: "var(--eu-accent-blue-bg)",   edge: "var(--eu-accent-blue-edge)" },
+  task_done:   { icon: "✓", fg: "var(--eu-accent-green-fg)",  bg: "var(--eu-accent-green-bg)",  edge: "var(--eu-accent-green-edge)" },
+  task_failed: { icon: "!", fg: "var(--eu-accent-red-fg)",    bg: "var(--eu-accent-red-bg)",    edge: "var(--eu-accent-red-edge)" },
+  reminder:    { icon: "⏰", fg: "var(--eu-accent-purple-fg)", bg: "var(--eu-accent-purple-bg)", edge: "var(--eu-accent-purple-edge)" },
 };
 
-const FALLBACK: NotifMeta = { icon: "•", fg: "#d4dbe6", bg: "rgba(212,219,230,0.08)", edge: "rgba(212,219,230,0.18)" };
+const FALLBACK: NotifMeta = { icon: "•", fg: "var(--eu-accent-neutral-fg)", bg: "var(--eu-accent-neutral-bg)", edge: "var(--eu-accent-neutral-edge)" };
 
 export function notifMeta(type: string): NotifMeta {
   return META[type] ?? FALLBACK;

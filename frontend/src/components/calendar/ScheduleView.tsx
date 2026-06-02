@@ -354,23 +354,38 @@ export function ScheduleView({ onItemTap, onDayTap, embedded }: ScheduleViewProp
                     }}
                   />
                 )}
-                {/* B: vertical year-month label on first day of each month */}
+                {/* B: year-month anchor on the first day of each month. Two
+                    clean horizontal lines (year over 月) pinned top-left of the
+                    rail. The old vertical-rl label wrapped into overlapping
+                    columns + collided with the date number inside the short
+                    (~50px) rail cell — see the user's light-mode screenshot. */}
                 {monthBoundary && (
-                  <span
-                    className="font-mono absolute select-none"
-                    style={{
-                      writingMode: "vertical-rl",
-                      transform: "rotate(180deg)",
-                      top: 4, left: 4, bottom: 0,
-                      fontSize: 10.5, letterSpacing: "0.20em",
-                      color: isCurrentMonth ? "var(--eu-brand)" : "rgba(var(--eu-ink),0.32)",
-                      textShadow: isCurrentMonth ? "0 0 8px rgba(111,158,255,0.45)" : "none",
-                      fontWeight: isCurrentMonth ? 600 : 500,
-                      pointerEvents: "none",
-                    }}
+                  <div
+                    className="absolute select-none flex flex-col"
+                    style={{ top: 2, left: 2, lineHeight: 1.05, pointerEvents: "none" }}
                   >
-                    {formatYearMonth(dayKey)}
-                  </span>
+                    <span
+                      className="font-mono"
+                      style={{
+                        fontSize: 8, letterSpacing: "0.08em", fontWeight: 500,
+                        color: isCurrentMonth ? "var(--eu-brand)" : "rgba(var(--eu-ink),0.28)",
+                        textShadow: isCurrentMonth ? "0 0 8px rgba(111,158,255,0.45)" : "none",
+                      }}
+                    >
+                      {dayKey.slice(0, 4)}
+                    </span>
+                    <span
+                      className="font-mono"
+                      style={{
+                        fontSize: 10, letterSpacing: "0.02em",
+                        fontWeight: isCurrentMonth ? 700 : 600,
+                        color: isCurrentMonth ? "var(--eu-brand)" : "rgba(var(--eu-ink),0.34)",
+                        textShadow: isCurrentMonth ? "0 0 8px rgba(111,158,255,0.45)" : "none",
+                      }}
+                    >
+                      {Number(dayKey.slice(5, 7))}月
+                    </span>
+                  </div>
                 )}
                 <span
                   className="font-mono"
@@ -409,7 +424,12 @@ export function ScheduleView({ onItemTap, onDayTap, embedded }: ScheduleViewProp
                   justifyContent: "flex-start",
                   gap: 8,
                   cursor: "pointer",
-                  border: "none",
+                  // Theme-aware hairline + soft lift so the tile reads as a card
+                  // without relying on a stark white fill. In light mode the warm
+                  // off-white surface + soft warm shadow replaces the glaring
+                  // pure-white-on-paper contrast the user flagged.
+                  border: "1px solid var(--eu-rule)",
+                  boxShadow: "var(--eu-shadow-sm)",
                 }}
               >
                 {label && (
@@ -718,13 +738,6 @@ function addDays(d: Date, delta: number): Date {
 }
 
 /* ── Timepage-mode helpers (A overlay / B vertical label / E jump) ──── */
-
-/** Year + 月 label, e.g. "2026 年 5 月". Vertical writing-mode renders it
- *  along the rail. */
-function formatYearMonth(dayKey: string): string {
-  const [y, m] = dayKey.split("-").map(Number);
-  return `${y} 年 ${m} 月`;
-}
 
 /** Find the prior visible day-row's dayKey in the rendered rows so we can
  *  detect month boundaries. Walks back skipping gap rows. */
