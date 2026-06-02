@@ -11,7 +11,7 @@ class NotifItem {
   final String title;
   final String body;
   final String link;
-  final bool read;
+  bool read;
   final DateTime createdAt;
 
   NotifItem({
@@ -36,16 +36,8 @@ class NotifItem {
       );
 }
 
-Future<List<NotifItem>> fetchNotifications(ApiClient api) async {
-  final res = await api.getJson('/api/notifications');
-  final list = (res is Map ? res['notifications'] : null) as List? ?? const [];
-  return list
-      .whereType<Map>()
-      .map((e) => NotifItem.fromJson(e.cast<String, dynamic>()))
-      .toList();
-}
-
-/// Notifications surface (pushed from the bell).
+/// Notifications surface (pushed from the bell). Tap a row to mark it read;
+/// "全部已读" clears all.
 class NotificationsPage extends StatefulWidget {
   const NotificationsPage({super.key});
 
@@ -55,7 +47,66 @@ class NotificationsPage extends StatefulWidget {
 
 class _NotificationsPageState extends State<NotificationsPage> {
   final _api = ApiClient();
-  late final Future<List<NotifItem>> _future = fetchNotifications(_api);
+  List<NotifItem> _items = [];
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final res = await _api.getJson('/api/notifications');
+      final list = (res is Map ? res['notifications'] : null) as List? ?? const [];
+      if (!mounted) return;
+      setState(() {
+        _items = list
+            .whereType<Map>()
+            .map((e) => NotifItem.fromJson(e.cast<String, dynamic>()))
+            .toList();
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _markRead(NotifItem n) async {
+    if (n.read) return;
+    setState(() => n.read = true);
+    try {
+      await _api.postJson('/api/notifications/${n.id}/read', const {});
+    } catch (_) {
+      if (mounted) setState(() => n.read = false); // revert on failure
+    }
+  }
+
+  Future<void> _markAll() async {
+    final prev = [for (final n in _items) n.read];
+    setState(() {
+      for (final n in _items) {
+        n.read = true;
+      }
+    });
+    try {
+      await _api.postJson('/api/notifications/read-all', const {});
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          for (var i = 0; i < _items.length; i++) {
+            _items[i].read = prev[i];
+          }
+        });
+      }
+    }
+  }
 
   @override
   void dispose() {
@@ -73,102 +124,102 @@ class _NotificationsPageState extends State<NotificationsPage> {
         backgroundColor: eu.bg,
         foregroundColor: eu.textHi,
         elevation: 0,
+        actions: [
+          if (_items.any((n) => !n.read))
+            TextButton(onPressed: _markAll, child: const Text('全部已读')),
+        ],
       ),
-      body: FutureBuilder<List<NotifItem>>(
-        future: _future,
-        builder: (ctx, snap) {
-          if (snap.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snap.hasError) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Text('加载失败：${snap.error}',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: eu.accentRed)),
-              ),
-            );
-          }
-          final items = snap.data ?? const [];
-          if (items.isEmpty) {
-            return Center(child: Text('暂无通知', style: TextStyle(color: eu.textMid)));
-          }
-          return ListView.builder(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-            itemCount: items.length,
-            itemBuilder: (_, i) => _NotifRow(items[i]),
-          );
-        },
-      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text('加载失败：$_error',
+                        textAlign: TextAlign.center, style: TextStyle(color: eu.accentRed)),
+                  ),
+                )
+              : _items.isEmpty
+                  ? Center(child: Text('暂无通知', style: TextStyle(color: eu.textMid)))
+                  : ListView.builder(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                      itemCount: _items.length,
+                      itemBuilder: (_, i) =>
+                          _NotifRow(_items[i], onTap: () => _markRead(_items[i])),
+                    ),
     );
   }
 }
 
 class _NotifRow extends StatelessWidget {
   final NotifItem n;
-  const _NotifRow(this.n);
+  final VoidCallback onTap;
+  const _NotifRow(this.n, {required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     final eu = context.eu;
     final (icon, accent) = _meta(eu, n.type);
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: eu.surfaceRaised,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: eu.border),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 30,
-            height: 30,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: accent.withValues(alpha: 0.14),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: accent.withValues(alpha: 0.30)),
-            ),
-            child: Text(icon, style: TextStyle(color: accent, fontSize: 15)),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(n.title,
-                    style: TextStyle(
-                        color: eu.textHi,
-                        fontSize: 14,
-                        fontWeight: n.read ? FontWeight.w500 : FontWeight.w700)),
-                if (n.body.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2),
-                    child: Text(n.body,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: eu.textMid, fontSize: 12)),
-                  ),
-                Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text(_relativeTime(n.createdAt),
-                      style: TextStyle(color: eu.textLo, fontSize: 11)),
-                ),
-              ],
-            ),
-          ),
-          if (!n.read)
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: eu.surfaceRaised,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: eu.border),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
             Container(
-              margin: const EdgeInsets.only(left: 8, top: 4),
-              width: 8,
-              height: 8,
-              decoration: BoxDecoration(color: eu.brand, shape: BoxShape.circle),
+              width: 30,
+              height: 30,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: accent.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: accent.withValues(alpha: 0.30)),
+              ),
+              child: Text(icon, style: TextStyle(color: accent, fontSize: 15)),
             ),
-        ],
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(n.title,
+                      style: TextStyle(
+                          color: eu.textHi,
+                          fontSize: 14,
+                          fontWeight: n.read ? FontWeight.w500 : FontWeight.w700)),
+                  if (n.body.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(n.body,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: eu.textMid, fontSize: 12)),
+                    ),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(_relativeTime(n.createdAt),
+                        style: TextStyle(color: eu.textLo, fontSize: 11)),
+                  ),
+                ],
+              ),
+            ),
+            if (!n.read)
+              Container(
+                margin: const EdgeInsets.only(left: 8, top: 4),
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(color: eu.brand, shape: BoxShape.circle),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -198,18 +249,63 @@ String _relativeTime(DateTime t) {
   return '${t.month}月${t.day}日';
 }
 
-/// Bell button used in the Calendar / Library headers.
-class NotificationsBell extends StatelessWidget {
+/// Bell button (Calendar / Library headers) with an unread badge.
+class NotificationsBell extends StatefulWidget {
   const NotificationsBell({super.key});
 
   @override
+  State<NotificationsBell> createState() => _NotificationsBellState();
+}
+
+class _NotificationsBellState extends State<NotificationsBell> {
+  int _unread = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUnread();
+  }
+
+  Future<void> _loadUnread() async {
+    final api = ApiClient();
+    try {
+      final res = await api.getJson('/api/notifications');
+      final u = (res is Map ? res['unread'] : null);
+      if (mounted && u is num) setState(() => _unread = u.toInt());
+    } catch (_) {
+      // ignore — badge just stays hidden
+    } finally {
+      api.close();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return IconButton(
-      tooltip: '通知',
-      icon: Icon(Icons.notifications_none, color: context.eu.textMid),
-      onPressed: () => Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const NotificationsPage()),
-      ),
+    final eu = context.eu;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        IconButton(
+          tooltip: '通知',
+          icon: Icon(Icons.notifications_none, color: eu.textMid),
+          onPressed: () async {
+            await Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const NotificationsPage()),
+            );
+            _loadUnread(); // refresh badge after viewing
+          },
+        ),
+        if (_unread > 0)
+          Positioned(
+            right: 8,
+            top: 8,
+            child: Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(color: eu.accentRed, shape: BoxShape.circle),
+            ),
+          ),
+      ],
     );
   }
 }
