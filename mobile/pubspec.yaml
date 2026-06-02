@@ -35,6 +35,11 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
 
+  # State management (light usage; see Phase E plan §七.4).
+  flutter_riverpod: ^2.6.1
+  # HTTP + SSE for the FastAPI backend.
+  http: ^1.2.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
