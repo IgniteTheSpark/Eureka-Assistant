@@ -1,10 +1,11 @@
 import '../api/api_client.dart';
 
-/// Icon + label for a skill / derived kind.
+/// Icon + label + accent for a skill / derived kind.
 class SkillMeta {
   final String icon;
   final String label;
-  const SkillMeta(this.icon, this.label);
+  final String accentColor; // blue|amber|green|red|purple|gray|neutral
+  const SkillMeta(this.icon, this.label, [this.accentColor = 'gray']);
 }
 
 /// One unified timeline entry (asset / event / contact / input_turn / file),
@@ -53,14 +54,14 @@ class TimelineItem {
 }
 
 const _builtin = <String, SkillMeta>{
-  'todo': SkillMeta('✅', '待办'),
-  'event': SkillMeta('📅', '日程'),
-  'contact': SkillMeta('👤', '名片'),
-  'idea': SkillMeta('💡', '想法'),
-  'notes': SkillMeta('📝', '笔记'),
-  'expense': SkillMeta('💰', '记账'),
-  'misc': SkillMeta('🗂', '其它'),
-  'external_ref': SkillMeta('🔗', '外部'),
+  'todo': SkillMeta('✅', '待办', 'blue'),
+  'event': SkillMeta('📅', '日程', 'purple'),
+  'contact': SkillMeta('👤', '名片', 'neutral'),
+  'idea': SkillMeta('💡', '想法', 'amber'),
+  'notes': SkillMeta('📝', '笔记', 'gray'),
+  'expense': SkillMeta('💰', '记账', 'green'),
+  'misc': SkillMeta('🗂', '其它', 'gray'),
+  'external_ref': SkillMeta('🔗', '外部', 'purple'),
 };
 
 /// Resolve a skill / derived key to its icon + label. Custom skills live only
@@ -91,6 +92,7 @@ Future<Map<String, SkillMeta>> fetchSkills(ApiClient api) async {
     out[name] = SkillMeta(
       rs?['icon'] as String? ?? '•',
       s['display_name'] as String? ?? name,
+      rs?['accent_color'] as String? ?? 'gray',
     );
   }
   return out;

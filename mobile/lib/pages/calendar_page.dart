@@ -277,7 +277,7 @@ class _MonthView extends StatelessWidget {
               else
                 _DayCell(
                   day: d,
-                  hasItems: (byDay[d]?.isNotEmpty ?? false),
+                  dotColor: _dominantColor(byDay[d], context.eu),
                   isToday: d.year == now.year && d.month == now.month && d.day == now.day,
                   isSelected: selDay != null && d == selDay,
                   onTap: () => onSelect(d),
@@ -308,15 +308,27 @@ class _MonthView extends StatelessWidget {
   }
 }
 
+/// Dominant accent for a day's dot (event purple > todo blue > expense green >
+/// idea amber > brand). Null when the day has no items.
+Color? _dominantColor(List<TimelineItem>? items, EurekaColors eu) {
+  if (items == null || items.isEmpty) return null;
+  bool has(bool Function(TimelineItem) f) => items.any(f);
+  if (has((it) => it.kind == 'event' || it.skillName == 'event')) return eu.accentPurple;
+  if (has((it) => it.skillName == 'todo')) return eu.accentBlue;
+  if (has((it) => it.skillName == 'expense')) return eu.accentGreen;
+  if (has((it) => it.skillName == 'idea')) return eu.accentAmber;
+  return eu.brand;
+}
+
 class _DayCell extends StatelessWidget {
   final DateTime day;
-  final bool hasItems;
+  final Color? dotColor;
   final bool isToday;
   final bool isSelected;
   final VoidCallback onTap;
   const _DayCell({
     required this.day,
-    required this.hasItems,
+    required this.dotColor,
     required this.isToday,
     required this.isSelected,
     required this.onTap,
@@ -344,13 +356,13 @@ class _DayCell extends StatelessWidget {
             Text('${day.day}',
                 style: TextStyle(
                     color: isToday ? Colors.white : eu.textHi, fontSize: 13)),
-            if (hasItems)
+            if (dotColor != null)
               Container(
                 margin: const EdgeInsets.only(top: 2),
                 width: 4,
                 height: 4,
                 decoration: BoxDecoration(
-                    color: isToday ? Colors.white : eu.brand, shape: BoxShape.circle),
+                    color: isToday ? Colors.white : dotColor, shape: BoxShape.circle),
               ),
           ],
         ),

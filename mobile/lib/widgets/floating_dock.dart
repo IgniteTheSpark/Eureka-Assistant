@@ -1,3 +1,5 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
@@ -32,11 +34,8 @@ class FloatingDock extends StatelessWidget {
     final eu = context.eu;
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
-        color: eu.surfaceRaised.withValues(alpha: 0.94),
         borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: eu.border),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.28),
@@ -45,9 +44,23 @@ class FloatingDock extends StatelessWidget {
           ),
         ],
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [for (final it in items) _button(context, it)],
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(28),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            decoration: BoxDecoration(
+              color: eu.surfaceRaised.withValues(alpha: 0.72),
+              borderRadius: BorderRadius.circular(28),
+              border: Border.all(color: eu.border),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [for (final it in items) _button(context, it)],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -62,6 +75,13 @@ class FloatingDock extends StatelessWidget {
           decoration: BoxDecoration(
             gradient: LinearGradient(colors: [eu.brand, eu.accentPurple]),
             borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: eu.brand.withValues(alpha: 0.45),
+                blurRadius: 16,
+                offset: const Offset(0, 4),
+              ),
+            ],
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,

@@ -163,6 +163,10 @@ class _Bubble extends StatelessWidget {
             if (m.streaming && m.parts.isEmpty)
               Text('分析中…',
                   style: TextStyle(color: eu.textLo, fontStyle: FontStyle.italic)),
+            if (m.streaming &&
+                m.parts.isNotEmpty &&
+                (m.parts.last is ToolResultPart || m.parts.last is CardsPart))
+              _workingHint(context),
             if (showPrecipitate) _PrecipitateMenu(onPick: onPrecipitate!),
             if (!m.streaming && (m.elapsedMs != null || m.tokens != null))
               _costFooter(context, m),
@@ -181,7 +185,7 @@ class _Bubble extends StatelessWidget {
           child: MarkdownText(text),
         );
       case ToolCallPart(:final name):
-        return _chip(context, '${_toolLabel(name)}中…', eu.accentAmber);
+        return _spinnerChip(context, '${_toolLabel(name)}中…', eu.accentAmber);
       case ToolResultPart(:final name, :final response):
         final cards = extractCards(response);
         if (isQueryTool(name)) {
@@ -215,6 +219,52 @@ class _Bubble extends StatelessWidget {
           border: Border.all(color: color.withValues(alpha: 0.28)),
         ),
         child: Text(label, style: TextStyle(color: color, fontSize: 12)),
+      ),
+    );
+  }
+
+  Widget _spinnerChip(BuildContext context, String label, Color color) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.withValues(alpha: 0.28)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 11,
+              height: 11,
+              child: CircularProgressIndicator(strokeWidth: 1.6, color: color),
+            ),
+            const SizedBox(width: 6),
+            Text(label, style: TextStyle(color: color, fontSize: 12)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _workingHint(BuildContext context) {
+    final eu = context.eu;
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 12,
+            height: 12,
+            child: CircularProgressIndicator(strokeWidth: 1.6, color: eu.textLo),
+          ),
+          const SizedBox(width: 6),
+          Text('处理中…',
+              style: TextStyle(color: eu.textLo, fontStyle: FontStyle.italic, fontSize: 13)),
+        ],
       ),
     );
   }

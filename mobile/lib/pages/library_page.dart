@@ -144,12 +144,20 @@ class _CategoryRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final eu = context.eu;
+    final accent = switch (meta.accentColor) {
+      'blue' => eu.accentBlue,
+      'amber' => eu.accentAmber,
+      'green' => eu.accentGreen,
+      'red' => eu.accentRed,
+      'purple' => eu.accentPurple,
+      _ => eu.textMid,
+    };
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(14),
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
           color: eu.surfaceRaised,
           borderRadius: BorderRadius.circular(14),
@@ -157,15 +165,34 @@ class _CategoryRow extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Text(meta.icon, style: const TextStyle(fontSize: 20)),
+            Container(
+              width: 38,
+              height: 38,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [accent.withValues(alpha: 0.16), accent.withValues(alpha: 0.04)],
+                ),
+                borderRadius: BorderRadius.circular(11),
+                border: Border.all(color: accent.withValues(alpha: 0.28)),
+              ),
+              child: Text(meta.icon, style: const TextStyle(fontSize: 18)),
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Text(meta.label,
                   style: TextStyle(
                       color: eu.textHi, fontSize: 15, fontWeight: FontWeight.w600)),
             ),
-            Text('$count',
-                style: TextStyle(color: eu.textLo, fontSize: 13)),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: accent.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text('$count',
+                  style: TextStyle(color: accent, fontSize: 12, fontWeight: FontWeight.w600)),
+            ),
             const SizedBox(width: 6),
             Icon(Icons.chevron_right, color: eu.textLo, size: 18),
           ],
