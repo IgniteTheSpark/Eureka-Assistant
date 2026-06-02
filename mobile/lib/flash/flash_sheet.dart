@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../api/api_client.dart';
-import '../chat/chat_card.dart';
+import '../render/skill_card.dart';
 import '../theme/app_theme.dart';
 import 'flash.dart';
 
@@ -136,7 +136,7 @@ class _FlashSheetState extends State<_FlashSheet> {
                 child: SingleChildScrollView(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [for (final c in _result!.cards) ChatCard(c)],
+                    children: [for (final c in _result!.cards) SkillCard(c)],
                   ),
                 ),
               ),

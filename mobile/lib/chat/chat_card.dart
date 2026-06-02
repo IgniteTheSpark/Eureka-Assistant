@@ -1,8 +1,7 @@
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
-
-import '../theme/app_theme.dart';
+/// Card extraction helpers shared by chat + flash. Card *rendering* now lives in
+/// render/skill_card.dart (the render_spec-driven SkillCard).
 
 const _queryTools = {
   'tool_query_asset',
@@ -59,88 +58,4 @@ Map<String, dynamic>? _tag(Map<String, dynamic> d) {
   if (d['event_id'] != null && d['title'] != null) return {...d, 'card_type': 'event'};
   if (d['contact_id'] != null && d['name'] != null) return {...d, 'card_type': 'contact'};
   return null;
-}
-
-const _skillIcons = {
-  'todo': '✅',
-  'event': '📅',
-  'contact': '👤',
-  'idea': '💡',
-  'notes': '📝',
-  'expense': '💰',
-  'misc': '🗂',
-  'external_ref': '🔗',
-};
-
-/// A compact in-chat card for a created asset / event / contact / task. The
-/// render_spec-faithful card is a later E2 polish; this shows icon + title +
-/// subtitle so created items are visible.
-class ChatCard extends StatelessWidget {
-  final Map<String, dynamic> card;
-  const ChatCard(this.card, {super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final eu = context.eu;
-    final (icon, title, subtitle) = _present(card);
-    return Container(
-      margin: const EdgeInsets.only(top: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: eu.surfaceRaised,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: eu.border),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(icon, style: const TextStyle(fontSize: 18)),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                        color: eu.textHi, fontSize: 14, fontWeight: FontWeight.w600)),
-                if (subtitle.isNotEmpty)
-                  Text(subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: eu.textMid, fontSize: 12)),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  (String, String, String) _present(Map<String, dynamic> c) {
-    switch (c['card_type']) {
-      case 'event':
-        return ('📅', '${c['title'] ?? '事件'}', '${c['location'] ?? ''}');
-      case 'contact':
-        final meta = [c['title'], c['company']]
-            .whereType<String>()
-            .where((s) => s.isNotEmpty);
-        return ('👤', '${c['name'] ?? '联系人'}', meta.join(' · '));
-      case 'task':
-        return ('⏳', '${c['title'] ?? c['summary'] ?? '任务'}',
-            '${c['external_system'] ?? ''}');
-      default:
-        final skill = c['user_skill_name'] as String?;
-        final payload = (c['payload'] as Map?)?.cast<String, dynamic>() ?? {};
-        final icon = _skillIcons[skill] ?? '🗂';
-        final title = payload['content'] ??
-            payload['title'] ??
-            payload['name'] ??
-            (payload['amount'] != null ? '¥${payload['amount']}' : null) ??
-            (skill ?? '资产');
-        final subtitle = payload['description'] ?? payload['due_date'] ?? '';
-        return (icon, '$title', '$subtitle');
-    }
-  }
 }

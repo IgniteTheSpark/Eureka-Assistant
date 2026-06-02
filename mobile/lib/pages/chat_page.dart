@@ -4,6 +4,7 @@ import '../chat/chat_card.dart';
 import '../chat/chat_controller.dart';
 import '../chat/chat_models.dart';
 import '../chat/markdown_text.dart';
+import '../render/skill_card.dart';
 import '../theme/app_theme.dart';
 
 /// Agent chat surface — streams POST /api/chat over SSE, renders the agent's
@@ -191,12 +192,12 @@ class _Bubble extends StatelessWidget {
         }
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: [for (final c in cards) ChatCard(c)],
+          children: [for (final c in cards) SkillCard(c)],
         );
       case CardsPart(:final cards):
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: [for (final c in cards) ChatCard(c)],
+          children: [for (final c in cards) SkillCard(c)],
         );
       case ErrorPart(:final message):
         return _chip(context, message, eu.accentRed);
