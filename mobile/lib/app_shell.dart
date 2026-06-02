@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'flash/flash_sheet.dart';
 import 'pages/calendar_page.dart';
 import 'pages/chat_page.dart';
 import 'pages/library_page.dart';
@@ -54,7 +55,11 @@ class _AppShellState extends State<AppShell> {
                     onTap: () => _go(1),
                   ),
                   DockItem(icon: Icons.add, label: '快创', onTap: () => _stub('快创')),
-                  DockItem(icon: Icons.mic_none, label: '闪念', onTap: () => _stub('闪念')),
+                  DockItem(
+                    icon: Icons.bolt_outlined,
+                    label: '闪念',
+                    onTap: () => showFlashSheet(context),
+                  ),
                   DockItem(
                     icon: Icons.auto_awesome,
                     label: 'Agent',
