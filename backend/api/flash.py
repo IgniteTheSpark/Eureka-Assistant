@@ -107,7 +107,13 @@ async def _get_or_create_flash_session_today(db, user_id: str) -> DBSession:
 @router.post("/flash", response_model=FlashResponse)
 async def flash(req: FlashRequest, user_id: str = Depends(get_current_user_id)):
     t0 = time.monotonic()
-    today_str = datetime.date.today().strftime("%Y年%m月%d日")
+    # Full local moment (date + time + weekday). Skill agents need the clock
+    # time so "刚刚 / 现在 / 几分钟前" resolves to now, not midnight (00:00).
+    _now_local = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8)))
+    today_str = (
+        f"{_now_local.isoformat(timespec='minutes')}"
+        f"(周{'一二三四五六日'[_now_local.weekday()]})"
+    )
 
     # Phase 1 — resolve session + create input_turn
     try:

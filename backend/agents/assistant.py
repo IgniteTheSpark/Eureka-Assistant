@@ -18,7 +18,7 @@ Cross-turn "刚刚那个" reference mechanism:
 """
 from google.adk.agents import LlmAgent
 
-from agents.mcp_toolset import get_mcp_toolset
+from agents.mcp_toolset import get_mcp_toolset, make_user_id_injector
 from core.llm import ASSISTANT_MODEL
 
 
@@ -55,6 +55,19 @@ ASSISTANT_INSTRUCTION_BASE = """
 - ❌ 用户说「刚刚那个 X 帮我**调研**一下」→ 这是 CHAT-ANSWER,**不要** update_asset 把 "需要调研" 写进 notes 字段。要真的去**回答**用户的问题。
 - ❌ 用户说「给我**创建一个 note**」→ 这是 **CREATE** 新 notes 资产,**不要** 把内容 update 到上一个 idea/note 资产里。「创建」永远是 CREATE,即使用户提到了「刚刚那个」也是 CREATE(只是 content 来自之前的回答而已)。
 - ❌ tool_create_event 失败提示「需要 end_at」→ **不要**自己 fallback 去建 todo;应该重新审视:用户可能是想 update 一个已有的 todo,改用 query_asset 找候选。
+
+## CREATE:一条消息里的多条记录要**抽全**(关键!!! 踩过的坑)
+
+- **陈述句也是 CREATE**:不是只有「帮我记 X」才算。「(今天/刚刚)我**看了/吃了/喝了/跑了/买了** X」这类
+  **陈述既成事实**的句子,就是要 create 的记录,**不是闲聊**。
+- **一条消息常常含多条独立记录**(如「先看了 X;又看了 Y;还喝了 Z」)。处理 CREATE 时:
+  1. **先在脑内把整条消息里的独立记录逐条列全**(像列清单),
+  2. 再**逐条** create_asset,**一条都不能漏**——**最常见的坑是只抓最显眼的一条**(只记了「喝水」,
+     却把「看了两本书」整段当闲聊丢掉)。宁可多记,别漏记。
+- 每条按「skill 字典」匹配最合适的 machine_name(看书/看杂志/看漫画 → 读书类 skill;喝水 → 喝水 skill…);
+  字典里**实在**没有才退 misc/notes。
+- 记录里夹带的**主观评价**(「很好看」「太文艺」「很热血」)是这条记录的**一个字段**(感想 / 评分),
+  **不是**把整条变成闲聊的理由。
 
 ## 第二步:定位现有资产(只在 UPDATE / DELETE / 引用时用)
 
@@ -212,6 +225,7 @@ def make_assistant_agent(
     session_assets_hint: str = "",
     session_context_hint: str = "",
     session_subject_hint: str = "",
+    user_id: str = "default",
 ) -> LlmAgent:
     """
     Build a fresh Assistant LlmAgent with this turn's session_id and
@@ -240,11 +254,20 @@ def make_assistant_agent(
     if today_str:
         instruction += (
             "\n\n## 时间上下文(关键!!!)\n"
-            f"- 今天是 **{today_str}**\n"
-            "- 把「今天 / 明天 / 后天 / 大后天 / 下周 X / 这周 X」一律换算成绝对 ISO8601\n"
-            "  日期 + 时区(默认 +08:00)再写进 payload\n"
-            "- 例:今天=2026-05-25,「明天下午五点」→ 2026-05-26T17:00:00+08:00\n"
-            "- 绝对**不要**用模型自己记得的年份,**永远**以这里的「今天」为基准换算\n"
+            f"- 现在是 **{today_str}**(含日期、当前时刻、星期)\n"
+            "- 解析时间分三种情况,**别混**:\n"
+            "  1. **明确时刻**(「下午五点」「晚上8点半」「14:30」)→ 用那个时刻。\n"
+            "  2. **时刻相对词**(「刚刚 / 刚才 / 现在 / 这会儿 / 几分钟前 / 一小时前」)→ 用上面\n"
+            "     给的**当前时刻**(含时分),**严禁**写成 00:00 / 午夜。\n"
+            "  3. **只有日期词或根本没提时间**(「今天 / 昨天 / 明天 / 下周三」「今天喝了水」)→ 只确定\n"
+            "     **日期**,**不要编造一个具体时刻**。datetime/时间类字段这种情况下**留空(不传)**或只写到日期;\n"
+            "     **千万别把「现在」的时分塞进去**(用户说「今天」不等于「此刻」)。\n"
+            "- 日期换算:「今天/明天/后天/下周X」一律以上面的日期为基准算成绝对 ISO8601 日期 + 时区(默认 +08:00)。\n"
+            "- 例:现在=2026-05-25T14:30+08:00 —— 「明天下午五点」→ 2026-05-26T17:00:00+08:00;\n"
+            "  「刚刚喝了奶」→ 2026-05-25T14:30:00+08:00;**「今天喝了水」→ 只记日期,时间字段留空,\n"
+            "  不要写 15:02,也不要在回复里说「15:02喝了」这种用户没讲过的时刻**。\n"
+            "- 绝对**不要**用模型自己记得的年份,**永远**以这里的「现在」为基准换算。\n"
+            "- 回复里**只复述用户真给过的时间**;没给时刻就别提具体钟点。\n"
         )
 
     instruction += (
@@ -311,4 +334,5 @@ def make_assistant_agent(
         model=ASSISTANT_MODEL,
         instruction=instruction,
         tools=[get_mcp_toolset()],
+        before_tool_callback=make_user_id_injector(user_id),
     )

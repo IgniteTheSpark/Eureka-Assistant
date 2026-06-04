@@ -30,6 +30,7 @@ from core.llm import configure_llm_env
 configure_llm_env()
 
 from agents.mcp_toolset import close_mcp_toolset
+from api.auth import router as auth_router
 from api.chat import router as chat_router
 from api.flash import router as flash_router
 from api.skills import router as skills_router
@@ -71,6 +72,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router,        prefix="/api", tags=["auth"])
 app.include_router(chat_router,        prefix="/api", tags=["chat"])
 app.include_router(flash_router,       prefix="/api", tags=["flash"])
 app.include_router(skills_router,      prefix="/api", tags=["skills"])

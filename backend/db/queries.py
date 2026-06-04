@@ -154,7 +154,7 @@ async def query_assets_structured(
             "skill_name":           skill_name,
             "payload":              a.payload,
             "session_id":           str(a.session_id) if a.session_id else None,
-            "source_transcript_id": str(a.source_transcript_id) if a.source_transcript_id else None,
+            "source_input_turn_id": str(a.source_input_turn_id) if a.source_input_turn_id else None,
             "created_at":           a.created_at.isoformat(),
         }
         for a, skill_name in rows

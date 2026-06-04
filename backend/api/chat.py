@@ -206,6 +206,7 @@ async def _stream_assistant(
         session_assets_hint=session_assets_hint,
         session_context_hint=session_context_hint,
         session_subject_hint=session_subject_hint,
+        user_id=user_id,
     )
 
     enriched = history_text + f"用户: {user_text}"
@@ -263,12 +264,23 @@ async def _stream_assistant(
                     final_text = t
 
         is_leak = _looks_like_leaked_call(final_text)
-        # Clean leak (no tool ran) → retry once, suppressing this attempt.
-        if is_leak and not tool_seen and attempt < MAX_ATTEMPTS - 1:
+        # The turn produced nothing usable: no tool ran AND no (non-leak) text.
+        # DeepSeek intermittently returns an EMPTY completion (0 tokens) — it's
+        # transient, so treat it like a leak and retry. Without this the user got
+        # a silent "用时 Xs" with no reply and no cards.
+        is_empty = not tool_seen and not final_text.strip()
+        # Clean leak / empty (no tool ran) → retry once, suppressing this attempt.
+        if (is_leak or is_empty) and not tool_seen and attempt < MAX_ATTEMPTS - 1:
             continue
         if is_leak:
             # Out of retries (or leak after a tool) — never dump raw JSON.
             yield ("token", {"text": "抱歉,刚才没能完成这个操作,请再说一次。"})
+            if usage_total:
+                yield ("usage", {"total_tokens": usage_total})
+            return
+        if is_empty:
+            # Still empty after a retry — give a real prompt, never silence.
+            yield ("token", {"text": "抱歉,我刚才没太理解,能换个说法再说一次吗?"})
             if usage_total:
                 yield ("usage", {"total_tokens": usage_total})
             return
@@ -338,8 +350,14 @@ async def chat(req: ChatRequest, user_id: str = Depends(get_current_user_id)):
             # 'misc'. May audit, custom-skill dispatch bug.
             user_skills_hint = await load_user_skills_hint(db, user_id)
 
-        # Date the agent will use to resolve "明天" / "下周" / ... — local TZ
-        today_str = datetime.now(_LOCAL_TZ).date().isoformat()
+        # The current local *moment* (date + time + weekday) the agent uses to
+        # resolve "明天" / "下周三" (date math) AND "刚刚 / 现在 / 几分钟前"
+        # (which must keep the real clock time, not collapse to 00:00).
+        _now_local = datetime.now(_LOCAL_TZ)
+        today_str = (
+            f"{_now_local.isoformat(timespec='minutes')}"
+            f"(周{'一二三四五六日'[_now_local.weekday()]})"
+        )
 
         yield sse_event("meta", {
             "session_id": session_id,

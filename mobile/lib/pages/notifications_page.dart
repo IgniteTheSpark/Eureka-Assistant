@@ -1,8 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../api/api_client.dart';
+import '../data_revision.dart';
+import '../render/asset_detail_sheet.dart';
+import '../render/render_spec.dart';
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
+import 'session_detail_page.dart';
 
 /// One notification from GET /api/notifications.
 class NotifItem {
@@ -88,6 +94,67 @@ class _NotificationsPageState extends State<NotificationsPage> {
     }
   }
 
+  // Tap a notification → mark read + navigate to its target (web notifNavigate):
+  // flash_done → the capture session, reminder → the event, task_* → the asset.
+  Future<void> _openNotif(NotifItem n) async {
+    _markRead(n);
+    final link = n.link;
+    if (link.isEmpty) return;
+    try {
+      if (n.type == 'flash_done') {
+        // 闪念 → its capture session (link is the bare session_id).
+        if (!mounted) return;
+        await Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => SessionDetailPage(sessionId: link, title: '闪念')),
+        );
+      } else if (n.type == 'reminder') {
+        // The scheduler stores a composite key, not a bare id:
+        // "reminder:evt:<event_id>:<thr>" or "reminder:todo:<asset_id>:<thr>"
+        // (UUIDs have no ':'). Parse out the kind + real id, then open the
+        // right detail layer — event vs. todo(asset).
+        final parts = link.split(':');
+        final kind = parts.length > 1 ? parts[1] : '';
+        final id = parts.length > 2 ? parts[2] : link;
+        if (kind == 'evt') {
+          final res = await _api.getJson('/api/events/$id');
+          final ev = (res is Map ? (res['event'] ?? res) : null) as Map?;
+          if (ev == null || !mounted) return;
+          final card = {'card_type': 'event', ...ev.cast<String, dynamic>()};
+          showAssetDetail(context,
+              data: buildCard(payload: card, spec: synthesizeSpec('event'), displayName: 'event'),
+              payload: card,
+              cardType: 'event',
+              assetId: id);
+        } else {
+          final res = await _api.getJson('/api/assets/$id');
+          final a = (res is Map ? (res['asset'] ?? res) : null) as Map?;
+          if (a == null || !mounted) return;
+          final am = a.cast<String, dynamic>();
+          final skill = am['user_skill_name'] as String? ?? 'todo';
+          final payload = (am['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
+          showAssetDetail(context,
+              data: buildCard(payload: payload, spec: synthesizeSpec(skill), displayName: skill),
+              payload: payload,
+              cardType: skill,
+              assetId: id);
+        }
+      } else if (n.type == 'task_done' || n.type == 'task_failed') {
+        final res = await _api.getJson('/api/assets/$link');
+        final a = ((res is Map ? res['asset'] : null) as Map?)?.cast<String, dynamic>();
+        if (a == null || !mounted) return;
+        final skill = a['user_skill_name'] as String? ?? 'misc';
+        final payload = (a['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
+        showAssetDetail(context,
+            data: buildCard(payload: payload, spec: synthesizeSpec(skill), displayName: skill),
+            payload: payload,
+            cardType: skill,
+            assetId: link);
+      }
+    } catch (_) {
+      // navigation target gone / fetch failed — already marked read
+    }
+  }
+
   Future<void> _markAll() async {
     final prev = [for (final n in _items) n.read];
     setState(() {
@@ -105,6 +172,17 @@ class _NotificationsPageState extends State<NotificationsPage> {
           }
         });
       }
+    }
+  }
+
+  // Swipe-dismiss one notification (DELETE). Returns true on success so the
+  // Dismissible animates out; false snaps it back.
+  Future<bool> _dismiss(NotifItem n) async {
+    try {
+      await _api.deleteJson('/api/notifications/${n.id}');
+      return true;
+    } catch (_) {
+      return false;
     }
   }
 
@@ -144,8 +222,26 @@ class _NotificationsPageState extends State<NotificationsPage> {
                   : ListView.builder(
                       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                       itemCount: _items.length,
-                      itemBuilder: (_, i) =>
-                          _NotifRow(_items[i], onTap: () => _markRead(_items[i])),
+                      itemBuilder: (_, i) {
+                        final n = _items[i];
+                        return Dismissible(
+                          key: ValueKey('notif_${n.id}'),
+                          direction: DismissDirection.endToStart,
+                          background: Container(
+                            alignment: Alignment.centerRight,
+                            margin: const EdgeInsets.symmetric(vertical: 4),
+                            padding: const EdgeInsets.only(right: 20),
+                            decoration: BoxDecoration(
+                              color: eu.accentRed.withValues(alpha: 0.85),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Icon(Icons.delete_outline, color: Colors.white),
+                          ),
+                          confirmDismiss: (_) => _dismiss(n),
+                          onDismissed: (_) => setState(() => _items.remove(n)),
+                          child: _NotifRow(n, onTap: () => _openNotif(n)),
+                        );
+                      },
                     ),
     );
   }
@@ -259,11 +355,23 @@ class NotificationsBell extends StatefulWidget {
 
 class _NotificationsBellState extends State<NotificationsBell> {
   int _unread = 0;
+  Timer? _poll;
 
   @override
   void initState() {
     super.initState();
     _loadUnread();
+    // Near-live updates (the web uses an SSE stream; a 30s poll + a refresh on
+    // any local mutation keeps the badge fresh without the stream plumbing).
+    _poll = Timer.periodic(const Duration(seconds: 30), (_) => _loadUnread());
+    dataRevision.addListener(_loadUnread);
+  }
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    dataRevision.removeListener(_loadUnread);
+    super.dispose();
   }
 
   Future<void> _loadUnread() async {

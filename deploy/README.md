@@ -1,8 +1,9 @@
 # Deploy — Eureka backend on a cloud VM (Phase E0)
 
 Stands up the FastAPI backend + MySQL behind Caddy (automatic HTTPS) on a single
-VM, so the iOS app can reach the API over `https://`. Auth is deferred for v0
-(single shared user), so there's nothing auth-related to configure yet.
+VM, so the iOS app can reach the API over `https://`. Auth is email+password with
+per-user data isolation — set a strong `JWT_SECRET` in `.env.prod` (the token
+signing key; changing it later logs everyone out).
 
 > Stack: Docker Compose · MySQL 8 · FastAPI (uvicorn) · Caddy 2 (Let's Encrypt).
 
@@ -22,7 +23,8 @@ sudo usermod -aG docker "$USER"   # re-login after this
 ```bash
 git clone <this-repo> eureka && cd eureka
 cp deploy/.env.prod.example deploy/.env.prod
-# Edit deploy/.env.prod: DOMAIN, ACME_EMAIL, MySQL passwords, OPENROUTER_API_KEY.
+# Edit deploy/.env.prod: DOMAIN, ACME_EMAIL, MySQL passwords, OPENROUTER_API_KEY,
+# and JWT_SECRET (generate with: openssl rand -hex 32).
 # DATABASE_URL's password MUST match MYSQL_PASSWORD.
 nano deploy/.env.prod
 ```
@@ -57,6 +59,8 @@ Point the app's API base URL at `https://api.yourdomain.com`.
 
 ## Notes / hardening (post-beta)
 - Move secrets out of a plaintext `.env.prod` into a secrets manager.
-- Add the Postgres vector-store service when embeddings land (per Phase E plan).
-- Put real auth in front before exposing to non-internal testers (Phase E plan §四).
-- Consider an off-VM managed MySQL once data matters.
+- Per-user OpenRouter rate-limit / quota + an OpenRouter spend cap (all agent
+  traffic runs on the one server key).
+- Move the auth token to device Keychain (`flutter_secure_storage`) — beta uses
+  `shared_preferences`.
+- Consider an off-VM managed MySQL once data matters; add automated DB backups.

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../config.dart';
+import 'auth_store.dart';
 
 /// Non-2xx response from the backend.
 class ApiException implements Exception {
@@ -27,7 +28,7 @@ class ApiClient {
   Map<String, String> _headers({bool json = false}) => {
         'Accept': 'application/json',
         if (json) 'Content-Type': 'application/json',
-        // TODO(auth): add 'Authorization': 'Bearer $token' once auth lands.
+        if (AuthStore.token != null) 'Authorization': 'Bearer ${AuthStore.token}',
       };
 
   Uri _uri(String path, [Map<String, dynamic>? query]) {
@@ -56,12 +57,22 @@ class ApiClient {
     return _decode(res);
   }
 
+  Future<dynamic> patchJson(String path, Map<String, dynamic> body) async {
+    final res = await _client.patch(_uri(path),
+        headers: _headers(json: true), body: jsonEncode(body));
+    return _decode(res);
+  }
+
   Future<void> deleteJson(String path) async {
     final res = await _client.delete(_uri(path), headers: _headers());
     if (res.statusCode >= 400) throw ApiException(res.statusCode, res.body);
   }
 
   dynamic _decode(http.Response res) {
+    // Token expired/invalid while we had one → let the app bounce to login.
+    if (res.statusCode == 401 && AuthStore.token != null) {
+      AuthStore.onUnauthorized?.call();
+    }
     if (res.statusCode >= 400) throw ApiException(res.statusCode, res.body);
     if (res.bodyBytes.isEmpty) return null;
     return jsonDecode(utf8.decode(res.bodyBytes));

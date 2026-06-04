@@ -5,7 +5,10 @@ class SkillMeta {
   final String icon;
   final String label;
   final String accentColor; // blue|amber|green|red|purple|gray|neutral
-  const SkillMeta(this.icon, this.label, [this.accentColor = 'gray']);
+  /// Present for registered user skills (`/api/skills` row id) — enables the
+  /// category-detail delete control. Null for built-in / first-class kinds.
+  final String? userSkillId;
+  const SkillMeta(this.icon, this.label, [this.accentColor = 'gray', this.userSkillId]);
 }
 
 /// One unified timeline entry (asset / event / contact / input_turn / file),
@@ -19,6 +22,17 @@ class TimelineItem {
   final String? skillName;
   final String? sessionId;
 
+  // Event-only: end time / all-day flag / location — needed by the day view's
+  // hour grid. Null/false for non-events.
+  final DateTime? endAt;
+  final bool allDay;
+  final String? location;
+  final String? eventId;
+  final String? contactId;
+
+  /// Raw payload (asset / contact) — lets the day view render a full SkillCard.
+  final Map<String, dynamic> payload;
+
   /// For flash (input_turn) captures: {skill_name|"event"|"contact": count}.
   final Map<String, int> derived;
 
@@ -31,6 +45,12 @@ class TimelineItem {
     required this.skillName,
     required this.sessionId,
     required this.derived,
+    this.endAt,
+    this.allDay = false,
+    this.location,
+    this.eventId,
+    this.contactId,
+    this.payload = const {},
   });
 
   factory TimelineItem.fromJson(Map<String, dynamic> j) {
@@ -45,6 +65,12 @@ class TimelineItem {
       subtitle: j['subtitle'] as String? ?? '',
       skillName: j['skill_name'] as String?,
       sessionId: j['session_id'] as String?,
+      endAt: DateTime.tryParse(j['end_at'] as String? ?? '')?.toLocal(),
+      allDay: j['all_day'] == true || j['all_day'] == 1,
+      location: j['location'] as String?,
+      eventId: j['event_id'] as String?,
+      contactId: j['contact_id'] as String?,
+      payload: (j['payload'] as Map?)?.cast<String, dynamic>() ?? const {},
       derived: {
         for (final e in rawDerived.entries)
           if (e.value is num) e.key: (e.value as num).toInt(),
@@ -77,6 +103,8 @@ Future<List<TimelineItem>> fetchTimeline(ApiClient api) async {
   return items
       .whereType<Map>()
       .map((e) => TimelineItem.fromJson(e.cast<String, dynamic>()))
+      // The 文件 entity was removed from the app — never surface file captures.
+      .where((it) => it.kind != 'file')
       .toList();
 }
 
@@ -93,6 +121,7 @@ Future<Map<String, SkillMeta>> fetchSkills(ApiClient api) async {
       rs?['icon'] as String? ?? '•',
       s['display_name'] as String? ?? name,
       rs?['accent_color'] as String? ?? 'gray',
+      s['user_skill_id'] as String?,
     );
   }
   return out;

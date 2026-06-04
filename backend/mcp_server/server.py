@@ -42,6 +42,7 @@ async def tool_create_asset(
     payload: str,
     session_id: str = "",
     source_input_turn_id: str = "",
+    user_id: str = "default",
 ) -> str:
     """
     Create a new asset under a skill the user has registered.
@@ -55,7 +56,7 @@ async def tool_create_asset(
     skill name returns an error — do NOT retry with a different name without
     consulting the skill registry.
     """
-    return _jsonify(await create_asset(user_skill_name, payload, session_id, source_input_turn_id))
+    return _jsonify(await create_asset(user_skill_name, payload, session_id, source_input_turn_id, user_id))
 
 
 @mcp.tool()
@@ -65,6 +66,7 @@ async def tool_query_asset(
     from_date: str = "",
     to_date: str = "",
     limit: int = 100,
+    user_id: str = "default",
 ) -> str:
     """
     Query assets. Filter by skill name, keyword in payload (case-insensitive),
@@ -74,13 +76,14 @@ async def tool_query_asset(
     Empty user_skill_name = all skills — use that (+ a date range) for a whole-day/
     period SUMMARY so you get every type, not just one.
     """
-    return _jsonify(await query_asset(user_skill_name, contains, from_date, to_date, limit))
+    return _jsonify(await query_asset(user_skill_name, contains, from_date, to_date, limit, user_id))
 
 
 @mcp.tool()
 async def tool_query_digest(
     from_date: str = "",
     to_date: str = "",
+    user_id: str = "default",
 ) -> str:
     """
     Compact, pre-grouped snapshot of a time window for a SUMMARY/日报/周报/月报.
@@ -93,26 +96,26 @@ async def tool_query_digest(
     Returns: { counts: {<type>: n}, by_type: {<type>: [payload, ...]},
                events: [{title, start_at, end_at, location, all_day}] }
     """
-    return _jsonify(await query_digest(from_date, to_date))
+    return _jsonify(await query_digest(from_date, to_date, user_id))
 
 
 @mcp.tool()
-async def tool_update_asset(asset_id: str, payload_patch: str) -> str:
+async def tool_update_asset(asset_id: str, payload_patch: str, user_id: str = "default") -> str:
     """
     Merge payload_patch (JSON string) into existing asset; re-indexes queryable
     fields automatically.
     """
-    return _jsonify(await update_asset(asset_id, payload_patch))
+    return _jsonify(await update_asset(asset_id, payload_patch, user_id))
 
 
 @mcp.tool()
-async def tool_delete_asset(asset_id: str) -> str:
+async def tool_delete_asset(asset_id: str, user_id: str = "default") -> str:
     """Delete an asset by ID. Cascades to asset_fields."""
-    return _jsonify(await delete_asset(asset_id))
+    return _jsonify(await delete_asset(asset_id, user_id))
 
 
 @mcp.tool()
-async def tool_render_report(title: str, html: str) -> str:
+async def tool_render_report(title: str, html: str, user_id: str = "default") -> str:
     """
     Render a rich, well-designed HTML report for the user (图文并茂的总结).
 
@@ -192,7 +195,7 @@ async def tool_render_report(title: str, html: str) -> str:
     title: 给聊天里那张回执卡片用的短标题,如 "跑步月报"。
     html: 完整 HTML 文档字符串(遵循以上设计系统)。
     """
-    return _jsonify(await render_report(title, html))
+    return _jsonify(await render_report(title, html, user_id))
 
 
 # ── Contact tools ──────────────────────────────────────────────────────────────
@@ -206,6 +209,7 @@ async def tool_create_contact(
     email: str = "",
     notes: str = "",
     source_input_turn_id: str = "",
+    user_id: str = "default",
 ) -> str:
     """Create a new contact. name is required; other fields optional.
 
@@ -213,28 +217,28 @@ async def tool_create_contact(
     pass the current input_turn UUID (provenance) — it links the contact to its
     capture for the timeline's ⚡ summary. Leave empty for chat/manual creation.
     """
-    return _jsonify(await create_contact(name, phone, company, title, email, notes, source_input_turn_id))
+    return _jsonify(await create_contact(name, phone, company, title, email, notes, source_input_turn_id, user_id))
 
 
 @mcp.tool()
-async def tool_query_contact(name_query: str = "") -> str:
+async def tool_query_contact(name_query: str = "", user_id: str = "default") -> str:
     """Query contacts by name substring (case-insensitive). Newest-first."""
-    return _jsonify(await query_contact(name_query))
+    return _jsonify(await query_contact(name_query, user_id))
 
 
 @mcp.tool()
-async def tool_update_contact(contact_id: str, field: str, value: str) -> str:
+async def tool_update_contact(contact_id: str, field: str, value: str, user_id: str = "default") -> str:
     """
     Update a single field on a contact.
     Notes field appends to the array; all other fields overwrite.
     """
-    return _jsonify(await update_contact(contact_id, field, value))
+    return _jsonify(await update_contact(contact_id, field, value, user_id))
 
 
 @mcp.tool()
-async def tool_delete_contact(contact_id: str) -> str:
+async def tool_delete_contact(contact_id: str, user_id: str = "default") -> str:
     """Delete a contact by ID."""
-    return _jsonify(await delete_contact(contact_id))
+    return _jsonify(await delete_contact(contact_id, user_id))
 
 
 # ── InputTurn tools (lazy-load for long-form content) ─────────────────────────
@@ -244,6 +248,7 @@ async def tool_query_input_turn(
     contains: str = "",
     source: str = "",
     limit: int = 50,
+    user_id: str = "default",
 ) -> str:
     """
     Full-text search input_turns by keyword and/or source (modality).
@@ -252,11 +257,11 @@ async def tool_query_input_turn(
     Returns text snippets truncated to 200 chars. Use tool_get_input_turn
     with the returned input_turn_id to fetch full text when needed.
     """
-    return _jsonify(await query_input_turn(contains, source, limit))
+    return _jsonify(await query_input_turn(contains, source, limit, user_id))
 
 
 @mcp.tool()
-async def tool_get_input_turn(input_turn_id: str) -> str:
+async def tool_get_input_turn(input_turn_id: str, user_id: str = "default") -> str:
     """
     Fetch the full text + segments of a single input_turn.
 
@@ -264,7 +269,7 @@ async def tool_get_input_turn(input_turn_id: str) -> str:
     auto-included in chat history per decision #3 — agent calls this on
     demand when the user references specific content.
     """
-    return _jsonify(await get_input_turn(input_turn_id))
+    return _jsonify(await get_input_turn(input_turn_id, user_id))
 
 
 # ── Event tools (v1.4: Event is a first-class entity) ────────────────────────
@@ -279,6 +284,7 @@ async def tool_create_event(
     all_day: int = 0,
     recurrence_rule: str = "",
     source_input_turn_id: str = "",
+    user_id: str = "default",
 ) -> str:
     """
     Create a calendar event (scheduled time block — distinct from todo's deadline).
@@ -292,7 +298,7 @@ async def tool_create_event(
     """
     return _jsonify(await create_event(
         title, start_at, end_at, location, description, all_day,
-        recurrence_rule, source_input_turn_id,
+        recurrence_rule, source_input_turn_id, user_id,
     ))
 
 
@@ -303,6 +309,7 @@ async def tool_query_event(
     to_date: str = "",
     status: str = "",
     limit: int = 50,
+    user_id: str = "default",
 ) -> str:
     """
     Query events. Filter by date range (from_date/to_date, ISO8601), status
@@ -311,30 +318,30 @@ async def tool_query_event(
     Returns events newest-start_at first, with attendees and file refs inlined
     for each (no need to call get_event for basic listing).
     """
-    return _jsonify(await query_event(contains, from_date, to_date, status, limit))
+    return _jsonify(await query_event(contains, from_date, to_date, status, limit, user_id))
 
 
 @mcp.tool()
-async def tool_get_event(event_id: str) -> str:
+async def tool_get_event(event_id: str, user_id: str = "default") -> str:
     """Fetch a single event by id, with attendees and files inlined."""
-    return _jsonify(await get_event(event_id))
+    return _jsonify(await get_event(event_id, user_id))
 
 
 @mcp.tool()
-async def tool_update_event(event_id: str, patch: str) -> str:
+async def tool_update_event(event_id: str, patch: str, user_id: str = "default") -> str:
     """
     Update event fields. `patch` is a JSON string of field→value.
     Allowed fields: title | start_at | end_at | location | description |
                     status | all_day | recurrence_rule
     Example: {"start_at": "2026-05-26T16:00:00+08:00", "location": "Zoom"}
     """
-    return _jsonify(await update_event(event_id, patch))
+    return _jsonify(await update_event(event_id, patch, user_id))
 
 
 @mcp.tool()
-async def tool_delete_event(event_id: str) -> str:
+async def tool_delete_event(event_id: str, user_id: str = "default") -> str:
     """Delete an event. Cascades to event_attendees and event_files."""
-    return _jsonify(await delete_event(event_id))
+    return _jsonify(await delete_event(event_id, user_id))
 
 
 @mcp.tool()
@@ -343,13 +350,14 @@ async def tool_add_event_attendee(
     name: str = "",
     contact_id: str = "",
     role: str = "attendee",
+    user_id: str = "default",
 ) -> str:
     """
     Add an attendee to an event. Either contact_id (link existing contact)
     or name (unresolved string for later matching) must be set.
     role: organizer | attendee | optional
     """
-    return _jsonify(await add_event_attendee(event_id, name, contact_id, role))
+    return _jsonify(await add_event_attendee(event_id, name, contact_id, role, user_id))
 
 
 @mcp.tool()
@@ -357,12 +365,13 @@ async def tool_link_event_file(
     event_id: str,
     file_id: str,
     kind: str = "attachment",
+    user_id: str = "default",
 ) -> str:
     """
     Attach a file to an event. kind: prep | recording | notes | attachment
     Use case: pre-meeting docs, post-meeting recording, summary notes.
     """
-    return _jsonify(await link_event_file(event_id, file_id, kind))
+    return _jsonify(await link_event_file(event_id, file_id, kind, user_id))
 
 
 # ── v1.4.x: task-skill bridge ─────────────────────────────────────────────────
@@ -375,6 +384,7 @@ async def tool_create_task(
     content: str = "",
     target_external_id: str = "",
     target_external_system: str = "",
+    user_id: str = "default",
 ) -> str:
     """
     Kick off an async task that calls a third-party MCP (Notion / Google
@@ -416,6 +426,7 @@ async def tool_create_task(
         content=content,
         target_external_id=target_external_id,
         target_external_system=target_external_system,
+        user_id=user_id,
     ))
 
 

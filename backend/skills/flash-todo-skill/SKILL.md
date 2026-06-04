@@ -52,7 +52,10 @@ Extract:
 - Date mentioned but no explicit time (e.g. "明天", "下周五", "今晚", "饭局") → store the date only as `"YYYY-MM-DD"`, no time component. Do **not** guess a time of day.
 - No time reference → `null`
 
-Today's date for relative time resolution: use the current date from your context.
+Relative-time resolution: the message gives「现在是 <ISO 时刻>(周X)」— the current
+date, clock time, and weekday. Use the date part for「今天/明天/下周X」. If the user
+ties the task to a moment that just happened (rare for a todo, e.g.「现在/刚刚」), use
+the given clock time, never 00:00.
 
 Call `tool_create_asset`:
 - `user_skill_name`: `"todo"`

@@ -67,12 +67,15 @@ Only assign a category you're confident about. Default to `"其他"` if unclear.
 - Specific date → that date
 - Store as `"YYYY-MM-DD"` (date only, no time component)
 
-Today's date for relative resolution: use the current date from your context.
+Relative resolution: the message gives「现在是 <ISO 时刻>(周X)」— the current date,
+clock time and weekday. Use the date part for「今天/昨天」; use the clock time for
+「刚刚/现在/几分钟前」.
 
 **at** (v1.4.x, optional) — 完整时间戳,**当用户提到时段或具体时刻时填**。用于 timeline 上把多次同日消费按时刻排序,不再全堆在午夜。
 
-| 用户的话 | at 取值(假设 today=2026-05-25,timezone +08:00) |
+| 用户的话 | at 取值(假设 now=2026-05-25T14:30+08:00,timezone +08:00) |
 |---|---|
+| 「刚刚/现在花了 80」 | `2026-05-25T14:30:00+08:00`(**当前时刻**,不是 00:00) |
 | 「早上 8 点 80 块星巴克」 | `2026-05-25T08:00:00+08:00`(具体时刻) |
 | 「早上喝星巴克 80」 | `2026-05-25T08:00:00+08:00`(早上 canonical → 8:00) |
 | 「中午午饭 60」 | `2026-05-25T12:00:00+08:00`(中午 → 12:00) |

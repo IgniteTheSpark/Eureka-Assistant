@@ -217,6 +217,59 @@ def _format_custom_skills_hint(custom_map: dict[str, dict]) -> str:
     return "\n".join(lines)
 
 
+def _match_custom_skill(itype: str, custom_map: dict[str, dict]) -> Optional[str]:
+    """Resolve a dispatcher-emitted intent type to a real custom-skill key.
+    The LLM may normalize the machine name (emit "running" for "running_178…"),
+    so match exact → case-insensitive → display_name → shared prefix."""
+    if not itype or not custom_map:
+        return None
+    if itype in custom_map:
+        return itype
+    low = itype.strip().lower()
+    for key, meta in custom_map.items():
+        kl = key.lower()
+        if kl == low or kl.startswith(low) or low.startswith(kl):
+            return key
+        if (meta.get("display_name") or "").strip().lower() == low:
+            return key
+    return None
+
+
+def _first_string_field(schema: dict) -> Optional[str]:
+    for fname, fmeta in (schema or {}).items():
+        if isinstance(fmeta, dict) and fmeta.get("type", "string") == "string":
+            return fname
+    return None
+
+
+async def _force_create_custom_asset(
+    skill_name: str, meta: dict, source_text: str,
+    session_id: str, source_input_turn_id: str, user_id: str,
+) -> dict:
+    """Deterministic fallback when the LLM sub-skill agent fails to create the
+    asset: store source_text in the skill's primary (or first string) field, so
+    a custom-skill capture always yields a real card instead of an error."""
+    from mcp_server.tools import create_asset as mcp_create_asset
+    schema = meta.get("payload_schema") or {}
+    rspec = meta.get("render_spec") or {}
+    field = rspec.get("primary_field") or _first_string_field(schema) or "content"
+    payload = {field: source_text}
+    try:
+        created = await mcp_create_asset(
+            user_skill_name=skill_name,
+            payload=json.dumps(payload, ensure_ascii=False),
+            session_id=session_id,
+            source_input_turn_id=source_input_turn_id,
+            user_id=user_id,
+        )
+    except Exception as e:
+        return {"ok": False, "error": f"custom fallback failed: {e}"}
+    aid = created.get("asset_id") if isinstance(created, dict) else None
+    if aid:
+        return {"ok": True, "asset_id": aid, "user_skill_name": skill_name, "payload": payload}
+    return created if isinstance(created, dict) else {"ok": False}
+
+
 async def _dispatch(user_text: str, today_str: str, user_id: str,
                     custom_skills_hint: str = "") -> list:
     """
@@ -224,7 +277,7 @@ async def _dispatch(user_text: str, today_str: str, user_id: str,
     Returns [{"type": "todo|event|expense|idea|contact|qa|note|<custom>", "source_text": "..."}].
     """
     agent = make_dispatcher_agent(custom_skills_hint=custom_skills_hint)
-    msg = f"今天是 {today_str}。\nuser_text: {user_text}"
+    msg = f"现在是 {today_str}。\nuser_text: {user_text}"
     raw, _tool_events = await _run_agent(agent, msg, user_id)
     parsed = _parse_json(raw)
     if parsed and isinstance(parsed.get("intents"), list):
@@ -272,20 +325,24 @@ async def _run_intent(
     # without this branch, voice flash would dump "我跑了 5 公里" into
     # misc because the dispatcher emitted type=running but there's no
     # flash-running-skill folder to dispatch to.
-    if custom_skill_map and itype in custom_skill_map:
+    matched = _match_custom_skill(itype, custom_skill_map) if custom_skill_map else None
+    if matched:
+        itype = matched
         meta = custom_skill_map[itype]
         agent = make_custom_skill_agent(
             skill_name=itype,
             display_name=meta["display_name"],
             payload_schema=meta["payload_schema"],
             render_spec=meta["render_spec"],
+            user_id=user_id,
         )
         msg = (
             f"source_text: {source}\n"
             f"user_text: {user_text}\n"
             f"session_id: {session_id}\n"
             f"source_input_turn_id: {source_input_turn_id}\n"
-            f"今天是 {today_str}。"
+            f"现在是 {today_str}(含当前时刻+星期)。「刚刚/现在/几分钟前」要用这个时刻"
+            f"(含时分),不要写成 00:00。"
         )
         raw, tool_events = await _run_agent(agent, msg, user_id)
         result = _parse_json(raw)
@@ -293,8 +350,14 @@ async def _run_intent(
             synthesized = _fallback_result_from_tool_events(tool_events)
             if synthesized:
                 result = synthesized
-            elif not result:
-                result = {"ok": False, "raw": raw[:200]}
+        # Deterministic safety net: if the LLM sub-skill agent didn't actually
+        # create an asset (DeepSeek tool-call miss), write one from source_text
+        # into the skill's primary text field — a custom-skill capture must
+        # never silently fail to an error card.
+        if not result or not result.get("asset_id"):
+            result = await _force_create_custom_asset(
+                itype, meta, source, session_id, source_input_turn_id, user_id
+            )
         result["skill"] = f"{itype}-skill"
         result["source_text"] = source
         return result
@@ -306,7 +369,7 @@ async def _run_intent(
     if itype not in SKILL_FOLDER_MAP:
         itype = "misc"
 
-    agent = make_skill_agent(itype)
+    agent = make_skill_agent(itype, user_id=user_id)
     msg = (
         f"source_text: {source}\n"
         f"user_text: {user_text}\n"

@@ -20,13 +20,13 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select, func, case
+from sqlalchemy import select, func, case, update, delete
 
 from core.auth import get_current_user_id
 from db.database import AsyncSessionLocal
 from db.models import (
     Session as DBSession, Asset, GlobalSkill, InputTurn, Message, UserSkill,
-    Contact, Event, File,
+    Contact, Event, File, Task,
 )
 
 router = APIRouter()
@@ -145,12 +145,13 @@ async def create_session(
         except ValueError:
             raise HTTPException(status_code=400, detail="invalid subject_id")
 
-    # Parse + validate context_asset_ids → UUIDs
+    # Validate context_asset_ids as UUIDs but store as STRINGS — the column is
+    # JSON (UUID objects aren't JSON-serializable; storing them 500s on commit).
     ctx_ids: list = []
     if req.context_asset_ids:
         for s in req.context_asset_ids:
             try:
-                ctx_ids.append(uuid.UUID(s))
+                ctx_ids.append(str(uuid.UUID(s)))
             except ValueError:
                 raise HTTPException(status_code=400, detail=f"invalid asset id: {s}")
 
@@ -436,8 +437,12 @@ async def patch_session_context(
     except ValueError:
         raise HTTPException(status_code=400, detail="invalid session id")
 
-    add_uuids    = _parse_uuid_list(req.add)
-    remove_uuids = _parse_uuid_list(req.remove)
+    # Store STRINGS, not uuid.UUID objects — context_asset_ids is a JSON column
+    # and UUID isn't JSON-serializable (was raising 500 → "添加失败"). Validate
+    # via _parse_uuid_list, then str() for storage + comparison (the existing
+    # column values are also strings, so the dedup actually matches now).
+    add_ids    = [str(u) for u in _parse_uuid_list(req.add)]
+    remove_ids = {str(u) for u in _parse_uuid_list(req.remove)}
 
     async with AsyncSessionLocal() as db:
         sess = (await db.execute(
@@ -446,15 +451,12 @@ async def patch_session_context(
         if not sess:
             raise HTTPException(status_code=404, detail="session not found")
 
-        current = list(sess.context_asset_ids or [])
-        # Add (dedup)
-        for u in add_uuids:
-            if u not in current:
-                current.append(u)
-        # Remove
-        if remove_uuids:
-            remove_set = set(remove_uuids)
-            current = [u for u in current if u not in remove_set]
+        current = [str(x) for x in (sess.context_asset_ids or [])]
+        for a in add_ids:
+            if a not in current:
+                current.append(a)
+        if remove_ids:
+            current = [x for x in current if x not in remove_ids]
         sess.context_asset_ids = current
         await db.commit()
         await db.refresh(sess)
@@ -464,6 +466,55 @@ async def patch_session_context(
         "session_id": session_id,
         "context_asset_ids": [str(u) for u in (sess.context_asset_ids or [])],
     }
+
+
+# ── DELETE /api/sessions/{id}  ──────────────────────────────────────────────
+# Remove a session and its transcript. First-class content created in the
+# session (assets / tasks) is *detached* (session_id → NULL), not deleted, so
+# the user's captured data survives; input_turns (NOT NULL on session) are
+# dropped after detaching anything that cites them as provenance.
+
+@router.delete("/sessions/{session_id}")
+async def delete_session(
+    session_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
+    try:
+        sid = uuid.UUID(session_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid session id")
+
+    async with AsyncSessionLocal() as db:
+        sess = (await db.execute(
+            select(DBSession).where(DBSession.id == sid, DBSession.user_id == user_id)
+        )).scalar_one_or_none()
+        if not sess:
+            raise HTTPException(status_code=404, detail="session not found")
+
+        # input_turns are NOT NULL on session_id → must be deleted; first clear
+        # the provenance pointers (source_input_turn_id) that cite them.
+        turn_ids = (await db.execute(
+            select(InputTurn.id).where(InputTurn.session_id == sid)
+        )).scalars().all()
+        if turn_ids:
+            for model in (Asset, Contact, Event, Task):
+                await db.execute(
+                    update(model)
+                    .where(model.source_input_turn_id.in_(turn_ids))
+                    .values(source_input_turn_id=None)
+                )
+            await db.execute(delete(InputTurn).where(InputTurn.session_id == sid))
+
+        # Preserve captured content — detach assets/tasks rather than delete.
+        await db.execute(update(Asset).where(Asset.session_id == sid).values(session_id=None))
+        await db.execute(update(Task).where(Task.session_id == sid).values(session_id=None))
+        # The transcript is session-owned — remove it.
+        await db.execute(delete(Message).where(Message.session_id == sid))
+
+        await db.delete(sess)
+        await db.commit()
+
+    return {"ok": True, "deleted": session_id}
 
 
 def _parse_uuid_list(raw: Optional[list[str]]) -> list:

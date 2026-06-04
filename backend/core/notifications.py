@@ -14,8 +14,14 @@ Redis fan-out; the call sites won't change.
 import asyncio
 from typing import Optional
 
+from sqlalchemy import delete, select
+
 from db.database import AsyncSessionLocal
 from db.models import Notification
+
+# Keep only the newest N notifications per user (the UI lists ≤30 and has no
+# pagination, so older rows are never shown — pruning bounds table growth).
+_RETAIN_PER_USER = 100
 
 # user_id → set of subscriber queues (one per open SSE connection)
 _subscribers: dict[str, set["asyncio.Queue[dict]"]] = {}
@@ -92,8 +98,34 @@ async def create_notification(
             db.add(n)
             await db.commit()
             await db.refresh(n)
-        payload = serialize(n)
+            # Serialize BEFORE the prune commit (which would expire `n`).
+            payload = serialize(n)
+            await _prune(db, user_id)
         _publish(user_id, payload)
         return payload
     except Exception:
         return {}
+
+
+async def _prune(db, user_id: str) -> None:
+    """Drop this user's notifications beyond the newest `_RETAIN_PER_USER`.
+    Best-effort — a prune failure must never fail notification creation."""
+    try:
+        # created_at of the (_RETAIN_PER_USER + 1)-th newest row; older ones go.
+        cutoff = (await db.execute(
+            select(Notification.created_at)
+            .where(Notification.user_id == user_id)
+            .order_by(Notification.created_at.desc())
+            .offset(_RETAIN_PER_USER)
+            .limit(1)
+        )).scalar_one_or_none()
+        if cutoff is not None:
+            await db.execute(
+                delete(Notification).where(
+                    Notification.user_id == user_id,
+                    Notification.created_at <= cutoff,
+                )
+            )
+            await db.commit()
+    except Exception:
+        pass

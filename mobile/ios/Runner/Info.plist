@@ -66,5 +66,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>用于「闪念」语音输入，把你说的话转成文字。</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>用于把「闪念」语音实时转写成文字。</string>
 </dict>
 </plist>

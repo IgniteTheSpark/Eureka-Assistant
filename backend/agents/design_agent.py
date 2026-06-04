@@ -43,6 +43,7 @@ DESIGN_INSTRUCTION = """
     "<field>": {
       "type":        "string|number|datetime|date|boolean",
       "required":    true|false,
+      "label":       "中文短标签,2-5 字,用于详情页字段名(例 amount→'水量',distance→'距离')",
       "description": "字段含义"
     }
   },
@@ -69,6 +70,9 @@ DESIGN_INSTRUCTION = """
     · purple(事件/日程) · gray(次要) · neutral(无强语义)
 - icon 用 1 个 emoji,跟主题贴近(跑步 🏃、读书 📖、睡眠 😴、健身 💪、习惯 ⭕)
 - card_layout 默认 horizontal;内容字段多/长用 stacked;时间流密集场景用 inline
+- **每个字段必须给 `label`**(2-5 字中文短标签):详情页用它显示字段名。机器字段名可以是
+    英文(amount / distance / pace),但 label 一定要是贴合该 skill 语义的中文 —— 例如喝水 skill 的
+    `amount` 标签是「水量」而**不是**「金额」。别用通用的「金额/数量」糊弄。
 - primary_field 必填,选最能一眼识别这条记录的字段(跑步 → 距离;读书 → 书名)
 - secondary_format 不确定就 "text",日期/时间字段用 "relative_date" 或 "absolute_date"
 - **字段覆盖(关键!别让用户记的东西在卡片上消失)**:payload 里每个有意义的

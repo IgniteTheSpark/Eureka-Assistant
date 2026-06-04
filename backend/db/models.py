@@ -121,6 +121,17 @@ class GlobalSkill(Base):
     created_at  = Column(TIMESTAMPTZ, default=_utcnow)
 
 
+class User(Base):
+    """Account row (email + password auth). `users.id` is the value that lands
+    in every other table's `user_id` column, so it's a String(50) uuid hex."""
+    __tablename__ = "users"
+
+    id            = Column(String(50), primary_key=True, default=lambda: uuid.uuid4().hex)
+    email         = Column(String(255), unique=True, nullable=False, index=True)
+    password_hash = Column(String(255), nullable=False)
+    created_at    = Column(TIMESTAMPTZ, default=_utcnow)
+
+
 class UserSkill(Base):
     __tablename__ = "user_skills"
 

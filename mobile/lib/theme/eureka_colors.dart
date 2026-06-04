@@ -24,6 +24,11 @@ class EurekaColors {
   final Color accentGreen;
   final Color accentRed;
   final Color accentPurple;
+  // §5.1 accent palette is 8 slots — gray/neutral/cyan complete the set the web
+  // tailwind config dropped (spec §5.5.4 says to backfill cyan on Flutter).
+  final Color accentGray;
+  final Color accentNeutral;
+  final Color accentCyan;
 
   const EurekaColors({
     required this.brightness,
@@ -43,6 +48,9 @@ class EurekaColors {
     required this.accentGreen,
     required this.accentRed,
     required this.accentPurple,
+    required this.accentGray,
+    required this.accentNeutral,
+    required this.accentCyan,
   });
 
   /// `.theme-atmosphere` — the default dark theme.
@@ -64,6 +72,9 @@ class EurekaColors {
     accentGreen: Color(0xFF86E0A5),
     accentRed: Color(0xFFF7768E),
     accentPurple: Color(0xFFC4A8FF),
+    accentGray: Color(0xFFA3AEC0),
+    accentNeutral: Color(0xFFC8CED8),
+    accentCyan: Color(0xFF67D9E8),
   );
 
   /// `.theme-light` — warm off-white day mode.
@@ -85,5 +96,8 @@ class EurekaColors {
     accentGreen: Color(0xFF2F9356),
     accentRed: Color(0xFFD23A57),
     accentPurple: Color(0xFF7A54D4),
+    accentGray: Color(0xFF6B7280),
+    accentNeutral: Color(0xFF52555E),
+    accentCyan: Color(0xFF0E8AA0),
   );
 }

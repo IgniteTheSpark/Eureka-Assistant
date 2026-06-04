@@ -24,7 +24,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select, update as sa_update, delete as sa_delete, func, or_, cast, String, text
+from sqlalchemy import select, update as sa_update, delete as sa_delete, func, or_, cast, String
 
 from agents.design_agent import design_skill, clarify_skill
 from core.auth import get_current_user_id
@@ -318,19 +318,20 @@ async def delete_skill(
                     .values(subject_asset_id=None)
                 )
                 # 2. Strip these asset ids from every session's
-                #    context_asset_ids array. PG's array_remove is a no-op
-                #    when the value isn't in the array, so we don't bother
-                #    pre-filtering. Cast in SQL because asyncpg sends the
-                #    uuid as a string and the array element type is uuid.
-                for aid in asset_ids:
-                    await db.execute(
-                        text(
-                            "UPDATE sessions "
-                            "SET context_asset_ids = "
-                            "array_remove(context_asset_ids, CAST(:aid AS uuid))"
-                        ),
-                        {"aid": str(aid)},
-                    )
+                #    context_asset_ids. It's a JSON column (MySQL has no
+                #    array_remove), so read → filter → write back in the app
+                #    layer, scoped to this user's sessions.
+                drop = {str(a) for a in asset_ids}
+                ctx_sessions = (await db.execute(
+                    select(DBSession).where(DBSession.user_id == user_id)
+                )).scalars().all()
+                for sess in ctx_sessions:
+                    ctx = list(sess.context_asset_ids or [])
+                    if not ctx:
+                        continue
+                    kept = [c for c in ctx if str(c) not in drop]
+                    if len(kept) != len(ctx):
+                        sess.context_asset_ids = kept
                 # 3. Tasks that resolved to one of these assets — null the
                 #    pointer (the Task row is still useful as a log of what
                 #    the user attempted to do).

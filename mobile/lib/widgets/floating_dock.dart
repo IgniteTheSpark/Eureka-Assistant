@@ -3,6 +3,7 @@ import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
+import '../theme/eureka_colors.dart';
 
 /// One entry in the floating dock.
 class DockItem {
@@ -14,12 +15,17 @@ class DockItem {
   /// The Agent entry renders as a brand→purple gradient pill (per the web dock).
   final bool primary;
 
+  /// Render a thin vertical divider before this item — groups the dock the way
+  /// the web FloatingDock does (today/library │ create/flash │ Agent).
+  final bool leadingDivider;
+
   const DockItem({
     required this.icon,
     required this.label,
     required this.onTap,
     this.active = false,
     this.primary = false,
+    this.leadingDivider = false,
   });
 }
 
@@ -33,7 +39,7 @@ class FloatingDock extends StatelessWidget {
   Widget build(BuildContext context) {
     final eu = context.eu;
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+      margin: const EdgeInsets.only(bottom: 14),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(28),
         boxShadow: [
@@ -49,21 +55,35 @@ class FloatingDock extends StatelessWidget {
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
             decoration: BoxDecoration(
               color: eu.surfaceRaised.withValues(alpha: 0.72),
               borderRadius: BorderRadius.circular(28),
               border: Border.all(color: eu.border),
             ),
+            // Content-width capsule centered over the page (matches the web
+            // dock), grouped by thin dividers.
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [for (final it in items) _button(context, it)],
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final it in items) ...[
+                  if (it.leadingDivider) _divider(eu),
+                  _button(context, it),
+                ],
+              ],
             ),
           ),
         ),
       ),
     );
   }
+
+  Widget _divider(EurekaColors eu) => Container(
+        width: 1,
+        height: 22,
+        color: eu.border,
+        margin: const EdgeInsets.symmetric(horizontal: 5),
+      );
 
   Widget _button(BuildContext context, DockItem it) {
     final eu = context.eu;

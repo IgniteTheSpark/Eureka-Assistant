@@ -29,6 +29,24 @@ _toolset: MCPToolset | None = None
 _external_toolsets: dict[str, MCPToolset] = {}
 
 
+def make_user_id_injector(user_id: str):
+    """Return an ADK `before_tool_callback` that forces every tool call to run
+    under [user_id].
+
+    The internal tools run in a *shared* MCP subprocess and take `user_id`
+    (default "default"). The LLM never provides it, so without this every
+    chat/flash-created or -queried record would land under / read from
+    "default" — wrong tenant, invisible to the actual user. We override the
+    arg after the model emits the call, so the model can't get it wrong.
+    """
+    def _before_tool(tool, args, tool_context):  # ADK calls (tool, args, tool_context)
+        if isinstance(args, dict):
+            args["user_id"] = user_id
+        return None  # proceed with the (mutated) args
+
+    return _before_tool
+
+
 def get_mcp_toolset() -> MCPToolset:
     """
     Returns the shared INTERNAL MCPToolset, lazy-initialized on first call.

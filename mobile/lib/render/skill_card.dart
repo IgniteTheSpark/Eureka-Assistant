@@ -1,13 +1,37 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/api_client.dart';
+import '../data_revision.dart';
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
+import 'asset_detail_sheet.dart';
 import 'render_spec.dart';
 
-/// Cached render_spec registry (skill name → spec), shared by every card.
+/// Bridges the global [dataRevision] ValueNotifier into Riverpod so providers
+/// that watch it re-run after any mutation (`bumpData()`). Emits the current
+/// revision immediately, then on every change.
+final _revisionProvider = StreamProvider<int>((ref) {
+  final controller = StreamController<int>();
+  void listener() => controller.add(dataRevision.value);
+  dataRevision.addListener(listener);
+  ref.onDispose(() {
+    dataRevision.removeListener(listener);
+    controller.close();
+  });
+  controller.add(dataRevision.value);
+  return controller.stream;
+});
+
+/// render_spec registry (skill name → spec), shared by every card. Re-fetched
+/// whenever data changes (a new/edited skill is created via the wizard), so a
+/// freshly-created skill's cards render with its real spec — not the generic
+/// fallback — without an app restart. Riverpod keeps the prior value during the
+/// refetch, so there's no loading flash.
 final renderSpecsProvider = FutureProvider<Map<String, RenderSpec>>((ref) async {
+  ref.watch(_revisionProvider);
   final api = ApiClient();
   try {
     return await fetchRenderSpecs(api);
@@ -19,17 +43,163 @@ final renderSpecsProvider = FutureProvider<Map<String, RenderSpec>>((ref) async 
 /// The universal render_spec-driven card (mirrors the web SkillCard). Resolves
 /// its spec from the registry (asset cards) or synthesizes one (event/contact/
 /// task), then renders the layout the spec asks for.
-class SkillCard extends ConsumerWidget {
+class SkillCard extends ConsumerStatefulWidget {
   final Map<String, dynamic> card;
-  const SkillCard(this.card, {super.key});
+
+  /// Force a layout regardless of the spec — list contexts pass 'horizontal'
+  /// so every card in a list reads the same size.
+  final String? layoutOverride;
+  const SkillCard(this.card, {super.key, this.layoutOverride});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SkillCard> createState() => _SkillCardState();
+}
+
+class _SkillCardState extends ConsumerState<SkillCard> {
+  final _api = ApiClient();
+  bool? _doneOverride;
+  bool _deleted = false;
+
+  Map<String, dynamic> get card => widget.card;
+  String? get _assetId => (card['asset_id'] ?? card['id']) as String?;
+
+  @override
+  void dispose() {
+    _api.close();
+    super.dispose();
+  }
+
+  /// The right DELETE endpoint for this card, by type — null if it isn't
+  /// user-deletable (task / a prebuilt card with no id).
+  String? _deletePath(String cardType) {
+    switch (cardType) {
+      case 'event':
+        final id = (card['event_id'] ?? card['id']) as String?;
+        return id == null ? null : '/api/events/$id';
+      case 'contact':
+        final id = (card['contact_id'] ?? card['id']) as String?;
+        return id == null ? null : '/api/contacts/$id';
+      case 'task':
+        return null;
+      default: // asset-skill card
+        final id = _assetId;
+        return id == null ? null : '/api/assets/$id';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_deleted) return const SizedBox.shrink();
+    final eu = context.eu;
     final specs = ref.watch(renderSpecsProvider).valueOrNull ?? const {};
-    return _CardBody(_resolve(specs));
+    var data = _resolve(specs);
+    if (widget.layoutOverride != null) data = data.copyWith(layout: widget.layoutOverride);
+    if (_doneOverride != null) data = data.copyWith(checkDone: _doneOverride);
+
+    final type = card['card_type'] as String?;
+    final isEntity = type == 'event' || type == 'contact' || type == 'task';
+    final payload = isEntity
+        ? card
+        : ((card['payload'] as Map?)?.cast<String, dynamic>() ?? const {});
+    final cardType = type ?? (card['user_skill_name'] as String?) ?? 'asset';
+    // The skill's own spec drives the detail sheet's field labels + formats.
+    final skill = card['user_skill_name'] as String?;
+    final spec = skill != null ? specs[skill] : null;
+
+    final canToggle = data.checkDone != null && _assetId != null;
+    final body = GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => showAssetDetail(
+        context,
+        data: data,
+        payload: payload,
+        cardType: cardType,
+        assetId: _assetId,
+        sessionId: card['session_id'] as String?,
+        spec: spec,
+      ),
+      child: _CardBody(data, onToggleCheck: canToggle ? _toggle : null),
+    );
+
+    // Left-swipe to delete — available on every deletable card, anywhere.
+    final delPath = _deletePath(cardType);
+    if (delPath == null) return body;
+    return Dismissible(
+      key: ValueKey('del_$delPath'),
+      direction: DismissDirection.endToStart,
+      confirmDismiss: (_) => _confirmAndDelete(delPath),
+      onDismissed: (_) => setState(() => _deleted = true),
+      background: Container(
+        margin: const EdgeInsets.only(top: 6),
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 22),
+        decoration: BoxDecoration(
+          color: eu.accentRed.withValues(alpha: 0.16),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Icon(Icons.delete_outline, color: eu.accentRed),
+      ),
+      child: body,
+    );
+  }
+
+  Future<bool> _confirmAndDelete(String path) async {
+    final eu = context.eu;
+    final ok = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: eu.surfaceRaised,
+            title: Text('删除这条记录？', style: TextStyle(color: eu.textHi)),
+            content: Text('删除后无法恢复。', style: TextStyle(color: eu.textMid)),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: Text('取消', style: TextStyle(color: eu.textMid)),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: Text('删除',
+                    style: TextStyle(color: eu.accentRed, fontWeight: FontWeight.w600)),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!ok) return false;
+    try {
+      await _api.deleteJson(path);
+      bumpData();
+      return true;
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(const SnackBar(content: Text('删除失败')));
+      }
+      return false;
+    }
+  }
+
+  Future<void> _toggle(bool next) async {
+    final id = _assetId;
+    if (id == null) return;
+    setState(() => _doneOverride = next);
+    try {
+      await _api.putJson('/api/assets/$id', {
+        'payload_patch': {'status': next ? 'done' : 'pending'},
+      });
+    } catch (_) {
+      if (mounted) setState(() => _doneOverride = !next); // revert on failure
+    }
   }
 
   CardData _resolve(Map<String, RenderSpec> specs) {
+    // Pre-built card: agent/flash messages persist fully-rendered cards
+    // (icon/title/subtitle/accent_color/meta_fields). Use them as-is instead
+    // of re-resolving from a render_spec (we have no payload for these).
+    if (card.containsKey('accent_color') || card.containsKey('meta_fields')) {
+      return _prebuilt();
+    }
     final type = card['card_type'] as String?;
     if (type == 'event' || type == 'contact' || type == 'task') {
       return buildCard(payload: card, spec: synthesizeSpec(type!), displayName: type);
@@ -43,30 +213,73 @@ class SkillCard extends ConsumerWidget {
       displayName: skill ?? '资产',
     );
   }
+
+  CardData _prebuilt() {
+    final meta = <({String value, String? format})>[];
+    for (final m in ((card['meta_fields'] as List?) ?? const []).whereType<Map>()) {
+      final v = m['value']?.toString() ?? '';
+      if (v.isNotEmpty) meta.add((value: v, format: m['format'] as String?));
+    }
+    // Checkable cards (todo) expose a "check" action → always carry a bool
+    // checkDone so the corner checkbox renders and can be toggled. Non-check
+    // cards keep checkDone null (emoji icon, no checkbox).
+    final actions = ((card['actions'] as List?) ?? const []).whereType<String>().toSet();
+    final done = card['status'] == 'done' || card['done'] == true;
+    final checkable = actions.contains('check');
+    return CardData(
+      layout: (card['card_layout'] ?? card['layout']) as String? ?? 'horizontal',
+      icon: card['icon'] as String? ?? '•',
+      accentColor: card['accent_color'] as String? ?? 'gray',
+      title: card['title'] as String? ?? '资产',
+      subtitle: card['subtitle'] as String? ?? '',
+      metaFields: meta,
+      checkDone: checkable ? done : (done ? true : null),
+    );
+  }
 }
 
-class _Accent {
+/// Non-interactive render of a [CardData] — used by the AddSkillWizard live
+/// preview (no tap/toggle/detail behaviour, just the visual).
+class CardPreview extends StatelessWidget {
+  final CardData data;
+  const CardPreview(this.data, {super.key});
+
+  @override
+  Widget build(BuildContext context) => _CardBody(data);
+}
+
+class CardAccent {
   final Color fg;
   final Color bg;
   final Color edge;
-  const _Accent(this.fg, this.bg, this.edge);
+
+  /// Solid强调 — progress bars, dots, the todo checkbox fill (§5.1 `-solid`).
+  final Color solid;
+  const CardAccent(this.fg, this.bg, this.edge, this.solid);
 }
 
-_Accent _accentOf(String name, EurekaColors eu) {
+/// Map a render_spec accent_color to its quad. All 8 slots are covered
+/// (blue/amber/green/red/purple/gray/neutral/cyan); unknown → neutral, which is
+/// the same fallback the web buildCard ACCENT map lands on (§5.1).
+CardAccent accentOf(String name, EurekaColors eu) {
   final fg = switch (name) {
     'blue' => eu.accentBlue,
     'amber' => eu.accentAmber,
     'green' => eu.accentGreen,
     'red' => eu.accentRed,
     'purple' => eu.accentPurple,
-    _ => eu.textMid,
+    'gray' => eu.accentGray,
+    'cyan' => eu.accentCyan,
+    'neutral' => eu.accentNeutral,
+    _ => eu.accentNeutral,
   };
-  return _Accent(fg, fg.withValues(alpha: 0.12), fg.withValues(alpha: 0.30));
+  return CardAccent(fg, fg.withValues(alpha: 0.12), fg.withValues(alpha: 0.30), fg);
 }
 
 class _CardBody extends StatelessWidget {
   final CardData data;
-  const _CardBody(this.data);
+  final ValueChanged<bool>? onToggleCheck;
+  const _CardBody(this.data, {this.onToggleCheck});
 
   @override
   Widget build(BuildContext context) {
@@ -81,9 +294,12 @@ class _CardBody extends StatelessWidget {
     }
   }
 
-  Widget _shell(EurekaColors eu, _Accent a, {required Widget child}) => Container(
+  Widget _shell(EurekaColors eu, CardAccent a, {required Widget child}) => Container(
         margin: const EdgeInsets.only(top: 6),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+        // minHeight keeps every horizontal card the same size whether or not it
+        // has a subtitle/meta line (the user flagged ragged card heights).
+        constraints: const BoxConstraints(minHeight: 60),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
           color: a.bg,
           borderRadius: BorderRadius.circular(14),
@@ -92,21 +308,11 @@ class _CardBody extends StatelessWidget {
         child: child,
       );
 
-  Widget _iconTile(_Accent a, EurekaColors eu) {
-    if (data.checkDone != null) {
-      final done = data.checkDone == true;
-      return Container(
-        width: 32,
-        height: 32,
-        decoration: BoxDecoration(
-          color: done ? a.fg : Colors.transparent,
-          borderRadius: BorderRadius.circular(9),
-          border: Border.all(color: a.fg, width: 1.5),
-        ),
-        child: done ? const Icon(Icons.check, size: 18, color: Colors.white) : null,
-      );
-    }
-    return Container(
+  /// Identity tile: always the skill's emoji glyph (so a todo still looks like a
+  /// todo). When the skill has a "check" action, a small checkbox overlays the
+  /// bottom-right corner — both visible at once, matching the web IconTile.
+  Widget _iconTile(CardAccent a, EurekaColors eu) {
+    final tile = Container(
       width: 34,
       height: 34,
       alignment: Alignment.center,
@@ -115,7 +321,38 @@ class _CardBody extends StatelessWidget {
         borderRadius: BorderRadius.circular(9),
         border: Border.all(color: a.edge),
       ),
-      child: Text(data.icon, style: const TextStyle(fontSize: 16)),
+      child: Opacity(
+        opacity: data.checkDone == true ? 0.5 : 1.0,
+        child: Text(data.icon, style: const TextStyle(fontSize: 16)),
+      ),
+    );
+    if (data.checkDone == null) return tile;
+    final done = data.checkDone == true;
+    final overlay = GestureDetector(
+      onTap: onToggleCheck == null ? null : () => onToggleCheck!(!done),
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        width: 18,
+        height: 18,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: done ? a.fg : eu.bg,
+          border: Border.all(color: a.fg, width: 1.5),
+        ),
+        child: done ? const Icon(Icons.check, size: 10, color: Colors.white) : null,
+      ),
+    );
+    return SizedBox(
+      width: 34,
+      height: 34,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          tile,
+          Positioned(right: -4, bottom: -4, child: overlay),
+        ],
+      ),
     );
   }
 
@@ -134,7 +371,7 @@ class _CardBody extends StatelessWidget {
     );
   }
 
-  Widget _subAndMeta(EurekaColors eu, _Accent a) => Padding(
+  Widget _subAndMeta(EurekaColors eu, CardAccent a) => Padding(
         padding: const EdgeInsets.only(top: 4),
         child: Wrap(
           spacing: 6,
@@ -148,8 +385,14 @@ class _CardBody extends StatelessWidget {
         ),
       );
 
-  Widget _metaPill(({String value, String? format}) m, _Accent a, EurekaColors eu) {
+  Widget _metaPill(({String value, String? format}) m, CardAccent a, EurekaColors eu) {
     if (m.format == 'badge') {
+      // Async-task lifecycle (§4.7.3): map the raw status token to its Chinese
+      // label + status accent, and pulse while in-flight (pending/running).
+      final life = _lifecycle(m.value, eu);
+      if (life != null) {
+        return _LifecyclePill(label: life.label, color: life.color, pulse: life.pulse);
+      }
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
         decoration: BoxDecoration(
@@ -161,22 +404,25 @@ class _CardBody extends StatelessWidget {
             style: TextStyle(color: a.fg, fontSize: 11, fontWeight: FontWeight.w600)),
       );
     }
-    return Text(m.value, style: TextStyle(color: eu.textLo, fontSize: 11));
+    // Plain meta: a mono "· value" chip (web uses font-mono text-lo). Bumped to
+    // textMid for legibility — textLo on a tinted card was hard to read.
+    return Text('· ${m.value}', style: euMono(fontSize: 11, color: eu.textMid));
   }
 
   Widget _horizontal(BuildContext context) {
     final eu = context.eu;
-    final a = _accentOf(data.accentColor, eu);
+    final a = accentOf(data.accentColor, eu);
     return _shell(
       eu,
       a,
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           _iconTile(a, eu),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _title(eu),
@@ -192,7 +438,7 @@ class _CardBody extends StatelessWidget {
 
   Widget _stacked(BuildContext context) {
     final eu = context.eu;
-    final a = _accentOf(data.accentColor, eu);
+    final a = accentOf(data.accentColor, eu);
     return _shell(
       eu,
       a,
@@ -212,9 +458,24 @@ class _CardBody extends StatelessWidget {
     );
   }
 
+  ({String label, Color color, bool pulse})? _lifecycle(String raw, EurekaColors eu) {
+    switch (raw) {
+      case 'pending':
+        return (label: '待处理', color: eu.accentAmber, pulse: true);
+      case 'running':
+        return (label: '同步中', color: eu.accentBlue, pulse: true);
+      case 'done':
+        return (label: '已同步', color: eu.accentGreen, pulse: false);
+      case 'failed':
+        return (label: '失败', color: eu.accentRed, pulse: false);
+      default:
+        return null;
+    }
+  }
+
   Widget _inline(BuildContext context) {
     final eu = context.eu;
-    final a = _accentOf(data.accentColor, eu);
+    final a = accentOf(data.accentColor, eu);
     return Container(
       margin: const EdgeInsets.only(top: 6),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -233,6 +494,68 @@ class _CardBody extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(color: eu.textHi, fontSize: 13)),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Async-task lifecycle badge (§4.7.3). A leading dot + label; pending/running
+/// pulse the dot so an in-flight 钉钉/MCP task reads as "still working".
+class _LifecyclePill extends StatefulWidget {
+  final String label;
+  final Color color;
+  final bool pulse;
+  const _LifecyclePill({required this.label, required this.color, required this.pulse});
+
+  @override
+  State<_LifecyclePill> createState() => _LifecyclePillState();
+}
+
+class _LifecyclePillState extends State<_LifecyclePill> with SingleTickerProviderStateMixin {
+  AnimationController? _c;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.pulse) {
+      _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 900))
+        ..repeat(reverse: true);
+    }
+  }
+
+  @override
+  void dispose() {
+    _c?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dot = Container(
+      width: 6,
+      height: 6,
+      decoration: BoxDecoration(shape: BoxShape.circle, color: widget.color),
+    );
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: widget.color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: widget.color.withValues(alpha: 0.30)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _c == null
+              ? dot
+              : FadeTransition(
+                  opacity: Tween(begin: 0.35, end: 1.0).animate(_c!),
+                  child: dot,
+                ),
+          const SizedBox(width: 5),
+          Text(widget.label,
+              style: TextStyle(color: widget.color, fontSize: 11, fontWeight: FontWeight.w600)),
         ],
       ),
     );

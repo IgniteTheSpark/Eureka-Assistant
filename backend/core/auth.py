@@ -1,11 +1,8 @@
 """
-Auth — Phase B Step 3 (decision #1).
+Auth — THE single source of truth for "who is the current user".
 
-THE single source of truth for "who is the current user". In demo mode this
-returns the configured single-user id; in production, swap the implementation
-to validate a JWT / session cookie / API key and callers do not need to change.
-
-Use via FastAPI Depends:
+Resolves the user from the request's `Authorization: Bearer <token>` header
+(HS256 token minted by /api/auth/login|register). Used via FastAPI Depends:
 
     from fastapi import Depends
     from core.auth import get_current_user_id
@@ -14,20 +11,21 @@ Use via FastAPI Depends:
     async def endpoint(user_id: str = Depends(get_current_user_id)):
         ...
 
-NEVER `from config import settings; settings.user_id` directly elsewhere —
-always go through this dep. That is decision #1's clean seam.
+Every data route depends on this, so a missing/invalid token → 401 and content
+is isolated per user (all tables are `user_id`-scoped). The only unauthenticated
+routes are /api/auth/* and /health.
 """
-from config import settings
+from fastapi import HTTPException, Request
+
+from core.security import decode_token
 
 
-def get_current_user_id() -> str:
-    """
-    Resolve the current request's user_id.
-
-    Demo: returns the configured single-user id (settings.user_id, default "default").
-
-    Production replacement: read Authorization header, validate JWT, look up
-    the user, return user.id. Signature can grow (add `request: Request` or
-    similar) — callers using Depends() are unaffected.
-    """
-    return settings.user_id
+def get_current_user_id(request: Request) -> str:
+    """Resolve the current request's user_id from the Bearer token. 401 if absent
+    or invalid/expired."""
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        payload = decode_token(auth[len("Bearer "):].strip())
+        if payload and payload.get("sub"):
+            return str(payload["sub"])
+    raise HTTPException(status_code=401, detail="未登录或登录已过期")

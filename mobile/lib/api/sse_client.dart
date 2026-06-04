@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 
 import '../config.dart';
 import 'api_client.dart';
+import 'auth_store.dart';
 
 /// One server-sent event: an `event:` type + its decoded `data`.
 /// `data` is the parsed JSON object when possible, else the raw string.
@@ -27,13 +28,27 @@ Stream<SseEvent> postSse(
   Map<String, dynamic> body, {
   String? baseUrl,
   http.Client? client,
-}) async* {
+}) {
+  final req = http.Request('POST', Uri.parse('${baseUrl ?? AppConfig.apiBase}$path'));
+  req.headers['Content-Type'] = 'application/json';
+  req.body = jsonEncode(body);
+  return _sse(req, client);
+}
+
+/// Stream SSE frames from a GET endpoint (e.g. /api/notifications/stream — the
+/// live hardware bridge channel: `listening` / `capture` / `notification`).
+Stream<SseEvent> getSse(String path, {String? baseUrl, http.Client? client}) {
+  final req = http.Request('GET', Uri.parse('${baseUrl ?? AppConfig.apiBase}$path'));
+  return _sse(req, client);
+}
+
+Stream<SseEvent> _sse(http.Request req, http.Client? client) async* {
   final c = client ?? http.Client();
   try {
-    final req = http.Request('POST', Uri.parse('${baseUrl ?? AppConfig.apiBase}$path'));
-    req.headers['Content-Type'] = 'application/json';
     req.headers['Accept'] = 'text/event-stream';
-    req.body = jsonEncode(body);
+    if (AuthStore.token != null) {
+      req.headers['Authorization'] = 'Bearer ${AuthStore.token}';
+    }
 
     final res = await c.send(req);
     if (res.statusCode >= 400) {

@@ -17,7 +17,7 @@ from pathlib import Path
 
 from google.adk.agents import LlmAgent
 
-from agents.mcp_toolset import get_mcp_toolset
+from agents.mcp_toolset import get_mcp_toolset, make_user_id_injector
 from core.llm import FLASH_SKILL_MODEL, FLASH_DISPATCHER_MODEL
 
 
@@ -69,7 +69,7 @@ def _load_prompt(folder: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def make_skill_agent(skill_name: str) -> LlmAgent:
+def make_skill_agent(skill_name: str, user_id: str = "default") -> LlmAgent:
     """
     Create an ephemeral LlmAgent for a flash-pipeline sub-skill.
     Each call returns a fresh agent (cheap — they are stateless one-shots).
@@ -87,6 +87,7 @@ def make_skill_agent(skill_name: str) -> LlmAgent:
         model=FLASH_SKILL_MODEL,
         instruction=prompt,
         tools=[get_mcp_toolset()],
+        before_tool_callback=make_user_id_injector(user_id),
     )
 
 
@@ -132,6 +133,7 @@ def make_custom_skill_agent(
     display_name: str,
     payload_schema: dict,
     render_spec: dict,
+    user_id: str = "default",
 ) -> LlmAgent:
     """
     Generic flash sub-skill for user-registered custom skills. The user
@@ -171,7 +173,13 @@ def make_custom_skill_agent(
         f"{fields_text}\n\n"
         f"## 流程\n"
         f"1. 从 source_text 抽 payload(只放出现的字段;未提到的字段就别加)\n"
-        f"2. 时间/日期字段统一 ISO8601 +08:00(参考 prompt 里给的「今天」)\n"
+        f"2. 时间/日期字段统一 ISO8601 +08:00。基准是消息开头「现在是 …」给的\n"
+        f"   当前时刻(含日期+时分+星期),分三种情况,别混:\n"
+        f"   - 明确时刻(「下午三点」)→ 用那个时刻\n"
+        f"   - 时刻相对词「刚刚 / 刚才 / 现在 / 这会儿 / 几分钟前」→ 用**当前时刻**(含时分),\n"
+        f"     **严禁**写成 00:00 / 午夜\n"
+        f"   - **只有日期词或根本没提时间**(「今天 / 昨天 / 明天」「今天喝了水」)→ 只确定日期,\n"
+        f"     **不要编造一个具体时刻**;datetime/时间字段这种情况**直接不传**(留空),别塞「现在」的时分\n"
         f"3. 调用 tool_create_asset:\n"
         f"     user_skill_name=\"{skill_name}\"\n"
         f"     payload=JSON 字符串\n"
@@ -189,4 +197,5 @@ def make_custom_skill_agent(
         model=FLASH_SKILL_MODEL,
         instruction=instruction,
         tools=[get_mcp_toolset()],
+        before_tool_callback=make_user_id_injector(user_id),
     )

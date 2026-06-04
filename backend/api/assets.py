@@ -197,7 +197,10 @@ async def get_asset(
 # ── POST /api/assets (manual create) ──────────────────────────────────────────
 
 @router.post("/assets")
-async def manual_create_asset(req: CreateAssetRequest):
+async def manual_create_asset(
+    req: CreateAssetRequest,
+    user_id: str = Depends(get_current_user_id),
+):
     """
     Manual asset creation (not via voice flash or chat agent). Used by the
     Asset Detail page's edit / add affordance, or any future bulk-import path.
@@ -207,6 +210,7 @@ async def manual_create_asset(req: CreateAssetRequest):
         payload=json.dumps(req.payload, ensure_ascii=False),
         session_id=req.session_id,
         source_input_turn_id=req.source_input_turn_id,
+        user_id=user_id,
     )
 
 
@@ -250,6 +254,6 @@ async def update_asset(
 # ── DELETE /api/assets/{id} ───────────────────────────────────────────────────
 
 @router.delete("/assets/{asset_id}")
-async def delete_asset(asset_id: str):
+async def delete_asset(asset_id: str, user_id: str = Depends(get_current_user_id)):
     """Delete an asset; cascades to asset_fields via FK ON DELETE CASCADE."""
-    return await mcp_delete_asset(asset_id)
+    return await mcp_delete_asset(asset_id, user_id=user_id)

@@ -13,11 +13,12 @@ Manual creation via the frontend SkillCreateForm posts here, not /api/assets,
 so tool_query_contact and other agent queries find the data in the right
 table.
 """
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from typing import List, Optional
 
+from core.auth import get_current_user_id
 from db.models import Contact
 from db.database import AsyncSessionLocal
 import uuid
@@ -47,9 +48,10 @@ class ContactUpdateRequest(BaseModel):
 async def list_contacts(
     q: Optional[str] = Query(None, description="Name search"),
     limit: int = Query(50, le=200),
+    user_id: str = Depends(get_current_user_id),
 ):
     async with AsyncSessionLocal() as db:
-        stmt = select(Contact).where(Contact.user_id == "default")
+        stmt = select(Contact).where(Contact.user_id == user_id)
         if q:
             stmt = stmt.where(Contact.name.ilike(f"%{q}%"))
         stmt = stmt.order_by(Contact.created_at.desc()).limit(limit)
@@ -75,12 +77,12 @@ async def list_contacts(
 
 
 @router.get("/contacts/{contact_id}")
-async def get_contact(contact_id: str):
+async def get_contact(contact_id: str, user_id: str = Depends(get_current_user_id)):
     async with AsyncSessionLocal() as db:
         result = await db.execute(
             select(Contact).where(
                 Contact.id == uuid.UUID(contact_id),
-                Contact.user_id == "default",
+                Contact.user_id == user_id,
             )
         )
         c = result.scalar_one_or_none()
@@ -93,13 +95,13 @@ async def get_contact(contact_id: str):
 
 
 @router.post("/contacts")
-async def create_contact(req: ContactCreateRequest):
+async def create_contact(req: ContactCreateRequest, user_id: str = Depends(get_current_user_id)):
     """Manual create — used by frontend SkillCreateForm (skill=contact route)."""
     if not req.name or not req.name.strip():
         raise HTTPException(status_code=400, detail="name required")
     async with AsyncSessionLocal() as db:
         c = Contact(
-            user_id="default",
+            user_id=user_id,
             name=req.name.strip(),
             phone=req.phone,
             company=req.company,
@@ -114,14 +116,14 @@ async def create_contact(req: ContactCreateRequest):
 
 
 @router.put("/contacts/{contact_id}")
-async def update_contact(contact_id: str, req: ContactUpdateRequest):
+async def update_contact(contact_id: str, req: ContactUpdateRequest, user_id: str = Depends(get_current_user_id)):
     try:
         cid = uuid.UUID(contact_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="invalid contact id")
     async with AsyncSessionLocal() as db:
         c = (await db.execute(
-            select(Contact).where(Contact.id == cid, Contact.user_id == "default")
+            select(Contact).where(Contact.id == cid, Contact.user_id == user_id)
         )).scalar_one_or_none()
         if not c:
             raise HTTPException(status_code=404, detail="contact not found")
@@ -136,14 +138,14 @@ async def update_contact(contact_id: str, req: ContactUpdateRequest):
 
 
 @router.delete("/contacts/{contact_id}")
-async def delete_contact(contact_id: str):
+async def delete_contact(contact_id: str, user_id: str = Depends(get_current_user_id)):
     try:
         cid = uuid.UUID(contact_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="invalid contact id")
     async with AsyncSessionLocal() as db:
         c = (await db.execute(
-            select(Contact).where(Contact.id == cid, Contact.user_id == "default")
+            select(Contact).where(Contact.id == cid, Contact.user_id == user_id)
         )).scalar_one_or_none()
         if not c:
             raise HTTPException(status_code=404, detail="contact not found")

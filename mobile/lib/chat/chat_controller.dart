@@ -1,8 +1,15 @@
 import 'package:flutter/foundation.dart';
 
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../api/api_client.dart';
 import '../api/sse_client.dart';
+import '../data_revision.dart';
 import 'chat_models.dart';
+
+/// Persists the last active chat session so the Agent entry resumes it (web
+/// parity: `eureka:active_chat_session`). Cleared on 新对话 / logout.
+const _kActiveSession = 'eureka:active_chat_session';
 
 /// Drives one chat session: sends a turn to POST /api/chat and folds the SSE
 /// frames (meta / token / tool_call / tool_result / error / done) into the
@@ -13,6 +20,15 @@ class ChatController extends ChangeNotifier {
   String? sessionId;
   String? error;
 
+  /// When this chat is bound to a subject (opened via an asset's 讨论), the
+  /// subject is held *pending* — no session is created until the first message
+  /// is sent, so merely opening a discuss thread never leaves an empty session.
+  String? subjectType;
+  String? subjectId;
+
+  /// Readable title of the current session (from the sidebar row when replayed).
+  String? sessionTitle;
+
   final ApiClient _api = ApiClient();
 
   @override
@@ -21,12 +37,70 @@ class ChatController extends ChangeNotifier {
     super.dispose();
   }
 
+  static Future<void> _persistActive(String? id) async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      if (id == null || id.isEmpty) {
+        await sp.remove(_kActiveSession);
+      } else {
+        await sp.setString(_kActiveSession, id);
+      }
+    } catch (_) {/* best-effort */}
+  }
+
+  /// Resume the last active session (Agent entry with no bound subject). No-op
+  /// if none persisted or it no longer loads (deleted / other user → empty).
+  Future<void> resumeLast() async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      final id = sp.getString(_kActiveSession);
+      if (id != null && id.isNotEmpty) await loadSession(id);
+    } catch (_) {/* stay on a blank chat */}
+  }
+
   /// Start a fresh conversation.
   void reset() {
     messages.clear();
     sessionId = null;
+    sessionTitle = null;
+    subjectType = null;
+    subjectId = null;
     error = null;
+    _persistActive(null);
     notifyListeners();
+  }
+
+  /// A human-readable header title: the session's stored title, else the first
+  /// user line (matching the backend's auto-title), else 新对话.
+  String get displayTitle {
+    final t = sessionTitle?.trim();
+    if (t != null && t.isNotEmpty) return t;
+    for (final m in messages) {
+      if (m.isUser && m.text.trim().isNotEmpty) {
+        final s = m.text.trim().replaceAll(RegExp(r'\s+'), ' ');
+        return s.length > 18 ? '${s.substring(0, 18)}…' : s;
+      }
+    }
+    return '新对话';
+  }
+
+  /// Bind a subject (asset/event/contact) without creating a session. If a
+  /// thread for this subject already exists, peek it (查不建) and replay it.
+  Future<void> bindSubject(String type, String id) async {
+    subjectType = type;
+    subjectId = id;
+    try {
+      final res = await _api.postJson('/api/sessions', {
+        'session_type': 'chat',
+        'subject_type': type,
+        'subject_id': id,
+        'peek_only': true,
+      });
+      final sid = (res is Map ? res['session_id'] : null) as String?;
+      if (sid != null && sid.isNotEmpty) await loadSession(sid);
+    } catch (_) {
+      // no existing thread — stay empty until the first send creates one
+    }
   }
 
   /// List the user's sessions for the sidebar (newest first per backend).
@@ -44,8 +118,23 @@ class ChatController extends ChangeNotifier {
     }).toList();
   }
 
-  /// Load + replay a session's history into [messages].
-  Future<void> loadSession(String id) async {
+  /// Delete a session (DELETE /api/sessions/{id}). Its captured assets survive
+  /// (the backend detaches them); only the conversation is removed. Resets the
+  /// view if the deleted session was the active one.
+  Future<bool> deleteSession(String id) async {
+    try {
+      await _api.deleteJson('/api/sessions/$id');
+      if (sessionId == id) reset();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Load + replay a session's history into [messages]. [title] (when passed
+  /// from the sidebar row) drives the readable header.
+  Future<void> loadSession(String id, {String? title}) async {
+    if (title != null) sessionTitle = title;
     final res = await _api.getJson('/api/sessions/$id/messages');
     final raw = (res is Map ? res['messages'] : null) as List? ?? const [];
     messages.clear();
@@ -79,8 +168,45 @@ class ChatController extends ChangeNotifier {
       }
     }
     sessionId = id;
+    _persistActive(id);
     notifyListeners();
   }
+
+  /// Ensure a session exists so context can be attached / a subject bound before
+  /// the first message. Binds the pending subject if one is set (so the created
+  /// session is the subject's thread, not an orphan blank one).
+  Future<String?> ensureSession() async {
+    if (sessionId != null) return sessionId;
+    try {
+      final body = <String, dynamic>{'session_type': 'chat'};
+      if (subjectType != null && subjectId != null) {
+        body['subject_type'] = subjectType;
+        body['subject_id'] = subjectId;
+      }
+      final res = await _api.postJson('/api/sessions', body);
+      sessionId = (res is Map ? res['session_id'] : null) as String?;
+      return sessionId;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Attach one or more assets as context to the current session in a single
+  /// PATCH (web's 添加资产 flow; picker is multi-select).
+  Future<bool> attachContexts(List<String> assetIds) async {
+    if (assetIds.isEmpty) return true;
+    final sid = await ensureSession();
+    if (sid == null) return false;
+    try {
+      await _api.patchJson('/api/sessions/$sid/context', {'add': assetIds});
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Attach a single asset as context (convenience wrapper).
+  Future<bool> attachContext(String assetId) => attachContexts([assetId]);
 
   /// 沉淀为资产 — turn a Q&A answer into an asset of [skill] (todo/notes/idea/
   /// misc), linked to this session. Throws on failure so the UI can show it.
@@ -102,6 +228,14 @@ class ChatController extends ChangeNotifier {
     final t = text.trim();
     if (t.isEmpty || streaming) return;
     error = null;
+
+    // Lazy subject binding: a discuss thread only becomes a real session now,
+    // on the first message. (/api/chat has no subject param, so the bound
+    // session must exist before the turn; plain chats let the backend create
+    // it via the SSE `meta` frame.)
+    if (sessionId == null && subjectType != null && subjectId != null) {
+      await ensureSession();
+    }
 
     final stamp = DateTime.now().microsecondsSinceEpoch;
     messages.add(ChatMessage.user('u-$stamp', t));
@@ -125,6 +259,9 @@ class ChatController extends ChangeNotifier {
       agent.streaming = false;
       streaming = false;
       notifyListeners();
+      // A turn may have created/updated assets (todo, event, …) via tools —
+      // refresh every other surface (library / calendar / category lists).
+      bumpData();
     }
   }
 
@@ -132,7 +269,10 @@ class ChatController extends ChangeNotifier {
     switch (ev.type) {
       case 'meta':
         final sid = ev.json['session_id'];
-        if (sid is String && sid.isNotEmpty) sessionId = sid;
+        if (sid is String && sid.isNotEmpty) {
+          sessionId = sid;
+          _persistActive(sid); // a new lazily-created session becomes the active one
+        }
       case 'token':
         final txt = ev.json['text'];
         if (txt is String && txt.isNotEmpty) _mergeText(agent, txt);

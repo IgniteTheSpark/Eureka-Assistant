@@ -44,6 +44,7 @@ services:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       USER_ID: ${USER_ID:-default}
+      JWT_SECRET: ${JWT_SECRET:?set a long random JWT_SECRET in .env.prod}
       EUREKA_MCP_ENABLED: ${EUREKA_MCP_ENABLED:-fake_external}
       GOOGLE_OAUTH_CREDENTIALS: /mcp-credentials/google-calendar-creds.json
       GOOGLE_CALENDAR_MCP_TOKEN_PATH: /mcp-credentials/google-calendar-token.json

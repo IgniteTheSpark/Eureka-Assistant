@@ -1,5 +1,12 @@
 name: eureka
 description: "A new Flutter project."
+
+# iOS app icon generation — source is the brand mark on white (assets/icon/).
+# Regenerate with: dart run flutter_launcher_icons
+flutter_launcher_icons:
+  ios: true
+  remove_alpha_ios: true
+  image_path: "assets/icon/app_icon_1024.png"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -41,10 +48,20 @@ dependencies:
   http: ^1.2.2
   # Manrope (sans/display) + JetBrains Mono (mono) to match the web demo.
   google_fonts: ^6.2.1
+  # On-device speech-to-text for 闪念 voice capture (web: Web Speech API,
+  # iOS: native SFSpeechRecognizer) — partial results stream in live.
+  speech_to_text: ^7.0.0
+  # Persist the auth token across launches (login session).
+  shared_preferences: ^2.3.0
+  # Render the brand logo (vector SVG) crisply at any size.
+  flutter_svg: ^2.0.10
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+
+  # Generates the iOS app icon set from a single 1024 source.
+  flutter_launcher_icons: ^0.14.1
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
@@ -63,6 +80,9 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  assets:
+    - assets/logo/
 
   # To add assets to your application, add an assets section, like this:
   # assets:
