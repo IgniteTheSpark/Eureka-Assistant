@@ -16,6 +16,7 @@ Two flavors:
 All toolsets lazy-init on first use; explicit close on app shutdown.
 """
 import os
+import re
 import sys
 
 from google.adk.tools.mcp_tool.mcp_toolset import (
@@ -27,6 +28,17 @@ from google.adk.tools.mcp_tool.mcp_toolset import (
 
 _toolset: MCPToolset | None = None
 _external_toolsets: dict[str, MCPToolset] = {}
+
+# OpenAI / DeepSeek require every function (tool) name to match this. Some MCP
+# servers expose dotted names (e.g. DingTalk calendar's `pat.batch_plan` /
+# `pat.batch_grant`) — a single bad name makes the WHOLE tools[] payload 400 on
+# DeepSeek. Drop those tools from external toolsets so the rest stay usable.
+_VALID_TOOL_NAME = re.compile(r"^[a-zA-Z0-9_-]+$")
+
+
+def _keep_valid_tool_name(tool, readonly_context=None) -> bool:
+    """ADK tool_filter predicate: keep a tool only if its name is LLM-API-legal."""
+    return bool(_VALID_TOOL_NAME.match(getattr(tool, "name", "") or ""))
 
 
 def make_user_id_injector(user_id: str):
@@ -138,7 +150,7 @@ def get_external_toolset(name: str) -> MCPToolset:
 
         params_cls = StreamableHTTPConnectionParams if transport == "streamable_http" else SseConnectionParams
         conn = params_cls(url=url, headers=headers)
-        _external_toolsets[name] = MCPToolset(connection_params=conn)
+        _external_toolsets[name] = MCPToolset(connection_params=conn, tool_filter=_keep_valid_tool_name)
 
     else:
         raise ValueError(
@@ -200,7 +212,7 @@ async def get_user_external_toolsets(user_id: str) -> tuple[list[MCPToolset], li
                 conn = build_connection_params(ca.connector_id, creds)
             except ValueError:
                 continue
-            toolsets.append(MCPToolset(connection_params=conn))
+            toolsets.append(MCPToolset(connection_params=conn, tool_filter=_keep_valid_tool_name))
             used_ids.append(ca.id)
             spec = CONNECTOR_CATALOG.get(ca.connector_id) or {}
             cap = spec.get("capability")

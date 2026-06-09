@@ -129,7 +129,17 @@ MCP_SERVER_CATALOG: dict[str, MCPConfig] = {
         "transport":   "streamable_http",
         "url_env":     "DINGTALK_AIHUB_URL_CALENDAR",
         "description": (
-            "钉钉日历 — 当前用户的钉钉日程。\n"
+            "钉钉日历 — 当前用户的钉钉日程。**支持读 + 写**(共 26 个工具)。\n"
+            "\n"
+            "## 读日程(用户说「查/看/有什么日程」时用这些 —— 不要说『只能写不能读』):\n"
+            "  - `list_calendar_events(startTime, endTime, limit?)` — 按起止时间查日程列表。\n"
+            "       **startTime/endTime = Unix 毫秒时间戳(epoch ms,number)** —— 注意跟 create 的 ISO 字符串\n"
+            "       不一样!跟钉钉待办的 dueTime 一样,基于「今天上下文」算;limit 默认 100。**查日程主力工具**。\n"
+            "  - `list_calendars()` — 列出用户所有日历本。\n"
+            "  - `get_calendar_detail(eventId)` — 查单条日程明细。\n"
+            "  - `search_calendar(name)` — 按名模糊搜日历本。\n"
+            "  - `query_busy_status(...)` — 查某人/会议室某时段的闲忙。\n"
+            "  读类调用应**同步返回结果、在对话里直接展示**(不是异步 task)。\n"
             "\n"
             "## 创建日程工具的精确参数名(关键!不要弄错):\n"
             "  - `summary`        (string,必填) 日程标题。**不是 title,不是 subject**\n"
@@ -149,7 +159,8 @@ MCP_SERVER_CATALOG: dict[str, MCPConfig] = {
             "    )\n"
             "\n"
             "## 用户什么时候选这个 MCP\n"
-            "用户说「同步到钉钉日历」「钉钉日历建一个会议」「跟 X 约时间开会」时。\n"
+            "  - **读**:用户说「查/看我钉钉(这周/今天)的日程」「钉钉日历有什么安排」→ `list_calendar_events`。\n"
+            "  - **写**:用户说「同步到钉钉日历」「钉钉日历建一个会议」「跟 X 约时间开会」→ `create_calendar_event`。\n"
             "注意:这是【钉钉日历】,跟 Google Calendar 不一样,用户没明确说「Google」就默认钉钉。"
         ),
     },

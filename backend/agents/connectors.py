@@ -40,8 +40,8 @@ CONNECTOR_CATALOG: dict[str, dict] = {
             {"key": "url", "label": "AIHub 网关 URL", "secret": True,
              "placeholder": "https://mcp-gw.dingtalk.com/server/<id>?key=<key>"},
         ],
-        "capability": "钉钉日历:创建/更新日程事件(create/update calendar event)。",
-        "description": "把事件同步到你的钉钉日历。在钉钉 AIHub 实例页「接入信息」复制 Streamable HTTP 网关 URL。",
+        "capability": "钉钉日历 —— 你的钉钉日程。完整能力(查日程/详情、查参与人、查闲忙、建/改/删日程、订会议室等,工具自带 schema,按需挑)。",
+        "description": "读写你的钉钉日历(查日程、建日程、改时间等)。在钉钉 AIHub 实例页「接入信息」复制 Streamable HTTP 网关 URL。",
     },
     "dingtalk_todo": {
         "name": "钉钉待办",
@@ -52,8 +52,8 @@ CONNECTOR_CATALOG: dict[str, dict] = {
             {"key": "url", "label": "AIHub 网关 URL", "secret": True,
              "placeholder": "https://mcp-gw.dingtalk.com/server/<id>?key=<key>"},
         ],
-        "capability": "钉钉待办:创建个人待办(create personal todo)。",
-        "description": "把待办同步到钉钉待办。复制对应 AIHub 实例的网关 URL。",
+        "capability": "钉钉待办 —— 你的钉钉待办任务。完整能力(查/建/改/完成待办等,工具自带 schema,按需挑)。",
+        "description": "读写你的钉钉待办(查待办、建待办等)。复制对应 AIHub 实例的网关 URL。",
     },
     "dingtalk_notes": {
         "name": "钉钉文档",
@@ -64,8 +64,8 @@ CONNECTOR_CATALOG: dict[str, dict] = {
             {"key": "url", "label": "AIHub 网关 URL", "secret": True,
              "placeholder": "https://mcp-gw.dingtalk.com/server/<id>?key=<key>"},
         ],
-        "capability": "钉钉文档:新建/更新文档(create/update doc)。",
-        "description": "把笔记/报告同步成钉钉文档。复制对应 AIHub 实例的网关 URL。",
+        "capability": "钉钉文档 —— 你的钉钉文档/知识库。完整能力(查/建/改文档等,工具自带 schema,按需挑)。",
+        "description": "读写你的钉钉文档(把笔记/报告同步成文档等)。复制对应 AIHub 实例的网关 URL。",
     },
     # Header-token gateway example: a hosted MCP whose URL is non-secret config
     # and auth is a bearer token. Covers Notion-style hosted MCPs.

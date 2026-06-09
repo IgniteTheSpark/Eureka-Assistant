@@ -17,9 +17,25 @@ Cross-turn "刚刚那个" reference mechanism:
 - no special tooling needed — falls out of decision #3 + Step 1 schema
 """
 from google.adk.agents import LlmAgent
+from google.adk.tools import FunctionTool
 
 from agents.mcp_toolset import get_mcp_toolset, make_user_id_injector
 from core.llm import ASSISTANT_MODEL
+
+
+# §13.2 / Connected Apps — SYNCHRONOUS, GENERAL access to the user's connected
+# external apps (钉钉日历/待办/文档, Notion, …). The chat Assistant calls this for
+# any INTERACTIVE op (查日程/看待办/改时间/查参与人/查闲忙/删日程…); it runs an
+# ephemeral agent with the user's full toolset, picks whatever tool fits, and
+# returns the result INLINE (not the async "task" card — that stays for tracked
+# writes). `user_id` is filled by the before_tool_callback (make_user_id_injector).
+async def use_connected_app(request: str, user_id: str = "default") -> dict:
+    """调用用户【已连接的外部应用】(钉钉日历 / 钉钉待办 / 钉钉文档 / Notion 等)完成
+    任意操作:查日程/待办、看某天的安排、创建/修改/删除日程、查参与人、查闲忙等。
+    把用户的**完整自然语言意图**(含时间范围、标题、地点等细节)原样放进 `request`。
+    返回 {ok, answer}:answer 就是给用户的中文结果,直接用它来答复用户。"""
+    from agents.task_skill import run_connected_app_sync
+    return await run_connected_app_sync(user_id, request)
 
 
 ASSISTANT_INSTRUCTION_BASE = """
@@ -226,10 +242,22 @@ ASSISTANT_INSTRUCTION_BASE = """
 **按领域查(QUERY)**:用户问「我最近**娱乐**花了多少」「**工作**方面有啥」→ `tool_query_asset` / `tool_query_digest`
 带 `domain=娱乐`(短答)。但「**总结 / 复盘**某个领域」是重活 → 仍走 **REPORT-REDIRECT**(指路去报告)。
 
-## 同步到外部系统(钉钉 / Notion / Google 日历 → tool_create_task)
+## 外部应用(钉钉日历/待办/文档、Notion…)—— 两条路,别混
 
-用户说「同步到钉钉文档 / 存到 Notion / 发到钉钉 / 加到 Google 日历」这类**对外部
-系统的动作** → 调 `tool_create_task`(不是本地 create_asset)。
+用户已连接的外部应用支持**完整操作**(查/建/改/删/查参与人/查闲忙等,每个应用几十个工具)。
+
+### A. 查询 / 即时操作 → `use_connected_app`(同步,结果直接答复)
+用户说「**查/看**我钉钉(这周/今天)的日程」「钉钉日历有什么安排」「看我钉钉待办」
+「把那个会**改到** 4 点」「这个会都有谁参加」「我下午**有空吗**」「**删掉**那个日程」
+这类**查询或即时改动** → 调 `use_connected_app`,把用户**完整意图**(含时间范围/标题/
+地点等)原样放进 `request`。它会同步返回 `answer` —— **直接用 answer 答复用户**
+(列出日程 / 确认操作),**不要**再开异步任务,**不要**说「在排队/待处理」。
+绝不要凭空说某个应用「只能写不能读」—— 它读写都行,交给 `use_connected_app` 即可。
+
+### B. 把内容同步「写到」外部并**留可追踪记录** → `tool_create_task`(异步卡片)
+用户说「**同步到**钉钉文档 / **存到** Notion / **发到**钉钉 / 把这条**记到**钉钉日历」
+这类**把(常常是大段)内容沉淀到外部**的动作 → 调 `tool_create_task`(不是本地
+create_asset),生成一张可追踪的「外部引用」卡片。
 
 ⚠️ **最容易翻车的点:写文档 / 笔记类任务,正文必须由你传进去。**
 执行任务的子 agent **看不到这段对话历史** —— 它只拿到你调用时给的参数。所以:
@@ -396,6 +424,6 @@ def make_assistant_agent(
         name="assistant",
         model=ASSISTANT_MODEL,
         instruction=instruction,
-        tools=[get_mcp_toolset()],
+        tools=[get_mcp_toolset(), FunctionTool(use_connected_app)],
         before_tool_callback=make_user_id_injector(user_id),
     )

@@ -601,3 +601,91 @@ def _infer_type(system: str) -> str:
         "notion":            "page",
         "google_calendar":   "event",
     }.get(system, "")
+
+
+# ── §13.2 / Connected Apps — SYNCHRONOUS, GENERAL access (chat) ────────────────
+# `run_task_intent` above is async + write-shaped (create → external_id → "done"
+# card). This is its synchronous, operation-agnostic sibling: it spins up the SAME
+# ephemeral agent with the user's full connected toolsets and lets the model pick
+# ANY tool (query / create / update / delete / respond / busy-status / …), then
+# returns the result text so the chat Assistant renders it INLINE. (Architecture B.)
+# Reached from the Assistant's `use_connected_app` FunctionTool.
+
+def _build_app_runner_prompt(cap_hints: list[str] | None) -> str:
+    now = datetime.now(_LOCAL_TZ)
+    today = now.strftime("%Y-%m-%d (%A)")
+    apps = "\n".join(cap_hints) if cap_hints else "(用户没连接任何应用)"
+    # Precompute common epoch-ms anchors so the model never has to do millisecond
+    # arithmetic (it gets it wrong → empty/wrong query windows). One day = 86400000.
+    _ms = lambda dt: int(dt.timestamp() * 1000)
+    t0 = now.replace(hour=0, minute=0, second=0, microsecond=0)  # today 00:00
+    mon0 = t0 - timedelta(days=t0.weekday())                     # this Monday 00:00
+    iso = lambda dt: dt.strftime("%Y-%m-%dT%H:%M:%S+08:00")
+    return f"""你是「外部应用执行器」。用户已连接的应用 + 你手上的工具:
+{apps}
+
+今天是 {today}(时区 +08:00)。用它解析「这周/今天/明天/下周X」等相对时间,
+**绝不**用你自己记得的年份。
+
+## 常用时间锚点(直接用这些值,别自己做毫秒运算!)
+| 含义 | Unix 毫秒 (epoch ms) | ISO8601 |
+|---|---|---|
+| 现在 | {_ms(now)} | {iso(now)} |
+| 今天 00:00 | {_ms(t0)} | {iso(t0)} |
+| 明天 00:00 | {_ms(t0 + timedelta(days=1))} | {iso(t0 + timedelta(days=1))} |
+| 本周一 00:00 | {_ms(mon0)} | {iso(mon0)} |
+| 下周一 00:00(=本周结束) | {_ms(mon0 + timedelta(days=7))} | {iso(mon0 + timedelta(days=7))} |
+| 本月今天+30 天 | {_ms(t0 + timedelta(days=30))} | {iso(t0 + timedelta(days=30))} |
+- 查「今天」用 [今天00:00, 明天00:00];查「本周」用 [本周一00:00, 下周一00:00]。
+- 工具要 epoch 毫秒就用左列,要 ISO 就用右列。其它范围基于这些 ±N×86400000(一天的毫秒)。
+
+## 任务
+理解用户请求,从手上的工具里挑**最合适的一个或多个**完成它 —— 可能是
+**查询 / 创建 / 修改 / 删除 / 查参与人 / 查闲忙 / 订会议室**等**任意操作**,
+不要只想着「创建」。
+
+## 规则
+1. **逐个读工具自己的参数 schema**(name/required/类型),工具叫什么参数就传什么,
+   别猜别名。时间参数注意格式:有的要 ISO8601+TZ,**有的要 Unix 毫秒时间戳(epoch ms)**
+   —— 以工具自己的说明为准。
+2. 所有 required 参数都要填(从用户话里抽);抽不出的非必需字段别填,**不要瞎编**
+   (别编参会人、别编 id)。
+3. **查询类**:调用后把查到的数据整理成**清晰简洁的中文小结**。日程列表 = 每条
+   「时间 + 标题 + 地点(如有)+ 组织者/参与人(如有)」,按时间排序。
+4. **写入/修改/删除类**:执行后用一句话**确认你做了什么**(含标题、时间等关键信息)。
+5. 信息不全无法调用时,**直接说明缺什么**,别瞎调。
+6. 工具返回 error 时认真读 error,**纠正参数后最多再试 1 次**;仍失败就把错误如实说出来。
+
+## 输出
+只返回**给用户看的最终中文文字**(查询小结 / 操作确认 / 缺信息说明),
+不要解释你挑工具的过程,不要输出 JSON。"""
+
+
+async def run_connected_app_sync(user_id: str, request: str) -> dict:
+    """Synchronously run [request] against the user's connected external apps and
+    return the result for the chat Assistant to render. Never raises — returns
+    {ok:True, answer} or {ok:False, error}."""
+    try:
+        toolsets, cap_hints = await get_user_external_toolsets(user_id)
+    except Exception as e:
+        return {"ok": False, "error": f"加载已连接应用失败:{str(e)[:160]}"}
+    if not toolsets:
+        return {"ok": False,
+                "error": "你还没有连接任何外部应用。去「设置 → 已连接应用」连上钉钉 / Notion 等再试。"}
+    agent = LlmAgent(
+        name="connected_app_runner",
+        model=TASK_MODEL,
+        instruction=_build_app_runner_prompt(cap_hints),
+        tools=toolsets,
+    )
+    try:
+        raw, tool_events = await _run_agent(agent, request, user_id)
+    except Exception as e:
+        return {"ok": False, "error": f"调用外部应用出错:{str(e)[:200]}"}
+    answer = (raw or "").strip()
+    inner_err = _extract_inner_error(tool_events)
+    if inner_err and not answer:
+        return {"ok": False, "error": f"外部应用返回错误:{inner_err}"}
+    if not answer and not tool_events:
+        return {"ok": False, "error": "没拿到结果 —— 可能请求信息不全,换个说法或补充细节再试。"}
+    return {"ok": True, "answer": answer, "tool_count": len(tool_events)}
