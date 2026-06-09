@@ -26,13 +26,28 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: mysql://eureka:eureka@db:3306/eureka
+      # Primary LLM — DeepSeek direct API (§1.1). Empty → falls back to OpenRouter.
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       # §6.6.2 AI 配图 — optional dedicated image key/model (isolates a fresh
       # image key from the DeepSeek text key). Empty → reuse OPENROUTER_API_KEY.
       IMAGE_API_KEY: ${IMAGE_API_KEY:-}
       IMAGE_MODEL: ${IMAGE_MODEL:-}
+      # §1.7.1 / §13.1 — Fernet key for Connected Apps + 百智 token encryption.
+      CONNECTED_APPS_KEY: ${CONNECTED_APPS_KEY:-}
       USER_ID: default
+
+      # §13.1 / B1 百智 OAuth (all interpolated from the root .env, like the keys
+      # above). Empty app_id → 百智 login is disabled (503); email login unaffected.
+      BAIZHI_BASE_URL: ${BAIZHI_BASE_URL:-https://openapi.100wiser.com}
+      BAIZHI_OAUTH_BASE_URL: ${BAIZHI_OAUTH_BASE_URL:-https://100wiser.com}
+      BAIZHI_APP_ID: ${BAIZHI_APP_ID:-}
+      BAIZHI_APP_SECRET: ${BAIZHI_APP_SECRET:-}
+      BAIZHI_APP_NAME: ${BAIZHI_APP_NAME:-}
+      BAIZHI_REDIRECT_URL: ${BAIZHI_REDIRECT_URL:-}
+      BAIZHI_ME_URL: ${BAIZHI_ME_URL:-}
+      EUREKA_APP_SCHEME: ${EUREKA_APP_SCHEME:-eureka}
 
       # ── Third-party MCP toggles & credentials (v1.4.x) ──
       # Toggle: which MCPs are enabled. Comma-separated names matching keys in
