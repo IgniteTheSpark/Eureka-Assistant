@@ -485,7 +485,7 @@ API 见 [§3](03-api-reference.md) 的 `/api/reports`。核心字段:
 | **2 · 表现力动效图(无 AI)** | `report_render.py` 的 SVG 图注入 GSAP draw-on(柱/环/线)+ KPI count-up + scroll-trigger;渐进增强 + reduced-motion | 已落地 |
 | **3 · Reka Insights 署名带(§6.6.1)** | footer 模板 + 注入 `pixel/mascot.js` + pipeline 传 pet gene → `reports.pet_gene` 快照;导出自包含 | 已落地 |
 | **4 · AI 配图(§6.6.2)** | content skill 产 `image_prompt`(模式A);**同步**出图 step → hero 位内联 + `files`/`asset://`;house-style 常量;每篇 ≤1 张 + 每用户/月配额;绝不画数据 | 模式 A 全链路落地;豆包 Seedream 已接入启用 |
-| **5 · 报告 → 待办(§6.13)** | content skill 产 `:::actions`;pipeline 抽 `reports.suggested_actions`;查看器原生「✦ 接下来」行动条 + `+ 待办`/`全部` 一键建 + `source_report_id` 溯源 + 防重 | 设计中 |
+| **5 · 报告 → 待办(§6.13)** | content skill 产 `:::actions`;pipeline 抽 `reports.suggested_actions`;查看器原生「✦ 接下来」行动条 + `+ 待办`/`全部` 一键建 + `source_report_id` 溯源 + 防重 | 设计中 · **移交 [`handoff-reka-companion.md`](handoff-reka-companion.md) Phase 1**(与 §14 合一) |
 
 **各批实现要点:**
 - **批 0**:`reports.tokens_used` / `gen_ms`(迁移 `0012`)+ `run_report` 用 `core.agent_runner.run_agent` 累加 `usage_tokens`、`time.perf_counter` 计 `gen_ms`,落库 + `_meta` 透出。
@@ -524,4 +524,5 @@ API 见 [§3](03-api-reference.md) 的 `/api/reports`。核心字段:
 - **v1 范围**:`:::actions` 抽取 + `suggested_actions` 字段 + 原生行动条 + `+ 待办`/`全部` 一键建 + 溯源 + 防重。**todo 单类型。**
 - **后置**:`+ 日程`(time-bound → event)、点 `+` 先开预填编辑表单(`AssetEditPage`,改完再存)、沉淀成别的技能类型(读书感想→notes…)、「这条已完成」回写报告。
 
-> **落点(设计中)**:`report-{idea-synthesis,proposal,data-report}/SKILL.md` 加「可执行下一步另起 `:::actions`」段(prompt,spec 侧);`report_render` 渲 `:::actions`「✦ 接下来」样式 + pipeline 抽 `suggested_actions`(迁移加列);`report_viewer_page` 原生行动条 + `+ 待办` 调 create + `source_report_id` 溯源(基建,coding agent)。**可作 §6.12 的批 5。**
+> **落点(设计中)**:`report-{idea-synthesis,proposal,data-report}/SKILL.md` 加「可执行下一步另起 `:::actions`」段(prompt,spec 侧);`report_render` 渲 `:::actions`「✦ 接下来」样式 + pipeline 抽 `suggested_actions`(迁移加列);`report_viewer_page` 原生行动条 + `+ 待办` 调 create + `source_report_id` 溯源(基建,coding agent)。
+> **实施 handoff = [`handoff-reka-companion.md`](handoff-reka-companion.md) Phase 1**(与 [§14 主动 REKA](14-proactive-reka.md) 合一,因同一「洞察→行动→跟进」闭环);`:::actions` prompt 成稿见 [`handoff-report-prompts-v2.md`](handoff-report-prompts-v2.md)。

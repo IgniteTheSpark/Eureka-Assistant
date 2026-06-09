@@ -16,8 +16,13 @@ dedup guarantees we still only send once.
 """
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
+
+# The app's canonical user timezone (Asia/Shanghai). Reminder BODIES format the
+# event time for the user — must be +08:00, NOT the server container's TZ (UTC),
+# else 17:00 events show as 09:00. (Firing math stays UTC-aware; only display.)
+_BEIJING = timezone(timedelta(hours=8))
 
 from sqlalchemy import select
 
@@ -48,7 +53,7 @@ def _parse_dt(v) -> Optional[datetime]:
 
 
 def _event_body(e: Event) -> str:
-    t = e.start_at.astimezone().strftime("%H:%M") if e.start_at else ""
+    t = e.start_at.astimezone(_BEIJING).strftime("%H:%M") if e.start_at else ""
     return f"{t} · {e.location}" if e.location else t
 
 

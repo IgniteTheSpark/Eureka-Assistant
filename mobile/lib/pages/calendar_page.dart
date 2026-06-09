@@ -400,7 +400,10 @@ class _TimelineViewState extends State<_TimelineView> {
   }
 
   void _onHome() {
-    if (mounted && _scroll.hasClients) _jumpToToday();
+    // Don't gate on hasClients — switching to 流 from 月/年 mode (or another tab)
+    // can fire this before the timeline lays out; _jumpToToday self-retries until
+    // the scroll attaches. (Gating here meant the jump was silently dropped.)
+    if (mounted) _jumpToToday();
   }
 
   @override
@@ -531,7 +534,7 @@ class _TimelineViewState extends State<_TimelineView> {
     if (ctx != null) {
       Scrollable.ensureVisible(ctx, alignment: 0.06, duration: Duration.zero);
       if (!_todayInView) setState(() => _todayInView = true);
-    } else if (_snapTries++ < 6) {
+    } else if (_snapTries++ < 12) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _snapToday());
     }
   }
@@ -543,15 +546,22 @@ class _TimelineViewState extends State<_TimelineView> {
       if (tries < 8) WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToToday(tries + 1));
       return;
     }
-    _scroll.animateTo(
-      _offsetToToday().clamp(0.0, _scroll.position.maxScrollExtent),
-      duration: const Duration(milliseconds: 420),
-      curve: Curves.easeOutCubic,
-    );
-    // The estimate gets close; snap exactly onto today's now-laid-out row so it
-    // always lands on today (not ±weeks off from accumulated row-height error).
-    _snapTries = 0;
-    WidgetsBinding.instance.addPostFrameCallback((_) => _snapToday());
+    // Snap exactly onto today's row AFTER the animation finishes. (Old bug: snap
+    // ran one frame in, so its retry budget (~100ms) expired mid-animation (420ms)
+    // — before today's row laid out at the target — and it gave up at the rough
+    // estimate, which can be ±weeks off. That's why returning to 流 didn't land on
+    // today.) whenComplete fires whether the animation finishes or is interrupted.
+    _scroll
+        .animateTo(
+          _offsetToToday().clamp(0.0, _scroll.position.maxScrollExtent),
+          duration: const Duration(milliseconds: 420),
+          curve: Curves.easeOutCubic,
+        )
+        .whenComplete(() {
+      if (!mounted) return;
+      _snapTries = 0;
+      _snapToday();
+    });
   }
 
   DateTime _parse(String s) {

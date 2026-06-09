@@ -31,7 +31,13 @@ tabs (event / todo / expense / ...) typically use their own endpoints with
 richer per-type data (event tab needs end_at + attendees; todo tab needs
 status groupings; etc.) — assemble_timeline is the unified-merge code path.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+
+# The app's canonical user timezone (Asia/Shanghai). Naive datetime strings on the
+# timeline (LLM-emitted due_date / expense date, or manual entries) are Beijing
+# WALL-CLOCK times — assuming UTC would shift them −8h onto the wrong day (e.g.
+# a todo due "今天 17:00" → 17:00 UTC → 01:00 次日 Beijing).
+_BEIJING = timezone(timedelta(hours=8))
 from typing import Optional, Any
 
 # Tz-aware sentinel for sort fallback (datetime.min is naive — incompatible
@@ -51,11 +57,13 @@ from db.models import (
 def _parse_iso(s: Any) -> Optional[datetime]:
     """
     Parse an ISO8601 string into a tz-aware datetime; return None on failure.
-    If the string lacks a timezone offset, assume UTC — this keeps everything
-    on the timeline comparable (some LLM-emitted due_date strings have no TZ).
+    If the string lacks a timezone offset, assume **Beijing (+08:00)** — naive
+    times in this app are Beijing wall-clock (LLM-emitted due_date / expense date,
+    or manual entry). Assuming UTC mis-dates them by 8h onto the wrong day.
+    (A real `datetime` object reaching here is an ORM column = already UTC-aware.)
     """
     if isinstance(s, datetime):
-        # Already a datetime — coerce to aware if naive
+        # Already a datetime (ORM column) — coerce to aware-UTC if somehow naive.
         return s if s.tzinfo else s.replace(tzinfo=timezone.utc)
     if not s or not isinstance(s, str):
         return None
@@ -64,7 +72,7 @@ def _parse_iso(s: Any) -> Optional[datetime]:
     except (ValueError, TypeError):
         return None
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=_BEIJING)   # naive string = Beijing wall-clock
     return dt
 
 
