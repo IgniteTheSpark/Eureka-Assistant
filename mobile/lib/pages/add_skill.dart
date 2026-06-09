@@ -511,18 +511,48 @@ class _AddSkillSheetState extends State<_AddSkillSheet> {
     );
   }
 
+  /// The agent-supplied Chinese display label for a field (`payload_schema[f].label`),
+  /// or null when absent / identical to the machine name. The machine name (`f`,
+  /// English) is what's stored/queried; the label is what humans read.
+  String? _labelOf(String f) {
+    final schema = _draft?['payload_schema'];
+    if (schema is Map) {
+      final meta = schema[f];
+      if (meta is Map) {
+        final l = (meta['label'] as String?)?.trim();
+        if (l != null && l.isNotEmpty && l != f) return l;
+      }
+    }
+    return null;
+  }
+
   Widget _fieldRow(EurekaColors eu, String f) {
     const slots = ['主', '副', '信息', '隐藏'];
     final current = _slotOf(f);
+    // Show the human label (中文) on top + the machine key (英文) dim below, so the
+    // user sees a readable field name while still knowing the underlying key.
+    final label = _labelOf(f);
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
         children: [
           Expanded(
-            child: Text(f,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: eu.text, fontSize: 13)),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(label ?? f,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        color: eu.text, fontSize: 13, fontWeight: label != null ? FontWeight.w600 : FontWeight.w400)),
+                if (label != null)
+                  Text(f,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: eu.textLo, fontSize: 10.5, letterSpacing: 0.2)),
+              ],
+            ),
           ),
           for (final s in slots) _slotChip(eu, f, s, current),
         ],

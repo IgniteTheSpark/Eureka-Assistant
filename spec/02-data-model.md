@@ -3,10 +3,15 @@
 > 权威来源：`backend/db/models.py`、`backend/db/seed.py`、`backend/db/seed_demo.py`、
 > `backend/db/queries.py`、`backend/db/migrations/versions/`。
 > 本章描述**已构建的 schema**，不是规划意图。⚠️ 数据库是 **MySQL**，不是 Postgres。
+>
+> ⚠️ **迁移链（fresh deploy 注意，已修）**：`0001_mysql_init` 用 `Base.metadata.create_all()` 对**当前 models** 建表，
+> 所以全新库的 `alembic upgrade head` 在 0001 就建出了**最新全量 schema**。后续凡是 `create_table` / `add_column` 的迁移
+> （0003/0004/0005/0006/0007/0009）都加了 **skip-if-exists 幂等守卫**（`inspect().has_table/has_column`），
+> 否则会 duplicate-table/column 撞库。**新增迁移时,凡 create/add 都要带幂等守卫**(或把 0001 冻结成历史快照,本仓选了前者)。
 
 ---
 
-## 1. 总览：14 张表
+## 1. 总览：17 张表（含后加的 users / reports / connected_apps）
 
 | # | 表 | 角色 | 一句话 |
 |---|---|---|---|
@@ -55,6 +60,7 @@ MySQL `DATETIME` 无时区。该 TypeDecorator 解决两个 MySQL 专属坑：
 PG 的 `ARRAY(UUID)` / `ARRAY(Text)` 改为 MySQL `JSON`：
 - `sessions.context_asset_ids` —— was `ARRAY(UUID)`，现 `JSON`（默认 `list`）
 - `contacts.notes` —— was `ARRAY(Text)`，现 `JSON`（默认 `list`）
+- `contacts.socials` —— `JSON`（默认 `dict`，迁移 0011）`{platform: handle}`，平台限定固定支持集
 
 ### 2.5 MySQL `TEXT` 不能有 `server_default`
 `messages.text` 用 Python 端 `default=""`，不是 DB server_default。
@@ -91,15 +97,41 @@ MySQL 没有。所以 `created_at` 等用 **Python 端 `default=_utcnow`**（flu
 | `payload_schema` | JSON | nullable | 系统 skill（qa）为 null |
 | `render_spec` | JSON | nullable | 不产可见资产的 skill 为 null |
 | `queryable_fields` | JSON | nullable | 倒排索引字段定义 |
+| `chat_starters` | JSON | nullable | **起聊文案数组（设计中）** ∈ 2-3 条 string。建技能时 design agent 同一次 LLM 调用产出（§1.8），喂资产锚定会话的**开场 hint L0**（[§1.5.1](01-agent-architecture.md)）。基线技能由 seed 写好；null → hint 退回通用三连。 |
 | `position` | Integer | not null, default 0 | 库 SKILLS 网格顺序，拖拽改写 |
-| `enabled` | Integer | not null, default 1 | **0/1 活跃标志（设计中，见 §3 skills API / §4.4.5 / §1.3）**。活跃 = 进资产库格子 + agent 路由到它；停用 = 隐藏 + 不路由（该类输入回退 misc），但**历史记录仍可查询**。 |
+| `enabled` | Integer | not null, default 1 | **0/1 活跃标志（已实现，见 §3 skills API / §4.4.5 / §1.3）**。活跃 = 进资产库格子 + agent 路由到它；停用 = 隐藏 + 不路由（该类输入回退 misc），但**历史记录仍可查询**。 |
+| `domain` | String(20) | nullable | **生活领域 prior（Layer A 已实现，迁移 0009）** ∈ 8 领域或 null。技能的**默认 prior**（只作种子，**非固定值**）：基线技能由 `provisioning.prior_for_skill` 打（记账→生活、随记→灵感、名片→社交，其余 null）；自定义技能 prior 当前留 null（agent 仍按内容打域，design agent prior + 向导选择器后置）。每条记录的实际 domain 在 `assets.domain`（§3.6）。完整语义见 **[§8 领域系统](08-domain-system.md)**。 |
 | `created_at` | TS | | |
 
-> **技能上限（设计中）**：`USER_SKILL_CAP=30`（可**创建**的技能数）；新增 `ACTIVE_SKILL_CAP=9`（同时
+> **技能上限**：`USER_SKILL_CAP=30`（可**创建**的技能数）；新增 `ACTIVE_SKILL_CAP=9`（同时
 > **活跃**的技能数，`enabled=1`）。即「最多写 30 个模板，同时激活 ≤9 个」。系统/常驻 skill（qa /
 > external_ref / contact）不计入、不可停用。
 
 唯一约束 `uq_user_skills_user_skill (user_id, skill_id)`。
+
+### 3.2.1 「随记」=合并 idea / notes / misc + 主题 tag（**已实现 2026-06**）
+
+> **落点**:machine_name **沿用 `notes`**(显示名 → 「随记」,避免新建 global skill + 重 provision),idea/misc
+> 不再 provision(GLOBAL_SKILLS 行保留作 FK)。迁移 = `0008_merge_suiji`:把已有 idea/misc 资产 repoint 到用户的
+> `notes` 技能,原类型(想法/其它)落为首个 tag,无 title 的补一句短 title。dispatcher(flash + chat)去掉三分支:
+> 自由文本 → `notes`(随记)+ ≤3 个开放 tag(随记 skill `flash-notes-skill` 生成,注入用户已有 tag 防漂移)。
+> 保护集 → {todo, expense, notes}。render_spec 加 tags meta(card 上 `_apply_format` 把数组 join 成「a · b」)。
+> tag 检索走 `/api/assets?contains=` 全 payload 命中(不单独建 asset_fields 行,beta 从简)。
+
+idea / notes / misc 本质同形(`title` + `content` + 时间),三者的区分一直是 dispatcher 的糊判。**已合并成一个
+`随记`类**(machine_name `notes`,自由文本的统一兜底):
+
+- **payload** = `{title, content, created_at, tags}`。**`tags`** = 开放主题标签数组,**≤3**,agent 在 process
+  时自动打(代表"这条最可能属于的主题/事物",例:"天气真好"→`[天气]`;"eureka 该往游戏走"→`[eureka, 游戏]`)。
+- **主题 tag 只打在随记类**(结构化技能靠字段组织,不打 tag)。
+- **tag 词表 = 开放 + agent 优先复用用户已有的 tag**(把用户已有 tag 字典注入 prompt;能用旧的就不造新的,
+  防"游戏/游戏化/gaming"漂移)。
+- 这与 **生活领域 `domain`(固定 8 类,驱动岛,§7)正交**:tag = 开放主题(组织/检索),细粒度;domain =
+  8 个有界生活领域(gamemode 岛分区)。**随记的 `domain` 默认「灵感」**(随记升华落「灵感」领域,见 [§8](08-domain-system.md))。
+- **保护集**变为 `{todo, expense, 随记}`(idea/notes/misc 三个合一)。**迁移**:已有 idea/notes/misc 资产 →
+  随记(skill_id 归并;原类型可留作一个初始 tag)。
+- dispatcher 去掉 idea/notes/misc 三分支 → "自由文本 → `随记` + 生成 tags"(见 [§1.3](01-agent-architecture.md))。
+- 检索:可按 tag 查("所有 `游戏` 相关想法");tag 反复出现可触发"升级成结构化技能"建议 + idea-synthesis 任务(§7)。
 
 ### 3.3 `sessions`
 | 列 | 类型 | 约束 | 说明 |
@@ -170,13 +202,15 @@ MySQL 没有。所以 `created_at` 等用 **Python 端 `default=_utcnow`**（flu
 | `session_id` | GUID | FK→sessions.id, nullable | |
 | `source_input_turn_id` | GUID | FK→input_turns.id, nullable | provenance；manual 无 |
 | `payload` | JSON | not null | 全部业务字段 |
+| `domain` | String(20) | nullable | **生活领域标签（Layer A 已实现，迁移 0009）** ∈ `{工作,学习,健康,运动,社交,娱乐,生活,灵感}` 或 null。**每条 asset 的一级属性 = 它属于哪个生活领域的唯一真相**：agent 创建时按内容打（`create_asset` 的 `domain` 参，省略→技能 prior→null），manual 表单/详情可改。完整语义（赋值 / 展示 / 任务 / 总结）见 **[§8 领域系统](08-domain-system.md)**。 |
 | `created_at` | TS | | |
 
 > **类型不在 payload 里**。`skill_name` 经 FK 链推导：
 > `assets.user_skill_id → user_skills.skill_id → global_skills.name`。
 > 旧 `payload.asset_type` 字段已彻底移除。
+> **`domain` 同理是结构化分类，不放 payload**：跨技能统一 8 值、可单列查询、驱动岛分区，故作真实列。
 
-索引：`(user_id,created_at)`、`(user_id,user_skill_id,created_at)`、`(user_id,source_input_turn_id)`。
+索引：`(user_id,created_at)`、`(user_id,user_skill_id,created_at)`、`(user_id,source_input_turn_id)`、`(user_id,domain)`（`idx_assets_domain`，迁移 0009）。
 
 ### 3.7 `asset_fields`（queryable 倒排索引）
 复合主键 `(asset_id, user_id, field_name)`。
@@ -204,12 +238,16 @@ MySQL 没有。所以 `created_at` 等用 **Python 端 `default=_utcnow`**（flu
 | `company` | String(255) | | |
 | `title` | String(255) | | |
 | `email` | String(255) | | |
-| `notes` | JSON | default `[]` | was ARRAY(Text)；append-only |
+| `notes` | JSON | default `[]` | md 批注行 `List<str>`（在哪相遇/怎么认识…）；**agent/MCP 侧 append-only**，详情页拼成 markdown 渲染 |
+| `socials` | JSON | default `{}` | **名片社媒 `{platform: handle}`**（迁移 0011）。platform ∈ 固定支持集 `x/telegram/linkedin/wechat/xiaohongshu/instagram`（真源 `core/contacts_meta.py`），只存账号 handle；未支持平台落库前被 `clean_socials` 丢弃 |
 | `source_input_turn_id` | GUID | FK→input_turns.id, nullable | provenance（驱动时间流 ⚡「联系人 ×1」）|
 | `created_at` | TS | | |
 
 > contact 的「真身」在此表。`contact` skill 的 asset 只是时间流/库里的**引用指针**，
 > payload 形如 `{contact_id, name, company, title, phone}`，指向真身。
+> **socials/notes/email 不在引用 payload 里**（小卡不展示），只在 `GET /api/contacts/{id}` 真身 + 详情页可见。
+> **notes append 语义**:`tool_update_contact(field="notes")` 与 `PUT …{notes_append}` 都是**追加不覆盖**；
+> 表单 `PUT …{notes}` 是用户当面管理的全量替换。**socials** 按平台 key 合并(agent 加一个平台不动其余;空 handle = 取消该平台)。
 
 ### 3.9 `events`（一级实体，v1.4）
 | 列 | 类型 | 约束 | 说明 |
@@ -281,9 +319,9 @@ default `attendee`（`organizer/attendee/optional`）· `created_at`。
 `link` String(255)（不透明 deep-link 目标，通常 asset/event id）· `read` int(0/1) default 0 ·
 `created_at`。索引 `(user_id, created_at)`。
 
-### 3.15 `reports`（设计规格 · 待实现 —— 合成/报告引擎，见 [§6](06-synthesis-report.md)）
+### 3.15 `reports`（**已实现** —— 合成/报告引擎，见 [§6](06-synthesis-report.md)）
 
-> 第 15 张表(上方「14 张表」是当前已实现的快照;reports 为新 feature 新增)。
+> reports / connected_apps 是后加的表(连同 users 把总数带到 **17**,`models.py` 的 `__tablename__` 为准;§7/§9 gamemode 表尚未建)。
 
 | 字段 | 类型 | 约束 | 说明 |
 |---|---|---|---|
@@ -296,10 +334,11 @@ default `attendee`（`organizer/attendee/optional`）· `created_at`。
 | `spec_json` | JSON | not null | `{time_range, asset_types, source_asset_ids, surface, palette, seed}`(可重跑) |
 | `created_at` | TS | default now | |
 
-索引 `(user_id, created_at)`。新增 `session_type='report'`(第 5 种会话类型,引导对话挂在它上)。
+索引 `(user_id, created_at)`。**报告不挂会话**:向导走独立的 `/api/reports/intake` + `/api/reports/generate`(§3),
+产物就是这张 `reports` 表的行——**没有 `session_type='report'` 这种会话类型**(早期设计已废弃,2026-06)。
 `source_asset_ids` 存进 `spec_json` 做来源可追溯(不建外键表,beta 从简)。
 
-### 3.16 `connected_apps`（设计规格 · 待实现 —— Connected Apps，见 [§1.7.1](01-agent-architecture.md)）
+### 3.16 `connected_apps`（**已实现** —— Connected Apps，见 [§1.7.1](01-agent-architecture.md)）
 
 > 第 16 张表。per-user 的外部 MCP 连接 + 加密凭据。**connector 目录本身不入库**(开发者维护在
 > `MCP_SERVER_CATALOG`,通过 `/api/connectors` 暴露);本表只存"某用户连了某 connector + 他的凭据/状态"。
@@ -319,6 +358,27 @@ default `attendee`（`organizer/attendee/optional`）· `created_at`。
 
 唯一约束 `(user_id, connector_id)`(一个用户一个 connector 一条)。索引 `(user_id, status)`。
 `credentials_enc` 用服务端密钥对称加密(密钥走 env / KMS,**不**入库、**不**回客户端)。
+
+### 3.17 游戏化层新表（[§7 任务&周岛](07-gamemode.md) · [§9 宠物](09-pet.md)）
+
+游戏化层拆两块,表也分两组(经 `completion_event` 解耦);均按 `user_id` 隔离。
+**宠物组 + `completion_events` 已实现(migration `0010_pet`);任务/周岛组仍为设计规格 · 待实现。**
+
+**① 中心货币 · 两组的唯一缝(✅ 已实现):**
+- **`completion_events`(append-only)** —— `{id, user_id, domain(nullable), source(task|record|opportunistic), ref, created_at}` + 索引 `idx_completion_events_user`。由 MCP 工具在写入后**尽力发出**(`core/completion.emit_completion_event`,自带 session、绝不抛):`record`=结构化记录创建(`create_asset`,domain 取自 `assets.domain`)、`task`=任务勾完成(`update_asset` status→done,domain 取自该资产)、`opportunistic`=机会型一级实体(`create_contact`,domain=社交)。岛/装饰/里程碑只读消费。
+  > 实现简化:设计稿里的 `tier` / 每领域 2/天封顶 = collector 调参,**v1 未落库**(留待岛侧聚合时再加);裸随记仍不发(走 dispatcher,不经 create_asset 结构化路径)。
+
+**② 宠物组(✅ 已实现 —— 列契约在 [§9.5](09-pet.md)):**
+- **`pets`(L2,无 exp,每用户 1 行)** —— `{id, user_id(uniq), seed, name, skin, emblem, emblem_color, equipped(JSON 槽位→cosmetic), unlocked(JSON 已得装饰), milestones(JSON 累计计数), spawned(0=蛋/1=已孵化), created_at}`。**v2 = 7 个外观槽**:skin·emblem(+emblem_color)·head·leftItem·rightItem·**carrier**·**aura**;后两者住进 `equipped` JSON(无迁移,旧行回填 `none`/`soft`),`unlocked` 加 `carrier`/`aura` 池(含 freebie `none`/`soft`);每件装饰带稀有度(`core/pet.py` `RARITY`)。
+  > 设计稿的 `mascot` + `mascot_inventory` + `milestones` 三表 + `cosmetic_catalog` 目录表,v1 收敛为**单表 + JSON 列**:`unlocked` 即背包、`milestones` 即累计计数;装饰目录/掉落池 = 代码内的基因键空间(`core/pet.py` ↔ `assets/js/mascot.js`),非 DB。"可多只"留位通过 `seed`/未来加 `active` 列扩展。
+
+**③ 任务 & 周岛组(设计规格 · 待实现 —— 列契约在 [§7.9](07-gamemode.md)):**
+- **`daily_plans`(L1)** —— agent 每日生成的今日待完成(基底 + 触发项,每项带 domain(按内容)+ tier + completion_predicate),缓存当天。
+- **`weekly_islands`** —— 周岛快照/历史(`{week_start, snapshot, seed, card_image?}`)。
+
+**④ 领域字段(✅ 已实现,见 [§8](08-domain-system.md)):**
+- **`assets.domain`** —— 见 §3.6(每条记录的生活领域,8 类,创建时 agent 打 / manual 可改;completion_event 从它继承)。
+- **`user_skills.domain`** —— 见 §3.2(生活领域 prior,仅基线技能;自定义技能恒 null)。
 
 ---
 
@@ -376,21 +436,22 @@ agent 的 `create_asset` 必须严格按字典填字段名。
 
 ## 7. Seed 数据
 
-### 7.1 `db.seed`（核心，幂等）—— 9 个 global_skills + 8 个 user_skills
-`GLOBAL_SKILLS`（9）：`todo / event / idea / notes / misc / contact / expense / qa / external_ref`。
+### 7.1 `db.seed`（核心，幂等）—— 9 个 global_skills + 6 个 provisioned user_skills
+`GLOBAL_SKILLS`（9，行保留）：`todo / event / idea / notes / misc / contact / expense / qa / external_ref`。
+> **idea / misc 已合并进 `notes`(随记)**(§3.2.1,已实现):它们的 GLOBAL_SKILLS 行保留(FK),但**不再 provision
+> user_skill**。新用户的 `USER_SKILL_CONFIGS` = `todo / notes(随记) / contact / expense / qa / external_ref`。
 
-`USER_SKILL_CONFIGS`（8，**注意 event 不在内**——已提升为一级实体）。各 skill 完整
+`USER_SKILL_CONFIGS`（6，**event 不在内**——一级实体;idea/misc 已并入随记）。各 skill 完整
 payload_schema + queryable_fields + render_spec 见 [§99 附录](99-prompts-appendix.md#seed-render-specs)，
 摘要：
 
 | skill | layout | icon | accent | primary | secondary | queryable | actions |
 |---|---|---|---|---|---|---|---|
 | `todo` | horizontal | ✅ | blue | content | due_date (relative_date) | due_date(date), status(enum) | check, edit |
-| `idea` | stacked | 💡 | amber | title | content (truncate_40) | — | edit, open |
+| `notes`(随记) | stacked | ✍️ | amber | title | content (truncate_40) | tags(text) | edit, open |
 | `contact` | horizontal | 👤 | neutral | name | company | name(text), company(text) | edit, open |
 | `expense` | horizontal | 💰 | green | amount (currency) | description | amount(numeric), category(enum), date(date), at(date), merchant(text) | edit |
-| `notes` | stacked | 📝 | gray | title | content (truncate_40) | — | edit, open |
-| `misc` | inline | 🗂 | gray | content | — (truncate_40) | — | edit, delete |
+| ~~`idea` / `misc`~~ | — | — | — | — | — | — | **已并入 `notes`(随记)** |
 | `qa` | **null** | — | — | — | — | **null** | — |
 | `external_ref` | horizontal | 🔗 | purple | title | external_system | external_system(enum), status(enum) | open_external, delete |
 

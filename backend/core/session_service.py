@@ -49,22 +49,31 @@ async def get_or_create_chat_session(
     """
     Resolve or create a chat session row.
 
-    - If session_id is provided: load it (raises ValueError if not found).
+    - If session_id is provided AND exists: load it.
+    - If session_id is provided but NOT found (stale client state — the session
+      was deleted, the DB was reset, or it came from another device): fall back
+      to creating a NEW session instead of hard-failing. A stale id must never
+      crash the chat stream / drop the user's message.
     - If empty: create a new sessions row with session_type='chat'.
       - title is derived from title_hint (first user message, truncated to 24 chars).
       - if event_id provided (v1.4 chat-from-event flow), anchor session to it.
     """
     if session_id:
-        result = await db.execute(
-            select(DBSession).where(
-                DBSession.id == uuid.UUID(session_id),
-                DBSession.user_id == user_id,
+        try:
+            sid = uuid.UUID(session_id)
+        except (ValueError, AttributeError):
+            sid = None
+        if sid is not None:
+            result = await db.execute(
+                select(DBSession).where(
+                    DBSession.id == sid,
+                    DBSession.user_id == user_id,
+                )
             )
-        )
-        sess = result.scalar_one_or_none()
-        if not sess:
-            raise ValueError(f"chat session not found: {session_id}")
-        return sess
+            sess = result.scalar_one_or_none()
+            if sess:
+                return sess
+        # else: unknown / malformed id → fall through and create a fresh session
 
     title = ""
     if title_hint:
@@ -332,7 +341,10 @@ async def load_user_skills_hint(
     stmt = (
         select(UserSkill, GlobalSkill.name.label("skill_name"))
         .join(GlobalSkill, UserSkill.skill_id == GlobalSkill.id)
-        .where(UserSkill.user_id == user_id)
+        # Active-set: only enabled=1 skills enter the agent's dictionary, so a
+        # deactivated skill isn't routed to (input falls back to misc/notes).
+        # Re-pulled per request → toggling takes effect next turn.
+        .where(UserSkill.user_id == user_id, UserSkill.enabled == 1)
         .order_by(UserSkill.position.asc(), UserSkill.created_at.asc())
     )
     rows = (await db.execute(stmt)).all()
@@ -541,3 +553,51 @@ async def persist_agent_message(
     await db.commit()
     await db.refresh(msg)
     return msg
+
+
+# ── §1.5.1.3 batch A — durable chat turn (placeholder → finalize) ───────────────
+async def create_pending_agent_message(
+    db: AsyncSession,
+    session_id: str,
+    user_id: str,
+) -> Message:
+    """Persist an EMPTY agent message with status='running' the instant a chat
+    turn starts. This is the durable in-flight marker a returning client renders
+    as 「分析中…」 — the background task later fills it via finalize_agent_message.
+    Pairs with persist_user_message (which lands the user side first)."""
+    msg = Message(
+        session_id=uuid.UUID(session_id),
+        user_id=user_id,
+        role="agent",
+        text="",
+        cards=[],
+        status="running",
+    )
+    db.add(msg)
+    await db.commit()
+    await db.refresh(msg)
+    return msg
+
+
+async def finalize_agent_message(
+    db: AsyncSession,
+    message_id: str,
+    agent_text: str,
+    cards: Optional[list] = None,
+    elapsed_ms: Optional[int] = None,
+    status: str = "done",
+) -> None:
+    """Fill the running placeholder (create_pending_agent_message) with the final
+    reply + cards and flip status to 'done' / 'failed'. Idempotent-ish: a missing
+    row (e.g. session deleted mid-turn) is a no-op, never raises."""
+    row = (await db.execute(
+        select(Message).where(Message.id == uuid.UUID(message_id))
+    )).scalar_one_or_none()
+    if row is None:
+        return
+    row.text = agent_text or ""
+    row.cards = cards or []
+    if elapsed_ms is not None:
+        row.elapsed_ms = elapsed_ms
+    row.status = status
+    await db.commit()

@@ -4,11 +4,12 @@ import 'data_revision.dart';
 import 'flash/flash_sheet.dart';
 import 'pages/add_skill.dart';
 import 'pages/calendar_page.dart';
-import 'pages/chat_page.dart';
 import 'pages/create_asset.dart';
 import 'pages/device_pairing_page.dart';
 import 'pages/library_page.dart';
 import 'pages/notifications_page.dart';
+import 'pages/pet_page.dart';
+import 'pet/floating_mascot.dart' show RekaFly;
 import 'theme/app_theme.dart';
 import 'widgets/floating_dock.dart';
 import 'widgets/global_header.dart';
@@ -24,14 +25,19 @@ class AppShell extends StatefulWidget {
   State<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
-  // 0 = Calendar, 1 = Library. Chat (Agent) is a pushed route, not a tab — so
-  // it covers the floating dock (matching the web, which hides the dock on
-  // /chat). START_TAB lets a build boot into a surface (2 → push chat).
-  int _index = () {
-    const t = int.fromEnvironment('START_TAB', defaultValue: 0);
-    return t == 2 ? 0 : t;
-  }();
+/// Observes pushes/pops over the shell so the calendar can reset to 流·今天 when
+/// a pushed page (chat / detail / report) is popped back to it. Registered in
+/// main.dart's navigatorObservers.
+final RouteObserver<PageRoute<dynamic>> shellRouteObserver = RouteObserver<PageRoute<dynamic>>();
+
+class _AppShellState extends State<AppShell> with WidgetsBindingObserver, RouteAware {
+  // §7.2 dock = 3 tabs: 0 = 日历, 1 = 资产库, 2 = 我的岛 (REKA's home). Chat /
+  // 快创 / 闪念 are no longer tabs — they're folded into the floating 球球 (§9.2).
+  // START_TAB lets a build boot into a surface for screenshots.
+  int _index = const int.fromEnvironment('START_TAB', defaultValue: 0).clamp(0, 2);
+  // §9.2 飞出相框: lets _go() measure the island hero's rect at tab-tap time so the
+  // floating ball can fly home from it when the user leaves 我的岛.
+  final GlobalKey<PetBoardState> _islandKey = GlobalKey<PetBoardState>();
 
   @override
   void initState() {
@@ -41,9 +47,6 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     // on resume so every list re-fetches the moment the user comes back —
     // complements the per-pop DataRefreshObserver and the SSE bumps.
     WidgetsBinding.instance.addObserver(this);
-    if (const int.fromEnvironment('START_TAB', defaultValue: 0) == 2) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _openAgent());
-    }
     // START_OVERLAY lets a build boot straight into a tap-gated surface for
     // screenshot verification (notifications | flash).
     const overlay = String.fromEnvironment('START_OVERLAY');
@@ -65,7 +68,21 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute) shellRouteObserver.subscribe(this, route);
+  }
+
+  @override
+  void didPopNext() {
+    // A pushed page (chat / detail / report) was popped back to the shell.
+    if (_index == 0) calendarHome.value++; // calendar → 流 · 今天
+  }
+
+  @override
   void dispose() {
+    shellRouteObserver.unsubscribe(this);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -75,12 +92,16 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) bumpData();
   }
 
-  void _go(int i) => setState(() => _index = i);
-
-  void _openAgent() {
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ChatPage()));
+  void _go(int i) {
+    if (i == 0) calendarHome.value++; // tap 今天 → calendar resets to 流 · 今天
+    // Leaving 我的岛 → fly the ball home from the hero frame (§9.2 飞出相框). Measure
+    // now, while the board is still laid out; the ball outlives the tab swap.
+    if (_index == 2 && i != 2) {
+      final r = _islandKey.currentState?.measureHeroRect();
+      if (r != null) RekaFly.instance.flyOut(r);
+    }
+    setState(() => _index = i);
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -99,7 +120,16 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
               children: [
                 IndexedStack(
                   index: _index,
-                  children: const [CalendarPage(), LibraryPage()],
+                  children: [
+                    const CalendarPage(),
+                    const LibraryPage(),
+                    // 我的岛 — REKA's home. Lazy: only build (mount its PetView
+                    // WebView) while the tab is active; a SizedBox otherwise so
+                    // the WebView isn't alive behind the other tabs (perf).
+                    _index == 2
+                        ? SafeArea(top: false, child: PetBoard(key: _islandKey, bottomInset: 130))
+                        : const SizedBox.shrink(),
+                  ],
                 ),
           // Ambient brand glow behind the dock — gives the glass capsule
           // something to transmit on flat dark pages so it reads as 背透
@@ -144,22 +174,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                     onTap: () => _go(1),
                   ),
                   DockItem(
-                    icon: Icons.add,
-                    label: '快创',
-                    leadingDivider: true,
-                    onTap: () => showCreateMenu(context),
-                  ),
-                  DockItem(
-                    icon: Icons.mic_none_outlined,
-                    label: '闪念',
-                    onTap: () => showFlashSheet(context),
-                  ),
-                  DockItem(
-                    icon: Icons.auto_awesome,
-                    label: 'Agent',
-                    primary: true,
-                    leadingDivider: true,
-                    onTap: _openAgent,
+                    icon: Icons.landscape_outlined,
+                    label: '我的岛',
+                    active: _index == 2,
+                    onTap: () => _go(2),
                   ),
                 ],
               ),

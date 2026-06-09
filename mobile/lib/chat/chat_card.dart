@@ -11,10 +11,9 @@ const _queryTools = {
   'tool_query_digest',
 };
 
-/// True for tools whose result is not a renderable *created* card (queries +
-/// report). Their results render as a one-line chip instead.
-bool isQueryTool(String name) =>
-    _queryTools.contains(name) || name == 'tool_render_report';
+/// True for tools whose result is not a renderable *created* card (queries).
+/// Their results render as a one-line chip instead.
+bool isQueryTool(String name) => _queryTools.contains(name);
 
 /// Pull created card dicts out of a FastMCP tool_result envelope. Mirrors the
 /// web extractCardsFromToolResult: walks top-level / structuredContent /

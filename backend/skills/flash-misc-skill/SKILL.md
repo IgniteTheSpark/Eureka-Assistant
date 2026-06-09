@@ -44,6 +44,14 @@ happen via Assistant chat.
 - `payload`: JSON string of `{content, tags?}`
 - `session_id`, `source_input_turn_id`: pass through
 
+## Step 3.5 — 建技能建议（可选）
+
+如果这条 misc 内容**像在记录某个固定类型**（用户没有对应 skill 才落到这里），比如
+「宝宝喝了 150ml 奶」「跑了 5 公里」「血压 120/80」「读了《XX》」——在返回里多带一个
+`suggest_skill` 字段，值是你从原话概括的 **2-6 字中文类型名**（如「宝宝喝奶」「跑步」「血压」
+「读书笔记」）。Pipeline 会据此提示用户去建技能。**只在确实像可结构化记录的类型时带**；闲聊 /
+情绪 / 杂感（「今天天气不错」「那只猫真有意思」）**不要**带 `suggest_skill`。
+
 ## Step 4 — Return
 
 ```json
@@ -51,7 +59,8 @@ happen via Assistant chat.
   "ok": true,
   "operation": "create",
   "asset_id": "<from tool_create_asset>",
-  "payload": {"content": "..."}
+  "payload": {"content": "..."},
+  "suggest_skill": "宝宝喝奶"   // 可选，仅当像固定记录类型时
 }
 ```
 

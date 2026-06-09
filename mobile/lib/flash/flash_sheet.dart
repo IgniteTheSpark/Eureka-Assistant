@@ -8,6 +8,7 @@ import '../data_revision.dart';
 import '../render/skill_card.dart';
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
+import '../widgets/toast.dart';
 import 'flash.dart';
 
 /// Open the 闪念 capture sheet — a conversational capture surface: each input
@@ -136,9 +137,7 @@ class _FlashSheetState extends State<_FlashSheet> {
     );
     if (!ok) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(const SnackBar(content: Text('语音识别不可用，请检查麦克风权限')));
+        showToast(context, '语音识别不可用，请检查麦克风权限', error: true);
       }
       return;
     }

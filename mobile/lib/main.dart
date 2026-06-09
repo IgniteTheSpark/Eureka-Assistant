@@ -6,7 +6,10 @@ import 'app_shell.dart';
 import 'auth/auth_controller.dart';
 import 'data_revision.dart';
 import 'pages/login_page.dart';
+import 'pet/floating_mascot.dart';
+import 'pet/pet_controller.dart';
 import 'pages/session_detail_page.dart';
+import 'render/sprite_factory.dart';
 import 'theme/app_theme.dart';
 import 'theme/eureka_colors.dart';
 import 'theme/theme_controller.dart';
@@ -39,7 +42,9 @@ class EurekaApp extends StatelessWidget {
           debugShowCheckedModeBanner: false,
           navigatorKey: navigatorKey,
           // General refresh: returning to any screen (pop / sheet close) re-fetches.
-          navigatorObservers: [DataRefreshObserver()],
+          // shellRouteObserver lets the shell reset the calendar to 流·今天 when a
+          // pushed page is popped back to it.
+          navigatorObservers: [DataRefreshObserver(), shellRouteObserver],
           theme: buildEurekaTheme(EurekaColors.light),
           darkTheme: buildEurekaTheme(EurekaColors.dark),
           themeMode: mode,
@@ -63,6 +68,14 @@ class EurekaApp extends StatelessWidget {
                       child: Stack(
                         children: [
                           child ?? const SizedBox.shrink(),
+                          // §9.4 sprite-factory host — a 1×1 hidden engine WebView mounted
+                          // app-wide so pixel-exact sprite previews (pet board milestones,
+                          // the full-screen 换装 page's cells) work regardless of which
+                          // route is on top (an offstage board host wouldn't render).
+                          const Positioned(left: -50, top: -50, width: 1, height: 1, child: SpriteFactoryHost()),
+                          // §9.2 全局浮动球球 REKA — above every route (navigates via
+                          // navigatorKey). Sits below the hardware listening overlay.
+                          const Positioned.fill(child: FloatingMascot()),
                           ValueListenableBuilder<bool>(
                             valueListenable: listeningNotifier,
                             builder: (_, on, child) => on
@@ -105,8 +118,10 @@ class _AuthGate extends StatelessWidget {
           );
         }
         if (!auth.isAuthed) return const LoginPage();
-        // Authed: open the hardware/notifications SSE bridge (idempotent).
+        // Authed: open the hardware/notifications SSE bridge (idempotent) and
+        // load 球球 (provisions the egg + arms completion-drop toasts).
         AppEvents.instance.start();
+        PetController.instance.ensureLoaded();
         return _startSession.isEmpty
             ? const AppShell()
             : SessionDetailPage(sessionId: _startSession, title: '会话详情');

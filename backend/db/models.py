@@ -29,7 +29,7 @@ from sqlalchemy import (
     ForeignKey, UniqueConstraint, Index, DateTime, JSON,
 )
 from sqlalchemy.types import TypeDecorator, CHAR
-from sqlalchemy.dialects.mysql import DATETIME as MySQLDateTime
+from sqlalchemy.dialects.mysql import DATETIME as MySQLDateTime, MEDIUMTEXT
 from sqlalchemy.orm import declarative_base
 from datetime import datetime, timezone
 import uuid
@@ -118,6 +118,7 @@ class GlobalSkill(Base):
     id          = Column(Integer, primary_key=True, autoincrement=True)
     name        = Column(String(50), unique=True, nullable=False)
     description = Column(Text)
+    domain      = Column(String(20))   # §8 provisioning default domain prior
     created_at  = Column(TIMESTAMPTZ, default=_utcnow)
 
 
@@ -127,8 +128,13 @@ class User(Base):
     __tablename__ = "users"
 
     id            = Column(String(50), primary_key=True, default=lambda: uuid.uuid4().hex)
-    email         = Column(String(255), unique=True, nullable=False, index=True)
-    password_hash = Column(String(255), nullable=False)
+    # email + password_hash are nullable: a 百智-OAuth user (§13.1) has neither —
+    # their identity is `baizhi_user_id`. Email users still set both.
+    email         = Column(String(255), unique=True, nullable=True, index=True)
+    password_hash = Column(String(255), nullable=True)
+    # §13.1 — stable 百智 (100wiser) identity ↔ Eureka user mapping. Unique so one
+    # 百智 account = one Eureka user; null for email-registered users.
+    baizhi_user_id = Column(String(64), unique=True, nullable=True, index=True)
     created_at    = Column(TIMESTAMPTZ, default=_utcnow)
 
 
@@ -146,6 +152,11 @@ class UserSkill(Base):
     # contiguous within (user_id). Drag-to-reorder writes via
     # PUT /api/skills/reorder. New skills land at the end.
     position         = Column(Integer, nullable=False, server_default="0")
+    # Active-set flag: 1 = shows in the grid + agent routes to it; 0 = hidden +
+    # not routed (input falls back to misc/notes), but history stays queryable.
+    # Cap on simultaneously-active skills is ACTIVE_SKILL_CAP (api/skills.py).
+    enabled          = Column(Integer, nullable=False, server_default="1")
+    domain           = Column(String(20))   # §8 per-skill prior (default for new assets)
     created_at       = Column(TIMESTAMPTZ, default=_utcnow)
 
     __table_args__ = (
@@ -185,7 +196,9 @@ class File(Base):
 
     id           = Column(GUID(), primary_key=True, default=uuid.uuid4)
     user_id      = Column(String(50), nullable=False)
-    storage_url  = Column(Text)
+    # MEDIUMTEXT (16MB) on MySQL — holds a base64 data:URI for an AI report image
+    # (§6.6.2); plain Text (64KB) would truncate it. Other backends fall back to Text.
+    storage_url  = Column(Text().with_variant(MEDIUMTEXT, "mysql"))
     file_type    = Column(String(50))
     duration_sec = Column(Integer)
     source_tag   = Column(String(20))   # flash | meeting
@@ -244,12 +257,14 @@ class Asset(Base):
     session_id           = Column(GUID(), ForeignKey("sessions.id"))
     source_input_turn_id = Column(GUID(), ForeignKey("input_turns.id"))   # nullable: manual session has no input_turn
     payload              = Column(JSON, nullable=False)
+    domain               = Column(String(20))   # §8 life-domain label (nullable = 不归域)
     created_at           = Column(TIMESTAMPTZ, default=_utcnow)
 
     __table_args__ = (
         Index("idx_assets_user",       "user_id", "created_at"),
         Index("idx_assets_skill",      "user_id", "user_skill_id", "created_at"),
         Index("idx_assets_input_turn", "user_id", "source_input_turn_id"),
+        Index("idx_assets_domain",     "user_id", "domain"),
     )
 
 
@@ -284,7 +299,10 @@ class Contact(Base):
     company    = Column(String(255))
     title      = Column(String(255))
     email      = Column(String(255))
-    notes      = Column(JSON, default=list)   # was ARRAY(Text) on PG
+    notes      = Column(JSON, default=list)   # was ARRAY(Text) on PG; list of md annotation lines
+    # 名片 socials: {platform_key: handle} chosen from a fixed supported set
+    # (x/telegram/linkedin/wechat/xiaohongshu/instagram — see core/contacts_meta.py).
+    socials    = Column(JSON, default=dict)
     # Provenance: the flash/voice input_turn that produced this contact (nullable —
     # chat/manual contacts have none). Powers the timeline ⚡ capture summary
     # ("联系人 ×1"). Other entities (asset/event) already carry this FK.
@@ -383,6 +401,10 @@ class Message(Base):
     tool_result = Column(JSON)                              # tool output (role=tool)
     cards       = Column(JSON, default=list)                # rendered asset card snapshots
     elapsed_ms  = Column(Integer)
+    # §1.5.1.3 batch A — durable turn lifecycle (agent messages only):
+    # running → done | failed. User msgs + legacy rows default 'done' (terminal).
+    # A returning client reconciles against this: running → 「分析中…」 + poll.
+    status      = Column(String(12), default="done")
     created_at  = Column(TIMESTAMPTZ, default=_utcnow)
 
     __table_args__ = (
@@ -451,4 +473,125 @@ class Notification(Base):
 
     __table_args__ = (
         Index("idx_notifications_user_created", "user_id", "created_at"),
+    )
+
+
+class Report(Base):
+    """
+    Synthesis/report engine output (§6). A first-class entity (资产库「报告」容器).
+
+    The pipeline (report-dispatcher → content skill → render skill) produces two
+    layers that are stored side by side:
+    - `content_md`: annotated Markdown (the *substance* — re-renderable). Numbers
+      and quotes only ever come from queried records; never fabricated.
+    - `html`: the rendered snapshot the user currently sees (the *presentation*).
+
+    `spec_json` = {time_range, asset_types, source_asset_ids, surface, palette,
+    seed} — everything needed to re-render (换装) or re-run without re-thinking.
+    Re-render = same content_md + new seed/palette/surface → new html, no re-query.
+    """
+    __tablename__ = "reports"
+
+    id         = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id    = Column(String(50), nullable=False, server_default="default")
+    title      = Column(String(255), nullable=False)
+    genre      = Column(String(30), nullable=False)   # data-report | idea-synthesis | proposal | digest
+    content_md = Column(Text, nullable=False)          # annotated Markdown (substance)
+    # MEDIUMTEXT (16MB) on MySQL — the rendered HTML inlines the AI image as a
+    # base64 data:URI (§6.6.2); plain Text (64KB) would truncate it.
+    html       = Column(Text().with_variant(MEDIUMTEXT, "mysql"), nullable=False)
+    spec_json  = Column(JSON)                           # {time_range, asset_types, source_asset_ids, surface, palette, seed}
+    # §6.7 / §6.12 batch 0 telemetry: summed model tokens (dispatcher+content[+image])
+    # and wall-clock generation time. Cost aggregation (admin) + gen_ms can be shown.
+    tokens_used = Column(Integer)
+    gen_ms      = Column(Integer)
+    # §6.6.1 / §6.12 batch 3: REKA genome snapshot for the footer signature band
+    # (so a re-shared old report keeps the pet it was made with).
+    pet_gene   = Column(JSON)
+    created_at = Column(TIMESTAMPTZ, default=_utcnow)
+
+    __table_args__ = (
+        Index("idx_reports_user_created", "user_id", "created_at"),
+    )
+
+
+class ConnectedApp(Base):
+    """
+    Per-user external app connection (§1.7.1 Connected Apps). Replaces the old
+    dev-wired global MCP: each user connects their own apps (钉钉 / Notion / …)
+    with their own credentials, stored **encrypted at rest**.
+
+    The connector *catalog* (what apps exist + which fields to fill) is NOT in
+    the DB — it's developer-maintained in `agents/connectors.py` and exposed via
+    `GET /api/connectors`. This table only stores "user X connected connector Y
+    with these (encrypted) creds + this status".
+
+    `credentials_enc` is a Fernet-encrypted JSON blob ({field: value}); it is
+    write-only — **never** returned by any API, never logged. The task runner
+    decrypts it at call time to build that user's external MCP toolsets.
+    """
+    __tablename__ = "connected_apps"
+
+    id              = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id         = Column(String(50), nullable=False)
+    connector_id    = Column(String(50), nullable=False)   # catalog key (dingtalk_calendar / notion / …)
+    display_name    = Column(String(100))                  # user-editable alias
+    auth_type       = Column(String(20), nullable=False)   # token / gateway_url / oauth
+    credentials_enc = Column(Text, nullable=False)         # Fernet-encrypted JSON; NEVER in responses/logs
+    config_json     = Column(JSON)                         # non-secret config (scopes, options)
+    status          = Column(String(20), nullable=False, server_default="connected")  # connected/needs_reauth/error/disconnected
+    last_used_at    = Column(TIMESTAMPTZ)
+    created_at      = Column(TIMESTAMPTZ, default=_utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "connector_id", name="uq_connected_apps_user_connector"),
+        Index("idx_connected_apps_user_status", "user_id", "status"),
+    )
+
+
+class Pet(Base):
+    """§9 球球 Pet — one per user. A gradient jelly body + forehead emblem, 7
+    swappable cosmetic slots (skin / emblem(+color) / head / leftItem / rightItem
+    / carrier / aura; eyes & mouth are state-driven, not stored). NO levels —
+    growth = horizontally collecting cosmetics (random drops + milestone-gated
+    unlocks, each carrying a rarity tier; see core/pet.py). Subscribes only to
+    completion_events (§9.1, decoupled from island/tasks/domain). `seed` makes the
+    spawn skin deterministic per user. carrier/aura live in the `equipped` JSON
+    (no migration); pre-v2 pets back-fill to carrier='none', aura='soft'.
+    """
+    __tablename__ = "pets"
+
+    id           = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id      = Column(String(50), nullable=False)
+    seed         = Column(String(50), nullable=False)
+    name         = Column(String(50))
+    skin         = Column(String(20))                 # colorway (aurora/grape/…)
+    emblem       = Column(String(20))                 # forehead mark (star/drop/…)
+    emblem_color = Column(String(20))
+    equipped     = Column(JSON)                        # {head, leftItem, rightItem}
+    unlocked     = Column(JSON)                        # {skin:[], emblem:[], head:[], item:[]}
+    milestones   = Column(JSON)                        # {capture_count, streak_days, last_event_date, domains:[]}
+    spawned      = Column(Integer, nullable=False, server_default="0")  # 0 = egg (pre-hatch), 1 = hatched
+    created_at   = Column(TIMESTAMPTZ, default=_utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_pets_user"),
+    )
+
+
+class CompletionEvent(Base):
+    """Append-only currency: one row per closed loop (task done / record logged /
+    opportunistic first-class create). The pet subscribes to these (celebrate +
+    drop + milestone); the future weekly island aggregates them per `domain`."""
+    __tablename__ = "completion_events"
+
+    id         = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id    = Column(String(50), nullable=False)
+    domain     = Column(String(20))                    # §8 (pet ignores; island aggregates)
+    source     = Column(String(20), nullable=False)    # task | record | opportunistic
+    ref        = Column(String(50))                    # asset/event/contact id
+    created_at = Column(TIMESTAMPTZ, default=_utcnow)
+
+    __table_args__ = (
+        Index("idx_completion_events_user", "user_id", "created_at"),
     )

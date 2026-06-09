@@ -21,8 +21,18 @@ depends_on = None
 def upgrade() -> None:
     # GUID is stored as CHAR(36); add as a plain nullable column (no FK
     # constraint needed on the live DB — fresh schemas get the FK via models).
-    op.add_column("contacts", sa.Column("source_input_turn_id", sa.CHAR(length=36), nullable=True))
-    op.create_index("idx_contacts_input_turn", "contacts", ["user_id", "source_input_turn_id"])
+    # Idempotent: 0001 runs Base.metadata.create_all() on the LIVE models, so a
+    # FRESH deploy already has this column/index. Skip-if-exists prevents
+    # duplicate-column errors on a clean `alembic upgrade head` (existing
+    # incremental DBs already ran this and are untouched).
+    from sqlalchemy import inspect
+    insp = inspect(op.get_bind())
+    cols = [c["name"] for c in insp.get_columns("contacts")] if insp.has_table("contacts") else []
+    if "source_input_turn_id" not in cols:
+        op.add_column("contacts", sa.Column("source_input_turn_id", sa.CHAR(length=36), nullable=True))
+    idx = [i["name"] for i in insp.get_indexes("contacts")] if insp.has_table("contacts") else []
+    if "idx_contacts_input_turn" not in idx:
+        op.create_index("idx_contacts_input_turn", "contacts", ["user_id", "source_input_turn_id"])
 
 
 def downgrade() -> None:

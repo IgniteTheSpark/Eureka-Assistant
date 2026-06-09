@@ -52,6 +52,12 @@ Stream<SseEvent> _sse(http.Request req, http.Client? client) async* {
 
     final res = await c.send(req);
     if (res.statusCode >= 400) {
+      // 401 self-heal: mirror ApiClient's REST behavior so an expired token on a
+      // chat / report SSE drops the user back to login instead of just surfacing
+      // a raw error (codex r2 — SSE 401 was not triggering onUnauthorized).
+      if (res.statusCode == 401 && AuthStore.token != null) {
+        AuthStore.onUnauthorized?.call();
+      }
       throw ApiException(res.statusCode, await res.stream.bytesToString());
     }
 

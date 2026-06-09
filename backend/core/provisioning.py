@@ -8,6 +8,7 @@ Reuses the same `USER_SKILL_CONFIGS` the `default` seed uses, keyed to the share
 """
 from sqlalchemy import select
 
+from core.domains import prior_for_skill
 from db.models import GlobalSkill, UserSkill
 from db.seed import USER_SKILL_CONFIGS
 
@@ -34,6 +35,7 @@ async def provision_user_skills(db, user_id: str) -> int:
             render_spec=cfg["render_spec"],
             queryable_fields=cfg["queryable_fields"],
             position=pos,
+            domain=prior_for_skill(cfg["name"]),   # §8 per-skill prior
         ))
         created += 1
     return created

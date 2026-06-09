@@ -6,7 +6,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../api/api_client.dart';
 import '../data_revision.dart';
 import '../theme/app_theme.dart';
+import '../theme/domains.dart';
 import '../theme/eureka_colors.dart';
+import '../widgets/toast.dart';
 import 'asset_detail_sheet.dart';
 import 'render_spec.dart';
 
@@ -95,6 +97,7 @@ class _SkillCardState extends ConsumerState<SkillCard> {
     var data = _resolve(specs);
     if (widget.layoutOverride != null) data = data.copyWith(layout: widget.layoutOverride);
     if (_doneOverride != null) data = data.copyWith(checkDone: _doneOverride);
+    data = data.copyWith(domain: card['domain'] as String?);   // §8 domain chip
 
     final type = card['card_type'] as String?;
     final isEntity = type == 'event' || type == 'contact' || type == 'task';
@@ -172,9 +175,7 @@ class _SkillCardState extends ConsumerState<SkillCard> {
       return true;
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(const SnackBar(content: Text('删除失败')));
+        showToast(context, '删除失败', error: true);
       }
       return false;
     }
@@ -358,9 +359,11 @@ class _CardBody extends StatelessWidget {
 
   Widget _title(EurekaColors eu) {
     final done = data.checkDone == true;
+    // One line in the card (the detail/full view shows the whole title) — keeps
+    // every card the same height regardless of title length.
     return Text(
-      data.title,
-      maxLines: 2,
+      data.title.replaceAll(RegExp(r'\s*\n\s*'), ' '),
+      maxLines: 1,
       overflow: TextOverflow.ellipsis,
       style: TextStyle(
         color: done ? eu.textLo : eu.textHi,
@@ -371,19 +374,54 @@ class _CardBody extends StatelessWidget {
     );
   }
 
-  Widget _subAndMeta(EurekaColors eu, CardAccent a) => Padding(
-        padding: const EdgeInsets.only(top: 4),
-        child: Wrap(
-          spacing: 6,
-          runSpacing: 4,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            if (data.subtitle.isNotEmpty)
-              Text(data.subtitle, style: TextStyle(color: eu.textMid, fontSize: 12)),
-            for (final m in data.metaFields) _metaPill(m, a, eu),
-          ],
-        ),
-      );
+  // Fixed 3-row card DNA: title (with the 领域 tag at its top-right) → a ONE-LINE
+  // subtitle preview → a single 信息 row of at most TWO meta values, split
+  // proportionally + ellipsized. Never wraps, so every card is the same height.
+  Widget _subAndMeta(EurekaColors eu, CardAccent a) {
+    final sub = data.subtitle.replaceAll(RegExp(r'\s*\n\s*'), ' ').trim();
+    final meta = data.metaFields.take(2).toList(); // 最多展示 2 个信息
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (sub.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 3),
+            child: Text(sub,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: eu.textMid, fontSize: 12)),
+          ),
+        if (meta.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            // single row, the 2 values split the width proportionally (Flexible)
+            // and ellipsize if they don't fit — never wraps to a second line.
+            child: Row(
+              children: [
+                for (var i = 0; i < meta.length; i++) ...[
+                  if (i > 0) const SizedBox(width: 10),
+                  Flexible(child: _metaPill(meta[i], a, eu)),
+                ],
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  // Title row — title fills the width, the 领域 tag sits at the top-right corner.
+  Widget _titleRow(EurekaColors eu) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(child: _title(eu)),
+        if (data.domain != null) ...[
+          const SizedBox(width: 8),
+          DomainChip(data.domain), // §8: nothing rendered when null/unknown
+        ],
+      ],
+    );
+  }
 
   Widget _metaPill(({String value, String? format}) m, CardAccent a, EurekaColors eu) {
     if (m.format == 'badge') {
@@ -401,12 +439,14 @@ class _CardBody extends StatelessWidget {
           border: Border.all(color: a.edge),
         ),
         child: Text(m.value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(color: a.fg, fontSize: 11, fontWeight: FontWeight.w600)),
       );
     }
-    // Plain meta: a mono "· value" chip (web uses font-mono text-lo). Bumped to
-    // textMid for legibility — textLo on a tinted card was hard to read.
-    return Text('· ${m.value}', style: euMono(fontSize: 11, color: eu.textMid));
+    // Plain meta: a mono "· value" chip — 1 line, ellipsized.
+    return Text('· ${m.value}',
+        maxLines: 1, overflow: TextOverflow.ellipsis, style: euMono(fontSize: 11, color: eu.textMid));
   }
 
   Widget _horizontal(BuildContext context) {
@@ -425,7 +465,7 @@ class _CardBody extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _title(eu),
+                _titleRow(eu),
                 if (data.subtitle.isNotEmpty || data.metaFields.isNotEmpty)
                   _subAndMeta(eu, a),
               ],
@@ -449,7 +489,7 @@ class _CardBody extends StatelessWidget {
             children: [
               _iconTile(a, eu),
               const SizedBox(width: 12),
-              Expanded(child: _title(eu)),
+              Expanded(child: _titleRow(eu)),
             ],
           ),
           if (data.subtitle.isNotEmpty || data.metaFields.isNotEmpty) _subAndMeta(eu, a),

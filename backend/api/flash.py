@@ -210,7 +210,8 @@ async def flash(req: FlashRequest, user_id: str = Depends(get_current_user_id)):
             user_id=user_id,
             type="flash_done",
             title="闪念已整理",
-            body=(summary or reply or f"已记录 {len(derived)} 项")[:200],
+            body="",   # title-only — no extra copy (产品决策 2026-06)
+
             # link = the flash session id so tapping the notification opens that
             # session in chat (frontend notifNavigate keys off type=flash_done).
             link=session_id,

@@ -36,7 +36,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agents.flash_pipeline import _run_agent, _extract_tool_result_payload
 from agents.mcp_config import MCP_SERVERS
-from agents.mcp_toolset import get_all_external_toolsets
+from agents.mcp_toolset import get_user_external_toolsets
+
+
+class _NoConnectedAppsError(RuntimeError):
+    """Raised when a user triggers an external task but has connected no apps.
+    Carries a user-facing guidance message (surfaced as the task error)."""
 from core.llm import TASK_MODEL
 from core.notifications import create_notification
 from db.database import AsyncSessionLocal
@@ -45,15 +50,20 @@ from db.models import Task, Asset, UserSkill, GlobalSkill, Message
 
 # ── Prompt for the async MCP runner agent ─────────────────────────────────────
 
-def _build_task_runner_prompt() -> str:
+def _build_task_runner_prompt(cap_hints: list[str] | None = None) -> str:
     """
-    Build the runner prompt at call time so newly-added MCPs in MCP_SERVERS
-    appear in the catalog without code changes.
+    Build the runner prompt at call time. When `cap_hints` is provided (the
+    user's *connected* apps + their capabilities, §1.7.1), use those so the
+    model only routes to tools the user actually connected; else fall back to
+    the global MCP_SERVERS catalog (legacy/dev path).
     """
-    catalog_lines = ["可用 MCP 服务及其能力:"]
-    for name, cfg in MCP_SERVERS.items():
-        catalog_lines.append(f"\n[{name}]")
-        catalog_lines.append(cfg.get("description", ""))
+    if cap_hints:
+        catalog_lines = ["用户已连接的外部应用及能力(只用这些):", *cap_hints]
+    else:
+        catalog_lines = ["可用 MCP 服务及其能力:"]
+        for name, cfg in MCP_SERVERS.items():
+            catalog_lines.append(f"\n[{name}]")
+            catalog_lines.append(cfg.get("description", ""))
 
     today = datetime.now(_LOCAL_TZ).strftime("%Y-%m-%d (%A)")
 
@@ -253,15 +263,19 @@ async def _run_task_async(
             ))
             await db.commit()
 
-        # Build ephemeral agent with ALL external toolsets — model picks
-        toolsets = get_all_external_toolsets()
+        # Build ephemeral agent with THIS USER's connected external toolsets —
+        # the model picks the right tool. Per-user (§1.7.1), not global.
+        toolsets, cap_hints = await get_user_external_toolsets(user_id)
         if not toolsets:
-            raise RuntimeError("no external MCPs configured in MCP_SERVERS")
+            # No connected apps → guide the user instead of failing opaquely.
+            raise _NoConnectedAppsError(
+                "你还没有连接任何外部应用。去「设置 → 已连接应用」连上钉钉 / Notion 等,再试一次同步。"
+            )
 
         agent = LlmAgent(
             name="task_runner",
             model=TASK_MODEL,
-            instruction=_build_task_runner_prompt(),
+            instruction=_build_task_runner_prompt(cap_hints),
             tools=toolsets,
         )
 

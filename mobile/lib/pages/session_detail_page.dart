@@ -174,7 +174,7 @@ class _SessionDetailPageState extends State<SessionDetailPage> {
                               itemCount: msgs.length + (analyzing ? 1 : 0),
                               itemBuilder: (_, i) {
                                 if (i >= msgs.length) return _analyzingRow(eu);
-                                return _Bubble(msgs[i]);
+                                return _Bubble(msgs[i], _sessionId);
                               },
                             ),
             ),
@@ -272,7 +272,8 @@ class _SessionsDrawerState extends State<_SessionsDrawer> {
 
 class _Bubble extends StatelessWidget {
   final ChatMessage m;
-  const _Bubble(this.m);
+  final String sessionId;
+  const _Bubble(this.m, this.sessionId);
 
   @override
   Widget build(BuildContext context) {
@@ -312,6 +313,14 @@ class _Bubble extends StatelessWidget {
     );
   }
 
+  // Cards persisted in a flash/chat message may omit the session id (the agent
+  // payload doesn't echo it). Stamp this session so the detail sheet shows
+  // 「由对话/闪念创建」(not 手动创建) — provenance is consistent with 资产库. §9/§3.
+  Map<String, dynamic> _withSession(Map<String, dynamic> c) =>
+      (c['session_id'] is String && (c['session_id'] as String).isNotEmpty)
+          ? c
+          : {...c, 'session_id': sessionId};
+
   Widget _part(BuildContext context, ChatPart p) {
     final eu = context.eu;
     switch (p) {
@@ -327,12 +336,12 @@ class _Bubble extends StatelessWidget {
         if (isQueryTool(name) || cards.isEmpty) return const SizedBox.shrink();
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: [for (final c in cards) SkillCard(c, layoutOverride: 'horizontal')],
+          children: [for (final c in cards) SkillCard(_withSession(c), layoutOverride: 'horizontal')],
         );
       case CardsPart(:final cards):
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: [for (final c in cards) SkillCard(c, layoutOverride: 'horizontal')],
+          children: [for (final c in cards) SkillCard(_withSession(c), layoutOverride: 'horizontal')],
         );
       case ErrorPart(:final message):
         return Padding(

@@ -19,6 +19,13 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # Idempotent: 0001 runs Base.metadata.create_all() on the LIVE models, so a
+    # FRESH deploy already has `users`. Skip-if-exists keeps `alembic upgrade
+    # head` from colliding on a clean DB (existing DBs already ran this).
+    from sqlalchemy import inspect
+    insp = inspect(op.get_bind())
+    if insp.has_table("users"):
+        return
     op.create_table(
         "users",
         sa.Column("id", sa.String(length=50), primary_key=True),

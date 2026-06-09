@@ -8,7 +8,12 @@ class SkillMeta {
   /// Present for registered user skills (`/api/skills` row id) — enables the
   /// category-detail delete control. Null for built-in / first-class kinds.
   final String? userSkillId;
-  const SkillMeta(this.icon, this.label, [this.accentColor = 'gray', this.userSkillId]);
+
+  /// Active-set flag: enabled skills show in the library grid + the agent
+  /// routes to them. Disabled ones live only in the 技能管理页.
+  final bool enabled;
+  const SkillMeta(this.icon, this.label,
+      [this.accentColor = 'gray', this.userSkillId, this.enabled = true]);
 }
 
 /// One unified timeline entry (asset / event / contact / input_turn / file),
@@ -83,10 +88,10 @@ const _builtin = <String, SkillMeta>{
   'todo': SkillMeta('✅', '待办', 'blue'),
   'event': SkillMeta('📅', '日程', 'purple'),
   'contact': SkillMeta('👤', '名片', 'neutral'),
-  'idea': SkillMeta('💡', '想法', 'amber'),
-  'notes': SkillMeta('📝', '笔记', 'gray'),
+  'notes': SkillMeta('✍️', '随记', 'amber'),   // 随记 (idea/misc merged in)
+  'idea': SkillMeta('✍️', '随记', 'amber'),    // legacy fallback → 随记
+  'misc': SkillMeta('✍️', '随记', 'amber'),    // legacy fallback → 随记
   'expense': SkillMeta('💰', '记账', 'green'),
-  'misc': SkillMeta('🗂', '其它', 'gray'),
   'external_ref': SkillMeta('🔗', '外部', 'purple'),
 };
 
@@ -122,6 +127,7 @@ Future<Map<String, SkillMeta>> fetchSkills(ApiClient api) async {
       s['display_name'] as String? ?? name,
       rs?['accent_color'] as String? ?? 'gray',
       s['user_skill_id'] as String?,
+      (s['enabled'] as int? ?? 1) != 0,
     );
   }
   return out;

@@ -2,9 +2,21 @@ import 'package:flutter/material.dart';
 
 import '../api/api_client.dart';
 import '../data_revision.dart';
+import '../render/asset_detail_sheet.dart' show AssetEditPage, MdEditor;
+import '../render/render_spec.dart' show RenderSpec;
 import '../render/skill_card.dart' show accentOf;
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
+
+/// Build the field-rendering RenderSpec for a skill from its payload_schema
+/// (schemaFields / types / long / required / labels). Lets 快创 reuse the same
+/// [AssetEditPage] as 编辑 — create is edit with empty data. (The card preview
+/// resolves its own full spec via the provider; this only drives the inputs.)
+RenderSpec renderSpecForSkill(SkillDef s) => RenderSpec(
+      cardLayout: 'horizontal',
+      icon: s.icon,
+      accentColor: s.accentColor,
+    ).withSchema(s.schema);
 
 /// Serialize a picked wall-clock [DateTime] as Beijing time (+08:00) — matching
 /// the backend's `_LOCAL_TZ` and the agent's ISO convention. `dateOnly` fields
@@ -51,7 +63,7 @@ Future<List<SkillDef>> fetchSkillDefs(ApiClient api) async {
 
 /// 快创 — bottom sheet of creatable types (事件 + every skill). Tapping a tile
 /// pushes that type's create form. Mirrors the web CreateAssetMenu.
-void showCreateMenu(BuildContext context) {
+void showCreateMenu(BuildContext context, {DateTime? presetDate}) {
   final eu = context.eu;
   showModalBottomSheet<void>(
     context: context,
@@ -61,12 +73,14 @@ void showCreateMenu(BuildContext context) {
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
     ),
-    builder: (_) => const _CreateMenu(),
+    builder: (_) => _CreateMenu(presetDate: presetDate),
   );
 }
 
 class _CreateMenu extends StatefulWidget {
-  const _CreateMenu();
+  /// When created from an empty calendar day, new date/time fields default to it.
+  final DateTime? presetDate;
+  const _CreateMenu({this.presetDate});
   @override
   State<_CreateMenu> createState() => _CreateMenuState();
 }
@@ -106,11 +120,24 @@ class _CreateMenuState extends State<_CreateMenu> {
                 future: _future,
                 builder: (ctx, snap) {
                   final tiles = <Widget>[
-                    _tile(eu, '📅', '事件', 'purple', () => _open(const EventForm())),
+                    _tile(eu, '📅', '事件', 'purple',
+                        () => _open(EventForm(presetDate: widget.presetDate))),
                   ];
                   for (final s in snap.data ?? const <SkillDef>[]) {
-                    tiles.add(_tile(eu, s.icon, s.displayName, s.accentColor,
-                        () => _open(SkillCreateForm(skill: s))));
+                    // contact is a 真身 entity → its dedicated form (socials /
+                    // email / notes). Every other asset skill uses the SAME
+                    // AssetEditPage as 编辑 (create = edit with empty data).
+                    final onTap = s.name == 'contact'
+                        ? () => _open(const ContactForm())
+                        : () => _open(AssetEditPage(
+                              payload: const {},
+                              cardType: s.name,
+                              title: '',
+                              spec: renderSpecForSkill(s),
+                              displayName: s.displayName,
+                              presetDate: widget.presetDate,
+                            ));
+                    tiles.add(_tile(eu, s.icon, s.displayName, s.accentColor, onTap));
                   }
                   return Wrap(spacing: 10, runSpacing: 10, children: tiles);
                 },
@@ -152,283 +179,13 @@ class _CreateMenuState extends State<_CreateMenu> {
   }
 }
 
-/* ── Schema-driven skill create form ──────────────────────────────────────── */
-
-class _Field {
-  final String name;
-  final String type; // string | number | datetime | date | array
-  final bool required;
-  final List<String>? enumValues;
-  final dynamic defaultValue;
-  const _Field(this.name, this.type, this.required, this.enumValues, this.defaultValue);
-}
-
-const _fieldLabels = <String, String>{
-  'content': '内容', 'title': '标题', 'amount': '金额', 'category': '分类',
-  'currency': '币种', 'merchant': '商家', 'description': '描述', 'due_date': '截止时间',
-  'status': '状态', 'name': '名称', 'phone': '电话', 'company': '公司', 'date': '日期',
-  'at': '时间', 'location': '地点', 'note': '备注', 'notes': '备注',
-};
-String _label(String k) => _fieldLabels[k] ?? k;
-
-List<_Field> _parseSchema(Map<String, dynamic> schema) {
-  final out = <_Field>[];
-  schema.forEach((name, defRaw) {
-    if (defRaw is! Map) return;
-    final def = defRaw.cast<String, dynamic>();
-    final type = (def['type'] as String?) ?? 'string';
-    if (type == 'uuid') return; // system field
-    out.add(_Field(
-      name,
-      type,
-      def['required'] == true,
-      (def['enum'] as List?)?.whereType<String>().toList(),
-      def['default'],
-    ));
-  });
-  out.sort((a, b) {
-    if (a.required != b.required) return a.required ? -1 : 1;
-    return a.name.compareTo(b.name);
-  });
-  return out;
-}
-
-class SkillCreateForm extends StatefulWidget {
-  final SkillDef skill;
-  const SkillCreateForm({super.key, required this.skill});
-
-  @override
-  State<SkillCreateForm> createState() => _SkillCreateFormState();
-}
-
-class _SkillCreateFormState extends State<SkillCreateForm> {
-  final _api = ApiClient();
-  late final List<_Field> _fields = _parseSchema(widget.skill.schema);
-  final Map<String, dynamic> _values = {};
-  final Map<String, TextEditingController> _ctrls = {};
-  bool _busy = false;
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    for (final f in _fields) {
-      if (f.defaultValue != null) _values[f.name] = f.defaultValue;
-      if (f.type == 'string' || f.type == 'number' || f.type == 'array') {
-        _ctrls[f.name] = TextEditingController(text: f.defaultValue?.toString() ?? '');
-      }
-    }
-  }
-
-  @override
-  void dispose() {
-    for (final c in _ctrls.values) {
-      c.dispose();
-    }
-    _api.close();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    if (_busy) return;
-    // Collect text values
-    _ctrls.forEach((k, c) {
-      if (c.text.trim().isNotEmpty) _values[k] = c.text.trim();
-    });
-    // Validate required
-    for (final f in _fields) {
-      if (f.required && (_values[f.name] == null || '${_values[f.name]}'.isEmpty)) {
-        setState(() => _error = '请填写「${_label(f.name)}」');
-        return;
-      }
-    }
-    final payload = <String, dynamic>{};
-    for (final f in _fields) {
-      var v = _values[f.name];
-      if (v == null || '$v'.isEmpty) continue;
-      if (f.type == 'number') v = num.tryParse('$v') ?? v;
-      if (f.type == 'array' && v is String) v = v.split(',').map((s) => s.trim()).toList();
-      // datetime/date pickers hold a DateTime — serialize as Beijing time so
-      // jsonEncode doesn't choke AND the day doesn't drift (see [isoBeijing]).
-      if (v is DateTime) v = isoBeijing(v, dateOnly: f.type == 'date');
-      payload[f.name] = v;
-    }
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      if (widget.skill.name == 'contact') {
-        await _api.postJson('/api/contacts', payload);
-      } else {
-        await _api.postJson('/api/assets', {
-          'user_skill_name': widget.skill.name,
-          'payload': payload,
-        });
-      }
-      bumpData();
-      if (mounted) Navigator.of(context).maybePop();
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _busy = false;
-          _error = '保存失败：$e';
-        });
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final eu = context.eu;
-    return Scaffold(
-      backgroundColor: eu.bg,
-      appBar: AppBar(
-        backgroundColor: eu.bg,
-        foregroundColor: eu.textHi,
-        elevation: 0,
-        title: Text('${widget.skill.icon} ${widget.skill.displayName}',
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-      ),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-          children: [
-            for (final f in _fields) ...[
-              _fieldInput(eu, f),
-              const SizedBox(height: 14),
-            ],
-            if (_error != null) ...[
-              Text(_error!, style: TextStyle(color: eu.accentRed, fontSize: 13)),
-              const SizedBox(height: 12),
-            ],
-            _saveButton(eu),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _fieldInput(EurekaColors eu, _Field f) {
-    final label = '${_label(f.name)}${f.required ? ' *' : ''}';
-    final cap = Text(label, style: euMono(fontSize: 10, letterSpacing: 1.2, color: eu.textLo));
-    if (f.enumValues != null) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          cap,
-          const SizedBox(height: 6),
-          DropdownButtonFormField<String>(
-            initialValue: _values[f.name] as String? ?? f.enumValues!.first,
-            dropdownColor: eu.surfaceRaised,
-            decoration: _dec(eu),
-            items: [
-              for (final v in f.enumValues!)
-                DropdownMenuItem(value: v, child: Text(v, style: TextStyle(color: eu.textHi))),
-            ],
-            onChanged: (v) => _values[f.name] = v,
-          ),
-        ],
-      );
-    }
-    if (f.type == 'datetime' || f.type == 'date') {
-      final picked = _values[f.name] as DateTime?;
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          cap,
-          const SizedBox(height: 6),
-          GestureDetector(
-            onTap: () => _pickDateTime(f),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-              decoration: BoxDecoration(
-                color: eu.surface,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: eu.border),
-              ),
-              child: Text(
-                picked == null
-                    ? '选择${f.type == 'date' ? '日期' : '时间'}'
-                    : _fmt(picked, f.type == 'datetime'),
-                style: TextStyle(color: picked == null ? eu.textLo : eu.textHi, fontSize: 14),
-              ),
-            ),
-          ),
-        ],
-      );
-    }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        cap,
-        const SizedBox(height: 6),
-        TextField(
-          controller: _ctrls[f.name],
-          keyboardType: f.type == 'number' ? TextInputType.number : TextInputType.text,
-          style: TextStyle(color: eu.textHi, fontSize: 14),
-          decoration: _dec(eu),
-        ),
-      ],
-    );
-  }
-
-  Future<void> _pickDateTime(_Field f) async {
-    final now = DateTime.now();
-    final d = await showDatePicker(
-      context: context,
-      initialDate: (_values[f.name] as DateTime?) ?? now,
-      firstDate: DateTime(now.year - 2),
-      lastDate: DateTime(now.year + 3),
-    );
-    if (d == null) return;
-    var result = d;
-    if (f.type == 'datetime' && mounted) {
-      final t = await showTimePicker(context: context, initialTime: TimeOfDay.now());
-      if (t != null) result = DateTime(d.year, d.month, d.day, t.hour, t.minute);
-    }
-    setState(() => _values[f.name] = result);
-  }
-
-  String _fmt(DateTime d, bool withTime) => withTime
-      ? '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}'
-      : '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
-
-  InputDecoration _dec(EurekaColors eu) => InputDecoration(
-        isDense: true,
-        filled: true,
-        fillColor: eu.surface,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: eu.border)),
-        enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: eu.border)),
-        focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: eu.brand)),
-      );
-
-  Widget _saveButton(EurekaColors eu) => GestureDetector(
-        onTap: _busy ? null : _save,
-        behavior: HitTestBehavior.opaque,
-        child: Container(
-          alignment: Alignment.center,
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          decoration: BoxDecoration(color: eu.brand, borderRadius: BorderRadius.circular(12)),
-          child: _busy
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-              : const Text('保存',
-                  style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
-        ),
-      );
-}
-
 /* ── Event create form ────────────────────────────────────────────────────── */
 
 class EventForm extends StatefulWidget {
-  const EventForm({super.key});
+  final DateTime? presetDate; // empty-day create → default the event to that day (09:00)
+  final String? eventId; // non-null = EDIT mode (PUT instead of POST)
+  final Map<String, dynamic>? existing; // event record to prefill in edit mode
+  const EventForm({super.key, this.presetDate, this.eventId, this.existing});
   @override
   State<EventForm> createState() => _EventFormState();
 }
@@ -438,15 +195,36 @@ class _EventFormState extends State<EventForm> {
   final _title = TextEditingController();
   final _location = TextEditingController();
   final _desc = TextEditingController();
-  DateTime _start = _roundToHour(DateTime.now().add(const Duration(hours: 1)));
+  late DateTime _start;
   // An event needs a time span: either an end_at after start, or all_day=1.
-  // The backend rejects a lone start (it would be a todo, not an event) — so
-  // the form defaults to a 1h span and offers an 全天 toggle.
-  late DateTime _end = _start.add(const Duration(hours: 1));
+  late DateTime _end;
   bool _allDay = false;
   bool _busy = false;
   String? _error;
+  bool get _isEdit => widget.eventId != null;
 
+  @override
+  void initState() {
+    super.initState();
+    final e = widget.existing;
+    if (e != null) {
+      _title.text = '${e['title'] ?? ''}';
+      _location.text = '${e['location'] ?? ''}';
+      _desc.text = '${e['description'] ?? ''}';
+      _allDay = e['all_day'] == 1 || e['all_day'] == true || e['all_day'] == '1';
+      _start = _parseDt(e['start_at']) ?? _defaultStart();
+      _end = _parseDt(e['end_at']) ?? _start.add(const Duration(hours: 1));
+    } else {
+      _start = _defaultStart();
+      _end = _start.add(const Duration(hours: 1));
+    }
+  }
+
+  DateTime _defaultStart() => widget.presetDate != null
+      ? DateTime(widget.presetDate!.year, widget.presetDate!.month, widget.presetDate!.day, 9)
+      : _roundToHour(DateTime.now().add(const Duration(hours: 1)));
+  static DateTime? _parseDt(dynamic v) =>
+      (v is String && v.isNotEmpty) ? DateTime.tryParse(v.replaceAll('Z', '+00:00'))?.toLocal() : null;
   static DateTime _roundToHour(DateTime d) => DateTime(d.year, d.month, d.day, d.hour);
 
   @override
@@ -498,16 +276,30 @@ class _EventFormState extends State<EventForm> {
       _error = null;
     });
     try {
-      await _api.postJson('/api/events', {
+      final body = {
         'title': _title.text.trim(),
         'start_at': isoBeijing(_start, dateOnly: _allDay),
         if (!_allDay) 'end_at': isoBeijing(_end),
         'all_day': _allDay ? 1 : 0,
         'location': _location.text.trim(),
         'description': _desc.text.trim(),
-      });
+      };
+      if (_isEdit) {
+        await _api.putJson('/api/events/${widget.eventId}', body);
+      } else {
+        await _api.postJson('/api/events', body);
+      }
       bumpData();
-      if (mounted) Navigator.of(context).maybePop();
+      if (mounted) {
+        Navigator.of(context).maybePop(_isEdit
+            ? true
+            : <String, dynamic>{
+                'user_skill_name': 'event',
+                'display_name': '事件',
+                'icon': '📅',
+                'payload': {'title': _title.text.trim()},
+              });
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -558,7 +350,8 @@ class _EventFormState extends State<EventForm> {
         backgroundColor: eu.bg,
         foregroundColor: eu.textHi,
         elevation: 0,
-        title: const Text('📅 事件', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+        title: Text(_isEdit ? '📅 编辑事件' : '📅 事件',
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
       ),
       body: SafeArea(
         child: ListView(
@@ -594,16 +387,318 @@ class _EventFormState extends State<EventForm> {
             const SizedBox(height: 6),
             TextField(controller: _location, style: TextStyle(color: eu.textHi), decoration: dec('可选')),
             const SizedBox(height: 14),
-            Text('描述', style: euMono(fontSize: 10, letterSpacing: 1.2, color: eu.textLo)),
+            // 描述 supports markdown (same editor as the asset editor) — events
+            // often carry agendas / notes that want structure, not a flat field.
+            MdEditor(label: '描述', controller: _desc),
+            const SizedBox(height: 18),
+            if (_error != null) ...[
+              Text(_error!, style: TextStyle(color: eu.accentRed, fontSize: 13)),
+              const SizedBox(height: 12),
+            ],
+            GestureDetector(
+              onTap: _busy ? null : _save,
+              behavior: HitTestBehavior.opaque,
+              child: Container(
+                alignment: Alignment.center,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                decoration: BoxDecoration(color: eu.brand, borderRadius: BorderRadius.circular(12)),
+                child: _busy
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Text('保存',
+                        style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 名片 supported social platforms — a FIXED set (user picks from here, never
+/// free-form). key = stored platform key (synced with backend
+/// core/contacts_meta.py / spec §4.5.3a); label = 中文/品牌名; emoji = leading mark.
+/// Order: China-first.
+const List<({String key, String label, String emoji})> kSocialPlatforms = [
+  (key: 'wechat', label: '微信', emoji: '💬'),
+  (key: 'xiaohongshu', label: '小红书', emoji: '📕'),
+  (key: 'x', label: 'X', emoji: '𝕏'),
+  (key: 'telegram', label: 'Telegram', emoji: '✈️'),
+  (key: 'linkedin', label: 'LinkedIn', emoji: '💼'),
+  (key: 'instagram', label: 'Instagram', emoji: '📷'),
+];
+
+({String key, String label, String emoji}) _socialMeta(String key) =>
+    kSocialPlatforms.firstWhere((p) => p.key == key,
+        orElse: () => (key: key, label: key, emoji: '🔗'));
+
+/// Dedicated contact editor (and creator). EDIT mode when [contactId] is set
+/// (PUT /api/contacts/{id}); otherwise POST /api/contacts. The contacts table
+/// is the 真身 for contact data — this never routes through /api/assets.
+class ContactForm extends StatefulWidget {
+  final String? contactId; // non-null = EDIT mode
+  final Map<String, dynamic>? existing; // contact record to prefill
+  const ContactForm({super.key, this.contactId, this.existing});
+  @override
+  State<ContactForm> createState() => _ContactFormState();
+}
+
+class _ContactFormState extends State<ContactForm> {
+  final _api = ApiClient();
+  final _name = TextEditingController();
+  final _company = TextEditingController();
+  final _title = TextEditingController();
+  final _phone = TextEditingController();
+  final _email = TextEditingController();
+  final _notes = TextEditingController(); // one annotation per line (→ md)
+  // socials: platform key → handle controller, only for platforms currently shown
+  // (insertion-ordered). Picked from kSocialPlatforms, never free-form.
+  final Map<String, TextEditingController> _socials = {};
+  bool _busy = false;
+  String? _error;
+  bool get _isEdit => widget.contactId != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final e = widget.existing;
+    if (e != null) {
+      _name.text = '${e['name'] ?? ''}';
+      _company.text = '${e['company'] ?? ''}';
+      _title.text = '${e['title'] ?? ''}';
+      _phone.text = '${e['phone'] ?? ''}';
+      _email.text = '${e['email'] ?? ''}';
+      final n = e['notes'];
+      if (n is List) {
+        _notes.text = n.map((x) => '$x').join('\n');
+      } else if (n is String) {
+        _notes.text = n;
+      }
+      final s = e['socials'];
+      if (s is Map) {
+        // preserve kSocialPlatforms order for a stable layout
+        for (final p in kSocialPlatforms) {
+          final h = s[p.key];
+          if (h != null && '$h'.trim().isNotEmpty) {
+            _socials[p.key] = TextEditingController(text: '$h'.trim());
+          }
+        }
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final c in [_name, _company, _title, _phone, _email, _notes, ..._socials.values]) {
+      c.dispose();
+    }
+    _api.close();
+    super.dispose();
+  }
+
+  /// Show the platforms not yet added → tap to add a row (focus it). This is the
+  /// "select from supported list" gate — no free-form platforms.
+  Future<void> _addSocial() async {
+    final remaining = kSocialPlatforms.where((p) => !_socials.containsKey(p.key)).toList();
+    if (remaining.isEmpty) return;
+    final eu = context.eu;
+    final key = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: eu.surface,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text('添加社交媒体',
+                    style: euMono(fontSize: 11, letterSpacing: 1.2, color: eu.textLo)),
+              ),
+            ),
+            for (final p in remaining)
+              ListTile(
+                leading: Text(p.emoji, style: const TextStyle(fontSize: 20)),
+                title: Text(p.label, style: TextStyle(color: eu.textHi, fontWeight: FontWeight.w600)),
+                onTap: () => Navigator.of(ctx).pop(p.key),
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (key != null && mounted) {
+      setState(() => _socials[key] = TextEditingController());
+    }
+  }
+
+  Future<void> _save() async {
+    if (_busy) return;
+    if (_name.text.trim().isEmpty) {
+      setState(() => _error = '请填写姓名');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    final notes =
+        _notes.text.split('\n').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+    final socials = <String, String>{};
+    _socials.forEach((k, c) {
+      final h = c.text.trim();
+      if (h.isNotEmpty) socials[k] = h;
+    });
+    final body = <String, dynamic>{
+      'name': _name.text.trim(),
+      'company': _company.text.trim(),
+      'title': _title.text.trim(),
+      'phone': _phone.text.trim(),
+      'email': _email.text.trim(),
+      'notes': notes,
+      'socials': socials, // full replace; supported-only enforced by backend
+    };
+    try {
+      if (_isEdit) {
+        await _api.putJson('/api/contacts/${widget.contactId}', body);
+      } else {
+        await _api.postJson('/api/contacts', body);
+      }
+      bumpData();
+      if (mounted) {
+        Navigator.of(context).maybePop(_isEdit
+            ? true
+            : <String, dynamic>{
+                'user_skill_name': 'contact',
+                'display_name': '联系人',
+                'icon': '👤',
+                'payload': {'name': _name.text.trim()},
+              });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _error = '保存失败：$e';
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final eu = context.eu;
+    InputDecoration dec(String hint) => InputDecoration(
+          hintText: hint,
+          hintStyle: TextStyle(color: eu.textLo),
+          isDense: true,
+          filled: true,
+          fillColor: eu.surface,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: eu.border)),
+          enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: eu.border)),
+          focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: eu.brand)),
+        );
+    Widget field(String label, TextEditingController c,
+            {String hint = '可选', TextInputType? kb, int min = 1, int max = 1}) =>
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: euMono(fontSize: 10, letterSpacing: 1.2, color: eu.textLo)),
             const SizedBox(height: 6),
             TextField(
-              controller: _desc,
+              controller: c,
               style: TextStyle(color: eu.textHi),
-              decoration: dec('可选'),
-              minLines: 2,
-              maxLines: 4,
+              decoration: dec(hint),
+              keyboardType: kb,
+              minLines: min,
+              maxLines: max,
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 14),
+          ],
+        );
+    Widget socialRow(String key) {
+      final m = _socialMeta(key);
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Row(
+          children: [
+            Text(m.emoji, style: const TextStyle(fontSize: 18)),
+            const SizedBox(width: 8),
+            SizedBox(
+              width: 72,
+              child: Text(m.label,
+                  style: TextStyle(color: eu.textHi, fontSize: 13, fontWeight: FontWeight.w600)),
+            ),
+            Expanded(
+              child: TextField(
+                controller: _socials[key],
+                style: TextStyle(color: eu.textHi),
+                decoration: dec('账号 / 链接'),
+              ),
+            ),
+            IconButton(
+              icon: Icon(Icons.close, size: 18, color: eu.textLo),
+              onPressed: () {
+                final c = _socials.remove(key);
+                setState(() {});
+                WidgetsBinding.instance.addPostFrameCallback((_) => c?.dispose());
+              },
+            ),
+          ],
+        ),
+      );
+    }
+
+    final remainingSocials =
+        kSocialPlatforms.where((p) => !_socials.containsKey(p.key)).toList();
+    return Scaffold(
+      backgroundColor: eu.bg,
+      appBar: AppBar(
+        backgroundColor: eu.bg,
+        foregroundColor: eu.textHi,
+        elevation: 0,
+        title: Text(_isEdit ? '👤 编辑联系人' : '👤 联系人',
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+      ),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+          children: [
+            field('姓名 *', _name, hint: '联系人姓名'),
+            field('公司', _company),
+            field('职位', _title),
+            field('电话', _phone, kb: TextInputType.phone),
+            field('邮箱', _email, kb: TextInputType.emailAddress),
+            // 社交媒体 — pick from the supported list, store the handle only
+            Text('社交媒体', style: euMono(fontSize: 10, letterSpacing: 1.2, color: eu.textLo)),
+            const SizedBox(height: 8),
+            for (final key in _socials.keys.toList()) socialRow(key),
+            if (remainingSocials.isNotEmpty)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: _addSocial,
+                  icon: Icon(Icons.add, size: 18, color: eu.brand),
+                  label: Text('添加社交媒体', style: TextStyle(color: eu.brand, fontSize: 13)),
+                  style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      minimumSize: const Size(0, 36)),
+                ),
+              ),
+            const SizedBox(height: 14),
+            field('备注', _notes, hint: '在哪相遇 / 怎么认识…一行一条', min: 3, max: 6),
+            const SizedBox(height: 4),
             if (_error != null) ...[
               Text(_error!, style: TextStyle(color: eu.accentRed, fontSize: 13)),
               const SizedBox(height: 12),

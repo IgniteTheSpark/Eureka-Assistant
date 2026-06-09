@@ -115,6 +115,9 @@ def make_dispatcher_agent(custom_skills_hint: str = "") -> LlmAgent:
             "- 「跑了 5 公里」→ type=\"running\" (字典里有 跑步记录)\n"
             "- 「宝宝喝奶」→ type=\"babycare\" (字典里有 宝宝养育记录)\n"
             "- 字典里**没有**任何匹配 → 才回退 misc / notes\n\n"
+            "**匹配要求语义/主语真正吻合,别因为单位或动词沾边就硬套**:\n"
+            "「我喝水 100ml」≠「宝宝喝奶」(主语不同)、「我读书」≠「想法」(类型不同)。\n"
+            "勉强沾边、对不上的,**宁可 misc / notes**,也不要塞进一个语义不对的 skill。\n\n"
             "示例输出:\n"
             "```json\n"
             "{\"intents\": [{\"type\": \"running\", \"source_text\": \"跑了 5 公里 步频 6\"}]}\n"
@@ -124,6 +127,47 @@ def make_dispatcher_agent(custom_skills_hint: str = "") -> LlmAgent:
         name="flash_dispatcher",
         model=FLASH_DISPATCHER_MODEL,
         instruction=prompt,
+        tools=[],
+    )
+
+
+# ── Report engine (§6) agents ────────────────────────────────────────────────
+# Both are tool-less: ① classifies genre, ② transforms pre-fetched real data
+# into annotated Markdown. Data is injected by report_pipeline (not tool-fetched)
+# so DeepSeek tool-call flakiness can't corrupt the numbers. ③ render is a
+# deterministic Python module (agents/report_render.py), not an LlmAgent.
+
+REPORT_GENRES = ("data-report", "idea-synthesis", "proposal", "digest")
+
+
+def make_report_dispatcher_agent() -> LlmAgent:
+    """① genre classifier — no tools, pure classification."""
+    return LlmAgent(
+        name="report_dispatcher",
+        model=FLASH_DISPATCHER_MODEL,
+        instruction=_load_prompt("report-dispatcher"),
+        tools=[],
+    )
+
+
+def make_report_content_agent(genre: str) -> LlmAgent:
+    """② content skill for a genre — no tools, data→annotated-md transformer."""
+    if genre not in REPORT_GENRES:
+        genre = "digest"
+    return LlmAgent(
+        name=f"report_{genre.replace('-', '_')}",
+        model=FLASH_SKILL_MODEL,
+        instruction=_load_prompt(f"report-{genre}"),
+        tools=[],
+    )
+
+
+def make_report_intake_agent() -> LlmAgent:
+    """Guided-dialogue gate (§6.8.2) — decides ready vs. ask. No tools."""
+    return LlmAgent(
+        name="report_intake",
+        model=FLASH_DISPATCHER_MODEL,
+        instruction=_load_prompt("report-intake"),
         tools=[],
     )
 

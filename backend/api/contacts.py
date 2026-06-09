@@ -19,8 +19,10 @@ from sqlalchemy import select
 from typing import List, Optional
 
 from core.auth import get_current_user_id
+from core.contacts_meta import clean_socials, notes_to_list, append_notes
 from db.models import Contact
 from db.database import AsyncSessionLocal
+from typing import Dict
 import uuid
 
 router = APIRouter()
@@ -32,7 +34,8 @@ class ContactCreateRequest(BaseModel):
     company: Optional[str] = None
     title:   Optional[str] = None
     email:   Optional[str] = None
-    notes:   Optional[List[str]] = None
+    notes:   Optional[List[str]] = None      # md annotation lines
+    socials: Optional[Dict[str, str]] = None  # {platform_key: handle}, fixed set
 
 
 class ContactUpdateRequest(BaseModel):
@@ -41,7 +44,9 @@ class ContactUpdateRequest(BaseModel):
     company: Optional[str] = None
     title:   Optional[str] = None
     email:   Optional[str] = None
-    notes:   Optional[List[str]] = None
+    notes:   Optional[List[str]] = None        # full replace (form manages the set)
+    notes_append: Optional[List[str]] = None   # append-only (never wipes existing)
+    socials: Optional[Dict[str, str]] = None   # full replace, supported-only
 
 
 @router.get("/contacts")
@@ -68,7 +73,8 @@ async def list_contacts(
                 "company": c.company,
                 "title": c.title,
                 "email": c.email,
-                "notes": c.notes,
+                "notes": notes_to_list(c.notes),
+                "socials": clean_socials(c.socials),
                 "created_at": c.created_at.isoformat(),
             }
             for c in contacts
@@ -107,7 +113,8 @@ async def create_contact(req: ContactCreateRequest, user_id: str = Depends(get_c
             company=req.company,
             title=req.title,
             email=req.email,
-            notes=req.notes or [],
+            notes=notes_to_list(req.notes),
+            socials=clean_socials(req.socials),
         )
         db.add(c)
         await db.commit()
@@ -128,10 +135,16 @@ async def update_contact(contact_id: str, req: ContactUpdateRequest, user_id: st
         if not c:
             raise HTTPException(status_code=404, detail="contact not found")
         # Only apply fields that were sent (None = leave as-is)
-        for field in ("name", "phone", "company", "title", "email", "notes"):
+        for field in ("name", "phone", "company", "title", "email"):
             v = getattr(req, field)
             if v is not None:
                 setattr(c, field, v)
+        if req.notes is not None:                 # full replace (form-managed set)
+            c.notes = notes_to_list(req.notes)
+        if req.notes_append:                      # append-only, never wipes
+            c.notes = append_notes(c.notes, req.notes_append)
+        if req.socials is not None:               # full replace, supported-only
+            c.socials = clean_socials(req.socials)
         await db.commit()
         await db.refresh(c)
     return {"ok": True, "contact": _serialize(c)}
@@ -162,6 +175,7 @@ def _serialize(c: Contact) -> dict:
         "company": c.company,
         "title": c.title,
         "email": c.email,
-        "notes": c.notes,
+        "notes": notes_to_list(c.notes),
+        "socials": clean_socials(c.socials),
         "created_at": c.created_at.isoformat(),
     }

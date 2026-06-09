@@ -28,6 +28,10 @@ services:
       DATABASE_URL: mysql://eureka:eureka@db:3306/eureka
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # §6.6.2 AI 配图 — optional dedicated image key/model (isolates a fresh
+      # image key from the DeepSeek text key). Empty → reuse OPENROUTER_API_KEY.
+      IMAGE_API_KEY: ${IMAGE_API_KEY:-}
+      IMAGE_MODEL: ${IMAGE_MODEL:-}
       USER_ID: default
 
       # ── Third-party MCP toggles & credentials (v1.4.x) ──

@@ -2,9 +2,13 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'api/api_client.dart';
 import 'api/sse_client.dart';
 import 'data_revision.dart';
+import 'pages/calendar_page.dart';
+import 'pages/report_viewer_page.dart';
 import 'pages/session_detail_page.dart';
+import 'pet/reka_notifications.dart';
 import 'theme/app_theme.dart';
 
 /// True while the hardware flash-memo button is held (SSE `listening` event).
@@ -53,6 +57,15 @@ class AppEvents {
       case 'notification':
         bumpData();
         _toast(ev.json);
+        final j = ev.json;
+        final type = j['type'] as String? ?? '';
+        RekaNotifications.instance.add(
+          icon: type == 'flash_done' ? '⚡' : (type.startsWith('task') ? '⚙️' : '🔔'),
+          title: j['title'] as String? ?? '通知',
+          meta: j['body'] as String?,
+          type: type,                              // carry routing info so the
+          link: j['link'] as String? ?? '',        // REKA panel + toast can open it
+        );
     }
   }
 
@@ -80,7 +93,7 @@ class AppEvents {
             ? null
             : () {
                 close();
-                _navTo(type, link);
+                openNotificationTarget(type, link);
               },
         onClose: close,
       ),
@@ -88,17 +101,44 @@ class AppEvents {
     overlay.insert(entry);
     Future<void>.delayed(Duration(milliseconds: ms), close);
   }
+}
 
-  void _navTo(String type, String link) {
-    final nav = navigatorKey.currentState;
-    if (nav == null || link.isEmpty) return;
-    // flash_done → the capture session (title resolved from the session meta).
-    if (type == 'flash_done') {
-      nav.push(MaterialPageRoute(
-        builder: (_) => SessionDetailPage(sessionId: link, title: '闪念'),
-      ));
-    }
+/// Route a notification (from the toast OR the REKA 通知 panel) to its target.
+/// Best-effort + async (report_done fetches html); unknown types no-op.
+Future<void> openNotificationTarget(String type, String link) async {
+  final nav = navigatorKey.currentState;
+  if (nav == null || link.isEmpty) return;
+
+  // reminder link is structured: reminder:evt:<id>:<thr> / reminder:todo:<id>:<thr>
+  // — both events and todos live on the calendar timeline.
+  if (type == 'reminder' || link.startsWith('reminder:')) {
+    nav.push(MaterialPageRoute(builder: (_) => const CalendarPage()));
+    return;
   }
+  if (type == 'flash_done') {
+    nav.push(MaterialPageRoute(
+        builder: (_) => SessionDetailPage(sessionId: link, title: '闪念')));
+    return;
+  }
+  if (type == 'report_done') {
+    try {
+      final api = ApiClient();
+      final res = await api.getJson('/api/reports/$link');
+      api.close();
+      final r = (res is Map ? res['report'] : null) as Map?;
+      if (r != null) {
+        nav.push(MaterialPageRoute(
+          builder: (_) => ReportViewerPage(
+            title: r['title'] as String? ?? '报告',
+            html: r['html'] as String? ?? '',
+            reportId: link,
+          ),
+        ));
+      }
+    } catch (_) {/* best-effort — a deleted report just doesn't open */}
+    return;
+  }
+  // task_done / task_failed / unknown → no clean target page; no-op.
 }
 
 /// Top-center toast (web Toast parity): themed surface, tappable to follow its

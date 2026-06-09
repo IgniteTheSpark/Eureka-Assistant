@@ -5,7 +5,11 @@ import '../assets/assets.dart';
 import '../data_revision.dart';
 import '../render/skill_card.dart';
 import '../theme/app_theme.dart';
+import '../theme/eureka_colors.dart';
 import '../timeline/timeline.dart';
+import '../widgets/toast.dart';
+import 'connected_apps_page.dart';
+import 'skill_config_page.dart';
 
 /// Assets of one skill category. Self-fetches by [skillName] and refreshes on
 /// [dataRevision] (so newly created/edited/deleted records show without leaving
@@ -37,9 +41,10 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
   final _api = ApiClient();
   late List<AssetItem> _assets = widget.assets;
 
-  // The five built-in free-text skills can't be deleted (mirrors the web
-  // protected set); system skills (external_ref/qa/contact) never reach here.
-  static const _protected = {'todo', 'idea', 'expense', 'notes', 'misc'};
+  // Built-in skills that can't be deleted. idea/misc merged into 随记 (notes),
+  // so the protected set is {todo, expense, 随记}; system skills
+  // (external_ref/qa/contact) never reach here.
+  static const _protected = {'todo', 'expense', 'notes'};
 
   bool get _canDelete =>
       widget.meta.userSkillId != null && !_protected.contains(widget.skillName);
@@ -112,9 +117,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text('删除失败：$e')));
+      showToast(context, '删除失败：$e', error: true);
     }
   }
 
@@ -129,6 +132,19 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
         elevation: 0,
         title: Text('${widget.meta.icon} ${widget.meta.label}'),
         actions: [
+          // 卡片配置:从这里 preview + 调整 icon / 颜色 / 字段位置(render_spec)。
+          if (widget.meta.userSkillId != null && widget.skillName != null)
+            IconButton(
+              tooltip: '卡片配置',
+              icon: Icon(Icons.tune, color: eu.textMid),
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => SkillConfigPage(
+                  skillName: widget.skillName!,
+                  userSkillId: widget.meta.userSkillId!,
+                  label: widget.meta.label,
+                ),
+              )),
+            ),
           if (_canDelete)
             IconButton(
               tooltip: '删除技能',
@@ -141,25 +157,123 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
         valueListenable: dataRevision,
         builder: (context, rev, _) {
           _maybeReload(rev);
+          final isExternal = widget.skillName == 'external_ref';
           final sorted = [..._assets]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-          return sorted.isEmpty
-              ? Center(child: Text('还没有记录', style: TextStyle(color: eu.textMid, fontSize: 14)))
-              : ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                  itemCount: sorted.length,
-                  itemBuilder: (_, i) {
-                    final a = sorted[i];
-                    // Tap → detail sheet; left-swipe → delete (handled by SkillCard).
-                    return SkillCard({
-                      'user_skill_name': a.skillName,
-                      'payload': a.payload,
-                      'asset_id': a.id,
-                      'session_id': a.sessionId,
-                    }, layoutOverride: 'horizontal');
-                  },
-                );
+          // 外部容器装的是「同步到第三方的引用」——顶部放一个去「已连接应用」的入口,
+          // 让用户从"看外部产物"直接跳到"管外部连接"(§4.4.2)。即使空列表也显示。
+          if (sorted.isEmpty && !isExternal) {
+            return Center(child: Text('还没有记录', style: TextStyle(color: eu.textMid, fontSize: 14)));
+          }
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+            children: [
+              if (isExternal) ...[
+                _manageConnectionsCard(eu),
+                const SizedBox(height: 14),
+              ],
+              if (sorted.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 28),
+                  child: Center(
+                    child: Text(
+                      isExternal ? '还没有同步到外部的内容' : '还没有记录',
+                      style: TextStyle(color: eu.textMid, fontSize: 14),
+                    ),
+                  ),
+                )
+              else
+                ..._withDayHeaders(eu, sorted),
+            ],
+          );
         },
       ),
     );
+  }
+
+  // 外部容器顶部的「管理连接」入口卡 → 设置 · 已连接应用(§4.0.6 / §1.7.1)。
+  Widget _manageConnectionsCard(EurekaColors eu) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => Navigator.of(context)
+          .push(MaterialPageRoute(builder: (_) => const ConnectedAppsPage())),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [eu.brand.withValues(alpha: 0.16), eu.brand.withValues(alpha: 0.04)],
+          ),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: eu.brand.withValues(alpha: 0.30)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: eu.brand.withValues(alpha: 0.16),
+                borderRadius: BorderRadius.circular(11),
+                border: Border.all(color: eu.brand.withValues(alpha: 0.30)),
+              ),
+              child: Icon(Icons.hub_outlined, color: eu.brand, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('管理连接',
+                      style: TextStyle(color: eu.textHi, fontSize: 14.5, fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 2),
+                  Text('连接 / 管理 钉钉、Notion 等外部应用',
+                      style: TextStyle(color: eu.textMid, fontSize: 12)),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right, color: eu.brand, size: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // 按天分隔 (§4.4.2): newest-first list with a light group header at each day
+  // boundary (今天 / 昨天 / M月D日). Reuses the 最近/日历 grouping style;
+  // visual-only, no sort menu.
+  List<Widget> _withDayHeaders(EurekaColors eu, List<AssetItem> items) {
+    final out = <Widget>[];
+    final now = DateTime.now();
+    String? lastKey;
+    for (final a in items) {
+      final d = DateTime(a.createdAt.year, a.createdAt.month, a.createdAt.day);
+      final key = '${d.year}-${d.month}-${d.day}';
+      if (key != lastKey) {
+        lastKey = key;
+        out.add(Padding(
+          padding: const EdgeInsets.only(top: 10, bottom: 2),
+          child: Text(_dayLabel(d, now),
+              style: euMono(fontSize: 10, letterSpacing: 1.2, color: eu.textLo)),
+        ));
+      }
+      // Tap → detail sheet; left-swipe → delete (handled by SkillCard).
+      out.add(SkillCard({
+        'user_skill_name': a.skillName,
+        'payload': a.payload,
+        'asset_id': a.id,
+        'session_id': a.sessionId,
+        'domain': a.domain,
+      }, layoutOverride: 'horizontal'));
+    }
+    return out;
+  }
+
+  String _dayLabel(DateTime d, DateTime now) {
+    final isToday = d.year == now.year && d.month == now.month && d.day == now.day;
+    final y = now.subtract(const Duration(days: 1));
+    final isYesterday = d.year == y.year && d.month == y.month && d.day == y.day;
+    return isToday ? '今天' : isYesterday ? '昨天' : '${d.month}月${d.day}日';
   }
 }

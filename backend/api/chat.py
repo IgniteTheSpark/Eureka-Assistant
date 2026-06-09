@@ -17,6 +17,7 @@ The "刚刚那个" cross-turn CRUD reference (Phase B v1.3) works because:
 - Those are formatted into the assistant's prompt context
 - Assistant identifies the referenced asset_id from prior tool_call history
 """
+import asyncio
 import json
 import time
 import uuid
@@ -31,7 +32,9 @@ from google.adk.sessions import InMemorySessionService
 from google.genai.types import Content, Part
 
 from agents.assistant import make_assistant_agent
+from agents.flash_pipeline import run_flash_pipeline
 from core.auth import get_current_user_id
+from core import chat_turns
 from core.event_mapper import (
     event_role, event_text, event_usage,
     event_tool_calls, event_tool_results, is_streamable_token,
@@ -44,7 +47,9 @@ from core.session_service import (
     load_session_context_hint,
     load_session_subject_hint,
     load_user_skills_hint,
-    persist_chat_turn,
+    persist_user_message,
+    create_pending_agent_message,
+    finalize_agent_message,
 )
 
 # Asia/Shanghai is the canonical user timezone for v1.4 demo data.
@@ -148,9 +153,8 @@ def _tag_card(d) -> dict | None:
 
 def _cards_from_tool_result(name: str, response) -> list[dict]:
     """Renderable card dict(s) from a create/update tool_result, for persistence.
-    Query/report tools contribute none (queries are intermediate; the report has
-    its own receipt via the tool_result pair)."""
-    if name in _QUERY_TOOLS or name == "tool_render_report":
+    Query tools contribute none (queries are intermediate)."""
+    if name in _QUERY_TOOLS:
         return []
     for c in _unwrap_tool_payloads(response):
         for key in ("assets", "events", "contacts", "tasks"):
@@ -161,6 +165,65 @@ def _cards_from_tool_result(name: str, response) -> list[dict]:
         if single:
             return [single]
     return []
+
+
+# ── Bulk-record routing (§1.5.1.3 batch B) ──────────────────────────────────────
+# A single message that's really「捕捉 / 批量导入」(pasting dozens of records) is
+# the WRONG job for chat's sequential single-LLM tool loop — it's slow (168s),
+# fragile (truncates mid-run), and pricey. Detect it with a server-side heuristic
+# (no LLM) and route to the Flash pipeline (dispatcher → PARALLEL sub-skills), then
+# report the TRUE count. Conservative: only fires on clearly-bulk input so normal
+# conversational turns ("帮我记一笔午餐 38 元") stay on the chat path.
+import re as _re
+
+_DATE_RE = _re.compile(r"(?:\d{4}\s*[-/年.]\s*\d{1,2}|\d{1,2}\s*[-/月.]\s*\d{1,2})")
+_AMOUNT_RE = _re.compile(
+    r"(?:[¥$￥]\s?\d+(?:\.\d+)?)|(?:\d+(?:\.\d+)?\s*(?:元|块|刀|usd|rmb|卡|kcal|页|km|公里|分钟|小时))",
+    _re.I,
+)
+
+
+# A "handful" (≈3–7 records) is FINE in chat — the sequential tool loop handles it
+# and keeps the turn conversational. Only a genuine bulk dump (≥ this) overwhelms
+# chat (slow + truncates, §1.5.1.2) and is worth routing to the parallel Flash
+# pipeline. One knob — raise it to keep more in chat, lower it to route sooner.
+_BULK_MIN_RECORDS = 8
+
+
+def _looks_like_bulk(text: str) -> bool:
+    """Heuristic (no LLM): is this ONE message actually a bulk record dump?
+    Estimates record count = max(total dates, total amounts, record-ish lines) and
+    only fires at _BULK_MIN_RECORDS+. A handful (3–7) stays in chat by design, so
+    a normal multi-item message keeps its conversational handling."""
+    t = text or ""
+    dates = len(_DATE_RE.findall(t))
+    amounts = len(_AMOUNT_RE.findall(t))
+    # One expense line usually carries a date AND/OR an amount, so the larger of
+    # the two ≈ record count; record_lines covers inline-or-multiline either way.
+    record_lines = sum(
+        1 for ln in t.splitlines()
+        if ln.strip() and (_DATE_RE.search(ln) or _AMOUNT_RE.search(ln))
+    )
+    return max(dates, amounts, record_lines) >= _BULK_MIN_RECORDS
+
+
+def _group_cards(cards: list) -> dict:
+    """Regroup already-tagged Flash cards into the typed arrays the frontend's
+    extractCards() walks (assets/events/contacts/tasks) — so the LIVE viewer
+    renders every card via one synthetic tool_result, no frontend change."""
+    out: dict = {"assets": [], "events": [], "contacts": [], "tasks": []}
+    for c in cards:
+        if not isinstance(c, dict):
+            continue
+        if c.get("task_id"):
+            out["tasks"].append(c)
+        elif c.get("event_id") and c.get("title"):
+            out["events"].append(c)
+        elif c.get("contact_id") and c.get("name"):
+            out["contacts"].append(c)
+        else:
+            out["assets"].append(c)
+    return {k: v for k, v in out.items() if v}
 
 
 # ── ADK runner helper ─────────────────────────────────────────────────────────
@@ -291,95 +354,62 @@ async def _stream_assistant(
         return
 
 
-# ── Endpoint ───────────────────────────────────────────────────────────────────
+# ── Durable turn background task (§1.5.1.3 batch A) ─────────────────────────────
+# The turn's work + persistence live HERE, decoupled from the SSE connection, so
+# the client disconnecting (leaving the session page) can't cancel it. The SSE
+# response is only a live *view* (core/chat_turns). Hold refs so tasks aren't GC'd.
+_turn_tasks: set = set()
 
-@router.post("/chat")
-async def chat(req: ChatRequest, user_id: str = Depends(get_current_user_id)):
-    """
-    Unified Assistant chat (SSE).
 
-    Streams events:
-      meta         → {session_id, input_turn_id}
-      token        → {text} (currently emitted as one chunk per agent step;
-                     true per-token streaming is a Phase D polish item)
-      tool_call    → {name, args}
-      tool_result  → {name, response}
-      done         → {elapsed_ms, message_id}
-    """
-    t0 = time.monotonic()
-
-    async def stream() -> AsyncIterator[str]:
-        # Phase 1 — session / input_turn setup
-        async with AsyncSessionLocal() as db:
-            session = await get_or_create_chat_session(
-                db, user_id,
-                session_id=req.session_id or None,
-                title_hint=req.user_text,
-                event_id=req.event_id or None,   # v1.4: anchor to event if provided
+async def _run_chat_turn(
+    *,
+    turn_id: str,            # the running placeholder agent-message id (= channel key)
+    user_text: str,
+    history_text: str,
+    session_id: str,
+    input_turn_id: str,
+    user_id: str,
+    event_id: str,
+    today_str: str,
+    user_skills_hint: str,
+    session_assets_hint: str,
+    session_context_hint: str,
+    session_subject_hint: str,
+    t0: float,
+) -> None:
+    """Run the agent to completion and finalize the placeholder message — ALWAYS
+    lands a terminal status (done/failed), even if the client never connected or
+    left mid-generation. Publishes live events to the turn channel for any viewer."""
+    agent_text_parts: list[str] = []
+    persist_cards: list = []
+    usage_total = 0
+    status = "done"
+    try:
+        if _looks_like_bulk(user_text):
+            # §1.5.1.3 batch B — this message is a bulk paste, not a conversation.
+            # Route to the Flash pipeline (PARALLEL extraction) and report the
+            # TRUE count. Fast (not 168s sequential), complete (no truncation).
+            result = await run_flash_pipeline(
+                user_text=user_text, session_id=session_id,
+                input_turn_id=input_turn_id, today_str=today_str, user_id=user_id,
             )
-            session_id = str(session.id)
-            input_turn = await create_input_turn_for_message(
-                db, session_id, user_id, req.user_text, source="typed",
+            persist_cards = result.get("cards", []) or []
+            n = len(persist_cards)
+            summary = (result.get("summary") or result.get("reply") or "").strip()
+            # Faithful receipt: prefer Flash's own count line, else state the truth.
+            agent_text = summary or (
+                f"已为你记录 {n} 条。" if n else "这条里没找到可记录的内容,换个说法再试试?"
             )
-            input_turn_id = str(input_turn.id)
-            recent = await load_recent_messages(db, session_id)
-            # Pull assets / events already created in this session (typically
-            # by an earlier Flash Pipeline run) — these are the「刚刚那个 X」
-            # candidates the chat agent needs to find before deciding update
-            # vs create. Without this, Flash-created assets are invisible to
-            # the chat agent (Flash doesn't write to the messages table).
-            session_assets_hint = await load_session_assets_hint(
-                db, session_id, user_id,
-            )
-            # M2.2: explicit user-attached context assets (from「在 chat 里
-            # 讨论」). Different from assets_hint (which is "things created
-            # in this session"); context is "what the user wants the agent
-            # to focus on right now."
-            session_context_hint = await load_session_context_hint(
-                db, session_id, user_id,
-            )
-            # M2.3: subject hint = the entity/asset this session is anchored to
-            # (sessions.contact_id / event_id / file_id / subject_asset_id).
-            # Distinct from context (additive) and assets_hint (in-session created).
-            session_subject_hint = await load_session_subject_hint(
-                db, session_id, user_id,
-            )
-            # User's registered skill dictionary — injected into the prompt so
-            # the agent dispatches to user-created skills (跑步记录 / 宝宝养
-            # 育记录 / …) by name + payload schema instead of falling back to
-            # 'misc'. May audit, custom-skill dispatch bug.
-            user_skills_hint = await load_user_skills_hint(db, user_id)
-
-        # The current local *moment* (date + time + weekday) the agent uses to
-        # resolve "明天" / "下周三" (date math) AND "刚刚 / 现在 / 几分钟前"
-        # (which must keep the real clock time, not collapse to 00:00).
-        _now_local = datetime.now(_LOCAL_TZ)
-        today_str = (
-            f"{_now_local.isoformat(timespec='minutes')}"
-            f"(周{'一二三四五六日'[_now_local.weekday()]})"
-        )
-
-        yield sse_event("meta", {
-            "session_id": session_id,
-            "input_turn_id": input_turn_id,
-        })
-
-        # Phase 2 — stream agent run, collect state for persistence
-        history_text = _format_history(recent)
-        agent_text_parts: list[str] = []
-        # Persist EVERY created/updated card so a multi-intent turn replays all
-        # of them on reload (was: only the first tool pair → one card survived).
-        persist_cards: list = []
-        # html-summary: a SUMMARY turn calls tool_render_report; keep that pair
-        # so the report-receipt card (rendered from tool_result) survives reload.
-        report_tool_call: dict | None = None
-        report_tool_result: dict | None = None
-        usage_total = 0
-
-        try:
+            agent_text_parts = [agent_text]
+            chat_turns.publish(turn_id, ("token", {"text": agent_text}))
+            if persist_cards:   # one synthetic tool_result → live viewer renders ALL cards
+                chat_turns.publish(turn_id, ("tool_result", {
+                    "name": "bulk_import", "response": _group_cards(persist_cards),
+                }))
+        else:
             async for evt_type, payload in _stream_assistant(
-                req.user_text, history_text, session_id, input_turn_id, user_id,
-                event_id=req.event_id or "",
+                user_text, history_text, session_id, input_turn_id, user_id,
+                event_id=event_id,
                 today_str=today_str,
                 user_skills_hint=user_skills_hint,
                 session_assets_hint=session_assets_hint,
@@ -388,56 +418,154 @@ async def chat(req: ChatRequest, user_id: str = Depends(get_current_user_id)):
             ):
                 if evt_type == "usage":
                     usage_total = payload.get("total_tokens", 0) or usage_total
-                    continue
-                yield sse_event(evt_type, payload)
+                    continue   # folded into the final `done`, not forwarded (parity)
+                # Forward to any live viewer as it happens.
+                chat_turns.publish(turn_id, (evt_type, payload))
                 if evt_type == "token":
                     agent_text_parts.append(payload.get("text", ""))
-                elif evt_type == "tool_call":
-                    if payload.get("name") == "tool_render_report":
-                        report_tool_call = payload
                 elif evt_type == "tool_result":
-                    if payload.get("name") == "tool_render_report":
-                        report_tool_result = payload
-                    else:
-                        persist_cards.extend(
-                            _cards_from_tool_result(payload.get("name", ""), payload.get("response", {}))
-                        )
-        except Exception as e:
-            yield sse_event("error", {"message": str(e)[:200]})
+                    persist_cards.extend(
+                        _cards_from_tool_result(payload.get("name", ""), payload.get("response", {}))
+                    )
+    except Exception as e:
+        status = "failed"
+        # Never leave the user staring at 「分析中…」: land a real, gentle reply.
+        if not agent_text_parts:
+            agent_text_parts.append("抱歉,刚才处理这条时出了点问题,请再试一次。")
+        chat_turns.publish(turn_id, ("token", {"text": agent_text_parts[-1]}))
+        chat_turns.publish(turn_id, ("error", {"message": str(e)[:200]}))
 
-        # Phase 3 — persist user + agent messages. The report pair (if any)
-        # renders the receipt card via tool_result; all create/update cards
-        # persist via `cards` so every one replays (no first-only truncation).
-        persist_tool_call   = report_tool_call
-        persist_tool_result = report_tool_result
-        # Strip the bulky html out of the *tool_call* args — the frontend reads
-        # the report from tool_result.response, so keeping it would double it.
-        if report_tool_call:
-            rc = dict(report_tool_call)
-            args = dict(rc.get("args") or {})
-            if isinstance(args.get("html"), str):
-                args["html"] = f"⟨{len(args['html'])} chars⟩"
-            rc["args"] = args
-            persist_tool_call = rc
+    agent_text = "".join(agent_text_parts).strip()
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
+    try:
+        async with AsyncSessionLocal() as db:
+            await finalize_agent_message(
+                db, turn_id,
+                agent_text=agent_text,
+                cards=persist_cards,
+                elapsed_ms=elapsed_ms,
+                status=status,
+            )
+    except Exception:
+        pass
 
-        agent_text = "".join(agent_text_parts).strip()
-        elapsed_ms = int((time.monotonic() - t0) * 1000)
-        try:
-            async with AsyncSessionLocal() as db:
-                _, agent_msg = await persist_chat_turn(
-                    db, session_id, user_id,
-                    user_text=req.user_text,
-                    agent_text=agent_text,
-                    tool_call=persist_tool_call,
-                    tool_result=persist_tool_result,
-                    cards=persist_cards,
-                    elapsed_ms=elapsed_ms,
-                )
-                msg_id = str(agent_msg.id)
-        except Exception:
-            msg_id = ""
+    # Final `done` for the live viewer (carries the same shape as before), then
+    # the end-of-turn sentinel so the viewer closes its SSE.
+    chat_turns.publish(turn_id, ("done", {
+        "elapsed_ms": elapsed_ms, "message_id": turn_id, "total_tokens": usage_total,
+    }))
+    await chat_turns.close(turn_id)
 
-        yield sse_event("done", {"elapsed_ms": elapsed_ms, "message_id": msg_id, "total_tokens": usage_total})
+
+# ── Endpoint ───────────────────────────────────────────────────────────────────
+
+@router.post("/chat")
+async def chat(req: ChatRequest, user_id: str = Depends(get_current_user_id)):
+    """
+    Unified Assistant chat (SSE) — durable turn (§1.5.1.3 batch A).
+
+    The user message + a `running` agent placeholder persist BEFORE the response
+    is returned, and generation runs as a background task that survives the client
+    disconnecting. The SSE stream is a live view of that task. A returning client
+    reconciles via the persisted message `status` (running → 「分析中…」 + poll).
+
+    Streams events (unchanged for the connected client):
+      meta         → {session_id, input_turn_id, turn_id}
+      token        → {text}
+      tool_call    → {name, args}
+      tool_result  → {name, response}
+      done         → {elapsed_ms, message_id, total_tokens}
+    """
+    t0 = time.monotonic()
+
+    # ── Sync setup (awaited before the response): persist the input + placeholder
+    # so they survive even if the client never reads the stream. ──
+    async with AsyncSessionLocal() as db:
+        session = await get_or_create_chat_session(
+            db, user_id,
+            session_id=req.session_id or None,
+            title_hint=req.user_text,
+            event_id=req.event_id or None,   # v1.4: anchor to event if provided
+        )
+        session_id = str(session.id)
+        input_turn = await create_input_turn_for_message(
+            db, session_id, user_id, req.user_text, source="typed",
+        )
+        input_turn_id = str(input_turn.id)
+        recent = await load_recent_messages(db, session_id)
+        # Pull assets / events already created in this session (typically by an
+        # earlier Flash run) — the「刚刚那个 X」candidates the chat agent needs
+        # before deciding update vs create. Flash doesn't write the messages table.
+        session_assets_hint = await load_session_assets_hint(db, session_id, user_id)
+        # M2.2: explicit user-attached context assets (from「在 chat 里讨论」).
+        session_context_hint = await load_session_context_hint(db, session_id, user_id)
+        # M2.3: subject hint = the entity/asset this session is anchored to.
+        session_subject_hint = await load_session_subject_hint(db, session_id, user_id)
+        # User's registered skill dictionary → dispatch to custom skills by name.
+        user_skills_hint = await load_user_skills_hint(db, user_id)
+
+        # Durable turn: land the user message NOW (leaving never loses input) and
+        # a running agent placeholder (the in-flight marker a returning client
+        # renders as 「分析中…」 and reconciles against).
+        await persist_user_message(db, session_id, user_id, req.user_text)
+        placeholder = await create_pending_agent_message(db, session_id, user_id)
+        turn_id = str(placeholder.id)
+
+    _now_local = datetime.now(_LOCAL_TZ)
+    today_str = (
+        f"{_now_local.isoformat(timespec='minutes')}"
+        f"(周{'一二三四五六日'[_now_local.weekday()]})"
+    )
+    history_text = _format_history(recent)
+
+    # Open the live-view channel, then spawn the turn as a background task that
+    # OWNS the work — it is not tied to this request's lifetime.
+    chat_turns.open_channel(turn_id)
+    task = asyncio.create_task(_run_chat_turn(
+        turn_id=turn_id,
+        user_text=req.user_text,
+        history_text=history_text,
+        session_id=session_id,
+        input_turn_id=input_turn_id,
+        user_id=user_id,
+        event_id=req.event_id or "",
+        today_str=today_str,
+        user_skills_hint=user_skills_hint,
+        session_assets_hint=session_assets_hint,
+        session_context_hint=session_context_hint,
+        session_subject_hint=session_subject_hint,
+        t0=t0,
+    ))
+    _turn_tasks.add(task)
+    task.add_done_callback(_turn_tasks.discard)
+
+    async def stream() -> AsyncIterator[str]:
+        # meta first so the client learns the (possibly new) session + turn id even
+        # if it disconnects immediately — the turn still completes server-side.
+        yield sse_event("meta", {
+            "session_id": session_id,
+            "input_turn_id": input_turn_id,
+            "turn_id": turn_id,
+        })
+        ch = chat_turns.get_channel(turn_id)
+        if ch is None:   # turn already finished + reaped (very fast turn) → reconcile via reload
+            yield sse_event("done", {"elapsed_ms": 0, "message_id": turn_id, "total_tokens": 0})
+            return
+        # Drain the live view until the end-of-turn sentinel. If the client
+        # disconnects, this generator is cancelled but the background task runs on.
+        # The 1s timeout + `finished` guard ends the stream even in the rare case
+        # the DONE sentinel was dropped (bounded queue overflowed with no viewer).
+        while True:
+            try:
+                evt = await asyncio.wait_for(ch.q.get(), timeout=1.0)
+            except asyncio.TimeoutError:
+                if ch.finished:
+                    return
+                continue
+            if evt is chat_turns.DONE:
+                return
+            evt_type, payload = evt
+            yield sse_event(evt_type, payload)
 
     return StreamingResponse(
         with_heartbeats(stream()),

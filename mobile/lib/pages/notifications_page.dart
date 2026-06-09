@@ -132,11 +132,19 @@ class _NotificationsPageState extends State<NotificationsPage> {
           final am = a.cast<String, dynamic>();
           final skill = am['user_skill_name'] as String? ?? 'todo';
           final payload = (am['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
+          RenderSpec? spec;
+          try {
+            spec = (await fetchRenderSpecs(_api))[skill];
+          } catch (_) {}
+          if (!mounted) return;
           showAssetDetail(context,
-              data: buildCard(payload: payload, spec: synthesizeSpec(skill), displayName: skill),
+              data: buildCard(payload: payload, spec: spec ?? synthesizeSpec(skill), displayName: skill)
+                  .copyWith(domain: am['domain'] as String?),
               payload: payload,
               cardType: skill,
-              assetId: id);
+              assetId: id,
+              sessionId: am['session_id'] as String?,
+              spec: spec);
         }
       } else if (n.type == 'task_done' || n.type == 'task_failed') {
         final res = await _api.getJson('/api/assets/$link');
@@ -144,11 +152,19 @@ class _NotificationsPageState extends State<NotificationsPage> {
         if (a == null || !mounted) return;
         final skill = a['user_skill_name'] as String? ?? 'misc';
         final payload = (a['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
+        RenderSpec? spec;
+        try {
+          spec = (await fetchRenderSpecs(_api))[skill];
+        } catch (_) {}
+        if (!mounted) return;
         showAssetDetail(context,
-            data: buildCard(payload: payload, spec: synthesizeSpec(skill), displayName: skill),
+            data: buildCard(payload: payload, spec: spec ?? synthesizeSpec(skill), displayName: skill)
+                .copyWith(domain: a['domain'] as String?),
             payload: payload,
             cardType: skill,
-            assetId: link);
+            assetId: link,
+            sessionId: a['session_id'] as String?,
+            spec: spec);
       }
     } catch (_) {
       // navigation target gone / fetch failed — already marked read

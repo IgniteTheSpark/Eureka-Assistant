@@ -24,7 +24,9 @@ sudo usermod -aG docker "$USER"   # re-login after this
 git clone <this-repo> eureka && cd eureka
 cp deploy/.env.prod.example deploy/.env.prod
 # Edit deploy/.env.prod: DOMAIN, ACME_EMAIL, MySQL passwords, OPENROUTER_API_KEY,
-# and JWT_SECRET (generate with: openssl rand -hex 32).
+# JWT_SECRET (openssl rand -hex 32), and CONNECTED_APPS_KEY (REQUIRED in prod —
+# python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())").
+# Optional: IMAGE_API_KEY (Doubao report images), BAIZHI_* (百智 login, after go-live).
 # DATABASE_URL's password MUST match MYSQL_PASSWORD.
 nano deploy/.env.prod
 ```

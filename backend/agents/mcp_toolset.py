@@ -153,9 +153,67 @@ def get_all_external_toolsets() -> list[MCPToolset]:
     """
     Return MCPToolsets for every configured external MCP. task-skill attaches
     all of these to its ephemeral agent so the LLM can pick the right tool.
+
+    DEPRECATED for the per-user model — kept for the legacy/global dev path.
+    The task runner now uses `get_user_external_toolsets(user_id)`.
     """
     from agents.mcp_config import MCP_SERVERS
     return [get_external_toolset(name) for name in MCP_SERVERS]
+
+
+async def get_user_external_toolsets(user_id: str) -> tuple[list[MCPToolset], list[str]]:
+    """
+    Build the external MCP toolsets for ONE user from their Connected Apps
+    (§1.7.1). Reads `connected_apps` (status != disconnected), decrypts each
+    credential blob, and constructs an MCPToolset per connection from the
+    catalog's transport. Per-user gateway connections are streamable_http/sse
+    (no subprocess), so building fresh each call is cheap.
+
+    Returns `(toolsets, capability_hints)` where `capability_hints` are the
+    connectors' human capability strings, to tell the routing LLM what the user
+    actually has connected. Also stamps `last_used_at`.
+    """
+    from datetime import datetime, timezone
+
+    from sqlalchemy import select, update
+
+    from agents.connectors import CONNECTOR_CATALOG, build_connection_params
+    from core.crypto import decrypt_credentials
+    from db.database import AsyncSessionLocal
+    from db.models import ConnectedApp
+
+    toolsets: list[MCPToolset] = []
+    hints: list[str] = []
+    used_ids: list = []
+    async with AsyncSessionLocal() as db:
+        rows = (await db.execute(
+            select(ConnectedApp).where(
+                ConnectedApp.user_id == user_id,
+                ConnectedApp.status != "disconnected",
+            )
+        )).scalars().all()
+        for ca in rows:
+            creds = decrypt_credentials(ca.credentials_enc)
+            if not creds:
+                continue
+            try:
+                conn = build_connection_params(ca.connector_id, creds)
+            except ValueError:
+                continue
+            toolsets.append(MCPToolset(connection_params=conn))
+            used_ids.append(ca.id)
+            spec = CONNECTOR_CATALOG.get(ca.connector_id) or {}
+            cap = spec.get("capability")
+            if cap:
+                hints.append(f"- {ca.display_name or spec.get('name', ca.connector_id)}: {cap}")
+        if used_ids:
+            await db.execute(
+                update(ConnectedApp)
+                .where(ConnectedApp.id.in_(used_ids))
+                .values(last_used_at=datetime.now(timezone.utc))
+            )
+            await db.commit()
+    return toolsets, hints
 
 
 async def close_mcp_toolset() -> None:

@@ -23,9 +23,10 @@ from typing import Optional, Any
 
 from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select, delete, Text
+from sqlalchemy import select, delete, Text, func
 
 from core.auth import get_current_user_id
+from core.domains import normalize_domain
 from db.database import AsyncSessionLocal
 from db.models import Asset, AssetField, UserSkill, GlobalSkill
 from db.queries import query_assets_structured
@@ -42,10 +43,12 @@ class CreateAssetRequest(BaseModel):
     payload: dict
     session_id: str = ""
     source_input_turn_id: str = ""
+    domain: str = ""              # §8 life-domain; "" → service falls back to skill prior
 
 
 class UpdateAssetRequest(BaseModel):
-    payload_patch: dict
+    payload_patch: dict = {}
+    domain: Optional[str] = None  # set to change domain; pass to clear (see model_fields_set)
 
 
 # ── asset_fields resync helper ────────────────────────────────────────────────
@@ -109,6 +112,7 @@ def _serialize_asset(a: Asset, skill_name: str) -> dict:
         "id":                   str(a.id),
         "user_skill_name":      skill_name,
         "payload":              a.payload,
+        "domain":               a.domain,
         "session_id":           str(a.session_id) if a.session_id else None,
         "source_input_turn_id": str(a.source_input_turn_id) if a.source_input_turn_id else None,
         "created_at":           a.created_at.isoformat(),
@@ -125,6 +129,7 @@ async def list_assets(
     op: Optional[str]              = Query("eq", description="eq|gt|gte|lt|lte"),
     value: Optional[str]           = Query(None, description="Filter value"),
     contains: Optional[str]        = Query(None, description="Keyword search in payload"),
+    domain: Optional[str]          = Query(None, description="§8 life-domain filter (e.g. 工作)"),
     limit: int                     = Query(50, le=500),
     user_id: str                   = Depends(get_current_user_id),
 ):
@@ -133,7 +138,12 @@ async def list_assets(
       GET /api/assets?user_skill_name=expense&field=amount&op=eq&value=150
       GET /api/assets?user_skill_name=todo&contains=刘洋
       GET /api/assets?session_id=<uuid>
+      GET /api/assets?domain=工作
     """
+    # §8: normalize the domain filter (codex r2) so an illegal/aliased value is
+    # treated consistently with create/update (→ None = no filter), not compared
+    # raw (which would silently return empty for a bad value).
+    domain = normalize_domain(domain)
     # Structured filter path (uses asset_fields inverted index)
     if field and value is not None:
         filters = [{"field": field, "op": op or "eq", "value": value}]
@@ -141,6 +151,8 @@ async def list_assets(
             results = await query_assets_structured(db, user_id, user_skill_name, filters, limit)
         if session_id:
             results = [r for r in results if str(r.get("session_id") or "") == session_id]
+        if domain:
+            results = [r for r in results if (r.get("domain") or "") == domain]
         return {"ok": True, "assets": results}
 
     # Direct query path
@@ -157,6 +169,8 @@ async def list_assets(
             stmt = stmt.where(Asset.session_id == uuid.UUID(session_id))
         if contains:
             stmt = stmt.where(Asset.payload.cast(Text).ilike(f"%{contains}%"))
+        if domain:
+            stmt = stmt.where(Asset.domain == domain)
         stmt = stmt.order_by(Asset.created_at.desc()).limit(limit)
         rows = (await db.execute(stmt)).all()
 
@@ -164,6 +178,26 @@ async def list_assets(
         "ok": True,
         "assets": [_serialize_asset(a, sn) for a, sn in rows],
     }
+
+
+# ── GET /api/assets/counts ────────────────────────────────────────────────────
+# MUST be declared before /assets/{asset_id} or FastAPI routes "counts" → asset_id.
+
+@router.get("/assets/counts")
+async def asset_counts(user_id: str = Depends(get_current_user_id)):
+    """Per-skill **total** asset counts (all-time) for the 资产库 container tiles.
+    A cheap GROUP BY, independent of the limited /assets list — so a container's
+    number is its true total, not「最近 N 条里碰巧有几条」。"""
+    async with AsyncSessionLocal() as db:
+        rows = (await db.execute(
+            select(GlobalSkill.name, func.count(Asset.id))
+            .join(UserSkill, Asset.user_skill_id == UserSkill.id)
+            .join(GlobalSkill, UserSkill.skill_id == GlobalSkill.id)
+            .where(Asset.user_id == user_id)
+            .group_by(GlobalSkill.name)
+        )).all()
+    counts = {name: int(n) for name, n in rows}
+    return {"ok": True, "counts": counts, "total": sum(counts.values())}
 
 
 # ── GET /api/assets/{id} ──────────────────────────────────────────────────────
@@ -210,6 +244,7 @@ async def manual_create_asset(
         payload=json.dumps(req.payload, ensure_ascii=False),
         session_id=req.session_id,
         source_input_turn_id=req.source_input_turn_id,
+        domain=req.domain,
         user_id=user_id,
     )
 
@@ -235,9 +270,14 @@ async def update_asset(
         if not asset:
             raise HTTPException(status_code=404, detail="asset not found")
 
-        new_payload = {**asset.payload, **req.payload_patch}
-        asset.payload = new_payload
-        await _resync_asset_fields(db, asset, new_payload)
+        if req.payload_patch:
+            new_payload = {**asset.payload, **req.payload_patch}
+            asset.payload = new_payload
+            await _resync_asset_fields(db, asset, new_payload)
+        # §8: domain editable from the manual selector. Present in body (even as
+        # null) → set/clear; absent → leave unchanged.
+        if "domain" in req.model_fields_set:
+            asset.domain = normalize_domain(req.domain)
         await db.commit()
         await db.refresh(asset)
 

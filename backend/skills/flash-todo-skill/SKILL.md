@@ -57,10 +57,11 @@ date, clock time, and weekday. Use the date part for「今天/明天/下周X」.
 ties the task to a moment that just happened (rare for a todo, e.g.「现在/刚刚」), use
 the given clock time, never 00:00.
 
-Call `tool_create_asset`:
-- `user_skill_name`: `"todo"`
-- `payload`: `{"content": "...", "due_date": "YYYY-MM-DD or ISO8601 or null", "status": "pending"}`
-- `session_id`, `source_input_turn_id`: pass through
+Call **`tool_create_todo`**(待办专属 typed 工具,无需手拼 JSON payload):
+- `content`: 任务原文(忠于原话)
+- `due_date`: 有时刻 → ISO8601 + +08:00;只有日期 → `"YYYY-MM-DD"`;没有 → 留空 `""`
+- `session_id`, `source_input_turn_id`: 透传
+（状态默认 pending,工具内部处理;不要再用通用的 tool_create_asset 建待办）
 
 ---
 
@@ -112,7 +113,7 @@ For **delete**, the result should look like:
 ```
 source_text: "下午三点前提交季度报告"
 ```
-→ create_asset: content="提交季度报告", due_date="<today>T15:00:00+08:00"
+→ tool_create_todo(content="提交季度报告", due_date="<today>T15:00:00+08:00")
 
 ---
 
@@ -120,7 +121,7 @@ source_text: "下午三点前提交季度报告"
 ```
 source_text: "提醒我明天给刘洋发合同"
 ```
-→ create_asset: content="给刘洋发合同", due_date="2026-05-22"
+→ tool_create_todo(content="给刘洋发合同", due_date="2026-05-22")
 
 ---
 
@@ -128,7 +129,7 @@ source_text: "提醒我明天给刘洋发合同"
 ```
 source_text: "记得跟进Kevin的报价"
 ```
-→ create_asset: content="跟进Kevin的报价", due_date=null
+→ tool_create_todo(content="跟进Kevin的报价", due_date="")
 
 ---
 

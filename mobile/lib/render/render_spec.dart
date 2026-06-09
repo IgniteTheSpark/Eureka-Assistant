@@ -18,6 +18,26 @@ class RenderSpec {
   /// labels custom fields correctly instead of guessing from the field name.
   final Map<String, String> fieldLabels;
 
+  /// All field names from the skill's `payload_schema`, in declared order. Lets
+  /// the editor render the FULL schema (even fields absent from a given asset's
+  /// payload) so every asset of a skill edits the same structure — not just
+  /// whatever fields the agent happened to extract.
+  final List<String> schemaFields;
+
+  /// Fields the skill declares as free-form long text (`payload_schema[f].long`
+  /// == true). These get a markdown editor (edit) / foldable markdown body
+  /// (detail) regardless of the field name — config-driven, not a name guess.
+  final Set<String> longFields;
+
+  /// Per-field data type from `payload_schema[f].type`
+  /// (string|number|datetime|date|boolean|array|uuid). Drives the type-aware
+  /// editor (datetime → date picker, array → chips, boolean → toggle…).
+  final Map<String, String> fieldTypes;
+
+  /// Fields the skill declares as required (`payload_schema[f].required` == true).
+  /// The shared create/edit form validates these on CREATE.
+  final Set<String> requiredFields;
+
   const RenderSpec({
     required this.cardLayout,
     required this.icon,
@@ -29,6 +49,10 @@ class RenderSpec {
     this.metaFields = const [],
     this.actions = const [],
     this.fieldLabels = const {},
+    this.schemaFields = const [],
+    this.longFields = const {},
+    this.fieldTypes = const {},
+    this.requiredFields = const {},
   });
 
   /// The format this skill declares for [field] (primary / secondary / meta), or
@@ -43,18 +67,45 @@ class RenderSpec {
     return null;
   }
 
-  RenderSpec withFieldLabels(Map<String, String> labels) => RenderSpec(
-        cardLayout: cardLayout,
-        icon: icon,
-        accentColor: accentColor,
-        primaryField: primaryField,
-        primaryFormat: primaryFormat,
-        secondaryField: secondaryField,
-        secondaryFormat: secondaryFormat,
-        metaFields: metaFields,
-        actions: actions,
-        fieldLabels: labels,
-      );
+  /// Attach labels + the full field list extracted from a skill's payload_schema.
+  RenderSpec withSchema(dynamic payloadSchema) {
+    final labels = <String, String>{};
+    final fields = <String>[];
+    final longs = <String>{};
+    final types = <String, String>{};
+    final required = <String>{};
+    if (payloadSchema is Map) {
+      payloadSchema.forEach((k, meta) {
+        if (k is String) {
+          fields.add(k);
+          if (meta is Map) {
+            final l = (meta['label'] as String?)?.trim();
+            if (l != null && l.isNotEmpty) labels[k] = l;
+            if (meta['long'] == true) longs.add(k);
+            if (meta['required'] == true) required.add(k);
+            final t = meta['type'] as String?;
+            if (t != null && t.isNotEmpty) types[k] = t;
+          }
+        }
+      });
+    }
+    return RenderSpec(
+      cardLayout: cardLayout,
+      icon: icon,
+      accentColor: accentColor,
+      primaryField: primaryField,
+      primaryFormat: primaryFormat,
+      secondaryField: secondaryField,
+      secondaryFormat: secondaryFormat,
+      metaFields: metaFields,
+      actions: actions,
+      fieldLabels: labels,
+      schemaFields: fields,
+      longFields: longs,
+      fieldTypes: types,
+      requiredFields: required,
+    );
+  }
 
   factory RenderSpec.fromJson(Map<String, dynamic> j) => RenderSpec(
         cardLayout: j['card_layout'] as String? ?? 'horizontal',
@@ -89,6 +140,7 @@ class CardData {
   final String subtitle;
   final List<({String value, String? format})> metaFields;
   final bool? checkDone;
+  final String? domain;   // §8 life-domain label (null = 不归域, no chip)
 
   const CardData({
     required this.layout,
@@ -98,9 +150,10 @@ class CardData {
     required this.subtitle,
     required this.metaFields,
     this.checkDone,
+    this.domain,
   });
 
-  CardData copyWith({String? layout, bool? checkDone}) => CardData(
+  CardData copyWith({String? layout, bool? checkDone, String? domain}) => CardData(
         layout: layout ?? this.layout,
         icon: icon,
         accentColor: accentColor,
@@ -108,6 +161,7 @@ class CardData {
         subtitle: subtitle,
         metaFields: metaFields,
         checkDone: checkDone ?? this.checkDone,
+        domain: domain ?? this.domain,
       );
 }
 
@@ -200,8 +254,7 @@ Future<Map<String, RenderSpec>> fetchRenderSpecs(ApiClient api) async {
     final name = s['name'] as String?;
     final rs = s['render_spec'];
     if (name != null && rs is Map) {
-      out[name] = RenderSpec.fromJson(rs.cast<String, dynamic>())
-          .withFieldLabels(_fieldLabelsFrom(s['payload_schema']));
+      out[name] = RenderSpec.fromJson(rs.cast<String, dynamic>()).withSchema(s['payload_schema']);
     }
   }
   return out;
@@ -236,22 +289,6 @@ String readableTitle(Map<String, dynamic> payload, RenderSpec? spec, {String fal
     if (v is String && v.trim().isNotEmpty) return v.trim();
   }
   return fallback;
-}
-
-/// Build field → label from a skill's payload_schema. Prefers a concise `label`;
-/// no label → no entry (the detail sheet falls back to a universal map / the
-/// field name). Never invents money/quantity semantics.
-Map<String, String> _fieldLabelsFrom(dynamic payloadSchema) {
-  final out = <String, String>{};
-  if (payloadSchema is Map) {
-    payloadSchema.forEach((field, meta) {
-      if (field is String && meta is Map) {
-        final label = (meta['label'] as String?)?.trim();
-        if (label != null && label.isNotEmpty) out[field] = label;
-      }
-    });
-  }
-  return out;
 }
 
 /* ── value formatting (mirrors web format.ts) ──────────────────────────────── */

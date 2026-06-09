@@ -26,6 +26,11 @@ from db.models import (
 )
 from db.queries import index_asset_fields
 from db.database import AsyncSessionLocal
+from core.domains import normalize_domain, prior_for_skill
+from core.completion import emit_completion_event   # §9 pet currency (best-effort)
+from core.contacts_meta import (
+    SUPPORTED_SOCIALS, clean_socials, merge_socials, notes_to_list, append_notes,
+)
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -51,39 +56,6 @@ def _err(msg: str):
     return {"ok": False, "error": msg}
 
 
-# ── Report rendering (html-summary feature) ────────────────────────────────────
-
-# Hard cap so a runaway generation can't bloat the messages table / blow the
-# srcdoc attribute. ~120KB of HTML is a *very* rich report; most are <30KB.
-_REPORT_HTML_MAX = 120_000
-
-
-async def render_report(title: str, html: str, user_id: str = "default") -> dict:
-    """
-    Echo a rich HTML report back to the chat so the frontend can render it
-    full-screen in a sandboxed iframe.
-
-    No DB write — the report is NOT persisted as a separate asset (the user
-    explicitly didn't want a 报告 shelf accumulating redundant entries). It
-    rides inside the chat message's tool_result, which already persists as
-    normal conversation history, so it remains re-viewable within that
-    session without creating a new storage surface.
-
-    Security: the real boundary is the frontend's `<iframe sandbox srcdoc>`
-    (opaque origin, no scripts, no parent access). This function only does a
-    size guard; it does NOT sanitize, because the sandbox makes the markup
-    inert regardless.
-    """
-    if not html or not html.strip():
-        return _err("html is required")
-    if len(html) > _REPORT_HTML_MAX:
-        return _err(
-            f"report html too large ({len(html)} > {_REPORT_HTML_MAX}); "
-            "narrow the scope (fewer rows / shorter window) and retry"
-        )
-    return _ok(kind="report", title=(title or "报告").strip()[:80], html=html)
-
-
 # ── Asset tools ────────────────────────────────────────────────────────────────
 
 async def create_asset(
@@ -91,6 +63,7 @@ async def create_asset(
     payload: str,
     session_id: str = "",
     source_input_turn_id: str = "",
+    domain: str = "",
     user_id: str = "default",
 ) -> dict:
     """
@@ -99,6 +72,10 @@ async def create_asset(
     The skill MUST be registered in user_skills for this user — agent should not
     invent new skill names. Use the add-skill flow (POST /api/skills + design
     agent) to register new skills.
+
+    domain (§8): optional life-domain label (工作/学习/健康/运动/社交/娱乐/生活/灵感).
+    Agent passes it by CONTENT when it can tell ("交报告"→工作, "买菜"→生活). When
+    omitted/invalid, the service falls back to the skill's prior, else null.
     """
     try:
         payload_dict = json.loads(payload) if isinstance(payload, str) else payload
@@ -112,12 +89,21 @@ async def create_asset(
         if not user_skill:
             return _err(f"skill not registered for user: {user_skill_name}")
 
+        # §8 domain resolution: explicit (by content) → per-skill prior
+        # (user_skills.domain) → base prior (machine_name) → null.
+        resolved_domain = (
+            normalize_domain(domain)
+            or normalize_domain(user_skill.domain)
+            or prior_for_skill(user_skill_name)
+        )
+
         asset = Asset(
             user_id=user_id,
             user_skill_id=user_skill.id,
             session_id=uuid.UUID(session_id) if session_id else None,
             source_input_turn_id=uuid.UUID(source_input_turn_id) if source_input_turn_id else None,
             payload=payload_dict,
+            domain=resolved_domain,
         )
         db.add(asset)
         await db.flush()  # populate asset.id before indexing
@@ -126,12 +112,61 @@ async def create_asset(
 
         await db.commit()
 
+    # §9: a logged record is a closed loop → feed the 球球 (best-effort, never blocks).
+    await emit_completion_event(user_id, "record", str(asset.id), resolved_domain)
+
     return _ok(
         asset_id=str(asset.id),
         user_skill_name=user_skill_name,
         payload=payload_dict,
+        domain=resolved_domain,
         created_at=asset.created_at.isoformat() if asset.created_at else None,
     )
+
+
+# ── Dedicated typed create tools for the systemic built-in skills (§1.2) ──────
+# todo / 随记 are 常驻 skills with fixed schemas. Typed create tools (vs the
+# generic create_asset's double-layer JSON-string payload) cut a whole class of
+# LLM call errors. Storage stays UNIFIED in `assets` — these just build the
+# payload then delegate to create_asset, so asset_fields indexing / provenance
+# are identical. update/delete/query stay generic (by asset_id / query_asset).
+
+async def create_todo(
+    content: str,
+    due_date: str = "",
+    session_id: str = "",
+    source_input_turn_id: str = "",
+    domain: str = "",
+    user_id: str = "default",
+) -> dict:
+    """Create a 待办 (todo) asset. due_date: ISO8601+08:00 (with time) or
+    'YYYY-MM-DD' (date only) or '' (none). domain (§8): tag by content
+    ("交报告"→工作, "买菜"→生活); omit if unsure (todo has no stable prior)."""
+    payload: dict = {"content": content, "status": "pending"}
+    if due_date and due_date.strip():
+        payload["due_date"] = due_date.strip()
+    return await create_asset("todo", payload, session_id, source_input_turn_id, domain, user_id)
+
+
+async def create_note(
+    content: str,
+    title: str = "",
+    tags: str = "",
+    session_id: str = "",
+    source_input_turn_id: str = "",
+    domain: str = "",
+    user_id: str = "default",
+) -> dict:
+    """Create a 随记 (free-text catch-all) asset. tags: comma-separated open
+    topic tags (≤3 kept), e.g. '天气,心情'. domain (§8): defaults to 灵感 when
+    omitted; pass another domain only if the content clearly belongs elsewhere."""
+    payload: dict = {"content": content}
+    if title and title.strip():
+        payload["title"] = title.strip()
+    tg = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
+    if tg:
+        payload["tags"] = tg[:3]
+    return await create_asset("notes", payload, session_id, source_input_turn_id, domain, user_id)
 
 
 async def query_asset(
@@ -139,6 +174,7 @@ async def query_asset(
     contains: str = "",
     from_date: str = "",
     to_date: str = "",
+    domain: str = "",
     limit: int = 100,
     user_id: str = "default",
 ) -> dict:
@@ -165,6 +201,8 @@ async def query_asset(
         )
         if user_skill_name:
             stmt = stmt.where(GlobalSkill.name == user_skill_name)
+        if domain:
+            stmt = stmt.where(Asset.domain == domain)
         if contains:
             stmt = stmt.where(Asset.payload.cast(Text).ilike(f"%{contains}%"))
         if from_date:
@@ -186,6 +224,7 @@ async def query_asset(
             "asset_id":             str(a.id),
             "user_skill_name":      skill_name,
             "payload":              a.payload,
+            "domain":               a.domain,
             "session_id":           str(a.session_id) if a.session_id else None,
             "source_input_turn_id": str(a.source_input_turn_id) if a.source_input_turn_id else None,
             "created_at":           a.created_at.isoformat(),
@@ -197,16 +236,16 @@ async def query_asset(
 async def query_digest(
     from_date: str = "",
     to_date: str = "",
+    domain: str = "",
     user_id: str = "default",
 ) -> dict:
     """
-    Compact, pre-grouped snapshot of a time window — the data source for a
-    SUMMARY/日报/周报/月报 report. Returns every asset type captured in the
-    range PLUS events, but LEAN: just counts + per-type payload lists + a thin
-    event list, with NO per-item metadata (no asset_id / session_id /
-    created_at). That keeps the result small so the agent reliably goes on to
-    call tool_render_report (a big full-payload query_asset result tends to
-    make the model stall and skip the report step).
+    Compact, pre-grouped snapshot of a time window — the lean data source for a
+    日报/周报/月报 overview (used by the report engine's content skills and by
+    chat QUERY for a quick cross-type概况). Returns every asset type captured in
+    the range PLUS events, but LEAN: just counts + per-type payload lists + a
+    thin event list, with NO per-item metadata (no asset_id / session_id /
+    created_at). Small result = fast, cheap, easy to summarize.
 
     Date range filters asset.created_at and event.start_at; pass ISO8601+tz
     (e.g. "2026-05-31T00:00:00+08:00" .. "2026-05-31T23:59:59+08:00").
@@ -227,6 +266,8 @@ async def query_digest(
             .join(GlobalSkill, UserSkill.skill_id == GlobalSkill.id)
             .where(Asset.user_id == user_id)
         )
+        if domain:
+            a_stmt = a_stmt.where(Asset.domain == domain)
         if from_date:
             try: a_stmt = a_stmt.where(Asset.created_at >= _parse(from_date))
             except ValueError: return _err(f"invalid from_date: {from_date}")
@@ -240,15 +281,19 @@ async def query_digest(
         for a, skill_name in rows:
             by_type.setdefault(skill_name, []).append(a.payload or {})
 
-        e_stmt = select(Event).where(Event.user_id == user_id)
-        if from_date:
-            try: e_stmt = e_stmt.where(Event.start_at >= _parse(from_date))
-            except ValueError: return _err(f"invalid from_date: {from_date}")
-        if to_date:
-            try: e_stmt = e_stmt.where(Event.start_at <= _parse(to_date))
-            except ValueError: return _err(f"invalid to_date: {to_date}")
-        e_stmt = e_stmt.order_by(Event.start_at.asc())
-        events = (await db.execute(e_stmt)).scalars().all()
+        # Events carry no domain column in v1 (§8.1) — a domain-scoped digest
+        # excludes them rather than dumping all events into a filtered view.
+        events = []
+        if not domain:
+            e_stmt = select(Event).where(Event.user_id == user_id)
+            if from_date:
+                try: e_stmt = e_stmt.where(Event.start_at >= _parse(from_date))
+                except ValueError: return _err(f"invalid from_date: {from_date}")
+            if to_date:
+                try: e_stmt = e_stmt.where(Event.start_at <= _parse(to_date))
+                except ValueError: return _err(f"invalid to_date: {to_date}")
+            e_stmt = e_stmt.order_by(Event.start_at.asc())
+            events = (await db.execute(e_stmt)).scalars().all()
 
     return _ok(
         counts={k: len(v) for k, v in by_type.items()},
@@ -302,6 +347,7 @@ async def update_asset(
 
         merged = {**asset.payload, **patch}
         asset.payload = merged
+        asset_domain = asset.domain
 
         # Re-index queryable fields
         await db.execute(
@@ -310,6 +356,10 @@ async def update_asset(
         await index_asset_fields(db, asset.id, user_id, asset.user_skill_id, merged)
 
         await db.commit()
+
+    # §9: a todo just completed = a task closed loop → feed the 球球.
+    if str(patch.get("status", "")).lower() in ("done", "completed", "complete"):
+        await emit_completion_event(user_id, "task", asset_id, asset_domain)
 
     return _ok(asset_id=asset_id, user_skill_name=skill_name, payload=merged)
 
@@ -336,6 +386,7 @@ async def create_contact(
     title: str = "",
     email: str = "",
     notes: str = "",
+    socials: dict = None,
     source_input_turn_id: str = "",
     user_id: str = "default",
 ) -> dict:
@@ -351,16 +402,21 @@ async def create_contact(
             title=title or None,
             email=email or None,
             notes=[notes] if notes else [],
+            socials=clean_socials(socials),  # supported platforms only
             source_input_turn_id=uuid.UUID(source_input_turn_id) if source_input_turn_id else None,
         )
         db.add(contact)
         await db.commit()
+
+    # §9: an opportunistic first-class create (contact = definitionally 社交).
+    await emit_completion_event(user_id, "opportunistic", str(contact.id), "社交")
 
     return _ok(
         contact_id=str(contact.id),
         contact_action="created",
         name=name, phone=phone, company=company,
         title=title, email=email, notes=contact.notes,
+        socials=contact.socials,
     )
 
 
@@ -376,7 +432,7 @@ async def query_contact(name_query: str = "", user_id: str = "default") -> dict:
     return _ok(contacts=[
         {"contact_id": str(c.id), "name": c.name, "phone": c.phone,
          "company": c.company, "title": c.title, "email": c.email,
-         "notes": c.notes or []}
+         "notes": notes_to_list(c.notes), "socials": clean_socials(c.socials)}
         for c in contacts
     ])
 
@@ -392,6 +448,17 @@ async def update_contact(
     chat card renders with the actual name + updated values (May audit:
     previously returned just {field, value} and the chat fell back to a
     generic 「名片」 placeholder with no name).
+
+    field dispatch:
+      - "notes"                → APPENDS `value` as a new annotation line (never
+                                 replaces existing notes — a contact's history of
+                                 "where we met / how I know them" accumulates).
+      - a social platform key  → sets that platform's handle (x / telegram /
+        (x/telegram/linkedin/    linkedin / wechat / xiaohongshu / instagram),
+         wechat/xiaohongshu/     merged onto the rest; blank value unsets it.
+         instagram)
+      - name/phone/company/    → set the scalar field.
+        title/email
     """
     async with AsyncSessionLocal() as db:
         result = await db.execute(
@@ -402,11 +469,13 @@ async def update_contact(
             return _err(f"contact not found: {contact_id}")
 
         if field == "notes":
-            contact.notes = (contact.notes or []) + [value]
-        elif hasattr(contact, field):
+            contact.notes = append_notes(contact.notes, value)   # append-only
+        elif field in SUPPORTED_SOCIALS:
+            contact.socials = merge_socials(contact.socials, {field: value})
+        elif field in ("name", "phone", "company", "title", "email"):
             setattr(contact, field, value)
         else:
-            return _err(f"unknown field: {field}")
+            return _err(f"unknown field: {field} (socials use one of {sorted(SUPPORTED_SOCIALS)})")
 
         await db.commit()
         await db.refresh(contact)
@@ -415,7 +484,8 @@ async def update_contact(
         contact_id=contact_id, contact_action="updated",
         field=field, value=value,
         name=contact.name, phone=contact.phone, company=contact.company,
-        title=contact.title, email=contact.email, notes=contact.notes or [],
+        title=contact.title, email=contact.email,
+        notes=contact.notes or [], socials=contact.socials or {},
     )
 
 

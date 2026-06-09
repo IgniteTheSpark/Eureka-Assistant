@@ -40,17 +40,39 @@ services:
     build: ../backend
     restart: unless-stopped
     environment:
+      ENV: ${ENV:-prod}
       DATABASE_URL: ${DATABASE_URL}
+      BACKEND_URL: https://${DOMAIN}
+      # Primary LLM — DeepSeek direct API (China-hosted, reliable 国内 inbound).
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?set DEEPSEEK_API_KEY in .env.prod}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       USER_ID: ${USER_ID:-default}
       JWT_SECRET: ${JWT_SECRET:?set a long random JWT_SECRET in .env.prod}
+      # REQUIRED in prod — Fernet key encrypting per-user 3rd-party credentials
+      # (Connected Apps + 百智 token). validate_prod_secrets() refuses to boot
+      # without it. Generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+      CONNECTED_APPS_KEY: ${CONNECTED_APPS_KEY:?set CONNECTED_APPS_KEY (a Fernet key) in .env.prod}
+      # §6.6.2 AI 配图 — Doubao Seedream key/model (else falls back to OpenRouter,
+      # which is on a TOS-blocked account → no report images).
+      IMAGE_API_KEY: ${IMAGE_API_KEY:-}
+      IMAGE_MODEL: ${IMAGE_MODEL:-}
       EUREKA_MCP_ENABLED: ${EUREKA_MCP_ENABLED:-fake_external}
       GOOGLE_OAUTH_CREDENTIALS: /mcp-credentials/google-calendar-creds.json
       GOOGLE_CALENDAR_MCP_TOKEN_PATH: /mcp-credentials/google-calendar-token.json
       DINGTALK_AIHUB_URL_CALENDAR: ${DINGTALK_AIHUB_URL_CALENDAR:-}
       DINGTALK_AIHUB_URL_TODO: ${DINGTALK_AIHUB_URL_TODO:-}
       DINGTALK_AIHUB_URL_NOTES: ${DINGTALK_AIHUB_URL_NOTES:-}
+      # §13.1 / B1 百智 OAuth (optional — blank = 百智 login disabled, 503; email
+      # login unaffected). Fill from the 百智 console AFTER the domain is live.
+      BAIZHI_BASE_URL: ${BAIZHI_BASE_URL:-https://openapi.100wiser.com}
+      BAIZHI_OAUTH_BASE_URL: ${BAIZHI_OAUTH_BASE_URL:-https://100wiser.com}
+      BAIZHI_APP_ID: ${BAIZHI_APP_ID:-}
+      BAIZHI_APP_SECRET: ${BAIZHI_APP_SECRET:-}
+      BAIZHI_APP_NAME: ${BAIZHI_APP_NAME:-}
+      BAIZHI_REDIRECT_URL: ${BAIZHI_REDIRECT_URL:-}
+      BAIZHI_ME_URL: ${BAIZHI_ME_URL:-}
+      EUREKA_APP_SCHEME: ${EUREKA_APP_SCHEME:-eureka}
     depends_on:
       db:
         condition: service_healthy

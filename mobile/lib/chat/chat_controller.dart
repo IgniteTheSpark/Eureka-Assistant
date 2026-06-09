@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
@@ -29,10 +31,23 @@ class ChatController extends ChangeNotifier {
   /// Readable title of the current session (from the sidebar row when replayed).
   String? sessionTitle;
 
+  /// Attached context assets ({id, label}) restored on loadSession, so the chip
+  /// rail repopulates when reopening a history session (codex r2).
+  List<({String id, String label})> contextAssets = [];
+
   final ApiClient _api = ApiClient();
+
+  /// True once disposed — guards the durable-turn poll loop from notifying a
+  /// dead controller (§1.5.1.3).
+  bool _disposed = false;
+
+  /// The session currently being reconcile-polled (a turn was still generating
+  /// when we loaded it). Prevents overlapping poll loops.
+  String? _pollingSession;
 
   @override
   void dispose() {
+    _disposed = true;
     _api.close();
     super.dispose();
   }
@@ -58,13 +73,16 @@ class ChatController extends ChangeNotifier {
     } catch (_) {/* stay on a blank chat */}
   }
 
-  /// Start a fresh conversation.
+  /// Start a fresh conversation. Clears the bound subject (anchored context) AND
+  /// the attached context assets — a deliberately-new conversation must carry no
+  /// context from the previous one.
   void reset() {
     messages.clear();
     sessionId = null;
     sessionTitle = null;
     subjectType = null;
     subjectId = null;
+    contextAssets = [];
     error = null;
     _persistActive(null);
     notifyListeners();
@@ -137,14 +155,44 @@ class ChatController extends ChangeNotifier {
     if (title != null) sessionTitle = title;
     final res = await _api.getJson('/api/sessions/$id/messages');
     final raw = (res is Map ? res['messages'] : null) as List? ?? const [];
+    _applyMessages(raw);
+    sessionId = id;
+    // Restore the attached context assets so the chip rail isn't empty after
+    // reopening a history session (codex r2). Best-effort — a failure just
+    // leaves no chips, same as before.
+    try {
+      final s = await _api.getJson('/api/sessions/$id');
+      final sess = (s is Map ? s['session'] : null) as Map?;
+      final ca = (sess?['context_assets'] as List?) ?? const [];
+      contextAssets = ca
+          .whereType<Map>()
+          .map((m) => (id: m['id'] as String? ?? '', label: m['label'] as String? ?? '资产'))
+          .where((c) => c.id.isNotEmpty)
+          .toList();
+    } catch (_) {
+      contextAssets = [];
+    }
+    _persistActive(id);
+    notifyListeners();
+    // §1.5.1.3 batch A — a turn may still be generating server-side (we left
+    // mid-generation and came back). Its agent message is `running` → shown as
+    // 「分析中…」; poll until it lands, then auto-render the reply/cards.
+    if (_hasPending(raw)) _reconcilePending(id);
+  }
+
+  /// Rebuild [messages] from a /messages payload. Agent messages with
+  /// status='running' (§1.5.1.3) replay as a 「分析中…」 placeholder (streaming
+  /// + empty parts), which the durable-turn poll later fills.
+  void _applyMessages(List raw) {
     messages.clear();
     for (final mm in raw.whereType<Map>()) {
       final m = mm.cast<String, dynamic>();
       if (m['role'] == 'user') {
         messages.add(ChatMessage.user(m['id'] as String? ?? 'u', m['text'] as String? ?? ''));
       } else if (m['role'] == 'agent') {
+        final running = (m['status'] as String? ?? 'done') == 'running';
         final msg = ChatMessage.agent(m['id'] as String? ?? 'a');
-        msg.streaming = false;
+        msg.streaming = running;   // running → 「分析中…」 (chat_page renders it)
         final tc = m['tool_call'];
         if (tc is Map) msg.parts.add(ToolCallPart(tc['name'] as String? ?? '?'));
         final tr = m['tool_result'];
@@ -167,9 +215,37 @@ class ChatController extends ChangeNotifier {
         messages.add(msg);
       }
     }
-    sessionId = id;
-    _persistActive(id);
-    notifyListeners();
+  }
+
+  /// Any agent turn still generating server-side?
+  bool _hasPending(List raw) => raw.whereType<Map>().any(
+      (m) => m['role'] == 'agent' && (m['status'] as String? ?? 'done') == 'running');
+
+  /// Reconcile a session that had an in-flight turn on load: poll the message
+  /// log until the running turn lands (or a timeout), then rebuild + render the
+  /// reply/cards. Stops if the user switches sessions or the controller dies.
+  Future<void> _reconcilePending(String id) async {
+    if (_pollingSession == id) return;   // already polling this one
+    _pollingSession = id;
+    final deadline = DateTime.now().add(const Duration(seconds: 150));
+    try {
+      while (!_disposed && sessionId == id && DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 1500));
+        if (_disposed || sessionId != id) break;
+        final res = await _api.getJson('/api/sessions/$id/messages');
+        final raw = (res is Map ? res['messages'] : null) as List? ?? const [];
+        if (_disposed || sessionId != id) break;
+        if (!_hasPending(raw)) {
+          _applyMessages(raw);     // turn landed → reply + cards now present
+          notifyListeners();
+          bumpData();              // a turn may have created assets → refresh other surfaces
+          break;
+        }
+      }
+    } catch (_) {/* best-effort; stop polling on error */}
+    finally {
+      if (_pollingSession == id) _pollingSession = null;
+    }
   }
 
   /// Ensure a session exists so context can be attached / a subject bound before

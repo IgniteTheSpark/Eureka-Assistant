@@ -3,9 +3,9 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import '../auth/auth_controller.dart';
 import '../device/device_controller.dart';
+import '../pages/connected_apps_page.dart';
 import '../pages/device_pairing_page.dart';
 import '../pages/my_device_page.dart';
-import '../pages/notifications_page.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_controller.dart';
 
@@ -37,7 +37,7 @@ class GlobalHeaderBar extends StatelessWidget {
           ),
           const Spacer(),
           const ThemeToggle(),
-          const NotificationsBell(),
+          // 通知 moved onto REKA (§9.2) — no header bell.
           _GhostButton(
             icon: Icons.person_outline,
             tooltip: '个人中心',
@@ -119,7 +119,38 @@ void _openProfile(BuildContext context) {
                 ),
               ],
             ),
-            const SizedBox(height: 22),
+            const SizedBox(height: 18),
+            // 已连接应用 (Connected Apps) — external app connections.
+            GestureDetector(
+              onTap: () {
+                Navigator.of(sheetCtx).pop();
+                Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => const ConnectedAppsPage(),
+                ));
+              },
+              behavior: HitTestBehavior.opaque,
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                decoration: BoxDecoration(
+                  color: eu.bg,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: eu.border),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.hub_outlined, size: 19, color: eu.textMid),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text('已连接应用',
+                          style: TextStyle(color: eu.textHi, fontSize: 15)),
+                    ),
+                    Icon(Icons.chevron_right, size: 18, color: eu.textLo),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
             GestureDetector(
               onTap: () {
                 Navigator.of(sheetCtx).pop();

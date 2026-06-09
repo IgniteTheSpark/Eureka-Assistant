@@ -268,6 +268,25 @@ async def get_session(
             select(Asset).where(Asset.session_id == sid).order_by(Asset.created_at.asc())
         )).scalars().all()
 
+        # Resolve the EXTERNALLY-attached context assets (context_asset_ids — may
+        # live in other sessions) to {id, label} so the client can restore the
+        # context chip rail on session load (codex r2: was empty after reload).
+        ctx_ids = []
+        for raw in (sess.context_asset_ids or []):
+            try:
+                ctx_ids.append(uuid.UUID(str(raw)))
+            except (ValueError, TypeError):
+                pass
+        ctx_assets = []
+        if ctx_ids:
+            ctx_rows = (await db.execute(
+                select(Asset).where(Asset.id.in_(ctx_ids), Asset.user_id == user_id)
+            )).scalars().all()
+            for a in ctx_rows:
+                p = a.payload or {}
+                label = str(p.get("content") or p.get("title") or p.get("name") or p.get("amount") or "资产")
+                ctx_assets.append({"id": str(a.id), "label": label[:24]})
+
     return {
         "ok": True,
         "session": {
@@ -277,6 +296,7 @@ async def get_session(
             "date":         sess.date.isoformat() if sess.date else None,
             "created_at":   sess.created_at.isoformat(),
             "context_asset_ids": [str(i) for i in (sess.context_asset_ids or [])],
+            "context_assets":    ctx_assets,
             # M2.3: subject FKs — exactly one is non-null for home sessions
             "event_id":         str(sess.event_id) if sess.event_id else None,
             "contact_id":       str(sess.contact_id) if sess.contact_id else None,
@@ -331,6 +351,7 @@ async def get_session_messages(
                 "tool_result": m.tool_result,
                 "cards":       m.cards or [],
                 "elapsed_ms":  m.elapsed_ms,
+                "status":      m.status or "done",   # §1.5.1.3: running → 「分析中…」 + poll
                 "created_at":  m.created_at.isoformat(),
             }
             for m in messages

@@ -1,16 +1,15 @@
 import 'package:flutter/material.dart';
 
-import '../api/api_client.dart';
 import '../assets/assets.dart';
 import '../chat/chat_card.dart';
 import '../chat/chat_controller.dart';
 import '../chat/chat_models.dart';
 import '../chat/markdown_text.dart';
-import '../render/render_spec.dart';
 import '../render/skill_card.dart';
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
-import '../timeline/timeline.dart';
+import '../widgets/asset_picker.dart';
+import '../widgets/toast.dart';
 
 /// Agent chat surface — streams POST /api/chat over SSE, renders the agent's
 /// markdown text + created cards, and offers 沉淀为资产 on pure Q&A answers.
@@ -24,12 +23,17 @@ class ChatPage extends StatefulWidget {
   final String? subjectType;
   final String? subjectId;
   final String? subjectLabel;
+
+  /// Force a brand-new, empty conversation (no resume, no anchor, no context).
+  /// Used by the REKA 「新建对话」 action so it never inherits the last thread.
+  final bool startBlank;
   const ChatPage({
     super.key,
     this.boundSessionId,
     this.subjectType,
     this.subjectId,
     this.subjectLabel,
+    this.startBlank = false,
   });
 
   @override
@@ -39,6 +43,10 @@ class ChatPage extends StatefulWidget {
 class _ChatPageState extends State<ChatPage> {
   final _chat = ChatController();
   final List<({String id, String label})> _context = [];
+  // The anchored subject (🔗 常驻关联资产). Mutable so 新建对话 can clear it — the
+  // widget param is immutable, so we mirror it here and drive the chip/header
+  // from this field instead.
+  String? _anchorLabel;
   final _input = TextEditingController();
   final _scroll = ScrollController();
   final _scaffoldKey = GlobalKey<ScaffoldState>();
@@ -46,8 +54,12 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void initState() {
     super.initState();
+    _anchorLabel = widget.subjectLabel;
     _chat.addListener(_onChange);
-    if (widget.boundSessionId != null) {
+    if (widget.startBlank) {
+      // 新建对话 — leave the fresh controller blank: no resume, no subject, no
+      // context. (Constructed empty already; just skip resumeLast.)
+    } else if (widget.boundSessionId != null) {
       _chat.loadSession(widget.boundSessionId!);
     } else if (widget.subjectType != null && widget.subjectId != null) {
       // Pending subject — peek for an existing thread, but don't create one.
@@ -59,7 +71,22 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
+  // 新建对话 — wipe everything so the new thread carries no context: the
+  // controller (messages / session / bound subject / attached assets), the local
+  // chip rail, and the anchored subject chip.
+  void _newConversation() {
+    _context.clear();
+    _anchorLabel = null;
+    _chat.reset(); // clears contextAssets + subject + session, then notifies
+    setState(() {});
+  }
+
   void _onChange() {
+    // Restore the context chip rail after a history session loads (codex r2 —
+    // was empty on reopen). Seeds once: manual attaches make _context non-empty.
+    if (_context.isEmpty && _chat.contextAssets.isNotEmpty) {
+      _context.addAll(_chat.contextAssets.map((c) => (id: c.id, label: c.label)));
+    }
     setState(() {});
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scroll.hasClients) {
@@ -101,8 +128,8 @@ class _ChatPageState extends State<ChatPage> {
           // a long context list.
           _addChip(eu),
           // The anchored subject asset is a persistent accent chip (常驻关联资产).
-          if (widget.subjectLabel != null)
-            _ctxChip(eu, '🔗', widget.subjectLabel!, accent: true),
+          if (_anchorLabel != null)
+            _ctxChip(eu, '🔗', _anchorLabel!, accent: true),
           for (final c in _context) _ctxChip(eu, '•', c.label),
         ],
       ),
@@ -163,9 +190,7 @@ class _ChatPageState extends State<ChatPage> {
         }
       });
     } else if (mounted) {
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(const SnackBar(content: Text('添加失败')));
+      showToast(context, '添加失败', error: true);
     }
   }
 
@@ -180,7 +205,7 @@ class _ChatPageState extends State<ChatPage> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
       ),
-      builder: (_) => _AssetPicker(excludeIds: taken),
+      builder: (_) => AssetPickerPanel(excludeIds: taken),
     );
   }
 
@@ -196,7 +221,7 @@ class _ChatPageState extends State<ChatPage> {
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: eu.bg,
-      drawer: _SessionsDrawer(chat: _chat),
+      drawer: _SessionsDrawer(chat: _chat, onNewConversation: _newConversation),
       body: SafeArea(
         child: Column(
           children: [
@@ -213,8 +238,8 @@ class _ChatPageState extends State<ChatPage> {
                     child: Text(
                       // Discuss threads show their subject; otherwise the
                       // session's readable title (never a bare "Agent").
-                      widget.subjectLabel?.isNotEmpty == true
-                          ? widget.subjectLabel!
+                      _anchorLabel?.isNotEmpty == true
+                          ? _anchorLabel!
                           : _chat.displayTitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -284,7 +309,7 @@ class _Bubble extends StatelessWidget {
 
     final fullText = m.parts.whereType<TextPart>().map((p) => p.text).join();
     // Did THIS turn create cards? (web turnCreatedCards): a persisted `cards`
-    // part, OR a non-query/report tool_result that yielded cards. If so, hide
+    // part, OR a non-query tool_result that yielded cards. If so, hide
     // 沉淀为资产 — the user already got a real asset. (Must include CardsPart, or
     // a replayed/created-card turn wrongly offers precipitate after reload.)
     final hasCards = m.parts.any((p) =>
@@ -293,8 +318,7 @@ class _Bubble extends StatelessWidget {
     final showPrecipitate = !m.streaming &&
         onPrecipitate != null &&
         fullText.length > 8 &&
-        !hasCards &&
-        !_looksLikeHtmlReport(fullText);
+        !hasCards;
 
     return Align(
       alignment: Alignment.centerLeft,
@@ -328,15 +352,6 @@ class _Bubble extends StatelessWidget {
     final eu = context.eu;
     switch (p) {
       case TextPart(:final text):
-        // Salvage: deepseek sometimes dumps a report's HTML as plain text. Never
-        // show raw markup in chat — fold it into a receipt (§4.2.3).
-        if (_looksLikeHtmlReport(text)) {
-          return _ReportReceipt(
-            title: _titleFromHtml(text),
-            body: _htmlToText(text),
-            streaming: streaming && isLast,
-          );
-        }
         // Streaming tail renders raw (no markdown) + cursor so half-typed `**`
         // don't jitter; settled text gets the lightweight markdown pass.
         if (streaming && isLast) {
@@ -356,13 +371,6 @@ class _Bubble extends StatelessWidget {
         if (!(streaming && isLast)) return const SizedBox.shrink();
         return _spinnerChip(context, '${_toolLabel(name)}中…', eu.accentAmber);
       case ToolResultPart(:final name, :final response):
-        if (name == 'tool_render_report') {
-          return _ReportReceipt(
-            title: _titleFromResult(response),
-            body: _bodyFromResult(response),
-            streaming: false,
-          );
-        }
         final cards = extractCards(response);
         if (isQueryTool(name)) {
           // Fold query results behind a tap so mid-conversation lookups don't
@@ -370,7 +378,8 @@ class _Bubble extends StatelessWidget {
           return _CollapsibleQueryResult(label: _toolLabel(name), cards: cards);
         }
         if (cards.isEmpty) {
-          return _chip(context, '↩ ${_toolLabel(name)} 完成', eu.textLo);
+          return _chip(context, '${_toolLabel(name)} 完成', eu.textLo,
+              icon: Icons.check_rounded);
         }
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -386,7 +395,7 @@ class _Bubble extends StatelessWidget {
     }
   }
 
-  Widget _chip(BuildContext context, String label, Color color) {
+  Widget _chip(BuildContext context, String label, Color color, {IconData? icon}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Container(
@@ -396,7 +405,21 @@ class _Bubble extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: color.withValues(alpha: 0.28)),
         ),
-        child: Text(label, style: TextStyle(color: color, fontSize: 12)),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 12, color: color),
+              const SizedBox(width: 4),
+            ],
+            // Flexible + softWrap so a long message (e.g. a raw error) wraps
+            // instead of overflowing the bubble horizontally.
+            Flexible(
+              child: Text(label, softWrap: true, style: TextStyle(color: color, fontSize: 12)),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -469,86 +492,22 @@ class _Bubble extends StatelessWidget {
 }
 
 const _toolLabels = {
+  // CREATE 一律叫「创建资产」—— 待办/事件/名片/随记 对用户都是「资产」,不暴露内部类型。
   'tool_create_asset': '创建资产',
+  'tool_create_todo': '创建资产',
+  'tool_create_note': '创建资产',
+  'tool_create_event': '创建资产',
+  'tool_create_contact': '创建资产',
   'tool_update_asset': '更新资产',
+  'tool_update_event': '更新资产',
+  'tool_update_contact': '更新资产',
   'tool_query_asset': '查询资产',
   'tool_query_digest': '汇总数据',
   'tool_delete_asset': '删除资产',
-  'tool_create_event': '创建事件',
   'tool_query_event': '查询事件',
-  'tool_create_contact': '创建联系人',
   'tool_query_contact': '查询联系人',
   'tool_create_task': '触发外部任务',
-  'tool_render_report': '生成报告',
 };
-
-/* ── report salvage / HTML-to-text (§4.2.3 ReportReceiptCard) ───────────────── */
-
-final _htmlReportLead = RegExp(r'^\s*(```html|<!doctype|<html|<style)', caseSensitive: false);
-
-/// True when an agent text part is actually a report's HTML dumped as text — we
-/// never render raw markup in chat, so this routes to a [_ReportReceipt].
-bool _looksLikeHtmlReport(String t) {
-  if (t.isEmpty) return false;
-  return _htmlReportLead.hasMatch(t) || t.toLowerCase().contains('<style');
-}
-
-final _tagRe = RegExp(r'<[^>]+>');
-final _spacesRe = RegExp(r'[ \t]{2,}');
-final _blanksRe = RegExp(r'\n{3,}');
-
-/// Flatten report HTML to readable text (no WebView dependency). Strips
-/// style/script, turns block tags into line breaks, decodes common entities.
-String _htmlToText(String html) {
-  var s = html
-      .replaceAll(RegExp(r'```html', caseSensitive: false), '')
-      .replaceAll('```', '')
-      .replaceAll(RegExp(r'<style[^>]*>.*?</style>', caseSensitive: false, dotAll: true), '')
-      .replaceAll(RegExp(r'<script[^>]*>.*?</script>', caseSensitive: false, dotAll: true), '')
-      .replaceAll(
-          RegExp(r'</(p|div|h[1-6]|li|tr|table|section|header|footer|ul|ol)>',
-              caseSensitive: false),
-          '\n')
-      .replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n')
-      .replaceAll(_tagRe, '')
-      .replaceAll('&nbsp;', ' ')
-      .replaceAll('&amp;', '&')
-      .replaceAll('&lt;', '<')
-      .replaceAll('&gt;', '>')
-      .replaceAll('&quot;', '"')
-      .replaceAll('&#39;', "'");
-  return s.replaceAll(_spacesRe, ' ').replaceAll(_blanksRe, '\n\n').trim();
-}
-
-String _titleFromHtml(String html) {
-  final m = RegExp(r'<title>(.*?)</title>', caseSensitive: false, dotAll: true).firstMatch(html) ??
-      RegExp(r'<h1[^>]*>(.*?)</h1>', caseSensitive: false, dotAll: true).firstMatch(html);
-  final t = m == null ? '' : _htmlToText(m.group(1)!).trim();
-  return t.isEmpty ? '整理报告' : t;
-}
-
-String _titleFromResult(Map<String, dynamic> r) {
-  final sc = r['structuredContent'];
-  final t = r['title'] ?? (sc is Map ? sc['title'] : null);
-  return (t is String && t.trim().isNotEmpty) ? t.trim() : '整理报告';
-}
-
-String _bodyFromResult(Map<String, dynamic> r) {
-  dynamic html = r['html'] ?? r['report_html'];
-  final sc = r['structuredContent'];
-  if (html == null && sc is Map) html = sc['html'] ?? sc['report_html'];
-  if (html == null) {
-    final content = r['content'];
-    if (content is List && content.isNotEmpty && content.first is Map) {
-      final txt = (content.first as Map)['text'];
-      if (txt is String) html = txt;
-    }
-  }
-  if (html is String && html.trim().isNotEmpty) {
-    return html.contains('<') ? _htmlToText(html) : html.trim();
-  }
-  return '报告已生成。';
-}
 
 /// Streaming tail: raw text (no markdown) + a blinking caret, matching the web's
 /// `Cursor` so half-typed `**` don't flicker mid-stream (§4.2.3).
@@ -631,7 +590,9 @@ class _CollapsibleQueryResultState extends State<_CollapsibleQueryResult> {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text('↩ ${widget.label} · 找到 $n 项',
+                  Icon(Icons.search_rounded, size: 13, color: eu.textLo),
+                  const SizedBox(width: 5),
+                  Text('${widget.label} · 找到 $n 项',
                       style: TextStyle(color: eu.textLo, fontSize: 12)),
                   if (n > 0) ...[
                     const SizedBox(width: 4),
@@ -650,134 +611,6 @@ class _CollapsibleQueryResultState extends State<_CollapsibleQueryResult> {
   }
 }
 
-/// Compact report receipt — opens the full report in a sheet instead of dumping
-/// HTML into the thread (§4.2.3 ReportReceiptCard → ReportSheet).
-class _ReportReceipt extends StatelessWidget {
-  final String title;
-  final String body;
-  final bool streaming;
-  const _ReportReceipt({required this.title, required this.body, required this.streaming});
-
-  void _open(BuildContext context) {
-    final eu = context.eu;
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: eu.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-      ),
-      builder: (_) => _ReportSheet(title: title, body: body),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final eu = context.eu;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: GestureDetector(
-        onTap: streaming ? null : () => _open(context),
-        behavior: HitTestBehavior.opaque,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-          decoration: BoxDecoration(
-            color: eu.brand.withValues(alpha: 0.10),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: eu.brand.withValues(alpha: 0.28)),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 30,
-                height: 30,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: eu.brand.withValues(alpha: 0.16),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: eu.brand.withValues(alpha: 0.30)),
-                ),
-                child: const Text('📄', style: TextStyle(fontSize: 15)),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(streaming ? '整理报告中…' : title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                            color: eu.textHi, fontSize: 13.5, fontWeight: FontWeight.w600)),
-                    Text(streaming ? '约 15-30 秒' : '点击查看报告',
-                        style: TextStyle(color: eu.textMid, fontSize: 11.5)),
-                  ],
-                ),
-              ),
-              if (streaming)
-                SizedBox(
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(strokeWidth: 1.8, color: eu.brand),
-                )
-              else
-                Icon(Icons.chevron_right, size: 18, color: eu.textLo),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ReportSheet extends StatelessWidget {
-  final String title;
-  final String body;
-  const _ReportSheet({required this.title, required this.body});
-
-  @override
-  Widget build(BuildContext context) {
-    final eu = context.eu;
-    return SafeArea(
-      top: false,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.85),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 8, 8),
-              child: Row(
-                children: [
-                  const Text('📄', style: TextStyle(fontSize: 18)),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                            color: eu.textHi, fontSize: 17, fontWeight: FontWeight.w700)),
-                  ),
-                  IconButton(
-                    icon: Icon(Icons.close, color: eu.textMid),
-                    onPressed: () => Navigator.of(context).maybePop(),
-                  ),
-                ],
-              ),
-            ),
-            Flexible(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-                child: Text(body, style: TextStyle(color: eu.text, fontSize: 14, height: 1.55)),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 /// 沉淀为资产 — a dropdown of the four free-text asset types; picking one calls
 /// onPick(skill) and shows inline saving / done / error state.
 class _PrecipitateMenu extends StatefulWidget {
@@ -789,11 +622,10 @@ class _PrecipitateMenu extends StatefulWidget {
 }
 
 class _PrecipitateMenuState extends State<_PrecipitateMenu> {
+  // idea/notes/misc merged into 随记 (notes). Precipitate offers 待办 or 随记.
   static const _types = [
     ('todo', '✅', '待办'),
-    ('notes', '📝', '笔记'),
-    ('idea', '💡', '想法'),
-    ('misc', '🗂', '其它'),
+    ('notes', '✍️', '随记'),
   ];
 
   String _state = 'idle'; // idle | saving | done | error
@@ -870,7 +702,8 @@ class _PrecipitateMenuState extends State<_PrecipitateMenu> {
 /// Drawer listing the user's sessions; tap to replay one, or start 新对话.
 class _SessionsDrawer extends StatefulWidget {
   final ChatController chat;
-  const _SessionsDrawer({required this.chat});
+  final VoidCallback onNewConversation;
+  const _SessionsDrawer({required this.chat, required this.onNewConversation});
 
   @override
   State<_SessionsDrawer> createState() => _SessionsDrawerState();
@@ -931,9 +764,7 @@ class _SessionsDrawerState extends State<_SessionsDrawer> {
     if (ok) {
       setState(() => _sessions?.removeWhere((x) => x.id == s.id));
     } else {
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(const SnackBar(content: Text('删除失败')));
+      showToast(context, '删除失败', error: true);
       _load(); // restore the row that Dismissible already swiped away
     }
   }
@@ -956,7 +787,7 @@ class _SessionsDrawerState extends State<_SessionsDrawer> {
                   const Spacer(),
                   TextButton.icon(
                     onPressed: () {
-                      widget.chat.reset();
+                      widget.onNewConversation(); // clears anchor + context + session
                       Navigator.of(context).pop();
                     },
                     icon: const Icon(Icons.add, size: 18),
@@ -1080,247 +911,3 @@ class _InputBar extends StatelessWidget {
   }
 }
 
-/// Bottom-sheet asset picker for attaching context to a chat (web AssetPickerSheet).
-class _AssetPicker extends StatefulWidget {
-  final Set<String> excludeIds;
-  const _AssetPicker({required this.excludeIds});
-
-  @override
-  State<_AssetPicker> createState() => _AssetPickerState();
-}
-
-class _PickerData {
-  final List<AssetItem> assets;
-  final Map<String, SkillMeta> skills; // skillName → icon/label(display_name)
-  final Map<String, RenderSpec> specs; // skillName → render_spec
-  _PickerData(this.assets, this.skills, this.specs);
-}
-
-class _AssetPickerState extends State<_AssetPicker> {
-  final _api = ApiClient();
-  late final Future<_PickerData> _future = _load();
-  String _filter = '__all__'; // '__all__' or a skillName
-  final Set<String> _selected = {}; // multi-select
-  // Resolved title per asset id (so the confirm result carries readable labels).
-  final Map<String, AssetItem> _byId = {};
-
-  Future<_PickerData> _load() async {
-    final r = await Future.wait([
-      fetchAssets(_api),
-      fetchSkills(_api),
-      fetchRenderSpecs(_api),
-    ]);
-    return _PickerData(
-      r[0] as List<AssetItem>,
-      r[1] as Map<String, SkillMeta>,
-      r[2] as Map<String, RenderSpec>,
-    );
-  }
-
-  @override
-  void dispose() {
-    _api.close();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final eu = context.eu;
-    // Fixed height in the 1/2–2/3 screen range — does NOT shrink with item count.
-    final h = MediaQuery.of(context).size.height * 0.62;
-    return SafeArea(
-      top: false,
-      child: SizedBox(
-        height: h,
-        child: FutureBuilder<_PickerData>(
-          future: _future,
-          builder: (ctx, snap) {
-            if (snap.connectionState != ConnectionState.done) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            final data = snap.data;
-            final all = (data?.assets ?? const <AssetItem>[])
-                .where((a) => !widget.excludeIds.contains(a.id))
-                .toList();
-            final present = <String>[];
-            for (final a in all) {
-              if (!present.contains(a.skillName)) present.add(a.skillName);
-            }
-            String labelOf(String s) => data?.skills[s]?.label ?? s;
-            final shown = _filter == '__all__'
-                ? all
-                : all.where((a) => a.skillName == _filter).toList();
-
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-                  child: Text('添加资产',
-                      style: TextStyle(color: eu.textHi, fontSize: 18, fontWeight: FontWeight.w700)),
-                ),
-                if (present.length > 1)
-                  SizedBox(
-                    height: 36,
-                    child: ListView(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      children: [
-                        _filterChip(eu, '全部', '__all__'),
-                        for (final s in present) _filterChip(eu, labelOf(s), s),
-                      ],
-                    ),
-                  ),
-                Expanded(
-                  child: shown.isEmpty
-                      ? Center(child: Text('没有可添加的资产', style: TextStyle(color: eu.textMid)))
-                      : ListView.builder(
-                          padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
-                          itemCount: shown.length,
-                          itemBuilder: (_, i) {
-                            final a = shown[i];
-                            final title = readableTitle(
-                              a.payload,
-                              data?.specs[a.skillName],
-                              fallback: labelOf(a.skillName),
-                            );
-                            _byId[a.id] = a.copyWithTitle(title);
-                            final icon = data?.skills[a.skillName]?.icon ?? '•';
-                            final checked = _selected.contains(a.id);
-                            return ListTile(
-                              leading: Text(icon, style: const TextStyle(fontSize: 18)),
-                              title: Text(title,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(color: eu.textHi, fontSize: 14)),
-                              subtitle: Text(labelOf(a.skillName),
-                                  style: TextStyle(color: eu.textLo, fontSize: 11)),
-                              trailing: Icon(
-                                checked ? Icons.check_circle : Icons.radio_button_unchecked,
-                                color: checked ? eu.brand : eu.textLo,
-                                size: 22,
-                              ),
-                              onTap: () => setState(() {
-                                if (checked) {
-                                  _selected.remove(a.id);
-                                } else {
-                                  _selected.add(a.id);
-                                }
-                              }),
-                            );
-                          },
-                        ),
-                ),
-                if (_selected.isNotEmpty) _selectedRow(eu),
-                _confirmBar(eu),
-              ],
-            );
-          },
-        ),
-      ),
-    );
-  }
-
-  // Selected assets as removable chips — so the user can deselect without
-  // hunting for the row in the list.
-  Widget _selectedRow(EurekaColors eu) {
-    return Container(
-      height: 44,
-      decoration: BoxDecoration(border: Border(top: BorderSide(color: eu.border))),
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        children: [
-          for (final id in _selected)
-            Padding(
-              padding: const EdgeInsets.only(right: 6),
-              child: GestureDetector(
-                onTap: () => setState(() => _selected.remove(id)),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: eu.brand.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: eu.brand.withValues(alpha: 0.30)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 120),
-                        child: Text(_byId[id]?.title ?? '资产',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(color: eu.textHi, fontSize: 12)),
-                      ),
-                      const SizedBox(width: 4),
-                      Icon(Icons.close, size: 13, color: eu.textMid),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _confirmBar(EurekaColors eu) {
-    final n = _selected.length;
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-      decoration: BoxDecoration(border: Border(top: BorderSide(color: eu.border))),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(n == 0 ? '未选择' : '已选 $n 项',
-                style: TextStyle(color: n == 0 ? eu.textLo : eu.textMid, fontSize: 13)),
-          ),
-          GestureDetector(
-            onTap: n == 0
-                ? null
-                : () => Navigator.of(context).pop(
-                      [for (final id in _selected) _byId[id]!],
-                    ),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 11),
-              decoration: BoxDecoration(
-                color: n == 0 ? eu.surface : eu.brand,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(n == 0 ? '添加' : '添加 $n 项',
-                  style: TextStyle(
-                      color: n == 0 ? eu.textLo : Colors.white,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600)),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _filterChip(EurekaColors eu, String label, String value) {
-    final active = _filter == value;
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: GestureDetector(
-        onTap: () => setState(() => _filter = value),
-        child: Container(
-          alignment: Alignment.center,
-          padding: const EdgeInsets.symmetric(horizontal: 13),
-          decoration: BoxDecoration(
-            color: active ? eu.brand.withValues(alpha: 0.18) : eu.surfaceRaised,
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: active ? eu.brand.withValues(alpha: 0.45) : eu.border),
-          ),
-          child: Text(label,
-              style: TextStyle(
-                  color: active ? eu.textHi : eu.textMid,
-                  fontSize: 12.5,
-                  fontWeight: active ? FontWeight.w600 : FontWeight.w500)),
-        ),
-      ),
-    );
-  }
-}

@@ -16,18 +16,11 @@ The render_spec produced here must conform to the receivable enum vocabulary
 SkillCard renderer (Phase D §九) can render it without surprise.
 """
 import json
-import uuid
 
 from google.adk.agents import LlmAgent
-from google.adk.runners import Runner
-from google.adk.sessions import InMemorySessionService
-from google.genai.types import Content, Part
 
+from core.agent_runner import run_agent
 from core.llm import DESIGN_AGENT_MODEL
-
-
-_session_service = InMemorySessionService()
-APP_NAME = "eureka-design-agent"
 
 
 DESIGN_INSTRUCTION = """
@@ -40,8 +33,9 @@ DESIGN_INSTRUCTION = """
   "name":         "string",   // skill machine name,小写英文,不超过 30 字符,例 "running"
   "display_name": "string",   // 中文显示名,例 "跑步训练"
   "payload_schema": {         // 字段定义,3-6 个字段最合适
-    "<field>": {
+    "<field_key>": {          // 机器 key:小写英文 snake_case,稳定契约(payload/查询/索引用)
       "type":        "string|number|datetime|date|boolean",
+      "long":        true|false,   // 长文?true=自由长文(走 markdown 编辑器/正文块)
       "required":    true|false,
       "label":       "中文短标签,2-5 字,用于详情页字段名(例 amount→'水量',distance→'距离')",
       "description": "字段含义"
@@ -70,9 +64,15 @@ DESIGN_INSTRUCTION = """
     · purple(事件/日程) · gray(次要) · neutral(无强语义)
 - icon 用 1 个 emoji,跟主题贴近(跑步 🏃、读书 📖、睡眠 😴、健身 💪、习惯 ⭕)
 - card_layout 默认 horizontal;内容字段多/长用 stacked;时间流密集场景用 inline
+- **字段 key = 小写英文 snake_case**(book_title / key_insights / pages_read):它是稳定的后端契约
+    (payload 键 / 查询 / 索引),创建后不要再改;中文只进 `label`。
 - **每个字段必须给 `label`**(2-5 字中文短标签):详情页用它显示字段名。机器字段名可以是
     英文(amount / distance / pace),但 label 一定要是贴合该 skill 语义的中文 —— 例如喝水 skill 的
     `amount` 标签是「水量」而**不是**「金额」。别用通用的「金额/数量」糊弄。
+- **每个字段判定 `long`**(是否长文):用户会写成段落 / 多句的**自由叙述**字段(感想 / 小结 / 正文 /
+    评价 / 要点 / 描述 / 笔记 / 心得)→ `long: true`(详情/编辑走 markdown);**结构化短值**
+    (数字 / 日期 / 金额 / 名称 / 书名 / 分类 / 地点 / 页数 / 时长)→ `long: false`。拿不准时:string 且语义
+    是「主观叙述」→ true,否则 false。markdown 是纯文本的超集,标 true 没坏处,只是给更大的编辑区。
 - primary_field 必填,选最能一眼识别这条记录的字段(跑步 → 距离;读书 → 书名)
 - secondary_format 不确定就 "text",日期/时间字段用 "relative_date" 或 "absolute_date"
 - **字段覆盖(关键!别让用户记的东西在卡片上消失)**:payload 里每个有意义的
@@ -182,21 +182,8 @@ async def design_skill(description: str, user_id: str = "default") -> dict:
     Raises if the LLM returns non-JSON (shouldn't happen with response_schema,
     but caller should handle JSONDecodeError defensively in Step 5).
     """
-    agent = make_design_agent()
-    sid = str(uuid.uuid4())
-    await _session_service.create_session(
-        app_name=APP_NAME, user_id=user_id, session_id=sid,
-    )
-    runner = Runner(agent=agent, app_name=APP_NAME, session_service=_session_service)
-    msg = Content(role="user", parts=[Part(text=description)])
-
-    final_text = ""
-    async for event in runner.run_async(
-        user_id=user_id, session_id=sid, new_message=msg,
-    ):
-        if event.is_final_response() and event.content and event.content.parts:
-            final_text = event.content.parts[0].text or ""
-
+    # codex review §AgentRunner: shared one-shot runner (was a hand-rolled loop).
+    final_text = (await run_agent(make_design_agent(), description, user_id)).text
     return json.loads(final_text)
 
 
@@ -318,19 +305,8 @@ async def clarify_skill(description: str, user_id: str = "default") -> dict:
     when questions, frontend collects answers and POSTs back with them folded
     into the description for the design pass.
     """
-    agent = make_clarifier_agent()
-    sid = str(uuid.uuid4())
-    await _session_service.create_session(
-        app_name=APP_NAME, user_id=user_id, session_id=sid,
-    )
-    runner = Runner(agent=agent, app_name=APP_NAME, session_service=_session_service)
-    msg = Content(role="user", parts=[Part(text=description)])
-    final_text = ""
-    async for event in runner.run_async(
-        user_id=user_id, session_id=sid, new_message=msg,
-    ):
-        if event.is_final_response() and event.content and event.content.parts:
-            final_text = event.content.parts[0].text or ""
+    # codex review §AgentRunner: shared one-shot runner (was a hand-rolled loop).
+    final_text = (await run_agent(make_clarifier_agent(), description, user_id)).text
     try:
         parsed = json.loads(final_text)
     except (json.JSONDecodeError, ValueError):

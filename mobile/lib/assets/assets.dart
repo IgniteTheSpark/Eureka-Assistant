@@ -8,6 +8,9 @@ class AssetItem {
   final DateTime createdAt;
   final String? sessionId;
 
+  /// §8 life-domain label (工作/学习/…) or null (不归域). Drives the domain chip.
+  final String? domain;
+
   /// A readable title resolved against the skill's render_spec (see
   /// `readableTitle`). When set, [title] returns it — so custom skills whose
   /// content lives in a non-standard field don't fall back to the machine name.
@@ -19,6 +22,7 @@ class AssetItem {
     required this.payload,
     required this.createdAt,
     this.sessionId,
+    this.domain,
     this.titleOverride,
   });
 
@@ -29,6 +33,7 @@ class AssetItem {
         createdAt:
             DateTime.tryParse(j['created_at'] as String? ?? '')?.toLocal() ?? DateTime.now(),
         sessionId: j['session_id'] as String?,
+        domain: j['domain'] as String?,
       );
 
   AssetItem copyWithTitle(String t) => AssetItem(
@@ -37,6 +42,7 @@ class AssetItem {
         payload: payload,
         createdAt: createdAt,
         sessionId: sessionId,
+        domain: domain,
         titleOverride: t,
       );
 
@@ -51,8 +57,8 @@ class AssetItem {
   }
 }
 
-Future<List<AssetItem>> fetchAssets(ApiClient api) async {
-  final res = await api.getJson('/api/assets');
+Future<List<AssetItem>> fetchAssets(ApiClient api, {int? limit}) async {
+  final res = await api.getJson('/api/assets${limit != null ? '?limit=$limit' : ''}');
   final list = (res is Map ? res['assets'] : null) as List? ?? const [];
   return list
       .whereType<Map>()

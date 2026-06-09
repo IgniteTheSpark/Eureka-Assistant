@@ -20,11 +20,12 @@ from fastmcp import FastMCP
 
 from mcp_server.tools import (
     create_asset, query_asset, query_digest, update_asset, delete_asset,
+    create_todo, create_note,                                             # typed built-in creates
+
     create_contact, query_contact, update_contact, delete_contact,
     query_input_turn, get_input_turn,
     create_event, query_event, get_event, update_event, delete_event,   # v1.4
     add_event_attendee, link_event_file,                                  # v1.4
-    render_report,                                                        # html-summary
 )
 
 mcp = FastMCP("eureka")
@@ -42,6 +43,7 @@ async def tool_create_asset(
     payload: str,
     session_id: str = "",
     source_input_turn_id: str = "",
+    domain: str = "",
     user_id: str = "default",
 ) -> str:
     """
@@ -51,12 +53,66 @@ async def tool_create_asset(
     payload: JSON string with fields matching the skill's payload_schema
     session_id: optional session UUID this asset belongs to
     source_input_turn_id: optional input_turn UUID that produced this asset
+    domain: optional §8 life-domain by content — one of
+            工作/学习/健康/运动/社交/娱乐/生活/灵感. Omit if unsure; the service
+            falls back to the skill's default domain.
 
     The skill must exist in user_skills for the current user. An unregistered
     skill name returns an error — do NOT retry with a different name without
     consulting the skill registry.
+
+    ⚠️ For the built-in 待办/随记, prefer the typed `tool_create_todo` /
+    `tool_create_note` below — fewer payload mistakes. Use this generic tool for
+    expense and custom skills.
     """
-    return _jsonify(await create_asset(user_skill_name, payload, session_id, source_input_turn_id, user_id))
+    return _jsonify(await create_asset(user_skill_name, payload, session_id, source_input_turn_id, domain, user_id))
+
+
+@mcp.tool()
+async def tool_create_todo(
+    content: str,
+    due_date: str = "",
+    session_id: str = "",
+    source_input_turn_id: str = "",
+    domain: str = "",
+    user_id: str = "default",
+) -> str:
+    """
+    Create a 待办 (todo). Typed — no JSON payload to assemble.
+
+    content: the task, faithful to the user's words.
+    due_date: ISO8601 + +08:00 when a time is given (e.g. 2026-06-05T15:00:00+08:00);
+              'YYYY-MM-DD' when only a date is given (don't invent a time);
+              '' when no time reference.
+    domain: optional §8 life-domain by content (工作/学习/健康/运动/社交/娱乐/生活/灵感),
+            e.g. "交报告"→工作, "买菜"→生活, "陪家人"→生活. Omit if unsure.
+    Storage is the unified assets table (user_skill_name='todo').
+    """
+    return _jsonify(await create_todo(content, due_date, session_id, source_input_turn_id, domain, user_id))
+
+
+@mcp.tool()
+async def tool_create_note(
+    content: str,
+    title: str = "",
+    tags: str = "",
+    session_id: str = "",
+    source_input_turn_id: str = "",
+    domain: str = "",
+    user_id: str = "default",
+) -> str:
+    """
+    Create a 随记 (the free-text catch-all that merged idea/notes/misc). Typed.
+
+    content: the text, faithful to the original (may tidy structure, no new facts).
+    title:   a ≤24-char one-line summary (give one even for short content).
+    tags:    comma-separated open topic tags, ≤3 kept (e.g. '天气,心情');
+             reuse the user's existing tags, don't mint synonyms.
+    domain:  optional §8 life-domain; 随记 defaults to 灵感 when omitted — only
+             set another (工作/学习/…) if the content clearly belongs elsewhere.
+    Storage is the unified assets table (user_skill_name='notes').
+    """
+    return _jsonify(await create_note(content, title, tags, session_id, source_input_turn_id, domain, user_id))
 
 
 @mcp.tool()
@@ -65,38 +121,44 @@ async def tool_query_asset(
     contains: str = "",
     from_date: str = "",
     to_date: str = "",
+    domain: str = "",
     limit: int = 100,
     user_id: str = "default",
 ) -> str:
     """
     Query assets. Filter by skill name, keyword in payload (case-insensitive),
-    and/or capture-date range (from_date/to_date, ISO8601+tz, filters created_at).
+    domain (§8 life-domain: 工作/学习/健康/运动/社交/娱乐/生活/灵感), and/or
+    capture-date range (from_date/to_date, ISO8601+tz, filters created_at).
 
-    Returns newest-first list with skill_name + payload + session_id + source_input_turn_id.
+    Returns newest-first list with skill_name + payload + domain + session_id + source_input_turn_id.
     Empty user_skill_name = all skills — use that (+ a date range) for a whole-day/
-    period SUMMARY so you get every type, not just one.
+    period SUMMARY so you get every type, not just one. Use `domain` for a
+    by-domain fact query (e.g. "我最近娱乐花了多少" → domain=娱乐).
     """
-    return _jsonify(await query_asset(user_skill_name, contains, from_date, to_date, limit, user_id))
+    return _jsonify(await query_asset(user_skill_name, contains, from_date, to_date, domain, limit, user_id))
 
 
 @mcp.tool()
 async def tool_query_digest(
     from_date: str = "",
     to_date: str = "",
+    domain: str = "",
     user_id: str = "default",
 ) -> str:
     """
-    Compact, pre-grouped snapshot of a time window for a SUMMARY/日报/周报/月报.
+    Compact, pre-grouped snapshot of a time window (日报/周报/月报 概况).
 
-    Use THIS (not tool_query_asset) when building a whole-day / period report:
-    it returns counts + per-type payload lists + events, lean enough that you
-    can reliably go straight on to tool_render_report. Pass ISO8601+tz dates
+    Use THIS (not tool_query_asset) for a whole-day / period overview: it
+    returns counts + per-type payload lists + events, lean enough to summarize
+    in one shot. Pass ISO8601+tz dates
     (e.g. a single day = 00:00:00 .. 23:59:59 of that date in +08:00).
+    domain: optional §8 life-domain scope (events excluded when set, since they
+            carry no domain in v1).
 
     Returns: { counts: {<type>: n}, by_type: {<type>: [payload, ...]},
                events: [{title, start_at, end_at, location, all_day}] }
     """
-    return _jsonify(await query_digest(from_date, to_date, user_id))
+    return _jsonify(await query_digest(from_date, to_date, domain, user_id))
 
 
 @mcp.tool()
@@ -114,90 +176,6 @@ async def tool_delete_asset(asset_id: str, user_id: str = "default") -> str:
     return _jsonify(await delete_asset(asset_id, user_id))
 
 
-@mcp.tool()
-async def tool_render_report(title: str, html: str, user_id: str = "default") -> str:
-    """
-    Render a rich, well-designed HTML report for the user (图文并茂的总结).
-
-    Use when the user asks to 总结 / 汇总 / 复盘 / 生成报告 over their data.
-    The report opens FULL-SCREEN — treat it like a designed dashboard, not a
-    dump of rows.
-
-    ── WORKFLOW ──────────────────────────────────────────────────────────
-    1. query_asset / query_event / query_input_turn → pull the real rows.
-    2. ANALYZE, don't list. Compute aggregates and find the story.
-    3. Compose ONE self-contained HTML doc and pass as `html`.
-
-    ── 内容:行为汇总(必做,这是报告的灵魂)────────────────────────────
-    报告**不是把记录抄一遍**,而是**算出洞察**:
-      · 汇总数字:总计 / 平均 / 最高·最低 / 次数 / 完成率
-      · 趋势:这段 vs 上一段、按天/周分布、是涨是跌
-      · 模式 & 亮点:连续打卡天数、最长的一次、异常值、习惯规律
-      · 一句话结论放最前面(headline),先给判断再给数据支撑
-    没有数据的部分**如实说**「这段时间没有 X 记录」,绝不编造。
-
-    ── 结构(从上到下)──────────────────────────────────────────────
-      ① 标题 + 一句话总结(headline insight)
-      ② 关键数字:3-4 个大号 stat 卡片并排(总计/平均/最高/次数)
-      ③ 趋势图:一张手画 inline <svg> 图(柱状或折线)
-      ④ 明细:干净的列表或表格(最多 ~8 行,多了截断 + "等 N 条")
-      ⑤ 亮点/建议:1-3 条 bullet(连续天数、提醒、规律)
-
-    ── 设计系统(深色,跟 app 一致;别再用 Arial 白底)──────────────
-    在 <style> 里内联这套 token,然后用它们:
-      :root{
-        --bg:#0b0e16; --bg2:#11151f;
-        --card:rgba(255,255,255,.045); --line:rgba(255,255,255,.09);
-        --hi:#e9eef7; --mid:#9aa6b8; --lo:#5d6675;
-        --brand:#b79dff; --blue:#6f9eff; --green:#5fd6a0;
-        --amber:#f5c879; --red:#ff8a8a;
-      }
-      body{margin:0;padding:20px 18px 40px;background:var(--bg);
-        color:var(--hi);font:14px/1.6 -apple-system,"Noto Sans SC",system-ui,sans-serif;}
-      h1{font-size:24px;font-weight:700;letter-spacing:-.01em;margin:0 0 4px;}
-      .headline{color:var(--mid);font-size:14px;margin:0 0 20px;}
-      .stats{display:flex;gap:10px;margin:0 0 22px;}
-      .stat{flex:1;background:var(--card);border:1px solid var(--line);
-        border-radius:14px;padding:12px 10px;text-align:center;}
-      .stat .n{font-size:26px;font-weight:700;color:var(--brand);
-        font-variant-numeric:tabular-nums;line-height:1.1;}
-      .stat .k{font-size:11px;color:var(--lo);margin-top:4px;letter-spacing:.08em;}
-      .card{background:var(--card);border:1px solid var(--line);
-        border-radius:14px;padding:16px;margin:0 0 16px;}
-      .sec{font-size:11px;letter-spacing:.18em;color:var(--lo);
-        text-transform:uppercase;margin:0 0 12px;font-weight:600;}
-      table{width:100%;border-collapse:collapse;font-size:13px;}
-      td{padding:8px 0;border-top:1px solid var(--line);color:var(--hi);}
-      td.r{text-align:right;color:var(--mid);font-variant-numeric:tabular-nums;}
-      ul{margin:0;padding-left:18px;color:var(--mid);}
-      li{margin:6px 0;}
-    数字用 --brand 高亮;正向用 --green、提醒用 --amber、紧急用 --red。
-
-    ── 图表配方(inline SVG,圆角柱状)─────────────────────────────
-      <svg viewBox="0 0 320 160" width="100%" style="display:block">
-        <!-- 网格线 -->
-        <line x1="0" y1="130" x2="320" y2="130" stroke="rgba(255,255,255,.12)"/>
-        <!-- 每根柱子(高度按比例算,用品牌渐变色)-->
-        <rect x="20" y="60" width="46" height="70" rx="6" fill="#6f9eff"/>
-        <text x="43" y="148" fill="#9aa6b8" font-size="11" text-anchor="middle">周一</text>
-        <text x="43" y="52" fill="#e9eef7" font-size="12" text-anchor="middle">12</text>
-        <!-- …重复 …  -->
-      </svg>
-    折线同理:<polyline points="..." fill="none" stroke="#b79dff" stroke-width="2"/>
-    + 圆点。**自己按数据算坐标**,别留占位。
-
-    ── 硬规则 ───────────────────────────────────────────────────────
-      · 渲染在 ~393px 宽的 sandbox iframe:单列、max-width 100%、长表格套
-        可横向滚动容器。
-      · 所有 CSS 内联;不引外部样式/字体/JS;**没有 <script>**(沙箱拦截)。
-      · 紧凑——一份 1-2 屏、信息密度高的报告,胜过又长又空的。
-
-    title: 给聊天里那张回执卡片用的短标题,如 "跑步月报"。
-    html: 完整 HTML 文档字符串(遵循以上设计系统)。
-    """
-    return _jsonify(await render_report(title, html, user_id))
-
-
 # ── Contact tools ──────────────────────────────────────────────────────────────
 
 @mcp.tool()
@@ -208,29 +186,45 @@ async def tool_create_contact(
     title: str = "",
     email: str = "",
     notes: str = "",
+    socials: dict = None,
     source_input_turn_id: str = "",
     user_id: str = "default",
 ) -> str:
     """Create a new contact. name is required; other fields optional.
 
+    socials: a dict {platform: handle} for the person's social-media accounts,
+    chosen from the SUPPORTED set ONLY — keys must be one of:
+    x, telegram, linkedin, wechat, xiaohongshu, instagram. Store just the
+    handle/account (e.g. {"wechat": "alex_88", "x": "@alex"}). Unknown
+    platforms are dropped.
+
     source_input_turn_id: when this contact was extracted from a voice flash,
     pass the current input_turn UUID (provenance) — it links the contact to its
     capture for the timeline's ⚡ summary. Leave empty for chat/manual creation.
     """
-    return _jsonify(await create_contact(name, phone, company, title, email, notes, source_input_turn_id, user_id))
+    return _jsonify(await create_contact(
+        name, phone, company, title, email, notes, socials, source_input_turn_id, user_id))
 
 
 @mcp.tool()
 async def tool_query_contact(name_query: str = "", user_id: str = "default") -> str:
-    """Query contacts by name substring (case-insensitive). Newest-first."""
+    """Query contacts by name substring (case-insensitive). Newest-first.
+    Each contact includes `notes` (annotation lines) and `socials`
+    ({platform: handle})."""
     return _jsonify(await query_contact(name_query, user_id))
 
 
 @mcp.tool()
 async def tool_update_contact(contact_id: str, field: str, value: str, user_id: str = "default") -> str:
     """
-    Update a single field on a contact.
-    Notes field appends to the array; all other fields overwrite.
+    Update one field on a contact (field, value).
+
+    - field="notes": APPENDS `value` as a new annotation line (where/how you met,
+      etc.). NEVER replaces existing notes — call it once per new remark.
+    - field is a social platform (x / telegram / linkedin / wechat / xiaohongshu /
+      instagram): sets that platform's handle (value=the account); blank unsets it.
+      To record "他的微信是 alex_88" call field="wechat", value="alex_88".
+    - field in name/phone/company/title/email: overwrites that scalar field.
     """
     return _jsonify(await update_contact(contact_id, field, value, user_id))
 

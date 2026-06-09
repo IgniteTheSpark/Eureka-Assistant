@@ -32,6 +32,7 @@ from agents.skill_factory import (
     make_dispatcher_agent, make_skill_agent, make_custom_skill_agent,
     SKILL_FOLDER_MAP,
 )
+from core.agent_runner import run_agent
 from core.event_mapper import event_tool_call, event_tool_result
 from sqlalchemy import select
 from db.database import AsyncSessionLocal
@@ -66,46 +67,17 @@ def _parse_json(text: str) -> Optional[dict]:
 
 async def _run_agent(agent, message: str, user_id: str) -> Tuple[str, list]:
     """
-    Spin a one-shot ADK Runner for a single agent invocation.
+    Run a single agent once, returning (final_text, tool_events).
 
-    Returns (final_text, tool_events) where tool_events is a list of
-    {name, args, response} dicts captured from tool_call/tool_result events
-    during the run. The tool_events fallback is critical: skill agents
-    sometimes succeed at calling tool_create_asset (the DB write lands) but
-    emit malformed final JSON, so _parse_json returns None and the result
-    looks like a failure. With tool_events available, _run_intent can
-    reconstruct the success.
+    Thin wrapper over the canonical `core.agent_runner.run_agent` (codex review
+    §AgentRunner — the run loop now lives in one place, with usage accounting).
+    Kept here as a `(text, tool_events)` tuple so existing callers (report_pipeline,
+    task_skill, this module) need no changes. The tool_events fallback is still
+    the critical bit: a skill can land a DB write yet emit malformed final JSON,
+    and tool_events lets `_run_intent` reconstruct the success.
     """
-    sid = str(uuid.uuid4())
-    await _session_service.create_session(
-        app_name=APP_NAME, user_id=user_id, session_id=sid,
-    )
-    runner = Runner(agent=agent, app_name=APP_NAME, session_service=_session_service)
-    user_msg = Content(role="user", parts=[Part(text=message)])
-    final = ""
-    tool_events: list = []
-    pending_call: Optional[dict] = None
-    async for event in runner.run_async(
-        user_id=user_id, session_id=sid, new_message=user_msg,
-    ):
-        tc = event_tool_call(event)
-        if tc:
-            pending_call = tc
-            continue
-        tr = event_tool_result(event)
-        if tr:
-            tool_events.append({
-                "name":     tr.get("name", ""),
-                "args":     (pending_call or {}).get("args", {}) if pending_call and pending_call.get("name") == tr.get("name") else {},
-                "response": tr.get("response", {}),
-            })
-            pending_call = None
-            continue
-        if event.is_final_response() and event.content:
-            parts = event.content.parts or []
-            if parts:
-                final = parts[0].text or ""
-    return final, tool_events
+    r = await run_agent(agent, message, user_id)
+    return r.text, r.tool_events
 
 
 def _extract_tool_result_payload(response: Any) -> Optional[dict]:
@@ -185,7 +157,9 @@ async def _load_custom_skill_map(user_id: str) -> dict[str, dict]:
         rows = (await db.execute(
             select(UserSkill, GlobalSkill.name.label("skill_name"))
             .join(GlobalSkill, UserSkill.skill_id == GlobalSkill.id)
-            .where(UserSkill.user_id == user_id)
+            # Active-set: only enabled=1 custom skills enter the dispatcher hint +
+            # get routed (deactivated ones fall back to misc/notes).
+            .where(UserSkill.user_id == user_id, UserSkill.enabled == 1)
         )).all()
     out: dict[str, dict] = {}
     for us, machine_name in rows:
@@ -208,9 +182,14 @@ def _format_custom_skills_hint(custom_map: dict[str, dict]) -> str:
     lines: list[str] = []
     for machine_name, meta in custom_map.items():
         display = meta["display_name"]
-        # Cheap keyword surface = display_name + payload field names.
-        keywords = [display] + list((meta.get("payload_schema") or {}).keys())
-        kw_str = " / ".join(k for k in keywords if k)
+        # Keyword surface = display_name + each field's Chinese description (falls
+        # back to the field name). Descriptions give the dispatcher a far better
+        # semantic hook than English field names alone (读书笔记 → 书名/摘录/感想).
+        keywords = [display]
+        for fname, fmeta in (meta.get("payload_schema") or {}).items():
+            desc = (fmeta.get("description") or "").strip() if isinstance(fmeta, dict) else ""
+            keywords.append(desc or fname)
+        kw_str = " / ".join(k for k in dict.fromkeys(keywords) if k)  # dedupe, keep order
         lines.append(
             f"- `{machine_name}` ({display}): 关键词 = {kw_str}"
         )
@@ -270,6 +249,34 @@ async def _force_create_custom_asset(
     return created if isinstance(created, dict) else {"ok": False}
 
 
+async def _apply_domain(asset_id: Optional[str], domain: Optional[str], user_id: str) -> None:
+    """Stamp the dispatcher's content-domain onto a freshly-created asset (§8).
+
+    The flash sub-skill agents call create_asset without a domain, so it falls
+    back to the skill prior (e.g. notes→灵感). The dispatcher judges domain from
+    content; this overrides the prior with that content-domain. Best-effort.
+    """
+    from core.domains import normalize_domain
+    from db.models import Asset
+    d = normalize_domain(domain)
+    if not d or not asset_id:
+        return
+    try:
+        aid = uuid.UUID(str(asset_id))
+    except (ValueError, TypeError):
+        return
+    try:
+        async with AsyncSessionLocal() as db:
+            a = (await db.execute(
+                select(Asset).where(Asset.id == aid, Asset.user_id == user_id)
+            )).scalar_one_or_none()
+            if a is not None and a.domain != d:
+                a.domain = d
+                await db.commit()
+    except Exception:  # noqa: BLE001 — domain is a soft label; never fail the capture
+        pass
+
+
 async def _dispatch(user_text: str, today_str: str, user_id: str,
                     custom_skills_hint: str = "") -> list:
     """
@@ -283,6 +290,28 @@ async def _dispatch(user_text: str, today_str: str, user_id: str,
     if parsed and isinstance(parsed.get("intents"), list):
         return parsed["intents"]
     return [{"type": "note", "source_text": user_text}]
+
+
+async def _load_user_tags(user_id: str, limit: int = 40) -> list[str]:
+    """The user's existing 随记 topic tags (most-recent first, deduped). Injected
+    into the 随记 skill so it reuses tags instead of minting synonyms (§3.2.1)."""
+    from db.models import Asset
+    async with AsyncSessionLocal() as db:
+        rows = (await db.execute(
+            select(Asset.payload)
+            .join(UserSkill, Asset.user_skill_id == UserSkill.id)
+            .join(GlobalSkill, UserSkill.skill_id == GlobalSkill.id)
+            .where(Asset.user_id == user_id, GlobalSkill.name == "notes")
+            .order_by(Asset.created_at.desc()).limit(150)
+        )).scalars().all()
+    seen: list[str] = []
+    for p in rows:
+        for t in ((p or {}).get("tags") or []):
+            if isinstance(t, str) and t.strip() and t not in seen:
+                seen.append(t)
+        if len(seen) >= limit:
+            break
+    return seen[:limit]
 
 
 # ── Step 2: Sub-skill agents (parallel) ───────────────────────────────────────
@@ -362,12 +391,10 @@ async def _run_intent(
         result["source_text"] = source
         return result
 
-    # If the dispatcher emitted a type that has neither a static SKILL.md
-    # nor a custom-skill registration, fall back to misc instead of raising.
-    # Happens when a user deletes a custom skill while a stale prompt is in
-    # flight, or when the dispatcher hallucinates a type name.
-    if itype not in SKILL_FOLDER_MAP:
-        itype = "misc"
+    # idea / misc merged into 随记 (notes, §3.2.1). Normalize legacy/hallucinated
+    # types — and the unknown-type fallback — to `notes`, the free-text catch-all.
+    if itype in ("idea", "misc") or itype not in SKILL_FOLDER_MAP:
+        itype = "notes"
 
     agent = make_skill_agent(itype, user_id=user_id)
     msg = (
@@ -377,6 +404,11 @@ async def _run_intent(
         f"source_input_turn_id: {source_input_turn_id}\n"
         f"今天是 {today_str}。"
     )
+    # 随记: inject the user's existing tag vocabulary so the skill reuses tags
+    # instead of minting synonyms (§3.2.1 anti-drift).
+    if itype == "notes":
+        tags = await _load_user_tags(user_id)
+        msg += f"\nexisting_tags: {', '.join(tags) if tags else '(无)'}"
     raw, tool_events = await _run_agent(agent, msg, user_id)
     result = _parse_json(raw)
 
@@ -467,6 +499,12 @@ def _apply_format(value: Any, fmt: Optional[str]) -> str:
     """
     if value is None or value == "":
         return ""
+    # Array fields (e.g. 随记 tags) → join cleanly instead of "['其它']".
+    if isinstance(value, (list, tuple)):
+        items = [str(x).strip() for x in value if str(x).strip()]
+        if not items:
+            return ""
+        return " · ".join(items)
     s = str(value)
     if not fmt:
         return s
@@ -728,6 +766,16 @@ def _build_summary(asset_results: list, has_reply: bool) -> str:
     if pending_names:
         joiner = "" if not summary else "…"
         summary += f"{joiner}联系人「{'、'.join(pending_names)}」需要确认。"
+    # Fallback skill suggestion: a misc/notes capture that looks like a fixed
+    # record type → nudge the user to create a skill (the misc sub-skill sets
+    # `suggest_skill` to the recognized 中文类型 when applicable).
+    suggest = next(
+        (r.get("suggest_skill") for r in asset_results
+         if r.get("ok") and r.get("suggest_skill")),
+        None,
+    )
+    if suggest:
+        summary += f" 想长期、结构化地记录「{suggest}」的话,可以去资产库创建一个对应技能。"
     return summary
 
 
@@ -828,4 +876,9 @@ async def run_flash_pipeline(
             for i in intents
         ])
     )
+    # §8: apply the dispatcher's per-intent content-domain to each created asset
+    # (overrides the skill prior). Skipped for events/contacts/tasks (no asset_id).
+    for intent, r in zip(intents, results):
+        if isinstance(r, dict) and r.get("asset_id"):
+            await _apply_domain(r.get("asset_id"), intent.get("domain"), user_id)
     return _aggregate(results, session_id, input_turn_id, render_specs)

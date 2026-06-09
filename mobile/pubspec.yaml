@@ -55,6 +55,17 @@ dependencies:
   shared_preferences: ^2.3.0
   # Render the brand logo (vector SVG) crisply at any size.
   flutter_svg: ^2.0.10
+  # Full-screen report viewer — renders the engine's single-file HTML in a
+  # locked-down WKWebView (JS on for the report's no-dep reveal animation,
+  # no nav/network). §6.6.
+  webview_flutter: ^4.10.0
+  # Export/share a report (.html) via the iOS system share sheet (§6.7 分享).
+  share_plus: ^10.0.0
+  # §13.1 百智 OAuth login — opens the 百智 oauth-bridge in an ASWebAuthenticationSession
+  # (iOS) and captures the backend's `eureka://auth?token=<jwt>` deep-link callback.
+  # iOS needs no native config (the session intercepts the scheme); Android uses a
+  # callback activity (see AndroidManifest).
+  flutter_web_auth_2: ^3.1.2
 
 dev_dependencies:
   flutter_test:
@@ -83,6 +94,11 @@ flutter:
 
   assets:
     - assets/logo/
+    # GSAP (GreenSock) — injected into the report WebView for entrance motion (§6.6).
+    # pixel.js + mascot.js (§9 球球 pet engine) live here too.
+    - assets/js/
+    # §9 球球 pet render template (inlines pixel.js + mascot.js + genome → WebView).
+    - assets/pet_render.html
 
   # To add assets to your application, add an assets section, like this:
   # assets:

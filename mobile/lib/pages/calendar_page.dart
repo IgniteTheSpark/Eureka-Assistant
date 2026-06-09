@@ -9,6 +9,7 @@ import '../render/render_spec.dart';
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
 import '../timeline/timeline.dart';
+import 'create_asset.dart';
 import 'session_detail_page.dart';
 
 /// Open a flash capture's session as a read-only replay (web parity: tapping a
@@ -41,12 +42,22 @@ Future<void> _openTimelineItem(
     final res = await api.getJson(path);
     final raw = res is Map ? (res[wrapKey] ?? res) : res;
     final record = (raw as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
-    if (!context.mounted) return;
 
     final isAsset = item.kind != 'event' && item.kind != 'contact';
     // event/contact PUT flat fields → cardType is the kind; assets carry a
     // payload and are keyed by their skill name (so edit/delete route to /api/assets).
     final cardType = isAsset ? (item.skillName ?? 'misc') : item.kind;
+    // Pull the skill's render_spec (field labels + full schema) so the detail
+    // sheet + editor show 中文 labels and every field — not English fallbacks /
+    // only-the-present-fields (the timeline path used to pass no spec).
+    RenderSpec? spec;
+    if (isAsset) {
+      try {
+        spec = (await fetchRenderSpecs(api))[cardType];
+      } catch (_) {/* fall back to label dict */}
+    }
+    if (!context.mounted) return;
+
     final payload = isAsset
         ? ((record['payload'] as Map?)?.cast<String, dynamic>() ?? const {})
         : record;
@@ -54,11 +65,13 @@ Future<void> _openTimelineItem(
         (record['${item.kind}_id'] ?? record['id'] ?? item.id) as String?;
     showAssetDetail(
       context,
-      data: _timelineCardData(item, skills),
+      // carry the asset's domain so the hero shows the 领域 chip (was empty).
+      data: _timelineCardData(item, skills).copyWith(domain: record['domain'] as String?),
       payload: payload,
       cardType: cardType,
       assetId: assetId,
       sessionId: (record['session_id'] as String?) ?? item.sessionId,
+      spec: spec,
     );
   } catch (_) {
     // Couldn't load the record — fall back to its source session if any.
@@ -126,6 +139,10 @@ class _CalData {
   }
 }
 
+/// Bumped by the shell when the 今天 tab is (re)selected → the calendar resets
+/// to 流(timeline) and the stream jumps to today (默认「流 · 今天」).
+final ValueNotifier<int> calendarHome = ValueNotifier<int>(0);
+
 class _CalendarPageState extends State<CalendarPage> {
   final _api = ApiClient();
   // Revision-keyed fetch (see LibraryPage): build() re-subscribes to
@@ -133,6 +150,7 @@ class _CalendarPageState extends State<CalendarPage> {
   // hot-reload (no initState-registered listener to miss).
   int _loadedRev = -1;
   Future<_CalData>? _future;
+  _CalData? _lastData; // keep last data on screen during a refetch (no spinner flash)
 
   Future<_CalData> _futureFor(int rev) {
     if (rev != _loadedRev || _future == null) {
@@ -143,9 +161,9 @@ class _CalendarPageState extends State<CalendarPage> {
   }
 
   // START_CAL_MODE lets a build boot into a specific calendar mode for
-  // screenshot/visual verification (timeline | month | year). Defaults to
-  // 'month' to match the web CalendarPage (month is the default segment).
-  String _mode = const String.fromEnvironment('START_CAL_MODE', defaultValue: 'month');
+  // screenshot/visual verification (timeline | month | year). Default = 流
+  // (timeline · 今天) — the home view (产品决策 2026-06).
+  String _mode = const String.fromEnvironment('START_CAL_MODE', defaultValue: 'timeline');
   late DateTime _focusMonth = DateTime(DateTime.now().year, DateTime.now().month);
 
   // 流/月/年 are swipeable (PageView) + tappable (segmented), kept in sync.
@@ -170,7 +188,18 @@ class _CalendarPageState extends State<CalendarPage> {
   void _refresh() => bumpData(); // global bump → revision changes → re-fetch
 
   @override
+  void initState() {
+    super.initState();
+    calendarHome.addListener(_goHome); // 今天 tab tapped → reset to 流
+  }
+
+  void _goHome() {
+    if (mounted) _switchMode('timeline'); // the stream itself jumps to today
+  }
+
+  @override
   void dispose() {
+    calendarHome.removeListener(_goHome);
     _pager.dispose();
     _api.close();
     super.dispose();
@@ -194,7 +223,10 @@ class _CalendarPageState extends State<CalendarPage> {
                       alignment: Alignment.center,
                       child: _Segmented(
                         value: _mode,
-                        onChanged: (v) => _switchMode(v),
+                        // Selecting 流 re-centers on today (bump calendarHome →
+                        // _goHome switches mode + the stream jumps to today). 月/年
+                        // just switch. Fixes 流 staying scrolled where it was left.
+                        onChanged: (v) => v == 'timeline' ? calendarHome.value++ : _switchMode(v),
                       ),
                     ),
                     Align(
@@ -214,20 +246,25 @@ class _CalendarPageState extends State<CalendarPage> {
                 builder: (context, rev, _) => FutureBuilder<_CalData>(
                 future: _futureFor(rev),
                 builder: (ctx, snap) {
-                  if (snap.connectionState != ConnectionState.done) {
+                  if (snap.hasData) _lastData = snap.data;
+                  final data = _lastData;
+                  // First load only: spinner / error. On refetch we keep the
+                  // PageView mounted with the last data — no spinner flash, and
+                  // the PageController never detaches (so 流/月/年 never desyncs
+                  // from the segmented control).
+                  if (data == null) {
+                    if (snap.hasError) {
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Text('加载失败：${snap.error}',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: eu.accentRed)),
+                        ),
+                      );
+                    }
                     return const Center(child: CircularProgressIndicator());
                   }
-                  if (snap.hasError) {
-                    return Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Text('加载失败：${snap.error}',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: eu.accentRed)),
-                      ),
-                    );
-                  }
-                  final data = snap.data!;
                   // Swipeable 流/月/年 (synced with the segmented control).
                   return PageView(
                     controller: _pager,
@@ -338,6 +375,13 @@ class _TimelineViewState extends State<_TimelineView> {
   int _pastDays = 14;
   bool _growingPast = false;
 
+  // §流:有内容的日 → 点(date / 空白)开全屏日视图(`_openDay`)。
+  void _openDay(DateTime d) =>
+      Navigator.of(context).push(MaterialPageRoute(builder: (_) => DayDetailPage(day: d)));
+
+  // 空日不常驻按钮:点选某个空日才露出「+ 在这天记一笔」(再点取消)。null = 无选中。
+  DateTime? _selectedDay;
+
   DateTime _today = _d(DateTime.now());
   String? _overlayText; // 「今天 / N 天后 / N 月前 …」
   bool _overlayVisible = false;
@@ -352,10 +396,16 @@ class _TimelineViewState extends State<_TimelineView> {
   void initState() {
     super.initState();
     _scroll.addListener(_onScroll);
+    calendarHome.addListener(_onHome); // 今天 tab tapped → scroll to today
+  }
+
+  void _onHome() {
+    if (mounted && _scroll.hasClients) _jumpToToday();
   }
 
   @override
   void dispose() {
+    calendarHome.removeListener(_onHome);
     _fadeTimer?.cancel();
     _scroll.dispose();
     super.dispose();
@@ -486,13 +536,22 @@ class _TimelineViewState extends State<_TimelineView> {
     }
   }
 
-  void _jumpToToday() {
-    if (!_scroll.hasClients) return;
+  void _jumpToToday([int tries = 0]) {
+    // The scroll may not be attached yet (switching to 流 from another mode/tab
+    // before the page lays out) — retry a few frames.
+    if (!_scroll.hasClients) {
+      if (tries < 8) WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToToday(tries + 1));
+      return;
+    }
     _scroll.animateTo(
       _offsetToToday().clamp(0.0, _scroll.position.maxScrollExtent),
       duration: const Duration(milliseconds: 420),
       curve: Curves.easeOutCubic,
     );
+    // The estimate gets close; snap exactly onto today's now-laid-out row so it
+    // always lands on today (not ±weeks off from accumulated row-height error).
+    _snapTries = 0;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _snapToday());
   }
 
   DateTime _parse(String s) {
@@ -611,7 +670,13 @@ class _TimelineViewState extends State<_TimelineView> {
     final items = widget.data.byDay[r.day] ?? const <TimelineItem>[];
     final key = _keyFor(r.day);
     if (items.isEmpty) {
-      return _EmptyDayRow(key: key, day: r.day, monthBoundary: r.monthBoundary);
+      return _EmptyDayRow(
+        key: key,
+        day: r.day,
+        monthBoundary: r.monthBoundary,
+        selected: _selectedDay == r.day,
+        onSelect: () => setState(() => _selectedDay = (_selectedDay == r.day) ? null : r.day),
+      );
     }
     return _DayRow(
       key: key,
@@ -619,6 +684,7 @@ class _TimelineViewState extends State<_TimelineView> {
       items: items,
       skills: widget.data.skills,
       monthBoundary: r.monthBoundary,
+      onOpen: () => _openDay(r.day),
     );
   }
 
@@ -665,7 +731,18 @@ Widget _railMonthLabel(EurekaColors eu, DateTime day) {
 class _EmptyDayRow extends StatelessWidget {
   final DateTime day;
   final bool monthBoundary;
-  const _EmptyDayRow({super.key, required this.day, this.monthBoundary = false});
+  // §流:an empty day is a blank tile by default (NOT a permanent button). Tap to
+  // select → it reveals「+ 在这天记一笔」(tap that → create directly; re-tap the
+  // tile to deselect). Keeps long empty stretches clean.
+  final bool selected;
+  final VoidCallback onSelect;
+  const _EmptyDayRow({
+    super.key,
+    required this.day,
+    required this.selected,
+    required this.onSelect,
+    this.monthBoundary = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -681,23 +758,63 @@ class _EmptyDayRow extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            SizedBox(width: 64, child: railHeader(eu, day, isToday, monthBoundary)),
+            GestureDetector(
+              onTap: onSelect,
+              behavior: HitTestBehavior.opaque,
+              child: SizedBox(width: 64, child: railHeader(eu, day, isToday, monthBoundary)),
+            ),
             Expanded(
-              child: Container(
-                margin: const EdgeInsets.only(left: 6),
-                constraints: const BoxConstraints(minHeight: 72),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                alignment: Alignment.topLeft,
-                decoration: dayTileDecoration(eu),
-                // Empty day → an empty faint card (every day is a tile, like the
-                // reference); today/tomorrow keep their corner tag.
-                child: label != null
-                    ? Align(
-                        alignment: Alignment.topRight,
-                        child: Text(label,
-                            style: euMono(fontSize: 9, letterSpacing: 2, color: eu.textMid)),
-                      )
-                    : null,
+              child: GestureDetector(
+                onTap: onSelect, // tap to select/deselect this empty day
+                behavior: HitTestBehavior.opaque,
+                child: Container(
+                  margin: const EdgeInsets.only(left: 6),
+                  constraints: const BoxConstraints(minHeight: 72),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: selected
+                      ? BoxDecoration(
+                          color: eu.brand.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: eu.brand.withValues(alpha: 0.5)),
+                        )
+                      : dayTileDecoration(eu),
+                  child: Stack(
+                    children: [
+                      if (selected)
+                        Center(
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text('空闲',
+                                  style: TextStyle(
+                                      color: eu.textLo, fontStyle: FontStyle.italic, fontSize: 13)),
+                              const SizedBox(width: 16),
+                              GestureDetector(
+                                onTap: () => showCreateMenu(context, presetDate: day),
+                                behavior: HitTestBehavior.opaque,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.add, size: 15, color: eu.brand),
+                                    const SizedBox(width: 3),
+                                    Text('在这天记一笔',
+                                        style: TextStyle(
+                                            color: eu.brand, fontSize: 12.5, fontWeight: FontWeight.w600)),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      if (label != null)
+                        Align(
+                          alignment: Alignment.topRight,
+                          child: Text(label,
+                              style: euMono(fontSize: 9, letterSpacing: 2, color: eu.textMid)),
+                        ),
+                    ],
+                  ),
+                ),
               ),
             ),
           ],
@@ -1281,11 +1398,15 @@ class _DayRow extends StatelessWidget {
   final List<TimelineItem> items;
   final Map<String, SkillMeta> skills;
   final bool monthBoundary;
+  // §流:tap the date or the tile's empty area → open the day view (which has the
+  // per-day add button). Items keep their own taps (open the item detail).
+  final VoidCallback onOpen;
   const _DayRow({
     super.key,
     required this.day,
     required this.items,
     required this.skills,
+    required this.onOpen,
     this.monthBoundary = false,
   });
 
@@ -1303,7 +1424,13 @@ class _DayRow extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            SizedBox(width: 64, child: railHeader(eu, day, isToday, monthBoundary)),
+            // The date opens the day view — reliable even when the tile is packed
+            // with items (little empty area left to tap).
+            GestureDetector(
+              onTap: onOpen,
+              behavior: HitTestBehavior.opaque,
+              child: SizedBox(width: 64, child: railHeader(eu, day, isToday, monthBoundary)),
+            ),
             Expanded(child: _tile(eu, corner)),
           ],
         ),
@@ -1312,31 +1439,37 @@ class _DayRow extends StatelessWidget {
   }
 
   Widget _tile(EurekaColors eu, String? corner) {
-    return Container(
-      margin: const EdgeInsets.only(left: 6),
-      constraints: const BoxConstraints(minHeight: 72),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: dayTileDecoration(eu),
-      child: Stack(
-        children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (var i = 0; i < items.length; i++) ...[
-                if (i > 0) const SizedBox(height: 8),
-                _TileItemRow(item: items[i], skills: skills),
+    return GestureDetector(
+      // tapping an item (opaque, deeper) opens it; tapping the tile's empty area
+      // opens the day view.
+      onTap: onOpen,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        margin: const EdgeInsets.only(left: 6),
+        constraints: const BoxConstraints(minHeight: 72),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: dayTileDecoration(eu),
+        child: Stack(
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (var i = 0; i < items.length; i++) ...[
+                  if (i > 0) const SizedBox(height: 8),
+                  _TileItemRow(item: items[i], skills: skills),
+                ],
               ],
-            ],
-          ),
-          // TODAY / TOMORROW corner tag (web ScheduleView labels these tiles).
-          if (corner != null)
-            Positioned(
-              top: 0,
-              right: 0,
-              child: Text(corner,
-                  style: euMono(fontSize: 9, letterSpacing: 2, color: eu.textMid)),
             ),
-        ],
+            // TODAY / TOMORROW corner tag (web ScheduleView labels these tiles).
+            if (corner != null)
+              Positioned(
+                top: 0,
+                right: 0,
+                child: Text(corner,
+                    style: euMono(fontSize: 9, letterSpacing: 2, color: eu.textMid)),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -1374,45 +1507,37 @@ class _TileItemRow extends StatelessWidget {
 
     if (isFlash) {
       final entries = item.derived.entries.where((e) => e.value > 0).toList();
+      // §4.514: flash renders as ⚡ + 产出 breakdown「✅ 待办×2 · 👤 联系人×1」
+      // ONLY — no transcript/summary line (摘要 is clutter; the count is the
+      // signal). Tap opens the capture session for the full text.
       final breakdown = entries.isEmpty
-          ? (item.title.isEmpty ? '闪念' : item.title)
+          ? '闪念'
           : entries.map((e) {
               final m = resolveMeta(e.key, skills);
               return '${m.icon} ${m.label}×${e.value}';
             }).join('  ·  ');
-      final transcript = entries.isNotEmpty ? item.title : '';
       return GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () => _openFlashSession(context, item),
+        // mainAxisSize.min + Flexible → the row hugs its content, so the blank
+        // area to the right of a short row falls through to the tile (day view),
+        // not this item. (Flexible, not Expanded, still ellipsizes long text.)
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
             time,
             const SizedBox(width: 8),
             glyph,
             const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(breakdown,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          color: eu.textHi,
-                          fontSize: 13,
-                          height: 1.35,
-                          fontWeight: FontWeight.w500)),
-                  if (transcript.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 2),
-                      child: Text(transcript,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(color: eu.textMid, fontSize: 11, height: 1.3)),
-                    ),
-                ],
-              ),
+            Flexible(
+              child: Text(breakdown,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      color: eu.textHi,
+                      fontSize: 13,
+                      height: 1.35,
+                      fontWeight: FontWeight.w500)),
             ),
           ],
         ),
@@ -1425,13 +1550,16 @@ class _TileItemRow extends StatelessWidget {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () => _openTimelineItem(context, item, skills),
+      // hug content (see flash branch) so only the text/icon opens the item;
+      // the blank to its right opens the day view.
       child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
           time,
           const SizedBox(width: 8),
           glyph,
           const SizedBox(width: 8),
-          Expanded(
+          Flexible(
             child: Text(item.title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -1542,6 +1670,15 @@ class _DayDetailPageState extends State<DayDetailPage> {
     final eu = context.eu;
     return Scaffold(
       backgroundColor: eu.bg,
+      // Reliable per-day add — reachable no matter how full the day is (the 流
+      // tile had no whitespace left to tap).
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => showCreateMenu(context, presetDate: widget.day),
+        backgroundColor: eu.brand,
+        icon: const Icon(Icons.add, color: Colors.white),
+        label: const Text('在这天记一笔',
+            style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
+      ),
       body: SafeArea(
         child: ValueListenableBuilder<int>(
           valueListenable: dataRevision,
@@ -1709,8 +1846,8 @@ class _DayDetailPageState extends State<DayDetailPage> {
   }
 
   static const _captureLabels = <String, String>{
-    'todo': '待办', 'expense': '记账', 'idea': '想法', 'contact': '名片',
-    'notes': '笔记', 'misc': '其它',
+    'todo': '待办', 'expense': '记账', 'contact': '名片',
+    'notes': '随记', 'idea': '随记', 'misc': '随记',  // idea/misc merged into 随记
   };
 
   Widget _capturedSection(EurekaColors eu, List<TimelineItem> captured, Map<String, SkillMeta> skills) {

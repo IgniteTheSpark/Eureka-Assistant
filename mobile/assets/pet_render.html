@@ -1,0 +1,61 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<style>
+  html,body { margin:0; padding:0; height:100%; background:transparent; overflow:hidden; }
+  #stage { width:100%; height:100%; display:flex; align-items:center; justify-content:center; }
+  canvas.pixel { image-rendering: pixelated; image-rendering: crisp-edges; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<!-- engine (inlined by Flutter, same pattern as the report viewer's GSAP) -->
+<script>/*__PIXEL_JS__*/</script>
+<script>/*__MASCOT_JS__*/</script>
+<script>
+  // Genome + render opts injected by Flutter (PetView).
+  window.__GENOME__ = /*__GENOME_JSON__*/ {};
+  (function () {
+    var G = window.__GENOME__ || {};
+    var stage = document.getElementById('stage');
+    var M = window.Mascot;
+    if (!M || !stage) return;
+
+    function clear() { while (stage.firstChild) stage.removeChild(stage.firstChild); }
+
+    // Egg (pre-hatch) — a static shell tinted to the seeded skin.
+    if (G.egg) {
+      clear();
+      stage.appendChild(M.eggSprite({ skin: G.skin, scale: G.scale || 6 }));
+      return;
+    }
+
+    function optsFrom(g) {
+      return {
+        skin: g.skin, emblem: g.emblem, emblemColor: g.emblemColor,
+        head: g.head || 'none',
+        leftItem: g.leftItem || 'none', rightItem: g.rightItem || 'none',
+        carrier: g.carrier || 'none', aura: g.aura || 'soft',
+        scale: g.scale || 6,
+      };
+    }
+
+    var m = M.mount(stage, optsFrom(G));
+    m.setState(G.state || 'idle');
+
+    // Live controls Flutter can drive via runJavaScript.
+    window.setPetState = function (s) { try { m.setState(s); } catch (e) {} };
+    window.setPet = function (json) {
+      try { var o = (typeof json === 'string') ? JSON.parse(json) : json; m.set(optsFrom(o)); } catch (e) {}
+    };
+    window.celebratePet = function () {
+      try { m.set({ eyes: 'happy', mouth: 'celebrate' }); m.setState('celebrate');
+        setTimeout(function () { m.set({ eyes: 'normal', mouth: 'idle' }); m.setState('idle'); }, 1700);
+      } catch (e) {}
+    };
+  })();
+</script>
+</body>
+</html>

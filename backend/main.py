@@ -1,8 +1,8 @@
 """
 Eureka FastAPI app — Phase B Step 5 + 7 (v1.3).
 
-Wires up 8 routers + lifecycle hooks:
-- core.llm.configure_llm_env() at startup (sets OPENROUTER_API_KEY env)
+Wires up 15 routers + lifecycle hooks:
+- core.llm.configure_llm_env() at startup (sets DEEPSEEK_API_KEY / OPENROUTER_API_KEY env)
 - agents.mcp_toolset.close_mcp_toolset() at shutdown (closes stdio subprocess)
 
 nest_asyncio removed (Phase B Step 7):
@@ -25,12 +25,17 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# Configure LLM env BEFORE importing routers (which import agents → instantiate models)
+# Refuse to boot a prod-like env with dev secrets (codex P1.2), then configure
+# LLM env BEFORE importing routers (which import agents → instantiate models).
+from config import validate_prod_secrets
+validate_prod_secrets()
+
 from core.llm import configure_llm_env
 configure_llm_env()
 
 from agents.mcp_toolset import close_mcp_toolset
 from api.auth import router as auth_router
+from api.auth_baizhi import router as auth_baizhi_router    # §13.1 / B1 百智 OAuth login
 from api.chat import router as chat_router
 from api.flash import router as flash_router
 from api.skills import router as skills_router
@@ -43,6 +48,10 @@ from api.events import router as events_router       # v1.4
 from api.timeline import router as timeline_router    # v1.4.x
 from api.tasks import router as tasks_router          # v1.4.x — async MCP tasks
 from api.notifications import router as notifications_router  # Phase D M6
+from api.reports import router as reports_router              # §6 synthesis/report engine
+from api.export import router as export_router                # 资产库导出 (md/csv)
+from api.connected_apps import router as connected_apps_router  # §1.7.1 Connected Apps
+from api.pet import router as pet_router                          # §9 球球 Pet
 
 
 @asynccontextmanager
@@ -52,14 +61,34 @@ async def lifespan(app: FastAPI):
     import asyncio
     from core.reminder_scheduler import reminder_loop
     reminder_task = asyncio.create_task(reminder_loop())
+
+    # Warm the internal MCP toolset at boot so the FIRST user chat turn doesn't
+    # pay the stdio-subprocess spawn (re-imports the backend + connects MySQL,
+    # ~9s observed: first turn 13.9s vs ~4.8s warm). Best-effort + backgrounded:
+    # a warmup failure or a changed ADK API must never block/slow startup.
+    async def _warm_mcp():
+        try:
+            from agents.mcp_toolset import get_mcp_toolset
+            ts = get_mcp_toolset()
+            get_tools = getattr(ts, "get_tools", None)
+            if get_tools is not None:
+                res = get_tools()  # connecting spawns the subprocess + lists tools
+                if hasattr(res, "__await__"):
+                    await res
+        except Exception:
+            pass  # no-op on any failure — the lazy path still works per-request
+
+    warm_task = asyncio.create_task(_warm_mcp())
     try:
         yield
     finally:
         reminder_task.cancel()
-        try:
-            await reminder_task
-        except asyncio.CancelledError:
-            pass
+        warm_task.cancel()
+        for t in (reminder_task, warm_task):
+            try:
+                await t
+            except (asyncio.CancelledError, Exception):
+                pass
         await close_mcp_toolset()
 
 
@@ -73,6 +102,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router,        prefix="/api", tags=["auth"])
+app.include_router(auth_baizhi_router, prefix="/api", tags=["auth"])    # §13.1 / B1 百智 OAuth
 app.include_router(chat_router,        prefix="/api", tags=["chat"])
 app.include_router(flash_router,       prefix="/api", tags=["flash"])
 app.include_router(skills_router,      prefix="/api", tags=["skills"])
@@ -85,6 +115,10 @@ app.include_router(events_router,      prefix="/api", tags=["events"])       # v
 app.include_router(timeline_router,    prefix="/api", tags=["timeline"])     # v1.4.x
 app.include_router(tasks_router,       prefix="/api", tags=["tasks"])        # v1.4.x
 app.include_router(notifications_router, prefix="/api", tags=["notifications"])  # Phase D M6
+app.include_router(reports_router,      prefix="/api", tags=["reports"])        # §6 synthesis/report engine
+app.include_router(export_router,       prefix="/api", tags=["export"])         # 资产库导出 (md/csv)
+app.include_router(connected_apps_router, prefix="/api", tags=["connected-apps"])  # §1.7.1 Connected Apps
+app.include_router(pet_router,            prefix="/api", tags=["pet"])             # §9 球球 Pet
 
 
 @app.get("/health")

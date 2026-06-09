@@ -31,7 +31,58 @@ from core.auth import get_current_user_id
 from db.database import AsyncSessionLocal
 from db.models import GlobalSkill, UserSkill, Asset, AssetField, Session as DBSession, Task
 
-USER_SKILL_CAP = 30
+USER_SKILL_CAP = 30      # how many skills a user may *register*
+ACTIVE_SKILL_CAP = 9     # how many may be *active* (enabled=1) at once
+
+# Common field → 中文 label fallback. The design agent is instructed to emit a
+# `label` per field, but the model sometimes omits it (then the detail/edit show
+# raw English machine names). Backfill known keys at confirm time so stored
+# skills carry labels; unknown keys stay null (the Flutter side has its own
+# fallback dict + machine-name fallback).
+_FIELD_LABEL_FALLBACK = {
+    "book_title": "书名", "author": "作者", "key_insights": "要点", "note": "备注",
+    "notes": "备注", "pages_read": "阅读页数", "time_spent": "用时", "content": "内容",
+    "title": "标题", "name": "名称", "amount": "金额", "category": "分类", "date": "日期",
+    "time": "时间", "location": "地点", "place": "地点", "merchant": "商家",
+    "teacher": "老师", "rating": "评分", "progress": "进度", "duration": "时长",
+    "distance": "距离", "pace": "配速", "mood": "心情", "reps": "次数",
+    "weight": "重量", "summary": "摘要", "description": "描述",
+}
+
+
+def _backfill_labels(payload_schema):
+    """Fill a 中文 label for any known field that lacks one (in place, best-effort)."""
+    if not isinstance(payload_schema, dict):
+        return payload_schema
+    for key, meta in payload_schema.items():
+        if isinstance(meta, dict):
+            label = (meta.get("label") or "").strip()
+            if not label:
+                fb = _FIELD_LABEL_FALLBACK.get(key)
+                if fb:
+                    meta["label"] = fb
+    return payload_schema
+
+
+# Substrings that mark a field key as free-form prose → markdown (`long`). Used to
+# backfill `long` when the design agent omits it (and for older skills).
+_PROSE_KEY_HINTS = (
+    "insight", "summary", "note", "content", "body", "review", "comment",
+    "reflection", "description", "detail", "takeaway", "remark", "thought",
+)
+
+
+def _backfill_long(payload_schema):
+    """Ensure every field declares `long` (free-form markdown). The agent should
+    set it; when missing, infer from the key name + type (string prose → True)."""
+    if not isinstance(payload_schema, dict):
+        return payload_schema
+    for key, meta in payload_schema.items():
+        if isinstance(meta, dict) and "long" not in meta:
+            kl = str(key).lower()
+            meta["long"] = (meta.get("type") == "string") and any(h in kl for h in _PROSE_KEY_HINTS)
+    return payload_schema
+
 
 router = APIRouter()
 
@@ -48,6 +99,38 @@ async def _count_user_skills(db, user_id: str) -> int:
             UserSkill.user_id == user_id,
             UserSkill.render_spec.isnot(None),
             cast(UserSkill.render_spec, String) != "null",
+        )
+    )
+    return int((await db.execute(stmt)).scalar() or 0)
+
+
+# System / first-class skills that are NOT part of the user-toggled active set
+# (qa has no render_spec; contact=名片 & external_ref=外部 are first-class tiles).
+_SYSTEM_HIDDEN = ("external_ref", "qa", "contact")
+
+# 常驻 built-in asset skills (待办 / 随记): always-on, NOT subject to the active
+# cap and never toggled off. The 9-cap bounds only the optional skills (记账 +
+# custom). Together with _SYSTEM_HIDDEN these are excluded from cap/toggle logic.
+_PERMANENT_SKILLS = ("todo", "notes")
+_CAP_EXCLUDED = _SYSTEM_HIDDEN + _PERMANENT_SKILLS
+
+
+async def _count_active_skills(db, user_id: str) -> int:
+    """
+    Count the user's *active* record skills — what ACTIVE_SKILL_CAP bounds.
+    = enabled=1, has render_spec, excluding the system/first-class skills.
+    Mirrors the library grid / management-page set.
+    """
+    stmt = (
+        select(func.count())
+        .select_from(UserSkill)
+        .join(GlobalSkill, UserSkill.skill_id == GlobalSkill.id)
+        .where(
+            UserSkill.user_id == user_id,
+            UserSkill.enabled == 1,
+            UserSkill.render_spec.isnot(None),
+            cast(UserSkill.render_spec, String) != "null",
+            GlobalSkill.name.notin_(_CAP_EXCLUDED),
         )
     )
     return int((await db.execute(stmt)).scalar() or 0)
@@ -79,6 +162,11 @@ class ConfirmSkillRequest(BaseModel):
 class ReorderSkillsRequest(BaseModel):
     """Drag-to-reorder writes back the full ordered list of user_skill_ids."""
     order: list[str]
+
+
+class SetActiveRequest(BaseModel):
+    """技能管理页「保存」: the user_skill_ids that should be active (enabled=1)."""
+    active_ids: list[str] = []
 
 
 # ── GET /api/skills ────────────────────────────────────────────────────────────
@@ -118,9 +206,11 @@ async def list_skills(user_id: str = Depends(get_current_user_id)):
             "render_spec":      us.render_spec,
             "queryable_fields": us.queryable_fields or [],
             "position":         us.position,
+            "enabled":          int(us.enabled if us.enabled is not None else 1),
+            "domain":           us.domain,   # §8 per-skill prior (null for custom — content-based)
         })
 
-    return {"ok": True, "skills": skills}
+    return {"ok": True, "skills": skills, "active_cap": ACTIVE_SKILL_CAP}
 
 
 # ── POST /api/skills (draft via design agent) ─────────────────────────────────
@@ -225,14 +315,20 @@ async def confirm_skill(
             .where(UserSkill.user_id == user_id)
         )).scalar() or -1)
 
+        # Default active, but if the active-set is already full, the skill lands
+        # disabled (user activates it from the 技能管理页 by deactivating another).
+        active_now = await _count_active_skills(db, user_id)
+        enabled = 1 if active_now < ACTIVE_SKILL_CAP else 0
+
         us = UserSkill(
             user_id=user_id,
             skill_id=gs.id,
             display_name=req.display_name,
-            payload_schema=req.payload_schema,
+            payload_schema=_backfill_long(_backfill_labels(req.payload_schema)),
             render_spec=req.render_spec,
             queryable_fields=req.queryable_fields,
             position=max_pos + 1,
+            enabled=enabled,
         )
         db.add(us)
         await db.commit()
@@ -242,10 +338,44 @@ async def confirm_skill(
         "ok": True,
         "user_skill_id": str(us.id),
         "name":          req.name,
+        "enabled":       enabled,
     }
 
 
 # ── DELETE /api/skills/{user_skill_id} ────────────────────────────────────────
+
+class UpdateSkillRequest(BaseModel):
+    render_spec: Optional[dict] = None
+    display_name: Optional[str] = None
+
+
+@router.patch("/skills/{user_skill_id}")
+async def update_skill(
+    user_skill_id: str,
+    req: UpdateSkillRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Update a skill's **presentation** — its `render_spec` (icon / accent / 主·副·
+    信息 字段角色 / layout) and/or `display_name`. Posted by the per-skill config
+    editor. `payload_schema` / field keys are NOT touched (that's the data
+    contract); only how assets are shown."""
+    try:
+        usid = uuid.UUID(user_skill_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid user_skill_id")
+    async with AsyncSessionLocal() as db:
+        us = (await db.execute(
+            select(UserSkill).where(UserSkill.id == usid, UserSkill.user_id == user_id)
+        )).scalar_one_or_none()
+        if not us:
+            raise HTTPException(status_code=404, detail="skill not found")
+        if req.render_spec is not None:
+            us.render_spec = req.render_spec
+        if req.display_name and req.display_name.strip():
+            us.display_name = req.display_name.strip()
+        await db.commit()
+    return {"ok": True}
+
 
 @router.delete("/skills/{user_skill_id}")
 async def delete_skill(
@@ -407,3 +537,55 @@ async def reorder_skills(
         await db.commit()
 
     return {"ok": True, "count": len(ids)}
+
+
+@router.put("/skills/active")
+async def set_active_skills(
+    req: SetActiveRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """
+    Set the active skill set (技能管理页「保存」). enabled=1 for the listed
+    user-facing skills, 0 for the rest; system/first-class skills are never
+    touched. Over ACTIVE_SKILL_CAP → 409. Takes effect on the next agent message
+    (the skill dictionary / dispatcher hint is re-pulled per request).
+    """
+    try:
+        requested = {uuid.UUID(s) for s in req.active_ids}
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid user_skill_id")
+
+    async with AsyncSessionLocal() as db:
+        # The user's *toggleable* skills: has render_spec, not system/first-class
+        # and not 常驻 (待办/随记 are always-on — never disabled, never counted).
+        facing = (await db.execute(
+            select(UserSkill.id)
+            .join(GlobalSkill, UserSkill.skill_id == GlobalSkill.id)
+            .where(
+                UserSkill.user_id == user_id,
+                UserSkill.render_spec.isnot(None),
+                cast(UserSkill.render_spec, String) != "null",
+                GlobalSkill.name.notin_(_CAP_EXCLUDED),
+            )
+        )).scalars().all()
+        facing_set = set(facing)
+        to_enable = [sid for sid in facing if sid in requested]
+
+        if len(to_enable) > ACTIVE_SKILL_CAP:
+            raise HTTPException(
+                status_code=409,
+                detail=f"最多同时激活 {ACTIVE_SKILL_CAP} 个技能;请先停用一个",
+            )
+
+        # Disable all facing, then enable the chosen — atomic in one transaction.
+        if facing_set:
+            await db.execute(
+                sa_update(UserSkill).where(UserSkill.id.in_(facing_set)).values(enabled=0)
+            )
+        if to_enable:
+            await db.execute(
+                sa_update(UserSkill).where(UserSkill.id.in_(to_enable)).values(enabled=1)
+            )
+        await db.commit()
+
+    return {"ok": True, "active_count": len(to_enable)}

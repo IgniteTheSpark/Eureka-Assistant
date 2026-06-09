@@ -6,6 +6,7 @@
 > 外所有路由都要带 token**；数据全部按 `user_id` 隔离（注册时自动 provision 基线 skills）。多租户已上线
 > （旧 `"default"` 数据仅为开发种子）。CORS 全开。落库契约见 [§2 数据模型](02-data-model.md)；
 > agent 行为见 [§1](01-agent-architecture.md)。
+> **百智 OAuth 登录(设计中,[§13.1](13-baizhi-integration.md))**:新增以百智作 IdP 的登录 —— bridge→换 token→映射到 Eureka `user_id`→**仍签发 Eureka 自己的 JWT**(每请求鉴权不变);百智真实 token 单独加密存,供调百智 MCP/API。
 
 约定：除特殊说明外，响应体均含 `{"ok": true, ...}`；错误用 HTTP 4xx + `{"detail": "..."}`
 （FastAPI HTTPException）或 `{"ok": false, "error": "..."}`（业务失败）。时间戳一律 ISO8601。
@@ -60,6 +61,8 @@ sessions, contacts, events, timeline, tasks, notifications。
 - 持久化 user + agent 两条 message；report 消息落库前剥掉笨重 html（只留指针/标题）。
 - `_QUERY_TOOLS` 集合内的工具不算「产生资产」（用于判断是否展示「沉淀为资产」入口）。
 
+> ⚠️ **持久性缺口(设计中,见 [§1.5.1.1](01-agent-architecture.md))**：现状把跑 agent + 落库**全放进 SSE 生成器、且只在跑完才落 user+agent**，离开 page→断流→**生成被取消 + 一条不落**。需求改为:**收到即落 user msg + 回合 `status`**、生成跑成**后台任务**(断流也跑完)、返回按回合 status **轮询对账**;并加一个「取 in-flight 回合 / 重连」查询。对齐 flash 的 `has_pending` 持久模型。
+
 ---
 
 ## 3.2 `POST /api/flash` — 捕捉管线（同步 JSON）
@@ -92,7 +95,12 @@ sessions, contacts, events, timeline, tasks, notifications。
 - `cards` 由 pipeline Step 3 纯 Python 聚合（event/task/contact/pending_contact 特殊分支 + 通用
   render_spec 路径）。
 - `has_pending: true` 表示含异步 task placeholder（前端轮询 `/api/tasks/{id}`）。
-- 产生一条 `flash_done` 通知（link=session_id）。
+- 产生一条 `flash_done` 通知（link=session_id）。**通知文案 = 纯标题「闪念已整理」,body 留空**(产品决策 2026-06,无多余文字)。
+- **domain(§8):** flash dispatcher 在每个 intent 上判一个 `domain`,pipeline 建好 asset 后 `_apply_domain()` 覆盖到 `assets.domain`(覆盖技能 prior)—— 闪念产出的卡片**按内容打域**,不再只吃 notes/随记 prior。
+
+> **硬件录入桥(dev 集成,代码在 `bizcard/Eureka-BrandNew/integrations/flash-card/`):** W1/W2 录音卡 → FlashType(macOS,BLE+Opus 解码)→ `external` ASR hook `eureka-bridge.py`(whisper.cpp 本地转写 → **带 JWT** `POST /api/flash`)→ 闪念入库 + `capture`/`flash_done` SSE → app。`/api/flash` 需鉴权,桥用 `docker exec create_token` 现取(无盘上 token)。stdout 只回纯转写(诊断写文件 —— FlashType 把 stdout+stderr 合并当转写)。
+>
+> **手机直连(设计中,[§13.3](13-baizhi-integration.md)):** W1/W2 就是百智录音卡 → 把百智 `RecordSDK`(Swift `BluetoothDeviceManager`)封成 **Flutter 插件**,**手机直接** BLE/WiFi 同步 + 闪念事件 → 剥 MARK → ASR → `POST /api/flash`,**去掉 macOS 桥**(桌面桥保留作 dev 路径)。这是「手机优先捕捉」的解锁。
 
 ### `POST /api/flash/listening`
 
@@ -101,23 +109,25 @@ sessions, contacts, events, timeline, tasks, notifications。
 ```
 录音状态开关，**ephemeral**（不落库），通过通知 SSE 频道发 `listening` 信号给前端（驱动麦克风动画）。
 
+> 硬件侧由 `listening-watcher.py`(tail FlashType 日志,见 started/finished → POST 此端点)驱动「正在聆听」浮层。**注意**:W1/W2 卡缓冲后传输,`started` 约在释放/传输时触发,浮层可能短暂/略延迟 —— 完美的「按住即录」指示需 FlashType 侧实时 press/release 信号。
+
 ---
 
 ## 3.3 `/api/skills` — 自定义 skill
 
 | 方法 | 路径 | 请求 | 说明 |
 |---|---|---|---|
-| GET | `/api/skills` | — | 列用户 skill（**全部**，含停用）。**过滤掉 system skill**（render_spec 为 null 的，如 qa）。每条带 `enabled`（0/1）+ `position`（设计中） |
+| GET | `/api/skills` | — | 列用户 skill（**全部**，含停用）。**过滤掉 system skill**（render_spec 为 null 的，如 qa）。每条带 `enabled`（0/1，活跃集）+ `position` + `domain`（§8 prior：基线技能有值、自定义为 null）+ `chat_starters`（§1.5.1 会话开场 hint 用）+ 顶层 `active_cap` |
 | POST | `/api/skills` | `DraftSkillRequest{description, answers?}` | 草拟。两段式：先 clarify，ready 则 design |
-| POST | `/api/skills/confirm` | `ConfirmSkillRequest{name, display_name, payload_schema, render_spec, queryable_fields}` | 落成 UserSkill。`USER_SKILL_CAP=30`（**创建**上限） |
+| POST | `/api/skills/confirm` | `ConfirmSkillRequest{name, display_name, payload_schema, render_spec, queryable_fields, chat_starters?}` | 落成 UserSkill。`USER_SKILL_CAP=30`（**创建**上限）。`chat_starters`（2-3 条起聊文案，§1.8）随 design 产出落库，喂会话开场 hint（§1.5.1） |
 | DELETE | `/api/skills/{user_skill_id}?force=` | — | 删。有资产时 409（除非 `force=true`）；system skill 403 |
 | PUT | `/api/skills/reorder` | `ReorderSkillsRequest{order: [user_skill_id...]}` | 重排资产库网格顺序 |
-| PUT | `/api/skills/active` | `{active_ids: [user_skill_id...]}`（设计中） | **设活跃集**（技能管理页「保存」）。原子写 `enabled`：列表内置 1、其余置 0。**超 `ACTIVE_SKILL_CAP=9` → 409**。下条 agent 消息即按新集路由 |
+| PUT | `/api/skills/active` | `{active_ids:[user_skill_id...]}` | **设活跃集**（技能管理页「保存」）。原子写 `enabled`：列表内置 1、其余置 0。**超 `ACTIVE_SKILL_CAP=9` → 409**。下条 agent 消息即按新集路由。**`_CAP_EXCLUDED`(external_ref/qa/contact + 常驻 todo/notes)不参与 toggle、不计入 cap、永不被停用** |
 
 **POST /api/skills 流程**：`description` + 可选 `answers`（clarifier 问题的回答）→ `clarify_skill`
 返回 `{ready}` 或 `{questions}`；ready 则 `design_skill` 产 draft 供前端实时预览。
 
-**活跃集（设计中，见 [§4.4.5](04-frontend.md) + [§2 `user_skills.enabled`](02-data-model.md)）**：`enabled=1` 的技能才进
+**活跃集（已实现，见 [§4.4.5](04-frontend.md) + [§2 `user_skills.enabled`](02-data-model.md)）**：`enabled=1` 的技能才进
 资产库格子、才被 agent 路由（dispatcher hint / flash·chat 技能字典都 **WHERE enabled=1**）。停用的：隐藏 +
 不路由（回退 misc），但**查询历史不过滤 enabled**（停用后仍能查它的旧记录）。新建技能默认 `enabled=1`
 （若已满 9，则落为停用，提示去管理页激活）。**无需重启 agent**——每请求现拉，保存即下条生效。
@@ -132,13 +142,14 @@ sessions, contacts, events, timeline, tasks, notifications。
 
 | 方法 | 路径 | 请求 / 查询参数 | 说明 |
 |---|---|---|---|
-| GET | `/api/assets` | `user_skill_name, session_id, field, op, value, contains, limit` | 列表。给了 `field/op/value` 走 `asset_fields` 结构化查询 |
+| GET | `/api/assets` | `user_skill_name, session_id, field, op, value, contains, limit, domain?` | 列表(`limit` 默认 50)。给了 `field/op/value` 走 `asset_fields` 结构化查询;`domain` 可选过滤(8 选 1) |
+| GET | `/api/assets/counts` | — | **每技能全量计数**(all-time `GROUP BY`):`{counts:{<skill>:<n>}, total}`。资产库容器格子用它显**总数**(不是 `/api/assets` 那个 limit=50 窗口里碰巧有几条)。**路由上必须在 `/{id}` 之前声明** |
 | GET | `/api/assets/{id}` | — | 单条 |
-| POST | `/api/assets` | `CreateAssetRequest{user_skill_name, payload, session_id, source_input_turn_id}` | → `tool_create_asset` |
-| PUT | `/api/assets/{id}` | `UpdateAssetRequest{payload_patch}` | patch 合并，重建 `asset_fields` 索引 |
+| POST | `/api/assets` | `CreateAssetRequest{user_skill_name, payload, session_id, source_input_turn_id, domain?}` | → `tool_create_asset`。`domain` 省略 → 服务端回落技能 prior 或 null（§7） |
+| PUT | `/api/assets/{id}` | `UpdateAssetRequest{payload_patch?, domain?}` | patch 合并 + 重建 `asset_fields`;`domain` 与 payload 同一次提交(编辑表单改领域,§4.4.3a) |
 | DELETE | `/api/assets/{id}` | — | 删 |
 
-`_serialize_asset` 返回：`{id, user_skill_name, payload, session_id, source_input_turn_id, created_at}`。
+`_serialize_asset` 返回：`{id, user_skill_name, payload, domain, session_id, source_input_turn_id, created_at}`。
 注意 `user_skill_name` 经 FK 链 `assets.user_skill_id → user_skills.skill_id → global_skills.name` 派生，
 **类型不在 payload 里**。
 
@@ -303,7 +314,7 @@ source_file_offset, asr_provider, language, created_at}`。供资产详情页的
 
 ---
 
-## 3.13 `/api/reports` — 合成/报告引擎（设计规格 · 待实现，见 [§6](06-synthesis-report.md)）
+## 3.13 `/api/reports` — 合成/报告引擎（**已实现**，见 [§6](06-synthesis-report.md)）
 
 | Method | Path | 说明 |
 |---|---|---|
@@ -311,16 +322,19 @@ source_file_offset, asr_provider, language, created_at}`。供资产详情页的
 | GET | `/api/reports?limit=` | 列表(标题/genre/spec 摘要/created_at,倒序),供「报告」容器 |
 | GET | `/api/reports/{id}` | 单条(含 `html` + `content_md` + `spec_json`),供查看器/重渲染 |
 | DELETE | `/api/reports/{id}` | 删除 |
+| POST | `/api/reports/generate` | **SSE**:跑整条 §6 管线(dispatch → 取数 → 内容 → render → 落库)。事件 `status`(分阶段)→ `report` → `done`;数据不足回 `insufficient`、出错回 `error`。body: `{user_wish, selected_summary?, source_asset_ids?}` |
+| POST | `/api/reports/intake` | 引导对话判定:body `{messages}` → `{ready:true}` 或 `{ready:false, ask}`(一句澄清)。**无工具、不落库** |
+| POST | `/api/reports/{id}/rerender` | 换装重渲染:body `{palette?, surface?}`,默认 bump seed |
 
-- 报告的**引导对话**复用 `POST /api/chat`(SSE),以 `session_type='report'` 的会话承载;Chat 侧按
-  session_type 路由到 **report 管线**(report-dispatcher → content skill → render skill,见 §6),
-  而非默认 Assistant。
-- **手动选资产**:前端把选中的 `source_asset_ids` 随首条消息带入,管线据此跳过分类的范围抽取、直接进内容层。
+- **报告是独立入口,不复用 chat**(2026-06,已实现):向导走 `/api/reports/intake`(逐步引导)+ `/api/reports/generate`(SSE 生成),
+  产物持久化为 **`Report` 行**(非会话)。**没有 `session_type='report'` 这种会话类型**(早期设计已废弃)。完整管线见 [§6](06-synthesis-report.md)。
+- **手动选资产**:前端把选中的 `source_asset_ids` 传给 `/api/reports/generate`,管线据此跳过分类的范围抽取、直接进内容层。
+- **按领域**:`generate` 的 dispatch 会从 `user_wish` 抽 `domain?`(§8.5),pipeline 按域过滤取数。
 - 全部 endpoint 受 `Depends(get_current_user_id)`,按 `user_id` 隔离(同其它资源)。
 
 ---
 
-## 3.14 `/api/connectors` + `/api/connected-apps` — Connected Apps（设计规格 · 待实现，见 [§1.7.1](01-agent-architecture.md)）
+## 3.14 `/api/connectors` + `/api/connected-apps` — Connected Apps（**已实现**，见 [§1.7.1](01-agent-architecture.md)）
 
 **目录(只读,开发者维护的 catalog):**
 
@@ -342,6 +356,47 @@ source_file_offset, asr_provider, language, created_at}`。供资产详情页的
 - **OAuth(后补)**:再加 `GET /api/connected-apps/oauth/{connector}/start`(返回授权 URL)+ 回调 endpoint;
   token 进 `credentials_enc`,`auth_type='oauth'`,过期自动刷新或置 `needs_reauth`。
 - 全部受 `Depends(get_current_user_id)`。`/api/connectors` 可不鉴权(纯静态目录)。
+
+---
+
+## 3.15 游戏化层 engagement 接口（③ 球球 ✅ 已实现 · ①② 岛/任务待实现）
+
+只读为主的接口,喂「我的岛」板块。全部 `Depends(get_current_user_id)`、按 `user_id` 隔离。
+**①② 任务/周岛属 [§7 任务&周岛](07-gamemode.md)(待实现);③ 球球属 [§9 宠物](09-pet.md)(已实现)** —— 经 `completion_event` 解耦,分别实现。
+
+**① 今日任务(L1,§7.3):**
+
+| Method | Path | 说明 |
+|---|---|---|
+| GET | `/api/daily-plan` | 今日待完成。缓存当天;**缺失/过期则现场生成**(一次真实 daily-gen agent 调用,可能数秒)。返回 `{day, items:[{id, title, reason, domain(8 生活领域之一,§8), tier(简单|中等|高难), cadence(daily|weekly), completion_predicate 摘要, status}]}` |
+| POST | `/api/daily-plan/refresh` | 手动重生成今日清单 |
+| POST | `/api/daily-plan/items/{id}/complete` | 直给项(todo/日程)勾选完成;推断项由其 `completion_predicate` 对数据求值自动判定(此端点供直给项)。完成 → 写一条 `completion_event` |
+
+**② 周岛(§7.4):**
+
+| Method | Path | 说明 |
+|---|---|---|
+| GET | `/api/island/current` | 本周岛渲染数据:`{week_start, seed, elements:[{domain, element, count, rare:bool}], stats:{完成数, 连续天, 解锁装饰数}}`。本周**实时算**(按 `completion_events` 当周聚合) |
+| GET | `/api/island/history?limit=` | 历史周岛快照列表(供回看/对比) |
+| GET | `/api/island/{week_start}` | 某周岛快照 |
+
+> 渲染由前端 `worldgen`(同 seed → 同岛);分享卡 = 客户端把岛 + 球球 + stats 合成图片导出(beta);链接分享后置。
+
+**③ 球球 + 背包(L2,✅ 已实现 —— [§9.6](09-pet.md)):**
+
+实现收敛为单实体 `/api/pet`(GET/spawn/PATCH);设计稿的 `/api/mascot` `/api/cosmetics` `/api/milestones` 合并进这一组(里程碑随 pet 返回;装饰目录是代码内键空间,不设端点)。全部 `Depends(get_current_user_id)`。
+
+| Method | Path | 说明 |
+|---|---|---|
+| GET | `/api/pet` | 球球状态(**缺失则懒建一颗未孵化的蛋**,skin 按 user_id 种子定):`{spawned, name, seed, skin, emblem, emblem_color, equipped{head,leftItem,rightItem,carrier,aura}, unlocked{skin,emblem,head,item,carrier,aura}, milestones{capture_count,streak_days,last_event_date,domains}}`。**无 exp/level**;旧宠物缺 carrier/aura 时回填 `none`/`soft` |
+| POST | `/api/pet/spawn` | 孵化(蛋→球球):body `{name}`;保留种子皮肤、随机起 starter 徽记、写 starter 背包、**保底掉一件头部/手持并装备**(`starter_drop`)、置 `spawned=1`。**幂等**(已孵化只更新 name) |
+| PATCH | `/api/pet` | 改名 / 换装:body `{name?, equip?{slot:value}}`;`slot ∈ skin·emblem·emblem_color·head·leftItem·rightItem·carrier·aura`,`value` 须在 `unlocked` 内(或 `none`;`aura` 额外放行 `soft`;`emblem_color` 不门控)。装饰**只换外观、不锁功能**。里程碑门控装饰(皇冠/蜜金身色/光环座/虹彩光环)由 completion 时 `check_unlocks` 自动入袋 |
+
+> 多只宠物(后置):未来加 `active` 列 + `POST /api/pet/active`。
+
+- **`completion_events` 是内部中心货币**(由记录创建 / 任务勾完成 / 机会型一级实体产生,见 [§2 §3.17](02-data-model.md)),不直接对外;球球的掉装饰 + 里程碑都在 `emit_completion_event` 里**只读派生**写回 `pets`。客户端通过轮询 `GET /api/pet`(任意写后 `dataRevision` 触发)发现新掉落 → 弹庆祝 toast。
+- **里程碑端点(待实现):** 设计稿的 `GET /api/milestones`(独立的 `{key,label,counter,target,reward}` 目录)留待里程碑奖励目录化时再加;v1 的累计计数已在 `GET /api/pet` 的 `milestones` 里。
+- **领域(domain)prior / 主题 tag**:不另设端点 —— **仅基线技能**有 `domain` prior(provisioning 时打,`GET /api/skills` 返回);**自定义技能 prior 恒 null**(不由 design agent 打,产品决策 2026-06);任务/记录的实际 `domain` 完全按内容定(见 [§8 领域系统](08-domain-system.md)),随记的 `tags` 在 `GET /api/assets` 的 payload 里(见 [§2 §3.2.1](02-data-model.md))。
 
 ---
 

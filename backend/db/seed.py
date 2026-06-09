@@ -65,24 +65,7 @@ USER_SKILL_CONFIGS = [
     # recognizes "event" intent), and the event-skill agent calls the new
     # create_event MCP tool. Frontend renders events via dedicated EventCard /
     # CalendarPage tiles, NOT SkillCard render_spec.
-    {
-        "name": "idea",
-        "display_name": "想法",
-        "payload_schema": {
-            "title":   {"type": "string"},
-            "content": {"type": "string", "required": True},
-        },
-        "queryable_fields": [],
-        "render_spec": {
-            "card_layout":      "stacked",
-            "icon":             "💡",
-            "accent_color":     "amber",
-            "primary_field":    "title",
-            "secondary_field":  "content",
-            "secondary_format": "truncate_40",
-            "actions":          ["edit", "open"],
-        },
-    },
+    # idea merged into 随记 (notes) — see §3.2.1 + the notes config below.
     {
         "name": "contact",
         "display_name": "名片",
@@ -143,46 +126,38 @@ USER_SKILL_CONFIGS = [
         },
     },
     {
+        # 「随记」(§3.2.1) — the unified free-text catch-all that merges the old
+        # idea / notes / misc (they were isomorphic: title? + content + time, and
+        # the idea-vs-notes-vs-misc split was a chronic dispatcher 糊判). Machine
+        # name stays `notes` (internal; users see 随记) to avoid a global-skill +
+        # re-provision churn. Open topic `tags` (≤3, agent-generated, reusing the
+        # user's existing tags) organize/retrieve these — orthogonal to the §7
+        # `behavior` tag. behavior = 创造.
         "name": "notes",
-        "display_name": "笔记",
-        # v1.4 — long-form recorded content: meeting summaries, briefings,
-        # reference docs. Distinct from idea (creative spark, short).
+        "display_name": "随记",
         "payload_schema": {
             "title":   {"type": "string"},
             "content": {"type": "string", "required": True},
             "tags":    {"type": "array", "items": "string"},
         },
-        "queryable_fields": [],
+        # Tags are queryable so "所有『游戏』相关随记" works (§3.2.1).
+        "queryable_fields": [
+            {"field": "tags", "index_type": "text"},
+        ],
         "render_spec": {
             "card_layout":      "stacked",
-            "icon":             "📝",
-            "accent_color":     "gray",
+            "icon":             "✍️",
+            "accent_color":     "amber",
             "primary_field":    "title",
             "secondary_field":  "content",
             "secondary_format": "truncate_40",
+            "meta_fields":      [{"field": "tags"}],
             "actions":          ["edit", "open"],
         },
     },
-    {
-        "name": "misc",
-        "display_name": "其它",
-        # v1.4 — fallback for content that doesn't clearly fit other skills.
-        # Also the default target of the "沉淀为资产" picker when the user is
-        # not sure where else to put an AI output.
-        "payload_schema": {
-            "content": {"type": "string", "required": True},
-            "tags":    {"type": "array", "items": "string"},
-        },
-        "queryable_fields": [],
-        "render_spec": {
-            "card_layout":      "inline",
-            "icon":             "🗂",
-            "accent_color":     "gray",
-            "primary_field":    "content",
-            "secondary_format": "truncate_40",
-            "actions":          ["edit", "delete"],
-        },
-    },
+    # idea / misc are NO LONGER provisioned (merged into 随记 above). Their
+    # GLOBAL_SKILLS rows remain (FK integrity); migration 0008 repoints any
+    # existing idea/misc assets → the user's 随记 (notes) skill.
     {
         # qa is a recognized system capability but produces no assets:
         # null payload_schema + null render_spec is the contract for "system skill".
