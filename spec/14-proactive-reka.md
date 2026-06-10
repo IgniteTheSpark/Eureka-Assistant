@@ -1,6 +1,8 @@
 # 14 · 主动 REKA（陪伴层）
 
-> **状态：设计中（待实现）。** 让 REKA 从「你来找它」变成「它陪着你」—— 在合适的时间主动提醒、主动帮你做点事。
+> **状态：Phase 2 核心已实现(2026-06)** —— heartbeat + 统计节律 + 缺口→Type A 提醒 + peek/bob/「...」展示 +
+> 回溯 + 傻瓜护栏(详见各节 ✅);晨间简报(Phase 3)与 Type B offer 流(Phase 4)待做。
+> 让 REKA 从「你来找它」变成「它陪着你」—— 在合适的时间主动提醒、主动帮你做点事。
 > **目标人群 = 普通人**(宝妈 / 保姆 / 老人 / 学生党):有记录需求、但**不懂也不想配置**推送和定时任务。所以本层的第一性原则是 **零配置**:
 > **不是「你设定提醒」,而是「REKA 看懂你的节律,替你记着」。** 全程 [§7.0](07-gamemode.md)/[§9.0](09-pet.md) 的**温柔护栏**:是邀请不是命令、不愧疚、不攀比、一键安静。
 
@@ -20,7 +22,11 @@
 
 ---
 
-## 14.1 引擎 ①：cron / heartbeat（Google ADK）
+## 14.1 引擎 ①：cron / heartbeat（✅ 已实现 2026-06）
+
+> **落地**:`core/companion.py companion_loop` —— main.py lifespan 里与 reminder_loop 并列的 asyncio 循环,
+> 30 分钟一跳;每个北京日的首跳顺带做离线日任务(节律重算 + 昨日未处理 nudge 标 `ignored`)。
+> 全程确定性 SQL,**零 per-tick LLM**(文案纯模板)。
 
 - **cron** = 排期的扫描(每 ~30 分钟一跳,或在「饭点 / 早 / 晚」锚点);**heartbeat** = 每用户「醒来 → 廉价检查 → 决定」的循环。
 - **成本铁律(关键)**:「该不该提醒」的检查**必须确定性 + 廉价**(扫到期 todo/event、查节律缺口 —— **零 LLM**)。**只在真要发时**才生成文案(模板优先,或一次极小 LLM)。**绝不**每用户每跳跑一次 LLM —— 以本人群规模那会炸 [§12](12-business-model.md)。绝大多数 Type A 文案纯模板(「🐾 别忘了 {todo}」)。
@@ -28,7 +34,12 @@
 
 ---
 
-## 14.2 引擎 ②：节律 profile（统计，非 LLM）
+## 14.2 引擎 ②：节律 profile（统计，非 LLM）（✅ 已实现 2026-06）
+
+> **落地**:`core/rhythm.py` —— 28 天窗口、每技能 ≥5 条才建 profile;cadence=相邻间隔中位数、
+> time-of-day=±1h 平滑 24 桶直方图取峰(typical_hours ≤3 个)、weekday=非零日集中时记子集、
+> confidence=min(1, n/14)×峰窗占比;每日离线重算落 `rhythm_profiles`,heartbeat 只读。
+> todo/event 不参与(它们有显式提醒);技能停记 → profile 自动删除(不催已放弃的习惯)。
 
 > **如何提炼用户习惯。** 结论先行:**用统计,不用 LLM** —— 「用户一般几点记早餐」是个数学问题,`median()` 比 LLM 更准、更便宜、可审计;LLM 会幻觉出不存在的规律,且按用户计费。**老人的吃药时间不能交给会编的模型。**
 
@@ -46,7 +57,10 @@
 
 ---
 
-## 14.3 触发规则：缺口 → Type A，积累 → Type B（复用 §7.3）
+## 14.3 触发规则：缺口 → Type A，积累 → Type B（复用 §7.3）（缺口→A ✅ 2026-06;积累→B 待 Phase 4）
+
+> **落地(缺口→A)**:`core/companion.py scan_once` —— confidence ≥0.45 的 profile,在「峰值小时+1h ~ +3h」
+> 窗口内若该技能今天还没记录 → fire(每习惯每天最多一条;weekday 型只在其集中日触发)。
 
 profile + 当前状态 → 喂一个触发引擎,两族规则(**正是 [§7.3](07-gamemode.md) 已设计的「缺口型 / 阈值型」**,这里靠 profile 定时、靠 heartbeat 推送):
 
@@ -59,11 +73,12 @@ profile + 当前状态 → 喂一个触发引擎,两族规则(**正是 [§7.3](0
 
 ---
 
-## 14.4 Type A · 提醒（= 通知系统 + 两处增量）
+## 14.4 Type A · 提醒（= 通知系统 + 两处增量）（✅ 已实现 2026-06）
 
 - **显式 ahead-of-time(已具备)**:会前、todo 到期前的提醒,现有通知系统已能定时 fire。
-- **增量 ①:task-skill 完成通知(补缺)**:task-skill([§1.6](01-agent-architecture.md))异步完成(3–60s 后)**应**通知(「已同步到钉钉 ✓」),归**反应式**通知族(同 flash-done/report-done)。当前若缺 → 补上。
-- **增量 ②:节律缺口提醒(新)**:由 §14.2 profile + §14.3 缺口规则驱动,「你一般这点记 X,还没记」→ [记一笔]。**有置信门槛**,不确定就不发。
+- **增量 ①:task-skill 完成通知(✅ 早已存在)**:`agents/task_skill.py` 完成/失败均走 `create_notification`
+  (M6 反应式族)—— 盘点后确认无缺口,无需新建。
+- **增量 ②:节律缺口提醒(✅ 2026-06)**:由 §14.2 profile + §14.3 缺口规则驱动,「你一般这点记 X,还没记」→ [记一笔]。**有置信门槛**,不确定就不发。落地:nudge 落 `nudges` 表 + 走 `create_notification(type=nudge, link=nudge:<id>:<skill>)` 进 feed/SSE;移动端把 type=nudge 渲染成 REKA peek 气泡(不是普通 toast)。
 - **文案**:模板为主(零 LLM);动作 = [记一笔](一键开快创对应技能)/[知道了]/[改时间]。
 - **展示与回溯**:走既有通知 feed(§14.7)。
 
@@ -106,7 +121,13 @@ profile + 当前状态 → 喂一个触发引擎,两族规则(**正是 [§7.3](0
 
 ---
 
-## 14.7 展示与回溯（nudge 的 UI + 历史）
+## 14.7 展示与回溯（nudge 的 UI + 历史）（✅ 已实现 2026-06）
+
+> **落地**:`pet/reka_nudges.dart`(生命周期 store)+ `floating_mascot.dart`(轻 bob 单跳 + peek 气泡
+> 8s 自动收起 → 点开可动作面板 [记一笔]/[知道了] → 忽略收成「...」chip,点 chip 再现)+ feed 行(🐾,
+> 点击重开 peek)。outcome 走 `POST /api/nudges/{id}/outcome`;app 启动 `GET /api/nudges/pending` 恢复
+> 安静态(不重复 bob);被抑制(REKA hero 页)时跳过 peek、回来时见「...」。
+> [记一笔] = 标 acted + 打开 REKA 快创气泡(同 radial「快创」流)。
 
 **显示(承 §9 的浮球 + 气泡 + 通知 feed,几乎全是组合既有件):**
 - **到达 = 轻 bob + peek 气泡**:浮球**轻轻一弹**(**不是**掉落用的彩纸庆祝 —— nudge 是拍肩,不是开 party),旁边冒一个小气泡:**一句话 peek**(「🐾 该记早餐了?」)。「...」(复用 `_TypingDots`)= 收起后的安静态。
@@ -123,7 +144,13 @@ profile + 当前状态 → 喂一个触发引擎,两族规则(**正是 [§7.3](0
 
 ---
 
-## 14.8 傻瓜护栏（这层真正难的地方）
+## 14.8 傻瓜护栏（这层真正难的地方）（✅ 服务端全套 2026-06）
+
+> **落地(全部服务端、零配置)**:静默 22:00–08:00(北京)/ 硬上限 2 条·天 / 置信门槛 0.45 /
+> 自适应退避(同一习惯连续 2 条未理 → 歇 72h;acted 即恢复)/ 总开关 `users.prefs.nudges_enabled`
+> (默认 ON,UI 在 REKA 通知面板顶部「球球提醒」开关,`GET/PATCH /api/nudges/prefs`)。
+> **注**:v1 投递为**应用内**(SSE + feed;打开 app 即见),系统推送(APNs)及其「温柔权限请求」随
+> 推送基建后置 —— 正合「拒绝 → 退化为应用内提醒」的设计底线。
 
 - **零配置**:不设日程表。Type A 显式提醒 day-one 就有;节律提醒攒几天数据后自动开;晨间简报开箱即用。
 - **一次温柔的权限请求**:在**好时机**(他们已记了几条之后)、用 **REKA 口吻**问「让球球在你忘记时轻轻提醒你?」,**不是**首次启动那个吓人的系统弹窗。拒绝 → 退化为「打开 app 时的应用内提醒」。
@@ -154,10 +181,11 @@ profile + 当前状态 → 喂一个触发引擎,两族规则(**正是 [§7.3](0
 
 ---
 
-## 14.10 数据模型（增量）
+## 14.10 数据模型（增量）（✅ 迁移 0019,2026-06）
 
-- **`nudges`(主动提示,持久)**:`{id, user_id, type(A|B), kind(reminder|rhythm_gap|offer|briefing|…), text, ref?(todo/event/skill/domain), cta?, status(见 §14.7 outcome), source(scheduler|rhythm), created_at, delivered_at?, acted_at?, expires_at?}`。进通知 feed;outcome 驱动自适应。
-- **`rhythm_profiles`(节律,每用户每技能)**:`{user_id, skill, cadence, typical_times, weekdays, confidence, computed_at}`。每日离线重算;heartbeat 只读。
+- **`nudges`(主动提示,持久)**:`{id, user_id, type(A|B), kind(reminder|rhythm_gap|offer|briefing|…), text, body, ref?(todo/event/skill/domain), cta?, status(见 §14.7 outcome), source(scheduler|rhythm), created_at, delivered_at?, acted_at?, expires_at?}`。进通知 feed;outcome 驱动自适应。
+- **`rhythm_profiles`(节律,每用户每技能)**:`{user_id, skill, cadence_minutes, typical_hours, weekdays, confidence, sample_n, computed_at}`。每日离线重算;heartbeat 只读。
+- **`users.prefs`(JSON)**:v1 仅 `nudges_enabled`(§14.8 总开关,默认 ON)。
 - **复用**:通知 feed(§3/§9)、`reports`(Type B/简报产物,§6.7)、`assets.source_nudge_id`(溯源)。
 - **晨间简报** = `reports` 行(genre=`morning-briefing`),不另设表。
 
@@ -174,7 +202,7 @@ profile + 当前状态 → 喂一个触发引擎,两族规则(**正是 [§7.3](0
 
 ## 14.12 v1 范围与后置
 
-- **v1 必做**:① task-skill 完成通知(补缺)② cron/heartbeat + **统计节律 profile** + 缺口/积累触发 ③ Type A 节律缺口提醒(模板、置信门槛、≤2/天、自适应、温柔)④ 展示(轻 bob + peek 气泡 + 「...」安静态 + feed 回溯 + outcome)⑤ **晨间简报**(genre + 内容 + 沉浸皮〔design〕+ 报告容器留存)⑥ 傻瓜护栏全套(零配置 / 温柔权限请求 / 静默时段 / 自适应 / 默认 ON + 总开关)。
+- **v1 必做**:① task-skill 完成通知(✅ 盘点确认早已存在)② cron/heartbeat + **统计节律 profile** + 缺口触发(✅ 2026-06;积累→B 触发随 Phase 4)③ Type A 节律缺口提醒(✅ 模板、置信门槛、≤2/天、自适应、温柔)④ 展示(✅ 轻 bob + peek 气泡 + 「...」安静态 + feed 回溯 + outcome)⑤ **晨间简报**(genre + 内容 + 沉浸皮〔design〕+ 报告容器留存)—— **待做(Phase 3)** ⑥ 傻瓜护栏(✅ 零配置 / 静默时段 / 自适应 / 默认 ON + 总开关;系统推送权限请求随 APNs 后置)。
 - **紧随**:Type B offer→报告流(会前调研等;**genre + web-search 已就绪**,差 offer/nudge 壳);~~web-search 能力(§14.9)~~ ✅ 已实现;`source_nudge_id` 溯源(`source_report_id` 已落,同款列待 nudge 表一起加)。
 - **后置**:天气(晨间简报 v1.5)、LLM 富化文案/冷启动先验、跨技能相关性节律、傍晚 wrap-up、caregiver 护理日志视图。
 

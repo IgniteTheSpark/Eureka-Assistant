@@ -1,3 +1,6 @@
+import 'dart:async' show Timer;
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -11,6 +14,7 @@ import 'pet_controller.dart';
 import 'pet_cosmetics.dart' show rekaGlow;
 import 'reka_chat.dart';
 import 'reka_notifications.dart';
+import 'reka_nudges.dart';
 import 'reka_radial.dart';
 
 /// Ref-counted suppression of the global REKA. Pages that *are* REKA (the spawn
@@ -132,6 +136,15 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
   VoidCallback? _activeClose;
   bool get _menuOpen => _activeClose != null;
 
+  // §14.7 主动 nudge — 到达 = 轻 bob(拍肩,不是 celebrate 彩纸)+ peek 气泡;
+  // 点开 = 可动作面板([记一笔]/[知道了]);忽略 = 收成「...」安静 chip。
+  late final AnimationController _bob =
+      AnimationController(vsync: this, duration: const Duration(milliseconds: 700));
+  final _nudges = RekaNudges.instance;
+  int _lastBob = 0;
+  bool _nudgeExpanded = false;
+  Timer? _peekTimer;
+
   @override
   void initState() {
     super.initState();
@@ -142,6 +155,51 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
     _lastUnread = RekaNotifications.instance.unread;
     RekaNotifications.instance.addListener(_onNotif);
     rekaFunctionRequest.addListener(_onFunctionRequest);
+    _lastBob = _nudges.bobSignal;
+    _nudges.addListener(_onNudges);
+  }
+
+  void _onNudges() {
+    if (!mounted) return;
+    final isNew = _nudges.bobSignal != _lastBob;
+    _lastBob = _nudges.bobSignal;
+    if (_nudges.peek != null && isNew && mascotSuppressed.value == 0) {
+      _bob.forward(from: 0); // 轻 bob — REKA 主动找你的签名 (§14.7)
+    }
+    setState(() => _nudgeExpanded = false);
+    _restartPeekTimer();
+  }
+
+  // Peek auto-collapses to the quiet「...」after a few seconds — 醒目但不纠缠.
+  void _restartPeekTimer() {
+    _peekTimer?.cancel();
+    if (_nudges.peek != null && !_nudgeExpanded) {
+      _peekTimer = Timer(const Duration(seconds: 8), () {
+        if (mounted) _nudges.quiet();
+      });
+    }
+  }
+
+  void _expandNudge() {
+    final n = _nudges.peek;
+    if (n == null) return;
+    _peekTimer?.cancel();
+    _nudges.outcome(n.id, 'seen');
+    setState(() => _nudgeExpanded = true);
+  }
+
+  void _nudgeAct(RekaNudge n) {
+    _nudges.outcome(n.id, 'acted');
+    setState(() => _nudgeExpanded = false);
+    // [记一笔] → 同 radial「快创」的 REKA bubble(一键开记录流)
+    if (_menuOpen) _activeClose?.call();
+    final anchor = _anchorRect();
+    if (anchor != null) _openFunction('create', anchor);
+  }
+
+  void _nudgeDismiss(RekaNudge n) {
+    _nudges.outcome(n.id, 'dismissed');
+    setState(() => _nudgeExpanded = false);
   }
 
   // An external surface (e.g. the 报告 list CTA) asked to open a REKA function
@@ -161,6 +219,9 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
     RekaFly.instance.target.removeListener(_onFlyTarget);
     RekaFly.instance.outFrom.removeListener(_onFlyOut);
     RekaNotifications.instance.removeListener(_onNotif);
+    _nudges.removeListener(_onNudges);
+    _peekTimer?.cancel();
+    _bob.dispose();
     _pulse.dispose();
     _fly.dispose();
     super.dispose();
@@ -349,7 +410,7 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
 
   Widget _mascot(BuildContext context, {required bool hidden}) {
     return AnimatedBuilder(
-      animation: Listenable.merge([_pet, _fly]),
+      animation: Listenable.merge([_pet, _fly, _bob]),
       builder: (context, _) {
         final p = _pet.pet;
         if (!_loaded || p == null) return const SizedBox.shrink();
@@ -403,7 +464,9 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
 
             // off-screen when suppressed (a page that IS REKA is showing its hero)
             final left = hidden ? -10000.0 : _frac.dx * travelW;
-            final top = _frac.dy * travelH;
+            // §14.7 轻 bob — a single gentle hop on nudge arrival (拍肩,不开 party).
+            final bobDy = _bob.isAnimating ? -9 * math.sin(math.pi * _bob.value) : 0.0;
+            final top = _frac.dy * travelH + bobDy;
             return Stack(
               clipBehavior: Clip.none,
               children: [
@@ -433,12 +496,167 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
                     ),
                   ),
                 ),
+                // §14.7 nudge surfaces (peek 气泡 / 可动作面板 / 「...」安静 chip) —
+                // above the ball so the expanded panel's barrier wins taps.
+                if (!hidden) ..._nudgeLayer(context, left, _frac.dy * travelH, maxW, maxH),
               ],
             );
           },
         );
       },
     );
+  }
+
+  // ── §14.7 nudge layer: peek bubble → action panel → quiet「...」chip ────────
+  List<Widget> _nudgeLayer(
+      BuildContext context, double ballLeft, double ballTop, double maxW, double maxH) {
+    final eu = context.eu;
+    final n = _nudges.peek;
+
+    // 安静态: no peek, but un-acted nudges exist → a tiny findable「...」chip.
+    if (n == null) {
+      if (!_nudges.hasPending) return const [];
+      return [
+        Positioned(
+          left: (ballLeft - 4).clamp(4.0, maxW - 30),
+          top: (ballTop - 4).clamp(4.0, maxH - 24),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () {
+              final p = _nudges.pending;
+              if (p.isNotEmpty) _nudges.reopen(p.first.id);
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+              decoration: BoxDecoration(
+                color: eu.surfaceRaised,
+                borderRadius: BorderRadius.circular(9),
+                border: Border.all(color: eu.border),
+              ),
+              child: Text('…',
+                  style: TextStyle(
+                      color: eu.textMid, fontSize: 12, fontWeight: FontWeight.w800, height: 1)),
+            ),
+          ),
+        ),
+      ];
+    }
+
+    const w = 232.0;
+    final onRight = ballLeft + _size / 2 > maxW / 2;
+    final bx = (onRight ? ballLeft - w - 8 : ballLeft + _size + 8).clamp(8.0, maxW - w - 8);
+
+    if (!_nudgeExpanded) {
+      // peek: 一句话气泡,点开变可动作;8s 不理会自动收成「...」(timer).
+      return [
+        Positioned(
+          left: bx,
+          top: (ballTop + _size / 2 - 22).clamp(8.0, maxH - 60),
+          width: w,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _expandNudge,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: eu.surfaceRaised,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: eu.border),
+                boxShadow: [
+                  BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.25),
+                      blurRadius: 14,
+                      offset: const Offset(0, 5)),
+                ],
+              ),
+              child: Text(n.text,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: eu.textHi, fontSize: 13.5, height: 1.35)),
+            ),
+          ),
+        ),
+      ];
+    }
+
+    // expanded: 可动作面板 — [记一笔] / [知道了]; outside tap = 忽略 → 安静「...」.
+    return [
+      Positioned.fill(
+        child: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onTap: () {
+            _nudges.quiet();
+          },
+        ),
+      ),
+      Positioned(
+        left: bx,
+        top: (ballTop - 36).clamp(8.0, maxH - 170),
+        width: w,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+          decoration: BoxDecoration(
+            color: eu.surfaceRaised,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: eu.border),
+            boxShadow: [
+              BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.3),
+                  blurRadius: 18,
+                  offset: const Offset(0, 6)),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(n.text,
+                  style: TextStyle(
+                      color: eu.textHi, fontSize: 14, fontWeight: FontWeight.w700, height: 1.35)),
+              if (n.body.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 5),
+                  child: Text(n.body,
+                      style: TextStyle(color: eu.textMid, fontSize: 12.5, height: 1.4)),
+                ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  if (n.cta == 'log')
+                    Expanded(
+                      child: SizedBox(
+                        height: 32,
+                        child: FilledButton(
+                          onPressed: () => _nudgeAct(n),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: eu.brand,
+                            padding: EdgeInsets.zero,
+                            textStyle:
+                                const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                          ),
+                          child: const Text('记一笔'),
+                        ),
+                      ),
+                    ),
+                  if (n.cta == 'log') const SizedBox(width: 8),
+                  Expanded(
+                    child: SizedBox(
+                      height: 32,
+                      child: TextButton(
+                        onPressed: () => _nudgeDismiss(n),
+                        style: TextButton.styleFrom(padding: EdgeInsets.zero),
+                        child: Text('知道了',
+                            style: TextStyle(color: eu.textMid, fontSize: 13)),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    ];
   }
 
   Widget _ball(BuildContext context, Pet p) {

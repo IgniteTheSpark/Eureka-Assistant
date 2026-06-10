@@ -44,6 +44,7 @@ from api.files import router as files_router
 from api.assets import router as assets_router
 from api.sessions import router as sessions_router
 from api.contacts import router as contacts_router
+from api.nudges import router as nudges_router
 from api.events import router as events_router       # v1.4
 from api.timeline import router as timeline_router    # v1.4.x
 from api.tasks import router as tasks_router          # v1.4.x — async MCP tasks
@@ -61,6 +62,10 @@ async def lifespan(app: FastAPI):
     import asyncio
     from core.reminder_scheduler import reminder_loop
     reminder_task = asyncio.create_task(reminder_loop())
+    # §14 主动 REKA heartbeat (Phase 2): rhythm profiles (daily) + 缺口→Type A
+    # nudges (~30min ticks, deterministic, zero per-tick LLM).
+    from core.companion import companion_loop
+    companion_task = asyncio.create_task(companion_loop())
 
     # Warm the internal MCP toolset at boot so the FIRST user chat turn doesn't
     # pay the stdio-subprocess spawn (re-imports the backend + connects MySQL,
@@ -83,8 +88,9 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         reminder_task.cancel()
+        companion_task.cancel()
         warm_task.cancel()
-        for t in (reminder_task, warm_task):
+        for t in (reminder_task, companion_task, warm_task):
             try:
                 await t
             except (asyncio.CancelledError, Exception):
@@ -119,6 +125,7 @@ app.include_router(reports_router,      prefix="/api", tags=["reports"])        
 app.include_router(export_router,       prefix="/api", tags=["export"])         # 资产库导出 (md/csv)
 app.include_router(connected_apps_router, prefix="/api", tags=["connected-apps"])  # §1.7.1 Connected Apps
 app.include_router(pet_router,            prefix="/api", tags=["pet"])             # §9 球球 Pet
+app.include_router(nudges_router,         prefix="/api", tags=["nudges"])          # §14 主动 REKA (Phase 2)
 
 
 @app.get("/health")

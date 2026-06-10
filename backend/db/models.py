@@ -25,7 +25,7 @@ v1.3 baseline (kept):
 - file_id on InputTurn only, NOT on Session
 """
 from sqlalchemy import (
-    Column, String, Integer, Numeric, Text, Date,
+    Column, String, Integer, Numeric, Text, Date, Float,
     ForeignKey, UniqueConstraint, Index, DateTime, JSON,
 )
 from sqlalchemy.types import TypeDecorator, CHAR
@@ -135,6 +135,9 @@ class User(Base):
     # §13.1 — stable 百智 (100wiser) identity ↔ Eureka user mapping. Unique so one
     # 百智 account = one Eureka user; null for email-registered users.
     baizhi_user_id = Column(String(64), unique=True, nullable=True, index=True)
+    # Small JSON prefs bag (§14.8). v1: {"nudges_enabled": bool} — the「球球提醒」
+    # master switch, default ON (absent = enabled; this audience won't opt in).
+    prefs         = Column(JSON)
     created_at    = Column(TIMESTAMPTZ, default=_utcnow)
 
 
@@ -522,6 +525,58 @@ class Report(Base):
     __table_args__ = (
         Index("idx_reports_user_created", "user_id", "created_at"),
     )
+
+
+class Nudge(Base):
+    """
+    §14 主动 REKA — one proactive prompt (Type A 提醒 / Type B offer), persisted
+    server-side (heartbeat fires while the user may be offline; the feed must
+    support 回溯). Outcome states (§14.7) serve double duty:
+    - user-facing history:「✓ 已记 / 未处理」in the feed;
+    - adaptive backoff (§14.8): ignored/dismissed → REKA 退避, acted → keep going.
+
+    status: pending → delivered → seen → acted | dismissed | ignored(过期未处理) | expired
+    """
+    __tablename__ = "nudges"
+
+    id           = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id      = Column(String(50), nullable=False, server_default="default")
+    type         = Column(String(1), nullable=False)      # A | B
+    kind         = Column(String(20), nullable=False)     # rhythm_gap | reminder | offer | briefing …
+    text         = Column(String(255), nullable=False)    # peek 一句话 (template, zero LLM)
+    body         = Column(Text)                            # expanded copy for the action bubble
+    ref          = Column(String(100))                     # skill machine_name / event / todo id
+    cta          = Column(String(20))                      # log | view | research …
+    status       = Column(String(12), nullable=False, server_default="delivered")
+    source       = Column(String(20), nullable=False, server_default="rhythm")  # scheduler | rhythm
+    created_at   = Column(TIMESTAMPTZ, default=_utcnow)
+    delivered_at = Column(TIMESTAMPTZ)
+    acted_at     = Column(TIMESTAMPTZ)
+    expires_at   = Column(TIMESTAMPTZ)
+
+    __table_args__ = (
+        Index("idx_nudges_user_created", "user_id", "created_at"),
+        Index("idx_nudges_user_status", "user_id", "status"),
+    )
+
+
+class RhythmProfile(Base):
+    """
+    §14.2 节律 profile — per (user, skill) STATISTICAL habit summary. Computed by
+    a daily offline pass (median cadence / hour histogram peaks / weekday spread /
+    confidence) — **never** by an LLM (「老人的吃药时间不能交给会编的模型」). The
+    heartbeat only READS it (cheap, deterministic).
+    """
+    __tablename__ = "rhythm_profiles"
+
+    user_id         = Column(String(50), primary_key=True)
+    skill           = Column(String(100), primary_key=True)   # GlobalSkill.name
+    cadence_minutes = Column(Integer)         # median inter-record gap
+    typical_hours   = Column(JSON)            # peak record hours (Beijing), e.g. [8, 12]
+    weekdays        = Column(JSON)            # concentrated weekdays (Mon=0); [] = every day
+    confidence      = Column(Float, default=0)
+    sample_n        = Column(Integer, default=0)
+    computed_at     = Column(TIMESTAMPTZ)
 
 
 class ConnectedApp(Base):

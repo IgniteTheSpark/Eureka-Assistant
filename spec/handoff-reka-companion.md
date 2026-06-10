@@ -22,17 +22,17 @@
 
 ---
 
-## Phase 2 · 主动 REKA 核心（§14 v1)—— 提醒(Type A)+ 引擎 + 展示 + 护栏
+## Phase 2 · 主动 REKA 核心（§14 v1)—— ✅ 已实现（2026-06）
 
 > 陪伴层的地基:定时大脑 + 节律 + 显示 + 傻瓜护栏。**Type A 几乎全复用通知系统**,真正新建的是「定时 + 节律 + 推送」。
 
 | 面 | 做什么 | 验收 |
 |---|---|---|
-| **后端 · 通知补缺** | **task-skill 完成通知**(异步完成→「已同步到X ✓」,归反应式族,§14.4) | task 完成有通知进 feed |
-| **后端 · 引擎** | **cron/heartbeat**(ADK,~30min 扫;**确定性廉价检查、零 per-tick LLM**)+ **统计节律 profile**(每日离线 job:cadence=间隔中位、time-of-day 直方峰、weekday、confidence;落 `rhythm_profiles`)(§14.1/14.2) | profile 每日重算落库;heartbeat 只读 profile + 当前态 |
-| **后端 · 触发 + Type A** | 触发引擎:**缺口→Type A 提醒**(模板文案、置信门槛、≤2/天)(§14.3/14.4);写 **`nudges`** 表(type/kind/text/ref/status/outcome,§14.10) | 「该记早餐了?」在缺口时 fire;不确定不发;每天 ≤2 |
-| **前端 · 展示+回溯** | 浮球**轻 bob + peek 气泡**(到达)→ 点展开**可动作**(`记一笔`/`知道了`)→ 忽略收成「...」安静态 + 进**通知 feed**;outcome 状态(acted/dismissed/ignored…)(§14.7) | 到达醒目→安静→feed 可找回;feed 显「✓ 已记/未处理」 |
-| **前端 · 傻瓜护栏** | 零配置;**温柔 REKA 口吻权限请求**(好时机、非首启系统弹窗);静默时段自动;**自适应**(忽略→退避、采纳→继续,靠 outcome);默认 ON + 一个总开关(§14.8) | 不配置即用;连续忽略后自动少提醒;夜里不打扰 |
+| **后端 · 通知补缺(✅ 盘点无缺)** | **task-skill 完成通知**:`agents/task_skill.py` 完成/失败已走 `create_notification`(M6 反应式族) | task 完成有通知进 feed ✅ |
+| **后端 · 引擎(✅)** | `core/companion.py companion_loop`(~30min,**确定性廉价检查、零 per-tick LLM**)+ `core/rhythm.py`(每日离线:cadence=间隔中位、time-of-day ±1h 平滑直方峰、weekday、confidence;落 `rhythm_profiles`,迁移 0019) | profile 每日重算落库 ✅;heartbeat 只读(统计单测:日常 8 点/一三五晚跑/散乱低置信 全过) |
+| **后端 · 触发 + Type A(✅)** | 缺口→Type A(峰值+1h~+3h 窗、今天没记、模板文案、置信 ≥0.45、≤2/天)→ `nudges` 表 + `create_notification(type=nudge)`;`/api/nudges`(pending/outcome/prefs) | fire/防重/上限/总开关/退避/过期 全部在容器内验证通过 ✅ |
+| **前端 · 展示+回溯(✅)** | `reka_nudges.dart` store + 浮球**轻 bob(单跳,非彩纸)+ peek 气泡(8s 自动收起)**→ 点展开**可动作**(`记一笔`=acted+开快创 / `知道了`=dismissed)→ 忽略收「...」chip(点击再现)+ 🐾 进**feed**(点击重开);启动拉 pending 恢复安静态;抑制页跳过 peek | 到达醒目→安静→feed 可找回 ✅ |
+| **前端 · 傻瓜护栏(✅,权限请求后置)** | 零配置;静默 22-08 自动;**自适应**(同习惯连续 2 条未理→退避 72h、acted 恢复);默认 ON + 「球球提醒」总开关(REKA 通知面板顶部,`users.prefs`)。**系统推送的温柔权限请求随 APNs 基建后置**(v1 投递=应用内 SSE,正是「拒绝→应用内提醒」的底线形态) | 不配置即用;连续忽略后自动少提醒;夜里不打扰 ✅ |
 
 **护栏铁律(承 §7.0/§9.0)**:邀请非命令、不愧疚、不攀比、一键「球球安静一会儿」。**对老人尤甚 —— 错时/愧疚提醒会伤关系。**
 

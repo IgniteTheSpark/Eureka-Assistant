@@ -328,6 +328,18 @@ source_file_offset, asr_provider, language, created_at}`。供资产详情页的
 | GET | `/api/reports/{id}/actions` | **§6.13 报告→待办**:`suggested_actions` + 每条 `created`(已建?)/`asset_id`(防重状态) |
 | POST | `/api/reports/{id}/actions` | 一键 `+ 待办`:body `{title}` → **幂等**建 todo(写 `assets.source_report_id` 列 + payload `source_report_title` 溯源);已建过返回既有 id(`created:false`) |
 
+## 3.14 `/api/nudges` — 主动 REKA（**已实现**，见 [§14](14-proactive-reka.md) Phase 2）
+
+| Method | Path | 说明 |
+|---|---|---|
+| GET | `/api/nudges/pending` | 今天(北京)未处理的 nudge(app 启动恢复「...」安静态,不重复 bob) |
+| GET | `/api/nudges?limit=` | 历史(含 outcome,feed 回溯) |
+| POST | `/api/nudges/{id}/outcome` | body `{status: seen\|acted\|dismissed}`;终态不被 seen 降级;驱动 §14.8 自适应退避 |
+| GET | `/api/nudges/prefs` | `{nudges_enabled}`(默认 true) |
+| PATCH | `/api/nudges/prefs` | body `{nudges_enabled: bool}` —— §14.8「球球提醒」总开关 |
+
+- nudge 由服务端 heartbeat(`core/companion.py`)产生,同时走通知管线(`type=nudge`,`link=nudge:<id>:<ref>`)→ feed + SSE;移动端渲染成 REKA peek 气泡而非普通 toast。
+
 - **报告是独立入口,不复用 chat**(2026-06,已实现):向导走 `/api/reports/intake`(逐步引导)+ `/api/reports/generate`(SSE 生成),
   产物持久化为 **`Report` 行**(非会话)。**没有 `session_type='report'` 这种会话类型**(早期设计已废弃)。完整管线见 [§6](06-synthesis-report.md)。
 - **手动选资产**:前端把选中的 `source_asset_ids` 传给 `/api/reports/generate`,管线据此跳过分类的范围抽取、直接进内容层。

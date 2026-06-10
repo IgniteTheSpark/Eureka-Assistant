@@ -9,6 +9,7 @@ import 'pages/calendar_page.dart';
 import 'pages/report_viewer_page.dart';
 import 'pages/session_detail_page.dart';
 import 'pet/reka_notifications.dart';
+import 'pet/reka_nudges.dart';
 import 'render/asset_detail_sheet.dart';
 import 'render/render_spec.dart';
 import 'theme/app_theme.dart';
@@ -32,6 +33,8 @@ class AppEvents {
     if (_started) return;
     _started = true;
     _run();
+    // §14.7: restore today's un-acted nudges → quiet「...」chip on the ball.
+    RekaNudges.instance.loadPending();
   }
 
   Future<void> _run() async {
@@ -58,9 +61,32 @@ class AppEvents {
         bumpData();
       case 'notification':
         bumpData();
-        _toast(ev.json);
         final j = ev.json;
         final type = j['type'] as String? ?? '';
+        // §14.7 nudge = 拍肩, not an alert: it surfaces as a REKA peek bubble
+        // (light bob) handled by the FloatingMascot — NOT the standard toast.
+        if (type == 'nudge') {
+          final link = (j['link'] as String? ?? '').split(':'); // nudge:<id>:<ref>
+          final n = RekaNudge(
+            id: link.length > 1 ? link[1] : '',
+            text: j['title'] as String? ?? '',
+            body: j['body'] as String? ?? '',
+            ref: link.length > 2 ? link.sublist(2).join(':') : '',
+            cta: 'log',
+          );
+          if (n.id.isNotEmpty && n.text.isNotEmpty) {
+            RekaNudges.instance.pushArrival(n);
+          }
+          RekaNotifications.instance.add(
+            icon: '🐾',
+            title: j['title'] as String? ?? '提醒',
+            meta: j['body'] as String?,
+            type: type,
+            link: j['link'] as String? ?? '',
+          );
+          return;
+        }
+        _toast(j);
         RekaNotifications.instance.add(
           icon: type == 'flash_done' ? '⚡' : (type.startsWith('task') ? '⚙️' : '🔔'),
           title: j['title'] as String? ?? '通知',
@@ -110,6 +136,14 @@ class AppEvents {
 Future<void> openNotificationTarget(String type, String link) async {
   final nav = navigatorKey.currentState;
   if (nav == null || link.isEmpty) return;
+
+  // §14.7 nudge from the feed → re-open its peek bubble on the ball (if still
+  // pending today); a handled/expired one just does nothing (history entry).
+  if (type == 'nudge' || link.startsWith('nudge:')) {
+    final parts = link.split(':');
+    if (parts.length > 1) RekaNudges.instance.reopen(parts[1]);
+    return;
+  }
 
   // reminder link is structured: reminder:evt:<id>:<thr> / reminder:todo:<id>:<thr>
   // (UUIDs have no ':'). Open the specific event/todo CARD directly — same as the

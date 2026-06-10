@@ -122,6 +122,29 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
   void _notifications() {
     _add(_Node(_K.notifPanel));
     RekaNotifications.instance.markAllRead();
+    _loadNudgePrefs();
+  }
+
+  // §14.8 the one master switch (「球球提醒」, default ON) — lives right here in
+  // REKA's own notification panel so the people who want it off can find it.
+  bool? _nudgesEnabled;
+
+  Future<void> _loadNudgePrefs() async {
+    try {
+      final r = await _api.getJson('/api/nudges/prefs');
+      if (mounted && r is Map) {
+        setState(() => _nudgesEnabled = r['nudges_enabled'] != false);
+      }
+    } catch (_) {/* switch row just stays hidden */}
+  }
+
+  Future<void> _toggleNudges(bool v) async {
+    setState(() => _nudgesEnabled = v);
+    try {
+      await _api.patchJson('/api/nudges/prefs', {'nudges_enabled': v});
+    } catch (_) {
+      if (mounted) setState(() => _nudgesEnabled = !v); // revert on failure
+    }
   }
 
   Future<void> _prefetch() async {
@@ -840,15 +863,60 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
     );
   }
 
+  /// §14.8「球球提醒」总开关行 — shown once prefs load; toggles server-side.
+  Widget _nudgeSwitchRow(EurekaColors eu) {
+    final v = _nudgesEnabled;
+    if (v == null) return const SizedBox.shrink();
+    return Container(
+      margin: const EdgeInsets.only(top: 4, bottom: 2),
+      padding: const EdgeInsets.fromLTRB(12, 2, 6, 2),
+      decoration: BoxDecoration(
+        color: eu.surfaceRaised,
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(color: eu.border),
+      ),
+      child: Row(
+        children: [
+          const Text('🐾', style: TextStyle(fontSize: 14)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text('球球提醒',
+                style: TextStyle(color: eu.textHi, fontSize: 13, fontWeight: FontWeight.w600)),
+          ),
+          Transform.scale(
+            scale: 0.78,
+            child: Switch(
+              value: v,
+              activeThumbColor: eu.brand,
+              onChanged: _toggleNudges,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _notifPanel(EurekaColors eu) {
     return AnimatedBuilder(
       animation: RekaNotifications.instance,
       builder: (context, _) {
         final items = RekaNotifications.instance.items;
         if (items.isEmpty) {
-          return _textBubble(eu, false, '还没有通知 🛎️\n记录、完成、生成报告都会出现在这里。');
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _textBubble(eu, false, '还没有通知 🛎️\n记录、完成、生成报告都会出现在这里。'),
+              _nudgeSwitchRow(eu),
+            ],
+          );
         }
-        return Container(
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _nudgeSwitchRow(eu),
+            Container(
           margin: const EdgeInsets.symmetric(vertical: 4),
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
@@ -908,6 +976,8 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
                 ),
             ],
           ),
+        ),
+          ],
         );
       },
     );
