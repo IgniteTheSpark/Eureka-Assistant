@@ -120,6 +120,14 @@ def _parse_frontmatter(md: str) -> tuple[dict, str]:
 # Blocks: directive (:::name ... :::), fenced chart (```chart ... ```),
 # heading, list, blockquote, paragraph.
 def _split_blocks(body: str) -> list[tuple[str, object]]:
+    # Defensive: the flash content skill sometimes wraps a directive fence in
+    # backticks (`:::rank` / `:::`) because the prompt references them as inline
+    # code. A backticked fence fails the `:::name` match below → the open line
+    # leaks as literal monospace text and the block body renders as a bare list
+    # (e.g. :::rank → a plain <ol>). Normalize any line that is *only* a fence,
+    # optionally backtick-wrapped, back to the bare fence so it parses. Targeted:
+    # only fires when the line, after the backticks, starts with ":::".
+    body = re.sub(r"(?m)^[ \t]*`+[ \t]*(:::[^`\n]*?)[ \t]*`+[ \t]*$", r"\1", body)
     lines = body.splitlines()
     blocks: list[tuple[str, object]] = []
     i, n = 0, len(lines)

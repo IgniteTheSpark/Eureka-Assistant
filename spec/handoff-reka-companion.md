@@ -84,7 +84,7 @@ Phase 2(主动核心)─ Phase 3(晨间简报)─ Phase 4(Type B + search)
 
 ## 分工(prompt / 基建 / design)
 
-- **prompt(spec 侧)**:`:::actions`(✅ 已出稿)+ proposal 同款补 + 晨间简报 genre 内容 skill(若用 LLM 串场)+ web-search 引用纪律。Type A/offer **文案是模板字符串**(给 copy 规格即可,非 LLM prompt)。
+- **prompt(spec 侧)**:`:::actions`(✅ idea-synthesis + proposal 内容 skill 均已补:方向/下一步写成 `:::actions`,渲染为只读 ✦接下来 清单,后续被原生行动条抽成 +待办)+ 晨间简报 genre 内容 skill(若用 LLM 串场)+ web-search 引用纪律。**渲染器加固**:`_split_blocks` 容忍 flash 把 fence 写成反引号包裹(`` `:::rank` `` → 顶格 `:::rank`),避免整块当普通文字泄漏。Type A/offer **文案是模板字符串**(给 copy 规格即可,非 LLM prompt)。
 - **基建(coding agent)**:`suggested_actions` 抽取+迁移、原生行动条、`source_report_id`/`source_nudge_id`;heartbeat、统计 profile、触发引擎、`nudges` 表、peek 气泡、feed 回溯、傻瓜护栏、Type B offer 流、web-search 管线步。
 - **🎨 design(设计流程)**:**晨间简报沉浸式皮**(`/design-shotgun`→`/design-html`)+ nudge peek 气泡/「...」视觉打磨。
 
