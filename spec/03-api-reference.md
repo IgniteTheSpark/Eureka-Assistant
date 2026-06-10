@@ -328,6 +328,12 @@ source_file_offset, asr_provider, language, created_at}`。供资产详情页的
 | GET | `/api/reports/{id}/actions` | **§6.13 报告→待办**:`suggested_actions` + 每条 `created`(已建?)/`asset_id`(防重状态) |
 | POST | `/api/reports/{id}/actions` | 一键 `+ 待办`:body `{title}` → **幂等**建 todo(写 `assets.source_report_id` 列 + payload `source_report_title` 溯源);已建过返回既有 id(`created:false`) |
 
+## 3.13a `/api/briefing` — 晨间简报（**已实现**，见 [§14.6](14-proactive-reka.md)）
+
+| Method | Path | 说明 |
+|---|---|---|
+| GET | `/api/briefing/today` | 当日晨间简报(**当日幂等**:首调生成〔确定性数据+模板,零 LLM,毫秒级〕,再调返回同一 `reports` 行;genre=`morning-briefing`) |
+
 ## 3.14 `/api/nudges` — 主动 REKA（**已实现**，见 [§14](14-proactive-reka.md) Phase 2）
 
 | Method | Path | 说明 |

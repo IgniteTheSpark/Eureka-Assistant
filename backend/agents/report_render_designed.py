@@ -38,7 +38,7 @@ _HERO_SURFACES = {"surface-dashboard", "surface-neon"}
 _GENRE_LABEL = {
     "data-report": ("数据复盘", "DATA REPORT"), "idea-synthesis": ("灵感综合", "SYNTHESIS"),
     "proposal": ("提案", "PROPOSAL"), "digest": ("概览", "DIGEST"),
-    "briefing": ("调研简报", "BRIEFING"),
+    "briefing": ("调研简报", "BRIEFING"), "morning-briefing": ("晨间简报", "MORNING"),
 }
 # Categorical series colors for donut segments / multi-series legends. Must be
 # DISTINCT HUES (not the palette's accent + accent-2, which are sibling shades →

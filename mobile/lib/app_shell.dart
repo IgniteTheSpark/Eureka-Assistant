@@ -7,6 +7,7 @@ import 'pages/calendar_page.dart';
 import 'pages/create_asset.dart';
 import 'pages/device_pairing_page.dart';
 import 'pages/library_page.dart';
+import 'pages/morning_briefing_page.dart' show maybeShowMorningBriefing;
 import 'pages/notifications_page.dart';
 import 'pages/pet_page.dart';
 import 'pet/floating_mascot.dart' show RekaFly;
@@ -64,6 +65,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver, RouteA
       WidgetsBinding.instance.addPostFrameCallback((_) => Navigator.of(context).push(
             MaterialPageRoute(builder: (_) => const DevicePairingPage()),
           ));
+    } else {
+      // §14.6 晨间简报 — 中午前的第一次打开进沉浸式「早安」页(每天一次、可滑走、
+      // 失败静默)。放 else 里:截图验证用的 START_OVERLAY 启动不被它抢路由。
+      WidgetsBinding.instance.addPostFrameCallback((_) => maybeShowMorningBriefing());
     }
   }
 

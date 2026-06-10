@@ -24,7 +24,7 @@ from db.models import Report
 
 router = APIRouter()
 
-_GENRES = {"data-report", "idea-synthesis", "proposal", "digest", "briefing"}
+_GENRES = {"data-report", "idea-synthesis", "proposal", "digest", "briefing", "morning-briefing"}
 
 
 def _meta(r: Report) -> dict:
@@ -249,6 +249,19 @@ async def rerender_report(
         await db.refresh(r)
         payload = _full(r)
     return {"ok": True, "report": payload}
+
+
+# ── §14.6 晨间简报 (handoff Phase 3) ──────────────────────────────────────────
+# NOTE: literal path, declared in this router BEFORE /reports/{report_id} could
+# shadow it — FastAPI matches in declaration order and this route's path
+# (/briefing/today) doesn't collide with the /reports/* tree anyway.
+@router.get("/briefing/today")
+async def briefing_today(user_id: str = Depends(get_current_user_id)):
+    """Today's morning briefing — generated on FIRST call of the (Beijing) day
+    (deterministic data + template greeting, zero LLM → milliseconds), then the
+    same row on every later call. Also lands in the report container (回看)."""
+    from agents.morning_briefing import generate_today
+    return {"ok": True, "report": await generate_today(user_id)}
 
 
 # ── §6.13 / handoff Phase 1: 报告 → 待办 ──────────────────────────────────────

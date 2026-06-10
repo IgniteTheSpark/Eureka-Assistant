@@ -23,6 +23,7 @@ const _genreMeta = {
   'proposal': ('📝', '提案'),
   'digest': ('🗞', '概览'),
   'briefing': ('🔎', '调研简报'), // §14.5 会前调研/外部调研(web-search)
+  'morning-briefing': ('🌅', '晨间简报'), // §14.6 每天一份,回看像日记
 };
 
 class _ReportListPageState extends State<ReportListPage> {

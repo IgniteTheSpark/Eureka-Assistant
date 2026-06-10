@@ -520,7 +520,9 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
         Positioned(
           left: (ballLeft - 4).clamp(4.0, maxW - 30),
           top: (ballTop - 4).clamp(4.0, maxH - 24),
-          child: GestureDetector(
+          child: Material(
+            type: MaterialType.transparency,
+            child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: () {
               final p = _nudges.pending;
@@ -538,6 +540,7 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
                       color: eu.textMid, fontSize: 12, fontWeight: FontWeight.w800, height: 1)),
             ),
           ),
+          ),
         ),
       ];
     }
@@ -553,7 +556,9 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
           left: bx,
           top: (ballTop + _size / 2 - 22).clamp(8.0, maxH - 60),
           width: w,
-          child: GestureDetector(
+          child: Material(
+            type: MaterialType.transparency,
+            child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: _expandNudge,
             child: Container(
@@ -575,6 +580,7 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
                   style: TextStyle(color: eu.textHi, fontSize: 13.5, height: 1.35)),
             ),
           ),
+          ),
         ),
       ];
     }
@@ -593,7 +599,9 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
         left: bx,
         top: (ballTop - 36).clamp(8.0, maxH - 170),
         width: w,
-        child: Container(
+        child: Material(
+          type: MaterialType.transparency,
+          child: Container(
           padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
           decoration: BoxDecoration(
             color: eu.surfaceRaised,
@@ -654,6 +662,7 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
               ),
             ],
           ),
+        ),
         ),
       ),
     ];

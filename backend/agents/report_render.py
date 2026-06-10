@@ -80,6 +80,8 @@ _GENRE_SURFACE = {
     "proposal":       "deck-doc",
     "digest":         "magazine-lite",
     "briefing":       "deck-doc",   # §14.5 会前调研 — document-like, no designed variant yet
+    "morning-briefing": "magazine-lite",  # §14.6 — 换装 fallback only; the immersive
+                                          # html is built by agents/morning_briefing.py
 }
 
 _PALETTE_KEYS = list(_PALETTES.keys())
