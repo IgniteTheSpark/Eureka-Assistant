@@ -516,27 +516,67 @@ class _TimelineViewState extends State<_TimelineView> {
     return (off - 12).clamp(0.0, double.infinity);
   }
 
-  int _snapTries = 0;
-
   // Mount-time scroll so today sits near the top (past above, future below).
-  // The estimate gets the viewport close; _snapToday then aligns precisely
-  // using today's now-laid-out row.
+  // The estimate gets the viewport close; _seekToday then converges exactly.
   void _autoScroll() {
     if (_didScroll || !mounted || !_scroll.hasClients) return;
     _didScroll = true;
     _scroll.jumpTo(_offsetToToday().clamp(0.0, _scroll.position.maxScrollExtent));
-    WidgetsBinding.instance.addPostFrameCallback((_) => _snapToday());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _seekToday());
   }
 
-  void _snapToday() {
-    if (!mounted) return;
-    final ctx = _dayKeys[_dayStr(_today)]?.currentContext;
-    if (ctx != null) {
-      Scrollable.ensureVisible(ctx, alignment: 0.06, duration: Duration.zero);
+  // Corrective seek — the ESTIMATE-based jump can land ±weeks off: per-row
+  // height guesses drift from the rendered truth and the error compounds over
+  // hundreds of lazy rows; today's row then sits outside cacheExtent, so a
+  // fixed frame-retry "snap" never sees its context and gives up at the bad
+  // estimate (the「回到今天落在两周后」bug). Instead of trusting the estimate,
+  // MEASURE where we actually landed (nearest laid-out day row — the same
+  // logic that powers the「N 周后」watermark, which is always right), step by
+  // the remaining day-distance × the measured average row height, and repeat.
+  // Each hop shrinks the error; once today's row is really laid out we align
+  // it exactly with ensureVisible.
+  void _seekToday([int iter = 0]) {
+    if (!mounted || !_scroll.hasClients) return;
+    final tctx = _dayKeys[_dayStr(_today)]?.currentContext;
+    if (tctx != null) {
+      Scrollable.ensureVisible(tctx, alignment: 0.06, duration: Duration.zero);
       if (!_todayInView) setState(() => _todayInView = true);
-    } else if (_snapTries++ < 12) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _snapToday());
+      return;
     }
+    if (iter >= 12) return;
+    final box = context.findRenderObject() as RenderBox?;
+    if (box == null || !box.attached) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _seekToday(iter + 1));
+      return;
+    }
+    DateTime? nearest;
+    var bestDist = double.infinity;
+    var sumH = 0.0;
+    var nH = 0;
+    _dayKeys.forEach((str, key) {
+      final ctx = key.currentContext;
+      if (ctx == null) return;
+      final rb = ctx.findRenderObject() as RenderBox?;
+      if (rb == null || !rb.attached) return;
+      final dy = rb.localToGlobal(Offset.zero, ancestor: box).dy;
+      sumH += rb.size.height;
+      nH++;
+      if (dy.abs() < bestDist) {
+        bestDist = dy.abs();
+        nearest = _parse(str);
+      }
+    });
+    if (nearest == null || nH == 0) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _seekToday(iter + 1));
+      return;
+    }
+    final deltaDays = _today.difference(nearest!).inDays;
+    if (deltaDays != 0) {
+      final avgH = sumH / nH + 8; // + inter-row gap
+      _scroll.jumpTo((_scroll.position.pixels + deltaDays * avgH)
+          .clamp(0.0, _scroll.position.maxScrollExtent));
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) => _seekToday(iter + 1));
   }
 
   void _jumpToToday([int tries = 0]) {
@@ -546,11 +586,8 @@ class _TimelineViewState extends State<_TimelineView> {
       if (tries < 8) WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToToday(tries + 1));
       return;
     }
-    // Snap exactly onto today's row AFTER the animation finishes. (Old bug: snap
-    // ran one frame in, so its retry budget (~100ms) expired mid-animation (420ms)
-    // — before today's row laid out at the target — and it gave up at the rough
-    // estimate, which can be ±weeks off. That's why returning to 流 didn't land on
-    // today.) whenComplete fires whether the animation finishes or is interrupted.
+    // Animate toward the estimate (feels intentional), then converge exactly
+    // with the measuring seek — works no matter how far off the estimate is.
     _scroll
         .animateTo(
           _offsetToToday().clamp(0.0, _scroll.position.maxScrollExtent),
@@ -558,9 +595,7 @@ class _TimelineViewState extends State<_TimelineView> {
           curve: Curves.easeOutCubic,
         )
         .whenComplete(() {
-      if (!mounted) return;
-      _snapTries = 0;
-      _snapToday();
+      if (mounted) _seekToday();
     });
   }
 

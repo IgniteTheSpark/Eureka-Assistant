@@ -256,11 +256,31 @@ async def rerender_report(
 # shadow it — FastAPI matches in declaration order and this route's path
 # (/briefing/today) doesn't collide with the /reports/* tree anyway.
 @router.get("/briefing/today")
-async def briefing_today(user_id: str = Depends(get_current_user_id)):
+async def briefing_today(
+    refresh: bool = Query(False),
+    user_id: str = Depends(get_current_user_id),
+):
     """Today's morning briefing — generated on FIRST call of the (Beijing) day
     (deterministic data + template greeting, zero LLM → milliseconds), then the
-    same row on every later call. Also lands in the report container (回看)."""
+    same row on every later call. Also lands in the report container (回看).
+
+    `refresh=1` (dev affordance): drop today's row and rebuild from CURRENT data
+    — cheap (ms, no LLM), user-scoped, lets testing see newly added events/todos."""
     from agents.morning_briefing import generate_today
+    if refresh:
+        from datetime import datetime, timedelta, timezone
+        bj = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=8)))
+        day0_utc = bj.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+        async with AsyncSessionLocal() as db:
+            rows = (await db.execute(
+                select(Report).where(
+                    Report.user_id == user_id, Report.genre == "morning-briefing",
+                    Report.created_at >= day0_utc,
+                )
+            )).scalars().all()
+            for r in rows:
+                await db.delete(r)
+            await db.commit()
     return {"ok": True, "report": await generate_today(user_id)}
 
 

@@ -36,7 +36,13 @@ class RekaChat extends StatefulWidget {
   /// Seed the conversation straight into a function (from the radial menu):
   /// 'create' | 'summarize' | 'notifications'. null → show the root options.
   final String? intent;
-  const RekaChat({super.key, required this.anchor, required this.onClose, this.intent});
+
+  /// §14.5 Type B offer 一键即做: with intent='summarize', skip the wish entry
+  /// and run generation immediately with this wish (傻瓜版:点了就开始).
+  final String? prefillWish;
+
+  const RekaChat(
+      {super.key, required this.anchor, required this.onClose, this.intent, this.prefillWish});
 
   @override
   State<RekaChat> createState() => _RekaChatState();
@@ -110,7 +116,14 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
       case 'create':
         _chooseCreate();
       case 'summarize':
-        _chooseSummarize();
+        final wish = widget.prefillWish;
+        if (wish != null && wish.isNotEmpty) {
+          // Type B offer 接受 → 一键即做:跳过输入,直接生成(显进度→出结果)
+          _synthBase = _nodes.length;
+          _generate(wish: wish);
+        } else {
+          _chooseSummarize();
+        }
       case 'notifications':
         _notifications();
       default:

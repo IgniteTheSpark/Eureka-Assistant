@@ -1,7 +1,8 @@
 # 14 · 主动 REKA（陪伴层）
 
-> **状态：Phase 2 核心 + Phase 3 晨间简报已实现(2026-06)** —— heartbeat + 统计节律 + 缺口→Type A 提醒 +
-> peek/bob/「...」展示 + 回溯 + 傻瓜护栏 + 晨间简报(沉浸双皮,详见各节 ✅);Type B offer 流(Phase 4)待做。
+> **状态：Phase 2 核心 + Phase 3 晨间简报 + Phase 4 积累型 offer 已实现(2026-06)** —— heartbeat + 统计节律 +
+> 缺口→Type A 提醒 + **积累→Type B offer(一键即做)** + peek/💡/展示回溯 + 傻瓜护栏 + 晨间简报(沉浸双皮,
+> 详见各节 ✅);仅剩**会前调研型 offer**(event 扫描 → briefing 锚定到会议)待组装。
 > 让 REKA 从「你来找它」变成「它陪着你」—— 在合适的时间主动提醒、主动帮你做点事。
 > **目标人群 = 普通人**(宝妈 / 保姆 / 老人 / 学生党):有记录需求、但**不懂也不想配置**推送和定时任务。所以本层的第一性原则是 **零配置**:
 > **不是「你设定提醒」,而是「REKA 看懂你的节律,替你记着」。** 全程 [§7.0](07-gamemode.md)/[§9.0](09-pet.md) 的**温柔护栏**:是邀请不是命令、不愧疚、不攀比、一键安静。
@@ -57,10 +58,15 @@
 
 ---
 
-## 14.3 触发规则：缺口 → Type A，积累 → Type B（复用 §7.3）（缺口→A ✅ 2026-06;积累→B 待 Phase 4）
+## 14.3 触发规则：缺口 → Type A，积累 → Type B（复用 §7.3）（✅ 均已实现 2026-06）
 
 > **落地(缺口→A)**:`core/companion.py scan_once` —— confidence ≥0.45 的 profile,在「峰值小时+1h ~ +3h」
 > 窗口内若该技能今天还没记录 → fire(每习惯每天最多一条;weekday 型只在其集中日触发)。
+> **落地(积累→B)**:同一 scan 先跑积累段(offer 更稀有、更贵重,与提醒共享每天 ≤2 上限)——两类来源:
+> ① 专属技能(idea/记账类 machine/display 匹配,7 天 ≥5/≥8 条);② **灵感 domain**(§8,多数用户的灵感
+> 是「随记 + 灵感域」而非独立技能,7 天 ≥5 条)→ `✨ 这周记了 N 条灵感,要我帮你理一理?` offer
+> (kind=offer,cta=synthesize,ref=技能名或 `domain:灵感`,72h 过期)。防重:每习惯每周最多一条 offer;
+> **刚综合过同 genre 报告 → 静默,除非那之后又攒满阈值条新记录**(新一批配得上新 offer)。
 
 profile + 当前状态 → 喂一个触发引擎,两族规则(**正是 [§7.3](07-gamemode.md) 已设计的「缺口型 / 阈值型」**,这里靠 profile 定时、靠 heartbeat 推送):
 
@@ -92,8 +98,14 @@ profile + 当前状态 → 喂一个触发引擎,两族规则(**正是 [§7.3](0
 
 > **✅ briefing genre 已实现(2026-06,手动路径)**:报告入口说「帮我做 X 的会前调研 / 调研一下 Y」→ dispatcher
 > 判 `briefing` + 产 `search_queries` → 管线跑 §14.9 搜索步 → 内容 skill(`report-briefing`)产带出处简报
-> (含 `:::actions` 会前准备动作 → §6.13 一键加待办)。**本节其余(offer→报告流、peek 气泡、过期归档)依赖
-> Phase 2 的 nudge 基建,未实现。**
+> (含 `:::actions` 会前准备动作 → §6.13 一键加待办)。
+>
+> **✅ 积累型 offer→报告流 已实现(2026-06)**:§14.3 积累触发产 Type B offer(peek 气泡 ✨)→ 点开
+> **[✨ 帮我理一理] = 一键即做**:标 acted → 直接进 REKA 洞察气泡用内置 wish 生成(`RekaChat prefillWish`,
+> 不用打字,显进度 → 出报告进容器);[知道了] = dismissed;忽略 → 72h 后自动 ignored(过期归档)。
+> 实测全链路:6 条灵感攒满 → offer 触发 → 一键生成灵感综合报告。
+> **会前调研型 offer**(heartbeat 扫到期 event → offer → 报告**锚定到 event**)仍待:差 event 扫描规则 +
+> 锚定/会后过期;genre、搜索步、offer 壳都已就绪,纯组装。
 
 **offer → 报告 流(以「会前调研」为例):**
 1. **3 点** heartbeat 扫到 **4 点的会**(Type A 同款确定性检测)。
@@ -212,7 +224,9 @@ profile + 当前状态 → 喂一个触发引擎,两族规则(**正是 [§7.3](0
 ## 14.12 v1 范围与后置
 
 - **v1 必做**:① task-skill 完成通知(✅ 盘点确认早已存在)② cron/heartbeat + **统计节律 profile** + 缺口触发(✅ 2026-06;积累→B 触发随 Phase 4)③ Type A 节律缺口提醒(✅ 模板、置信门槛、≤2/天、自适应、温柔)④ 展示(✅ 轻 bob + peek 气泡 + 「...」安静态 + feed 回溯 + outcome)⑤ **晨间简报**(✅ genre + 内容 + 沉浸双皮〔设计稿移植〕+ 报告容器留存)⑥ 傻瓜护栏(✅ 零配置 / 静默时段 / 自适应 / 默认 ON + 总开关;系统推送权限请求随 APNs 后置)。
-- **紧随**:Type B offer→报告流(会前调研等;**genre + web-search 已就绪**,差 offer/nudge 壳);~~web-search 能力(§14.9)~~ ✅ 已实现;`source_nudge_id` 溯源(`source_report_id` 已落,同款列待 nudge 表一起加)。
+- **紧随**:~~积累型 offer→报告流~~ ✅ 已实现(一键即做);~~web-search 能力(§14.9)~~ ✅ 已实现;
+  剩**会前调研型 offer**(event 扫描 → briefing 锚定 event + 会后过期)与 `source_nudge_id` 溯源
+  (`source_report_id` 已落,offer 生成的报告回链 nudge 待加)。
 - **后置**:天气(晨间简报 v1.5)、LLM 富化文案/冷启动先验、跨技能相关性节律、傍晚 wrap-up、caregiver 护理日志视图。
 
 > **实施 handoff(与 [§6.13](06-synthesis-report.md) 报告→待办合一,因同一闭环)= [`handoff-reka-companion.md`](handoff-reka-companion.md)**:Phase 1 报告→待办 · Phase 2 主动核心(提醒+引擎+展示+护栏)· Phase 3 晨间简报(design 主理皮)· Phase 4 Type B+web-search。含后端/前端/design 分工 + 验收 + 顺序。

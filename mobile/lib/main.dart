@@ -121,7 +121,11 @@ class _AuthGate extends StatelessWidget {
         // Authed: open the hardware/notifications SSE bridge (idempotent) and
         // load 球球 (provisions the egg + arms completion-drop toasts).
         AppEvents.instance.start();
-        PetController.instance.ensureLoaded();
+        // ensureLoaded → refresh() notifies listeners SYNCHRONOUSLY (loading
+        // flag) — calling it inside this build marked the floating ball dirty
+        // mid-build ("setState() called during build", PetController). Defer.
+        WidgetsBinding.instance.addPostFrameCallback(
+            (_) => PetController.instance.ensureLoaded());
         return _startSession.isEmpty
             ? const AppShell()
             : SessionDetailPage(sessionId: _startSession, title: '会话详情');

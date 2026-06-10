@@ -54,7 +54,7 @@
 
 | 面 | 做什么 | 验收 |
 |---|---|---|
-| **后端 · offer→报告** | offer 触发(到期 event / 积累阈值)→ peek 气泡 + 落 feed;**接受 → 跑 §6 报告管线**(genre+scope 内置)→ 报告进容器 + 锚定来源 event;ignore→feed CTA;**expire→已过期归档**;`source_nudge_id` 溯源(§14.5)。**依赖 Phase 2 nudge 基建,未实现** | 「要我帮你会前调研吗」→ 一键→出简报报告;过期 CTA 失效 |
+| **后端 · offer→报告(✅ 积累型 2026-06;event 型待)** | **积累阈值触发 ✅**:§14.3 积累段(专属技能 + 灵感 domain 双路)→ offer nudge(peek ✨ + 落 feed);**接受 → 一键即做 ✅**(`RekaChat prefillWish` 直接跑 §6 管线);ignore → 72h 自动 ignored ✅。**到期 event 触发**(会前调研 offer + 报告锚定 event + 会后过期)待组装 —— genre/搜索步/offer 壳均已就绪 | 「这周记了 N 条灵感,要我帮你理一理?」→ 一键→出灵感综合报告 ✅(实测);会前调研 offer 待 |
 | **后端 · web-search(✅ 2026-06)** | **管线步骤**(非 content-skill 工具):确定性 search → 注入**带出处**资料 → content skill 引用;**grounding 墙**(用户数据 grounded、外部标出处、绝不混写);配额(30/月,只计数不接 billing)。`core/web_search.py`(博查/Tavily key-driven)+ `briefing` genre(dispatcher `search_queries` + `report-briefing` skill + `spec_json.web` 存证 + 优雅降级) | briefing 引用外部且标源;用户数字仍只来自真实记录 ✅(已验证) |
 | **前端** | Type B offer 气泡 + 接受流(锚定 session 预置任务)+ ignore/expire 态。**报告入口的手动路径已可用**(「帮我会前调研」→ briefing 报告,带 🔎 标签) | 一键即做、显进度→结果;忽略留 CTA |
 

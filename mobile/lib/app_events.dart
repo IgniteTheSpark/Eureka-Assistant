@@ -67,15 +67,19 @@ class AppEvents {
         // (light bob) handled by the FloatingMascot — NOT the standard toast.
         if (type == 'nudge') {
           final link = (j['link'] as String? ?? '').split(':'); // nudge:<id>:<ref>
+          final title = j['title'] as String? ?? '';
           final n = RekaNudge(
             id: link.length > 1 ? link[1] : '',
-            text: j['title'] as String? ?? '',
+            text: title,
             body: j['body'] as String? ?? '',
             ref: link.length > 2 ? link.sublist(2).join(':') : '',
-            cta: 'log',
+            // optimistic guess for the first paint (offer titles carry ✨);
+            // refresh() below replaces it with the server's authoritative cta.
+            cta: title.startsWith('✨') ? 'synthesize' : 'log',
           );
           if (n.id.isNotEmpty && n.text.isNotEmpty) {
             RekaNudges.instance.pushArrival(n);
+            RekaNudges.instance.refresh(peekId: n.id);
           }
           RekaNotifications.instance.add(
             icon: '🐾',

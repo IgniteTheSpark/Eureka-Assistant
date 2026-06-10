@@ -343,6 +343,7 @@ source_file_offset, asr_provider, language, created_at}`。供资产详情页的
 | POST | `/api/nudges/{id}/outcome` | body `{status: seen\|acted\|dismissed}`;终态不被 seen 降级;驱动 §14.8 自适应退避 |
 | GET | `/api/nudges/prefs` | `{nudges_enabled}`(默认 true) |
 | PATCH | `/api/nudges/prefs` | body `{nudges_enabled: bool}` —— §14.8「球球提醒」总开关 |
+| POST | `/api/nudges/scan` | **dev**:立即跑一轮 heartbeat(expire + 触发;护栏照常),服务进程内执行 → SSE 实时可达 |
 
 - nudge 由服务端 heartbeat(`core/companion.py`)产生,同时走通知管线(`type=nudge`,`link=nudge:<id>:<ref>`)→ feed + SSE;移动端渲染成 REKA peek 气泡而非普通 toast。
 

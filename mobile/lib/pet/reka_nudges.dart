@@ -60,6 +60,13 @@ class RekaNudges extends ChangeNotifier {
   Future<void> loadPending() async {
     if (_loaded) return;
     _loaded = true;
+    await refresh();
+  }
+
+  /// Re-pull pending from the server (authoritative cta/body — the SSE frame
+  /// only carries title/body/ref). [peekId] re-points the peek at that nudge
+  /// once the fresh copy lands.
+  Future<void> refresh({String? peekId}) async {
     final api = ApiClient();
     try {
       final res = await api.getJson('/api/nudges/pending');
@@ -68,6 +75,11 @@ class RekaNudges extends ChangeNotifier {
       _pending
         ..clear()
         ..addAll(list.whereType<Map>().map(RekaNudge.fromJson).whereType<RekaNudge>());
+      final want = peekId ?? peek?.id;
+      if (want != null) {
+        final i = _pending.indexWhere((x) => x.id == want);
+        peek = i >= 0 ? _pending[i] : (peekId != null ? peek : null);
+      }
       notifyListeners();
     } catch (_) {
       // best-effort — nudges are an enhancement, never block startup
