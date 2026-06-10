@@ -557,6 +557,10 @@ API 见 [§3](03-api-reference.md) 的 `/api/reports`。核心字段:
 > 无 JS 时题/答静态可读,JSON 坏块降级为可读 pre);genre 落 `reports`(🎯/🃏 进容器、可回看重做);
 > **§14 周测 offer**:学习 domain 7 天 ≥8 条(排除 todo/event/expense/contact)→「📝 要不要考考你?」→
 > 一键即做出 quiz(复用积累 offer 流,零新触发)。实测:真实单词笔记 → 测验接地(只考记过的、干扰项同类)。
+> **选材稳定性(2026-06 补)**:没有专属单词技能时 dispatcher 只能猜话题词,猜偏 = 假「数据不足」(实测 1/3
+> 成功率)。修复双保险:dispatcher gate 明示 quiz/flashcard **默认 `domain:"学习"`、禁猜 keywords**(§6.14
+> 主信号);管线再加**确定性兜底** —— 选材不足时自动改按学习域重取(剔除 todo/event/expense/contact),
+> 二者取多。复测同一 wish 3/3 稳定成功。
 > **v1 后置**:SRS 间隔重复、外部增强、per-card 成绩(见 handoff-quiz.md Phase 2)。
 
 > **定位**:把**学习类记录**(单词 / 读书笔记 / 学习笔记)变成**可交互的测验或记忆卡** —— 从「记下来」补上「记得住」。学生党(§14 目标人群)的核心场景:每天记新词 + 学习笔记,**一周出一份 quiz 考考自己**。

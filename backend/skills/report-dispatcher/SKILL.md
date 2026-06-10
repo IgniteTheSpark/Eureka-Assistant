@@ -43,6 +43,10 @@ description: >
 - **可测 = 知识/记忆型内容**(单词、读书笔记、学习笔记、语言学习)+ 诉求「考考我 / 复习 / 测验 / 背一背 / 记忆卡」→ `quiz`(要计分测验)或 `flashcard`(要翻卡自测)。
 - **不可测,各有去处**:**灵感**=生成型 → `idea-synthesis`(发展不背);**代办**=行动型 → 提醒;**记账/事件/消费** → data-report/提醒。**排除** `todo`/`event`/`expense`/`contact`(即使沾"学习",如"复习数学"是待办、不是知识)。
 - 模糊时:想「自测 / 翻牌 / 背」→ `flashcard`;想「考我 / 打分」→ `quiz`。
+- **选材(§6.14 主信号 = 学习 domain,别猜关键词)**:`quiz`/`flashcard` 的范围**默认填 `domain: "学习"`**
+  (`asset_types` 留 null,`keywords` 留 null)—— 学习类内容(单词/读书/学习笔记)天然落学习域,这比猜
+  话题词稳得多。仅当字典里有**明确的学习类技能**(如 `book_notes`、`vocab`)且诉求点名它时才改填
+  `asset_types`。**绝不**对 quiz/flashcard 用 keywords 去猜(猜偏 = 白白「数据不足」)。
 
 > ⚠️ **定性数据别仪表盘化(§6.3.1 关键)**:只有**量化记录**(金额 / 计数 / 打卡 / 时长)才配 `data-report`。
 > 一批**零散的 idea / notes / todo**(没有有意义的数值)**即使诉求里有"复盘"二字,也走 `idea-synthesis`(聚类升华)或 `digest`** ——
