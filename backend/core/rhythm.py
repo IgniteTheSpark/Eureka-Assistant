@@ -46,11 +46,16 @@ def compute_profile(timestamps: list[datetime]) -> Optional[dict]:
     if n < MIN_SAMPLES:
         return None
 
-    # cadence — median inter-record gap (minutes)
+    # cadence — median inter-record gap (minutes; ≥1 so bulk imports don't read 0)
     gaps = [(b - a).total_seconds() / 60 for a, b in zip(ts, ts[1:]) if (b - a).total_seconds() > 0]
-    cadence = int(median(gaps)) if gaps else None
+    cadence = max(1, int(median(gaps))) if gaps else None
 
-    # time-of-day — 24-bin histogram, smoothed ±1h so 7:55/8:10 read as one peak
+    # time-of-day — 24-bin histogram, smoothed ±1h so 7:55/8:10 read as one peak.
+    # Selection is on the SMOOTHED curve only: a peak hour is the center of a
+    # ±1h window dense with records, even when that exact hour has none (e.g.
+    # records split 13:00/15:00 → the true center 14 is a "saddle" with
+    # counts[14]==0; requiring counts>0 there yielded an EMPTY typical_hours and
+    # the trigger could never fire — found on real data).
     hours = [t.hour for t in ts]
     counts = [0] * 24
     for h in hours:
@@ -59,8 +64,7 @@ def compute_profile(timestamps: list[datetime]) -> Optional[dict]:
     peak = max(range(24), key=lambda h: smoothed[h])
     concentration = smoothed[peak] / n  # share of records inside the 3h peak window
     typical = sorted(
-        h for h in range(24)
-        if counts[h] > 0 and smoothed[h] >= 0.8 * smoothed[peak]
+        h for h in range(24) if smoothed[h] >= 0.85 * smoothed[peak]
     )[:3]
 
     # weekday — flag a concentrated subset (e.g. 周一三五); scattered → []
