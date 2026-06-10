@@ -794,6 +794,12 @@ def render_report(
     meta, body = _parse_frontmatter(content_md)
     genre = (meta.get("genre") or "digest").strip()
     title = (meta.get("title") or "报告").strip()
+    # Designed-render path (ported design handoff). Only ported genres use it;
+    # every other genre falls through to the legacy renderer below (zero regression).
+    from agents.report_render_designed import has_variant, render_designed
+    if has_variant(genre):
+        return render_designed(content_md, seed_key=seed_key, palette=palette,
+                               surface=surface, seed=seed, pet_gene=pet_gene)
     seed = seed if seed is not None else _seed(seed_key or f"{title}|{genre}")
     palette_key = palette if palette in _PALETTES else _PALETTE_KEYS[seed % len(_PALETTE_KEYS)]
     pal = _PALETTES[palette_key]

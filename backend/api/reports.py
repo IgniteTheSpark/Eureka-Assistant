@@ -129,6 +129,14 @@ class GenerateReportRequest(BaseModel):
     selected_summary: list | None = None
 
 
+# Strong refs to in-flight generation tasks so they survive the SSE client
+# disconnecting (closing the reka popup mid-generation). asyncio only weakly
+# tracks create_task() results — without a strong ref the task can be GC'd and
+# cancelled. The runner persists the report itself (run_report → _persist), so a
+# detached task = a durable report that lands in the reports list regardless.
+_BG_GEN: set = set()
+
+
 @router.post("/reports/generate")
 async def generate_report(req: GenerateReportRequest, user_id: str = Depends(get_current_user_id)):
     """Run the report pipeline, streaming progress over SSE. Emits:
@@ -165,17 +173,19 @@ async def generate_report(req: GenerateReportRequest, user_id: str = Depends(get
             finally:
                 await queue.put(("__done__", None))
 
+        # DURABLE: detach the runner + hold a strong ref. We do NOT cancel it when
+        # this generator exits (client disconnect = popup closed) — it finishes
+        # server-side and persists the report itself, so closing the reka popup
+        # mid-generation no longer aborts it; the report shows up in the list.
         task = asyncio.create_task(runner())
-        try:
-            while True:
-                evt, payload = await queue.get()
-                if evt == "__done__":
-                    break
-                yield sse_event(evt, payload)
-            yield sse_event("done", {})
-        finally:
-            if not task.done():
-                task.cancel()
+        _BG_GEN.add(task)
+        task.add_done_callback(_BG_GEN.discard)
+        while True:
+            evt, payload = await queue.get()
+            if evt == "__done__":
+                break
+            yield sse_event(evt, payload)
+        yield sse_event("done", {})
 
     return StreamingResponse(
         with_heartbeats(stream()),

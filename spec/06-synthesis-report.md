@@ -208,6 +208,15 @@ surface_hint: dashboard             # 可空,render 可覆盖
 借鉴 `html-anything` 的 `SKILL.md` 协议:**surface(版式族) × palette(配色) × block 套件**,锁定组合 +
 反 slop 硬约束。**「不千篇一律」全靠这一层。**
 
+> **设计稿移植(✅ data-report 已落,2026-06)**:把外部设计 handoff(6 palette × surface × block kit)
+> 移进渲染层。`agents/report_styles.py` = `report-base.css`(block 基元 + 6 个 `.pal-*` → `--rk-*` token 集)
+> + `SURFACE_CSS`(每 surface 的专属版式/hero/glow,如 `surface-dashboard` / `surface-neon`)的逐字真值源。
+> `agents/report_render_designed.py` = **新设计渲染路径**(emit 设计 markup:`.r-kpi-item`/div 柱/donut `data-arc`/
+> `.r-callout.insight`/`:::actions`/`.dash-head`·`.neon-head` masthead;首个 KPI 升为 masthead hero 大数;
+> donut 用**互异色**categorical 调色板、单序列柱用 accent 渐变;footer 仍挂**真实用户 pet**)。
+> **加法、不破坏**:`render_report` 仅对 `_VARIANTS` 里的 genre(现 data-report,seed 选 dashboard/neon)派发到它,
+> 其余 genre 走旧渲染器零回归。idea-synthesis / proposal / digest / morning-briefing 后续同法补 surface + masthead。
+
 **surface 族（v1，按 genre 默认映射，render 可按内容覆盖）:**
 
 | genre | 默认 surface | 气质 |
