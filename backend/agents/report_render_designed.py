@@ -22,9 +22,19 @@ from agents.report_render import (
 
 # genre → [(palette class, surface class)]; seed picks one (no two consecutive same).
 _VARIANTS: dict[str, list[tuple[str, str]]] = {
-    "data-report": [("pal-dashboard", "surface-dashboard"), ("pal-neon", "surface-neon")],
+    "data-report":    [("pal-dashboard", "surface-dashboard"), ("pal-neon", "surface-neon")],
+    "idea-synthesis": [("pal-ink", "surface-editorial"), ("pal-warm", "surface-note")],
+    "proposal":       [("pal-minimal", "surface-deck"), ("pal-forest", "surface-forest2")],
+    "digest":         [("pal-warm", "surface-mag"), ("pal-dashboard", "surface-wdash")],
 }
-_BODY_WRAP = {"surface-dashboard": "dash-grid", "surface-neon": "neon-body"}
+_BODY_WRAP = {
+    "surface-dashboard": "dash-grid", "surface-neon": "neon-body",
+    "surface-editorial": "ed-wrap",  "surface-note": "note-wrap",
+    "surface-deck":      "deck-wrap", "surface-forest2": "fst-wrap",
+    "surface-mag":       "mag-wrap", "surface-wdash": "wd-body",
+}
+# Surfaces that promote the first KPI item into a single masthead hero (big number).
+_HERO_SURFACES = {"surface-dashboard", "surface-neon"}
 _GENRE_LABEL = {
     "data-report": ("数据复盘", "DATA REPORT"), "idea-synthesis": ("灵感综合", "SYNTHESIS"),
     "proposal": ("提案", "PROPOSAL"), "digest": ("概览", "DIGEST"),
@@ -294,8 +304,37 @@ def _extract_hero(blocks: list) -> tuple[Optional[tuple], list]:
     return hero, out
 
 
-def _masthead(surface_class: str, genre: str, title: str, headline: str,
-              date_str: str, hero: Optional[tuple] = None) -> str:
+def _extract_strip(blocks: list, n: int = 4) -> tuple[Optional[list], list]:
+    """digest/magazine: pull the first KPI block's items (up to n) into the masthead
+    4-up stat strip, leaving any remainder in the body KPI wall."""
+    items, out, done = None, [], False
+    for kind, payload in blocks:
+        if not done and kind == "dir:kpi":
+            opts, content = payload
+            kpi_lines = [l for l in content.splitlines() if l.strip() and ":" in l]
+            if len(kpi_lines) >= 2:
+                items = []
+                for l in kpi_lines[:n]:
+                    k, v = l.split(":", 1)
+                    main, _sub = _split_kpi_value(v.strip())
+                    items.append((k.strip(), main))
+                done = True
+                rest = kpi_lines[n:]
+                if rest:
+                    out.append((kind, (opts, "\n".join(rest))))
+                continue
+        out.append((kind, payload))
+    return items, out
+
+
+def _chips(items) -> str:
+    return "".join(f'<span class="r-chip">{_esc(x)}</span>' for x in items if x)
+
+
+# ── per-surface mastheads ──────────────────────────────────────────────────────
+def _mh_dash(surface_class: str, genre: str, title: str, headline: str,
+             date_str: str, hero: Optional[tuple] = None) -> str:
+    """data-report — dashboard / neon: chip row + eyebrow + title + headline + hero."""
     zh, en = _GENRE_LABEL.get(genre, ("报告", "REPORT"))
     chips = (
         f'<span class="r-chip"><span class="r-chip-dot" style="background:var(--rk-accent)"></span>{en}</span>'
@@ -321,6 +360,117 @@ def _masthead(surface_class: str, genre: str, title: str, headline: str,
     if surface_class == "surface-neon":
         return f'<section class="neon-head"><div class="neon-grid"></div>{inner}</section>'
     return f'<section class="dash-head">{inner}</section>'
+
+
+def _mh_editorial(genre: str, title: str, headline: str, date_str: str, seed: int) -> str:
+    """idea-synthesis — literary magazine: rule + kicker + serif title + drop-cap lead."""
+    zh, en = _GENRE_LABEL.get(genre, ("报告", "REPORT"))
+    no = f"No.{(seed % 90) + 7:02d}"
+    lead = f'<p class="ed-lead">{_inline(headline)}</p>' if headline else ""
+    byline = (f'<div class="ed-byline"><span class="dot"></span><span>{_esc(en)}</span>'
+              + (f'<span>·</span><span>{_esc(date_str)}</span>' if date_str else "")
+              + '<span>·</span><span>✦ REKA</span></div>')
+    return (
+        '<section class="ed-masthead"><div class="ed-rule"></div>'
+        f'<div class="ed-kicker"><span>Reka Insights</span><span>{_esc(zh)} · {no}</span></div>'
+        f'<h1 class="r-h1">{_esc(title)}</h1>{lead}{byline}</section>'
+    )
+
+
+def _mh_note(genre: str, title: str, headline: str, date_str: str) -> str:
+    """idea-synthesis — warm notebook: dashed stamp + title + lead + chip meta."""
+    zh, en = _GENRE_LABEL.get(genre, ("报告", "REPORT"))
+    stamp_date = date_str.split("–")[0].strip() if date_str else ""
+    lead = f'<p class="note-lead">{_inline(headline)}</p>' if headline else ""
+    return (
+        '<section class="note-head">'
+        f'<span class="note-stamp">✦ REKA · {_esc(zh)}{(" · " + _esc(stamp_date)) if stamp_date else ""}</span>'
+        f'<h1 class="r-h1">{_esc(title)}</h1>{lead}'
+        f'<div class="note-meta">{_chips([zh, date_str])}</div></section>'
+    )
+
+
+def _mh_deck(genre: str, title: str, headline: str, date_str: str) -> str:
+    """proposal — keynote cover: label + big title + sub + k/v cover meta."""
+    zh, en = _GENRE_LABEL.get(genre, ("报告", "REPORT"))
+    sub = f'<p class="deck-sub">{_inline(headline)}</p>' if headline else ""
+    meta = [("日期", date_str)] if date_str else []
+    meta.append(("来源", "✦ REKA"))
+    meta_html = "".join(
+        f'<div class="deck-cm"><div class="k">{_esc(k)}</div><div class="v">{_esc(v)}</div></div>'
+        for k, v in meta
+    )
+    return (
+        '<section class="deck-cover">'
+        f'<div class="deck-label">{_esc(zh)} · {_esc(en)}</div>'
+        f'<h1 class="r-h1">{_esc(title)}</h1>{sub}'
+        f'<div class="deck-cover-meta">{meta_html}</div></section>'
+    )
+
+
+def _mh_forest(genre: str, title: str, headline: str, date_str: str) -> str:
+    """proposal — forest deck: pill label + title + sub + chip meta (radiant cover)."""
+    zh, en = _GENRE_LABEL.get(genre, ("报告", "REPORT"))
+    sub = f'<p class="fst-sub">{_inline(headline)}</p>' if headline else ""
+    return (
+        '<section class="fst-cover">'
+        f'<div class="fst-label">✦ {_esc(zh)} · {_esc(en)}</div>'
+        f'<h1 class="r-h1">{_esc(title)}</h1>{sub}'
+        f'<div class="fst-meta">{_chips([date_str, "✦ REKA"])}</div></section>'
+    )
+
+
+def _mh_mag(genre: str, title: str, headline: str, date_str: str,
+            strip_items: Optional[list]) -> str:
+    """digest — magazine-lite: kicker + title + range + overview, then 4-up stat strip."""
+    zh, en = _GENRE_LABEL.get(genre, ("报告", "REPORT"))
+    rng = f'<div class="mag-range">{_esc(date_str)}</div>' if date_str else ""
+    ov = f'<p class="mag-overview">{_inline(headline)}</p>' if headline else ""
+    strip = ""
+    if strip_items:
+        cells = "".join(
+            f'<div class="mag-strip-i"><div class="mag-strip-n" data-count>{_esc(v)}</div>'
+            f'<div class="mag-strip-l">{_esc(k)}</div></div>'
+            for k, v in strip_items[:4]
+        )
+        strip = f'<div class="mag-strip">{cells}</div>'
+    return (
+        '<section class="mag-head">'
+        f'<div class="mag-kicker">✦ {_esc(zh)} · {_esc(en)}</div>'
+        f'<h1 class="r-h1">{_esc(title)}</h1>{rng}{ov}</section>{strip}'
+    )
+
+
+def _mh_wdash(genre: str, title: str, headline: str, date_str: str) -> str:
+    """digest — weekly dashboard: chip row + title + range line."""
+    zh, en = _GENRE_LABEL.get(genre, ("报告", "REPORT"))
+    return (
+        '<section class="wd-head"><div class="r-meta-row" style="margin:0 0 12px;">'
+        f'<span class="r-chip"><span class="r-chip-dot" style="background:var(--rk-accent)"></span>{en}</span>'
+        '<span class="r-chip">周回顾</span><span class="r-chip">✦ REKA</span></div>'
+        f'<h1 class="r-h1">{_esc(title)}</h1>'
+        + (f'<div class="wd-range">{_esc(date_str)}</div>' if date_str else "")
+        + '</section>'
+    )
+
+
+def _masthead(surface_class: str, genre: str, title: str, headline: str, date_str: str,
+              *, hero: Optional[tuple] = None, strip_items: Optional[list] = None,
+              seed: int = 0) -> str:
+    """Dispatch to the surface-specific masthead builder."""
+    if surface_class == "surface-editorial":
+        return _mh_editorial(genre, title, headline, date_str, seed)
+    if surface_class == "surface-note":
+        return _mh_note(genre, title, headline, date_str)
+    if surface_class == "surface-deck":
+        return _mh_deck(genre, title, headline, date_str)
+    if surface_class == "surface-forest2":
+        return _mh_forest(genre, title, headline, date_str)
+    if surface_class == "surface-mag":
+        return _mh_mag(genre, title, headline, date_str, strip_items)
+    if surface_class == "surface-wdash":
+        return _mh_wdash(genre, title, headline, date_str)
+    return _mh_dash(surface_class, genre, title, headline, date_str, hero)
 
 
 def _sign(pet_gene: Optional[dict]) -> str:
@@ -411,7 +561,12 @@ def render_designed(
         surface_class = surface if surface.startswith("surface-") else f"surface-{surface}"
 
     headline, rest = _extract_headline(body)
-    hero, blocks = _extract_hero(_split_blocks(rest))
+    blocks = _split_blocks(rest)
+    hero, strip_items = None, None
+    if surface_class in _HERO_SURFACES:        # dashboard/neon → one big hero number
+        hero, blocks = _extract_hero(blocks)
+    elif surface_class == "surface-mag":        # magazine digest → 4-up stat strip
+        strip_items, blocks = _extract_strip(blocks, 4)
     inner = _render_blocks(blocks)
 
     dates = re.findall(r"\d{4}-\d{2}-\d{2}", meta.get("time_range", "") or "")
@@ -422,7 +577,8 @@ def render_designed(
     else:
         date_str = ""
 
-    masthead = _masthead(surface_class, genre, title, headline, date_str, hero)
+    masthead = _masthead(surface_class, genre, title, headline, date_str,
+                          hero=hero, strip_items=strip_items, seed=seed)
     wrap = _BODY_WRAP.get(surface_class, "dash-grid")
     css = BASE_CSS + "\n" + SURFACE_CSS.get(surface_class, "")
     gene_js = ""

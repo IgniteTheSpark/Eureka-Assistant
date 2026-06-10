@@ -209,4 +209,91 @@ SURFACE_CSS = {
 .surface-neon .r-bar { box-shadow:0 0 14px rgba(160,107,255,.5); }
 .surface-neon .r-callout.insight { box-shadow:0 0 28px rgba(160,107,255,.14); }
 """.strip(),
+
+    # idea-synthesis V1 — literary magazine: serif, generous whitespace, drop cap.
+    "surface-editorial": r"""
+.surface-editorial { font-size:16px; }
+.surface-editorial .ed-wrap { padding:6px 24px 8px; }
+.ed-masthead { padding:30px 24px 0; }
+.ed-rule { height:2px; background:var(--rk-text-hi); opacity:.9; }
+.ed-kicker { display:flex; justify-content:space-between; align-items:center; padding:10px 0 0; gap:12px; }
+.ed-kicker span { font-family:var(--rk-font-mono); font-size:10.5px; letter-spacing:.2em; text-transform:uppercase; color:var(--rk-text-lo); }
+.surface-editorial .r-h1 { font-family:var(--rk-font-display); font-weight:900; font-size:38px; line-height:1.12; letter-spacing:-.01em; margin:26px 0 0; color:var(--rk-text-hi); }
+.ed-lead { font-family:var(--rk-font-display); font-weight:500; font-size:19px; line-height:1.62; color:var(--rk-text); margin:20px 0 0; }
+.ed-lead::first-letter { font-size:58px; float:left; line-height:.82; padding:6px 12px 0 0; color:var(--rk-accent); font-weight:700; }
+.ed-byline { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:24px 0 0; padding-bottom:26px; border-bottom:1px solid var(--rk-rule); }
+.ed-byline .dot { width:5px; height:5px; border-radius:50%; background:var(--rk-accent); }
+.ed-byline span { font-family:var(--rk-font-mono); font-size:11px; letter-spacing:.04em; color:var(--rk-text-lo); }
+.surface-editorial .r-h2 { font-family:var(--rk-font-display); font-weight:700; font-size:24px; margin:28px 0 16px; color:var(--rk-text-hi); }
+.surface-editorial .r-p { font-size:16px; line-height:1.72; }
+.surface-editorial .r-quote { font-size:22px; line-height:1.45; padding:4px 0 4px 22px; margin:4px 0 22px; border-left:3px solid var(--rk-accent); font-style:normal; }
+.surface-editorial .r-callout { border-radius:4px; }
+""".strip(),
+
+    # idea-synthesis V2 — warm notebook 手帐: paper, dashed stamp, marker highlight.
+    "surface-note": r"""
+.surface-note { --rk-font-display:"Manrope","Noto Sans SC",sans-serif; background:radial-gradient(circle at 12% 8%,rgba(201,114,46,.06),transparent 30%),var(--rk-bg); }
+.surface-note .note-wrap { padding:6px 20px 8px; }
+.note-head { padding:26px 20px 20px; }
+.note-stamp { display:inline-flex; align-items:center; gap:8px; font-family:var(--rk-font-mono); font-size:11px; letter-spacing:.06em; color:var(--rk-accent); border:1.5px dashed var(--rk-accent); border-radius:999px; padding:5px 12px; transform:rotate(-1.5deg); }
+.surface-note .r-h1 { font-size:30px; font-weight:800; line-height:1.2; margin-top:16px; }
+.mark { background:linear-gradient(transparent 58%,rgba(201,114,46,.32) 58%,rgba(201,114,46,.32) 94%,transparent 94%); padding:0 2px; font-weight:700; color:var(--rk-text-hi); }
+.note-lead { font-size:16px; line-height:1.65; color:var(--rk-text); margin:14px 0 0; }
+.note-meta { display:flex; gap:7px; flex-wrap:wrap; margin:18px 0 0; }
+.surface-note .r-h2 { font-size:21px; font-weight:800; margin:24px 0 14px; }
+.surface-note .r-p { font-size:15.5px; line-height:1.68; }
+""".strip(),
+
+    # proposal V1 — deck-doc keynote: light, airy, big type, restrained.
+    "surface-deck": r"""
+.surface-deck { --rk-font-display:"Manrope","Noto Sans SC",sans-serif; }
+.surface-deck .deck-wrap { padding:24px 24px 8px; }
+.deck-cover { padding:40px 24px 30px; border-bottom:1px solid var(--rk-rule); }
+.deck-label { font-family:var(--rk-font-mono); font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--rk-accent); font-weight:600; }
+.surface-deck .r-h1 { font-size:36px; font-weight:800; line-height:1.14; letter-spacing:-.02em; margin:18px 0 0; }
+.deck-sub { font-size:17px; line-height:1.55; color:var(--rk-text-mid); margin:16px 0 0; }
+.deck-cover-meta { display:flex; gap:20px; flex-wrap:wrap; margin:28px 0 0; }
+.deck-cm .k { font-family:var(--rk-font-mono); font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--rk-text-lo); }
+.deck-cm .v { font-size:14px; font-weight:700; color:var(--rk-text-hi); margin-top:4px; }
+.surface-deck .r-h2 { font-size:24px; font-weight:800; margin:30px 0 16px; letter-spacing:-.01em; }
+.surface-deck .r-p { font-size:16px; line-height:1.65; color:var(--rk-text); }
+""".strip(),
+
+    # proposal V2 — forest deck: deep green, calm, radiant cover glow.
+    "surface-forest2": r"""
+.surface-forest2 { --rk-font-display:"Manrope","Noto Sans SC",sans-serif; background:radial-gradient(90% 60% at 50% -5%,rgba(79,179,122,.16),transparent 65%),var(--rk-bg); }
+.surface-forest2 .fst-wrap { padding:20px 24px 8px; }
+.fst-cover { padding:34px 24px 28px; }
+.fst-label { display:inline-flex; align-items:center; gap:8px; font-family:var(--rk-font-mono); font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--rk-accent); font-weight:600; border:1px solid var(--rk-border); border-radius:999px; padding:5px 12px; }
+.surface-forest2 .r-h1 { font-size:34px; font-weight:800; line-height:1.16; margin:18px 0 0; }
+.fst-sub { font-size:16.5px; line-height:1.58; color:var(--rk-text-mid); margin:16px 0 0; }
+.fst-meta { display:flex; gap:10px; flex-wrap:wrap; margin:22px 0 0; }
+.surface-forest2 .r-h2 { font-size:22px; font-weight:800; margin:26px 0 14px; }
+.surface-forest2 .r-p { font-size:15.5px; line-height:1.66; }
+""".strip(),
+
+    # digest V1 — magazine-lite: warm card flow + 4-up stat strip.
+    "surface-mag": r"""
+.surface-mag { --rk-font-display:"Manrope","Noto Sans SC",sans-serif; }
+.surface-mag .mag-wrap { padding:24px 20px 8px; }
+.mag-head { padding:28px 20px 18px; }
+.mag-kicker { font-family:var(--rk-font-mono); font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--rk-accent); font-weight:600; }
+.surface-mag .r-h1 { font-size:32px; font-weight:800; line-height:1.14; margin:12px 0 0; }
+.mag-range { font-family:var(--rk-font-mono); font-size:13px; color:var(--rk-text-mid); margin-top:10px; }
+.mag-overview { font-size:16px; line-height:1.6; color:var(--rk-text); margin:16px 0 0; }
+.mag-strip { display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:var(--rk-rule); border:1px solid var(--rk-border); border-radius:var(--rk-r); overflow:hidden; margin:0 20px; }
+.mag-strip-i { background:var(--rk-surface); padding:14px 8px; text-align:center; }
+.mag-strip-n { font-size:22px; font-weight:800; color:var(--rk-text-hi); line-height:1; font-variant-numeric:tabular-nums; }
+.mag-strip-l { font-size:10.5px; color:var(--rk-text-mid); margin-top:6px; }
+.surface-mag .r-h2 { font-size:19px; font-weight:800; margin:26px 0 14px; }
+""".strip(),
+
+    # digest V2 — weekly dashboard: cool dark, structured, data-dense.
+    "surface-wdash": r"""
+.surface-wdash .wd-head { padding:26px 20px 20px; border-bottom:1px solid var(--rk-rule); background:radial-gradient(120% 80% at 90% -10%,rgba(79,140,255,.14),transparent 60%),var(--rk-bg); }
+.surface-wdash .r-h1 { font-size:26px; }
+.wd-range { font-family:var(--rk-font-mono); font-size:12px; color:var(--rk-text-lo); margin-top:8px; letter-spacing:.04em; }
+.surface-wdash .wd-body { padding:22px 20px 8px; }
+.surface-wdash .r-h2 { margin:24px 0 12px; }
+""".strip(),
 }
