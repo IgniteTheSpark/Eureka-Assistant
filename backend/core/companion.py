@@ -121,7 +121,7 @@ async def scan_once() -> int:
             return int((await db.execute(q)).scalar() or 0)
 
         async def _try_offer(uid: str, *, ref: str, cnt: int, thr: int,
-                             genre: str, label: str,
+                             genre: str, label: str, text: str, body: str,
                              machine: str | None, domain: str | None) -> bool:
             """All §14.8 guardrails for one offer candidate; returns fired?"""
             user = (await db.execute(select(User).where(User.id == uid))).scalar_one_or_none()
@@ -157,8 +157,7 @@ async def scan_once() -> int:
                     return False
             nudge = Nudge(
                 user_id=uid, type="B", kind="offer",
-                text=f"✨ 这周记了 {cnt} 条{label},要我帮你理一理?",
-                body="点「帮我理一理」,Reka 把它们聚合成一份报告——共性、张力和下一步。不需要就划走,不打扰。",
+                text=text, body=body,
                 ref=ref, cta="synthesize",
                 status="delivered", source="rhythm",
                 delivered_at=now, expires_at=now + timedelta(hours=OFFER_TTL_HOURS),
@@ -193,27 +192,49 @@ async def scan_once() -> int:
             if rule is None:
                 continue
             _, thr, genre, label = rule
-            if await _try_offer(uid, ref=machine, cnt=cnt, thr=thr, genre=genre,
-                                label=label, machine=machine, domain=None):
+            if await _try_offer(
+                uid, ref=machine, cnt=cnt, thr=thr, genre=genre, label=label,
+                text=f"✨ 这周记了 {cnt} 条{label},要我帮你理一理?",
+                body="点「帮我理一理」,Reka 把它们聚合成一份报告——共性、张力和下一步。不需要就划走,不打扰。",
+                machine=machine, domain=None):
                 fired += 1
                 if genre == "idea-synthesis":
                     offered_idea.add(uid)
 
-        # pass 2 — 灵感 DOMAIN (§8): most users record ideas as 随记 tagged 灵感
-        # (create_note defaults there), not via a dedicated idea skill.
-        dom_rows = (await db.execute(
-            select(Asset.user_id, func.count(Asset.id))
-            .where(Asset.created_at >= week_ago, Asset.domain == "灵感")
-            .group_by(Asset.user_id)
-        )).all()
-        for uid, cnt in dom_rows:
-            cnt = int(cnt or 0)
-            if cnt < 5 or uid in offered_idea:
-                continue
-            if await _try_offer(uid, ref="domain:灵感", cnt=cnt, thr=5,
-                                genre="idea-synthesis", label="灵感",
-                                machine=None, domain="灵感"):
-                fired += 1
+        # pass 2 — DOMAIN rules (§8): most users' synthesizable content lives in
+        # generic skills tagged by domain (随记+灵感域;学习笔记+学习域),not in a
+        # dedicated skill. Counts EXCLUDE non-knowledge skills (§6.14: a todo
+        # tagged 学习,如「复习数学」,is an action — never quiz material).
+        domain_rules = (
+            # (domain, thr, genre, label, text_fmt, body)
+            ("灵感", 5, "idea-synthesis", "灵感",
+             "✨ 这周记了 {n} 条灵感,要我帮你理一理?",
+             "点「帮我理一理」,Reka 把它们聚合成一份报告——共性、张力和下一步。不需要就划走,不打扰。"),
+            ("学习", 8, "quiz", "学习内容",
+             "📝 这周记了 {n} 条学习内容,要不要考考你?",
+             "点「考考我」,Reka 用你记过的内容出一份小测——只考你记的,不考没学的。不想考就划走。"),
+        )
+        _non_knowledge = ("todo", "event", "expense", "contact", "external_ref", "qa")
+        for domain, thr, genre, label, text_fmt, body in domain_rules:
+            dom_rows = (await db.execute(
+                select(Asset.user_id, func.count(Asset.id))
+                .join(UserSkill, Asset.user_skill_id == UserSkill.id)
+                .join(GlobalSkill, UserSkill.skill_id == GlobalSkill.id)
+                .where(Asset.created_at >= week_ago, Asset.domain == domain,
+                       ~GlobalSkill.name.in_(_non_knowledge))
+                .group_by(Asset.user_id)
+            )).all()
+            for uid, cnt in dom_rows:
+                cnt = int(cnt or 0)
+                if cnt < thr:
+                    continue
+                if genre == "idea-synthesis" and uid in offered_idea:
+                    continue
+                if await _try_offer(uid, ref=f"domain:{domain}", cnt=cnt, thr=thr,
+                                    genre=genre, label=label,
+                                    text=text_fmt.format(n=cnt), body=body,
+                                    machine=None, domain=domain):
+                    fired += 1
 
         # ── §14.3 缺口 → Type A 提醒 ────────────────────────────────────────
         profiles = (await db.execute(

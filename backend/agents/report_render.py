@@ -82,6 +82,8 @@ _GENRE_SURFACE = {
     "briefing":       "deck-doc",   # §14.5 会前调研 — document-like, no designed variant yet
     "morning-briefing": "magazine-lite",  # §14.6 — 换装 fallback only; the immersive
                                           # html is built by agents/morning_briefing.py
+    "quiz":      "deck-doc",       # §6.14 interactive scored quiz (JS, legacy renderer)
+    "flashcard": "magazine-lite",  # §6.14 interactive flip deck (JS, legacy renderer)
 }
 
 _PALETTE_KEYS = list(_PALETTES.keys())
@@ -459,6 +461,88 @@ def _render_rank(content: str) -> str:
     return f'<ol class="r-rank r-block">{lis}</ol>'
 
 
+# ── §6.14 quiz / flashcard — the FIRST interactive blocks (WebView JS) ────────
+# Progressive enhancement (§6.14 #4): the static document is complete — fronts
+# AND backs / questions AND answers are readable with JS off. _STUDY_JS adds
+# `html.rk-study`, which switches flashcards to a 3D flip deck (self-grade) and
+# the quiz to tap-to-answer with scoring; answers hide until answered.
+
+def _render_flashcards(content: str) -> str:
+    cards = []
+    for line in content.splitlines():
+        line = line.strip()
+        if not line or "::" not in line:
+            continue
+        front, back = (x.strip() for x in line.split("::", 1))
+        if not front or not back:
+            continue
+        cards.append(
+            '<div class="fc-card"><div class="fc-in">'
+            f'<div class="fc-face fc-front">{_inline(front)}</div>'
+            f'<div class="fc-face fc-back"><div class="fc-ansr">{_inline(back)}</div>'
+            '<div class="fc-grade"><button data-g="1">会了 ✓</button>'
+            '<button data-g="0">还不熟</button></div>'
+            '</div></div></div>'
+        )
+    if not cards:
+        return ""
+    return (
+        '<div class="fc r-block" data-fc>'
+        '<div class="fc-bar"><span class="fc-tally"></span>'
+        '<span class="fc-hint">点卡片翻面 · 翻面后自评</span></div>'
+        f'<div class="fc-deck">{"".join(cards[:20])}</div></div>'
+    )
+
+
+def _render_quiz(raw: str) -> str:
+    txt = raw.strip()
+    # tolerate the LLM wrapping the JSON in a code fence inside the directive
+    txt = re.sub(r"^```[a-zA-Z]*\s*\n?", "", txt)
+    txt = re.sub(r"\n?```\s*$", "", txt)
+    try:
+        items = json.loads(txt)
+    except (json.JSONDecodeError, ValueError):
+        # degrade readable instead of dying — the raw block as preformatted text
+        return f'<pre class="r-block"><code>{_esc(raw)}</code></pre>'
+    if not isinstance(items, list):
+        return ""
+    qs = []
+    n = 0
+    for it in items[:10]:
+        if not isinstance(it, dict):
+            continue
+        q = str(it.get("q") or "").strip()
+        options = it.get("options")
+        try:
+            a = int(it.get("answer"))
+        except (TypeError, ValueError):
+            continue
+        if not q or not isinstance(options, list) or len(options) < 2 or not (0 <= a < len(options)):
+            continue
+        n += 1
+        opts = "".join(
+            f'<button class="qz-opt" data-i="{i}">'
+            f'<span class="qz-letter">{chr(65 + i)}</span>{_inline(str(o))}</button>'
+            for i, o in enumerate(options[:4])
+        )
+        explain = str(it.get("explain") or "").strip()
+        ans_line = f"答案:{chr(65 + a)}" + (f" · {explain}" if explain else "")
+        qs.append(
+            f'<li class="qz-q" data-a="{a}"><div class="qz-text">{n}. {_inline(q)}</div>'
+            f'<div class="qz-opts">{opts}</div>'
+            f'<div class="qz-ans">{_inline(ans_line)}</div></li>'
+        )
+    if not qs:
+        return ""
+    return (
+        '<div class="qz r-block" data-quiz>'
+        '<div class="qz-bar"><span class="qz-progress"></span><span class="qz-score"></span></div>'
+        f'<ol class="qz-list">{"".join(qs)}</ol>'
+        '<div class="qz-result"><div class="qz-result-n"></div><div class="qz-result-t"></div>'
+        '<button class="qz-retry">再来一遍 ↺</button></div></div>'
+    )
+
+
 def _render_actions(content: str) -> str:
     """§6.13: read-only「✦ 接下来」checklist — the interactive +待办 buttons are
     NATIVE, below the WebView (the pipeline extracts the same items into
@@ -551,6 +635,10 @@ def _render_body(blocks: list, pal: dict) -> str:
                 out.append(_render_compare(content))
             elif name == "actions":
                 out.append(_render_actions(content))
+            elif name == "flashcards":
+                out.append(_render_flashcards(content))
+            elif name == "quiz":
+                out.append(_render_quiz(content))
             else:
                 # unknown directive → degrade to paragraphs (§6.4)
                 out.append(_render_inner(content))
@@ -642,6 +730,128 @@ strong{{color:var(--hi);font-weight:700;}}
 # fully static-complete without JS — blocks default visible in CSS; this script
 # only ADDS motion, is wrapped in try/catch, respects prefers-reduced-motion, and
 # restores full visibility on any error.
+# §6.14 quiz / flashcard interaction styles. Plain string (NOT the _css f-string
+# template) — palettes arrive via the same CSS custom props (--card/--line/…).
+_STUDY_CSS = """
+.fc-bar,.qz-bar{display:none;}
+.fc-face{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;}
+.fc-front{color:var(--hi);font-weight:700;font-size:15.5px;}
+.fc-back{color:var(--mid);font-size:13.5px;margin-top:6px;line-height:1.5;}
+.fc-deck{display:grid;gap:10px;}
+.fc-grade{display:none;}
+html.rk-study .fc-bar{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--lo);letter-spacing:.06em;margin-bottom:10px;}
+html.rk-study .fc-tally{color:var(--brand);font-weight:700;}
+html.rk-study .fc-card{perspective:900px;cursor:pointer;}
+html.rk-study .fc-in{position:relative;min-height:112px;transform-style:preserve-3d;transition:transform .45s cubic-bezier(.2,.7,.3,1);}
+html.rk-study .fc-card.flip .fc-in{transform:rotateY(180deg);}
+html.rk-study .fc-face{position:absolute;inset:0;margin:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;backface-visibility:hidden;-webkit-backface-visibility:hidden;overflow-y:auto;}
+html.rk-study .fc-front{font-size:17px;}
+html.rk-study .fc-back{transform:rotateY(180deg);}
+html.rk-study .fc-grade{display:flex;gap:8px;margin-top:12px;}
+.fc-grade button{font-family:inherit;font-size:12px;font-weight:700;border-radius:999px;padding:6px 14px;border:1px solid var(--line);background:transparent;color:var(--mid);}
+.fc-grade button[data-g="1"]{border-color:var(--c2);color:var(--c2);}
+html.rk-study .fc-card.g1 .fc-face{border-color:var(--c2);}
+html.rk-study .fc-card.g0 .fc-face{border-color:var(--c3);}
+.qz-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:14px;}
+.qz-q{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;}
+.qz-text{color:var(--hi);font-weight:700;font-size:14.5px;margin-bottom:10px;line-height:1.45;}
+.qz-opts{display:grid;gap:8px;}
+.qz-opt{font-family:inherit;text-align:left;display:flex;align-items:baseline;gap:9px;background:transparent;border:1px solid var(--line);border-radius:10px;padding:10px 12px;color:var(--hi);font-size:13.5px;line-height:1.4;}
+.qz-letter{font-size:11px;font-weight:700;color:var(--lo);flex:0 0 auto;}
+html.rk-study .qz-bar{display:flex;justify-content:space-between;font-size:11px;color:var(--lo);letter-spacing:.06em;margin-bottom:10px;}
+html.rk-study .qz-score{color:var(--brand);font-weight:700;}
+html.rk-study .qz-opt{cursor:pointer;}
+html.rk-study .qz-q.done .qz-opt{cursor:default;opacity:.75;}
+.qz-opt.right{border-color:var(--c2);color:var(--c2);opacity:1!important;}
+.qz-opt.right .qz-letter{color:var(--c2);}
+.qz-opt.wrong{border-color:var(--c4);color:var(--c4);opacity:1!important;}
+.qz-opt.wrong .qz-letter{color:var(--c4);}
+.qz-ans{font-size:12px;color:var(--lo);margin-top:10px;border-top:1px dashed var(--line);padding-top:8px;line-height:1.5;}
+html.rk-study .qz-q:not(.revealed) .qz-ans{display:none;}
+.qz-result{display:none;margin-top:14px;text-align:center;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;}
+html.rk-study .qz-result.show{display:block;}
+.qz-result-n{font-size:26px;font-weight:800;color:var(--hi);}
+.qz-result-t{font-size:13px;color:var(--mid);margin-top:6px;}
+.qz-retry{font-family:inherit;margin-top:12px;border:1px solid var(--brand);color:var(--brand);background:transparent;border-radius:999px;padding:7px 18px;font-size:13px;font-weight:700;}
+"""
+
+# §6.14 interaction runtime (vanilla, dependency-free — same philosophy as
+# _ENHANCE_JS). Flip + self-grade tally; tap-to-answer + score + result + retry
+# (重做 = same report, fresh in-memory state).
+_STUDY_JS = r"""
+(function(){
+  try{
+    document.documentElement.classList.add('rk-study');
+    document.querySelectorAll('[data-fc]').forEach(function(fc){
+      var cards=[].slice.call(fc.querySelectorAll('.fc-card'));
+      var tally=fc.querySelector('.fc-tally');
+      function update(){ if(!tally) return;
+        var ok=cards.filter(function(c){return c.classList.contains('g1');}).length;
+        tally.textContent=ok+' / '+cards.length+' 会了'; }
+      update();
+      cards.forEach(function(card){
+        card.addEventListener('click',function(e){
+          if(e.target.closest('.fc-grade')) return;
+          card.classList.toggle('flip');
+        });
+        [].forEach.call(card.querySelectorAll('.fc-grade button'),function(b){
+          b.addEventListener('click',function(){
+            card.classList.remove('g1','g0');
+            card.classList.add(b.getAttribute('data-g')==='1'?'g1':'g0');
+            card.classList.remove('flip');
+            update();
+          });
+        });
+      });
+    });
+    document.querySelectorAll('[data-quiz]').forEach(function(qz){
+      var qs=[].slice.call(qz.querySelectorAll('.qz-q'));
+      var prog=qz.querySelector('.qz-progress'), score=qz.querySelector('.qz-score');
+      var result=qz.querySelector('.qz-result');
+      var answered=0, right=0;
+      function refresh(){
+        if(prog) prog.textContent=answered+' / '+qs.length;
+        if(score) score.textContent='答对 '+right;
+        if(answered===qs.length && result){
+          var pct=qs.length?Math.round(right/qs.length*100):0;
+          result.querySelector('.qz-result-n').textContent=right+' / '+qs.length+' · '+pct+'%';
+          result.querySelector('.qz-result-t').textContent=
+            pct===100?'全对!记得真牢 🎉':(pct>=60?'不错,错的那几个再看一眼 👀':'没关系,翻回去再过一遍 🌱');
+          result.classList.add('show');
+        }
+      }
+      refresh();
+      qs.forEach(function(q){
+        var a=parseInt(q.getAttribute('data-a'),10);
+        [].forEach.call(q.querySelectorAll('.qz-opt'),function(btn){
+          btn.addEventListener('click',function(){
+            if(q.classList.contains('done')) return;
+            q.classList.add('done','revealed');
+            var i=parseInt(btn.getAttribute('data-i'),10);
+            var opts=q.querySelectorAll('.qz-opt');
+            if(opts[a]) opts[a].classList.add('right');
+            if(i===a){ right++; } else { btn.classList.add('wrong'); }
+            answered++;
+            refresh();
+          });
+        });
+      });
+      var retry=qz.querySelector('.qz-retry');
+      if(retry) retry.addEventListener('click',function(){
+        answered=0; right=0;
+        qs.forEach(function(q){
+          q.classList.remove('done','revealed');
+          [].forEach.call(q.querySelectorAll('.qz-opt'),function(b){b.classList.remove('right','wrong');});
+        });
+        if(result) result.classList.remove('show');
+        refresh();
+        qz.scrollIntoView({behavior:'smooth',block:'start'});
+      });
+    });
+  }catch(e){}
+})();
+""".strip()
+
 _ENHANCE_JS = """
 (function(){
   function showAll(){ try{ [].forEach.call(document.querySelectorAll('.r-block'),
@@ -849,7 +1059,8 @@ def render_report(
     # intentional even when sparse. Placed above the body's title h1.
     eyebrow_label = {
         "data-report": "数据复盘", "idea-synthesis": "灵感综合",
-        "proposal": "提案", "digest": "概览",
+        "proposal": "提案", "digest": "概览", "briefing": "调研简报",
+        "morning-briefing": "晨间简报", "quiz": "测验", "flashcard": "记忆卡",
     }.get(genre, "报告")
     dates = re.findall(r"\d{4}-\d{2}-\d{2}", meta.get("time_range", "") or "")
     if len(dates) >= 2:
@@ -864,6 +1075,10 @@ def render_report(
     )
     inner = eyebrow + inner
     css = _css(pal, surf) + _SIGN_CSS
+    # §6.14 interactive blocks present → ship their styles + runtime
+    study = "data-quiz" in inner or "data-fc" in inner
+    if study:
+        css += _STUDY_CSS
     band = _reka_band(pet_gene)
     # Embedded gene + mount script (self-contained: the gene travels in the HTML,
     # so an exported file animates as long as mascot.js is present/inlined).
@@ -874,12 +1089,13 @@ def render_report(
             f"<script>{_REKA_SIGN_JS}</script>"
         )
 
+    study_js = f"<script>{_STUDY_JS}</script>" if study else ""
     html_doc = (
         "<!doctype html><html lang=\"zh\"><head><meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
         f"<title>{_esc(title)}</title><style>{css}</style></head>"
         f"<body><div class=\"r-wrap\">{inner}{band}</div>"
-        f"<script>{_ENHANCE_JS}</script>{gene_js}</body></html>"
+        f"<script>{_ENHANCE_JS}</script>{study_js}{gene_js}</body></html>"
     )
     return {
         "html": html_doc,

@@ -73,9 +73,9 @@ class AppEvents {
             text: title,
             body: j['body'] as String? ?? '',
             ref: link.length > 2 ? link.sublist(2).join(':') : '',
-            // optimistic guess for the first paint (offer titles carry ✨);
+            // optimistic guess for the first paint (offer titles carry ✨/📝);
             // refresh() below replaces it with the server's authoritative cta.
-            cta: title.startsWith('✨') ? 'synthesize' : 'log',
+            cta: (title.startsWith('✨') || title.startsWith('📝')) ? 'synthesize' : 'log',
           );
           if (n.id.isNotEmpty && n.text.isNotEmpty) {
             RekaNudges.instance.pushArrival(n);

@@ -24,7 +24,8 @@ from db.models import Report
 
 router = APIRouter()
 
-_GENRES = {"data-report", "idea-synthesis", "proposal", "digest", "briefing", "morning-briefing"}
+_GENRES = {"data-report", "idea-synthesis", "proposal", "digest", "briefing", "morning-briefing",
+           "quiz", "flashcard"}
 
 
 def _meta(r: Report) -> dict:

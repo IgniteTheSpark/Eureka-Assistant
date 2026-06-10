@@ -129,7 +129,7 @@
 
 ---
 
-## 6.3 ② content skills（5 个 genre → 注解 Markdown）
+## 6.3 ② content skills（7 个 genre → 注解 Markdown）
 
 每个 genre 一个 sub-skill,职责一致:**先 query 真实数据 → 按本体裁的结构产出注解 md**。结构骨架各异:
 
@@ -140,6 +140,8 @@
 | **proposal** | 背景/问题 → 目标 → 方案要点(分点)→ 取舍/风险 → 下一步 |
 | **digest** | 时间线近况 → 各类型亮点卡 → 一句话总览 |
 | **briefing**(✅ 2026-06,§14.5 会前调研) | 是什么(外部画像,**每条标出处**)→ 最近动态(timeline)→ 和你的关联(用户记录)→ 可聊的/注意的 → `:::actions` 准备动作 → 来源。**唯一带 §14.9 web-search 管线步的 genre**;grounding 墙:外部主张可追溯、与用户数据绝不混写 |
+| **quiz**(✅ 2026-06,§6.14) | 标题+headline → **一个 `:::quiz` 块**(JSON 题组:每题 4 选项+answer+explain,≤10 题)。**只考用户记过的**;干扰项同类不送分 |
+| **flashcard**(✅ 2026-06,§6.14) | 标题+headline → **一个 `:::flashcards` 块**(每行 `正面 :: 背面`,≤20 张)。正反面**忠实**用户记录 |
 
 **数据契约(硬规则,全 genre 通用):**
 - 数字、标题、引用**只能来自查到的记录**;**绝不编**。查不到就在报告里如实写「这段时间没有 X」。
@@ -544,3 +546,43 @@ API 见 [§3](03-api-reference.md) 的 `/api/reports`。核心字段:
 > POST 服务端幂等建 todo,写 `assets.source_report_id` 列 + payload `source_report_title`);前端 —
 > `report_viewer_page` WebView 下方原生行动条(`+ 待办`/`全部加到待办`/`已加 ✓` + toast),`asset_detail_sheet`
 > 待办详情显「来自报告《X》· 查看报告」(点开原报告)。**v1 todo 单类型**;`+ 日程`/预填表单仍后置。
+
+---
+
+## 6.14 测验 / 记忆卡（quiz / flashcard genre · ✅ v1 已实现 2026-06）
+
+> **落地(v1)**:`report-quiz` / `report-flashcard` content skill(照 handoff-report-prompts-v2 ⑤ 成稿接线)+
+> dispatcher 学习类 gate(⑤c,七种体裁);`report_render` 新增 **`:::quiz`/`:::flashcards` 交互模板**(§6 首个
+> 交互渲染:翻卡+会了/还不熟自评+计数;选项→判定→计分→进度→结果页+「再来一遍」重做;vanilla JS 渐进增强,
+> 无 JS 时题/答静态可读,JSON 坏块降级为可读 pre);genre 落 `reports`(🎯/🃏 进容器、可回看重做);
+> **§14 周测 offer**:学习 domain 7 天 ≥8 条(排除 todo/event/expense/contact)→「📝 要不要考考你?」→
+> 一键即做出 quiz(复用积累 offer 流,零新触发)。实测:真实单词笔记 → 测验接地(只考记过的、干扰项同类)。
+> **v1 后置**:SRS 间隔重复、外部增强、per-card 成绩(见 handoff-quiz.md Phase 2)。
+
+> **定位**:把**学习类记录**(单词 / 读书笔记 / 学习笔记)变成**可交互的测验或记忆卡** —— 从「记下来」补上「记得住」。学生党(§14 目标人群)的核心场景:每天记新词 + 学习笔记,**一周出一份 quiz 考考自己**。
+> **它是 §6 第一个「交互式」genre**(其余只读)。**靠 §6.6 已有的 WebView+JS** 实现交互 —— 这正是「render 开 JS」(§6.0 #2)那个决定为之准备的用途,**是 render 模板新增,不是新基建**。
+
+**1. genre + 两模式(同源内容,两种呈现):**
+- **`flashcard`**:正反面、自评翻卡(「会了 / 还不熟」)。最简,直接从记录派生(单词→他记的释义)。
+- **`quiz`**:题目 + 答案 + **计分**(MC 自动判 / 填空)。更丰,需 content skill 生成**合理干扰项**(干扰项质量 = 测验质量的关键杠杆)。
+
+**2. 内容契约(新 content skill,结构化指令块):**
+- `:::flashcards` 块:每行 `正面 :: 背面`(`apple :: 苹果,水果`)。
+- `:::quiz` 块:每题 fenced JSON `{q, options[], answer, explain?}`(MC),或填空/简答。
+- **接地铁律(承 §6.3)**:题目/答案**只来自用户记录** —— 测他记的词、用他记的释义,**绝不发明**他没记过的内容。MC 干扰项可由 LLM 生成,但须**合理**(同类、不送分)。
+
+**3. 选材 gate —— 可测 = 知识/记忆型,不是要做的/生成的(承 §6.2 + §8 domain)**:
+- **可测**:**学习类知识内容**(单词 / 读书笔记 / 学习笔记 / 语言学习)。**主信号 = §8「学习」domain**(零新字段;可测内容天然落学习域);可选后置 per-skill `quizzable` flag(design-agent 打)。
+- **不可测(各有去处)**:**灵感**=生成型 → `idea-synthesis`(你发展它、不背它);**代办**=行动型 → Type A 提醒;**记账/事件**=交易/日程 → data-report/提醒。即使沾「学习」也排除 `todo`/`event`/`expense`/`contact`(如"复习数学"是待办、不是知识)。
+- **两段制**:gate 廉价触发(学习域知识积累)→ content skill 是最终质量闸(出不了像样 Q&A 就如实「内容还不够」)。手动「考考我」永远可用。
+
+**4. 交互渲染(新 render surface)**:`flashcard` = 翻卡动画(GSAP);`quiz` = 选项 → 判定 → 计分 → 进度条 → 结果。复用 §6.6 受控 WebView 的 JS(渐进增强:无 JS 也能把题/答当静态读)。落 `reports` 容器 → **回溯**(过去的测验可重做)。渲染皮可走 design(`/design-shotgun`→`/design-html`)。
+
+**5. §14 钩子(主动周测)**:**积累触发**([§14.3](14-proactive-reka.md) 阈值型)→ Type B offer「这周记了 20 个新词,要不要考考你?」→ 生成 quiz。用户那个「一周一考」正是此路,**复用 §14 已有的 offer 流,零新触发逻辑**。
+
+**6. REKA 主持(可选,接 §9)**:REKA 出题、对错有反应、得分庆祝 —— 把测验做成 game-y 的陪伴体验,贴本人群。
+
+- **v1**:`flashcard`(自评)+ 简单 MC `quiz`;**接地于用户内容**;手动(「考考我」)+ §14 周测 offer;落报告容器。
+- **后置(大)**:**间隔重复 SRS**(记错题、按遗忘曲线让「上次没记住的再过一遍」,天然接 §14 主动 —— REKA 周期性复盘)、外部增强(标准释义/用法,接 [§14.9 web-search](14-proactive-reka.md) + 接地墙)、成绩追踪。
+
+> **落点(设计中)**:`report-quiz` / `report-flashcard` content skill(prompt,spec 侧 —— 题目/干扰项质量是本体);dispatcher 加学习类 gate;`report_render` 加 `:::quiz`/`:::flashcards` 的**交互**模板(JS);genre 落 `reports`;§14 阈值型挂 quiz offer。**handoff 见 [`handoff-quiz.md`](handoff-quiz.md)。**

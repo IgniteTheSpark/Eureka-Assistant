@@ -217,9 +217,9 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
   String _wishFor(String ref) {
     if (ref.startsWith('domain:')) {
       final d = ref.substring(7);
-      return d == '灵感'
-          ? '把我最近一周的灵感聚合成主题,做综合判断和下一步'
-          : '帮我把最近一周「$d」领域的记录做一份小结';
+      if (d == '灵感') return '把我最近一周的灵感聚合成主题,做综合判断和下一步';
+      if (d == '学习') return '用我最近一周记的学习内容出一份测验,考考我';
+      return '帮我把最近一周「$d」领域的记录做一份小结';
     }
     if (ref == 'idea' || ref == 'ideas' || ref.contains('idea')) {
       return '把我最近一周的灵感聚合成主题,做综合判断和下一步';
