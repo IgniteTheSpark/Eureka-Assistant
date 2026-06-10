@@ -129,7 +129,7 @@
 
 ---
 
-## 6.3 ② content skills（4 个 genre → 注解 Markdown）
+## 6.3 ② content skills（5 个 genre → 注解 Markdown）
 
 每个 genre 一个 sub-skill,职责一致:**先 query 真实数据 → 按本体裁的结构产出注解 md**。结构骨架各异:
 
@@ -139,6 +139,7 @@
 | **idea-synthesis** | 主题聚类 → 共性与张力 → 综合判断 → **方向/初步结论**(给一个有理由的方向 + 第一步,**不以开放问题收尾**,§6.3.1 #8) |
 | **proposal** | 背景/问题 → 目标 → 方案要点(分点)→ 取舍/风险 → 下一步 |
 | **digest** | 时间线近况 → 各类型亮点卡 → 一句话总览 |
+| **briefing**(✅ 2026-06,§14.5 会前调研) | 是什么(外部画像,**每条标出处**)→ 最近动态(timeline)→ 和你的关联(用户记录)→ 可聊的/注意的 → `:::actions` 准备动作 → 来源。**唯一带 §14.9 web-search 管线步的 genre**;grounding 墙:外部主张可追溯、与用户数据绝不混写 |
 
 **数据契约(硬规则,全 genre 通用):**
 - 数字、标题、引用**只能来自查到的记录**;**绝不编**。查不到就在报告里如实写「这段时间没有 X」。
@@ -228,6 +229,7 @@ surface_hint: dashboard             # 可空,render 可覆盖
 | idea-synthesis | `editorial` | 杂志/手帐:大标题、留白、衬线,适合长文升华 |
 | proposal | `deck-doc` | 提案文档/keynote:分节、要点块、结论强调 |
 | digest | `magazine-lite` | 卡片流图文小结,轻 |
+| briefing | `deck-doc` | 调研简报:严肃文档,无设计变体(走通用渲染),不配 AI 图 |
 
 **palette（配色,起步 3-4 套）:** 极简数据 / 杂志墨 / 仪表盘暗 / 暗黑霓虹。每套 = 一组 design tokens
 (配色、字阶、圆角、间距、动效曲线),复用 [§5 设计系统](05-design-system.md) 的 token 语汇。
@@ -332,7 +334,7 @@ API 见 [§3](03-api-reference.md) 的 `/api/reports`。核心字段:
 | `spec_json` | `{time_range, asset_types, keywords, domain, source_asset_ids, surface, palette, seed}`(可重跑) |
 | `pet_gene`（✅ 已实现 · 迁移 0013 · §6.12 批 3） | 生成时的 REKA gene 快照(署名带用,§6.6.1;日后换装老报告仍是当时那只) |
 | `tokens_used` / `gen_ms`（✅ 已实现 · 迁移 0012 · §6.12 批 0） | 本篇全管线累计 token(`run_agent.usage_tokens` 求和,dispatcher+content[+image])+ 生成耗时(`perf_counter` start→persist)。`_meta` 透出。**= §12.5 用量日志的一部分,一举两用(成本遥测 + 展示)** |
-| `suggested_actions`（设计中 · §6.13） | 从 `:::actions` 抽出的**可执行下一步**结构化列表 `[{title, kind?(todo\|event), due?}]`;前端据此显「✦ 接下来」+ 一键沉淀成待办 |
+| `suggested_actions`（✅ 2026-06 · §6.13） | 从 `:::actions` 抽出的**可执行下一步**结构化列表 `[{title, kind?(todo\|event), due?}]`;前端据此显「✦ 接下来」+ 一键沉淀成待办 |
 | `created_at` | |
 
 > **展示口径(Q3 建议)**:`gen_ms` **可对用户露**(暖透明:「REKA 用了 8 秒为你整理」);`tokens_used` **留 admin/遥测**(用户不以 token 思考、配额下露 token 反增焦虑)。要露 token 就放一行不抢眼的可选 meta,别突出。
@@ -497,7 +499,7 @@ API 见 [§3](03-api-reference.md) 的 `/api/reports`。核心字段:
 | **2 · 表现力动效图(无 AI)** | `report_render.py` 的 SVG 图注入 GSAP draw-on(柱/环/线)+ KPI count-up + scroll-trigger;渐进增强 + reduced-motion | 已落地 |
 | **3 · Reka Insights 署名带(§6.6.1)** | footer 模板 + 注入 `pixel/mascot.js` + pipeline 传 pet gene → `reports.pet_gene` 快照;导出自包含 | 已落地 |
 | **4 · AI 配图(§6.6.2)** | content skill 产 `image_prompt`(模式A);**同步**出图 step → hero 位内联 + `files`/`asset://`;house-style 常量;每篇 ≤1 张 + 每用户/月配额;绝不画数据 | 模式 A 全链路落地;豆包 Seedream 已接入启用 |
-| **5 · 报告 → 待办(§6.13)** | content skill 产 `:::actions`;pipeline 抽 `reports.suggested_actions`;查看器原生「✦ 接下来」行动条 + `+ 待办`/`全部` 一键建 + `source_report_id` 溯源 + 防重 | 设计中 · **移交 [`handoff-reka-companion.md`](handoff-reka-companion.md) Phase 1**(与 §14 合一) |
+| **5 · 报告 → 待办(§6.13)** | content skill 产 `:::actions`;pipeline 抽 `reports.suggested_actions`;查看器原生「✦ 接下来」行动条 + `+ 待办`/`全部` 一键建 + `source_report_id` 溯源 + 防重 | **✅ 已实现(2026-06,handoff Phase 1)** |
 
 **各批实现要点:**
 - **批 0**:`reports.tokens_used` / `gen_ms`(迁移 `0012`)+ `run_report` 用 `core.agent_runner.run_agent` 累加 `usage_tokens`、`time.perf_counter` 计 `gen_ms`,落库 + `_meta` 透出。
@@ -513,7 +515,7 @@ API 见 [§3](03-api-reference.md) 的 `/api/reports`。核心字段:
 
 ---
 
-## 6.13 报告 → 待办：可执行下一步沉淀（设计中）
+## 6.13 报告 → 待办：可执行下一步沉淀（✅ 已实现 2026-06）
 
 > **缺口**:报告(尤其 idea-synthesis 的「方向」、proposal 的「下一步」、data-report 的具体「建议」)会给出**可执行的下一步**,但它们**烂在 WebView 里** —— 用户没法把「先做语音捕捉收件箱」一键变成自己能管理的待办。**洞察 → 行动**这条闭环没合上。本节合上它。
 
@@ -536,5 +538,9 @@ API 见 [§3](03-api-reference.md) 的 `/api/reports`。核心字段:
 - **v1 范围**:`:::actions` 抽取 + `suggested_actions` 字段 + 原生行动条 + `+ 待办`/`全部` 一键建 + 溯源 + 防重。**todo 单类型。**
 - **后置**:`+ 日程`(time-bound → event)、点 `+` 先开预填编辑表单(`AssetEditPage`,改完再存)、沉淀成别的技能类型(读书感想→notes…)、「这条已完成」回写报告。
 
-> **落点(设计中)**:`report-{idea-synthesis,proposal,data-report}/SKILL.md` 加「可执行下一步另起 `:::actions`」段(prompt,spec 侧);`report_render` 渲 `:::actions`「✦ 接下来」样式 + pipeline 抽 `suggested_actions`(迁移加列);`report_viewer_page` 原生行动条 + `+ 待办` 调 create + `source_report_id` 溯源(基建,coding agent)。
-> **实施 handoff = [`handoff-reka-companion.md`](handoff-reka-companion.md) Phase 1**(与 [§14 主动 REKA](14-proactive-reka.md) 合一,因同一「洞察→行动→跟进」闭环);`:::actions` prompt 成稿见 [`handoff-report-prompts-v2.md`](handoff-report-prompts-v2.md)。
+> **落地(✅ 2026-06)**:prompt — `report-{idea-synthesis,proposal,briefing}/SKILL.md` 产 `:::actions`;渲染 — 新旧两条
+> render 路径都渲「✦ 接下来」勾选样式;pipeline — `_extract_actions` 抽 `reports.suggested_actions`(迁移 0018,
+> POST `/api/reports` 外部写入路径同样抽取);API — `GET/POST /api/reports/{id}/actions`(GET 带 created 防重状态;
+> POST 服务端幂等建 todo,写 `assets.source_report_id` 列 + payload `source_report_title`);前端 —
+> `report_viewer_page` WebView 下方原生行动条(`+ 待办`/`全部加到待办`/`已加 ✓` + toast),`asset_detail_sheet`
+> 待办详情显「来自报告《X》· 查看报告」(点开原报告)。**v1 todo 单类型**;`+ 日程`/预填表单仍后置。

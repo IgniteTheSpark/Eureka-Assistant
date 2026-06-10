@@ -75,6 +75,11 @@ profile + 当前状态 → 喂一个触发引擎,两族规则(**正是 [§7.3](0
 
 **映射(都是 §6 的 genre):** 聚合想法 → `idea-synthesis`;消费分析 → `data-report`;weekly recap → `digest`;会前调研 → **briefing**(web-search 开,§14.9)。
 
+> **✅ briefing genre 已实现(2026-06,手动路径)**:报告入口说「帮我做 X 的会前调研 / 调研一下 Y」→ dispatcher
+> 判 `briefing` + 产 `search_queries` → 管线跑 §14.9 搜索步 → 内容 skill(`report-briefing`)产带出处简报
+> (含 `:::actions` 会前准备动作 → §6.13 一键加待办)。**本节其余(offer→报告流、peek 气泡、过期归档)依赖
+> Phase 2 的 nudge 基建,未实现。**
+
 **offer → 报告 流(以「会前调研」为例):**
 1. **3 点** heartbeat 扫到 **4 点的会**(Type A 同款确定性检测)。
 2. **生成 offer 文案**(模板,或为贴主题用一次轻 LLM)。
@@ -130,7 +135,7 @@ profile + 当前状态 → 喂一个触发引擎,两族规则(**正是 [§7.3](0
 
 ---
 
-## 14.9 web-search 能力（独立子规格 · 设计中）
+## 14.9 web-search 能力（✅ 已实现 2026-06）
 
 > Type B 的报告常需外部资料 reference/investigate。给报告引擎加 web-search。**它触及整个 §6,不只主动层,故单列。**
 
@@ -138,6 +143,14 @@ profile + 当前状态 → 喂一个触发引擎,两族规则(**正是 [§7.3](0
 - **grounding 墙(关键)**:**用户的数据照旧 grounded**(他的数字/记录是真的,§6.3);**外部信息一律标外部 + 标出处**(「据公开资料…」),**绝不**和「用户数据的事实」混写。把铁律扩成:**每条外部主张都能追到来源**(如每个数据点能追到 asset)。
 - **成本/门控**:search + 更多 token + 延迟 → **Pro 门控或配额**(同 AI 图);只给受益的 genre(briefing/research 必开,其余可选)。
 - **provider**:Tavily/Serper/Brave/Bing 或带搜索的模型,择一接;结果存证、可引用。
+
+**落地(✅ 2026-06)**:`core/web_search.py` —— key-driven provider(同 LLM 选型逻辑):`BOCHA_API_KEY` → 博查
+(api.bochaai.com,国内 inbound 可靠,prod 首选);`TAVILY_API_KEY` → Tavily 兜底;都空 → 搜索关闭。
+仅 `briefing` genre 触发:dispatcher 产 `search_queries`(1~3 条)→ 管线 `search` 阶段确定性检索(≤3 查询、
+合并去重 ≤10 条、单查询超时 12s、单查询失败不连坐)→ 注入 `web:[{title,url,snippet,source,date}]` →
+`report-briefing` 按 grounding 墙引用。**存证**:queries + sources + provider + status 落 `spec_json.web`。
+**配额**:30 篇 briefing/用户/月(镜像 AI 图配额;只计数+硬上限,不接 billing,§12 pending)。**降级**:无 key /
+超配额 / 零结果 → briefing 照常生成(仅用户数据 + 如实说明未联网),管线绝不因搜索步而失败。
 
 ---
 
@@ -162,7 +175,7 @@ profile + 当前状态 → 喂一个触发引擎,两族规则(**正是 [§7.3](0
 ## 14.12 v1 范围与后置
 
 - **v1 必做**:① task-skill 完成通知(补缺)② cron/heartbeat + **统计节律 profile** + 缺口/积累触发 ③ Type A 节律缺口提醒(模板、置信门槛、≤2/天、自适应、温柔)④ 展示(轻 bob + peek 气泡 + 「...」安静态 + feed 回溯 + outcome)⑤ **晨间简报**(genre + 内容 + 沉浸皮〔design〕+ 报告容器留存)⑥ 傻瓜护栏全套(零配置 / 温柔权限请求 / 静默时段 / 自适应 / 默认 ON + 总开关)。
-- **紧随**:Type B offer→报告流(会前调研等);**web-search 能力**(§14.9);`source_nudge_id` 溯源。
+- **紧随**:Type B offer→报告流(会前调研等;**genre + web-search 已就绪**,差 offer/nudge 壳);~~web-search 能力(§14.9)~~ ✅ 已实现;`source_nudge_id` 溯源(`source_report_id` 已落,同款列待 nudge 表一起加)。
 - **后置**:天气(晨间简报 v1.5)、LLM 富化文案/冷启动先验、跨技能相关性节律、傍晚 wrap-up、caregiver 护理日志视图。
 
 > **实施 handoff(与 [§6.13](06-synthesis-report.md) 报告→待办合一,因同一闭环)= [`handoff-reka-companion.md`](handoff-reka-companion.md)**:Phase 1 报告→待办 · Phase 2 主动核心(提醒+引擎+展示+护栏)· Phase 3 晨间简报(design 主理皮)· Phase 4 Type B+web-search。含后端/前端/design 分工 + 验收 + 顺序。

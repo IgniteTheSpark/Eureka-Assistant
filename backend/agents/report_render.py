@@ -79,6 +79,7 @@ _GENRE_SURFACE = {
     "idea-synthesis": "editorial",
     "proposal":       "deck-doc",
     "digest":         "magazine-lite",
+    "briefing":       "deck-doc",   # §14.5 会前调研 — document-like, no designed variant yet
 }
 
 _PALETTE_KEYS = list(_PALETTES.keys())
@@ -456,6 +457,22 @@ def _render_rank(content: str) -> str:
     return f'<ol class="r-rank r-block">{lis}</ol>'
 
 
+def _render_actions(content: str) -> str:
+    """§6.13: read-only「✦ 接下来」checklist — the interactive +待办 buttons are
+    NATIVE, below the WebView (the pipeline extracts the same items into
+    reports.suggested_actions). Mirrors the designed path's _actions block."""
+    items = [re.sub(r"^(\d+\.|[-*])\s+", "", l.strip())
+             for l in content.splitlines() if re.match(r"^(\d+\.|[-*])\s+", l.strip())]
+    if not items:
+        return ""
+    rows = "".join(
+        f'<div class="r-action"><span class="r-action-check"></span>'
+        f'<span class="r-action-txt">{_inline(it)}</span></div>' for it in items
+    )
+    return (f'<div class="r-actions r-block">'
+            f'<div class="r-actions-head">✦ 接下来</div>{rows}</div>')
+
+
 def _render_compare(content: str) -> str:
     # content is a markdown table
     rows = [l.strip() for l in content.splitlines() if l.strip()]
@@ -530,6 +547,8 @@ def _render_body(blocks: list, pal: dict) -> str:
                 out.append(_render_rank(content))
             elif name == "compare":
                 out.append(_render_compare(content))
+            elif name == "actions":
+                out.append(_render_actions(content))
             else:
                 # unknown directive → degrade to paragraphs (§6.4)
                 out.append(_render_inner(content))
@@ -591,6 +610,12 @@ body{{color:var(--hi);font:{surf['lead']}px/1.6 -apple-system,"PingFang SC","Not
 .r-rank li::before{{counter-increment:r;content:counter(r);position:absolute;left:0;top:9px;
   width:22px;height:22px;border-radius:7px;background:var(--card);border:1px solid var(--line);
   color:var(--brand);font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center;}}
+.r-actions{{border:1px solid var(--line);border-radius:12px;overflow:hidden;margin:0 0 16px;}}
+.r-actions-head{{font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:700;
+  color:var(--brand);padding:11px 14px;background:var(--card);}}
+.r-action{{display:flex;align-items:center;gap:11px;padding:11px 14px;border-top:1px solid var(--line);}}
+.r-action-check{{width:18px;height:18px;border-radius:6px;border:1.5px solid var(--line);flex:0 0 auto;}}
+.r-action-txt{{flex:1;color:var(--hi);font-size:13.5px;}}
 .r-table{{width:100%;border-collapse:collapse;font-size:13px;}}
 .r-table th{{text-align:left;color:var(--lo);font-size:11px;letter-spacing:.06em;
   padding:6px 8px;border-bottom:1px solid var(--line);font-weight:600;}}

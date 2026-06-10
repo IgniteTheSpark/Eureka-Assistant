@@ -7,15 +7,15 @@
 
 ---
 
-## Phase 1 · 报告 → 待办（§6.13）—— 小、自包含、先上
+## Phase 1 · 报告 → 待办（§6.13）—— ✅ 已实现（2026-06）
 
 > 闭环的「行动」端。独立于 §14,最快见效(让报告的「方向/下一步」能真正被管理)。
 
 | 面 | 做什么 | 验收 |
 |---|---|---|
-| **prompt(spec 侧,✅ 已出稿)** | content skill 在「方向/下一步/具体建议」后产 `:::actions`(每行一条可勾动作);见 handoff-report-prompts-v2.md | 报告 md 末尾带结构化 `:::actions` |
-| **后端** | render `:::actions` → 「✦ 接下来」勾选样式;pipeline 抽 `:::actions` → **`reports.suggested_actions`**`[{title,kind?,due?}]`(迁移加列) | 报告 HTML 有「✦ 接下来」段;`suggested_actions` 落库 |
-| **前端** | `report_viewer_page` **WebView 下方**原生「✦ 接下来」行动条:每条 `+ 待办` + 顶部 `全部加到待办` → 调 `tool_create_todo`/`POST /api/assets` 建待办(`content=action`)+ **`source_report_id` 溯源** + **防重**(已建转「已加 ✓」) | 点 `+ 待办` 一键建 + toast;待办详情显「来自报告《X》」;重复点不重复建 |
+| **prompt(✅)** | content skill 在「方向/下一步/具体建议」后产 `:::actions`(每行一条可勾动作);idea-synthesis / proposal / briefing 均已落 | 报告 md 末尾带结构化 `:::actions` ✅ |
+| **后端(✅)** | render `:::actions` → 「✦ 接下来」勾选样式(新旧两条 render 路径);pipeline `_extract_actions` → **`reports.suggested_actions`**(迁移 0018);**`GET/POST /api/reports/{id}/actions`**(GET 防重状态;POST 服务端幂等建 todo + `assets.source_report_id` 列) | 报告 HTML 有「✦ 接下来」段;`suggested_actions` 落库;幂等已验证 ✅ |
+| **前端(✅)** | `report_viewer_page` **WebView 下方**原生「✦ 接下来」行动条:每条 `+ 待办` + 顶部 `全部加到待办`(走 `/api/reports/{id}/actions`,服务端建 todo+溯源)+ **防重**(已建转「已加 ✓」);`asset_detail_sheet` 待办详情显「来自报告《X》· 查看报告」(点开原报告) | 点 `+ 待办` 一键建 + toast;待办详情显来源、可点回报告;重复点不重复建 ✅ |
 
 **v1**:todo 单类型、一键直建。**后置**:`+ 日程`(time-bound→event)、点 `+` 先开预填编辑表单、其它技能类型。
 （= [§6.12](06-synthesis-report.md) 的「批 5」,**别重复建**;此处把它并进 REKA 闭环统一交付。）
@@ -54,11 +54,11 @@
 
 | 面 | 做什么 | 验收 |
 |---|---|---|
-| **后端 · offer→报告** | offer 触发(到期 event / 积累阈值)→ peek 气泡 + 落 feed;**接受 → 跑 §6 报告管线**(genre+scope 内置)→ 报告进容器 + 锚定来源 event;ignore→feed CTA;**expire→已过期归档**;`source_nudge_id` 溯源(§14.5) | 「要我帮你会前调研吗」→ 一键→出简报报告;过期 CTA 失效 |
-| **后端 · web-search** | **管线步骤**(非 content-skill 工具):确定性 search → 注入**带出处**资料 → content skill 引用;**grounding 墙**(用户数据 grounded、外部标出处、绝不混写);Pro 门控/配额(§14.9) | briefing 引用外部且标源;用户数字仍只来自真实记录 |
-| **前端** | Type B offer 气泡 + 接受流(锚定 session 预置任务)+ ignore/expire 态 | 一键即做、显进度→结果;忽略留 CTA |
+| **后端 · offer→报告** | offer 触发(到期 event / 积累阈值)→ peek 气泡 + 落 feed;**接受 → 跑 §6 报告管线**(genre+scope 内置)→ 报告进容器 + 锚定来源 event;ignore→feed CTA;**expire→已过期归档**;`source_nudge_id` 溯源(§14.5)。**依赖 Phase 2 nudge 基建,未实现** | 「要我帮你会前调研吗」→ 一键→出简报报告;过期 CTA 失效 |
+| **后端 · web-search(✅ 2026-06)** | **管线步骤**(非 content-skill 工具):确定性 search → 注入**带出处**资料 → content skill 引用;**grounding 墙**(用户数据 grounded、外部标出处、绝不混写);配额(30/月,只计数不接 billing)。`core/web_search.py`(博查/Tavily key-driven)+ `briefing` genre(dispatcher `search_queries` + `report-briefing` skill + `spec_json.web` 存证 + 优雅降级) | briefing 引用外部且标源;用户数字仍只来自真实记录 ✅(已验证) |
+| **前端** | Type B offer 气泡 + 接受流(锚定 session 预置任务)+ ignore/expire 态。**报告入口的手动路径已可用**(「帮我会前调研」→ briefing 报告,带 🔎 标签) | 一键即做、显进度→结果;忽略留 CTA |
 
-**会前调研「调研」到底产什么(web vs 用户数据综合)= 独立设计 pass**,Phase 4 接前定。
+**会前调研「调研」到底产什么(web vs 用户数据综合)**:已定 —— 外部画像(标出处)+ 最近动态 + 和你的关联(用户记录)+ 可聊的/注意的 + `:::actions` 准备动作 + 来源(见 `report-briefing/SKILL.md`)。
 
 ---
 

@@ -325,6 +325,8 @@ source_file_offset, asr_provider, language, created_at}`。供资产详情页的
 | POST | `/api/reports/generate` | **SSE**:跑整条 §6 管线(dispatch → 取数 → 内容 → render → 落库)。事件 `status`(分阶段)→ `report` → `done`;数据不足回 `insufficient`、出错回 `error`。body: `{user_wish, selected_summary?, source_asset_ids?}` |
 | POST | `/api/reports/intake` | 引导对话判定:body `{messages}` → `{ready:true}` 或 `{ready:false, ask}`(一句澄清)。**无工具、不落库** |
 | POST | `/api/reports/{id}/rerender` | 换装重渲染:body `{palette?, surface?}`,默认 bump seed |
+| GET | `/api/reports/{id}/actions` | **§6.13 报告→待办**:`suggested_actions` + 每条 `created`(已建?)/`asset_id`(防重状态) |
+| POST | `/api/reports/{id}/actions` | 一键 `+ 待办`:body `{title}` → **幂等**建 todo(写 `assets.source_report_id` 列 + payload `source_report_title` 溯源);已建过返回既有 id(`created:false`) |
 
 - **报告是独立入口,不复用 chat**(2026-06,已实现):向导走 `/api/reports/intake`(逐步引导)+ `/api/reports/generate`(SSE 生成),
   产物持久化为 **`Report` 行**(非会话)。**没有 `session_type='report'` 这种会话类型**(早期设计已废弃)。完整管线见 [§6](06-synthesis-report.md)。

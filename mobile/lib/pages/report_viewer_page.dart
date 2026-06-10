@@ -8,6 +8,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import '../api/api_client.dart';
 import '../data_revision.dart';
 import '../theme/app_theme.dart';
+import '../theme/eureka_colors.dart';
 import '../widgets/toast.dart';
 
 /// Full-screen report viewer (§6.8.5). Renders the engine's single-file HTML in
@@ -50,6 +51,13 @@ class _ReportViewerPageState extends State<ReportViewerPage> {
   String? _mascot; // mascot.js — Mascot.mount() for the REKA band
   bool _busy = false;
 
+  // §6.13 / handoff Phase 1 — 报告 → 待办. The report's `:::actions` render as a
+  // NATIVE「✦ 接下来」bar below the WebView (the in-HTML checklist is read-only).
+  // Each row: [+ 待办] → POST /api/reports/{id}/actions (idempotent server-side);
+  // already-created rows show「已加 ✓」.
+  List<Map<String, dynamic>> _actions = [];
+  final Set<String> _adding = {};
+
   @override
   void initState() {
     super.initState();
@@ -66,6 +74,52 @@ class _ReportViewerPageState extends State<ReportViewerPage> {
         },
       ));
     _bootstrap();
+    _loadActions();
+  }
+
+  Future<void> _loadActions() async {
+    final id = widget.reportId;
+    if (id == null) return;
+    try {
+      final res = await _api.getJson('/api/reports/$id/actions');
+      final list = (res is Map ? res['actions'] : null) as List?;
+      if (list == null || !mounted) return;
+      setState(() => _actions = list.whereType<Map>()
+          .map((a) => Map<String, dynamic>.from(a))
+          .where((a) => (a['title'] as String?)?.isNotEmpty ?? false)
+          .toList());
+    } catch (_) {
+      // actions bar is an enhancement — a fetch failure just means no bar
+    }
+  }
+
+  Future<void> _addAction(String title) async {
+    final id = widget.reportId;
+    if (id == null || _adding.contains(title)) return;
+    setState(() => _adding.add(title));
+    try {
+      final res = await _api.postJson('/api/reports/$id/actions', {'title': title});
+      final created = res is Map && res['created'] == true;
+      if (!mounted) return;
+      setState(() {
+        for (final a in _actions) {
+          if (a['title'] == title) a['created'] = true;
+        }
+      });
+      showToast(context, created ? '已加入待办 ✓' : '已经在待办里了');
+      bumpData(); // 待办列表 / 流页面立刻能看到
+    } catch (e) {
+      if (mounted) showToast(context, '加待办失败：$e', error: true);
+    } finally {
+      if (mounted) setState(() => _adding.remove(title));
+    }
+  }
+
+  Future<void> _addAllActions() async {
+    for (final a in List<Map<String, dynamic>>.from(_actions)) {
+      if (a['created'] == true) continue;
+      await _addAction(a['title'] as String);
+    }
   }
 
   Future<void> _bootstrap() async {
@@ -180,21 +234,129 @@ class _ReportViewerPageState extends State<ReportViewerPage> {
           ),
         ],
       ),
-      body: Stack(
+      body: Column(
         children: [
-          WebViewWidget(controller: _controller),
-          if (_busy)
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: LinearProgressIndicator(
-                minHeight: 2,
-                backgroundColor: Colors.transparent,
-                color: eu.brand,
-              ),
+          Expanded(
+            child: Stack(
+              children: [
+                WebViewWidget(controller: _controller),
+                if (_busy)
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: LinearProgressIndicator(
+                      minHeight: 2,
+                      backgroundColor: Colors.transparent,
+                      color: eu.brand,
+                    ),
+                  ),
+              ],
             ),
+          ),
+          if (_actions.isNotEmpty) _actionsBar(eu),
         ],
+      ),
+    );
+  }
+
+  /// §6.13 native「✦ 接下来」action bar — turns the report's suggested actions
+  /// into real todos with one tap (provenance: source_report_id, server-side).
+  Widget _actionsBar(EurekaColors eu) {
+    final pending = _actions.where((a) => a['created'] != true).length;
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF10141F),
+        border: Border(top: BorderSide(color: eu.rule, width: 0.5)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 216),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 8, 2),
+                child: Row(
+                  children: [
+                    Text('✦ 接下来',
+                        style: TextStyle(
+                            color: eu.brand,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 1.5)),
+                    const Spacer(),
+                    if (pending > 1)
+                      TextButton(
+                        onPressed: _adding.isEmpty ? _addAllActions : null,
+                        style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact),
+                        child: Text('全部加到待办',
+                            style: TextStyle(color: eu.brand, fontSize: 12)),
+                      ),
+                  ],
+                ),
+              ),
+              Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  padding: const EdgeInsets.only(bottom: 8),
+                  itemCount: _actions.length,
+                  itemBuilder: (_, i) {
+                    final a = _actions[i];
+                    final title = a['title'] as String;
+                    final created = a['created'] == true;
+                    final busy = _adding.contains(title);
+                    return Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 4, 12, 4),
+                      child: Row(
+                        children: [
+                          Icon(
+                              created
+                                  ? Icons.check_circle
+                                  : Icons.radio_button_unchecked,
+                              size: 16,
+                              color: created ? eu.brand : eu.textLo),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                    color: eu.textHi, fontSize: 13.5, height: 1.3)),
+                          ),
+                          const SizedBox(width: 8),
+                          SizedBox(
+                            height: 28,
+                            child: created
+                                ? Text('已加 ✓',
+                                    style: TextStyle(
+                                        color: eu.textLo, fontSize: 12))
+                                : OutlinedButton(
+                                    onPressed:
+                                        busy ? null : () => _addAction(title),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: eu.brand,
+                                      side: BorderSide(
+                                          color: eu.brand.withValues(alpha: 0.5)),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 10),
+                                      visualDensity: VisualDensity.compact,
+                                      textStyle: const TextStyle(fontSize: 12),
+                                    ),
+                                    child: Text(busy ? '…' : '+ 待办'),
+                                  ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

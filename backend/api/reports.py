@@ -24,7 +24,7 @@ from db.models import Report
 
 router = APIRouter()
 
-_GENRES = {"data-report", "idea-synthesis", "proposal", "digest"}
+_GENRES = {"data-report", "idea-synthesis", "proposal", "digest", "briefing"}
 
 
 def _meta(r: Report) -> dict:
@@ -34,6 +34,7 @@ def _meta(r: Report) -> dict:
         "title":       r.title,
         "genre":       r.genre,
         "spec":        r.spec_json or {},
+        "suggested_actions": r.suggested_actions or [],  # §6.13 native action bar
         "gen_ms":      r.gen_ms,        # §6.12 batch 0 — may be shown
         "tokens_used": r.tokens_used,   # admin/telemetry
         "created_at":  r.created_at.isoformat() if r.created_at else None,
@@ -89,6 +90,7 @@ async def create_report(req: CreateReportRequest, user_id: str = Depends(get_cur
         raise HTTPException(status_code=400, detail=f"invalid genre: {genre}")
     if not req.content_md.strip() or not req.html.strip():
         raise HTTPException(status_code=400, detail="content_md and html are required")
+    from agents.report_pipeline import _extract_actions
     r = Report(
         user_id=user_id,
         title=(req.title or "报告").strip()[:255],
@@ -96,6 +98,7 @@ async def create_report(req: CreateReportRequest, user_id: str = Depends(get_cur
         content_md=req.content_md,
         html=req.html,
         spec_json=req.spec or {},
+        suggested_actions=_extract_actions(req.content_md) or None,
     )
     async with AsyncSessionLocal() as db:
         db.add(r)
@@ -246,6 +249,88 @@ async def rerender_report(
         await db.refresh(r)
         payload = _full(r)
     return {"ok": True, "report": payload}
+
+
+# ── §6.13 / handoff Phase 1: 报告 → 待办 ──────────────────────────────────────
+async def _report_of(report_id: str, user_id: str) -> Report:
+    try:
+        rid = uuid.UUID(report_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid report id")
+    async with AsyncSessionLocal() as db:
+        r = (await db.execute(
+            select(Report).where(Report.id == rid, Report.user_id == user_id)
+        )).scalar_one_or_none()
+    if r is None:
+        raise HTTPException(status_code=404, detail="report not found")
+    return r
+
+
+async def _acted_titles(report_id: uuid.UUID, user_id: str) -> dict[str, str]:
+    """Todos already created from this report → {content: asset_id} (dedupe)."""
+    from db.models import Asset
+    async with AsyncSessionLocal() as db:
+        rows = (await db.execute(
+            select(Asset).where(Asset.user_id == user_id,
+                                Asset.source_report_id == report_id)
+        )).scalars().all()
+    return {str((a.payload or {}).get("content") or ""): str(a.id) for a in rows}
+
+
+@router.get("/reports/{report_id}/actions")
+async def report_actions(report_id: str, user_id: str = Depends(get_current_user_id)):
+    """The report's suggested actions + which were already turned into todos.
+    The viewer's native「✦ 接下来」bar renders from this."""
+    r = await _report_of(report_id, user_id)
+    acted = await _acted_titles(r.id, user_id)
+    actions = [
+        {**a, "created": a.get("title") in acted, "asset_id": acted.get(a.get("title"))}
+        for a in (r.suggested_actions or []) if isinstance(a, dict) and a.get("title")
+    ]
+    return {"ok": True, "actions": actions}
+
+
+class CreateActionRequest(BaseModel):
+    title: str
+
+
+@router.post("/reports/{report_id}/actions")
+async def create_report_action(
+    report_id: str,
+    req: CreateActionRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """One-tap「+ 待办」: create a todo from a suggested action, with provenance
+    (§6.13): `assets.source_report_id` + payload source_report_title so the todo
+    detail shows「来自报告《X》」. Idempotent — an existing todo for the same
+    (report, title) is returned instead of duplicated."""
+    title = (req.title or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="title is required")
+    r = await _report_of(report_id, user_id)
+    acted = await _acted_titles(r.id, user_id)
+    if title in acted:
+        return {"ok": True, "asset_id": acted[title], "created": False}
+
+    from mcp_server.tools import create_todo
+    res = await create_todo(content=title, user_id=user_id)
+    if not res.get("ok"):
+        raise HTTPException(status_code=502, detail=res.get("error") or "create failed")
+    aid = res.get("asset_id")
+
+    # Provenance — column for dedupe/queries, payload for display (detail sheet).
+    from db.models import Asset
+    async with AsyncSessionLocal() as db:
+        a = (await db.execute(
+            select(Asset).where(Asset.id == uuid.UUID(aid), Asset.user_id == user_id)
+        )).scalar_one_or_none()
+        if a is not None:
+            a.source_report_id = r.id
+            a.payload = {**(a.payload or {}),
+                         "source_report_id": str(r.id),
+                         "source_report_title": r.title}
+            await db.commit()
+    return {"ok": True, "asset_id": aid, "created": True}
 
 
 @router.delete("/reports/{report_id}")

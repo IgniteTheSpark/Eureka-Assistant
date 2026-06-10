@@ -258,13 +258,18 @@ class Asset(Base):
     source_input_turn_id = Column(GUID(), ForeignKey("input_turns.id"))   # nullable: manual session has no input_turn
     payload              = Column(JSON, nullable=False)
     domain               = Column(String(20))   # §8 life-domain label (nullable = 不归域)
+    # §6.13 / §14 溯源: a todo created from a report action (or later a nudge)
+    # points back at its origin — todo detail shows「来自报告《X》」, and the
+    # report's native action bar dedupes against it ("已加 ✓").
+    source_report_id     = Column(GUID())
     created_at           = Column(TIMESTAMPTZ, default=_utcnow)
 
     __table_args__ = (
-        Index("idx_assets_user",       "user_id", "created_at"),
-        Index("idx_assets_skill",      "user_id", "user_skill_id", "created_at"),
-        Index("idx_assets_input_turn", "user_id", "source_input_turn_id"),
-        Index("idx_assets_domain",     "user_id", "domain"),
+        Index("idx_assets_user",          "user_id", "created_at"),
+        Index("idx_assets_skill",         "user_id", "user_skill_id", "created_at"),
+        Index("idx_assets_input_turn",    "user_id", "source_input_turn_id"),
+        Index("idx_assets_domain",        "user_id", "domain"),
+        Index("idx_assets_source_report", "user_id", "source_report_id"),
     )
 
 
@@ -508,6 +513,10 @@ class Report(Base):
     # §6.6.1 / §6.12 batch 3: REKA genome snapshot for the footer signature band
     # (so a re-shared old report keeps the pet it was made with).
     pet_gene   = Column(JSON)
+    # §6.13 / handoff Phase 1: actions extracted from the content skill's
+    # `:::actions` block — [{title, kind?, due?}]. The viewer renders these as a
+    # NATIVE「✦ 接下来」action bar (+ 待办); the in-HTML checklist stays read-only.
+    suggested_actions = Column(JSON)
     created_at = Column(TIMESTAMPTZ, default=_utcnow)
 
     __table_args__ = (

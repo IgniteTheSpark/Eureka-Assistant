@@ -5,6 +5,7 @@ import '../chat/markdown_text.dart';
 import '../data_revision.dart';
 import '../pages/chat_page.dart';
 import '../pages/create_asset.dart' show EventForm, ContactForm, kSocialPlatforms;
+import '../pages/report_viewer_page.dart';
 import '../pages/session_detail_page.dart';
 import '../theme/app_theme.dart';
 import '../theme/domains.dart';
@@ -161,6 +162,26 @@ class _AssetViewState extends State<_AssetView> {
     nav.push(MaterialPageRoute(
       builder: (_) => SessionDetailPage(sessionId: sid, title: '来源会话'),
     ));
+  }
+
+  /// §6.13 溯源 — a todo created from a report's「✦ 接下来」opens its origin report.
+  Future<void> _openSourceReport() async {
+    final id = payload['source_report_id'] as String?;
+    if (id == null || id.isEmpty) return;
+    try {
+      final res = await _api.getJson('/api/reports/$id');
+      final r = (res is Map ? res['report'] : null) as Map?;
+      final html = r?['html'] as String?;
+      if (html == null || html.isEmpty || !mounted) return;
+      final nav = Navigator.of(context);
+      nav.maybePop();
+      nav.push(MaterialPageRoute(
+        builder: (_) => ReportViewerPage(
+            title: (r?['title'] as String?) ?? '报告', html: html, reportId: id),
+      ));
+    } catch (_) {
+      // report may have been deleted — the quiet line just does nothing
+    }
   }
 
   String _subjectType() => switch (cardType) {
@@ -609,6 +630,44 @@ class _AssetViewState extends State<_AssetView> {
 
   // Quiet one-line source. §四: manual (no session) shows nothing.
   Widget _sourceLine(EurekaColors eu) {
+    // §6.13: a todo born from a report's action bar shows its origin first.
+    final reportTitle = payload['source_report_title'] as String?;
+    final reportId = payload['source_report_id'] as String?;
+    if (reportId != null && reportId.isNotEmpty) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 4),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(height: 1, color: eu.rule),
+            const SizedBox(height: 12),
+            GestureDetector(
+              onTap: _openSourceReport,
+              behavior: HitTestBehavior.opaque,
+              child: Row(
+                children: [
+                  Text('✦', style: TextStyle(color: eu.brand, fontSize: 13)),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      '来自报告《${(reportTitle ?? '').isEmpty ? '报告' : reportTitle}》·',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: eu.textLo, fontSize: 12),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text('查看报告',
+                      style: TextStyle(
+                          color: eu.brand, fontSize: 12, fontWeight: FontWeight.w600)),
+                  Icon(Icons.chevron_right, size: 15, color: eu.brand),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     final hasSession = widget.sessionId != null && widget.sessionId!.isNotEmpty;
     if (!hasSession) return const SizedBox(height: 8);
     return Padding(
@@ -1501,6 +1560,7 @@ const _skipKeys = <String>{
   'id', 'contact_id', 'file_id', 'source_input_turn_id', 'session_id',
   'sync_source', 'sync_external_id', 'recurrence_rule', 'updated_at',
   'user_skill_id', 'logId', 'trace_id',
+  'source_report_id', 'source_report_title', // §6.13 溯源 — shown via _sourceLine, not as fields
   'icon', 'accent_color', 'accentColor', 'actions', 'card_layout', 'layout',
   'cardType', 'checkDone', 'primary_field', 'primary_format', 'secondary_field',
   'secondary_format', 'meta_fields', 'metaFields', 'timeline_position',

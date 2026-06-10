@@ -137,7 +137,9 @@ def make_dispatcher_agent(custom_skills_hint: str = "") -> LlmAgent:
 # so DeepSeek tool-call flakiness can't corrupt the numbers. ③ render is a
 # deterministic Python module (agents/report_render.py), not an LlmAgent.
 
-REPORT_GENRES = ("data-report", "idea-synthesis", "proposal", "digest")
+# briefing (§14.5 会前调研/外部调研) is the only genre whose pipeline runs the
+# §14.9 web-search step before the content skill.
+REPORT_GENRES = ("data-report", "idea-synthesis", "proposal", "digest", "briefing")
 
 
 def make_report_dispatcher_agent() -> LlmAgent:

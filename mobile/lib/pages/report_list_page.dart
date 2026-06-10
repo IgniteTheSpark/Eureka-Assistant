@@ -22,6 +22,7 @@ const _genreMeta = {
   'idea-synthesis': ('💡', '灵感综合'),
   'proposal': ('📝', '提案'),
   'digest': ('🗞', '概览'),
+  'briefing': ('🔎', '调研简报'), // §14.5 会前调研/外部调研(web-search)
 };
 
 class _ReportListPageState extends State<ReportListPage> {

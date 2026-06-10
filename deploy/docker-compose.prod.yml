@@ -57,6 +57,10 @@ services:
       # which is on a TOS-blocked account → no report images).
       IMAGE_API_KEY: ${IMAGE_API_KEY:-}
       IMAGE_MODEL: ${IMAGE_MODEL:-}
+      # §14.9 web-search (briefing 会前调研) — 博查(国内 inbound 可靠)优先,Tavily
+      # 兜底;都空 → 搜索关闭,briefing 退化为仅用户数据(优雅降级,不报错)。
+      BOCHA_API_KEY: ${BOCHA_API_KEY:-}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
       EUREKA_MCP_ENABLED: ${EUREKA_MCP_ENABLED:-fake_external}
       GOOGLE_OAUTH_CREDENTIALS: /mcp-credentials/google-calendar-creds.json
       GOOGLE_CALENDAR_MCP_TOKEN_PATH: /mcp-credentials/google-calendar-token.json

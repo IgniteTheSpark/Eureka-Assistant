@@ -20,6 +20,14 @@ class Settings(BaseSettings):
     #     image_model="gemini/gemini-2.5-flash-image-preview".
     image_api_key:      str = ""
     image_model:        str = ""
+
+    # §14.9 web-search (briefing genre · 会前调研/外部调研) — a PIPELINE step, not a
+    # content-skill tool. Key-driven provider (same pattern as the text LLM):
+    # 博查 (api.bochaai.com, China-hosted → reliable 国内 inbound) preferred;
+    # Tavily as the dev-box fallback. Both empty → search off, briefing degrades
+    # gracefully to a user-data-only report.
+    bocha_api_key:      str = ""
+    tavily_api_key:     str = ""
     user_id:            str = "default"   # legacy single-tenant fallback (unused once auth is on)
     backend_url:        str = "http://localhost:8000"
     env:                str = "dev"   # dev | prod | staging — drives prod secret enforcement
