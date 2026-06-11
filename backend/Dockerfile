@@ -17,7 +17,12 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && node --version && npm --version
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# PIP_INDEX_URL: override at build time for China deployments (cross-border
+# PyPI crawls at KB/s from mainland ECS — a stalled 30+ min layer in practice).
+# deploy/docker-compose.prod.yml passes the Aliyun mirror; local builds default
+# to stock PyPI.
+ARG PIP_INDEX_URL=https://pypi.org/simple
+RUN pip install --no-cache-dir -i ${PIP_INDEX_URL} -r requirements.txt
 
 COPY . .
 

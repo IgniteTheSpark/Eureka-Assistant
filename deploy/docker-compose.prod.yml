@@ -37,7 +37,11 @@ services:
       retries: 15
 
   backend:
-    build: ../backend
+    build:
+      context: ../backend
+      args:
+        # Mainland ECS: cross-border PyPI is unusably slow; use the Aliyun mirror.
+        PIP_INDEX_URL: https://mirrors.aliyun.com/pypi/simple/
     restart: unless-stopped
     environment:
       ENV: ${ENV:-prod}
@@ -95,11 +99,16 @@ services:
     ports:
       - "80:80"
       - "443:443"
+      # 备案前模式(Caddyfile.cn-8443)用的非标 HTTPS 端口;标准模式下无害
+      - "8443:8443"
     environment:
       DOMAIN: ${DOMAIN}
       ACME_EMAIL: ${ACME_EMAIL}
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # CADDYFILE 可选:默认标准 443 自动 HTTPS;大陆备案前设 Caddyfile.cn-8443
+      - ./${CADDYFILE:-Caddyfile}:/etc/caddy/Caddyfile:ro
+      # 备案前模式的手动证书(acme.sh DNS-01 签发);标准模式下为空目录
+      - ./certs:/certs:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:

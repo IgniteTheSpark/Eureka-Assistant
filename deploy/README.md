@@ -66,3 +66,24 @@ Point the app's API base URL at `https://api.yourdomain.com`.
 - Move the auth token to device Keychain (`flutter_secure_storage`) — beta uses
   `shared_preferences`.
 - Consider an off-VM managed MySQL once data matters; add automated DB backups.
+
+---
+
+## 附录 · 中国大陆部署(阿里云 ECS,备案前)— 2026-06 实战记录
+
+大陆机房的三个坑及解法(均已落进本目录配置):
+
+1. **Docker Hub 被墙** → `/etc/docker/daemon.json` 配镜像加速:
+   `{"registry-mirrors": ["https://docker.m.daocloud.io", "https://docker.1ms.run"]}` 后 `systemctl restart docker`。
+2. **跨境 PyPI 龟速**(实测 pip 层卡 30+ 分钟)→ Dockerfile 已带 `ARG PIP_INDEX_URL`,
+   本 compose 默认传阿里云镜像源;本地构建不受影响。
+3. **未备案域名的 80/443 被阿里云拦截**(按 Host/SNI 拦,App 的 API 调用同样命中)→ 备案前走 **8443 非标端口**:
+   - `.env.prod` 设 `DOMAIN=api.example.com:8443` + `CADDYFILE=Caddyfile.cn-8443`;
+   - 证书用 **DNS-01**(不需要 80 可达):RAM 子账号只授 `AliyunDNSFullAccess`,然后
+     `Ali_Key=.. Ali_Secret=.. acme.sh --issue --dns dns_ali -d api.example.com --server letsencrypt`,
+     `--install-cert` 到 `deploy/certs/{fullchain,key}.pem`,`--reloadcmd "docker restart eureka-prod-caddy-1"`
+     (acme.sh cron 自动续期);
+   - App 构建:`flutter build ipa --dart-define=API_BASE=https://api.example.com:8443`;
+   - **备案通过后**:`DOMAIN` 去掉 `:8443`、`CADDYFILE` 删掉(回默认 Caddyfile),`up -d` 即切回标准 443
+     自动 HTTPS,App 发版换 URL。
+   - 安全组放行:80 / 443 / 8443。

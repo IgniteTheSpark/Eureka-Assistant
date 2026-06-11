@@ -1,0 +1,25 @@
+# 中国大陆部署 · 备案前模式 —— 阿里云会拦截「未备案域名」的 80/443 web 流量
+# (按 Host/SNI 拦,App 的 API 调用同样命中)。绕行方案:
+#   - HTTPS 走 8443 非标端口(拦截只盯 80/443;App 用户对端口无感知)
+#   - 证书用 DNS-01 签发(acme.sh + 阿里云云解析 API,不需要 80 可达),
+#     续期由 acme.sh cron 自动完成并 reload Caddy(见 deploy/README)
+#   - 备案通过后:.env.prod 把 CADDYFILE 改回 Caddyfile、DOMAIN 去掉 :8443,
+#     `docker compose up -d` 即切回标准 443 自动 HTTPS
+# DOMAIN 形如 api.example.com:8443(端口写在域名里,site 地址即监听端口)。
+
+https://{$DOMAIN} {
+	tls /certs/fullchain.pem /certs/key.pem
+	encode gzip
+
+	reverse_proxy backend:8000 {
+		# SSE: chat/flash/报告生成都是流式 —— 关闭缓冲让事件实时到达
+		flush_interval -1
+	}
+}
+
+# 裸 IP HTTP 保留作诊断通道(IP 直连不受备案拦截)
+:80 {
+	reverse_proxy backend:8000 {
+		flush_interval -1
+	}
+}
