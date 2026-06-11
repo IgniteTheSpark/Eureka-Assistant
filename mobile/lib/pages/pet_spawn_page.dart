@@ -218,12 +218,18 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
                           child: Stack(
                             alignment: Alignment.center,
                             children: [
-                              PetView(
-                                key: ValueKey('spawn-${isEgg ? 'egg' : 'pet'}-$state'),
-                                genome: genome,
-                                egg: isEgg,
-                                state: state,
-                                scale: petBox >= 220 ? 7 : 4.2,
+                              // IgnorePointer: PetView is a WKWebView platform
+                              // view — it swallows touches, so without this the
+                              // egg's GestureDetector never sees the tap (the
+                              // floating mascot wraps its ball the same way).
+                              IgnorePointer(
+                                child: PetView(
+                                  key: ValueKey('spawn-${isEgg ? 'egg' : 'pet'}-$state'),
+                                  genome: genome,
+                                  egg: isEgg,
+                                  state: state,
+                                  scale: petBox >= 220 ? 7 : 4.2,
+                                ),
                               ),
                               // 裂纹覆盖层(仅蛋阶段)
                               if (isEgg && _cracks > 0)
