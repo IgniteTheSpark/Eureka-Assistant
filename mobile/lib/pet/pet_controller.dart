@@ -132,6 +132,12 @@ class PetController extends ChangeNotifier {
 
   bool get spawned => pet?.spawned == true;
 
+  /// True once the first /api/pet fetch has resolved (success or error). The
+  /// root gate (§9.2.2 onboarding) waits on this before choosing 孵化 vs shell —
+  /// deciding while the pet is still null would flash the onboarding takeover at
+  /// already-spawned returning users.
+  bool get loaded => _everLoaded;
+
   /// Load once (no-op if already loaded). Safe to call repeatedly.
   Future<void> ensureLoaded() async {
     if (_everLoaded || loading) return;

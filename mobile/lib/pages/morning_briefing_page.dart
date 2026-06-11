@@ -6,6 +6,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import '../api/api_client.dart';
 import '../app_events.dart' show navigatorKey;
 import '../pet/floating_mascot.dart' show mascotSuppressed, releaseMascotSuppress;
+import '../pet/pet_controller.dart';
 
 /// §14.6 晨间简报 — the immersive「早安」moment. Shown ONCE per day, on the
 /// first app open before noon; afterwards the same report lives in the report
@@ -25,7 +26,7 @@ bool _mbAttempted = false; // per-launch guard against concurrent rebuild races
 
 /// DEBUG affordance (默认 false = 正式行为「中午前、每天一次」): true = 跳过
 /// 两道门槛,每次 hot-restart 都进沉浸页,且 refresh=1 按当前数据现重建。
-const bool _kDebugAlwaysShowMorning = false;
+const bool _kDebugAlwaysShowMorning = false; // TEMP: 测试中,验收后改回 false
 
 /// Show today's briefing if it's morning (before 12:00) and we haven't shown it
 /// today (SharedPreferences date stamp). Call once from the shell after auth.
@@ -33,6 +34,10 @@ const bool _kDebugAlwaysShowMorning = false;
 Future<void> maybeShowMorningBriefing() async {
   if (_mbAttempted) return;
   _mbAttempted = true;
+  // §9.2.2 三级 gating · tier ①:从没孵化的全新用户走孵化 onboarding(由
+  // _PostAuthGate 接管),绝不在其上叠晨报。(正常流程 shell 只在已孵化后挂载,
+  // 这是防御性兜底。)
+  if (!PetController.instance.spawned) return;
   final now = DateTime.now();
   if (!_kDebugAlwaysShowMorning && now.hour >= 12) return; // §14.6 中午前
   final prefs = await SharedPreferences.getInstance();
@@ -47,6 +52,11 @@ Future<void> maybeShowMorningBriefing() async {
     final report = (res is Map ? res['report'] : null) as Map?;
     final html = report?['html'] as String?;
     if (html == null || html.isEmpty) return;
+    // §9.2.2 三级 gating · tier ③:数据太薄(今日无日程/待办、近期无记录)→
+    // 跳过晨报直接进 app(空晨报比没晨报糟)。刚孵化完的新用户正好命中:不
+    // 在 onboarding 之后又弹一张空早安。不落 mb_shown_date 戳——等内容多了
+    // 当天再开仍可正常显示。(debug 模式忽略此跳过,方便验收。)
+    if (!_kDebugAlwaysShowMorning && report?['thin'] == true) return;
     await prefs.setString('mb_shown_date', today);
     final nav = navigatorKey.currentState;
     if (nav == null) return;

@@ -408,10 +408,17 @@ async def generate_today(user_id: str) -> dict:
             ).order_by(Report.created_at.desc()).limit(1)
         )).scalar_one_or_none()
         if existing is not None:
-            return {**_meta(existing), "content_md": existing.content_md, "html": existing.html}
+            # An existing briefing today was already deemed worth showing — never
+            # thin (a thin day skips creation-time display, see below).
+            return {**_meta(existing), "content_md": existing.content_md,
+                    "html": existing.html, "thin": False}
 
     _t0 = time.perf_counter()
     d = await _fetch(user_id)
+    # §9.2.2 三级 gating · tier ③:数据太薄 = 今日无日程、无待办、昨日无任何记录。
+    # 客户端据此跳过晨报(空晨报比没晨报糟;刚孵化完的新用户正好命中)。仅作展示
+    # 信号回传,报告照常生成、照常进资产库(一个产物两个面)。
+    thin = (not d["events"]) and (not d["todos"]) and (d["recap"]["n"] == 0)
     variant = "mb-a" if int(bj.strftime("%j")) % 2 == 0 else "mb-b"  # alternate daily
     pet_gene = await _fetch_pet_gene(user_id)
     md = _build_md(d)
@@ -419,5 +426,6 @@ async def generate_today(user_id: str) -> dict:
     spec = {"surface": variant, "palette": variant, "seed": int(bj.strftime("%j")),
             "day": bj.strftime("%Y-%m-%d"), "morning_no": d["morning_no"]}
     gen_ms = int((time.perf_counter() - _t0) * 1000)
-    return await _persist(user_id, f"早安 · {bj.month}月{bj.day}日", "morning-briefing",
-                          md, html, spec, gen_ms=gen_ms, pet_gene=pet_gene)
+    report = await _persist(user_id, f"早安 · {bj.month}月{bj.day}日", "morning-briefing",
+                            md, html, spec, gen_ms=gen_ms, pet_gene=pet_gene)
+    return {**report, "thin": thin}
