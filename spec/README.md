@@ -36,7 +36,7 @@
 | 11 | [11-admin.md](11-admin.md) | **管理后台 / Live-Ops Console**（设计中 · 待讨论）：任务配置(规则+校验+奖励) · 组件库(增删/稀有度/概率) · 全用户总览(奖励发放可见) · 依赖 §10 Stage1 + §7 | 后端 / 全栈 |
 | 12 | [12-business-model.md](12-business-model.md) | **商业模式**（pending · 先不做）：LLM 成本账(每请求/每用户) · Free+单 Pro 定价提案(捕捉 30/天·chat 300/月·报告/洞察) · 护栏 · **token 用量日志(唯一现在该做)** | 商业 / 后端 |
 | 13 | [13-baizhi-integration.md](13-baizhi-integration.md) | **百智平台集成**（硬件供应商 + 未来收购方）：**B1 OAuth 登录 ✅ 已实现**(百智作 IdP)· B2 会议/日历 MCP 连接器 · B3 录音卡 SDK → Flutter 插件(手机直连) · B4 资产单向同步百智 KB（B2–B4 设计中）| 全栈 / 后端 / 移动 |
-| 14 | [14-proactive-reka.md](14-proactive-reka.md) | **主动 REKA（陪伴层）**（设计中）：零配置主动提醒/帮做 · Type A=通知(+节律缺口) · Type B=主动报告(+web-search) · 晨间简报(沉浸式) · cron/heartbeat + 统计节律 profile · 傻瓜护栏 | 全栈 / AI / 前端 / 设计 |
+| 14 | [14-proactive-reka.md](14-proactive-reka.md) | **主动 REKA（陪伴层）**（**✅ 基本实现**,仅剩会前调研型 offer 组装）：零配置主动提醒/帮做 · Type A=通知(+节律缺口 ✅) · Type B=主动报告(积累 offer ✅ +web-search ✅) · 晨间简报(沉浸式 ✅) · cron/heartbeat + 统计节律 profile ✅ · 傻瓜护栏 ✅ | 全栈 / AI / 前端 / 设计 |
 | A | [99-prompts-appendix.md](99-prompts-appendix.md) | **逐字** LLM prompts（agent 行为的载体，必须 byte-for-byte 复刻） | AI / 后端 |
 
 > 单一大文档版本：[`SPEC.md`](SPEC.md)（以上所有章节拼接，便于整体交付与检索）。

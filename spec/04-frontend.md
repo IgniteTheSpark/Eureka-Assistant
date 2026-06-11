@@ -233,7 +233,7 @@ web 参考实现(`frontend/`)—— 悬浮胶囊，**5 元素**，非底部 TabB
   - 仅当 `chat.messages` 为空、或 `initialMessages.length > chat.messages.length`（服务器侧长出新消息，
     如同 session 内的硬件闪念写入）时才 `chat.reset(initialMessages)`。
   - 长度比较防循环：re-seed 后两者相等，`>` 守卫转 false。
-- **返回时对账 in-flight 回合（设计中，见 [§1.5.1.1](01-agent-architecture.md)）**：离开再回到 session，加载线程后**按最新回合 `status` 渲染** —— `pending/running` → 显「分析中…」占位 + 轮询(或通知 SSE)直到落定;`done` → 直接显回复/资产。**用户消息收到即落库**(后端),所以**返回后输入一定在**;生成是后台任务(断流也跑完),不再「离开就丢」。配合上面的 re-seed:回合落定后服务器侧长出 agent 消息 → `initialMessages.length >` 触发 re-seed 显出来。
+- **返回时对账 in-flight 回合（✅ 已实现,`chat_controller._reconcilePending`,见 [§1.5.1.1/.3](01-agent-architecture.md)）**：离开再回到 session，加载线程后**按最新回合 `status` 渲染** —— `pending/running` → 显「分析中…」占位 + 轮询(或通知 SSE)直到落定;`done` → 直接显回复/资产。**用户消息收到即落库**(后端),所以**返回后输入一定在**;生成是后台任务(断流也跑完),不再「离开就丢」。配合上面的 re-seed:回合落定后服务器侧长出 agent 消息 → `initialMessages.length >` 触发 re-seed 显出来。
 - **pendingSubject（lazy 绑定）**：dock 的 Agent 带 `pendingSubject` 进来时，ChatPage 起始留空（不让
   localStorage 旧 session 遮蔽新绑定意图），topic bar 先显示「你将要聊 Kevin」，**首条发送时**才
   `openSession({subject})` 真正建会话——避免误点 Agent 留下空会话。

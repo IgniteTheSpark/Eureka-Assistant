@@ -667,7 +667,7 @@ API key/header 型。**OAuth(Google/Notion 跳转)后补**(每家一套重定向
 
 ---
 
-## 1.8b Synthesis / Report Pipeline（合成·报告管线，设计中）
+## 1.8b Synthesis / Report Pipeline（合成·报告管线，✅ 已实现 —— 全貌见 [§6](06-synthesis-report.md)）
 
 第四条管线(在 Flash / Chat / Task 之外):**report-dispatcher → content skill(按 genre)→ render skill**,
 复刻 Flash 的 dispatcher→sub-skill 结构(`agents/report_pipeline.py`)。把「选中资产 + 用户意愿」合成成

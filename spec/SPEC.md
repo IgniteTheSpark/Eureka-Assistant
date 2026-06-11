@@ -1,7 +1,10 @@
 # Eureka Assistant — 产品与工程 Spec（交付版）
 
 > 版本：1.1 · 2026-06-04
-> 状态：**Authoritative**。
+> ⚠️ **本文件是 2026-06-04 的整合快照,已显著落后**(此后落地:§6 designed 渲染 8 surfaces、§6.13 报告→待办、
+> §6.14 quiz/flashcard、briefing+web-search(§14.9)、§14 主动 REKA Phase 1-4(积累 offer)、晨间简报、
+> §13 B1 百智 OAuth、迁移 0017-0019 等)。**以分章文件([README.md](README.md) 索引)为唯一真值;本文件仅作历史交付参考。**
+> 状态：~~Authoritative~~ → **Historical snapshot**。
 > **真值源（2026-06 起翻转）：产品 = Flutter app `mobile/` + `backend/`；web `frontend/` 降为历史来源（出处参考）。**
 > 当 spec 里的 web 行为描述与 Flutter 实现冲突，**以 `mobile/` 为准**。
 >

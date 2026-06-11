@@ -221,7 +221,7 @@ surface_hint: dashboard             # 可空,render 可覆盖
 > 下沉 lead、note 手帐贴纸、deck/forest 提案 cover、mag 4-up stat strip、wdash chip 行;donut 用**互异色**
 > categorical 调色板、单序列柱用 accent 渐变;footer 仍挂**真实用户 pet**)。
 > **加法、不破坏**:`render_report` 仅对 `_VARIANTS` 里的 genre 派发到它(每 genre 2 个变体,seed 选其一),其余
-> genre(及 morning-briefing,待补)走旧渲染器零回归。`:::actions` 在所有 genre 都渲染为只读 ✦接下来 清单。
+> genre 走旧渲染器零回归(morning-briefing 不在此列 —— 它有**专属沉浸构建器** `agents/morning_briefing.py`,见 §14.6)。`:::actions` 在所有 genre 都渲染为只读 ✦接下来 清单。
 
 **surface 族（v1，按 genre 默认映射，render 可按内容覆盖）:**
 
@@ -589,4 +589,4 @@ API 见 [§3](03-api-reference.md) 的 `/api/reports`。核心字段:
 - **v1**:`flashcard`(自评)+ 简单 MC `quiz`;**接地于用户内容**;手动(「考考我」)+ §14 周测 offer;落报告容器。
 - **后置(大)**:**间隔重复 SRS**(记错题、按遗忘曲线让「上次没记住的再过一遍」,天然接 §14 主动 —— REKA 周期性复盘)、外部增强(标准释义/用法,接 [§14.9 web-search](14-proactive-reka.md) + 接地墙)、成绩追踪。
 
-> **落点(设计中)**:`report-quiz` / `report-flashcard` content skill(prompt,spec 侧 —— 题目/干扰项质量是本体);dispatcher 加学习类 gate;`report_render` 加 `:::quiz`/`:::flashcards` 的**交互**模板(JS);genre 落 `reports`;§14 阈值型挂 quiz offer。**handoff 见 [`handoff-quiz.md`](handoff-quiz.md)。**
+> **落点(✅ 全部已落,2026-06)**:`report-quiz` / `report-flashcard` content skill + dispatcher 学习类 gate + `report_render` 的 `:::quiz`/`:::flashcards` 交互模板(JS)+ genre 落 `reports` + §14 阈值型 quiz offer。**handoff(已 ✅)见 [`handoff-quiz.md`](handoff-quiz.md)。**
