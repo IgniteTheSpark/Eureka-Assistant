@@ -1,8 +1,32 @@
+import java.io.File
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
+    id("org.jetbrains.kotlin.android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+val releaseSigningPropertiesFile = rootProject.file("../.tokens/android_signing.properties")
+val releaseSigningProperties = Properties()
+if (releaseSigningPropertiesFile.isFile) {
+    FileInputStream(releaseSigningPropertiesFile).use { releaseSigningProperties.load(it) }
+}
+
+fun releaseSigningProperty(name: String): String =
+    releaseSigningProperties.getProperty(name)?.trim().orEmpty()
+
+fun resolveSigningFile(path: String): File =
+    if (File(path).isAbsolute) File(path) else rootProject.file("../$path")
+
+val hasReleaseSigning = listOf(
+    "storeFile",
+    "storePassword",
+    "keyAlias",
+    "keyPassword",
+).all { releaseSigningProperty(it).isNotEmpty() }
 
 android {
     namespace = "com.eureka.eureka"
@@ -25,11 +49,51 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            getByName("debug") {
+                storeFile = resolveSigningFile(releaseSigningProperty("storeFile"))
+                storePassword = releaseSigningProperty("storePassword")
+                keyAlias = releaseSigningProperty("keyAlias")
+                keyPassword = releaseSigningProperty("keyPassword")
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+            create("release") {
+                storeFile = resolveSigningFile(releaseSigningProperty("storeFile"))
+                storePassword = releaseSigningProperty("storePassword")
+                keyAlias = releaseSigningProperty("keyAlias")
+                keyPassword = releaseSigningProperty("keyPassword")
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        } else {
+            logger.warn(
+                "Release signing config not found. " +
+                    "Create .tokens/android_signing.properties before publishing Android release builds."
+            )
+        }
+    }
+
     buildTypes {
-        release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
+        debug {
             signingConfig = signingConfigs.getByName("debug")
+        }
+        release {
+            signingConfig = if (hasReleaseSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
+        }
+        getByName("profile") {
+            signingConfig = if (hasReleaseSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }
