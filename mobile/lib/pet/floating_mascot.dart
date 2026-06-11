@@ -440,7 +440,9 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
       animation: Listenable.merge([_pet, _fly, _bob]),
       builder: (context, _) {
         final p = _pet.pet;
-        if (!_loaded || p == null) return const SizedBox.shrink();
+        // 蛋未孵化(onboarding 孵化页)时不挂全局浮球 —— 孵化页自己有一颗大蛋,
+        // 全局再飘一颗蛋是重复且违和的。孵化后(spawned)浮球才登场。
+        if (!_loaded || p == null || !_pet.spawned) return const SizedBox.shrink();
         return LayoutBuilder(
           builder: (context, constraints) {
             final maxW = constraints.maxWidth;

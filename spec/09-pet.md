@@ -73,6 +73,7 @@
     - **关键:抑制的 notify 必须 post-frame(✅ 已修)**:我的岛是 `IndexedStack` 的 **tab**,故 `PetBoard.initState/dispose` 跑在 **shell 的 build/unmount 帧内**。直接在其中 `mascotSuppressed.value++` / `releaseMascotSuppress()`(及 `_pet.refresh()`)会在 build 中通知浮球的 `ValueListenableBuilder`/`AnimatedBuilder` → 抛 `setState() during build` / `markNeedsBuild when tree was locked`(满屏异常 + 把入场/飞出动画冲垮)。改为 **`addPostFrameCallback` 延后**(initState 里 refresh+suppress+`_heroCtl.forward`;dispose 里 release)→ notify 落在已 settle 的树上,异常消失、两段动画恢复。(浮球早先是 push 路由时这不犯 —— 路由 push 的 build 不在 shell 同一帧。)
   - **精灵 fx 不被裁(✅ v4 #3/#4)**:浮球与 hero 的 PetView 用 `OverflowBox` 放大渲染框(球 132、hero 230×210),让引擎的 **celebrate 彩纸 / listen 光环**溢出到框外(不被 66/156 的 WebView 盒裁掉);视觉本体尺寸不变(canvas 居中),命中区仍 66。相关 Stack 设 `Clip.none`。
   - **浮球抑制的真机坑(✅ 关键修复)**:不能靠「`suppressed>0 → SizedBox`」移除浮球 —— iOS 的 **WKWebView platform view 被移除后会留残影**(浮球明明该隐藏却还在,孵化页/我的岛都见过)。改为**保持浮球挂载、suppressed 时把它定位到屏幕外**(`left:-10000` + `IgnorePointer`),iOS 按位置可靠合成、不留残影,且返回时无重载闪烁。释放统一用 `releaseMascotSuppress()`(clamp 不为负,防计数泄漏)。
+  - **未孵化硬 gate(✅ 关键修复)**:残影坑只对「曾经显示过、又被移除」的浮球成立。**孵化前浮球的 WebView 从未挂载**,故不适用 —— 此前靠 `pet_spawn_page` 的 off-screen 抑制兜底,实测在孵化首屏(蛋 + 轻点唤醒)没兜住,屏幕中部仍飘一颗悬浮蛋(与全屏大蛋重复违和)。改为 `_mascot` 顶部**硬 gate**:`!_pet.spawned → SizedBox.shrink()`。孵化前浮球根本不渲染(无残影风险,因从未 mount);孵化后 `spawned` 翻 true 才是一次 mount(非 unmount,无残影)。这是比 off-screen 抑制更强的不变量。
   - **气泡定位(✅ 设计稿 positionBubbles)**:REKA 在下半屏 → 气泡**向上展开**(bottom 锚 + bottomLeft/Right 缩放原点);在上半屏 → **向下展开**(top 锚)——避免球在顶部时气泡被挤扁;键盘弹起时浮在键盘上方。气泡卡右上角有**关闭 X**。
   - **统一光晕色(✅ v4)**:REKA 打开的所有表面 —— **菜单面板 / 气泡会话卡 / 资产选择弹窗** —— 都按 Reka 当前 aura 色(`Mascot.glowColors` ↔ Flutter `rekaGlow`)做毛玻璃底 + 边框 + 外发光,换光环时一起跟色。(快创编辑表单是真实 `Scaffold`,保留其自身样式。)
   - **REKA 反馈动效(✅ v4)**:菜单/气泡打开期间浮球 PetView 切 `listen`(头微侧 + 听的环),关闭回 `idle`;**新通知到达**:角标弹出 + **浮球外圈脉冲环扩散 2 次(1s)** + celebrate(`_pulse` + `_ballCelebrate`,仅未读数增加时触发)。
@@ -86,7 +87,7 @@
 
 - **命名 = 默认 "Reka"、≤8 字(✅)**:backend `api/pet.py` + Flutter 默认改为 Reka;改名/起名 cap 8。
 
-- **孵化「首次捕捉」引导(✅)**:egg→hatch→命名→intro→**首次捕捉**(「记下第一条」引导文案)→ 完成进入。(真实「等第一条 completion 再庆祝」后置;v1 是引导文案 + 进入后由 REKA 接住。)蛋+文案块**垂直居中**(`Center`+`SingleChildScrollView`,键盘弹起可滚不溢出);孵化接管页也由 off-screen 抑制保证**不出现浮球**。
+- **孵化「首次捕捉」引导(✅)**:egg→hatch→命名→intro→**首次捕捉**(「记下第一条」引导文案)→ 完成进入。(真实「等第一条 completion 再庆祝」后置;v1 是引导文案 + 进入后由 REKA 接住。)蛋+文案块**垂直居中**(`Center`+`SingleChildScrollView`,键盘弹起可滚不溢出);孵化接管页**不出现浮球** —— 由 `floating_mascot` 的 `!spawned` 硬 gate 保证(见 §9.2「未孵化硬 gate」,不再依赖 off-screen 抑制兜底)。
 
 - **闪念不在 REKA 菜单**:正式上线**无软件语音**(语音=硬件录音卡触发);`FlashSheet` 仅留硬件 / dev 路径(`START_OVERLAY=flash`)。软件侧快速捕捉走快创或对话。
 
