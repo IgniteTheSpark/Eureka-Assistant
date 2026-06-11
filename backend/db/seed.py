@@ -35,6 +35,17 @@ GLOBAL_SKILLS = [
 # ── Per-skill UserSkill configuration for the default user ─────────────────────
 # payload_schema + queryable_fields + render_spec follow Phase B §九.
 
+# §1.5.1 L0 — 起聊文案 per baseline skill (资产锚定会话的开场 hint)。
+# 文案基准来自 spec §1.5.1;通用兜底三连在 opening-hint 端点里。
+CHAT_STARTERS = {
+    "todo":    ["帮我拆成几个子任务", "什么时候做它合适?", "为什么这件事重要?"],
+    "notes":   ["帮我把这条想法展开", "把它升华成一篇报告", "相关的记录还有哪些?"],
+    "idea":    ["帮我把这个想法展开", "它能怎么落地?", "把它升华成一篇报告"],
+    "expense": ["这个月花了多少?", "和上个月比怎么样?", "帮我把最近的消费归归类"],
+    "contact": ["记一件关于 TA 的事", "TA 和我最近聊过什么?", "帮我准备下次和 TA 的见面"],
+    "misc":    ["帮我分析一下这条记录", "它和我最近的记录有什么联系?", "基于它给我一点建议"],
+}
+
 USER_SKILL_CONFIGS = [
     {
         "name": "todo",
@@ -232,6 +243,7 @@ def seed():
                     payload_schema=cfg["payload_schema"],
                     render_spec=cfg["render_spec"],
                     queryable_fields=cfg["queryable_fields"],
+                    chat_starters=CHAT_STARTERS.get(cfg["name"]),
                 )
                 db.add(obj)
                 print(f"  + user_skill: {cfg['name']}")

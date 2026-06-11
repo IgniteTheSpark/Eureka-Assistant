@@ -237,6 +237,93 @@ async def create_session(
     }
 
 
+# ── GET /api/sessions/opening-hint (§1.5.1) ──────────────────────────────────
+# Keyed by SUBJECT (not session id): ChatPage binds the subject lazily, so in
+# the empty state the session may not exist yet. The hint is empty-state
+# scaffolding only — never persisted as a message (§1.5.1 不落库).
+# NOTE: literal path — MUST stay declared before GET /sessions/{session_id}.
+
+_GENERIC_STARTERS = ["帮我分析一下这条记录", "它和我最近的记录有什么联系?", "基于它给我一点建议"]
+_EVENT_STARTERS = ["这场安排要准备什么?", "帮我做个会前调研", "结束后帮我记纪要"]
+_CONTACT_STARTERS = ["记一件关于 TA 的事", "TA 和我最近聊过什么?", "帮我准备下次和 TA 的见面"]
+
+
+@router.get("/sessions/opening-hint")
+async def opening_hint(
+    subject_type: str,
+    subject_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
+    """§1.5.1 L0+L1 — instant, ZERO-LLM opening hint for an empty anchored chat:
+    opener (one gentle line; the observation comes from ONE aggregate query,
+    grounded by construction) + 2-3 tappable starter prompts (the subject
+    skill's chat_starters, falling back to the generic trio). 护栏:观察只用
+    查到的真实数据、温柔、不替用户下结论。"""
+    import uuid as _uuid
+    from datetime import datetime, timedelta, timezone
+
+    try:
+        sid = _uuid.UUID(subject_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid subject_id")
+
+    if subject_type == "asset":
+        async with AsyncSessionLocal() as db:
+            row = (await db.execute(
+                select(Asset, UserSkill.display_name, UserSkill.chat_starters, GlobalSkill.name)
+                .join(UserSkill, Asset.user_skill_id == UserSkill.id)
+                .join(GlobalSkill, UserSkill.skill_id == GlobalSkill.id)
+                .where(Asset.id == sid, Asset.user_id == user_id)
+            )).first()
+            if row is None:
+                raise HTTPException(status_code=404, detail="asset not found")
+            asset, disp, starters, machine = row
+            disp = disp or machine
+            # L1 — one aggregate query: how many of this skill this (Beijing) week
+            bj = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=8)))
+            week_start = (bj - timedelta(days=bj.weekday())).replace(
+                hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+            n_week = (await db.execute(
+                select(func.count(Asset.id))
+                .where(Asset.user_id == user_id,
+                       Asset.user_skill_id == asset.user_skill_id,
+                       Asset.created_at >= week_start)
+            )).scalar() or 0
+        if n_week >= 2:
+            opener = f"这是你本周第 {n_week} 条「{disp}」。想聊点什么?"
+        elif n_week == 1:
+            opener = f"本周的第一条「{disp}」。想聊点什么?"
+        else:
+            opener = "关于这条记录,想聊点什么?"
+        return {"ok": True, "opener": opener,
+                "starters": (starters or _GENERIC_STARTERS)[:3]}
+
+    if subject_type == "event":
+        async with AsyncSessionLocal() as db:
+            ev = (await db.execute(
+                select(Event).where(Event.id == sid, Event.user_id == user_id)
+            )).scalar_one_or_none()
+        if ev is None:
+            raise HTTPException(status_code=404, detail="event not found")
+        return {"ok": True,
+                "opener": f"关于「{ev.title}」这场安排,想聊点什么?",
+                "starters": _EVENT_STARTERS}
+
+    if subject_type == "contact":
+        async with AsyncSessionLocal() as db:
+            ct = (await db.execute(
+                select(Contact).where(Contact.id == sid, Contact.user_id == user_id)
+            )).scalar_one_or_none()
+        if ct is None:
+            raise HTTPException(status_code=404, detail="contact not found")
+        name = ct.name or "TA"
+        return {"ok": True,
+                "opener": f"关于 {name},想聊点什么?",
+                "starters": _CONTACT_STARTERS}
+
+    raise HTTPException(status_code=400, detail=f"unsupported subject_type: {subject_type}")
+
+
 # ── GET /api/sessions/{id} ────────────────────────────────────────────────────
 
 @router.get("/sessions/{session_id}")

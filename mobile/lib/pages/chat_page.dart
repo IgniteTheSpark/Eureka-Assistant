@@ -7,6 +7,7 @@ import '../chat/chat_models.dart';
 import '../chat/markdown_text.dart';
 import '../render/skill_card.dart';
 import '../theme/app_theme.dart';
+import '../api/api_client.dart';
 import '../theme/eureka_colors.dart';
 import '../widgets/asset_picker.dart';
 import '../widgets/toast.dart';
@@ -51,6 +52,11 @@ class _ChatPageState extends State<ChatPage> {
   final _scroll = ScrollController();
   final _scaffoldKey = GlobalKey<ScaffoldState>();
 
+  // §1.5.1 开场 hint — 空态脚手架(opener + 起聊 chips),仅锚定会话且无历史时
+  // 显示;不落库为消息,用户点 chip / 打字即进入正常对话。
+  String? _hintOpener;
+  List<String> _hintStarters = const [];
+
   @override
   void initState() {
     super.initState();
@@ -64,6 +70,7 @@ class _ChatPageState extends State<ChatPage> {
     } else if (widget.subjectType != null && widget.subjectId != null) {
       // Pending subject — peek for an existing thread, but don't create one.
       _chat.bindSubject(widget.subjectType!, widget.subjectId!);
+      _loadOpeningHint(widget.subjectType!, widget.subjectId!);
     } else {
       // Plain Agent entry — resume the last active conversation (web parity),
       // so backing out and returning doesn't lose the thread.
@@ -106,6 +113,31 @@ class _ChatPageState extends State<ChatPage> {
     _input.dispose();
     _scroll.dispose();
     super.dispose();
+  }
+
+  // §1.5.1: L0+L1 hint 由服务端现算(零 LLM,毫秒级);失败静默 → 退回通用空态。
+  Future<void> _loadOpeningHint(String type, String id) async {
+    final api = ApiClient();
+    try {
+      final r = await api.getJson('/api/sessions/opening-hint',
+          query: {'subject_type': type, 'subject_id': id});
+      if (!mounted || r is! Map) return;
+      setState(() {
+        _hintOpener = r['opener'] as String?;
+        _hintStarters = ((r['starters'] as List?) ?? const [])
+            .whereType<String>()
+            .take(3)
+            .toList();
+      });
+    } catch (_) {/* hint 是增强,失败不打扰 */} finally {
+      api.close();
+    }
+  }
+
+  // 点起聊 chip = 把它作为首条用户消息发出 → 进入正常 chat 管线(§1.5.1)。
+  void _sendStarter(String text) {
+    if (_chat.streaming) return;
+    _chat.send(text);
   }
 
   void _send() {
@@ -259,9 +291,11 @@ class _ChatPageState extends State<ChatPage> {
             _contextBar(eu),
             Expanded(
               child: msgs.isEmpty
-                  ? Center(
-                      child: Text('问 Agent 任何事…',
-                          style: TextStyle(color: eu.textMid, fontSize: 15)))
+                  ? (_hintOpener != null
+                      ? _openingHint(eu)
+                      : Center(
+                          child: Text('问 Agent 任何事…',
+                              style: TextStyle(color: eu.textMid, fontSize: 15))))
                   : ListView.builder(
                       controller: _scroll,
                       padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
@@ -273,6 +307,56 @@ class _ChatPageState extends State<ChatPage> {
                     ),
             ),
             _InputBar(controller: _input, onSend: _send, streaming: _chat.streaming),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// §1.5.1 空态开场 hint:REKA 口吻的 opener + 2-3 个可点起聊 chip。
+  Widget _openingHint(EurekaColors eu) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 28),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text('✦', style: TextStyle(color: eu.brand, fontSize: 15)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(_hintOpener!,
+                      style: TextStyle(
+                          color: eu.textHi, fontSize: 15.5, height: 1.5,
+                          fontWeight: FontWeight.w600)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final st in _hintStarters)
+                  GestureDetector(
+                    onTap: () => _sendStarter(st),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 9),
+                      decoration: BoxDecoration(
+                        color: eu.brand.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(999),
+                        border:
+                            Border.all(color: eu.brand.withValues(alpha: 0.35)),
+                      ),
+                      child: Text(st,
+                          style: TextStyle(color: eu.brand, fontSize: 13.5)),
+                    ),
+                  ),
+              ],
+            ),
           ],
         ),
       ),

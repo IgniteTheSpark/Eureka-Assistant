@@ -99,7 +99,7 @@ MySQL 没有。所以 `created_at` 等用 **Python 端 `default=_utcnow`**（flu
 | `payload_schema` | JSON | nullable | 系统 skill（qa）为 null |
 | `render_spec` | JSON | nullable | 不产可见资产的 skill 为 null |
 | `queryable_fields` | JSON | nullable | 倒排索引字段定义 |
-| `chat_starters` | JSON | nullable | **起聊文案数组（设计中）** ∈ 2-3 条 string。建技能时 design agent 同一次 LLM 调用产出（§1.8），喂资产锚定会话的**开场 hint L0**（[§1.5.1](01-agent-architecture.md)）。基线技能由 seed 写好；null → hint 退回通用三连。 |
+| `chat_starters` | JSON | nullable | **起聊文案数组(✅ 迁移 0020)** ∈ 2-3 条 string。建技能时 design agent 同一次 LLM 调用产出（§1.8），喂资产锚定会话的**开场 hint L0**（[§1.5.1](01-agent-architecture.md)）。基线技能由 seed 写好；null → hint 退回通用三连。 |
 | `position` | Integer | not null, default 0 | 库 SKILLS 网格顺序，拖拽改写 |
 | `enabled` | Integer | not null, default 1 | **0/1 活跃标志（已实现，见 §3 skills API / §4.4.5 / §1.3）**。活跃 = 进资产库格子 + agent 路由到它；停用 = 隐藏 + 不路由（该类输入回退 misc），但**历史记录仍可查询**。 |
 | `domain` | String(20) | nullable | **生活领域 prior（Layer A 已实现，迁移 0009）** ∈ 8 领域或 null。技能的**默认 prior**（只作种子，**非固定值**）：基线技能由 `provisioning.prior_for_skill` 打（记账→生活、随记→灵感、名片→社交，其余 null）；自定义技能 prior 当前留 null（agent 仍按内容打域，design agent prior + 向导选择器后置）。每条记录的实际 domain 在 `assets.domain`（§3.6）。完整语义见 **[§8 领域系统](08-domain-system.md)**。 |

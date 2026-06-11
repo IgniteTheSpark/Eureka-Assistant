@@ -164,6 +164,7 @@ sessions, contacts, events, timeline, tasks, notifications。
 |---|---|---|---|
 | GET | `/api/sessions` | `date, session_type, limit` | 列表 |
 | POST | `/api/sessions` | `CreateSessionRequest{session_type, title, date, context_asset_ids, subject_type, subject_id, peek_only}` | 3 种模式（见下） |
+| GET | `/api/sessions/opening-hint` | `subject_type, subject_id` | **§1.5.1 开场 hint(✅,零 LLM)**:空态锚定会话的 opener(L1 一次聚合观察)+ 2-3 条起聊 chips(L0 技能 `chat_starters` → 通用三连兜底;event/contact 专属);按 **subject** 取(懒绑定下 session 可能尚不存在);不落库 |
 | GET | `/api/sessions/{id}` | — | 详情 + asset_count + turn_count + 4 个 subject FK + assets |
 | GET | `/api/sessions/{id}/messages` | — | 消息（最旧在前，role_rank 平手时排序） |
 | GET | `/api/sessions/{id}/input-turns` | — | 该 session 的输入 |

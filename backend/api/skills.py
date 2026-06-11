@@ -157,6 +157,7 @@ class ConfirmSkillRequest(BaseModel):
     payload_schema: dict
     render_spec: dict
     queryable_fields: list = []
+    chat_starters: list = []   # §1.5.1 L0 — design agent 随 draft 产出
 
 
 class ReorderSkillsRequest(BaseModel):
@@ -208,6 +209,7 @@ async def list_skills(user_id: str = Depends(get_current_user_id)):
             "position":         us.position,
             "enabled":          int(us.enabled if us.enabled is not None else 1),
             "domain":           us.domain,   # §8 per-skill prior (null for custom — content-based)
+            "chat_starters":    us.chat_starters or [],  # §1.5.1 L0 起聊文案
         })
 
     return {"ok": True, "skills": skills, "active_cap": ACTIVE_SKILL_CAP}
@@ -327,6 +329,7 @@ async def confirm_skill(
             payload_schema=_backfill_long(_backfill_labels(req.payload_schema)),
             render_spec=req.render_spec,
             queryable_fields=req.queryable_fields,
+            chat_starters=req.chat_starters or None,   # §1.5.1 L0(design agent 产出)
             position=max_pos + 1,
             enabled=enabled,
         )
