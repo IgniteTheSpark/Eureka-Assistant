@@ -65,7 +65,7 @@ dependencies:
   # (iOS) and captures the backend's `eureka://auth?token=<jwt>` deep-link callback.
   # iOS needs no native config (the session intercepts the scheme); Android uses a
   # callback activity (see AndroidManifest).
-  flutter_web_auth_2: ^3.1.2
+  flutter_web_auth_2: ^5.0.3
 
 dev_dependencies:
   flutter_test:
