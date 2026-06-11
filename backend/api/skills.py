@@ -20,6 +20,7 @@ User-skill cap:
 """
 import json
 import uuid
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -342,6 +343,171 @@ async def confirm_skill(
         "user_skill_id": str(us.id),
         "name":          req.name,
         "enabled":       enabled,
+    }
+
+
+# ── POST /api/skills/promote (§1.8 B「一键升级成本子」) ────────────────────────
+
+_BJ = timezone(timedelta(hours=8))
+_WD = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+
+
+class PromoteSkillRequest(BaseModel):
+    asset_id: str
+    suggest_skill: str = ""   # the recognized 中文类型 hint carried on the card
+
+
+def _representative_text(payload: dict, fallback: str = "") -> str:
+    """Pull a faithful one-line source text from a 随记/misc payload to re-extract
+    structured fields from. Prefer the prose fields, else join string values."""
+    if not isinstance(payload, dict):
+        return fallback
+    for k in ("content", "note", "notes", "body", "text", "description", "title"):
+        v = payload.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    parts = [str(v).strip() for v in payload.values() if isinstance(v, str) and v.strip()]
+    return " ".join(parts) if parts else fallback
+
+
+@router.post("/skills/promote")
+async def promote_skill(
+    req: PromoteSkillRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """One tap on a 随记 card → turn it into a long-term, structured 本子.
+
+    design-agent drafts the skill from THIS example (no skill form for the user,
+    §1.8 「不让用户填技能表单」), we land it, then re-extract the original record
+    into the new book so future captures of this type are structured too.
+
+    Graceful degradation: the skill being created IS the primary win (tomorrow's
+    同类 capture routes to it). If the re-extraction LLM call fails, we just re-file
+    the original record under the new skill and still return success.
+    """
+    from agents.flash_pipeline import (
+        _run_intent, _make_card, _load_user_render_specs, _build_card_from_render_spec,
+    )
+
+    # 1. Load the source record + its session/turn for the re-extraction.
+    async with AsyncSessionLocal() as db:
+        a = (await db.execute(
+            select(Asset).where(Asset.id == req.asset_id, Asset.user_id == user_id)
+        )).scalar_one_or_none()
+        if a is None:
+            raise HTTPException(status_code=404, detail="记录不存在")
+        payload = dict(a.payload or {})
+        domain = a.domain
+        session_id = str(a.session_id) if a.session_id else ""
+        turn_id = str(a.source_input_turn_id) if a.source_input_turn_id else ""
+    source_text = _representative_text(payload, req.suggest_skill)
+    if not source_text:
+        raise HTTPException(status_code=400, detail="这条记录没有可升级的内容")
+
+    # 2. design-agent drafts the skill from the example + the recognized type.
+    hint = (req.suggest_skill or "").strip()
+    desc = f"用户记了一条:「{source_text}」。"
+    if hint:
+        desc += f"这类记录大概叫「{hint}」。"
+    desc += "请为长期、结构化地记录这一类事情设计一个技能(字段贴合这条例子)。"
+    try:
+        draft = await design_skill(desc, user_id)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"设计技能失败:{e}")
+
+    name = draft["name"]
+    display_name = draft["display_name"]
+
+    # 3. Land the skill (find-or-create; cap-checked).
+    async with AsyncSessionLocal() as db:
+        gs = (await db.execute(
+            select(GlobalSkill).where(GlobalSkill.name == name)
+        )).scalar_one_or_none()
+        if not gs:
+            gs = GlobalSkill(name=name, description=display_name)
+            db.add(gs)
+            await db.flush()
+        us = (await db.execute(
+            select(UserSkill).where(
+                UserSkill.user_id == user_id, UserSkill.skill_id == gs.id)
+        )).scalar_one_or_none()
+        if us is None:
+            count = await _count_user_skills(db, user_id)
+            if count >= USER_SKILL_CAP:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"已达技能上限({USER_SKILL_CAP});请先删一个再升级")
+            max_pos = int((await db.execute(
+                select(func.coalesce(func.max(UserSkill.position), -1))
+                .where(UserSkill.user_id == user_id)
+            )).scalar() or -1)
+            active_now = await _count_active_skills(db, user_id)
+            enabled = 1 if active_now < ACTIVE_SKILL_CAP else 0
+            us = UserSkill(
+                user_id=user_id, skill_id=gs.id, display_name=display_name,
+                payload_schema=_backfill_long(_backfill_labels(draft["payload_schema"])),
+                render_spec=draft["render_spec"],
+                queryable_fields=draft.get("queryable_fields"),
+                chat_starters=draft.get("chat_starters") or None,
+                position=max_pos + 1, enabled=enabled,
+            )
+            db.add(us)
+            await db.commit()
+            await db.refresh(us)
+        us_pk = us.id
+        us_id = str(us.id)
+        render_spec = us.render_spec if isinstance(us.render_spec, dict) else draft["render_spec"]
+        schema = us.payload_schema or draft["payload_schema"]
+
+    # 4. Re-extract THIS record into the new book (best-effort magic moment).
+    bj = datetime.now(_BJ)
+    today_str = f"{bj:%Y-%m-%d %H:%M} {_WD[bj.weekday()]}"
+    custom_map = {name: {"display_name": display_name,
+                         "payload_schema": schema, "render_spec": render_spec}}
+    new_card = None
+    try:
+        result = await _run_intent(
+            {"type": name, "source_text": source_text}, source_text,
+            session_id, turn_id, today_str, user_id, custom_map,
+        )
+        if result and result.get("asset_id"):
+            async with AsyncSessionLocal() as db:
+                # carry the original's life-domain onto the fresh structured asset
+                if domain:
+                    na = (await db.execute(
+                        select(Asset).where(Asset.id == result["asset_id"])
+                    )).scalar_one_or_none()
+                    if na is not None and not na.domain:
+                        na.domain = domain
+                # drop the original 随记 — it now lives structured in the new book
+                old = (await db.execute(select(Asset).where(
+                    Asset.id == req.asset_id, Asset.user_id == user_id))).scalar_one_or_none()
+                if old is not None:
+                    await db.delete(old)
+                await db.commit()
+            specs = await _load_user_render_specs(user_id)
+            new_card = _make_card(result, specs)
+    except Exception:
+        new_card = None  # fall through to the re-file path
+
+    # 5. Fallback: re-file the original under the new skill (skill still created).
+    if new_card is None:
+        async with AsyncSessionLocal() as db:
+            old = (await db.execute(select(Asset).where(
+                Asset.id == req.asset_id, Asset.user_id == user_id))).scalar_one_or_none()
+            if old is not None:
+                old.user_skill_id = us_pk
+                await db.commit()
+        spec = dict(render_spec)
+        spec["_display_name"] = display_name
+        new_card = _build_card_from_render_spec(name, payload, req.asset_id, spec)
+
+    return {
+        "ok": True,
+        "user_skill_id": us_id,
+        "name": name,
+        "display_name": display_name,
+        "card": new_card,
     }
 
 

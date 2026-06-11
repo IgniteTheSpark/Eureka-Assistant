@@ -61,8 +61,13 @@ class _SkillCardState extends ConsumerState<SkillCard> {
   final _api = ApiClient();
   bool? _doneOverride;
   bool _deleted = false;
+  // §1.8 B「一键升级成本子」: while the promote call runs, and the structured
+  // card it returns (which replaces this 随记 card in place).
+  bool _promoting = false;
+  bool _promoted = false;
+  Map<String, dynamic>? _replacedCard;
 
-  Map<String, dynamic> get card => widget.card;
+  Map<String, dynamic> get card => _replacedCard ?? widget.card;
   String? get _assetId => (card['asset_id'] ?? card['id']) as String?;
 
   @override
@@ -126,24 +131,101 @@ class _SkillCardState extends ConsumerState<SkillCard> {
 
     // Left-swipe to delete — available on every deletable card, anywhere.
     final delPath = _deletePath(cardType);
-    if (delPath == null) return body;
-    return Dismissible(
-      key: ValueKey('del_$delPath'),
-      direction: DismissDirection.endToStart,
-      confirmDismiss: (_) => _confirmAndDelete(delPath),
-      onDismissed: (_) => setState(() => _deleted = true),
-      background: Container(
-        margin: const EdgeInsets.only(top: 6),
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 22),
-        decoration: BoxDecoration(
-          color: eu.accentRed.withValues(alpha: 0.16),
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: Icon(Icons.delete_outline, color: eu.accentRed),
-      ),
-      child: body,
+    final cardWidget = delPath == null
+        ? body
+        : Dismissible(
+            key: ValueKey('del_$delPath'),
+            direction: DismissDirection.endToStart,
+            confirmDismiss: (_) => _confirmAndDelete(delPath),
+            onDismissed: (_) => setState(() => _deleted = true),
+            background: Container(
+              margin: const EdgeInsets.only(top: 6),
+              alignment: Alignment.centerRight,
+              padding: const EdgeInsets.only(right: 22),
+              decoration: BoxDecoration(
+                color: eu.accentRed.withValues(alpha: 0.16),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(Icons.delete_outline, color: eu.accentRed),
+            ),
+            child: body,
+          );
+
+    // §1.8 B — a 随记 the agent recognized as a structurable type carries a
+    // `suggest_skill`. Offer a one-tap「长期记成『XX』本子?」under the card; tap
+    // builds the skill + re-files this record into it (POST /api/skills/promote).
+    final suggest = card['suggest_skill'] as String?;
+    if (suggest == null || suggest.isEmpty || _promoted) return cardWidget;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [cardWidget, _promoteChip(eu, suggest)],
     );
+  }
+
+  Widget _promoteChip(EurekaColors eu, String suggest) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 6, left: 2, bottom: 2),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: GestureDetector(
+          onTap: _promoting ? null : () => _promote(suggest),
+          behavior: HitTestBehavior.opaque,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+            decoration: BoxDecoration(
+              color: eu.brand.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: eu.brand.withValues(alpha: 0.35)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_promoting)
+                  SizedBox(
+                    width: 12, height: 12,
+                    child: CircularProgressIndicator(strokeWidth: 1.8, color: eu.brand),
+                  )
+                else
+                  Text('✨', style: TextStyle(fontSize: 12, color: eu.brand)),
+                const SizedBox(width: 6),
+                Text(
+                  _promoting ? '正在建「$suggest」本子…' : '长期记成「$suggest」本子?',
+                  style: TextStyle(color: eu.brand, fontSize: 12.5, fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _promote(String suggest) async {
+    final id = _assetId;
+    if (id == null) return;
+    setState(() => _promoting = true);
+    try {
+      final res = await _api.postJson('/api/skills/promote', {
+        'asset_id': id,
+        'suggest_skill': suggest,
+      });
+      final m = (res as Map).cast<String, dynamic>();
+      final newCard = (m['card'] as Map?)?.cast<String, dynamic>();
+      final dn = (m['display_name'] as String?) ?? suggest;
+      if (!mounted) return;
+      setState(() {
+        _promoted = true;
+        _promoting = false;
+        if (newCard != null) _replacedCard = newCard;
+      });
+      bumpData(); // new skill + re-filed asset → refresh any open lists
+      if (mounted) showToast(context, '已建「$dn」本子，以后这类自动归类 ✓');
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _promoting = false);
+      showToast(context, '升级失败，先留作随记', error: true);
+    }
   }
 
   Future<bool> _confirmAndDelete(String path) async {

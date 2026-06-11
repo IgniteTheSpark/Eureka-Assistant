@@ -26,7 +26,7 @@
 | **✅ 前端 · 出生不摊组件(改 `starter_drop` 揭示)** | 首孵**不弹** `reka_drop_reveal`「孵化掉落 · 稀有度 · 收下」卡;REKA 现身只呈现一只**完整的、戴帽子+徽记的 REKA**(starter 件静默装好=它的样子)。**`starter_drop` 照发照装备,只是首孵不揭示**;reveal 弹窗保留给后续掉落 | ✅ `_Step.born` 直接现身完整 REKA(celebrate),不再 `showRekaDropReveal`;旧 reveal 步骤/稀有度 chip 已删;后续掉落仍走 reveal |
 | **🟡 前端 · 引导首捕 + 魔法时刻** | 孵化后 REKA 邀请首次捕捉(语音/打字)→ 跑捕捉管线 → **当场展示结构化卡片**;命中新类型且自动建了技能 → 显「我还帮你建了个『XX』本子」→ 「你记的都在这儿」瞥资产库 → 进 app | ✅ 打字首捕 → `sendFlash` → 当场 `SkillCard` → 「你记的都在资产库」→ 进 app(语音=硬件,不在软件 onboarding)。🟡「建了 XX 本子」那一拍待后端即时建技能(优雅降级:暂不显) |
 | **✅ 前端 · 首屏 gating(改 §14.6)** | 三级优先:① `!spawned` → 孵化 onboarding(不弹晨报);② 已孵化+中午前当天首开+**有内容** → 晨报;③ 已孵化但数据太薄 → **跳过晨报**直接进 app | ✅ `_PostAuthGate` 等宠物加载后 `!spawned`→孵化;`maybeShowMorningBriefing` 加 spawned 守卫 + 后端 `thin` 跳过;验:新用户 thin=true |
-| **⏳ 后端/agent · 即时建技能(依赖)** | 捕捉路径命中**不属已有技能**的内容 → design-agent([§1.8](01-agent-architecture.md))**当场建技能 + 归类** + 把「建了 XX」回传前端供魔法时刻展示。**优雅降级**:此路未就绪 → onboarding 退化为「纯首捕 + 卡片」(无建本子那一拍),仍可上线 | ⏳ 未做(按设计降级中)。目标:首捕「宝宝喝了 120ml 奶」→ 自动建「喂奶」技能 + 这条归入 + 前端可显;未就绪时降级不报错 |
+| **🟡 后端/agent · 即时建技能** | 捕捉命中**不属已有技能**的内容 → design-agent([§1.8](01-agent-architecture.md))建技能 + 归类。两个杠杆:**B 一键升级**(用户拍板,已做)/ **A 静默自动建**(onboarding 魔法时刻,待做) | ✅ **B**(`POST /api/skills/promote`):随记带 `suggest_skill` → 卡片显「✨ 长期记成『XX』本子?」chip,点一下 design-agent 当场建技能 + 把这条**重抽进新本子** + 删原随记(失败则改挂)。验:`宝宝5点起床6点睡觉`→建「宝宝作息」`wake_time/sleep_start`。⏳ **A** 静默自动建(onboarding 内)待做 |
 | **🎨 design** | ① **渐进破壳动画**(裂纹分级、抖动、末击迸裂、点数节奏)② **孵化现身呈现**(REKA 整体、暖、有羁绊感,**不**摊组件)③ onboarding 整体情绪/节奏 | 破壳让人想点;现身让人「这是我的伙伴」;全程短、暖、不像填表 |
 
 ---
