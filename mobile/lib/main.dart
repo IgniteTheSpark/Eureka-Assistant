@@ -168,7 +168,11 @@ class _PostAuthGateState extends State<_PostAuthGate> {
           // flash for new users.
           return const ColoredBox(color: Colors.transparent);
         }
-        if (!_pet.spawned && !_onboardingDone) {
+        // Onboarding takeover ONLY when we have a real, un-spawned pet. A null
+        // pet means the /api/pet fetch failed (loaded flips true in refresh()'s
+        // finally even on error) — don't drag a returning user into 孵化 over a
+        // transient blip; fall through to the shell (我的岛 handles the egg).
+        if (_pet.pet != null && !_pet.spawned && !_onboardingDone) {
           return PetSpawnPage(
             onDone: () => setState(() => _onboardingDone = true),
           );
