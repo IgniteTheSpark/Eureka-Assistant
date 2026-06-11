@@ -6,6 +6,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/api_client.dart';
 import '../api/auth_store.dart';
+import '../pet/pet_controller.dart';
+import '../pet/reka_nudges.dart';
+import '../pet/reka_notifications.dart';
 
 /// App-wide auth state: holds the session token + the signed-in email, and
 /// drives the login gate in main.dart. The token is mirrored into [AuthStore]
@@ -140,6 +143,7 @@ class AuthController extends ChangeNotifier {
   Future<void> logout() async {
     AuthStore.token = null;
     _email = null;
+    _resetPerUserState();
     final sp = await SharedPreferences.getInstance();
     await sp.remove(_kToken);
     await sp.remove(_kEmail);
@@ -147,11 +151,22 @@ class AuthController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Wipe the singleton stores that hold per-account state, so signing out (or a
+  /// 401) doesn't leak the previous user's REKA onto the login screen / next
+  /// account. Pet reset also forces the next user's 孵化 onboarding to re-decide
+  /// from a fresh /api/pet (a stale spawned snapshot would skip it).
+  void _resetPerUserState() {
+    PetController.instance.reset();
+    RekaNudges.instance.reset();
+    RekaNotifications.instance.clear();
+  }
+
   void _onUnauthorized() {
     // Token expired server-side — drop it so the gate shows login.
     if (AuthStore.token == null && _email == null) return;
     AuthStore.token = null;
     _email = null;
+    _resetPerUserState();
     SharedPreferences.getInstance().then((sp) {
       sp.remove(_kToken);
       sp.remove(_kEmail);

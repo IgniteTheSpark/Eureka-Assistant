@@ -145,6 +145,8 @@
 > **全新用户的第一屏不是晨报,是孵化。孵化即 onboarding** —— 用「认识 REKA + 当场看它把你一句话整理成卡片」在 ~30 秒交付产品 aha。直接体现产品魂:**你只管说,REKA 替你打理(连建技能都替你办)。**
 >
 > **✅ 实现(2026-06,`pages/pet_spawn_page.dart` 重写 + `main.dart` `_PostAuthGate`)**:① 三级 gating(root gate `!spawned`→孵化;`maybeShowMorningBriefing` 加 spawned 守卫 + `thin` 跳过)② 渐进破壳(`_CrackPainter` 累积裂纹 + 抖动 + 触觉,4 下末击迸裂)③ 出生不摊组件(首孵不弹 `reka_drop_reveal`,REKA 完整现身)④ 引导首捕 + 魔法时刻(打字 → `POST /api/flash` → 当场 `SkillCard` → 进 app)。**「建了 XX 本子」那一拍优雅降级**(后端即时建技能 §1.8 未就绪 → 先上「首捕 + 卡片」;验:新用户「早上买咖啡花了28块」当场出 `¥28` 消费卡)。
+>
+> **两条实现铁律(都踩过坑)**:① **gate 决策必须一次性 latch**(`_needsOnboarding ??=`)—— onboarding 自己的 `spawn()` 会把 `spawned` 翻 true,若每帧重读 `!spawned`,蛋一裂 gate 立刻切到 shell、现身/起名/首捕全被跳过(表现:裂开后直接进 app,什么都没看到)。② **登出必须重置 per-user 单例**(`PetController.reset()`/`RekaNudges.reset()`/`RekaNotifications.clear()`,在 `AuthController.logout`/`_onUnauthorized`)—— 否则旧账号的 `spawned` 宠物会(a)让全局浮球留在登录页,(b)让下个账号 `ensureLoaded` no-op 在旧快照上、跳过它的孵化。蛋点不动另见 §9.2「IgnorePointer 包 PetView」(WKWebView 吞触摸)。
 
 **进入门槛(三级优先,改 [§14.6](14-proactive-reka.md) 晨报 gating):**
 1. **`!spawned`(从没孵化)→ 孵化 onboarding**(最高优先、一次性)。

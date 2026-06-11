@@ -55,6 +55,15 @@ class RekaNudges extends ChangeNotifier {
 
   bool _loaded = false;
 
+  /// Drop all per-user nudge state on logout so the previous account's nudges
+  /// don't leak onto the next user's REKA (peek chip / pending feed).
+  void reset() {
+    _pending.clear();
+    peek = null;
+    _loaded = false;
+    notifyListeners();
+  }
+
   /// App start: restore today's un-acted nudges → quiet「...」chip, NO bob
   /// (the arrival moment already passed; §14.7 被抑制/离线时直接进安静态).
   Future<void> loadPending() async {

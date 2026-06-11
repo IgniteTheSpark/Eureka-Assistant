@@ -144,6 +144,20 @@ class PetController extends ChangeNotifier {
     await refresh();
   }
 
+  /// Drop all per-user state on logout. Without this the singleton keeps the
+  /// previous account's pet (spawned=true) → the global floating REKA lingers on
+  /// the login screen AND the next account's `ensureLoaded()` no-ops on the stale
+  /// snapshot, skipping its 孵化 onboarding. Resetting `_everLoaded` forces a
+  /// fresh /api/pet fetch for whoever logs in next.
+  void reset() {
+    pet = null;
+    loading = false;
+    _everLoaded = false;
+    milestones = const [];
+    milestonesAchieved = 0;
+    notifyListeners();
+  }
+
   /// Fetch the pet; diff unlocked cosmetics vs the previous snapshot and toast
   /// any new drops (skips the first load + the spawn starter set).
   Future<void> refresh() async {

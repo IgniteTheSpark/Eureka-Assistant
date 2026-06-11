@@ -142,10 +142,13 @@ class _PostAuthGate extends StatefulWidget {
 
 class _PostAuthGateState extends State<_PostAuthGate> {
   final _pet = PetController.instance;
-  // Latched once onboarding's first-capture arc finishes: keep showing the shell
-  // even though `spawned` flipped true mid-onboarding (the post-hatch steps run
-  // with spawned==true, so gating purely on `spawned` would swap to the shell
-  // before 起名/首捕 played out).
+  // Latched the first time the pet resolves: did THIS user need onboarding?
+  // null = undecided. Deciding ONCE (not re-reading `spawned` every rebuild) is
+  // essential — onboarding's own spawn() flips spawned→true mid-flow, and a
+  // live re-read would swap the onboarding page out for the shell the instant
+  // the egg hatched (before 现身/起名/首捕 played out).
+  bool? _needsOnboarding;
+  // Set when onboarding's arc finishes (onDone) → swap to the shell.
   bool _onboardingDone = false;
 
   @override
@@ -168,11 +171,12 @@ class _PostAuthGateState extends State<_PostAuthGate> {
           // flash for new users.
           return const ColoredBox(color: Colors.transparent);
         }
-        // Onboarding takeover ONLY when we have a real, un-spawned pet. A null
-        // pet means the /api/pet fetch failed (loaded flips true in refresh()'s
-        // finally even on error) — don't drag a returning user into 孵化 over a
-        // transient blip; fall through to the shell (我的岛 handles the egg).
-        if (_pet.pet != null && !_pet.spawned && !_onboardingDone) {
+        // Decide once, the first time the pet is loaded. A real, un-spawned pet
+        // → onboarding. A null pet means the /api/pet fetch failed (loaded flips
+        // true in refresh()'s finally even on error) — don't drag a returning
+        // user into 孵化 over a transient blip; fall through to the shell.
+        _needsOnboarding ??= _pet.pet != null && !_pet.spawned;
+        if (_needsOnboarding! && !_onboardingDone) {
           return PetSpawnPage(
             onDone: () => setState(() => _onboardingDone = true),
           );
