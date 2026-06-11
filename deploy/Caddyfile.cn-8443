@@ -17,7 +17,14 @@ https://{$DOMAIN} {
 	}
 }
 
-# 裸 IP HTTP 保留作诊断通道(IP 直连不受备案拦截)
+# 备案前唯一可靠通道:裸 IP + 明文 HTTP(:80)。
+# 2026-06 实测抓包:阿里云/骨干网对这台未备案 ECS 的 TLS 流量做 RST 注入 ——
+# 带 SNI=api.ureka.chat 必断,连 8443 非标端口、甚至无 SNI 的裸 IP TLS 也「先通
+# 后断」(ClientHello 到达后被伪造 RST 打断,概率性,做 App 不可用)。而对未备案
+# 域名 Host 头的 HTTP 返回 403、裸 IP 明文 HTTP 则放行(实测 6/6 稳定 200)。
+# 因此 App 备案前指向 http://39.96.55.118(整段证书/TLS 方案全部失效,别再试)。
+# 代价是明文传输,仅用于备案前内测;备案通过后 DOMAIN 指回 api.ureka.chat、
+# 走上方标准 443/8443 HTTPS,本段连同 App 的 ATS 例外一并删除。
 :80 {
 	reverse_proxy backend:8000 {
 		flush_interval -1

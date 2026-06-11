@@ -77,13 +77,18 @@ Point the app's API base URL at `https://api.yourdomain.com`.
    `{"registry-mirrors": ["https://docker.m.daocloud.io", "https://docker.1ms.run"]}` 后 `systemctl restart docker`。
 2. **跨境 PyPI 龟速**(实测 pip 层卡 30+ 分钟)→ Dockerfile 已带 `ARG PIP_INDEX_URL`,
    本 compose 默认传阿里云镜像源;本地构建不受影响。
-3. **未备案域名的 80/443 被阿里云拦截**(按 Host/SNI 拦,App 的 API 调用同样命中)→ 备案前走 **8443 非标端口**:
-   - `.env.prod` 设 `DOMAIN=api.example.com:8443` + `CADDYFILE=Caddyfile.cn-8443`;
-   - 证书用 **DNS-01**(不需要 80 可达):RAM 子账号只授 `AliyunDNSFullAccess`,然后
-     `Ali_Key=.. Ali_Secret=.. acme.sh --issue --dns dns_ali -d api.example.com --server letsencrypt`,
-     `--install-cert` 到 `deploy/certs/{fullchain,key}.pem`,`--reloadcmd "docker restart eureka-prod-caddy-1"`
-     (acme.sh cron 自动续期);
-   - App 构建:`flutter build ipa --dart-define=API_BASE=https://api.example.com:8443`;
-   - **备案通过后**:`DOMAIN` 去掉 `:8443`、`CADDYFILE` 删掉(回默认 Caddyfile),`up -d` 即切回标准 443
-     自动 HTTPS,App 发版换 URL。
-   - 安全组放行:80 / 443 / 8443。
+3. **未备案域名 + TLS 被拦截**(2026-06 抓包实测,结论比预想更严):
+   - 阿里云对未备案域名 `api.ureka.chat` 的 **HTTP** 返回 **403**(按 Host 拦);
+   - 大陆骨干网对这台 ECS 的 **TLS 流量做 RST 注入** —— 带 SNI=域名必断,连
+     **8443 非标端口、甚至无 SNI 的裸 IP TLS 也「先通后断」**(ClientHello 到达后被
+     伪造 RST 打断,概率性,做 App 不可用)。**→ 原计划的 8443 + DNS-01 HTTPS 方案
+     在用户网络下实测 0/6 不通,已放弃。**
+   - **备案前唯一可靠通道:裸 IP + 明文 HTTP(`http://39.96.55.118`,实测 6/6 稳定 200,
+     完整注册/登录链路通过)。** 配置即 `Caddyfile.cn-8443` 里保留的 `:80` 站点。
+   - App 端:`--dart-define=API_BASE=http://39.96.55.118`,并在 `ios/Runner/Info.plist`
+     加 **仅放行该 IP** 的 ATS 明文例外(`NSExceptionDomains` → `39.96.55.118`)。
+     代价是明文传输,仅限备案前内测;App Store 正式提审走备案后的 HTTPS。
+   - 证书/`acme.sh` DNS-01/`8443` 那套**备案后**才有意义:届时 `DOMAIN` 指回
+     `api.ureka.chat`(去端口)、`CADDYFILE` 删掉回默认 Caddyfile,`up -d` 切回标准
+     443 自动 HTTPS;同时删掉 App 的 ATS 例外、`API_BASE` 换 `https://api.ureka.chat`。
+   - 安全组放行:80 / 443 / 8443(后两者备案后用)。
