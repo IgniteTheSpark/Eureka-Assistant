@@ -57,11 +57,41 @@
 > 确认:Eureka 用的就是百智录音卡。现状捕捉走 **macOS FlashType 桌面桥**(§3.2)。目标:**手机直连卡**,去掉 Mac 依赖 —— 这是「手机优先零摩擦捕捉」的真正解锁(也是 gamemode 里后置的「原生 BLE/离线补传」)。
 
 - **SDK**:`brrecordsdk/RecordSDK`,Swift,`BluetoothDeviceManager`(单例 + delegate),iOS/macOS。能力:BLE 扫描/绑定/连接、BLE 同步 `.opus`、**WiFi 快传**(`192.168.1.1:32769` socket)、实时录音、**闪念录音(设备按键触发,「F」前缀 `.opus`)**、MARK 头解析。
-- **接法:把 Swift SDK 封成 Flutter 插件(platform channel,iOS)** → app 内:绑定卡 → BLE/WiFi 同步取 `.opus` + 闪念事件 → **剥 MARK 头**(取真实 Opus payload)→ ASR(端上 whisper 或上传后端)→ 喂 flash 管线(`POST /api/flash`)。
+- **接法:把 Swift SDK 封成 Flutter 插件(platform channel,iOS)** → app 内:绑定卡 → BLE/WiFi 同步取 `.opus` + 闪念事件 → **剥 MARK 头**(取真实 Opus payload)→ **ASR(服务端 qwen3-asr-flash,见 §13.3.1)**→ 喂 flash 管线(`POST /api/flash`)。
 - **闪念事件**(`flashMemoDidStartRecording`/`...DidReceiveAudio`/`...DidFinishRecording`)= 硬件按键触发的捕捉 = Eureka 的「闪念」入口,直接接 §1.3 flash pipeline。
 - **要点**:① 让百智把 SDK 对外接口标 `public`(文档已提示);② BLE 同步/WiFi快传/删除/格式化**不并发**;③ CRC 校验失败的文件不喂 ASR;④ 绑定信息 `BindInfo` 业务层持久化、下次 `setBindInfo` 回填;⑤ 格式化清空卡片须二次确认。
 - **过渡**:FlashType 桌面桥(§3.2)可保留作 dev/桌面路径;手机插件落地后,手机为主路径。
 - **获取**:钉钉联系 张冲 拿 SDK。
+
+### 13.3.1 离线捕捉 · 存储转发（ASR = qwen3-asr-flash · 设计中）
+
+> **卡片 = 绝不丢的离线捕捉缓冲。** 手机没电/不在身边时,卡片照录(`.opus` 本地存,SDK 管);**重连补传**。这是「捕捉神圣、永不丢」在硬件上的兑现。卡片侧细节由百智 SDK 封装(带时间戳上传),Eureka 只接「取到音频 + 时间戳」之后的链路。
+
+**链路(最终版,无 OSS):**
+```
+卡片(.opus + captured_at,SDK 管) ──BLE/WiFi──▶ 手机(队列)
+  → 手机把音频 + {recording_id, captured_at} 传给【Eureka 服务端】(不直连 DashScope、不走 OSS)
+  → 服务端(持 DashScope key)→ qwen3-asr-flash(audio = base64 Data URI)→ transcript
+  → 喂 flash 管线 POST /api/flash(带 captured_at)→ 按那天聚合到对应闪念 session → 出卡片
+  → 通知(`flash_done`)→ 用户(哪怕隔几天)点通知进对应闪念 session 看
+  → 音频在请求里过一下、转完即弃;不落任何存储、不上任何公网 URL
+```
+
+**ASR = `qwen3-asr-flash`(选型已定,路①最简):**
+- **base64 Data URI** 直传(`data:audio/...;base64,...`),**无需 OSS**;**≤10MB / ≤5 分钟**(闪念是短语音,碰不到上限);**Opus 直收**(格式列表含 `opus/ogg`,**手机不用转码**)。
+- **语言**:中文(普通话 + 四川/闽南/吴/粤 5 方言)+ **英语** + 日/德/韩/俄/法… 二十余语种 → 贴「任意语言输入」+ 学生英文 vocab。
+- **同步调用**:短语音秒回;**持久性靠「手机队列 + 服务端 job」**(同 [§1.5.1.1](01-agent-architecture.md) durable),ASR 调用本身同步即可。
+
+**两条铁律:**
+- **安全:手机绝不持 DashScope key。** 音频 **手机 → Eureka 服务端 → DashScope**,key 只在服务端;音频**不存、不上公网**(隐私优于 OSS 公网 URL 路)。
+- **时间戳定 session(关键)**:`captured_at` 由卡片盖、随上传带回;flash 用它把 transcript **聚合到录入那天**的闪念 session(不是同步那天)。否则隔天补传会落错日、时间词("刚刚")全乱。
+
+**纠错(贴异步本质):**
+- **捕捉时不做任何确认**(违背"记了就走");**ASR 残错 → 用户后看时改那张卡片**(`AssetDetailDrawer` 编辑,[§4](04-frontend.md) 既有)。**transcript 是已消费的输入、只读出处,不可编辑、也不必编辑**(改它不会重生卡片)。
+
+**ASR 可插拔(留后路):** 服务端 ASR 抽象成一个接口(入:音频;出:transcript)。默认 `qwen3-asr-flash`;**兜底**:`paraformer-v2` + OSS(**19 方言**,东北/河南/山东/上海… 全;需 OSS 签名 URL + 异步 submit→poll)/ `fun-asr`(中英混说强)/ 讯飞(深方言)。**先上 qwen,实测翻车再切,上下游不动。**
+
+**TODO(实测/核实):** ① **中英混说**一句能否转好(fun-asr 才明标"中英自由切换",qwen 未明说 → 拿真样本测);② qwen 的 **5 方言够不够**(东北/河南/山东/上海等不在 → 不够就切 paraformer);③ **计价**(控制台查 qwen3-asr-flash 时长单价 + 免费额度 → [§12](12-business-model.md))。
 
 ---
 
@@ -80,7 +110,7 @@
 ## 13.5 安全与待决
 
 - **安全铁律**:`app_secret` 仅后端 `.env.prod`(永不客户端/不提交);签名在服务端;临时 token 一次性、不持久化;百智真实 token **per-user 加密、write-only、不回客户端/日志**(同 [§1.7.1](01-agent-architecture.md) Connected Apps 模型)。
-- **待决**:① 百智-only 登录 vs 并存邮箱(§13.1);② KB 同步范围(全量 / 按 domain / 按类型)+ 默认开关态(§13.4);③ 端上 ASR vs 上传后端转写(§13.3);④ 收购闭合时间 → 决定何时从「单向同步」升到「百智为权威」。
+- **待决**:① 百智-only 登录 vs 并存邮箱(§13.1);② KB 同步范围(全量 / 按 domain / 按类型)+ 默认开关态(§13.4);③ ~~端上 vs 后端 ASR~~ **已定:服务端 `qwen3-asr-flash` base64、无 OSS(§13.3.1)**;遗留 TODO = 中英混说/方言/计价实测;④ 收购闭合时间 → 决定何时从「单向同步」升到「百智为权威」。
 
 ---
 
@@ -91,6 +121,7 @@
 | **B1 · OAuth 登录 ✅ 已实现** | bridge(nonce/sign)+ 回调 + token exchange + 映射→Eureka user + 签发 Eureka JWT + 存百智 token(加密) | 后端 `api/auth_baizhi.py`(+`main.py` 挂载、`config.py` `baizhi_*`、`User.baizhi_user_id` 迁移 `0017`)· Flutter `auth_controller.loginWithBaizhi` + 登录页「用百智登录」(`flutter_web_auth_2`)· 成稿卡 [`handoff-baizhi-oauth.md`](handoff-baizhi-oauth.md) |
 | **B2 · MCP 连接器** | `baizhi_meeting`/`baizhi_calendar` 进 `MCP_SERVER_CATALOG`;Bearer 注入 | [§1.7](01-agent-architecture.md) `mcp_config.py` |
 | **B3 · 录音卡 Flutter 插件** | Swift `BluetoothDeviceManager` → iOS platform channel;绑定/BLE+WiFi 同步/闪念事件 → 剥 MARK → flash 管线 | mobile 插件 · §3.2 |
+| **B3.1 · 离线捕捉 · 存储转发(§13.3.1)** | 手机队列(永不丢/幂等)→ 传音频+`captured_at` 给服务端 → 服务端 **`qwen3-asr-flash` base64**(无 OSS、音频不存)→ transcript 进 `POST /api/flash`(带 `captured_at` 定 session)→ 通知。ASR 步可插拔 | 后端 ASR 接口 + flash `captured_at` 覆盖(§3.2)· mobile 上传队列 |
 | **B4 · KB 同步** | 单向 Eureka→百智 KB,异步增量,设置开关 | §13.4 · §2 |
 
 > 依赖:B1 是 B2/B4 的前置(都要百智 token)。B3 独立(硬件侧),可并行。

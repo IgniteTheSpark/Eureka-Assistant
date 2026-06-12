@@ -150,7 +150,7 @@ class _SearchPill extends StatelessWidget {
           const SizedBox(width: 10),
           Flexible(
             child: Text(
-              scanning ? '正在搜索你的 Eureka 设备…' : '准备搜索…',
+              scanning ? '正在搜索你的 UReka 设备…' : '准备搜索…',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(color: eu.textHi, fontSize: 14, fontWeight: FontWeight.w500),

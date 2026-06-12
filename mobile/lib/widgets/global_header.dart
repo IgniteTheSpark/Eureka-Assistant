@@ -113,7 +113,7 @@ void _openProfile(BuildContext context) {
                           style: TextStyle(
                               color: eu.textHi, fontSize: 16, fontWeight: FontWeight.w700)),
                       const SizedBox(height: 2),
-                      Text('Eureka 账号', style: TextStyle(color: eu.textMid, fontSize: 12)),
+                      Text('UReka 账号', style: TextStyle(color: eu.textMid, fontSize: 12)),
                     ],
                   ),
                 ),

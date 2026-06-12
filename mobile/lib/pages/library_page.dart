@@ -260,7 +260,7 @@ class _LibraryPageState extends State<LibraryPage> {
       final file = File('${Directory.systemTemp.path}/$name');
       await file.writeAsString(text);
       await Share.shareXFiles([XFile(file.path, mimeType: mime, name: name)],
-          subject: 'Eureka 导出');
+          subject: 'UReka 导出');
     } catch (e) {
       if (mounted) showToast(context, '导出失败：$e', error: true);
     } finally {

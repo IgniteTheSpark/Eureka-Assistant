@@ -39,7 +39,7 @@ class EurekaApp extends StatelessWidget {
       valueListenable: themeModeNotifier,
       builder: (context, mode, _) {
         return MaterialApp(
-          title: 'Eureka',
+          title: 'UReka',
           debugShowCheckedModeBanner: false,
           navigatorKey: navigatorKey,
           // General refresh: returning to any screen (pop / sheet close) re-fetches.

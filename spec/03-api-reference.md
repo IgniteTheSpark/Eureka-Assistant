@@ -76,6 +76,7 @@ sessions, contacts, events, timeline, tasks, notifications。
 ```
 - `source` ∈ `voice`（麦克风/语音模拟，默认）/ `typed` / `imported`，正交于 session_type。
 - flash session **按自然日聚合**：同一天的闪念进同一个 `{月}月{日}日 闪念` session。
+- **`captured_at` 覆盖（离线捕捉用，设计中 [§13.3.1](13-baizhi-integration.md)）**：可选字段，硬件卡离线录入的真实时间戳。给定时 **session 按 `captured_at` 那天聚合**（而非到达服务端的"今天"）+ 喂给时间词解析 —— 否则隔天补传会落错日。缺省 = 服务端当前时间。
 
 **响应** `FlashResponse`：
 ```json
