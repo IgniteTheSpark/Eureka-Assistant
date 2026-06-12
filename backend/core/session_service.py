@@ -99,6 +99,10 @@ async def create_input_turn_for_message(
     user_id: str,
     text: str,
     source: str = "typed",
+    file_id: Optional[str] = None,
+    segments: Optional[list] = None,
+    asr_provider: Optional[str] = None,
+    language: Optional[str] = None,
 ) -> InputTurn:
     """
     Create an input_turn row for this user message — the source of provenance
@@ -129,6 +133,10 @@ async def create_input_turn_for_message(
         index=next_index,
         text=text,
         source=source,
+        file_id=uuid.UUID(file_id) if file_id else None,
+        segments=segments,
+        asr_provider=asr_provider,
+        language=language,
     )
     db.add(turn)
     await db.commit()

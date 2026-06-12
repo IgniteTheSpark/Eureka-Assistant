@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 
 import 'api/api_client.dart';
 import 'api/sse_client.dart';
+import 'ble_flash/flash_file_status_controller.dart';
+import 'ble_flash/flash_file_workflow.dart';
 import 'data_revision.dart';
 import 'pages/calendar_page.dart';
 import 'pages/report_viewer_page.dart';
@@ -26,12 +28,16 @@ final navigatorKey = GlobalKey<NavigatorState>();
 class AppEvents {
   AppEvents._();
   static final AppEvents instance = AppEvents._();
+  static const _flashLogTag = '[FlashFile]';
 
   bool _started = false;
+
+  void _flashLog(String message) => debugPrint('$_flashLogTag SSE $message');
 
   void start() {
     if (_started) return;
     _started = true;
+    _flashLog('app events start');
     _run();
     // §14.7: restore today's un-acted nudges → quiet「...」chip on the ball.
     RekaNudges.instance.loadPending();
@@ -43,8 +49,9 @@ class AppEvents {
         await for (final ev in getSse('/api/notifications/stream')) {
           _handle(ev);
         }
-      } catch (_) {
+      } catch (e) {
         // connection dropped — reconnect below
+        _flashLog('SSE disconnected error=$e');
       }
       listeningNotifier.value = false;
       await Future<void>.delayed(const Duration(seconds: 3));
@@ -55,9 +62,20 @@ class AppEvents {
     switch (ev.type) {
       case 'listening':
         final s = ev.json['state'];
+        _flashLog('listening state=$s');
         listeningNotifier.value = s == 'on' || s == true;
       case 'capture':
         // Input turn persisted → refresh so the flash session shows it +「正在整理」.
+        _flashLog('capture event session=${ev.json['session_id']}');
+        bumpData();
+      case 'flash_file_status':
+        _flashLog(
+          'flash_file_status recording=${ev.json['recording_id']} '
+          'clientTask=${ev.json['client_task_id']} status=${ev.json['status']} '
+          'file=${ev.json['device_file_name']} message=${ev.json['message']}',
+        );
+        FlashFileStatusController.instance.applyServerStatus(ev.json);
+        FlashFileWorkflow.instance.applyServerStatus(ev.json);
         bumpData();
       case 'notification':
         bumpData();
@@ -66,7 +84,9 @@ class AppEvents {
         // §14.7 nudge = 拍肩, not an alert: it surfaces as a REKA peek bubble
         // (light bob) handled by the FloatingMascot — NOT the standard toast.
         if (type == 'nudge') {
-          final link = (j['link'] as String? ?? '').split(':'); // nudge:<id>:<ref>
+          final link = (j['link'] as String? ?? '').split(
+            ':',
+          ); // nudge:<id>:<ref>
           final title = j['title'] as String? ?? '';
           final n = RekaNudge(
             id: link.length > 1 ? link[1] : '',
@@ -75,7 +95,9 @@ class AppEvents {
             ref: link.length > 2 ? link.sublist(2).join(':') : '',
             // optimistic guess for the first paint (offer titles carry ✨/📝);
             // refresh() below replaces it with the server's authoritative cta.
-            cta: (title.startsWith('✨') || title.startsWith('📝')) ? 'synthesize' : 'log',
+            cta: (title.startsWith('✨') || title.startsWith('📝'))
+                ? 'synthesize'
+                : 'log',
           );
           if (n.id.isNotEmpty && n.text.isNotEmpty) {
             RekaNudges.instance.pushArrival(n);
@@ -92,11 +114,13 @@ class AppEvents {
         }
         _toast(j);
         RekaNotifications.instance.add(
-          icon: type == 'flash_done' ? '⚡' : (type.startsWith('task') ? '⚙️' : '🔔'),
+          icon: type == 'flash_done'
+              ? '⚡'
+              : (type.startsWith('task') ? '⚙️' : '🔔'),
           title: j['title'] as String? ?? '通知',
           meta: j['body'] as String?,
-          type: type,                              // carry routing info so the
-          link: j['link'] as String? ?? '',        // REKA panel + toast can open it
+          type: type, // carry routing info so the
+          link: j['link'] as String? ?? '', // REKA panel + toast can open it
         );
     }
   }
@@ -118,7 +142,9 @@ class AppEvents {
 
     entry = OverlayEntry(
       builder: (_) => _TopToast(
-        icon: type == 'flash_done' ? '⚡' : (type.startsWith('task') ? '⚙' : '🔔'),
+        icon: type == 'flash_done'
+            ? '⚡'
+            : (type.startsWith('task') ? '⚙' : '🔔'),
         title: title,
         body: body,
         onTap: link.isEmpty
@@ -169,16 +195,25 @@ Future<void> openNotificationTarget(String type, String link) async {
         if (ev == null || ctx == null) return;
         final card = {'card_type': 'event', ...ev.cast<String, dynamic>()};
         // ignore: use_build_context_synchronously — ctx re-fetched + null-checked above
-        showAssetDetail(ctx,
-            data: buildCard(payload: card, spec: synthesizeSpec('event'), displayName: 'event'),
-            payload: card, cardType: 'event', assetId: id);
+        showAssetDetail(
+          ctx,
+          data: buildCard(
+            payload: card,
+            spec: synthesizeSpec('event'),
+            displayName: 'event',
+          ),
+          payload: card,
+          cardType: 'event',
+          assetId: id,
+        );
       } else {
         final res = await api.getJson('/api/assets/$id');
         final a = (res is Map ? (res['asset'] ?? res) : null) as Map?;
         if (a == null) return;
         final am = a.cast<String, dynamic>();
         final skill = am['user_skill_name'] as String? ?? 'todo';
-        final payload = (am['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
+        final payload =
+            (am['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
         RenderSpec? spec;
         try {
           spec = (await fetchRenderSpecs(api))[skill];
@@ -186,22 +221,35 @@ Future<void> openNotificationTarget(String type, String link) async {
         final ctx = navigatorKey.currentContext; // fresh, post-await
         if (ctx == null) return;
         // ignore: use_build_context_synchronously — ctx re-fetched + null-checked above
-        showAssetDetail(ctx,
-            data: buildCard(payload: payload, spec: spec ?? synthesizeSpec(skill), displayName: skill)
-                .copyWith(domain: am['domain'] as String?),
-            payload: payload, cardType: skill, assetId: id,
-            sessionId: am['session_id'] as String?, spec: spec);
+        showAssetDetail(
+          ctx,
+          data: buildCard(
+            payload: payload,
+            spec: spec ?? synthesizeSpec(skill),
+            displayName: skill,
+          ).copyWith(domain: am['domain'] as String?),
+          payload: payload,
+          cardType: skill,
+          assetId: id,
+          sessionId: am['session_id'] as String?,
+          spec: spec,
+        );
       }
     } catch (_) {
-      nav.push(MaterialPageRoute(builder: (_) => const CalendarPage())); // fallback
+      nav.push(
+        MaterialPageRoute(builder: (_) => const CalendarPage()),
+      ); // fallback
     } finally {
       api.close();
     }
     return;
   }
   if (type == 'flash_done') {
-    nav.push(MaterialPageRoute(
-        builder: (_) => SessionDetailPage(sessionId: link, title: '闪念')));
+    nav.push(
+      MaterialPageRoute(
+        builder: (_) => SessionDetailPage(sessionId: link, title: '闪念'),
+      ),
+    );
     return;
   }
   if (type == 'report_done') {
@@ -211,15 +259,19 @@ Future<void> openNotificationTarget(String type, String link) async {
       api.close();
       final r = (res is Map ? res['report'] : null) as Map?;
       if (r != null) {
-        nav.push(MaterialPageRoute(
-          builder: (_) => ReportViewerPage(
-            title: r['title'] as String? ?? '报告',
-            html: r['html'] as String? ?? '',
-            reportId: link,
+        nav.push(
+          MaterialPageRoute(
+            builder: (_) => ReportViewerPage(
+              title: r['title'] as String? ?? '报告',
+              html: r['html'] as String? ?? '',
+              reportId: link,
+            ),
           ),
-        ));
+        );
       }
-    } catch (_) {/* best-effort — a deleted report just doesn't open */}
+    } catch (_) {
+      /* best-effort — a deleted report just doesn't open */
+    }
     return;
   }
   // task_done / task_failed / unknown → no clean target page; no-op.
@@ -245,9 +297,12 @@ class _TopToast extends StatefulWidget {
   State<_TopToast> createState() => _TopToastState();
 }
 
-class _TopToastState extends State<_TopToast> with SingleTickerProviderStateMixin {
-  late final AnimationController _c =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 240))..forward();
+class _TopToastState extends State<_TopToast>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 240),
+  )..forward();
 
   @override
   void dispose() {
@@ -263,8 +318,10 @@ class _TopToastState extends State<_TopToast> with SingleTickerProviderStateMixi
       left: 12,
       right: 12,
       child: SlideTransition(
-        position: Tween(begin: const Offset(0, -0.4), end: Offset.zero)
-            .animate(CurvedAnimation(parent: _c, curve: Curves.easeOutCubic)),
+        position: Tween(
+          begin: const Offset(0, -0.4),
+          end: Offset.zero,
+        ).animate(CurvedAnimation(parent: _c, curve: Curves.easeOutCubic)),
         child: FadeTransition(
           opacity: _c,
           child: Material(
@@ -280,9 +337,10 @@ class _TopToastState extends State<_TopToast> with SingleTickerProviderStateMixi
                   border: Border.all(color: eu.border),
                   boxShadow: [
                     BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.28),
-                        blurRadius: 22,
-                        offset: const Offset(0, 8)),
+                      color: Colors.black.withValues(alpha: 0.28),
+                      blurRadius: 22,
+                      offset: const Offset(0, 8),
+                    ),
                   ],
                 ),
                 child: Row(
@@ -295,27 +353,43 @@ class _TopToastState extends State<_TopToast> with SingleTickerProviderStateMixi
                       decoration: BoxDecoration(
                         color: eu.brand.withValues(alpha: 0.16),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: eu.brand.withValues(alpha: 0.30)),
+                        border: Border.all(
+                          color: eu.brand.withValues(alpha: 0.30),
+                        ),
                       ),
-                      child: Text(widget.icon, style: const TextStyle(fontSize: 14)),
+                      child: Text(
+                        widget.icon,
+                        style: const TextStyle(fontSize: 14),
+                      ),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(widget.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                  color: eu.textHi, fontSize: 13.5, fontWeight: FontWeight.w600)),
+                          Text(
+                            widget.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: eu.textHi,
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                           if (widget.body.isNotEmpty)
                             Padding(
                               padding: const EdgeInsets.only(top: 2),
-                              child: Text(widget.body,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(color: eu.textMid, fontSize: 12, height: 1.35)),
+                              child: Text(
+                                widget.body,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: eu.textMid,
+                                  fontSize: 12,
+                                  height: 1.35,
+                                ),
+                              ),
                             ),
                         ],
                       ),

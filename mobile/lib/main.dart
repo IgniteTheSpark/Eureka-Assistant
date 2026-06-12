@@ -6,6 +6,8 @@ import 'app_shell.dart';
 import 'auth/auth_controller.dart';
 import 'ble_flash/ble_flash_manager.dart';
 import 'ble_flash/ble_flash_overlay.dart';
+import 'ble_flash/flash_file_status_bar.dart';
+import 'ble_flash/flash_file_workflow.dart';
 import 'data_revision.dart';
 import 'device/device_controller.dart';
 import 'pages/login_page.dart';
@@ -21,6 +23,7 @@ import 'widgets/listening_overlay.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  WidgetsBinding.instance.addObserver(_FlashFileLifecycleObserver());
   // START_THEME=light|dark lets a build boot into a theme for screenshot parity
   // (the runtime toggle can't be driven headless).
   const startTheme = String.fromEnvironment('START_THEME');
@@ -32,6 +35,15 @@ void main() {
   AuthController.instance.load();
   BleFlashManager.instance.start();
   runApp(const ProviderScope(child: EurekaApp()));
+}
+
+class _FlashFileLifecycleObserver extends WidgetsBindingObserver {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      FlashFileWorkflow.instance.scanOfflineIfConnected();
+    }
+  }
 }
 
 class EurekaApp extends StatelessWidget {
@@ -108,6 +120,9 @@ class EurekaApp extends StatelessWidget {
                                   )
                                 : const SizedBox.shrink(),
                           ),
+                          const Positioned.fill(
+                            child: IgnorePointer(child: FlashFileStatusBar()),
+                          ),
                         ],
                       ),
                     ),
@@ -146,6 +161,7 @@ class _AuthGate extends StatelessWidget {
         if (!auth.isAuthed) return const LoginPage();
         // Authed: open the hardware/notifications SSE bridge (idempotent).
         AppEvents.instance.start();
+        FlashFileWorkflow.instance.start();
         return _startSession.isEmpty
             ? const _PostAuthGate()
             : SessionDetailPage(sessionId: _startSession, title: '会话详情');

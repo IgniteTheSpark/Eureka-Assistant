@@ -67,6 +67,8 @@ async def lifespan(app: FastAPI):
     # nudges (~30min ticks, deterministic, zero per-tick LLM).
     from core.companion import companion_loop
     companion_task = asyncio.create_task(companion_loop())
+    from core.flash_file_queue import start_flash_file_workers, stop_flash_file_workers
+    start_flash_file_workers(concurrency=2)
 
     # Warm the internal MCP toolset at boot so the FIRST user chat turn doesn't
     # pay the stdio-subprocess spawn (re-imports the backend + connects MySQL,
@@ -96,6 +98,7 @@ async def lifespan(app: FastAPI):
                 await t
             except (asyncio.CancelledError, Exception):
                 pass
+        await stop_flash_file_workers()
         await close_mcp_toolset()
 
 

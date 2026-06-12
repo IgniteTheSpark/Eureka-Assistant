@@ -9,4 +9,9 @@ class AppConfig {
     'API_BASE',
     defaultValue: 'http://localhost:8000',
   );
+
+  static const tencentAsrBase = String.fromEnvironment(
+    'TENCENT_ASR_BASE',
+    defaultValue: 'https://pre.card.biz',
+  );
 }

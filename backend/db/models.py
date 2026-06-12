@@ -212,6 +212,79 @@ class File(Base):
     created_at   = Column(TIMESTAMPTZ, default=_utcnow)
 
 
+class FlashRecording(Base):
+    """One hardware flash-memo file and its server-side processing state.
+
+    The app uploads MP3 to the internal Tencent-ASR S3 service, then reports the
+    completed upload here. Eureka creates the ASR task server-side and keeps
+    metadata plus processing results only; audio bytes remain in the external
+    object store.
+    """
+    __tablename__ = "flash_recordings"
+
+    id                   = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id              = Column(String(50), nullable=False, index=True)
+    file_id              = Column(GUID(), ForeignKey("files.id"), nullable=False)
+
+    card_sn              = Column(String(100), nullable=False)
+    device_file_name     = Column(String(255), nullable=False)
+    client_task_id       = Column(String(100), nullable=False)
+    source               = Column(String(20), nullable=False)  # realtime | offline
+    device_crc           = Column(Integer)
+    device_size_bytes    = Column(Integer)
+    capture_started_at   = Column(TIMESTAMPTZ)
+    capture_ended_at     = Column(TIMESTAMPTZ)
+
+    local_mp3_sha256     = Column(String(64))
+    local_mp3_size_bytes = Column(Integer)
+
+    s3_key                = Column(String(512), nullable=False)
+    s3_content_type       = Column(String(100))
+    s3_upload_url         = Column(Text().with_variant(MEDIUMTEXT, "mysql"))
+    s3_upload_headers     = Column(JSON)
+    s3_upload_expires_in  = Column(Integer)
+    s3_uploaded_at        = Column(TIMESTAMPTZ)
+
+    tencent_asr_task_id          = Column(String(100))
+    tencent_engine_type          = Column(String(50))
+    tencent_speaker_diarization  = Column(Integer)
+    tencent_hotword_list         = Column(Text)
+    tencent_status               = Column(String(30), nullable=False)  # submitted | running | finished | failed
+    tencent_error_message        = Column(Text)
+    tencent_task_response        = Column(JSON, nullable=False)
+    tencent_result_response      = Column(JSON)
+
+    upload_status       = Column(String(20), nullable=False)  # uploaded | duplicate | rejected
+    process_status      = Column(String(20), nullable=False)  # pending | asr_processing | asr_done | processing_flash | done | failed
+    asr_provider        = Column(String(50), nullable=False, default="tencent_asr_s3_async")
+    asr_text            = Column(Text)
+    asr_segments        = Column(JSON)
+    asr_error           = Column(Text)
+
+    session_id          = Column(GUID(), ForeignKey("sessions.id"))
+    input_turn_id       = Column(GUID(), ForeignKey("input_turns.id"))
+    result_summary      = Column(Text)
+    result_cards        = Column(JSON)
+    error_message       = Column(Text)
+    retry_count         = Column(Integer, nullable=False, default=0)
+    accepted_at         = Column(TIMESTAMPTZ)
+    processed_at        = Column(TIMESTAMPTZ)
+    created_at          = Column(TIMESTAMPTZ, default=_utcnow)
+    updated_at          = Column(TIMESTAMPTZ, default=_utcnow, onupdate=_utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "client_task_id", name="uq_flash_recording_client_task"),
+        UniqueConstraint("user_id", "tencent_asr_task_id", name="uq_flash_recording_tencent_task"),
+        UniqueConstraint(
+            "user_id", "card_sn", "device_file_name", "device_crc",
+            name="uq_flash_recording_device_crc",
+        ),
+        Index("idx_flash_recordings_user_status", "user_id", "process_status", "created_at"),
+        Index("idx_flash_recordings_file", "user_id", "file_id"),
+        Index("idx_flash_recordings_s3_key", "s3_key"),
+    )
+
+
 class InputTurn(Base):
     """
     One unit of input within a Session. Replaces the old Transcript concept.

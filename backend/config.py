@@ -57,6 +57,13 @@ class Settings(BaseSettings):
     baizhi_me_url:         str = ""   # OPTIONAL authoritative "current user" endpoint (Bearer real-token)
     eureka_app_scheme:     str = "eureka"   # deep-link scheme back to the Flutter app
 
+    # 闪念文件 ASR — App 创建同事公开服务的 Tencent ASR S3 异步任务，
+    # Eureka 只记录 task_id，并轮询公开服务拿识别结果。
+    tencent_asr_service_base_url:              str = "https://pre.card.biz"
+    flash_asr_provider:                        str = "tencent_asr_s3_async"
+    tencent_asr_result_poll_interval_seconds:  int = 5
+    tencent_asr_result_poll_timeout_seconds:   int = 300
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
