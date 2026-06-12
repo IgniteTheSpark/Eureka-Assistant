@@ -111,15 +111,13 @@ USER_SKILL_CONFIGS = [
             "currency":    {"type": "string", "default": "CNY"},
             "category":    {"type": "string"},
             "merchant":    {"type": "string"},
-            "date":        {"type": "date"},
-            "at":          {"type": "datetime"},   # v1.4.x: 含时刻,timeline 优先用此
+            "date":        {"type": "date", "label": "日期"},
             "description": {"type": "string"},
         },
         "queryable_fields": [
             {"field": "amount",   "index_type": "numeric"},
             {"field": "category", "index_type": "enum"},
             {"field": "date",     "index_type": "date"},
-            {"field": "at",       "index_type": "date"},
             {"field": "merchant", "index_type": "text"},
         ],
         "render_spec": {
