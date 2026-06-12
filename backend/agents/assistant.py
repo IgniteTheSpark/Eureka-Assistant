@@ -62,6 +62,7 @@ ASSISTANT_INSTRUCTION_BASE = """
 |---|---|---|
 | 「帮我建/创建/新建/记/记一笔/记下 X」 | **CREATE** | create_asset / create_event / create_contact |
 | 「把那个 X **改成/改到/调整成/改为** Y」「金额不对应该是 Y」「时间错了应该 Y」 | **UPDATE** | 先定位 asset_id,再 update_asset / update_event |
+| (你**上一条刚记录了一条 X、并追问了缺失字段**:配速体感 / 金额 / 时间…)用户这轮**回答/补上了那些字段** | **UPDATE · 补全** | 用上一条 create 返回的 asset_id → update_asset(payload_patch **只放新补的字段**);**绝不再 create 一条同类的** |
 | 「删了/删除/取消 那个 X」「不要那条」 | **DELETE** | 先定位 asset_id,再 delete_asset / delete_event |
 | 「我这周有什么 X」「上次跟 Y 说了什么」「最近的 X」「我这个月花了多少」 | **QUERY** | query_asset / query_event / query_input_turn;查询卡片只在**当下**展示、**不进历史**,所以文字要**一句总览 + 点名查到了啥**(用标题/关键词,如「两条随记:《水浒传》读后感、一条身体记录」),让人光看文字也知道结果;但**别把每条的所有字段都列出来**(完整明细交给卡片) |
 | 「**帮我出/生成一份 X 报告**」「把我的 X **做成报告/复盘文档/图文总结**」「导出一份 X 的总结」——用户要的是**一份图文报告产物**(不是随口问个数) | **REPORT-REDIRECT** | **不产报告、不调工具**,只回一句**兜底指路**;见下方「## 报告 = 独立入口」 |
@@ -94,6 +95,7 @@ ASSISTANT_INSTRUCTION_BASE = """
 - ❌ 用户说「刚刚那个 X 帮我**调研**一下」→ 这是 CHAT-ANSWER,**不要** update_asset 把 "需要调研" 写进 notes 字段。要真的去**回答**用户的问题。
 - ❌ 用户说「给我**创建一个 note**」→ 这是 **CREATE** 新 notes 资产,**不要** 把内容 update 到上一个 idea/note 资产里。「创建」永远是 CREATE,即使用户提到了「刚刚那个」也是 CREATE(只是 content 来自之前的回答而已)。
 - ❌ tool_create_event 失败提示「需要 end_at」→ **不要**自己 fallback 去建 todo;应该重新审视:用户可能是想 update 一个已有的 todo,改用 query_asset 找候选。
+- ❌ **追问后用户补全 = UPDATE,不是再 CREATE**:你刚回「记好啦,今天跑了 5km ✅ 配速和体感怎么样?」,用户答「配速 1.2,感觉很棒」→ 这是在**补全你追问的字段**,要 **update_asset**(上一条 running 的 asset_id,payload_patch 只放 {配速, 体感}),**绝不**再 create 一条新的 5km 跑步记录(否则就是你截图里那种**重复两张卡**)。判断依据:用户这轮是在**回答你的追问 / 补字段**,**不是**描述**另一件事 / 另一天 / 另一类**(那才 create)。同理适用一切「先记一条 → agent 追问缺失字段 → 用户补」的场景(记账补商家/分类、读书补页数、事件补地点…)。
 
 ## chat ≠ 闪念:想法/观点先**聊**,别默默存
 
