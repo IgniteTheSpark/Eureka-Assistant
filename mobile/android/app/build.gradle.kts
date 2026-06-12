@@ -29,7 +29,7 @@ val hasReleaseSigning = listOf(
 ).all { releaseSigningProperty(it).isNotEmpty() }
 
 android {
-    namespace = "com.eureka.eureka"
+    namespace = "com.eureka.mindapp"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -40,13 +40,17 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.eureka.eureka"
+        applicationId = "com.eureka.mindapp"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     signingConfigs {
@@ -106,4 +110,8 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    implementation("com.bairong.lib:loglib:1.0.1")
 }

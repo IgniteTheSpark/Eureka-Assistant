@@ -1,7 +1,25 @@
+import java.util.Properties
+
+val userGradleProps = Properties()
+val userPropsFile = gradle.gradleUserHomeDir.resolve("gradle.properties")
+if (userPropsFile.isFile) {
+    userPropsFile.reader().use { userGradleProps.load(it) }
+}
+val mavenRepoUrl: String = userGradleProps.getProperty(
+    "MAVEN_REPO_URL",
+    "http://192.168.162.106:8081/nexus/content/groups/public/",
+)
+
 allprojects {
     repositories {
         google()
         mavenCentral()
+        maven(url = "https://storage.googleapis.com/download.flutter.io")
+        maven(url = "https://jitpack.io")
+        maven {
+            url = uri(mavenRepoUrl)
+            isAllowInsecureProtocol = true
+        }
     }
 }
 

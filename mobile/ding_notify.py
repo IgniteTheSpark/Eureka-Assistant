@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Send Ureka package notifications to a DingTalk robot."""
+"""发送 Ureka 打包结果到钉钉机器人。"""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ MOBILE_RE = re.compile(r"^1[3-9]\d{9}$")
 
 def usage() -> None:
     sys.stderr.write(
-        "Usage: python3 ding_notify.py <platform> <version> <time> <target> "
+        "用法：python3 ding_notify.py <platform> <version> <time> <target> "
         "<build_type> <package_type> <api_base> [description] [download_url] "
         "[install_password] [at]\n"
     )
@@ -31,20 +31,20 @@ def usage() -> None:
 
 def load_config() -> dict:
     if not CONFIG_FILE.is_file():
-        raise SystemExit(f"missing DingTalk config: {CONFIG_FILE}")
+        raise SystemExit(f"缺少钉钉配置：{CONFIG_FILE}")
 
     try:
         with CONFIG_FILE.open("r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception as exc:
-        raise SystemExit(f"invalid DingTalk config JSON: {exc}") from exc
+        raise SystemExit(f"钉钉配置 JSON 无效：{exc}") from exc
 
     webhook_url = str(data.get("webhook_url", "")).strip()
     keyword = str(data.get("keyword", "")).strip()
     if not webhook_url:
-        raise SystemExit("dingding.json missing webhook_url")
+        raise SystemExit("dingding.json 缺少 webhook_url")
     if not keyword:
-        raise SystemExit("dingding.json missing keyword")
+        raise SystemExit("dingding.json 缺少 keyword")
     return data
 
 
@@ -112,20 +112,20 @@ def main() -> None:
 
     mention_prefix, at_obj = build_at(at_param)
     lines = [
-        f"{keyword} {platform.upper()} new package",
-        f"version: {version}",
-        f"time: {timestr}",
-        f"target: {target}",
-        f"build_type: {build_type}",
-        f"package_type: {package_type}",
-        f"api_base: {api_base}",
+        f"{keyword} {platform.upper()} 新包",
+        f"版本：{version}",
+        f"时间：{timestr}",
+        f"目标：{target}",
+        f"构建类型：{build_type}",
+        f"产物类型：{package_type}",
+        f"API 地址：{api_base}",
     ]
     if download_url:
-        lines.append(f"download_url: {download_url}")
+        lines.append(f"下载地址：{download_url}")
     if install_password:
-        lines.append(f"install_password: {install_password}")
+        lines.append(f"安装密码：{install_password}")
     if description:
-        lines.append(f"description: {description}")
+        lines.append(f"描述：{description}")
 
     payload = {
         "msgtype": "text",
@@ -153,17 +153,17 @@ def main() -> None:
             response = resp.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as exc:
         response = exc.read().decode("utf-8", errors="replace")
-        sys.stderr.write(f"DingTalk notification failed: {response}\n")
+        sys.stderr.write(f"钉钉通知发送失败：{response}\n")
         raise SystemExit(1) from exc
     except urllib.error.URLError as exc:
-        sys.stderr.write(f"DingTalk notification failed: {exc}\n")
+        sys.stderr.write(f"钉钉通知发送失败：{exc}\n")
         raise SystemExit(1) from exc
 
     if '"errcode":0' in response or '"errcode": 0' in response:
-        print("DingTalk notification sent")
+        print("钉钉通知发送成功")
         return
 
-    sys.stderr.write(f"DingTalk notification failed: {response}\n")
+    sys.stderr.write(f"钉钉通知发送失败：{response}\n")
     raise SystemExit(1)
 
 

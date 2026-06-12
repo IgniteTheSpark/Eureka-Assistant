@@ -26,6 +26,16 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>用于连接和管理蓝牙设备。</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>用于连接和管理蓝牙设备。</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>用于发现和连接局域网设备。</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>用于「闪念」语音输入，把你说的话转成文字。</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>用于把「闪念」语音实时转写成文字。</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -66,9 +76,5 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>用于「闪念」语音输入，把你说的话转成文字。</string>
-	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>用于把「闪念」语音实时转写成文字。</string>
 </dict>
 </plist>
