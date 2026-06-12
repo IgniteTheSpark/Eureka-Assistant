@@ -26,7 +26,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 version: 1.0.0+1
 
 environment:
-  sdk: ^3.12.1
+  sdk: ">=3.11.5 <4.0.0"
 
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
@@ -65,7 +65,18 @@ dependencies:
   # (iOS) and captures the backend's `eureka://auth?token=<jwt>` deep-link callback.
   # iOS needs no native config (the session intercepts the scheme); Android uses a
   # callback activity (see AndroidManifest).
-  flutter_web_auth_2: ^3.1.2
+  flutter_web_auth_2: ^5.0.3
+  # 公司 Flutter 稳定基础包
+  br_flutter_base:
+    git:
+      # ignore: secure_pubspec_urls
+      url: http://git.100credit.cn/ai2c/app/flutter_lib/br_flutter_base
+      ref: v0.2.0
+  # 公司 BLE 与 Opus 转 MP3 原生能力插件
+  br_flutter_plugin_ble:
+    git:
+      url: git@git.100credit.cn:ai2c/app/flutter_lib/br_flutter_plugin_ble.git
+      ref: v1.0.4
 
 dev_dependencies:
   flutter_test:

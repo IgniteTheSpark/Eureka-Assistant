@@ -1,22 +1,108 @@
 PODS:
-  - Flutter (1.0.0)
-  - flutter_web_auth_2 (3.0.0):
+  - br_flutter_plugin_ble (1.0.4):
+    - BRBluetoothLib (= 1.0.3)
+    - BROpusConvertLib (= 1.0.0)
     - Flutter
+  - BRBluetoothLib (1.0.3)
+  - BROpusConvertLib (1.0.0):
+    - lame
+    - YbridOpus
+  - CwlCatchException (2.2.1):
+    - CwlCatchExceptionSupport (~> 2.2.1)
+  - CwlCatchExceptionSupport (2.2.1)
+  - device_info_plus (0.0.1):
+    - Flutter
+  - Flutter (1.0.0)
+  - flutter_secure_storage_darwin (10.0.0):
+    - Flutter
+    - FlutterMacOS
+  - flutter_web_auth_2 (5.0.0):
+    - Flutter
+  - lame (1.2.2)
+  - package_info_plus (0.4.5):
+    - Flutter
+  - share_plus (0.0.1):
+    - Flutter
+  - shared_preferences_foundation (0.0.1):
+    - Flutter
+    - FlutterMacOS
+  - speech_to_text (7.2.0):
+    - CwlCatchException
+    - Flutter
+    - FlutterMacOS
+  - url_launcher_ios (0.0.1):
+    - Flutter
+  - webview_flutter_wkwebview (0.0.1):
+    - Flutter
+    - FlutterMacOS
+  - YbridOpus (0.8.0)
 
 DEPENDENCIES:
+  - br_flutter_plugin_ble (from `.symlinks/plugins/br_flutter_plugin_ble/ios`)
+  - device_info_plus (from `.symlinks/plugins/device_info_plus/ios`)
   - Flutter (from `Flutter`)
+  - flutter_secure_storage_darwin (from `.symlinks/plugins/flutter_secure_storage_darwin/darwin`)
   - flutter_web_auth_2 (from `.symlinks/plugins/flutter_web_auth_2/ios`)
+  - package_info_plus (from `.symlinks/plugins/package_info_plus/ios`)
+  - share_plus (from `.symlinks/plugins/share_plus/ios`)
+  - shared_preferences_foundation (from `.symlinks/plugins/shared_preferences_foundation/darwin`)
+  - speech_to_text (from `.symlinks/plugins/speech_to_text/darwin`)
+  - url_launcher_ios (from `.symlinks/plugins/url_launcher_ios/ios`)
+  - webview_flutter_wkwebview (from `.symlinks/plugins/webview_flutter_wkwebview/darwin`)
+
+SPEC REPOS:
+  "git@git.100credit.cn:ai2c/app/cocoapods-specs.git":
+    - BRBluetoothLib
+    - BROpusConvertLib
+  trunk:
+    - CwlCatchException
+    - CwlCatchExceptionSupport
+    - lame
+    - YbridOpus
 
 EXTERNAL SOURCES:
+  br_flutter_plugin_ble:
+    :path: ".symlinks/plugins/br_flutter_plugin_ble/ios"
+  device_info_plus:
+    :path: ".symlinks/plugins/device_info_plus/ios"
   Flutter:
     :path: Flutter
+  flutter_secure_storage_darwin:
+    :path: ".symlinks/plugins/flutter_secure_storage_darwin/darwin"
   flutter_web_auth_2:
     :path: ".symlinks/plugins/flutter_web_auth_2/ios"
+  package_info_plus:
+    :path: ".symlinks/plugins/package_info_plus/ios"
+  share_plus:
+    :path: ".symlinks/plugins/share_plus/ios"
+  shared_preferences_foundation:
+    :path: ".symlinks/plugins/shared_preferences_foundation/darwin"
+  speech_to_text:
+    :path: ".symlinks/plugins/speech_to_text/darwin"
+  url_launcher_ios:
+    :path: ".symlinks/plugins/url_launcher_ios/ios"
+  webview_flutter_wkwebview:
+    :path: ".symlinks/plugins/webview_flutter_wkwebview/darwin"
 
 SPEC CHECKSUMS:
+  br_flutter_plugin_ble: 930c372a08cf1bf8fd1ebcd9310efc41746d3e67
+  BRBluetoothLib: 7359101d09e0d94b70968c12695abb19c3f9e83b
+  BROpusConvertLib: a91a22537706f6a82fcf3973ee06bebfb26721ce
+  CwlCatchException: 7acc161b299a6de7f0a46a6ed741eae2c8b4d75a
+  CwlCatchExceptionSupport: 54ccab8d8c78907b57f99717fb19d4cc3bce02dc
+  device_info_plus: 21fcca2080fbcd348be798aa36c3e5ed849eefbe
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
-  flutter_web_auth_2: 3464a7c16dc6480b6194fc89913bae6e82f28405
+  flutter_secure_storage_darwin: acdb3f316ed05a3e68f856e0353b133eec373a23
+  flutter_web_auth_2: 646fc9df97a01c59e5eea99b237da2c6360f8439
+  lame: 40ead9ec43927bcf3700457d96ccc183096c65cc
+  package_info_plus: af8e2ca6888548050f16fa2f1938db7b5a5df499
+  share_plus: 50da8cb520a8f0f65671c6c6a99b3617ed10a58a
+  shared_preferences_foundation: 7036424c3d8ec98dfe75ff1667cb0cd531ec82bb
+  speech_to_text: 3b313d98516d3d0406cea424782ec25470c59d19
+  url_launcher_ios: 7a95fa5b60cc718a708b8f2966718e93db0cef1b
+  webview_flutter_wkwebview: 8ebf4fded22593026f7dbff1fbff31ea98573c8d
+  YbridOpus: e9af373b9b38acff3702d9a3bd97cae3c232887c
 
-PODFILE CHECKSUM: 3c63482e143d1b91d2d2560aee9fb04ecc74ac7e
+PODFILE CHECKSUM: e4f40a657e45d43c1c3cbebd44310db198fba7ce
 
 COCOAPODS: 1.16.2

@@ -26,6 +26,16 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>用于连接和管理蓝牙设备。</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>用于连接和管理蓝牙设备。</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>用于发现和连接局域网设备。</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>用于「闪念」语音输入，把你说的话转成文字。</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>用于把「闪念」语音实时转写成文字。</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -66,25 +76,5 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-	<!-- 备案前内测:大陆骨干网对这台未备案 ECS 的 TLS 做 RST 注入,App 只能走
-	     裸 IP 明文 HTTP(http://39.96.55.118)。此例外仅放行该服务器 IP 的明文,
-	     其余流量仍受 ATS 保护。备案通过、域名走回 HTTPS 后,整块删除。 -->
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSExceptionDomains</key>
-		<dict>
-			<key>39.96.55.118</key>
-			<dict>
-				<key>NSExceptionAllowsInsecureHTTPLoads</key>
-				<true/>
-				<key>NSIncludesSubdomains</key>
-				<false/>
-			</dict>
-		</dict>
-	</dict>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>用于「闪念」语音输入，把你说的话转成文字。</string>
-	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>用于把「闪念」语音实时转写成文字。</string>
 </dict>
 </plist>
