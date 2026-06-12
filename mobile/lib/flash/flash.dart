@@ -29,7 +29,9 @@ class FlashResult {
       );
 }
 
-Future<FlashResult> sendFlash(ApiClient api, String text) async {
-  final res = await api.postJson('/api/flash', {'text': text});
+/// [source] = capture modality: 'voice'(硬件闪念,默认)→ 闪念 session;
+/// 'typed'(打字,如 onboarding 首捕)→ 中性「记录」session(打字 ≠ 闪念)。
+Future<FlashResult> sendFlash(ApiClient api, String text, {String source = 'voice'}) async {
+  final res = await api.postJson('/api/flash', {'text': text, 'source': source});
   return FlashResult.fromJson((res as Map).cast<String, dynamic>());
 }

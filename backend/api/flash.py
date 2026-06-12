@@ -73,16 +73,22 @@ class FlashResponse(BaseModel):
 
 # ── Today's flash-session resolver ────────────────────────────────────────────
 
-async def _get_or_create_flash_session_today(db, user_id: str) -> DBSession:
+async def _get_or_create_capture_session_today(db, user_id: str, source: str) -> DBSession:
     """
-    Flash sessions aggregate by natural day. Same user + same date → reuse;
-    otherwise create. Title is set to 「M月D日 闪念」 on creation.
+    Capture sessions aggregate by natural day + modality. Same user + date +
+    modality → reuse; otherwise create.
+
+    **闪念专指硬件语音捕捉**;打字(onboarding 首捕、dev typed)不是闪念 —— 它进
+    一个中性的 `manual`「记录」容器,日历/会话里显示「记录」而非「闪念」。语音
+    (voice)进 `flash`「闪念」容器。(session_type 既有取值 flash|chat|meeting|manual。)
     """
+    is_voice = source == "voice"
+    stype = "flash" if is_voice else "manual"
     today = datetime.date.today()
     result = await db.execute(
         select(DBSession).where(
             DBSession.user_id == user_id,
-            DBSession.session_type == "flash",
+            DBSession.session_type == stype,
             DBSession.date == today,
         )
     )
@@ -92,8 +98,8 @@ async def _get_or_create_flash_session_today(db, user_id: str) -> DBSession:
 
     sess = DBSession(
         user_id=user_id,
-        session_type="flash",
-        title=f"{today.month}月{today.day}日 闪念",
+        session_type=stype,
+        title=f"{today.month}月{today.day}日 " + ("闪念" if is_voice else "记录"),
         date=today,
     )
     db.add(sess)
@@ -115,6 +121,11 @@ async def flash(req: FlashRequest, user_id: str = Depends(get_current_user_id)):
         f"(周{'一二三四五六日'[_now_local.weekday()]})"
     )
 
+    # Always 'voice' for flash unless explicitly overridden to 'typed'.
+    # 'imported' would come from a future bulk import flow. Modality also picks
+    # the capture container (voice → 闪念, typed → 记录), so resolve it first.
+    input_source = req.source if req.source in {"voice", "typed", "imported"} else "voice"
+
     # Phase 1 — resolve session + create input_turn
     try:
         async with AsyncSessionLocal() as db:
@@ -130,13 +141,10 @@ async def flash(req: FlashRequest, user_id: str = Depends(get_current_user_id)):
                 if not session:
                     raise HTTPException(status_code=404, detail="session not found")
             else:
-                session = await _get_or_create_flash_session_today(db, user_id)
+                session = await _get_or_create_capture_session_today(db, user_id, input_source)
 
             session_id = str(session.id)
 
-            # Always 'voice' for flash unless explicitly overridden to 'typed'.
-            # 'imported' would come from a future bulk import flow.
-            input_source = req.source if req.source in {"voice", "typed", "imported"} else "voice"
             turn = await create_input_turn_for_message(
                 db, session_id, user_id, req.text, source=input_source,
             )

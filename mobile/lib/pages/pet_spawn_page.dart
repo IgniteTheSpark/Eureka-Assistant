@@ -128,7 +128,8 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
     setState(() => _step = _Step.capturing);
     final api = ApiClient();
     try {
-      final r = await sendFlash(api, text);
+      // 打字首捕 → 'typed' source → 进中性「记录」session,不被归成「闪念」。
+      final r = await sendFlash(api, text, source: 'typed');
       if (!mounted) return;
       setState(() {
         _result = r;
