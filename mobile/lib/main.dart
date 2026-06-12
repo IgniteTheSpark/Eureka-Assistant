@@ -6,6 +6,7 @@ import 'app_shell.dart';
 import 'auth/auth_controller.dart';
 import 'data_revision.dart';
 import 'pages/login_page.dart';
+import 'pages/pet_spawn_page.dart';
 import 'pet/floating_mascot.dart';
 import 'pet/pet_controller.dart';
 import 'pages/session_detail_page.dart';
@@ -118,13 +119,69 @@ class _AuthGate extends StatelessWidget {
           );
         }
         if (!auth.isAuthed) return const LoginPage();
-        // Authed: open the hardware/notifications SSE bridge (idempotent) and
-        // load 球球 (provisions the egg + arms completion-drop toasts).
+        // Authed: open the hardware/notifications SSE bridge (idempotent).
         AppEvents.instance.start();
-        PetController.instance.ensureLoaded();
         return _startSession.isEmpty
-            ? const AppShell()
+            ? const _PostAuthGate()
             : SessionDetailPage(sessionId: _startSession, title: '会话详情');
+      },
+    );
+  }
+}
+
+/// §9.2.2 首屏三级 gating — chooses 孵化 onboarding vs the app shell once the pet
+/// has loaded. Tier ① here: `!spawned`(从没孵化的全新用户)→ 全屏孵化 onboarding,
+/// 不是晨报、不是 shell。Tiers ②/③(晨报 vs 直接进 app)由 shell 的
+/// `maybeShowMorningBriefing` 接手(只在已孵化时跑)。
+class _PostAuthGate extends StatefulWidget {
+  const _PostAuthGate();
+
+  @override
+  State<_PostAuthGate> createState() => _PostAuthGateState();
+}
+
+class _PostAuthGateState extends State<_PostAuthGate> {
+  final _pet = PetController.instance;
+  // Latched the first time the pet resolves: did THIS user need onboarding?
+  // null = undecided. Deciding ONCE (not re-reading `spawned` every rebuild) is
+  // essential — onboarding's own spawn() flips spawned→true mid-flow, and a
+  // live re-read would swap the onboarding page out for the shell the instant
+  // the egg hatched (before 现身/起名/首捕 played out).
+  bool? _needsOnboarding;
+  // Set when onboarding's arc finishes (onDone) → swap to the shell.
+  bool _onboardingDone = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // load 球球 (provisions the egg + arms completion-drop toasts). refresh()
+    // notifies SYNCHRONOUSLY (loading flag) — calling inside build marks the
+    // floating ball dirty mid-build ("setState() during build"); defer a frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _pet.ensureLoaded());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _pet,
+      builder: (context, _) {
+        if (!_pet.loaded) {
+          // Pet still resolving — hold on a neutral background (no spinner flash;
+          // the fetch is ~一次往返). Painting the shell here then yanking it would
+          // flash for new users.
+          return const ColoredBox(color: Colors.transparent);
+        }
+        // Decide once, the first time the pet is loaded. A real, un-spawned pet
+        // → onboarding. A null pet means the /api/pet fetch failed (loaded flips
+        // true in refresh()'s finally even on error) — don't drag a returning
+        // user into 孵化 over a transient blip; fall through to the shell.
+        _needsOnboarding ??= _pet.pet != null && !_pet.spawned;
+        if (_needsOnboarding! && !_onboardingDone) {
+          return PetSpawnPage(
+            onDone: () => setState(() => _onboardingDone = true),
+          );
+        }
+        return const AppShell();
       },
     );
   }

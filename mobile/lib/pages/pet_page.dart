@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../pet/floating_mascot.dart' show mascotSuppressed, releaseMascotSuppress;
+import '../pet/floating_mascot.dart' show RekaFly, mascotSuppressed, releaseMascotSuppress;
 import '../pet/pet_controller.dart';
 import '../pet/pet_cosmetics.dart';
 import '../render/pet_view.dart';
@@ -22,18 +22,29 @@ class PetPage extends StatefulWidget {
 class _PetPageState extends State<PetPage> {
   // Suppression of the floating ball is handled by [PetBoard] (covers both this
   // pushed page and the 我的岛 tab), so the fly-in handoff works in both paths.
+  final GlobalKey<PetBoardState> _boardKey = GlobalKey<PetBoardState>();
+
   @override
   Widget build(BuildContext context) {
     final eu = context.eu;
-    return Scaffold(
-      backgroundColor: eu.bg,
-      appBar: AppBar(
+    return PopScope(
+      // §9.2 飞出相框 (route path): measure the hero NOW (board still laid out)
+      // and let the ball fly home from it — mirror of app_shell._go's tab path.
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) return;
+        final r = _boardKey.currentState?.measureHeroRect();
+        if (r != null) RekaFly.instance.flyOut(r);
+      },
+      child: Scaffold(
         backgroundColor: eu.bg,
-        elevation: 0,
-        foregroundColor: eu.textHi,
-        title: const Text('我的岛', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+        appBar: AppBar(
+          backgroundColor: eu.bg,
+          elevation: 0,
+          foregroundColor: eu.textHi,
+          title: const Text('我的岛', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+        ),
+        body: SafeArea(top: false, child: PetBoard(key: _boardKey, bottomInset: 28)),
       ),
-      body: const SafeArea(top: false, child: PetBoard(bottomInset: 28)),
     );
   }
 }
@@ -84,6 +95,8 @@ class PetBoardState extends State<PetBoard> with SingleTickerProviderStateMixin 
       AnimationController(vsync: this, duration: const Duration(milliseconds: 640));
   bool _didSuppress = false;
 
+  bool _landed = false; // fly-in handoff completed (or fallback taken)
+
   @override
   void initState() {
     super.initState();
@@ -95,16 +108,77 @@ class PetBoardState extends State<PetBoard> with SingleTickerProviderStateMixin 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _pet.refresh();
-      mascotSuppressed.value++; // ball off-screen while the board IS Reka
-      _didSuppress = true;
-      _heroCtl.forward(from: 0).whenComplete(() {
-        if (mounted) setState(() => _celebrate++); // celebrate as it lands
-      });
+      _afterRouteEntrance(_startFlyIn);
+    });
+  }
+
+  // Entering via the radial menu PUSHES PetPage — on the first frame the route
+  // is still sliding in, so the hero rect measures at the transition offset and
+  // the flight lands on a stale spot. Wait out the route animation (tab path:
+  // already completed → runs immediately).
+  void _afterRouteEntrance(VoidCallback fn) {
+    final anim = ModalRoute.of(context)?.animation;
+    if (anim == null || anim.isCompleted) {
+      fn();
+      return;
+    }
+    late final void Function(AnimationStatus) l;
+    l = (s) {
+      if (s == AnimationStatus.completed) {
+        anim.removeStatusListener(l);
+        if (mounted) fn();
+      }
+    };
+    anim.addStatusListener(l);
+  }
+
+  // §9.2 v4 真·飞入相框: the ball flies FROM ITS CURRENT SPOT into the hero
+  // frame; only ON ARRIVAL do we hide it and reveal the hero (+ celebrate).
+  // The prior attempt suppressed the ball FIRST, so the mascot's fly branch
+  // (which renders only while un-hidden) never painted a single frame — that's
+  // why the cross-overlay flight "wouldn't animate on-device" and got replaced
+  // by the board-owned slide. Ordering is the whole fix: fly → land → hide.
+  void _startFlyIn() {
+    final rect = measureHeroRect(); // petKey sits on the UNtransformed slot
+    final p = _pet.pet;
+    if (rect == null || p == null || !p.spawned || mascotSuppressed.value > 0) {
+      _landFallback();
+      return;
+    }
+    RekaFly.instance.flyInto(rect, (flew) {
+      if (!mounted || _landed) return;
+      if (flew) {
+        _landed = true;
+        mascotSuppressed.value++; // hide the ball the instant the hero appears
+        _didSuppress = true;
+        _heroCtl.value = 1;       // REKA is already in place — no second slide
+        setState(() => _celebrate++); // 落地动效 (§9.2 celebrate as it lands)
+      } else {
+        _landFallback();
+      }
+    });
+    // Safety net: a glitched flight must never leave a parked ball + empty
+    // frame. arrive() is idempotent — no-op if the flight already landed.
+    Future.delayed(const Duration(milliseconds: 1200), () {
+      if (mounted && !_landed) RekaFly.instance.arrive(false);
+    });
+  }
+
+  void _landFallback() {
+    if (!mounted || _landed) return;
+    _landed = true;
+    mascotSuppressed.value++; // ball off-screen while the board IS Reka
+    _didSuppress = true;
+    _heroCtl.forward(from: 0).whenComplete(() {
+      if (mounted) setState(() => _celebrate++); // celebrate as it lands
     });
   }
 
   @override
   void dispose() {
+    // A flight still mid-air when the board unmounts (fast tab bounce) must not
+    // call back into this dead State; cancel() is a no-op when already landed.
+    if (!_landed) RekaFly.instance.cancel();
     _heroCtl.dispose();
     // Release AFTER the frame: dispose runs while the IndexedStack is unmounting
     // (tree locked), and releasing notifies the floating ball → "markNeedsBuild

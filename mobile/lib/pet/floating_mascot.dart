@@ -202,6 +202,32 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
     setState(() => _nudgeExpanded = false);
   }
 
+  /// §14.5 Type B offer 接受 = 一键即做:标 acted → 直接进 REKA 洞察生成
+  /// (prefillWish 跳过输入,显进度 → 出报告),用户不用打字。
+  void _nudgeSynthesize(RekaNudge n) {
+    _nudges.outcome(n.id, 'acted');
+    setState(() => _nudgeExpanded = false);
+    if (_menuOpen) _activeClose?.call();
+    final anchor = _anchorRect();
+    if (anchor != null) {
+      _openFunction('summarize', anchor, prefillWish: _wishFor(n.ref));
+    }
+  }
+
+  String _wishFor(String ref) {
+    if (ref.startsWith('domain:')) {
+      final d = ref.substring(7);
+      if (d == '灵感') return '把我最近一周的灵感聚合成主题,做综合判断和下一步';
+      if (d == '学习') return '用我最近一周记的学习内容出一份测验,考考我';
+      return '帮我把最近一周「$d」领域的记录做一份小结';
+    }
+    if (ref == 'idea' || ref == 'ideas' || ref.contains('idea')) {
+      return '把我最近一周的灵感聚合成主题,做综合判断和下一步';
+    }
+    if (ref == 'expense') return '把我最近一周的消费复盘一下,看看钱花哪了';
+    return '帮我把最近一周的「$ref」记录做一份小结';
+  }
+
   // An external surface (e.g. the 报告 list CTA) asked to open a REKA function
   // bubble — honor it through the same path as the radial menu (real ball anchor).
   void _onFunctionRequest() {
@@ -388,11 +414,12 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
     }
   }
 
-  void _openFunction(String intent, Rect anchor) {
+  void _openFunction(String intent, Rect anchor, {String? prefillWish}) {
     if (_menuOpen) return; // radial already closed itself before _onPick ran
     if (navigatorKey.currentState?.overlay == null) return;
     _track((close) => OverlayEntry(
-          builder: (_) => RekaChat(anchor: anchor, intent: intent, onClose: close),
+          builder: (_) => RekaChat(
+              anchor: anchor, intent: intent, prefillWish: prefillWish, onClose: close),
         ));
   }
 
@@ -413,7 +440,9 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
       animation: Listenable.merge([_pet, _fly, _bob]),
       builder: (context, _) {
         final p = _pet.pet;
-        if (!_loaded || p == null) return const SizedBox.shrink();
+        // 蛋未孵化(onboarding 孵化页)时不挂全局浮球 —— 孵化页自己有一颗大蛋,
+        // 全局再飘一颗蛋是重复且违和的。孵化后(spawned)浮球才登场。
+        if (!_loaded || p == null || !_pet.spawned) return const SizedBox.shrink();
         return LayoutBuilder(
           builder: (context, constraints) {
             final maxW = constraints.maxWidth;
@@ -513,13 +542,15 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
     final eu = context.eu;
     final n = _nudges.peek;
 
-    // 安静态: no peek, but un-acted nudges exist → a tiny findable「...」chip.
+    // 安静态: no peek, but un-acted nudges exist → a small glowing 💡 chip
+    // (user feedback: bare「...」was too easy to miss — it should read as
+    // 「REKA 有个想法等着你」, quiet but findable).
     if (n == null) {
       if (!_nudges.hasPending) return const [];
       return [
         Positioned(
-          left: (ballLeft - 4).clamp(4.0, maxW - 30),
-          top: (ballTop - 4).clamp(4.0, maxH - 24),
+          left: (ballLeft - 8).clamp(4.0, maxW - 30),
+          top: (ballTop - 8).clamp(4.0, maxH - 28),
           child: Material(
             type: MaterialType.transparency,
             child: GestureDetector(
@@ -529,15 +560,21 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
               if (p.isNotEmpty) _nudges.reopen(p.first.id);
             },
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+              width: 24,
+              height: 24,
+              alignment: Alignment.center,
               decoration: BoxDecoration(
                 color: eu.surfaceRaised,
-                borderRadius: BorderRadius.circular(9),
-                border: Border.all(color: eu.border),
+                shape: BoxShape.circle,
+                border: Border.all(color: eu.brand.withValues(alpha: 0.55)),
+                boxShadow: [
+                  BoxShadow(
+                      color: eu.brand.withValues(alpha: 0.45),
+                      blurRadius: 9,
+                      spreadRadius: 1),
+                ],
               ),
-              child: Text('…',
-                  style: TextStyle(
-                      color: eu.textMid, fontSize: 12, fontWeight: FontWeight.w800, height: 1)),
+              child: const Text('💡', style: TextStyle(fontSize: 12, height: 1)),
             ),
           ),
           ),
@@ -630,23 +667,25 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
               const SizedBox(height: 10),
               Row(
                 children: [
-                  if (n.cta == 'log')
+                  if (n.cta == 'log' || n.cta == 'synthesize')
                     Expanded(
                       child: SizedBox(
                         height: 32,
                         child: FilledButton(
-                          onPressed: () => _nudgeAct(n),
+                          onPressed: () => n.cta == 'synthesize'
+                              ? _nudgeSynthesize(n)
+                              : _nudgeAct(n),
                           style: FilledButton.styleFrom(
                             backgroundColor: eu.brand,
                             padding: EdgeInsets.zero,
                             textStyle:
                                 const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
                           ),
-                          child: const Text('记一笔'),
+                          child: Text(n.cta == 'synthesize' ? '✨ 帮我理一理' : '记一笔'),
                         ),
                       ),
                     ),
-                  if (n.cta == 'log') const SizedBox(width: 8),
+                  if (n.cta == 'log' || n.cta == 'synthesize') const SizedBox(width: 8),
                   Expanded(
                     child: SizedBox(
                       height: 32,

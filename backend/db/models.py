@@ -151,6 +151,9 @@ class UserSkill(Base):
     payload_schema   = Column(JSON)   # nullable: system skills (e.g. qa) have no payload
     render_spec      = Column(JSON)   # nullable: skills that don't produce visible assets
     queryable_fields = Column(JSON)   # nullable
+    # §1.5.1 L0 起聊文案 (2-3 条, 迁移 0020): baseline 来自 seed,自定义来自
+    # design agent;null → opening-hint 端点退回通用三连。
+    chat_starters    = Column(JSON)
     # Position drives the 3×3 SKILLS grid order in the library. 0-based,
     # contiguous within (user_id). Drag-to-reorder writes via
     # PUT /api/skills/reorder. New skills land at the end.

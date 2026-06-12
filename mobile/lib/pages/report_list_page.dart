@@ -24,6 +24,8 @@ const _genreMeta = {
   'digest': ('🗞', '概览'),
   'briefing': ('🔎', '调研简报'), // §14.5 会前调研/外部调研(web-search)
   'morning-briefing': ('🌅', '晨间简报'), // §14.6 每天一份,回看像日记
+  'quiz': ('🎯', '测验'), // §6.14 计分小测,可重做
+  'flashcard': ('🃏', '记忆卡'), // §6.14 翻卡自测
 };
 
 class _ReportListPageState extends State<ReportListPage> {

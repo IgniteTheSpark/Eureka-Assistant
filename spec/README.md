@@ -28,7 +28,7 @@
 | 3 | [03-api-reference.md](03-api-reference.md) | 每个 endpoint 的 method/path/请求/响应 JSON、SSE 事件格式 | 前端 / 后端 |
 | 4 | [04-frontend.md](04-frontend.md) | 4 个主屏、交互/sheet/动画、render-spec 渲染、客户端数据流。**正逐区 re-baseline 到 Flutter 规范**（冲突以 `mobile/` 为准） | 前端 / Flutter |
 | 5 | [05-design-system.md](05-design-system.md) | 精确 design tokens、7 个 accent 槽、字体、动效、组件视觉规范 | 前端 / 设计 |
-| 6 | [06-synthesis-report.md](06-synthesis-report.md) | **合成·报告引擎**（设计中）：总结/升华/提案 dispatcher + 内容 skill + md→HTML 渲染 + GSAP/WebView + reports 实体 · §6.11 微点评(**已 pending**,需求转 §1.5.1 会话开场 hint) | 全栈 / AI / 前端 |
+| 6 | [06-synthesis-report.md](06-synthesis-report.md) | **合成·报告引擎**：总结/升华/提案 dispatcher + 内容 skill + md→HTML 渲染 + GSAP/WebView + reports 实体 · §6.13 报告→待办 · **§6.14 测验/记忆卡 genre(quiz/flashcard,交互式,✅ v1 已实现)** · §6.11 微点评(已 pending→§1.5.1 hint) | 全栈 / AI / 前端 |
 | 7 | [07-gamemode.md](07-gamemode.md) | **任务 & 周岛**（设计中 · 游戏化层之一）：dock 壳改动 · 任务体系(L1, daily-gen) · 周岛(成果物) · 统一 completion_event · 「我的岛」shell | 全栈 / AI / 前端 / 设计 |
 | 8 | [08-domain-system.md](08-domain-system.md) | **领域(domain)系统**（设计中 · 横切章）：8 生活领域 · 存储真相链 · agent 赋值 · 卡片展示 · per-domain 任务日环 · 按领域总结/查询 + 技能名消歧 | 全栈 / AI / 前端 / 设计 |
 | 9 | [09-pet.md](09-pet.md) | **宠物（球球）**（v1 已实现 · 游戏化层之二）：球球本体(无 exp) · 换装/背包 · 掉装饰 + 里程碑(奖励经济) · 浮动球球 · 只读消费 completion_event | 全栈 / AI / 前端 / 设计 |
@@ -36,7 +36,7 @@
 | 11 | [11-admin.md](11-admin.md) | **管理后台 / Live-Ops Console**（设计中 · 待讨论）：任务配置(规则+校验+奖励) · 组件库(增删/稀有度/概率) · 全用户总览(奖励发放可见) · 依赖 §10 Stage1 + §7 | 后端 / 全栈 |
 | 12 | [12-business-model.md](12-business-model.md) | **商业模式**（pending · 先不做）：LLM 成本账(每请求/每用户) · Free+单 Pro 定价提案(捕捉 30/天·chat 300/月·报告/洞察) · 护栏 · **token 用量日志(唯一现在该做)** | 商业 / 后端 |
 | 13 | [13-baizhi-integration.md](13-baizhi-integration.md) | **百智平台集成**（硬件供应商 + 未来收购方）：**B1 OAuth 登录 ✅ 已实现**(百智作 IdP)· B2 会议/日历 MCP 连接器 · B3 录音卡 SDK → Flutter 插件(手机直连) · B4 资产单向同步百智 KB（B2–B4 设计中）| 全栈 / 后端 / 移动 |
-| 14 | [14-proactive-reka.md](14-proactive-reka.md) | **主动 REKA（陪伴层）**（设计中）：零配置主动提醒/帮做 · Type A=通知(+节律缺口) · Type B=主动报告(+web-search) · 晨间简报(沉浸式) · cron/heartbeat + 统计节律 profile · 傻瓜护栏 | 全栈 / AI / 前端 / 设计 |
+| 14 | [14-proactive-reka.md](14-proactive-reka.md) | **主动 REKA（陪伴层）**（**✅ 基本实现**,仅剩会前调研型 offer 组装）：零配置主动提醒/帮做 · Type A=通知(+节律缺口 ✅) · Type B=主动报告(积累 offer ✅ +web-search ✅) · 晨间简报(沉浸式 ✅) · cron/heartbeat + 统计节律 profile ✅ · 傻瓜护栏 ✅ | 全栈 / AI / 前端 / 设计 |
 | A | [99-prompts-appendix.md](99-prompts-appendix.md) | **逐字** LLM prompts（agent 行为的载体，必须 byte-for-byte 复刻） | AI / 后端 |
 
 > 单一大文档版本：[`SPEC.md`](SPEC.md)（以上所有章节拼接，便于整体交付与检索）。

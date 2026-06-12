@@ -496,6 +496,28 @@ async def run_report(
     await _phase("fetch", "正在汇集你的记录…")
     data = await _fetch_report_data(scope, user_id, skill_map=skill_map)
 
+    # §6.14 quiz/flashcard fallback: the dispatcher sometimes scopes study
+    # wishes by GUESSED keywords (no dedicated vocab skill to target) and a bad
+    # guess yields a spurious 「数据不足」. The spec's primary signal for
+    # quizzable material is the 学习 DOMAIN — if the scoped fetch came back thin,
+    # deterministically retry on domain=学习 and keep whichever found more.
+    if genre in ("quiz", "flashcard"):
+        total0 = sum(int(v) for v in (data.get("counts") or {}).values())
+        if total0 < _MIN_RECORDS and not scope.get("source_asset_ids"):
+            fb_scope = {"time_range": scope.get("time_range"), "domain": "学习"}
+            fb = await _fetch_report_data(fb_scope, user_id, skill_map=skill_map)
+            # a todo/expense tagged 学习 is an action/transaction, not knowledge
+            _non_quiz = {"todo", "event", "expense", "contact", "external_ref", "qa"}
+            fb["by_type"] = {k: v for k, v in (fb.get("by_type") or {}).items()
+                            if k not in _non_quiz}
+            fb["counts"] = {k: len(v) for k, v in fb["by_type"].items()}
+            fb["events"] = []
+            if sum(fb["counts"].values()) > total0:
+                data = fb
+                scope["domain"] = "学习"
+                scope["asset_types"] = None
+                scope["keywords"] = []
+
     # §14.9 web-search step (briefing only) — the pipeline searches
     # DETERMINISTICALLY before the content skill (content skills stay tool-less);
     # results are injected as 「带出处的资料」 and archived in spec (存证).

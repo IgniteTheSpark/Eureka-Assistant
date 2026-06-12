@@ -1,0 +1,32 @@
+# 中国大陆部署 · 备案前模式 —— 阿里云会拦截「未备案域名」的 80/443 web 流量
+# (按 Host/SNI 拦,App 的 API 调用同样命中)。绕行方案:
+#   - HTTPS 走 8443 非标端口(拦截只盯 80/443;App 用户对端口无感知)
+#   - 证书用 DNS-01 签发(acme.sh + 阿里云云解析 API,不需要 80 可达),
+#     续期由 acme.sh cron 自动完成并 reload Caddy(见 deploy/README)
+#   - 备案通过后:.env.prod 把 CADDYFILE 改回 Caddyfile、DOMAIN 去掉 :8443,
+#     `docker compose up -d` 即切回标准 443 自动 HTTPS
+# DOMAIN 形如 api.example.com:8443(端口写在域名里,site 地址即监听端口)。
+
+https://{$DOMAIN} {
+	tls /certs/fullchain.pem /certs/key.pem
+	encode gzip
+
+	reverse_proxy backend:8000 {
+		# SSE: chat/flash/报告生成都是流式 —— 关闭缓冲让事件实时到达
+		flush_interval -1
+	}
+}
+
+# 备案前唯一可靠通道:裸 IP + 明文 HTTP(:80)。
+# 2026-06 实测抓包:阿里云/骨干网对这台未备案 ECS 的 TLS 流量做 RST 注入 ——
+# 带 SNI=api.ureka.chat 必断,连 8443 非标端口、甚至无 SNI 的裸 IP TLS 也「先通
+# 后断」(ClientHello 到达后被伪造 RST 打断,概率性,做 App 不可用)。而对未备案
+# 域名 Host 头的 HTTP 返回 403、裸 IP 明文 HTTP 则放行(实测 6/6 稳定 200)。
+# 因此 App 备案前指向 http://39.96.55.118(整段证书/TLS 方案全部失效,别再试)。
+# 代价是明文传输,仅用于备案前内测;备案通过后 DOMAIN 指回 api.ureka.chat、
+# 走上方标准 443/8443 HTTPS,本段连同 App 的 ATS 例外一并删除。
+:80 {
+	reverse_proxy backend:8000 {
+		flush_interval -1
+	}
+}

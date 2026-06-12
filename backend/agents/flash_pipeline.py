@@ -491,6 +491,25 @@ _EXTERNAL_SYSTEM_LABEL = {
 
 # ── Render-spec interpreter (the generic path) ────────────────────────────────
 
+def _maybe_fmt_iso(s: str) -> Optional[str]:
+    """If `s` clearly looks like an ISO date/datetime, format it friendly via
+    _fmt_dt; else None. Gated tightly (needs a 'T' or a YYYY-MM-DD prefix) so it
+    never mangles plain values like "5:00" or "120ml"."""
+    if not isinstance(s, str):
+        return None
+    t = s.strip()
+    if len(t) < 8:
+        return None
+    if "T" in t or (len(t) >= 10 and t[4] == "-" and t[7] == "-"):
+        from datetime import datetime as _dt
+        try:
+            _dt.fromisoformat(t.replace("Z", "+00:00"))
+        except (ValueError, AttributeError, TypeError):
+            return None
+        return _fmt_dt(t, as_deadline=False)
+    return None
+
+
 def _apply_format(value: Any, fmt: Optional[str]) -> str:
     """
     Apply a render_spec format directive to a single value.
@@ -506,8 +525,13 @@ def _apply_format(value: Any, fmt: Optional[str]) -> str:
             return ""
         return " · ".join(items)
     s = str(value)
-    if not fmt:
-        return s
+    if not fmt or fmt == "text":
+        # Defensive: a time/datetime field whose render_spec gave no (or a plain
+        # "text") format would leak a raw ISO string ("...T05:00:00+08:00"). Custom
+        # skills (esp. auto-built via /skills/promote) often store times as ISO →
+        # format friendly even without an explicit directive.
+        iso = _maybe_fmt_iso(s)
+        return iso if iso is not None else s
     if fmt == "relative_date":
         # Deadline-style display ("5月22日截止" when no time)
         return _fmt_dt(s, as_deadline=True)
@@ -714,12 +738,20 @@ def _make_card(r: dict, render_specs: dict) -> dict:
     spec = render_specs.get(machine_name)
     if not spec:
         return _error_card(r, render_specs)
-    return _build_card_from_render_spec(
+    card = _build_card_from_render_spec(
         machine_name=machine_name,
         payload=r.get("payload") or {},
         asset_id=r.get("asset_id"),
         spec=spec,
     )
+    # §1.8「一键升级成本子」(B):随记/misc 命中了某个可结构化的中文类型却没有
+    # 对应技能 → 子技能把识别到的类型放进 `suggest_skill`。带上卡片,前端据此显
+    # 「✨ 长期记成『XX』本子?」chip,点一下走 POST /api/skills/promote 即时建技能
+    # + 把这条迁过去(design-agent 当场建,不让用户填技能表单)。
+    suggest = r.get("suggest_skill")
+    if suggest and card.get("asset_id"):
+        card["suggest_skill"] = str(suggest)[:12]
+    return card
 
 
 def _split_qa_and_assets(results: list) -> tuple:

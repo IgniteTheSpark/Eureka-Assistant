@@ -285,3 +285,149 @@ HOUSE_STYLE = (
 - **异步**:文字报告先出(SSE),配图异步补(~12.5s,占位「正在配图…」→ pop in);图落 `files` → 正文用 `asset://<file_id>` 引用(Mode B 的 backdrop 作 section 背景层,真实 `chart` 叠其上)。
 - **缓存**:图随报告存一份(`reports`),重渲染/换装不重画、不重计费。
 - **校验**(可选保险):生成后若检测到图里含明显文字/数字(OCR 粗检)→ 丢弃重试一次或退无图,守住「backdrop 不含数据」。
+
+---
+
+## ⑤ 测验 / 记忆卡 genre（§6.14）—— 两个新 content skill + dispatcher gate
+
+> 新建文件 `backend/skills/report-flashcard/SKILL.md` 与 `backend/skills/report-quiz/SKILL.md`,并把 gate 段加进 dispatcher。**接地铁律**:只考用户**记过**的内容(§6.14)。
+
+### ⑤a `backend/skills/report-flashcard/SKILL.md`（新文件）
+
+````markdown
+---
+name: report-flashcard
+description: >
+  Content skill (genre=flashcard) of the Eureka report engine (§6.14). Turns pre-fetched
+  study records (vocabulary / reading notes / study notes) into a flashcard set — each card
+  front::back, grounded strictly in what the user recorded. No tools — data injected; output
+  annotated Markdown only. Rendered as an interactive flip deck.
+---
+
+# Flashcard 内容 skill
+
+你把**已经查好的真实学习记录**(单词/读书笔记/学习笔记)做成一套**记忆卡**。数据已注入,你**不调任何工具**。
+
+## 铁律(只做他记过的)
+
+- 卡片**正反面只来自注入的 `data`** —— 正面=他记的词/概念,背面=**他记的释义/笔记**。**绝不发明**他没记过的词或意思。
+- 一条记录 → 一张卡(一条里有多个清晰知识点可拆几张)。背面**忠实**用他的话,可轻规整、不改意思。
+- 没有可做成卡的学习内容 → 如实说「这些记录还不适合做记忆卡」,**不硬凑**。
+
+## 输入
+
+```
+title:  "<标题,如「本周新词」>"
+brief:  "<一句话诉求>"
+data:   <JSON：真实学习记录(单词/笔记),含 标题/正文/时间>
+```
+
+## 内容骨架
+
+1. `# <标题>` + 一行 headline(这套卡覆盖什么、几张)。
+2. **一个 `:::flashcards` 块**:每行 `正面 :: 背面`。**≤ ~20 张**(多了截断,正文写「等 N 张」)。
+
+## 注解 Markdown 语法(只用这些)
+
+- 标准:`#` `##` 段落
+- **记忆卡:`:::flashcards` 内每行 `正面 :: 背面` `:::`**(正面=考点,背面=答案/释义)
+
+## 只输出报告正文(硬规则)
+
+**只输出报告 Markdown 本身**,不要解释/思考过程/元评论/括号备注。不写「我」「你提供的 data」。内容不足时,只用一句正文如实说明,不解释为何这么写。
+
+## 输出格式
+
+```
+---
+genre: flashcard
+title: 本周新词
+---
+# 本周新词
+这周记的 8 个词,翻牌过一遍。
+
+:::flashcards
+ubiquitous :: 无处不在的(present everywhere)
+resilient :: 有韧性、能快速恢复的
+candid :: 坦率、直言的
+:::
+```
+
+没有可做成卡的学习内容时,如实说明,不硬凑。
+````
+
+### ⑤b `backend/skills/report-quiz/SKILL.md`（新文件）
+
+````markdown
+---
+name: report-quiz
+description: >
+  Content skill (genre=quiz) of the Eureka report engine (§6.14). Turns pre-fetched study
+  records into a multiple-choice quiz that tests what the user recorded. Distractors must be
+  plausible (same domain), never throwaway. No tools — data injected; output annotated
+  Markdown only. Rendered as an interactive scored quiz.
+---
+
+# Quiz 内容 skill
+
+你把**已经查好的真实学习记录**出成一份**测验**考用户。数据已注入,你**不调任何工具**。
+
+## 铁律(考他记的；干扰项要合理)
+
+- 题目与**正确答案只来自注入的 `data`**(测他记的词/概念,正确答案=他记的释义)。**绝不**考他没记过的。
+- **干扰项(错误项)= 测验质量的命门**:同类、似真、不送分。可由你生成,但要**合理**(同领域近义/易混),**禁**明显不相关的凑数项。
+- 每题 **4 个选项、1 个正确**;`explain` 用他记的原话点明。
+- 学习内容太少、出不了像样测验 → 如实说「内容还不够出一份测验」,**不硬凑**。
+
+## 输入
+
+```
+title:  "<标题,如「本周词汇小测」>"
+brief:  "<一句话诉求>"
+data:   <JSON：真实学习记录>
+```
+
+## 内容骨架
+
+1. `# <标题>` + 一行 headline(测什么、几题)。
+2. **一个 `:::quiz` 块**:内放 JSON 数组,每题 `{q, options:[4 项], answer:<正确项下标,从 0>, explain?}`。**≤ ~10 题**。
+
+## 注解 Markdown 语法(只用这些)
+
+- 标准:`#` `##` 段落
+- **测验:`:::quiz` 内放 JSON 数组 `:::`** —— 每题 `{"q":"…","options":["A","B","C","D"],"answer":0,"explain":"…"}`(`answer`=正确项下标)
+
+## 只输出报告正文(硬规则)
+
+**只输出报告 Markdown 本身**,不要解释/思考过程/元评论/括号备注。不写「我」「你提供的 data」。内容不足时,只用一句正文如实说明。
+
+## 输出格式
+
+```
+---
+genre: quiz
+title: 本周词汇小测
+---
+# 本周词汇小测
+这周记的词,挑 5 个考考你。
+
+:::quiz
+[
+  {"q": "「ubiquitous」最接近哪个意思?", "options": ["无处不在的","稀有的","短暂的","昂贵的"], "answer": 0, "explain": "你记的:present everywhere"},
+  {"q": "「resilient」指的是?", "options": ["脆弱的","有韧性、能快速恢复的","昂贵的","古老的"], "answer": 1}
+]
+:::
+```
+
+内容不够时,如实说明,不硬凑。
+````
+
+### ⑤c 插入 `report-dispatcher/SKILL.md`（学习类 → quiz/flashcard gate）
+
+````markdown
+## 学习类 → quiz / flashcard（§6.14）
+
+- **可测 = 知识/记忆型内容**(单词、读书笔记、学习笔记、语言学习)+ 诉求「考考我 / 复习 / 测验 / 背一背 / 记忆卡」→ `quiz`(要计分测验)或 `flashcard`(要翻卡自测)。
+- **不可测,各有去处**:**灵感**=生成型 → `idea-synthesis`(发展不背);**代办**=行动型 → 提醒;**记账/事件/消费** → data-report/提醒。**排除** `todo`/`event`/`expense`/`contact`(即使沾"学习",如"复习数学"是待办、不是知识)。
+- 模糊时:想「自测 / 翻牌 / 背」→ `flashcard`;想「考我 / 打分」→ `quiz`。
+````

@@ -138,6 +138,8 @@ class _AddSkillSheetState extends State<_AddSkillSheet> {
             _pName.text.trim().isEmpty ? d['display_name'] : _pName.text.trim(),
         'payload_schema': d['payload_schema'],
         'render_spec': _composeRenderSpec(),
+        // §1.5.1 L0 — design agent 随 draft 产出的起聊文案,透传落库
+        if (d['chat_starters'] is List) 'chat_starters': d['chat_starters'],
       });
       bumpData();
       if (mounted) Navigator.of(context).maybePop();

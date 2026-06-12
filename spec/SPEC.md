@@ -1,7 +1,10 @@
 # Eureka Assistant — 产品与工程 Spec（交付版）
 
 > 版本：1.1 · 2026-06-04
-> 状态：**Authoritative**。
+> ⚠️ **本文件是 2026-06-04 的整合快照,已显著落后**(此后落地:§6 designed 渲染 8 surfaces、§6.13 报告→待办、
+> §6.14 quiz/flashcard、briefing+web-search(§14.9)、§14 主动 REKA Phase 1-4(积累 offer)、晨间简报、
+> §13 B1 百智 OAuth、迁移 0017-0019 等)。**以分章文件([README.md](README.md) 索引)为唯一真值;本文件仅作历史交付参考。**
+> 状态：~~Authoritative~~ → **Historical snapshot**。
 > **真值源（2026-06 起翻转）：产品 = Flutter app `mobile/` + `backend/`；web `frontend/` 降为历史来源（出处参考）。**
 > 当 spec 里的 web 行为描述与 Flutter 实现冲突，**以 `mobile/` 为准**。
 >
@@ -28,7 +31,7 @@
 | 3 | [03-api-reference.md](03-api-reference.md) | 每个 endpoint 的 method/path/请求/响应 JSON、SSE 事件格式 | 前端 / 后端 |
 | 4 | [04-frontend.md](04-frontend.md) | 4 个主屏、交互/sheet/动画、render-spec 渲染、客户端数据流。**正逐区 re-baseline 到 Flutter 规范**（冲突以 `mobile/` 为准） | 前端 / Flutter |
 | 5 | [05-design-system.md](05-design-system.md) | 精确 design tokens、7 个 accent 槽、字体、动效、组件视觉规范 | 前端 / 设计 |
-| 6 | [06-synthesis-report.md](06-synthesis-report.md) | **合成·报告引擎**（设计中）：总结/升华/提案 dispatcher + 内容 skill + md→HTML 渲染 + GSAP/WebView + reports 实体 · §6.11 微点评(**已 pending**,需求转 §1.5.1 会话开场 hint) | 全栈 / AI / 前端 |
+| 6 | [06-synthesis-report.md](06-synthesis-report.md) | **合成·报告引擎**：总结/升华/提案 dispatcher + 内容 skill + md→HTML 渲染 + GSAP/WebView + reports 实体 · §6.13 报告→待办 · **§6.14 测验/记忆卡 genre(quiz/flashcard,交互式,设计中)** · §6.11 微点评(已 pending→§1.5.1 hint) | 全栈 / AI / 前端 |
 | 7 | [07-gamemode.md](07-gamemode.md) | **任务 & 周岛**（设计中 · 游戏化层之一）：dock 壳改动 · 任务体系(L1, daily-gen) · 周岛(成果物) · 统一 completion_event · 「我的岛」shell | 全栈 / AI / 前端 / 设计 |
 | 8 | [08-domain-system.md](08-domain-system.md) | **领域(domain)系统**（设计中 · 横切章）：8 生活领域 · 存储真相链 · agent 赋值 · 卡片展示 · per-domain 任务日环 · 按领域总结/查询 + 技能名消歧 | 全栈 / AI / 前端 / 设计 |
 | 9 | [09-pet.md](09-pet.md) | **宠物（球球）**（v1 已实现 · 游戏化层之二）：球球本体(无 exp) · 换装/背包 · 掉装饰 + 里程碑(奖励经济) · 浮动球球 · 只读消费 completion_event | 全栈 / AI / 前端 / 设计 |

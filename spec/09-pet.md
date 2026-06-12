@@ -67,12 +67,13 @@
   - **通知(✅)** = 气泡**通知面板**(`_K.notifPanel`,列表 icon+标题+meta;打开即全部已读)。
   - **任务** = §7 待实现 → 「即将上线」toast 占位。
   - **进/出我的岛 = 「飞入 / 飞出相框」(✅,对齐设计稿;我的岛现为 dock tab,非 push 路由)**:
-    - **飞入(board-owned,可靠)**:进板瞬间 `mascotSuppressed++` 把浮球移出屏(板上无游离球),hero 由 board 自己的 `_heroCtl`(640ms,`easeOutBack` scale `0.3→1` + translate `+110→0` + fade)**从框下升入相框**并 celebrate。**不做跨 overlay 协调**(早期「`RekaFly` 跨 overlay 飞入」在真机上不动画、只「延迟后突现」,经多轮验证作废)——板自有动画**永远可见、永不卡死**。`_petKey` 挂在未变换的 Positioned 槽上,仅用于飞出测距(下)。
+    - **飞入(✅ 真·跨 overlay,2026-06 修复)**:进板**不先隐藏浮球** —— 等路由动画结束(雷达推入 `PetPage` 时首帧 rect 带滑入偏移)→ 量 `_petKey`(未变换槽)的真实相框 rect → `RekaFly.flyInto`:**球从当前屏幕位置飞进相框**(620ms 回弹),**落地瞬间**才 `mascotSuppressed++`、hero 原地接管(`_heroCtl.value=1`,不二次滑入)+ celebrate;1.2s 兜底 `arrive(false)` 走 board-owned 降级(`_heroCtl.forward` 从框下升入),永不「球停半路 + 空相框」;快速进出由 dispose 的 `RekaFly.cancel()` 兜住。**历史教训:早期「真机不动画」的根因是顺序反了** —— 先 suppress 再飞,而浮球的飞行分支只在未隐藏时渲染,一帧都画不出;外加路由滑入期测到偏移 rect。修复 = 「先飞 → 落地 → 再藏」+ 等路由结束再测。**路由 pop 也飞出**:`PetPage` 包 `PopScope`,pop 时量 rect → `flyOut`(与 tab 路径对称)。
     - **飞出(overlay-resident 浮球,可靠)**:`AppShell._go` 检测到离开 tab 2 时,**趁 board 仍在布局**同步量出 hero 当前屏上 rect(`PetBoardState.measureHeroRect` 读 `_petKey`;滚出视口/未布局 → null 则跳过飞行,浮球直接回家),经 `RekaFly.flyOut(rect)` 通知**根 overlay 常驻的浮球**:浮球从该 rect **飞回 home 落点**并缩回球尺寸(`_fly` 620ms,`easeInOutCubic`,位置 lerp + scale `heroW/66→1`)。浮球**独立于 tab 生命周期**(IndexedStack 切走会 unmount board,但浮球在根 overlay 不受影响),且**飞出渲染无视 suppressed**(board hero 已 unmount,无双影)→ 退出也**永远有可见过渡**,而非瞬回。落定后 `outFrom=null`,浮球恢复常态。
     - 两端 rect 均在**点击 dock 当帧同步取得**(无 route 过渡,故无早期飞入那种测距时序坑)。
     - **关键:抑制的 notify 必须 post-frame(✅ 已修)**:我的岛是 `IndexedStack` 的 **tab**,故 `PetBoard.initState/dispose` 跑在 **shell 的 build/unmount 帧内**。直接在其中 `mascotSuppressed.value++` / `releaseMascotSuppress()`(及 `_pet.refresh()`)会在 build 中通知浮球的 `ValueListenableBuilder`/`AnimatedBuilder` → 抛 `setState() during build` / `markNeedsBuild when tree was locked`(满屏异常 + 把入场/飞出动画冲垮)。改为 **`addPostFrameCallback` 延后**(initState 里 refresh+suppress+`_heroCtl.forward`;dispose 里 release)→ notify 落在已 settle 的树上,异常消失、两段动画恢复。(浮球早先是 push 路由时这不犯 —— 路由 push 的 build 不在 shell 同一帧。)
   - **精灵 fx 不被裁(✅ v4 #3/#4)**:浮球与 hero 的 PetView 用 `OverflowBox` 放大渲染框(球 132、hero 230×210),让引擎的 **celebrate 彩纸 / listen 光环**溢出到框外(不被 66/156 的 WebView 盒裁掉);视觉本体尺寸不变(canvas 居中),命中区仍 66。相关 Stack 设 `Clip.none`。
   - **浮球抑制的真机坑(✅ 关键修复)**:不能靠「`suppressed>0 → SizedBox`」移除浮球 —— iOS 的 **WKWebView platform view 被移除后会留残影**(浮球明明该隐藏却还在,孵化页/我的岛都见过)。改为**保持浮球挂载、suppressed 时把它定位到屏幕外**(`left:-10000` + `IgnorePointer`),iOS 按位置可靠合成、不留残影,且返回时无重载闪烁。释放统一用 `releaseMascotSuppress()`(clamp 不为负,防计数泄漏)。
+  - **未孵化硬 gate(✅ 关键修复)**:残影坑只对「曾经显示过、又被移除」的浮球成立。**孵化前浮球的 WebView 从未挂载**,故不适用 —— 此前靠 `pet_spawn_page` 的 off-screen 抑制兜底,实测在孵化首屏(蛋 + 轻点唤醒)没兜住,屏幕中部仍飘一颗悬浮蛋(与全屏大蛋重复违和)。改为 `_mascot` 顶部**硬 gate**:`!_pet.spawned → SizedBox.shrink()`。孵化前浮球根本不渲染(无残影风险,因从未 mount);孵化后 `spawned` 翻 true 才是一次 mount(非 unmount,无残影)。这是比 off-screen 抑制更强的不变量。
   - **气泡定位(✅ 设计稿 positionBubbles)**:REKA 在下半屏 → 气泡**向上展开**(bottom 锚 + bottomLeft/Right 缩放原点);在上半屏 → **向下展开**(top 锚)——避免球在顶部时气泡被挤扁;键盘弹起时浮在键盘上方。气泡卡右上角有**关闭 X**。
   - **统一光晕色(✅ v4)**:REKA 打开的所有表面 —— **菜单面板 / 气泡会话卡 / 资产选择弹窗** —— 都按 Reka 当前 aura 色(`Mascot.glowColors` ↔ Flutter `rekaGlow`)做毛玻璃底 + 边框 + 外发光,换光环时一起跟色。(快创编辑表单是真实 `Scaffold`,保留其自身样式。)
   - **REKA 反馈动效(✅ v4)**:菜单/气泡打开期间浮球 PetView 切 `listen`(头微侧 + 听的环),关闭回 `idle`;**新通知到达**:角标弹出 + **浮球外圈脉冲环扩散 2 次(1s)** + celebrate(`_pulse` + `_ballCelebrate`,仅未读数增加时触发)。
@@ -86,7 +87,7 @@
 
 - **命名 = 默认 "Reka"、≤8 字(✅)**:backend `api/pet.py` + Flutter 默认改为 Reka;改名/起名 cap 8。
 
-- **孵化「首次捕捉」引导(✅)**:egg→hatch→命名→intro→**首次捕捉**(「记下第一条」引导文案)→ 完成进入。(真实「等第一条 completion 再庆祝」后置;v1 是引导文案 + 进入后由 REKA 接住。)蛋+文案块**垂直居中**(`Center`+`SingleChildScrollView`,键盘弹起可滚不溢出);孵化接管页也由 off-screen 抑制保证**不出现浮球**。
+- **孵化「首次捕捉」引导(✅)**:egg→hatch→命名→intro→**首次捕捉**(「记下第一条」引导文案)→ 完成进入。(真实「等第一条 completion 再庆祝」后置;v1 是引导文案 + 进入后由 REKA 接住。)蛋+文案块**垂直居中**(`Center`+`SingleChildScrollView`,键盘弹起可滚不溢出);孵化接管页**不出现浮球** —— 由 `floating_mascot` 的 `!spawned` 硬 gate 保证(见 §9.2「未孵化硬 gate」,不再依赖 off-screen 抑制兜底)。
 
 - **闪念不在 REKA 菜单**:正式上线**无软件语音**(语音=硬件录音卡触发);`FlashSheet` 仅留硬件 / dev 路径(`START_OVERLAY=flash`)。软件侧快速捕捉走快创或对话。
 
@@ -139,6 +140,38 @@
 
 ---
 
+## 9.2.2 首次登录 · onboarding（孵化即引导 · ✅ 前端已实现）
+
+> **全新用户的第一屏不是晨报,是孵化。孵化即 onboarding** —— 用「认识 REKA + 当场看它把你一句话整理成卡片」在 ~30 秒交付产品 aha。直接体现产品魂:**你只管说,REKA 替你打理(连建技能都替你办)。**
+>
+> **✅ 实现(2026-06,`pages/pet_spawn_page.dart` 重写 + `main.dart` `_PostAuthGate`)**:① 三级 gating(root gate `!spawned`→孵化;`maybeShowMorningBriefing` 加 spawned 守卫 + `thin` 跳过)② 渐进破壳(`_CrackPainter` 累积裂纹 + 抖动 + 触觉,4 下末击迸裂)③ 出生不摊组件(首孵不弹 `reka_drop_reveal`,REKA 完整现身)④ 引导首捕 + 魔法时刻(打字 → `POST /api/flash` → 当场 `SkillCard` → 进 app)。**「建了 XX 本子」那一拍优雅降级**(后端即时建技能 §1.8 未就绪 → 先上「首捕 + 卡片」;验:新用户「早上买咖啡花了28块」当场出 `¥28` 消费卡)。
+>
+> **两条实现铁律(都踩过坑)**:① **gate 决策必须一次性 latch**(`_needsOnboarding ??=`)—— onboarding 自己的 `spawn()` 会把 `spawned` 翻 true,若每帧重读 `!spawned`,蛋一裂 gate 立刻切到 shell、现身/起名/首捕全被跳过(表现:裂开后直接进 app,什么都没看到)。② **登出必须重置 per-user 单例**(`PetController.reset()`/`RekaNudges.reset()`/`RekaNotifications.clear()`,在 `AuthController.logout`/`_onUnauthorized`)—— 否则旧账号的 `spawned` 宠物会(a)让全局浮球留在登录页,(b)让下个账号 `ensureLoaded` no-op 在旧快照上、跳过它的孵化。蛋点不动另见 §9.2「IgnorePointer 包 PetView」(WKWebView 吞触摸)。
+
+**进入门槛(三级优先,改 [§14.6](14-proactive-reka.md) 晨报 gating):**
+1. **`!spawned`(从没孵化)→ 孵化 onboarding**(最高优先、一次性)。
+2. 已孵化 + 当天首开 + 中午前 + **有内容**(今日待办/日程/近期记录)→ 晨报。
+3. 已孵化但**数据太薄** → **跳过晨报**,直接进 app(空晨报比没晨报糟)。
+
+**弧线:**
+```
+全屏蛋 →【点击越点越碎】→ 迸开 → REKA 现身 →(起名/默认 Reka)
+  → 「我帮你记着生活里的小事。来,随口说件今天的?」
+  → 首次捕捉(语音/打字,任意语言、任意乱)
+  →【魔法时刻】REKA 当场把它结构化成卡片;若不属已有技能 → design-agent 自动建技能 + 「我还帮你建了个『XX』本子」
+  → 「你记的都在这儿 →」(瞥一眼资产库)→ 进 app
+```
+
+**两条孵化硬要求(改自已实现):**
+- **① 渐进破壳(改「轻点即瞬间破壳」)**:点击**不是一下出 REKA**,而是**越点越碎** —— 每次点击给蛋**加裂纹 + 轻微抖动/触觉**,蛋逐步崩裂,**最后一下才迸开**出 REKA。让用户**亲手把它孵出来**,建立第一缕羁绊(对比"瞬间产出"的被动观看)。约 3–5 下;次数/裂纹节奏 = design 调。
+- **② 出生不强调"获得了什么组件"(改 `starter_drop` reveal)**:REKA 现身时**不弹** `reka_drop_reveal` 那种「孵化掉落 · 稀有度 · 收下」的**组件揭示卡**。此刻的用户**不需要知道有"部件/稀有度/收集"这套** —— 他只需知道:**「这是我的 REKA」**,而这只 REKA**碰巧戴着一顶帽子、有一颗徽记**(starter 头部 + 徽记**静默装好、就是它的样子**)。**收集/换装/稀有度系统留待他自己逛到「换装/我的岛」时自然发现**,出生时不摊开游戏机制。承「REKA 是角色不是 loadout、不摊 plumbing」。(`starter_drop` 仍照发、照装备,只是**首孵不走揭示弹窗**;reveal 弹窗模式保留给**后续**掉落,见 §9.3。)
+
+**关键依赖**:魔法时刻要求 **design-agent 在捕捉路径上即时建技能**([§1.8](01-agent-architecture.md))—— 首捕命中新类型 → 当场建技能并展示。**标为 v1 onboarding 的前置依赖**(可优雅降级)。
+
+> **实施 handoff = [`handoff-onboarding.md`](handoff-onboarding.md)**:前端(渐进破壳 + 抑制首孵揭示 + 引导首捕 + 魔法时刻 + 首屏三级 gating)· 后端/agent(即时建技能 + 优雅降级)· design(破壳动画 + 现身呈现)。
+
+---
+
 ## 9.3 奖励经济：掉装饰 + 里程碑
 
 - **`completion_event` 被消费**：每条 → ② **掷一次随机掉落**得装饰（`roll_drop`,~55%,只增不减、无付费抽）；③ 推进相关**里程碑**计数 → ④ **里程碑门控解锁**(`check_unlocks`,条件达成即发对应装饰)。（payoff ① 长岛在 [§7.4](07-gamemode.md)，不在本章。）
@@ -146,7 +179,8 @@
 - **两条解锁路径**:
   - **随机掉落**(`DROP_POOL`,排除 freebie 与 lock-gated 键)—— 日常小惊喜。
   - **里程碑解锁**(`core/milestones.py`,**40 条**,真实计数即时发奖):指标 `capture/streak/domains/skins/emblems/heads/items/carriers/auras/total` 越阈值 → 解锁指定装饰。**加法**:5 件 endgame 专属(crown / bubble·gold 身色 / ring 承载 / rainbow)从掉落池排除,其余 35 条奖品也可随机掉(里程碑 = 保底路径),保证目录**可收齐**。每事件最多发 4 件(涓流)。
-- **孵化保底掉落(v2,`starter_drop`)**:孵化时**必给**一件头部/手持(普通|稀有)并直接装备 —— Reka 出生即穿戴,首掉即礼物。孵化 reveal 步骤弹出**揭示弹窗**(✅ `reka_drop_reveal.dart` `showRekaDropReveal`,对齐设计稿 `hatchReveal`):稀有度染色卡 + **活体 `PetView` 大图**(穿着该件的全身 Reka,celebrate 一下)+ 「孵化掉落 · 稀有度」+ 元信息;因后端已装备故 CTA = 单个「收下」。孵化页底层同时留稀有度 chip 作常驻摘要。
+- **孵化保底掉落(v2,`starter_drop`)**:孵化时**必给**一件头部/手持(普通|稀有)并直接装备 —— Reka 出生即穿戴,首掉即礼物。
+  > **⚠️ onboarding 改动(§9.2.2)**:**首孵不再弹组件揭示卡** —— REKA 现身时只呈现一只**完整的、戴着帽子和徽记的 REKA**(starter 件静默装好、就是它的样子),**不**摊开「孵化掉落 · 稀有度 · 收下」。`starter_drop` 照发照装备,只是出生时不揭示。**`reka_drop_reveal`(`showRekaDropReveal`,稀有度染色卡 + 活体 `PetView` 大图 + 「收下」)保留给后续掉落**(用户已认识收集系统后),不再用于首孵。
 - **freebie**:`carrier:none` 与 `aura:none/soft` 永久可用,不掉落、不门控。
 - **里程碑** = 累计型成就（累计捕捉数 / 连续记录天数 / 领域广度〔点亮了几个生活领域〕/ 已集齐身色数…）达阈值 → 解锁装饰 / 徽章。
 - **各里程碑阈值、掉落池、掉率、稀有度权重 = collector 调参**（v2 已搭真实骨架 + 5 条门控规则；精确数值后续可调）。

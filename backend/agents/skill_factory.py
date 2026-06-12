@@ -139,7 +139,7 @@ def make_dispatcher_agent(custom_skills_hint: str = "") -> LlmAgent:
 
 # briefing (§14.5 会前调研/外部调研) is the only genre whose pipeline runs the
 # §14.9 web-search step before the content skill.
-REPORT_GENRES = ("data-report", "idea-synthesis", "proposal", "digest", "briefing")
+REPORT_GENRES = ("data-report", "idea-synthesis", "proposal", "digest", "briefing", "quiz", "flashcard")
 
 
 def make_report_dispatcher_agent() -> LlmAgent:

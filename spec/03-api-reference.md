@@ -6,7 +6,7 @@
 > 外所有路由都要带 token**；数据全部按 `user_id` 隔离（注册时自动 provision 基线 skills）。多租户已上线
 > （旧 `"default"` 数据仅为开发种子）。CORS 全开。落库契约见 [§2 数据模型](02-data-model.md)；
 > agent 行为见 [§1](01-agent-architecture.md)。
-> **百智 OAuth 登录(设计中,[§13.1](13-baizhi-integration.md))**:新增以百智作 IdP 的登录 —— bridge→换 token→映射到 Eureka `user_id`→**仍签发 Eureka 自己的 JWT**(每请求鉴权不变);百智真实 token 单独加密存,供调百智 MCP/API。
+> **百智 OAuth 登录(✅ B1 已实现,[§13.1](13-baizhi-integration.md) + [`handoff-baizhi-oauth.md`](handoff-baizhi-oauth.md))**:以百智作 IdP 的登录 —— bridge→换 token→映射到 Eureka `user_id`→**仍签发 Eureka 自己的 JWT**(每请求鉴权不变);百智真实 token 单独加密存,供调百智 MCP/API。
 
 约定：除特殊说明外，响应体均含 `{"ok": true, ...}`；错误用 HTTP 4xx + `{"detail": "..."}`
 （FastAPI HTTPException）或 `{"ok": false, "error": "..."}`（业务失败）。时间戳一律 ISO8601。
@@ -61,7 +61,7 @@ sessions, contacts, events, timeline, tasks, notifications。
 - 持久化 user + agent 两条 message；report 消息落库前剥掉笨重 html（只留指针/标题）。
 - `_QUERY_TOOLS` 集合内的工具不算「产生资产」（用于判断是否展示「沉淀为资产」入口）。
 
-> ⚠️ **持久性缺口(设计中,见 [§1.5.1.1](01-agent-architecture.md))**：现状把跑 agent + 落库**全放进 SSE 生成器、且只在跑完才落 user+agent**，离开 page→断流→**生成被取消 + 一条不落**。需求改为:**收到即落 user msg + 回合 `status`**、生成跑成**后台任务**(断流也跑完)、返回按回合 status **轮询对账**;并加一个「取 in-flight 回合 / 重连」查询。对齐 flash 的 `has_pending` 持久模型。
+> ✅ **持久回合已实现(见 [§1.5.1.1/.3](01-agent-architecture.md))**:用户消息**收到即落库**(带回合 `status`),生成跑成**后台任务**(断流也跑完),返回按回合 status **轮询对账**(`chat_controller._reconcilePending`)。对齐 flash 的 `has_pending` 持久模型。
 
 ---
 
@@ -164,6 +164,7 @@ sessions, contacts, events, timeline, tasks, notifications。
 |---|---|---|---|
 | GET | `/api/sessions` | `date, session_type, limit` | 列表 |
 | POST | `/api/sessions` | `CreateSessionRequest{session_type, title, date, context_asset_ids, subject_type, subject_id, peek_only}` | 3 种模式（见下） |
+| GET | `/api/sessions/opening-hint` | `subject_type, subject_id` | **§1.5.1 开场 hint(✅,零 LLM)**:空态锚定会话的 opener(L1 一次聚合观察)+ 2-3 条起聊 chips(L0 技能 `chat_starters` → 通用三连兜底;event/contact 专属);按 **subject** 取(懒绑定下 session 可能尚不存在);不落库 |
 | GET | `/api/sessions/{id}` | — | 详情 + asset_count + turn_count + 4 个 subject FK + assets |
 | GET | `/api/sessions/{id}/messages` | — | 消息（最旧在前，role_rank 平手时排序） |
 | GET | `/api/sessions/{id}/input-turns` | — | 该 session 的输入 |
@@ -343,6 +344,7 @@ source_file_offset, asr_provider, language, created_at}`。供资产详情页的
 | POST | `/api/nudges/{id}/outcome` | body `{status: seen\|acted\|dismissed}`;终态不被 seen 降级;驱动 §14.8 自适应退避 |
 | GET | `/api/nudges/prefs` | `{nudges_enabled}`(默认 true) |
 | PATCH | `/api/nudges/prefs` | body `{nudges_enabled: bool}` —— §14.8「球球提醒」总开关 |
+| POST | `/api/nudges/scan` | **dev**:立即跑一轮 heartbeat(expire + 触发;护栏照常),服务进程内执行 → SSE 实时可达 |
 
 - nudge 由服务端 heartbeat(`core/companion.py`)产生,同时走通知管线(`type=nudge`,`link=nudge:<id>:<ref>`)→ feed + SSE;移动端渲染成 REKA peek 气泡而非普通 toast。
 

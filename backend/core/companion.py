@@ -30,7 +30,7 @@ from sqlalchemy import func, select, update
 
 from core.notifications import create_notification
 from db.database import AsyncSessionLocal
-from db.models import Asset, GlobalSkill, Nudge, RhythmProfile, User, UserSkill
+from db.models import Asset, GlobalSkill, Nudge, Report, RhythmProfile, User, UserSkill
 
 log = logging.getLogger("eureka.companion")
 
@@ -43,6 +43,17 @@ CONFIDENCE_GATE = 0.45          # below → 数据不够别瞎猜 (§14.2)
 GRACE_HOURS = 1                 # nudge only after peak hour + grace has passed
 LATE_HOURS = 3                  # …and not later than peak + this (8am 习惯别在晚上催)
 BACKOFF_HOURS = 72              # 2 consecutive un-acted nudges for a habit → 退避
+
+# §14.3 积累 → Type B offer (Phase 4 §14.5): enough recent records of a
+# synthesizable kind → 「要我帮你理一理?」→ accept = one-tap report (genre 内置).
+# Maps the spec's examples: 聚合想法 → idea-synthesis;消费分析 → data-report.
+_ACCUM_RULES = (
+    # (matcher(machine_name, display_name), threshold per 7d, genre, 文案标签)
+    (lambda m, d: m in ("idea", "ideas") or "灵感" in (d or ""), 5, "idea-synthesis", "灵感"),
+    (lambda m, d: m == "expense" or "记账" in (d or "") or "消费" in (d or ""), 8, "data-report", "消费"),
+)
+OFFER_TTL_HOURS = 72       # an offer stays actionable for 3 days, then expires
+OFFER_DEDUPE_DAYS = 7      # at most one offer per habit per week (offers are rare)
 
 
 def _bj_day_bounds(now_utc: datetime) -> tuple[datetime, datetime]:
@@ -60,14 +71,18 @@ def _nudges_enabled(user: User | None) -> bool:
 
 
 async def expire_stale() -> int:
-    """Yesterday's delivered/seen nudges → `ignored` (过期未处理, §14.7). Keeps
-    the feed honest and feeds the adaptive backoff."""
-    day_start_utc, _ = _bj_day_bounds(datetime.now(timezone.utc))
+    """Un-acted nudges past their lifetime → `ignored` (过期未处理, §14.7).
+    Lifetime = `expires_at` when set (offers live ~72h); else end of the day it
+    was sent (rhythm reminders are day-scoped). Keeps the feed honest and feeds
+    the adaptive backoff."""
+    now = datetime.now(timezone.utc)
+    day_start_utc, _ = _bj_day_bounds(now)
     async with AsyncSessionLocal() as db:
         res = await db.execute(
             update(Nudge)
             .where(Nudge.status.in_(("pending", "delivered", "seen")),
-                   Nudge.created_at < day_start_utc)
+                   ((Nudge.expires_at.is_(None)) & (Nudge.created_at < day_start_utc))
+                   | (Nudge.expires_at.is_not(None)) & (Nudge.expires_at < now))
             .values(status="ignored")
         )
         await db.commit()
@@ -89,11 +104,142 @@ async def scan_once() -> int:
     fired = 0
 
     async with AsyncSessionLocal() as db:
+        # ── §14.3 积累 → Type B offer (runs first: offers are rarer + richer;
+        #    they share the user's DAILY_CAP with rhythm reminders) ────────────
+        week_ago = now - timedelta(days=7)
+
+        async def _count_since(uid: str, *, machine: str | None, domain: str | None,
+                               since: datetime) -> int:
+            q = select(func.count(Asset.id)).where(
+                Asset.user_id == uid, Asset.created_at >= since)
+            if machine is not None:
+                q = (q.join(UserSkill, Asset.user_skill_id == UserSkill.id)
+                      .join(GlobalSkill, UserSkill.skill_id == GlobalSkill.id)
+                      .where(GlobalSkill.name == machine))
+            if domain is not None:
+                q = q.where(Asset.domain == domain)
+            return int((await db.execute(q)).scalar() or 0)
+
+        async def _try_offer(uid: str, *, ref: str, cnt: int, thr: int,
+                             genre: str, label: str, text: str, body: str,
+                             machine: str | None, domain: str | None) -> bool:
+            """All §14.8 guardrails for one offer candidate; returns fired?"""
+            user = (await db.execute(select(User).where(User.id == uid))).scalar_one_or_none()
+            if not _nudges_enabled(user):
+                return False
+            today_n = (await db.execute(
+                select(func.count(Nudge.id)).where(
+                    Nudge.user_id == uid, Nudge.created_at >= day_start_utc)
+            )).scalar() or 0
+            if today_n >= DAILY_CAP:
+                return False
+            # one offer per habit per week — offers must stay rare to stay welcome
+            prior = (await db.execute(
+                select(func.count(Nudge.id)).where(
+                    Nudge.user_id == uid, Nudge.kind == "offer", Nudge.ref == ref,
+                    Nudge.created_at >= now - timedelta(days=OFFER_DEDUPE_DAYS))
+            )).scalar() or 0
+            if prior:
+                return False
+            # synthesized recently → only re-offer if enough NEW records piled
+            # up SINCE that report (a fresh batch deserves a fresh offer; a
+            # blanket 7d mute would go quiet right when they're most active)
+            last_report_at = (await db.execute(
+                select(func.max(Report.created_at)).where(
+                    Report.user_id == uid, Report.genre == genre,
+                    Report.created_at >= week_ago)
+            )).scalar()
+            if last_report_at is not None:
+                if last_report_at.tzinfo is None:
+                    last_report_at = last_report_at.replace(tzinfo=timezone.utc)
+                if await _count_since(uid, machine=machine, domain=domain,
+                                      since=last_report_at) < thr:
+                    return False
+            nudge = Nudge(
+                user_id=uid, type="B", kind="offer",
+                text=text, body=body,
+                ref=ref, cta="synthesize",
+                status="delivered", source="rhythm",
+                delivered_at=now, expires_at=now + timedelta(hours=OFFER_TTL_HOURS),
+            )
+            db.add(nudge)
+            await db.commit()
+            await db.refresh(nudge)
+            await create_notification(
+                user_id=uid, type="nudge", title=nudge.text,
+                body=nudge.body or "", link=f"nudge:{nudge.id}:{ref}",
+            )
+            return True
+
+        # pass 1 — dedicated skills (a real 灵感/记账 skill)
+        acc_rows = (await db.execute(
+            select(Asset.user_id, GlobalSkill.name, UserSkill.display_name,
+                   func.count(Asset.id))
+            .join(UserSkill, Asset.user_skill_id == UserSkill.id)
+            .join(GlobalSkill, UserSkill.skill_id == GlobalSkill.id)
+            .where(Asset.created_at >= week_ago)
+            .group_by(Asset.user_id, GlobalSkill.name, UserSkill.display_name)
+        )).all()
+        # a user may carry dup user_skill rows → aggregate by (user, machine)
+        acc: dict[tuple[str, str], list] = {}
+        offered_idea: set[str] = set()  # users already offered an idea synthesis
+        for uid, machine, disp, cnt in acc_rows:
+            cur = acc.setdefault((uid, machine), [disp, 0])
+            cur[0] = cur[0] or disp
+            cur[1] += int(cnt or 0)
+        for (uid, machine), (disp, cnt) in acc.items():
+            rule = next((r for r in _ACCUM_RULES if r[0](machine, disp) and cnt >= r[1]), None)
+            if rule is None:
+                continue
+            _, thr, genre, label = rule
+            if await _try_offer(
+                uid, ref=machine, cnt=cnt, thr=thr, genre=genre, label=label,
+                text=f"✨ 这周记了 {cnt} 条{label},要我帮你理一理?",
+                body="点「帮我理一理」,Reka 把它们聚合成一份报告——共性、张力和下一步。不需要就划走,不打扰。",
+                machine=machine, domain=None):
+                fired += 1
+                if genre == "idea-synthesis":
+                    offered_idea.add(uid)
+
+        # pass 2 — DOMAIN rules (§8): most users' synthesizable content lives in
+        # generic skills tagged by domain (随记+灵感域;学习笔记+学习域),not in a
+        # dedicated skill. Counts EXCLUDE non-knowledge skills (§6.14: a todo
+        # tagged 学习,如「复习数学」,is an action — never quiz material).
+        domain_rules = (
+            # (domain, thr, genre, label, text_fmt, body)
+            ("灵感", 5, "idea-synthesis", "灵感",
+             "✨ 这周记了 {n} 条灵感,要我帮你理一理?",
+             "点「帮我理一理」,Reka 把它们聚合成一份报告——共性、张力和下一步。不需要就划走,不打扰。"),
+            ("学习", 8, "quiz", "学习内容",
+             "📝 这周记了 {n} 条学习内容,要不要考考你?",
+             "点「考考我」,Reka 用你记过的内容出一份小测——只考你记的,不考没学的。不想考就划走。"),
+        )
+        _non_knowledge = ("todo", "event", "expense", "contact", "external_ref", "qa")
+        for domain, thr, genre, label, text_fmt, body in domain_rules:
+            dom_rows = (await db.execute(
+                select(Asset.user_id, func.count(Asset.id))
+                .join(UserSkill, Asset.user_skill_id == UserSkill.id)
+                .join(GlobalSkill, UserSkill.skill_id == GlobalSkill.id)
+                .where(Asset.created_at >= week_ago, Asset.domain == domain,
+                       ~GlobalSkill.name.in_(_non_knowledge))
+                .group_by(Asset.user_id)
+            )).all()
+            for uid, cnt in dom_rows:
+                cnt = int(cnt or 0)
+                if cnt < thr:
+                    continue
+                if genre == "idea-synthesis" and uid in offered_idea:
+                    continue
+                if await _try_offer(uid, ref=f"domain:{domain}", cnt=cnt, thr=thr,
+                                    genre=genre, label=label,
+                                    text=text_fmt.format(n=cnt), body=body,
+                                    machine=None, domain=domain):
+                    fired += 1
+
+        # ── §14.3 缺口 → Type A 提醒 ────────────────────────────────────────
         profiles = (await db.execute(
             select(RhythmProfile).where(RhythmProfile.confidence >= CONFIDENCE_GATE)
         )).scalars().all()
-        if not profiles:
-            return 0
 
         by_user: dict[str, list[RhythmProfile]] = {}
         for p in profiles:

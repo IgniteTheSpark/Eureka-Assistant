@@ -35,3 +35,7 @@ uvicorn*.log
 .idea/
 .claude/
 .gstack/
+
+# prod TLS certs (acme.sh-managed on the server, never committed)
+deploy/certs/*.pem
+deploy/.env.prod

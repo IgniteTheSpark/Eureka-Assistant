@@ -132,10 +132,30 @@ class PetController extends ChangeNotifier {
 
   bool get spawned => pet?.spawned == true;
 
+  /// True once the first /api/pet fetch has resolved (success or error). The
+  /// root gate (§9.2.2 onboarding) waits on this before choosing 孵化 vs shell —
+  /// deciding while the pet is still null would flash the onboarding takeover at
+  /// already-spawned returning users.
+  bool get loaded => _everLoaded;
+
   /// Load once (no-op if already loaded). Safe to call repeatedly.
   Future<void> ensureLoaded() async {
     if (_everLoaded || loading) return;
     await refresh();
+  }
+
+  /// Drop all per-user state on logout. Without this the singleton keeps the
+  /// previous account's pet (spawned=true) → the global floating REKA lingers on
+  /// the login screen AND the next account's `ensureLoaded()` no-ops on the stale
+  /// snapshot, skipping its 孵化 onboarding. Resetting `_everLoaded` forces a
+  /// fresh /api/pet fetch for whoever logs in next.
+  void reset() {
+    pet = null;
+    loading = false;
+    _everLoaded = false;
+    milestones = const [];
+    milestonesAchieved = 0;
+    notifyListeners();
   }
 
   /// Fetch the pet; diff unlocked cosmetics vs the previous snapshot and toast

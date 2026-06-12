@@ -55,11 +55,27 @@ class RekaNudges extends ChangeNotifier {
 
   bool _loaded = false;
 
+  /// Drop all per-user nudge state on logout so the previous account's nudges
+  /// don't leak onto the next user's REKA (peek chip / pending feed).
+  void reset() {
+    _pending.clear();
+    peek = null;
+    _loaded = false;
+    notifyListeners();
+  }
+
   /// App start: restore today's un-acted nudges → quiet「...」chip, NO bob
   /// (the arrival moment already passed; §14.7 被抑制/离线时直接进安静态).
   Future<void> loadPending() async {
     if (_loaded) return;
     _loaded = true;
+    await refresh();
+  }
+
+  /// Re-pull pending from the server (authoritative cta/body — the SSE frame
+  /// only carries title/body/ref). [peekId] re-points the peek at that nudge
+  /// once the fresh copy lands.
+  Future<void> refresh({String? peekId}) async {
     final api = ApiClient();
     try {
       final res = await api.getJson('/api/nudges/pending');
@@ -68,6 +84,11 @@ class RekaNudges extends ChangeNotifier {
       _pending
         ..clear()
         ..addAll(list.whereType<Map>().map(RekaNudge.fromJson).whereType<RekaNudge>());
+      final want = peekId ?? peek?.id;
+      if (want != null) {
+        final i = _pending.indexWhere((x) => x.id == want);
+        peek = i >= 0 ? _pending[i] : (peekId != null ? peek : null);
+      }
       notifyListeners();
     } catch (_) {
       // best-effort — nudges are an enhancement, never block startup

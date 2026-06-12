@@ -16,6 +16,7 @@ The render_spec produced here must conform to the receivable enum vocabulary
 SkillCard renderer (Phase D §九) can render it without surprise.
 """
 import json
+import re
 
 from google.adk.agents import LlmAgent
 
@@ -53,7 +54,9 @@ DESIGN_INSTRUCTION = """
   },
   "sample_payload": {        // 示范数据一条,用于前端实时预览 card 的样子
     "<field>": <value>
-  }
+  },
+  "chat_starters": ["string", "string"]   // 2-3 条「起聊文案」(§1.5.1):用户就一条该类记录
+                                          // 找 agent 聊时的可点建议,口语化、≤14 字、贴技能性质
 }
 
 ## 设计规则
@@ -82,6 +85,8 @@ DESIGN_INSTRUCTION = """
     用户会以为内容丢了。这类字段优先放 secondary_field(长文本能截断显示)或
     meta_fields。空字段不会显示,所以全放进去不会让卡片变脏。
 - 不要发明 enum 外的值
+- **chat_starters(必给,2-3 条)**:想象用户点开一条这类记录说「聊聊它」,你给的可点建议。
+    要**动作化、口语化**(「这个月花了多少?」「帮我拆成子任务」),不要空泛(「分析一下」×3)。
 
 ## 字段类型 + 单位的处理(关键!)
 
@@ -153,23 +158,45 @@ RESPONSE_SCHEMA = {
 }
 
 
-def make_design_agent() -> LlmAgent:
-    """
-    Create the design LlmAgent. Stateless — called per /api/skills request.
+# Prompt-side JSON enforcement. We deliberately do NOT use ADK output_schema
+# anymore: it compiles to a `response_format: json_schema` request against
+# DeepSeek's /beta endpoint, which DeepSeek pulled (400 "This response_format
+# type is unavailable now", 2026-06 — broke AddSkill in prod). Every other
+# agent in this codebase already does prompt + tolerant JSON parsing reliably,
+# so the design agents now do the same (the fallback this file's original NOTE
+# anticipated).
+_JSON_ONLY_SUFFIX = (
+    "\n\n---\n\n**输出硬规则**:只输出一个 JSON 对象本身 —— 不要任何解释、前后缀文字,"
+    "不要 markdown 代码栅栏(```)。第一个字符必须是 `{`,最后一个字符必须是 `}`。"
+)
 
-    NOTE on ADK structured-output API:
-    ADK 1.0 LlmAgent should accept output_schema (or response_schema, name may
-    differ across versions). If the keyword is wrong at integration time,
-    Step 5 will catch it; we may fall back to prompt + JSON-parsing + 1 retry
-    if structured output isn't available.
-    """
+
+def _parse_json_object(text: str) -> dict | None:
+    """Tolerant JSON-object extraction: direct parse → fence-stripped →
+    outermost-braces slice. Returns None when nothing parseable is found."""
+    s = (text or "").strip()
+    for candidate in (
+        s,
+        re.sub(r"^```[a-zA-Z]*\s*\n?|\n?```\s*$", "", s).strip(),
+        s[s.find("{"): s.rfind("}") + 1] if ("{" in s and "}" in s) else "",
+    ):
+        if not candidate:
+            continue
+        try:
+            parsed = json.loads(candidate)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
+
+
+def make_design_agent() -> LlmAgent:
+    """Create the design LlmAgent. Stateless — called per /api/skills request."""
     return LlmAgent(
         name="design_agent",
         model=DESIGN_AGENT_MODEL,
-        instruction=DESIGN_INSTRUCTION,
-        # output_schema enforces RESPONSE_SCHEMA at generation time when supported.
-        # Keyword name may need adjustment for the installed ADK version.
-        output_schema=RESPONSE_SCHEMA,
+        instruction=DESIGN_INSTRUCTION + _JSON_ONLY_SUFFIX,
         tools=[],
     )
 
@@ -179,12 +206,19 @@ async def design_skill(description: str, user_id: str = "default") -> dict:
     One-shot design call.
     Returns the parsed draft dict ({name, display_name, payload_schema, render_spec, sample_payload}).
 
-    Raises if the LLM returns non-JSON (shouldn't happen with response_schema,
-    but caller should handle JSONDecodeError defensively in Step 5).
+    Prompt-enforced JSON + one retry with a sharper reminder; raises ValueError
+    when both attempts return unparseable text (caller surfaces a clean error).
     """
     # codex review §AgentRunner: shared one-shot runner (was a hand-rolled loop).
     final_text = (await run_agent(make_design_agent(), description, user_id)).text
-    return json.loads(final_text)
+    parsed = _parse_json_object(final_text)
+    if parsed is None:  # one retry — model drifted into prose
+        retry_msg = description + "\n\n(上次输出不是合法 JSON。这次只输出 JSON 对象,别的什么都不要。)"
+        final_text = (await run_agent(make_design_agent(), retry_msg, user_id)).text
+        parsed = _parse_json_object(final_text)
+    if parsed is None:
+        raise ValueError(f"design agent returned non-JSON: {final_text[:200]!r}")
+    return parsed
 
 
 # ── Clarifier — guided card flow before generation ────────────────────────────
@@ -287,12 +321,12 @@ CLARIFIER_SCHEMA = {
 
 
 def make_clarifier_agent() -> LlmAgent:
-    """Conversational stage of the skill wizard — emits questions or `ready`."""
+    """Conversational stage of the skill wizard — emits questions or `ready`.
+    Prompt-enforced JSON (no output_schema — see _JSON_ONLY_SUFFIX note)."""
     return LlmAgent(
         name="skill_clarifier",
         model=DESIGN_AGENT_MODEL,
-        instruction=CLARIFIER_INSTRUCTION,
-        output_schema=CLARIFIER_SCHEMA,
+        instruction=CLARIFIER_INSTRUCTION + _JSON_ONLY_SUFFIX,
         tools=[],
     )
 

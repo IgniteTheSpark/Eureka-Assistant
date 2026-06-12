@@ -109,6 +109,17 @@ async def nudge_outcome(
     return {"ok": True, "nudge": payload}
 
 
+@router.post("/nudges/scan")
+async def trigger_scan(user_id: str = Depends(get_current_user_id)):
+    """Dev affordance: run one heartbeat pass NOW (expire + triggers) instead of
+    waiting ≤30min for the loop. Runs in the SERVER process, so a fired nudge
+    reaches live SSE subscribers instantly. Guardrails all still apply."""
+    from core.companion import expire_stale, scan_once
+    expired = await expire_stale()
+    fired = await scan_once()
+    return {"ok": True, "fired": fired, "expired": expired}
+
+
 class PrefsRequest(BaseModel):
     nudges_enabled: bool
 
