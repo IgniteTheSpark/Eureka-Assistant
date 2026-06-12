@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app_events.dart';
 import 'app_shell.dart';
 import 'auth/auth_controller.dart';
+import 'ble_flash/ble_flash_manager.dart';
+import 'ble_flash/ble_flash_overlay.dart';
 import 'data_revision.dart';
 import 'device/device_controller.dart';
 import 'pages/login_page.dart';
@@ -28,6 +30,7 @@ void main() {
   // login vs. app shell once loaded. (AppEvents/SSE need the token, so they
   // start only once authed — see _AuthGate.)
   AuthController.instance.load();
+  BleFlashManager.instance.start();
   runApp(const ProviderScope(child: EurekaApp()));
 }
 
@@ -93,6 +96,15 @@ class EurekaApp extends StatelessWidget {
                             builder: (_, on, child) => on
                                 ? const Positioned.fill(
                                     child: GlobalListeningOverlay(),
+                                  )
+                                : const SizedBox.shrink(),
+                          ),
+                          ValueListenableBuilder<bool>(
+                            valueListenable:
+                                BleFlashManager.instance.isFlashing,
+                            builder: (_, on, child) => on
+                                ? const Positioned.fill(
+                                    child: BleFlashOverlay(),
                                   )
                                 : const SizedBox.shrink(),
                           ),
