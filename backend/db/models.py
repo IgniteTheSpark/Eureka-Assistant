@@ -616,6 +616,52 @@ class ConnectedApp(Base):
     )
 
 
+class Card(Base):
+    """Physical BLE card identity. User-specific binding state lives in
+    CardBinding so a card can keep stable device metadata across re-binds."""
+    __tablename__ = "cards"
+
+    id               = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    card_sn          = Column(String(100), nullable=False)
+    card_device_uuid = Column(String(100), nullable=False)
+    card_mac         = Column(String(100))
+    card_mac_from    = Column(String(20))       # ios | android | harmony | unknown
+    card_name        = Column(String(100))
+    created_at       = Column(TIMESTAMPTZ, nullable=False, default=_utcnow)
+    updated_at       = Column(TIMESTAMPTZ, nullable=False, default=_utcnow, onupdate=_utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("card_sn", name="uq_cards_card_sn"),
+        Index("idx_cards_device_uuid", "card_device_uuid"),
+        Index("idx_cards_mac", "card_mac"),
+    )
+
+
+class CardBinding(Base):
+    """Per-user card binding history. active_card_id is set only while bound;
+    its unique index enforces one active owner per physical card."""
+    __tablename__ = "card_bindings"
+
+    id            = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id       = Column(String(50), nullable=False)
+    card_id       = Column(GUID(), ForeignKey("cards.id"), nullable=False)
+    card_nick     = Column(String(100))
+    card_app_uuid = Column(String(100), nullable=False)
+    bind_status   = Column(String(20), nullable=False, server_default="bound")
+    bind_time      = Column(TIMESTAMPTZ, nullable=False, default=_utcnow)
+    unbind_time    = Column(TIMESTAMPTZ)
+    active_card_id = Column(GUID(), ForeignKey("cards.id"))
+    created_at     = Column(TIMESTAMPTZ, nullable=False, default=_utcnow)
+    updated_at     = Column(TIMESTAMPTZ, nullable=False, default=_utcnow, onupdate=_utcnow)
+
+    __table_args__ = (
+        Index("idx_card_bindings_user_status", "user_id", "bind_status", "bind_time"),
+        Index("idx_card_bindings_card", "card_id", "bind_time"),
+        Index("idx_card_bindings_user_card", "user_id", "card_id"),
+        Index("uq_card_bindings_active_card", "active_card_id", unique=True),
+    )
+
+
 class Pet(Base):
     """§9 球球 Pet — one per user. A gradient jelly body + forehead emblem, 7
     swappable cosmetic slots (skin / emblem(+color) / head / leftItem / rightItem
