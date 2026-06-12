@@ -30,8 +30,6 @@ class FlashFileWorkflow {
 
   static const _logTag = '[FlashFile]';
   static const _prefsKey = 'flash_file_tasks_v1';
-  static const _serverStatusPollInterval = Duration(seconds: 30);
-
   final BrBluetoothPlugin _ble;
   final BrAudioConverterPlugin _converter;
   final TencentAsrS3Client _asrClient;
@@ -44,7 +42,6 @@ class FlashFileWorkflow {
   bool _transcodeRunning = false;
   bool _uploadRunning = false;
   bool _notifyRunning = false;
-  bool _serverStatusRunning = false;
   bool _deviceConnected = false;
   Set<String> _syncableFlashFiles = const {};
   Timer? _wakeTimer;
@@ -269,12 +266,6 @@ class FlashFileWorkflow {
       nextTask: () => _nextStageTask({FlashFileStage.s3Uploaded}),
       runTask: _notifyEureka,
     );
-    _kickStageWorker(
-      isRunning: () => _serverStatusRunning,
-      setRunning: (v) => _serverStatusRunning = v,
-      nextTask: _nextServerStatusTask,
-      runTask: _refreshServerStatus,
-    );
   }
 
   void _kickStageWorker({
@@ -306,35 +297,17 @@ class FlashFileWorkflow {
   }
 
   void _scheduleNextWake() {
-    if (_syncRunning ||
-        _transcodeRunning ||
-        _uploadRunning ||
-        _notifyRunning ||
-        _serverStatusRunning) {
+    if (_syncRunning || _transcodeRunning || _uploadRunning || _notifyRunning) {
       return;
     }
     final now = DateTime.now();
     Duration? nextDelay;
     for (final task in _tasks.values) {
-      if (task.eurekaRecordingId == null ||
-          (task.stage != FlashFileStage.waitingServerAsr &&
-              task.stage != FlashFileStage.waitingServer)) {
-        final retryAfter = task.retryAfter;
-        if (retryAfter == null) continue;
-        final delay = retryAfter.isAfter(now)
-            ? retryAfter.difference(now)
-            : Duration.zero;
-        if (nextDelay == null || delay < nextDelay) {
-          nextDelay = delay;
-        }
-        continue;
-      }
-      var dueAt = task.updatedAt.add(_serverStatusPollInterval);
       final retryAfter = task.retryAfter;
-      if (retryAfter != null && retryAfter.isAfter(dueAt)) {
-        dueAt = retryAfter;
-      }
-      final delay = dueAt.isAfter(now) ? dueAt.difference(now) : Duration.zero;
+      if (retryAfter == null) continue;
+      final delay = retryAfter.isAfter(now)
+          ? retryAfter.difference(now)
+          : Duration.zero;
       if (nextDelay == null || delay < nextDelay) {
         nextDelay = delay;
       }
@@ -366,22 +339,6 @@ class FlashFileWorkflow {
     return _firstOrNull(
       _sortedTasks(
         _tasks.values.where((t) => _isRetryDue(t) && stages.contains(t.stage)),
-      ),
-    );
-  }
-
-  FlashFileTask? _nextServerStatusTask() {
-    final now = DateTime.now();
-    return _firstOrNull(
-      _sortedTasks(
-        _tasks.values.where(
-          (t) =>
-              t.eurekaRecordingId != null &&
-              (t.stage == FlashFileStage.waitingServerAsr ||
-                  t.stage == FlashFileStage.waitingServer) &&
-              _isRetryDue(t) &&
-              now.difference(t.updatedAt) >= _serverStatusPollInterval,
-        ),
       ),
     );
   }
@@ -566,7 +523,9 @@ class FlashFileWorkflow {
       '.mp3',
     );
     final presign = await _asrClient.createPresign(filename: mp3Name);
-    if (presign.s3Key.isEmpty || presign.uploadUrl.isEmpty) {
+    if (presign.s3Key.isEmpty ||
+        presign.uploadUrl.isEmpty ||
+        presign.audioUrl.isEmpty) {
       throw StateError('invalid S3 presign');
     }
     _log(
@@ -578,6 +537,7 @@ class FlashFileWorkflow {
         stage: FlashFileStage.uploadingToS3,
         s3Key: presign.s3Key,
         s3UploadUrl: presign.uploadUrl,
+        s3AudioUrl: presign.audioUrl,
         s3UploadHeaders: presign.headers,
         s3ExpiresIn: presign.expiresIn,
       ),
@@ -622,50 +582,11 @@ class FlashFileWorkflow {
     await _update(
       task.key,
       task.copyWith(
-        stage: ok == true
-            ? FlashFileStage.waitingServer
-            : FlashFileStage.waitingServer,
+        stage: ok == true ? FlashFileStage.done : FlashFileStage.done,
         deviceDeletePending: ok != true,
       ),
     );
-  }
-
-  Future<void> _refreshServerStatus(FlashFileTask task) async {
-    final recordingId = task.eurekaRecordingId;
-    if (recordingId == null || recordingId.isEmpty) return;
-    _log('refresh server status start ${_brief(task)}');
-    final res = await _eurekaApi.getRecording(recordingId);
-    final recording = (res['recording'] as Map?)?.cast<String, dynamic>();
-    if (recording == null) return;
-    final processStatus = recording['process_status']?.toString() ?? '';
-    _log(
-      'refresh server status result ${_brief(task)} processStatus=$processStatus asrStatus=${recording['asr_status']}',
-    );
-    final message = recording['asr_error']?.toString().isNotEmpty == true
-        ? recording['asr_error'].toString()
-        : recording['tencent_error_message']?.toString();
-    if (processStatus == 'failed') {
-      await _update(
-        task.key,
-        task.copyWith(stage: FlashFileStage.failed, lastError: message),
-      );
-      return;
-    }
-    if (task.stage == FlashFileStage.waitingServerAsr &&
-        (processStatus == 'asr_done' ||
-            processStatus == 'processing_flash' ||
-            processStatus == 'done')) {
-      await _update(
-        task.key,
-        task.copyWith(stage: FlashFileStage.deletingDeviceFile),
-      );
-      return;
-    }
-    if (task.stage == FlashFileStage.waitingServer && processStatus == 'done') {
-      await _update(task.key, task.copyWith(stage: FlashFileStage.done));
-      return;
-    }
-    await _update(task.key, task.copyWith(stage: task.stage));
+    FlashFileStatusController.instance.clear();
   }
 
   Map<String, dynamic> _payload(FlashFileTask task) => {
@@ -682,13 +603,14 @@ class FlashFileWorkflow {
     's3': {
       's3_key': task.s3Key,
       'upload_url': task.s3UploadUrl,
+      'audio_url': task.s3AudioUrl,
       'content_type': task.s3UploadHeaders?['Content-Type'] ?? 'audio/mpeg',
       'headers': task.s3UploadHeaders ?? const {'Content-Type': 'audio/mpeg'},
       'upload_expires_in': task.s3ExpiresIn,
       'uploaded_at': DateTime.now().toIso8601String(),
     },
     'engine_type': '16k_zh',
-    'speaker_diarization': true,
+    'speaker_diarization': false,
     'hotword_list': '',
   };
 
@@ -860,6 +782,8 @@ class FlashFileWorkflow {
       return switch (task.stage) {
         FlashFileStage.notifyingEureka || FlashFileStage.eurekaAccepted =>
           task.copyWith(stage: FlashFileStage.s3Uploaded),
+        FlashFileStage.waitingServer || FlashFileStage.waitingServerAsr =>
+          task.copyWith(stage: FlashFileStage.done),
         _ => task,
       };
     }

@@ -11,12 +11,14 @@ class TencentAsrPresign {
   TencentAsrPresign({
     required this.s3Key,
     required this.uploadUrl,
+    required this.audioUrl,
     required this.headers,
     required this.expiresIn,
   });
 
   final String s3Key;
   final String uploadUrl;
+  final String audioUrl;
   final Map<String, String> headers;
   final int expiresIn;
 }
@@ -63,12 +65,13 @@ class TencentAsrS3Client {
     final presign = TencentAsrPresign(
       s3Key: data['s3_key']?.toString() ?? '',
       uploadUrl: data['upload_url']?.toString() ?? '',
+      audioUrl: data['audio_url']?.toString() ?? '',
       headers: headers.isEmpty ? const {'Content-Type': 'audio/mpeg'} : headers,
       expiresIn: (data['expires_in'] as num?)?.toInt() ?? expiresIn,
     );
     _log(
       's3_presign success status=${res.statusCode} s3Key=${presign.s3Key} '
-      'hasUploadUrl=${presign.uploadUrl.isNotEmpty}',
+      'hasUploadUrl=${presign.uploadUrl.isNotEmpty} hasAudioUrl=${presign.audioUrl.isNotEmpty}',
     );
     return presign;
   }

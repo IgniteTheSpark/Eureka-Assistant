@@ -37,15 +37,15 @@ class FlashFileStatusController {
     final s = payload['status']?.toString() ?? '';
     switch (s) {
       case 'accepted':
-        show('闪念任务已提交');
+        clear();
       case 'asr_processing':
-        show('正在识别内容...');
+        clear();
       case 'asr_done':
-        show('识别完成，正在整理...');
+        clear();
       case 'processing_flash':
-        show('正在整理到资产库...');
+        clear();
       case 'done':
-        show('已整理到资产库');
+        clear();
       case 'failed':
         show(payload['message']?.toString() ?? '闪念处理失败', isError: true);
     }

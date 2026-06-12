@@ -20,6 +20,8 @@ void main() {
               's3_key': '2026/06/12/F1.mp3',
               'upload_url':
                   'https://s3.ap-southeast-1.amazonaws.com/card-biz-file-test/2026/06/12/F1.mp3?AWSAccessKeyId=abc&Signature=def&Expires=1781269087',
+              'audio_url':
+                  'https://s3.ap-southeast-1.amazonaws.com/card-biz-file-test/2026/06/12/F1.mp3?AWSAccessKeyId=abc&Signature=get&Expires=1781269087',
               'expires_in': 3600,
               'headers': {'Content-Type': 'audio/mpeg'},
             },
@@ -35,6 +37,10 @@ void main() {
     expect(
       presign.uploadUrl,
       'https://s3.ap-southeast-1.amazonaws.com/card-biz-file-test/2026/06/12/F1.mp3?AWSAccessKeyId=abc&Signature=def&Expires=1781269087',
+    );
+    expect(
+      presign.audioUrl,
+      'https://s3.ap-southeast-1.amazonaws.com/card-biz-file-test/2026/06/12/F1.mp3?AWSAccessKeyId=abc&Signature=get&Expires=1781269087',
     );
     expect(presign.headers, {'Content-Type': 'audio/mpeg'});
     expect(presign.expiresIn, 3600);

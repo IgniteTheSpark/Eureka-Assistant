@@ -42,6 +42,7 @@ class FlashFileTask {
     this.mp3SizeBytes,
     this.s3Key,
     this.s3UploadUrl,
+    this.s3AudioUrl,
     this.s3UploadHeaders,
     this.s3ExpiresIn,
     this.tencentAsrTaskId,
@@ -69,6 +70,7 @@ class FlashFileTask {
   final int? mp3SizeBytes;
   final String? s3Key;
   final String? s3UploadUrl;
+  final String? s3AudioUrl;
   final Map<String, String>? s3UploadHeaders;
   final int? s3ExpiresIn;
   final String? tencentAsrTaskId;
@@ -90,6 +92,7 @@ class FlashFileTask {
     int? mp3SizeBytes,
     String? s3Key,
     String? s3UploadUrl,
+    String? s3AudioUrl,
     Map<String, String>? s3UploadHeaders,
     int? s3ExpiresIn,
     String? tencentAsrTaskId,
@@ -117,6 +120,7 @@ class FlashFileTask {
       mp3SizeBytes: mp3SizeBytes ?? this.mp3SizeBytes,
       s3Key: s3Key ?? this.s3Key,
       s3UploadUrl: s3UploadUrl ?? this.s3UploadUrl,
+      s3AudioUrl: s3AudioUrl ?? this.s3AudioUrl,
       s3UploadHeaders: s3UploadHeaders ?? this.s3UploadHeaders,
       s3ExpiresIn: s3ExpiresIn ?? this.s3ExpiresIn,
       tencentAsrTaskId: tencentAsrTaskId ?? this.tencentAsrTaskId,
@@ -146,6 +150,7 @@ class FlashFileTask {
     'mp3SizeBytes': mp3SizeBytes,
     's3Key': s3Key,
     's3UploadUrl': s3UploadUrl,
+    's3AudioUrl': s3AudioUrl,
     's3UploadHeaders': s3UploadHeaders,
     's3ExpiresIn': s3ExpiresIn,
     'tencentAsrTaskId': tencentAsrTaskId,
@@ -192,6 +197,7 @@ class FlashFileTask {
       mp3SizeBytes: (json['mp3SizeBytes'] as num?)?.toInt(),
       s3Key: json['s3Key'] as String?,
       s3UploadUrl: json['s3UploadUrl'] as String?,
+      s3AudioUrl: json['s3AudioUrl'] as String?,
       s3UploadHeaders: (json['s3UploadHeaders'] as Map?)?.map(
         (k, v) => MapEntry('$k', '$v'),
       ),
