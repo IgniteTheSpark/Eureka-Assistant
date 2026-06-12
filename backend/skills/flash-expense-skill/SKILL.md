@@ -88,7 +88,7 @@ clock time and weekday. Use the date part for「今天/昨天」; use the clock 
 
 Call `tool_create_asset`:
 - `user_skill_name`: `"expense"`
-- `payload`: `{"amount": <number>, "currency": "CNY", "category": "...", "merchant": "...", "date": "YYYY-MM-DD", "at": "ISO8601 if applicable", "description": "..."}`
+- `payload`: `{"amount": <number>, "currency": "CNY", "category": "...", "merchant": "...", "date": "YYYY-MM-DD", "description": "..."}`
 - `session_id`, `source_input_turn_id`: pass through
 
 ---
