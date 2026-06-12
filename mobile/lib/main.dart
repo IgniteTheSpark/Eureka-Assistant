@@ -5,6 +5,7 @@ import 'app_events.dart';
 import 'app_shell.dart';
 import 'auth/auth_controller.dart';
 import 'data_revision.dart';
+import 'device/device_controller.dart';
 import 'pages/login_page.dart';
 import 'pages/pet_spawn_page.dart';
 import 'pet/floating_mascot.dart';
@@ -53,7 +54,11 @@ class EurekaApp extends StatelessWidget {
           // clamp content to a phone width centered on a dark gutter so cards,
           // sheets and layouts read at their designed size everywhere.
           builder: (context, child) {
-            final bg = (mode == ThemeMode.light ? EurekaColors.light : EurekaColors.dark).bg;
+            final bg =
+                (mode == ThemeMode.light
+                        ? EurekaColors.light
+                        : EurekaColors.dark)
+                    .bg;
             return ColoredBox(
               color: mode == ThemeMode.light
                   ? const Color(0xFFE7E4DC)
@@ -73,14 +78,22 @@ class EurekaApp extends StatelessWidget {
                           // app-wide so pixel-exact sprite previews (pet board milestones,
                           // the full-screen 换装 page's cells) work regardless of which
                           // route is on top (an offstage board host wouldn't render).
-                          const Positioned(left: -50, top: -50, width: 1, height: 1, child: SpriteFactoryHost()),
+                          const Positioned(
+                            left: -50,
+                            top: -50,
+                            width: 1,
+                            height: 1,
+                            child: SpriteFactoryHost(),
+                          ),
                           // §9.2 全局浮动球球 REKA — above every route (navigates via
                           // navigatorKey). Sits below the hardware listening overlay.
                           const Positioned.fill(child: FloatingMascot()),
                           ValueListenableBuilder<bool>(
                             valueListenable: listeningNotifier,
                             builder: (_, on, child) => on
-                                ? const Positioned.fill(child: GlobalListeningOverlay())
+                                ? const Positioned.fill(
+                                    child: GlobalListeningOverlay(),
+                                  )
                                 : const SizedBox.shrink(),
                           ),
                         ],
@@ -157,7 +170,10 @@ class _PostAuthGateState extends State<_PostAuthGate> {
     // load 球球 (provisions the egg + arms completion-drop toasts). refresh()
     // notifies SYNCHRONOUSLY (loading flag) — calling inside build marks the
     // floating ball dirty mid-build ("setState() during build"); defer a frame.
-    WidgetsBinding.instance.addPostFrameCallback((_) => _pet.ensureLoaded());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _pet.ensureLoaded();
+      DeviceController.instance.refreshBoundDevice();
+    });
   }
 
   @override

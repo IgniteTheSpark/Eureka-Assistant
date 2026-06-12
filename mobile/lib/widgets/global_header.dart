@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
@@ -8,6 +10,7 @@ import '../pages/device_pairing_page.dart';
 import '../pages/my_device_page.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_controller.dart';
+import 'toast.dart';
 
 /// App-wide top bar (Calendar / Library — not the pushed chat route). Holds the
 /// genuinely global controls: day/night toggle, notifications, 个人中心 and
@@ -58,7 +61,11 @@ class _GhostButton extends StatelessWidget {
   final IconData icon;
   final String tooltip;
   final VoidCallback onTap;
-  const _GhostButton({required this.icon, required this.tooltip, required this.onTap});
+  const _GhostButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -107,13 +114,21 @@ void _openProfile(BuildContext context) {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(AuthController.instance.email ?? '已登录',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                              color: eu.textHi, fontSize: 16, fontWeight: FontWeight.w700)),
+                      Text(
+                        AuthController.instance.email ?? '已登录',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: eu.textHi,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                       const SizedBox(height: 2),
-                      Text('UReka 账号', style: TextStyle(color: eu.textMid, fontSize: 12)),
+                      Text(
+                        'Eureka 账号',
+                        style: TextStyle(color: eu.textMid, fontSize: 12),
+                      ),
                     ],
                   ),
                 ),
@@ -124,14 +139,17 @@ void _openProfile(BuildContext context) {
             GestureDetector(
               onTap: () {
                 Navigator.of(sheetCtx).pop();
-                Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => const ConnectedAppsPage(),
-                ));
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const ConnectedAppsPage()),
+                );
               },
               behavior: HitTestBehavior.opaque,
               child: Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 14,
+                ),
                 decoration: BoxDecoration(
                   color: eu.bg,
                   borderRadius: BorderRadius.circular(14),
@@ -142,8 +160,10 @@ void _openProfile(BuildContext context) {
                     Icon(Icons.hub_outlined, size: 19, color: eu.textMid),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: Text('已连接应用',
-                          style: TextStyle(color: eu.textHi, fontSize: 15)),
+                      child: Text(
+                        '已连接应用',
+                        style: TextStyle(color: eu.textHi, fontSize: 15),
+                      ),
                     ),
                     Icon(Icons.chevron_right, size: 18, color: eu.textLo),
                   ],
@@ -164,11 +184,18 @@ void _openProfile(BuildContext context) {
                 decoration: BoxDecoration(
                   color: eu.accentRed.withValues(alpha: 0.10),
                   borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: eu.accentRed.withValues(alpha: 0.28)),
+                  border: Border.all(
+                    color: eu.accentRed.withValues(alpha: 0.28),
+                  ),
                 ),
-                child: Text('退出登录',
-                    style: TextStyle(
-                        color: eu.accentRed, fontSize: 15, fontWeight: FontWeight.w600)),
+                child: Text(
+                  '退出登录',
+                  style: TextStyle(
+                    color: eu.accentRed,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
             ),
           ],
@@ -178,10 +205,27 @@ void _openProfile(BuildContext context) {
   );
 }
 
-/// 设备连接 → 我的设备 if a device is already bound, else the first-run pairing flow.
+/// 设备连接 → 先判断蓝牙与真实连接态，再进入我的设备或扫描页。
 void _openDevice(BuildContext context) {
-  final bound = DeviceController.instance.isBound;
-  Navigator.of(context).push(MaterialPageRoute(
-    builder: (_) => bound ? const MyDevicePage() : const DevicePairingPage(),
-  ));
+  unawaited(_openDeviceResolved(context));
+}
+
+Future<void> _openDeviceResolved(BuildContext context) async {
+  try {
+    final target = await DeviceController.instance.resolveEntryTarget();
+    if (!context.mounted) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => target == DeviceEntryTarget.myDevice
+            ? const MyDevicePage()
+            : const DevicePairingPage(),
+      ),
+    );
+  } catch (e) {
+    if (!context.mounted) return;
+    final message = e is DeviceOperationException
+        ? e.message
+        : '设备状态检查失败，请稍后重试';
+    showToast(context, message, error: true);
+  }
 }
