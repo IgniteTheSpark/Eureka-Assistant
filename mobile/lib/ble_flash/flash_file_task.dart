@@ -1,5 +1,7 @@
 enum FlashFileSource { realtime, offline }
 
+enum FlashFileAsrMode { sync, syncClient, async }
+
 enum FlashFileStage {
   discovered,
   queued,
@@ -37,7 +39,18 @@ class FlashFileTask {
     this.crc,
     this.deviceSizeBytes,
     this.localOpusPath,
+    this.localAudioPath,
     this.localMp3Path,
+    this.asrMode,
+    this.audioFormat,
+    this.localAudioSha256,
+    this.localAudioSizeBytes,
+    this.clientAsrText,
+    this.clientAsrSegments,
+    this.clientAsrRawResponse,
+    this.clientAsrStatus,
+    this.clientAsrError,
+    this.clientAsrMessage,
     this.mp3Sha256,
     this.mp3SizeBytes,
     this.s3Key,
@@ -65,7 +78,18 @@ class FlashFileTask {
   final int? crc;
   final int? deviceSizeBytes;
   final String? localOpusPath;
+  final String? localAudioPath;
   final String? localMp3Path;
+  final FlashFileAsrMode? asrMode;
+  final String? audioFormat;
+  final String? localAudioSha256;
+  final int? localAudioSizeBytes;
+  final String? clientAsrText;
+  final List<dynamic>? clientAsrSegments;
+  final Map<String, dynamic>? clientAsrRawResponse;
+  final String? clientAsrStatus;
+  final String? clientAsrError;
+  final String? clientAsrMessage;
   final String? mp3Sha256;
   final int? mp3SizeBytes;
   final String? s3Key;
@@ -87,7 +111,18 @@ class FlashFileTask {
     int? crc,
     int? deviceSizeBytes,
     String? localOpusPath,
+    String? localAudioPath,
     String? localMp3Path,
+    FlashFileAsrMode? asrMode,
+    String? audioFormat,
+    String? localAudioSha256,
+    int? localAudioSizeBytes,
+    String? clientAsrText,
+    List<dynamic>? clientAsrSegments,
+    Map<String, dynamic>? clientAsrRawResponse,
+    String? clientAsrStatus,
+    String? clientAsrError,
+    String? clientAsrMessage,
     String? mp3Sha256,
     int? mp3SizeBytes,
     String? s3Key,
@@ -115,7 +150,18 @@ class FlashFileTask {
       crc: crc ?? this.crc,
       deviceSizeBytes: deviceSizeBytes ?? this.deviceSizeBytes,
       localOpusPath: localOpusPath ?? this.localOpusPath,
+      localAudioPath: localAudioPath ?? this.localAudioPath,
       localMp3Path: localMp3Path ?? this.localMp3Path,
+      asrMode: asrMode ?? this.asrMode,
+      audioFormat: audioFormat ?? this.audioFormat,
+      localAudioSha256: localAudioSha256 ?? this.localAudioSha256,
+      localAudioSizeBytes: localAudioSizeBytes ?? this.localAudioSizeBytes,
+      clientAsrText: clientAsrText ?? this.clientAsrText,
+      clientAsrSegments: clientAsrSegments ?? this.clientAsrSegments,
+      clientAsrRawResponse: clientAsrRawResponse ?? this.clientAsrRawResponse,
+      clientAsrStatus: clientAsrStatus ?? this.clientAsrStatus,
+      clientAsrError: clientAsrError ?? this.clientAsrError,
+      clientAsrMessage: clientAsrMessage ?? this.clientAsrMessage,
       mp3Sha256: mp3Sha256 ?? this.mp3Sha256,
       mp3SizeBytes: mp3SizeBytes ?? this.mp3SizeBytes,
       s3Key: s3Key ?? this.s3Key,
@@ -145,7 +191,18 @@ class FlashFileTask {
     'crc': crc,
     'deviceSizeBytes': deviceSizeBytes,
     'localOpusPath': localOpusPath,
+    'localAudioPath': localAudioPath,
     'localMp3Path': localMp3Path,
+    'asrMode': asrMode?.name,
+    'audioFormat': audioFormat,
+    'localAudioSha256': localAudioSha256,
+    'localAudioSizeBytes': localAudioSizeBytes,
+    'clientAsrText': clientAsrText,
+    'clientAsrSegments': clientAsrSegments,
+    'clientAsrRawResponse': clientAsrRawResponse,
+    'clientAsrStatus': clientAsrStatus,
+    'clientAsrError': clientAsrError,
+    'clientAsrMessage': clientAsrMessage,
     'mp3Sha256': mp3Sha256,
     'mp3SizeBytes': mp3SizeBytes,
     's3Key': s3Key,
@@ -192,7 +249,23 @@ class FlashFileTask {
       crc: (json['crc'] as num?)?.toInt(),
       deviceSizeBytes: (json['deviceSizeBytes'] as num?)?.toInt(),
       localOpusPath: json['localOpusPath'] as String?,
+      localAudioPath: json['localAudioPath'] as String?,
       localMp3Path: json['localMp3Path'] as String?,
+      asrMode: enumByName(
+        FlashFileAsrMode.values,
+        json['asrMode'] as String?,
+        FlashFileAsrMode.async,
+      ),
+      audioFormat: json['audioFormat'] as String?,
+      localAudioSha256: json['localAudioSha256'] as String?,
+      localAudioSizeBytes: (json['localAudioSizeBytes'] as num?)?.toInt(),
+      clientAsrText: json['clientAsrText'] as String?,
+      clientAsrSegments: (json['clientAsrSegments'] as List?)?.toList(),
+      clientAsrRawResponse: (json['clientAsrRawResponse'] as Map?)
+          ?.cast<String, dynamic>(),
+      clientAsrStatus: json['clientAsrStatus'] as String?,
+      clientAsrError: json['clientAsrError'] as String?,
+      clientAsrMessage: json['clientAsrMessage'] as String?,
       mp3Sha256: json['mp3Sha256'] as String?,
       mp3SizeBytes: (json['mp3SizeBytes'] as num?)?.toInt(),
       s3Key: json['s3Key'] as String?,

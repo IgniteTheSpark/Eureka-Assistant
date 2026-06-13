@@ -28,7 +28,11 @@ from sqlalchemy import select
 
 from core.asr.base import AsrError
 from core.auth import get_current_user_id
-from core.flash_file_queue import create_tencent_asr_task_if_needed, enqueue
+from core.flash_file_queue import (
+    create_tencent_asr_task_if_needed,
+    enqueue,
+    publish_flash_file_status,
+)
 from core.flash_service import process_flash_text
 from core.notifications import publish_event
 from db.database import AsyncSessionLocal
@@ -77,10 +81,37 @@ class TencentAsrS3UploadRequest(BaseModel):
     device_size_bytes: Optional[int] = None
     local_mp3_sha256: Optional[str] = None
     local_mp3_size_bytes: Optional[int] = None
+    local_audio_sha256: Optional[str] = None
+    local_audio_size_bytes: Optional[int] = None
+    asr_mode: str = "async"
+    audio_format: str = "mp3"
     s3: S3UploadInfo
     engine_type: str = "16k_zh"
     speaker_diarization: bool = False
     hotword_list: str = ""
+
+
+class TencentAsrSyncResultRequest(BaseModel):
+    client_task_id: str
+    source: str = "realtime"
+    card_sn: str
+    device_file_name: str
+    capture_started_at: Optional[int | float | str] = None
+    capture_ended_at: Optional[int | float | str] = None
+    device_crc: Optional[int] = None
+    device_size_bytes: Optional[int] = None
+    local_audio_sha256: str
+    local_audio_size_bytes: int
+    audio_format: str = "opus"
+    asr_mode: str = "sync_client"
+    asr_provider: str = "tencent_asr_sync_client"
+    asr_status: str = "completed"
+    asr_text: str = ""
+    asr_segments: list = Field(default_factory=list)
+    raw_response: dict = Field(default_factory=dict)
+    asr_error: str = ""
+    error_message: str = ""
+    speaker_diarization: bool = False
 
 
 class FlashResponse(BaseModel):
@@ -126,12 +157,12 @@ def _require_flash_file_name(name: str) -> str:
     return value
 
 
-def _clean_sha256(value: str | None) -> str | None:
+def _clean_sha256(value: str | None, *, field_name: str = "local_mp3_sha256") -> str | None:
     if value in (None, ""):
         return None
     cleaned = value.strip().lower()
     if not re.fullmatch(r"[0-9a-f]{64}", cleaned):
-        raise HTTPException(status_code=422, detail="invalid local_mp3_sha256")
+        raise HTTPException(status_code=422, detail=f"invalid {field_name}")
     return cleaned
 
 
@@ -191,6 +222,10 @@ def _assert_same_upload(
     upload_url: str,
     audio_url: str,
     sha256: str | None,
+    audio_sha256: str | None,
+    audio_size_bytes: int | None,
+    asr_mode: str,
+    audio_format: str,
 ) -> None:
     if recording.s3_key != s3_key:
         logger.info("%s reject duplicate recording=%s reason=different_s3_key", LOG_TAG, recording.id)
@@ -204,6 +239,40 @@ def _assert_same_upload(
     if sha256 and recording.local_mp3_sha256 and recording.local_mp3_sha256 != sha256:
         logger.info("%s reject duplicate recording=%s reason=different_mp3_sha256", LOG_TAG, recording.id)
         raise HTTPException(status_code=409, detail="duplicate key with different mp3 sha256")
+    if audio_sha256 and recording.local_audio_sha256 and recording.local_audio_sha256 != audio_sha256:
+        logger.info("%s reject duplicate recording=%s reason=different_audio_sha256", LOG_TAG, recording.id)
+        raise HTTPException(status_code=409, detail="duplicate key with different audio sha256")
+    if audio_size_bytes is not None and recording.local_audio_size_bytes is not None and recording.local_audio_size_bytes != audio_size_bytes:
+        logger.info("%s reject duplicate recording=%s reason=different_audio_size", LOG_TAG, recording.id)
+        raise HTTPException(status_code=409, detail="duplicate key with different audio size")
+    if recording.asr_mode and recording.asr_mode != asr_mode:
+        logger.info("%s reject duplicate recording=%s reason=different_asr_mode", LOG_TAG, recording.id)
+        raise HTTPException(status_code=409, detail="duplicate key with different asr_mode")
+    if recording.audio_format and recording.audio_format != audio_format:
+        logger.info("%s reject duplicate recording=%s reason=different_audio_format", LOG_TAG, recording.id)
+        raise HTTPException(status_code=409, detail="duplicate key with different audio_format")
+
+
+def _assert_same_sync_result(
+    recording: FlashRecording,
+    audio_sha256: str,
+    audio_size_bytes: int,
+    text: str,
+) -> None:
+    if recording.local_audio_sha256 and recording.local_audio_sha256 != audio_sha256:
+        logger.info("%s reject duplicate recording=%s reason=different_audio_sha256", LOG_TAG, recording.id)
+        raise HTTPException(status_code=409, detail="duplicate key with different audio sha256")
+    if recording.local_audio_size_bytes is not None and recording.local_audio_size_bytes != audio_size_bytes:
+        logger.info("%s reject duplicate recording=%s reason=different_audio_size", LOG_TAG, recording.id)
+        raise HTTPException(status_code=409, detail="duplicate key with different audio size")
+    existing_text = (recording.asr_text or "").strip()
+    if existing_text and existing_text != text:
+        logger.info("%s reject duplicate recording=%s reason=different_asr_text", LOG_TAG, recording.id)
+        raise HTTPException(status_code=409, detail="duplicate key with different asr_text")
+
+
+def _sync_placeholder_key(client_task_id: str) -> str:
+    return f"client-sync-asr:{client_task_id}"
 
 
 # ── Endpoint ───────────────────────────────────────────────────────────────────
@@ -237,7 +306,21 @@ async def tencent_asr_s3_uploads(
         logger.info("%s reject S3 upload client_task=%s reason=missing_card_sn", LOG_TAG, client_task_id)
         raise HTTPException(status_code=422, detail="card_sn required")
     device_file_name = _require_flash_file_name(req.device_file_name)
+    asr_mode = (req.asr_mode or "async").strip().lower()
+    if asr_mode != "async":
+        raise HTTPException(status_code=422, detail="s3 upload endpoint requires asr_mode=async")
+    audio_format = (req.audio_format or "mp3").strip().lower()
+    if audio_format not in {"opus", "mp3"}:
+        raise HTTPException(status_code=422, detail="invalid audio_format")
+    if audio_format != "mp3":
+        raise HTTPException(status_code=422, detail="async ASR requires mp3 audio_format")
     sha256 = _clean_sha256(req.local_mp3_sha256)
+    audio_sha256 = _clean_sha256(req.local_audio_sha256, field_name="local_audio_sha256") or sha256
+    audio_size_bytes = (
+        req.local_audio_size_bytes
+        if req.local_audio_size_bytes is not None
+        else req.local_mp3_size_bytes
+    )
     s3_key = (req.s3.s3_key or "").strip()
     if not s3_key:
         logger.info("%s reject S3 upload client_task=%s file=%s reason=missing_s3_key", LOG_TAG, client_task_id, device_file_name)
@@ -252,7 +335,7 @@ async def tencent_asr_s3_uploads(
         raise HTTPException(status_code=422, detail="audio_url required")
     logger.info(
         "%s receive S3 upload user=%s client_task=%s card_sn=%s file=%s source=%s "
-        "s3_key=%s mp3_size=%s crc=%s",
+        "s3_key=%s mode=%s audio_format=%s audio_size=%s mp3_size=%s crc=%s",
         LOG_TAG,
         user_id,
         client_task_id,
@@ -260,6 +343,9 @@ async def tencent_asr_s3_uploads(
         device_file_name,
         source,
         s3_key,
+        asr_mode,
+        audio_format,
+        audio_size_bytes,
         req.local_mp3_size_bytes,
         req.device_crc,
     )
@@ -285,7 +371,17 @@ async def tencent_asr_s3_uploads(
                 )
             )).scalar_one_or_none()
         if existing is not None:
-            _assert_same_upload(existing, s3_key, upload_url, audio_url, sha256)
+            _assert_same_upload(
+                existing,
+                s3_key,
+                upload_url,
+                audio_url,
+                sha256,
+                audio_sha256,
+                audio_size_bytes,
+                asr_mode,
+                audio_format,
+            )
             duplicate = True
             existing_updated = False
             if not existing.s3_upload_url:
@@ -296,6 +392,18 @@ async def tencent_asr_s3_uploads(
                 existing_updated = True
             if not existing.s3_upload_headers and req.s3.headers:
                 existing.s3_upload_headers = req.s3.headers
+                existing_updated = True
+            if not existing.asr_mode:
+                existing.asr_mode = asr_mode
+                existing_updated = True
+            if not existing.audio_format:
+                existing.audio_format = audio_format
+                existing_updated = True
+            if not existing.local_audio_sha256 and audio_sha256:
+                existing.local_audio_sha256 = audio_sha256
+                existing_updated = True
+            if existing.local_audio_size_bytes is None and audio_size_bytes is not None:
+                existing.local_audio_size_bytes = audio_size_bytes
                 existing_updated = True
             if existing.process_status == "failed" and not existing.tencent_asr_task_id:
                 existing.process_status = "pending"
@@ -323,7 +431,10 @@ async def tencent_asr_s3_uploads(
             file = File(
                 user_id=user_id,
                 storage_url=s3_key,
-                file_type=req.s3.content_type or "audio/mpeg",
+                file_type=(
+                    req.s3.content_type
+                    or ("application/octet-stream" if audio_format == "opus" else "audio/mpeg")
+                ),
                 source_tag="flash",
                 asr_status="processing",
             )
@@ -343,6 +454,10 @@ async def tencent_asr_s3_uploads(
                 capture_ended_at=_parse_time(req.capture_ended_at),
                 local_mp3_sha256=sha256,
                 local_mp3_size_bytes=req.local_mp3_size_bytes,
+                local_audio_sha256=audio_sha256,
+                local_audio_size_bytes=audio_size_bytes,
+                audio_format=audio_format,
+                asr_mode=asr_mode,
                 s3_key=s3_key,
                 s3_content_type=req.s3.content_type,
                 s3_upload_url=upload_url,
@@ -357,7 +472,7 @@ async def tencent_asr_s3_uploads(
                 tencent_task_response={},
                 upload_status="uploaded",
                 process_status="pending",
-                asr_provider="tencent_asr_s3_async",
+                asr_provider="tencent_asr_sync" if asr_mode == "sync" else "tencent_asr_s3_async",
                 accepted_at=_now(),
             )
             db.add(recording)
@@ -375,9 +490,20 @@ async def tencent_asr_s3_uploads(
             recording_id = recording.id
 
     try:
-        recording = await create_tencent_asr_task_if_needed(recording_id)
+        async with AsyncSessionLocal() as db:
+            current_status = (await db.execute(
+                select(FlashRecording.process_status).where(FlashRecording.id == recording_id)
+            )).scalar_one_or_none()
+        if current_status not in {"done", "asr_done", "processing_flash"}:
+            await create_tencent_asr_task_if_needed(recording_id)
     except AsrError as e:
-        logger.info("%s S3 upload task create failed recording=%s error=%s", LOG_TAG, recording_id, str(e)[:300])
+        logger.info(
+            "%s ASR submit failed recording=%s mode=%s error=%s",
+            LOG_TAG,
+            recording_id,
+            asr_mode,
+            str(e)[:300],
+        )
         raise HTTPException(status_code=502, detail=str(e)[:200])
 
     async with AsyncSessionLocal() as db:
@@ -387,9 +513,262 @@ async def tencent_asr_s3_uploads(
         if recording is None:
             raise HTTPException(status_code=404, detail="recording not found")
         file = (await db.execute(select(File).where(File.id == recording.file_id))).scalar_one_or_none()
-    await enqueue(recording.id)
-    logger.info("%s ASR task enqueued recording=%s task_id=%s", LOG_TAG, recording.id, recording.tencent_asr_task_id)
-    return _upload_response(recording, file, duplicate=duplicate)
+    if recording.process_status in {"pending", "asr_processing", "asr_done", "processing_flash"}:
+        await enqueue(recording.id)
+    logger.info(
+        "%s ASR upload accepted recording=%s mode=%s task_id=%s status=%s",
+        LOG_TAG,
+        recording.id,
+        recording.asr_mode,
+        recording.tencent_asr_task_id,
+        recording.process_status,
+    )
+    message = (
+        "文件没内容"
+        if recording.error_message == "文件没内容"
+        else ("上传完成" if recording.asr_mode == "sync" else "任务已添加")
+    )
+    return _upload_response(recording, file, duplicate=duplicate, message=message)
+
+
+@router.post("/flash/tencent-asr-sync-results")
+async def tencent_asr_sync_results(
+    req: TencentAsrSyncResultRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    client_task_id = (req.client_task_id or "").strip()
+    if not client_task_id:
+        logger.info("%s reject client sync ASR result reason=missing_client_task_id", LOG_TAG)
+        raise HTTPException(status_code=422, detail="client_task_id required")
+    source = req.source if req.source in {"realtime", "offline"} else "realtime"
+    card_sn = (req.card_sn or "").strip()
+    if not card_sn:
+        logger.info("%s reject client sync ASR result client_task=%s reason=missing_card_sn", LOG_TAG, client_task_id)
+        raise HTTPException(status_code=422, detail="card_sn required")
+    device_file_name = _require_flash_file_name(req.device_file_name)
+    asr_mode = (req.asr_mode or "sync_client").strip().lower()
+    if asr_mode != "sync_client":
+        logger.info("%s reject client sync ASR result client_task=%s reason=invalid_asr_mode value=%s", LOG_TAG, client_task_id, asr_mode)
+        raise HTTPException(status_code=422, detail="sync result requires asr_mode=sync_client")
+    audio_format = (req.audio_format or "opus").strip().lower()
+    if audio_format != "opus":
+        logger.info("%s reject client sync ASR result client_task=%s reason=invalid_audio_format value=%s", LOG_TAG, client_task_id, audio_format)
+        raise HTTPException(status_code=422, detail="sync result requires audio_format=opus")
+    asr_status = (req.asr_status or "completed").strip().lower()
+    if asr_status not in {"completed", "failed"}:
+        logger.info("%s reject client sync ASR result client_task=%s reason=invalid_asr_status value=%s", LOG_TAG, client_task_id, asr_status)
+        raise HTTPException(status_code=422, detail="invalid asr_status")
+    asr_provider = (req.asr_provider or "tencent_asr_sync_client").strip() or "tencent_asr_sync_client"
+    audio_sha256 = _clean_sha256(req.local_audio_sha256, field_name="local_audio_sha256")
+    if not audio_sha256:
+        logger.info("%s reject client sync ASR result client_task=%s reason=missing_audio_sha256", LOG_TAG, client_task_id)
+        raise HTTPException(status_code=422, detail="local_audio_sha256 required")
+    if req.local_audio_size_bytes <= 0:
+        logger.info("%s reject client sync ASR result client_task=%s reason=invalid_audio_size value=%s", LOG_TAG, client_task_id, req.local_audio_size_bytes)
+        raise HTTPException(status_code=422, detail="local_audio_size_bytes required")
+    text = (req.asr_text or "").strip()
+    segments = req.asr_segments if isinstance(req.asr_segments, list) else []
+    raw_response = req.raw_response if isinstance(req.raw_response, dict) else {}
+    asr_error = (req.asr_error or "").strip()
+    error_message = (req.error_message or "").strip()
+    no_content = asr_status == "completed" and not text
+    asr_failed = asr_status == "failed"
+    if no_content:
+        terminal_message = "文件没内容"
+    elif asr_failed:
+        terminal_message = error_message or asr_error or "识别失败已记录"
+    else:
+        terminal_message = ""
+    placeholder_key = _sync_placeholder_key(client_task_id)
+
+    logger.info(
+        "%s receive client sync ASR result user=%s client_task=%s card_sn=%s file=%s "
+        "source=%s asr_status=%s text_len=%s segments=%s audio_size=%s crc=%s error=%s",
+        LOG_TAG,
+        user_id,
+        client_task_id,
+        card_sn,
+        device_file_name,
+        source,
+        asr_status,
+        len(text),
+        len(segments),
+        req.local_audio_size_bytes,
+        req.device_crc,
+        terminal_message or asr_error,
+    )
+
+    duplicate = False
+    async with AsyncSessionLocal() as db:
+        await _ensure_card_bound(db, user_id, card_sn)
+
+        existing = (await db.execute(
+            select(FlashRecording).where(
+                FlashRecording.user_id == user_id,
+                FlashRecording.client_task_id == client_task_id,
+            )
+        )).scalar_one_or_none()
+        if existing is None and req.device_crc is not None:
+            existing = (await db.execute(
+                select(FlashRecording).where(
+                    FlashRecording.user_id == user_id,
+                    FlashRecording.card_sn == card_sn,
+                    FlashRecording.device_file_name == device_file_name,
+                    FlashRecording.device_crc == req.device_crc,
+                )
+            )).scalar_one_or_none()
+
+        if existing is not None:
+            logger.info(
+                "%s client sync ASR existing found recording=%s client_task=%s status=%s process=%s text_len=%s",
+                LOG_TAG,
+                existing.id,
+                client_task_id,
+                existing.tencent_status,
+                existing.process_status,
+                len(existing.asr_text or ""),
+            )
+            _assert_same_sync_result(existing, audio_sha256, req.local_audio_size_bytes, text)
+            duplicate = True
+            file = (await db.execute(select(File).where(File.id == existing.file_id))).scalar_one_or_none()
+            should_update_existing = (
+                existing.process_status not in {"asr_done", "processing_flash"}
+                or (bool(text) and not (existing.asr_text or "").strip())
+            )
+            if should_update_existing:
+                existing.local_audio_sha256 = existing.local_audio_sha256 or audio_sha256
+                existing.local_audio_size_bytes = existing.local_audio_size_bytes or req.local_audio_size_bytes
+                existing.audio_format = audio_format
+                existing.asr_mode = asr_mode
+                existing.asr_provider = asr_provider
+                existing.tencent_status = "failed" if asr_failed else "finished"
+                existing.tencent_speaker_diarization = 1 if req.speaker_diarization else 0
+                existing.tencent_result_response = raw_response
+                existing.tencent_task_response = raw_response or existing.tencent_task_response or {}
+                existing.asr_text = text
+                existing.asr_segments = segments
+                existing.asr_error = terminal_message if asr_failed else None
+                existing.error_message = terminal_message or None
+                existing.tencent_error_message = terminal_message or None
+                existing.process_status = "asr_done" if text and not asr_failed else "done"
+                existing.result_summary = "" if existing.process_status == "done" else existing.result_summary
+                existing.result_cards = [] if existing.process_status == "done" else existing.result_cards
+                existing.processed_at = _now() if existing.process_status == "done" else existing.processed_at
+                existing.updated_at = _now()
+                if file:
+                    file.asr_status = "failed" if asr_failed else "completed"
+                await db.commit()
+                await db.refresh(existing)
+                logger.info(
+                    "%s client sync ASR committed existing recording=%s file_id=%s process_status=%s asr_status=%s message=%s",
+                    LOG_TAG,
+                    existing.id,
+                    existing.file_id,
+                    existing.process_status,
+                    asr_status,
+                    terminal_message,
+                )
+            else:
+                logger.info(
+                    "%s client sync ASR existing unchanged recording=%s process_status=%s asr_status=%s",
+                    LOG_TAG,
+                    existing.id,
+                    existing.process_status,
+                    asr_status,
+                )
+            recording = existing
+        else:
+            logger.info("%s client sync ASR existing not found client_task=%s", LOG_TAG, client_task_id)
+            file = File(
+                user_id=user_id,
+                storage_url=placeholder_key,
+                file_type="audio/opus",
+                source_tag="flash",
+                asr_status="failed" if asr_failed else "completed",
+            )
+            db.add(file)
+            await db.flush()
+            recording = FlashRecording(
+                user_id=user_id,
+                file_id=file.id,
+                card_sn=card_sn,
+                device_file_name=device_file_name,
+                client_task_id=client_task_id,
+                source=source,
+                device_crc=req.device_crc,
+                device_size_bytes=req.device_size_bytes,
+                capture_started_at=_parse_time(req.capture_started_at),
+                capture_ended_at=_parse_time(req.capture_ended_at),
+                local_audio_sha256=audio_sha256,
+                local_audio_size_bytes=req.local_audio_size_bytes,
+                audio_format=audio_format,
+                asr_mode=asr_mode,
+                s3_key=placeholder_key,
+                s3_content_type=None,
+                s3_upload_url=None,
+                s3_audio_url=None,
+                s3_upload_headers={},
+                tencent_speaker_diarization=1 if req.speaker_diarization else 0,
+                tencent_status="failed" if asr_failed else "finished",
+                tencent_task_response=raw_response,
+                tencent_result_response=raw_response,
+                upload_status="uploaded",
+                process_status="asr_done" if text and not asr_failed else "done",
+                asr_provider=asr_provider,
+                asr_text=text,
+                asr_segments=segments,
+                asr_error=terminal_message if asr_failed else None,
+                error_message=terminal_message or None,
+                tencent_error_message=terminal_message or None,
+                result_summary="" if no_content or asr_failed else None,
+                result_cards=[] if no_content or asr_failed else None,
+                accepted_at=_now(),
+                processed_at=_now() if no_content or asr_failed else None,
+            )
+            db.add(recording)
+            await db.commit()
+            await db.refresh(recording)
+            logger.info(
+                "%s client sync ASR committed new recording=%s file_id=%s process_status=%s asr_status=%s message=%s",
+                LOG_TAG,
+                recording.id,
+                file.id,
+                recording.process_status,
+                asr_status,
+                terminal_message,
+            )
+
+    publish_flash_file_status(recording, "accepted", "上传完成")
+    if recording.process_status == "asr_done":
+        publish_flash_file_status(recording, "asr_done", "语音识别完成")
+        logger.info("%s client sync ASR enqueue pipeline recording=%s", LOG_TAG, recording.id)
+        await enqueue(recording.id)
+    else:
+        logger.info(
+            "%s client sync ASR record only no pipeline recording=%s asr_status=%s message=%s",
+            LOG_TAG,
+            recording.id,
+            asr_status,
+            terminal_message,
+        )
+        publish_flash_file_status(recording, "done", terminal_message or "识别失败已记录")
+    logger.info(
+        "%s client sync ASR response recording=%s file_id=%s duplicate=%s process_status=%s asr_status=%s text_len=%s message=%s",
+        LOG_TAG,
+        recording.id,
+        recording.file_id,
+        duplicate,
+        recording.process_status,
+        asr_status,
+        len(text),
+        terminal_message,
+    )
+    return _upload_response(
+        recording,
+        file,
+        duplicate=duplicate,
+        message=terminal_message or "上传完成",
+    )
 
 
 @router.get("/flash/recordings/{recording_id}")
@@ -427,6 +806,8 @@ async def get_flash_recording(recording_id: str, user_id: str = Depends(get_curr
             "process_status": recording.process_status,
             "asr_status": _file_status(recording, file),
             "asr_provider": recording.asr_provider,
+            "asr_mode": recording.asr_mode or "",
+            "audio_format": recording.audio_format or "",
             "s3_key": recording.s3_key,
             "tencent_asr_task_id": recording.tencent_asr_task_id,
             "tencent_status": recording.tencent_status,

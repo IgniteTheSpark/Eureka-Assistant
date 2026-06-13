@@ -237,6 +237,10 @@ class FlashRecording(Base):
 
     local_mp3_sha256     = Column(String(64))
     local_mp3_size_bytes = Column(Integer)
+    local_audio_sha256     = Column(String(64))
+    local_audio_size_bytes = Column(Integer)
+    audio_format           = Column(String(20))
+    asr_mode               = Column(String(20))
 
     s3_key                = Column(String(512), nullable=False)
     s3_content_type       = Column(String(100))

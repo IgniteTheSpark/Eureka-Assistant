@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -44,5 +45,50 @@ void main() {
     );
     expect(presign.headers, {'Content-Type': 'audio/mpeg'});
     expect(presign.expiresIn, 3600);
+  });
+
+  test('recognizeFile posts multipart audio and parses result', () async {
+    final temp = await File(
+      '${Directory.systemTemp.path}/eureka-test-sync-asr.opus',
+    ).writeAsBytes([1, 2, 3, 4], flush: true);
+    addTearDown(() async {
+      if (await temp.exists()) await temp.delete();
+    });
+
+    final client = TencentAsrS3Client(
+      baseUrl: 'https://pre.card.biz',
+      client: MockClient((request) async {
+        expect(request.url.path, '/api/platform/speech/asr');
+        expect(request.method, 'POST');
+        expect(
+          request.headers['content-type'],
+          contains('multipart/form-data'),
+        );
+        expect(utf8.decode(request.bodyBytes), contains('speaker_diarization'));
+        expect(utf8.decode(request.bodyBytes), contains('audio'));
+        return http.Response.bytes(
+          utf8.encode(
+            jsonEncode({
+              'code': 0,
+              'message': 'success',
+              'data': {
+                'text': '你好世界',
+                'segments': [
+                  {'text': '你好世界', 'start_ms': 0, 'end_ms': 1000},
+                ],
+              },
+            }),
+          ),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      }),
+    );
+
+    final result = await client.recognizeFile(file: temp);
+
+    expect(result.text, '你好世界');
+    expect(result.segments, hasLength(1));
+    expect(result.rawResponse['code'], 0);
   });
 }

@@ -37,7 +37,7 @@ class FlashFileStatusController {
   }
 
   void heard(String fileName) {
-    show(_processingText(fileName, '排队'), fileName: fileName);
+    show(_processingText(fileName, '准备同步'), fileName: fileName);
   }
 
   void syncing(String fileName) {

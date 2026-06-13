@@ -110,6 +110,65 @@ class TencentS3AsyncAsrClient:
         return result
 
 
+class TencentSyncAsrClient:
+    provider_name = "tencent_asr_sync"
+
+    def __init__(self, base_url: str | None = None):
+        self.base_url = (base_url or settings.tencent_asr_service_base_url).rstrip("/")
+
+    async def recognize_audio_url(
+        self,
+        *,
+        audio_url: str,
+        speaker_diarization: bool = False,
+    ) -> dict:
+        url = f"{self.base_url}/api/platform/speech/asr"
+        logger.info(
+            "%s platform speech sync_asr request audio_url=%s speaker_diarization=%s base_url=%s",
+            LOG_TAG,
+            _safe_url(audio_url),
+            speaker_diarization,
+            self.base_url,
+        )
+        try:
+            async with httpx.AsyncClient(timeout=60) as cx:
+                resp = await cx.post(
+                    url,
+                    data={
+                        "audio": audio_url,
+                        "speaker_diarization": "true" if speaker_diarization else "false",
+                    },
+                )
+        except httpx.RequestError as e:
+            logger.info("%s platform speech sync_asr request error error=%s", LOG_TAG, str(e)[:300])
+            raise AsrError(f"Tencent ASR sync request failed: {str(e)[:160]}")
+
+        try:
+            body = resp.json()
+        except ValueError:
+            logger.info("%s platform speech sync_asr non-json response status=%s", LOG_TAG, resp.status_code)
+            raise AsrError("Tencent ASR sync response is not JSON")
+        if resp.status_code >= 400:
+            logger.info("%s platform speech sync_asr http failed status=%s body=%s", LOG_TAG, resp.status_code, resp.text[:300])
+            raise AsrError(f"Tencent ASR sync failed: http {resp.status_code}")
+        if not isinstance(body, dict) or body.get("code") != 0:
+            logger.info("%s platform speech sync_asr biz failed status=%s body=%s", LOG_TAG, resp.status_code, str(body)[:300])
+            raise AsrError(str((body or {}).get("message") or "Tencent ASR sync failed")[:200])
+        data = body.get("data")
+        if not isinstance(data, dict):
+            logger.info("%s platform speech sync_asr missing data body=%s", LOG_TAG, str(body)[:300])
+            raise AsrError("Tencent ASR sync missing data")
+        result = dict(data)
+        result["_raw_response"] = body
+        logger.info(
+            "%s platform speech sync_asr response text_len=%s segments=%s",
+            LOG_TAG,
+            len(result.get("text") or ""),
+            len(result.get("segments") or []),
+        )
+        return result
+
+
 def _safe_url(url: str) -> str:
     try:
         parsed = urlsplit(url)
@@ -150,3 +209,9 @@ def parse_finished_result(data: dict) -> AsrResult:
         provider_request_id=str(data.get("task_id") or ""),
         raw=data.get("_raw_response") or data,
     )
+
+
+def parse_sync_result(data: dict) -> AsrResult:
+    result_data = dict(data)
+    result_data.setdefault("task_id", "")
+    return parse_finished_result(result_data)

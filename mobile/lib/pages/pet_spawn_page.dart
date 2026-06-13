@@ -318,7 +318,7 @@ class _PetSpawnPageState extends State<PetSpawnPage>
 
   String _statusForTask(FlashFileTask task) {
     return switch (task.stage) {
-      FlashFileStage.queued => '$_petName 已接住,正在排队…',
+      FlashFileStage.queued => '$_petName 已接住,正在准备同步…',
       FlashFileStage.syncingFromCard => '正在从录音卡同步…',
       FlashFileStage.convertingToMp3 => '正在转换音频…',
       FlashFileStage.uploadingToS3 ||

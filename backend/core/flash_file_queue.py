@@ -11,7 +11,12 @@ from sqlalchemy import and_, or_, select
 
 from config import settings
 from core.asr.base import AsrError
-from core.asr.tencent_s3_async import TencentS3AsyncAsrClient, parse_finished_result
+from core.asr.tencent_s3_async import (
+    TencentS3AsyncAsrClient,
+    TencentSyncAsrClient,
+    parse_finished_result,
+    parse_sync_result,
+)
 from core.flash_service import process_flash_text
 from core.notifications import publish_event
 from db.database import AsyncSessionLocal
@@ -136,7 +141,14 @@ async def process_recording(recording_id: str | uuid.UUID) -> None:
             recording.device_file_name,
         )
     if status in {"pending", "asr_processing"}:
-        await poll_tencent_asr_until_terminal(rid)
+        async with AsyncSessionLocal() as db:
+            asr_mode = (await db.execute(
+                select(FlashRecording.asr_mode).where(FlashRecording.id == rid)
+            )).scalar_one_or_none()
+        if asr_mode == "sync":
+            await recognize_tencent_sync_asr(rid)
+        else:
+            await poll_tencent_asr_until_terminal(rid)
     async with AsyncSessionLocal() as db:
         latest_status = (await db.execute(
             select(FlashRecording.process_status).where(FlashRecording.id == rid)
@@ -373,6 +385,94 @@ async def create_tencent_asr_task_if_needed(
         await db.refresh(recording)
     publish_flash_file_status(recording, "accepted", "任务已添加")
     logger.info("%s ASR task created recording=%s task_id=%s", LOG_TAG, rid, task_id)
+    return recording
+
+
+async def recognize_tencent_sync_asr(
+    recording_id: str | uuid.UUID,
+    *,
+    client: TencentSyncAsrClient | None = None,
+) -> FlashRecording | None:
+    rid = uuid.UUID(str(recording_id))
+    client = client or TencentSyncAsrClient()
+
+    async with AsyncSessionLocal() as db:
+        recording = (await db.execute(
+            select(FlashRecording).where(FlashRecording.id == rid)
+        )).scalar_one_or_none()
+        if recording is None or recording.process_status not in {"pending", "asr_processing"}:
+            logger.info("%s sync ASR skip recording=%s reason=missing_or_status", LOG_TAG, rid)
+            return recording
+        if not (recording.s3_audio_url or "").strip():
+            await _mark_asr_failed(rid, "S3 audio_url missing", raw=None)
+            raise AsrError("S3 audio_url missing")
+
+        file = (await db.execute(select(File).where(File.id == recording.file_id))).scalar_one_or_none()
+        recording.process_status = "asr_processing"
+        recording.tencent_status = "submitting"
+        recording.asr_provider = TencentSyncAsrClient.provider_name
+        recording.updated_at = _now()
+        if file:
+            file.asr_status = "processing"
+        await db.commit()
+        await db.refresh(recording)
+        audio_url = recording.s3_audio_url
+        speaker_diarization = bool(recording.tencent_speaker_diarization if recording.tencent_speaker_diarization is not None else 0)
+        publish_flash_file_status(recording, "asr_processing", "语音识别处理中")
+
+    try:
+        data = await client.recognize_audio_url(
+            audio_url=audio_url,
+            speaker_diarization=speaker_diarization,
+        )
+    except AsrError as e:
+        await _mark_asr_failed(rid, str(e)[:1000], raw=None)
+        raise
+
+    raw = data.get("_raw_response") or data
+    if not (data.get("text") or "").strip():
+        await _mark_asr_no_content(rid, raw=raw)
+        return None
+
+    try:
+        result = parse_sync_result(data)
+    except AsrError:
+        await _mark_asr_no_content(rid, raw=raw)
+        return None
+
+    async with AsyncSessionLocal() as db:
+        recording = (await db.execute(
+            select(FlashRecording).where(FlashRecording.id == rid)
+        )).scalar_one_or_none()
+        if recording is None or recording.process_status not in {"pending", "asr_processing"}:
+            logger.info("%s sync ASR save skip recording=%s reason=missing_or_status", LOG_TAG, rid)
+            return recording
+        file = (await db.execute(select(File).where(File.id == recording.file_id))).scalar_one_or_none()
+        recording.tencent_status = "finished"
+        recording.tencent_error_message = None
+        recording.tencent_result_response = raw
+        recording.tencent_task_response = raw
+        recording.process_status = "asr_done"
+        recording.asr_provider = TencentSyncAsrClient.provider_name
+        recording.asr_text = result.text
+        recording.asr_segments = result.segments
+        recording.asr_error = None
+        recording.updated_at = _now()
+        if file:
+            file.asr_status = "completed"
+            if result.duration_sec is not None:
+                file.duration_sec = int(round(result.duration_sec))
+        await db.commit()
+        await db.refresh(recording)
+    publish_flash_file_status(recording, "asr_done", "语音识别完成")
+    logger.info(
+        "%s sync ASR completed recording=%s text_len=%s segments=%s duration=%s",
+        LOG_TAG,
+        rid,
+        len(result.text),
+        len(result.segments),
+        result.duration_sec,
+    )
     return recording
 
 

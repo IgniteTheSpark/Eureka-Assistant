@@ -29,6 +29,27 @@ class EurekaFlashFileApi {
     return map;
   }
 
+  Future<Map<String, dynamic>> submitTencentAsrSyncResult(
+    Map<String, dynamic> payload,
+  ) async {
+    _log(
+      'submit sync ASR result request clientTask=${payload['client_task_id']} '
+      'file=${payload['device_file_name']} status=${payload['asr_status']} '
+      'textLen=${payload['asr_text']?.toString().length ?? 0} error=${payload['asr_error'] ?? payload['error_message'] ?? ""}',
+    );
+    final res = await _api.postJson(
+      '/api/flash/tencent-asr-sync-results',
+      payload,
+    );
+    final map = (res as Map).cast<String, dynamic>();
+    _log(
+      'submit sync ASR result response accepted=${map['accepted']} duplicate=${map['duplicate']} '
+      'recording=${map['recording_id']} asrStatus=${map['asr_status']} pipeline=${map['pipeline_status']} '
+      'message=${map['message']}',
+    );
+    return map;
+  }
+
   Future<Map<String, dynamic>> getRecording(String recordingId) async {
     _log('get recording request recording=$recordingId');
     final res = await _api.getJson('/api/flash/recordings/$recordingId');

@@ -23,6 +23,18 @@ class TencentAsrPresign {
   final int expiresIn;
 }
 
+class TencentAsrSyncResult {
+  TencentAsrSyncResult({
+    required this.text,
+    required this.segments,
+    required this.rawResponse,
+  });
+
+  final String text;
+  final List<dynamic> segments;
+  final Map<String, dynamic> rawResponse;
+}
+
 class TencentAsrS3Client {
   TencentAsrS3Client({http.Client? client, String? baseUrl})
     : _client = client ?? http.Client(),
@@ -76,7 +88,7 @@ class TencentAsrS3Client {
     return presign;
   }
 
-  Future<void> uploadMp3({
+  Future<void> uploadFile({
     required String uploadUrl,
     required Map<String, String> headers,
     required File file,
@@ -92,6 +104,44 @@ class TencentAsrS3Client {
       throw ApiException(res.statusCode, res.body);
     }
     _log('s3 PUT upload success status=${res.statusCode}');
+  }
+
+  Future<void> uploadMp3({
+    required String uploadUrl,
+    required Map<String, String> headers,
+    required File file,
+  }) {
+    return uploadFile(uploadUrl: uploadUrl, headers: headers, file: file);
+  }
+
+  Future<TencentAsrSyncResult> recognizeFile({
+    required File file,
+    bool speakerDiarization = false,
+  }) async {
+    _log(
+      'sync_asr request file=${file.path} bytes=${await file.length()} baseUrl=$baseUrl',
+    );
+    final request = http.MultipartRequest(
+      'POST',
+      Uri.parse('$baseUrl/api/platform/speech/asr'),
+    );
+    request.fields['speaker_diarization'] = speakerDiarization
+        ? 'true'
+        : 'false';
+    request.files.add(await http.MultipartFile.fromPath('audio', file.path));
+    final streamed = await _client.send(request);
+    final res = await http.Response.fromStream(streamed);
+    final body = _decode(res);
+    final data = (body['data'] as Map).cast<String, dynamic>();
+    final result = TencentAsrSyncResult(
+      text: data['text']?.toString() ?? '',
+      segments: (data['segments'] as List?)?.toList() ?? const [],
+      rawResponse: body,
+    );
+    _log(
+      'sync_asr success status=${res.statusCode} textLen=${result.text.length} segments=${result.segments.length}',
+    );
+    return result;
   }
 
   Map<String, dynamic> _decode(http.Response res) {

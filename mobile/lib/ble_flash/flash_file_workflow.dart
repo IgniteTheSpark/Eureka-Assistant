@@ -30,6 +30,7 @@ class FlashFileWorkflow {
 
   static const _logTag = '[FlashFile]';
   static const _prefsKey = 'flash_file_tasks_v1';
+  static const _smallOpusThresholdBytes = 5 * 1024 * 1024;
   final BrBluetoothPlugin _ble;
   final BrAudioConverterPlugin _converter;
   final TencentAsrS3Client _asrClient;
@@ -51,7 +52,8 @@ class FlashFileWorkflow {
 
   String _brief(FlashFileTask task) =>
       'key=${task.key} stage=${task.stage.name} source=${task.source.name} '
-      'asrTask=${task.tencentAsrTaskId ?? "-"} recording=${task.eurekaRecordingId ?? "-"}';
+      'mode=${task.asrMode?.name ?? "-"} asrTask=${task.tencentAsrTaskId ?? "-"} '
+      'recording=${task.eurekaRecordingId ?? "-"}';
 
   Future<void> start() async {
     _log('workflow start requested');
@@ -274,7 +276,7 @@ class FlashFileWorkflow {
       isRunning: () => _transcodeRunning,
       setRunning: (v) => _transcodeRunning = v,
       nextTask: () => _nextStageTask({FlashFileStage.syncedToPhone}),
-      runTask: _transcode,
+      runTask: _prepareUploadAudio,
     );
     _kickStageWorker(
       isRunning: () => _uploadRunning,
@@ -455,6 +457,7 @@ class FlashFileWorkflow {
         task.key,
         task.copyWith(
           stage: FlashFileStage.syncedToPhone,
+          deviceSizeBytes: task.deviceSizeBytes ?? File(localPath).lengthSync(),
           localOpusPath: localPath,
         ),
       );
@@ -492,13 +495,45 @@ class FlashFileWorkflow {
     _log('sync success ${_brief(task)} path=$path bytes=${file.lengthSync()}');
     await _update(
       task.key,
-      task.copyWith(stage: FlashFileStage.syncedToPhone, localOpusPath: path),
+      task.copyWith(
+        stage: FlashFileStage.syncedToPhone,
+        deviceSizeBytes: task.deviceSizeBytes ?? file.lengthSync(),
+        localOpusPath: path,
+      ),
     );
   }
 
-  Future<void> _transcode(FlashFileTask task) async {
+  Future<void> _prepareUploadAudio(FlashFileTask task) async {
     final opusPath = task.localOpusPath;
     if (opusPath == null) throw StateError('opus path missing');
+    final opusFile = File(opusPath);
+    final opusSize = (task.deviceSizeBytes != null && task.deviceSizeBytes! > 0)
+        ? task.deviceSizeBytes!
+        : await opusFile.length();
+    if (opusSize < _smallOpusThresholdBytes) {
+      _log(
+        'small file sync_client selected ${_brief(task)} opus=$opusPath '
+        'size=$opusSize threshold=$_smallOpusThresholdBytes noS3=true noTranscode=true',
+      );
+      final uploadPath = await _stripMarkIfNeeded(opusPath);
+      final audio = File(uploadPath);
+      final bytes = await audio.readAsBytes();
+      await _update(
+        task.key,
+        task.copyWith(
+          stage: FlashFileStage.converted,
+          asrMode: FlashFileAsrMode.syncClient,
+          audioFormat: 'opus',
+          localAudioPath: uploadPath,
+          localAudioSha256: sha256.convert(bytes).toString(),
+          localAudioSizeBytes: bytes.length,
+        ),
+      );
+      _log(
+        'small opus ready ${_brief(task)} upload=$uploadPath bytes=${bytes.length}',
+      );
+      return;
+    }
     _log('transcode start ${_brief(task)} opus=$opusPath');
     FlashFileStatusController.instance.transcoding(task.fileName);
     await _update(
@@ -524,6 +559,11 @@ class FlashFileWorkflow {
       task.key,
       task.copyWith(
         stage: FlashFileStage.converted,
+        asrMode: FlashFileAsrMode.async,
+        audioFormat: 'mp3',
+        localAudioPath: mp3Path,
+        localAudioSha256: sha256.convert(bytes).toString(),
+        localAudioSizeBytes: bytes.length,
         localMp3Path: mp3Path,
         mp3Sha256: sha256.convert(bytes).toString(),
         mp3SizeBytes: bytes.length,
@@ -535,19 +575,37 @@ class FlashFileWorkflow {
   }
 
   Future<void> _upload(FlashFileTask task) async {
-    final mp3Path = task.localMp3Path;
-    if (mp3Path == null) throw StateError('mp3 path missing');
-    _log('upload start ${_brief(task)} mp3=$mp3Path');
+    final asrMode = task.asrMode ?? FlashFileAsrMode.async;
+    if (asrMode == FlashFileAsrMode.syncClient) {
+      await _runClientSyncAsr(task);
+      return;
+    }
+    final audioFormat = task.audioFormat ?? 'mp3';
+    final audioPath =
+        task.localAudioPath ??
+        (asrMode == FlashFileAsrMode.sync
+            ? task.localOpusPath
+            : task.localMp3Path);
+    if (audioPath == null) throw StateError('audio path missing');
+    _log('upload start ${_brief(task)} audio=$audioPath format=$audioFormat');
     FlashFileStatusController.instance.uploading(task.fileName);
     await _update(
       task.key,
       task.copyWith(stage: FlashFileStage.requestingS3Presign),
     );
-    final mp3Name = task.fileName.replaceFirst(
-      RegExp(r'\.opus$', caseSensitive: false),
-      '.mp3',
+    final uploadName = audioFormat == 'opus'
+        ? task.fileName
+        : task.fileName.replaceFirst(
+            RegExp(r'\.opus$', caseSensitive: false),
+            '.mp3',
+          );
+    final contentType = audioFormat == 'opus'
+        ? 'application/octet-stream'
+        : 'audio/mpeg';
+    final presign = await _asrClient.createPresign(
+      filename: uploadName,
+      contentType: contentType,
     );
-    final presign = await _asrClient.createPresign(filename: mp3Name);
     if (presign.s3Key.isEmpty ||
         presign.uploadUrl.isEmpty ||
         presign.audioUrl.isEmpty) {
@@ -567,16 +625,74 @@ class FlashFileWorkflow {
         s3ExpiresIn: presign.expiresIn,
       ),
     );
-    await _asrClient.uploadMp3(
+    await _asrClient.uploadFile(
       uploadUrl: presign.uploadUrl,
       headers: presign.headers,
-      file: File(mp3Path),
+      file: File(audioPath),
     );
     _log('upload success ${_brief(task)} s3Key=${presign.s3Key}');
     await _update(
       task.key,
       _tasks[task.key]!.copyWith(stage: FlashFileStage.s3Uploaded),
     );
+  }
+
+  Future<void> _runClientSyncAsr(FlashFileTask task) async {
+    final audioPath = task.localAudioPath ?? task.localOpusPath;
+    if (audioPath == null) throw StateError('audio path missing');
+    _log('client sync ASR start ${_brief(task)} audio=$audioPath');
+    FlashFileStatusController.instance.submitting(task.fileName);
+    if (task.clientAsrRawResponse != null) {
+      _log(
+        'client sync ASR reuse cached result ${_brief(task)} '
+        'status=${task.clientAsrStatus ?? "completed"} textLen=${task.clientAsrText?.length ?? 0} '
+        'error=${task.clientAsrError ?? ""}',
+      );
+      await _update(task.key, task.copyWith(stage: FlashFileStage.s3Uploaded));
+      return;
+    }
+    try {
+      final result = await _asrClient.recognizeFile(
+        file: File(audioPath),
+        speakerDiarization: false,
+      );
+      await _update(
+        task.key,
+        task.copyWith(
+          stage: FlashFileStage.s3Uploaded,
+          clientAsrStatus: 'completed',
+          clientAsrText: result.text,
+          clientAsrSegments: result.segments,
+          clientAsrRawResponse: result.rawResponse,
+          clientAsrError: '',
+          clientAsrMessage: result.text.trim().isEmpty ? '文件没内容' : '',
+        ),
+      );
+      _log(
+        'client sync ASR success ${_brief(task)} textLen=${result.text.length} segments=${result.segments.length}',
+      );
+      return;
+    } catch (e) {
+      final error = '$e';
+      _log('client sync ASR failed ${_brief(task)} error=$error');
+      await _update(
+        task.key,
+        task.copyWith(
+          stage: FlashFileStage.s3Uploaded,
+          clientAsrStatus: 'failed',
+          clientAsrText: '',
+          clientAsrSegments: const [],
+          clientAsrRawResponse: {
+            'code': -1,
+            'message': error,
+            'data': {'status': 'failed', 'error_message': error},
+          },
+          clientAsrError: error,
+          clientAsrMessage: '识别失败已记录',
+        ),
+      );
+      return;
+    }
   }
 
   Future<void> _notifyEureka(FlashFileTask task) async {
@@ -587,8 +703,53 @@ class FlashFileWorkflow {
       task.key,
       latest.copyWith(stage: FlashFileStage.notifyingEureka),
     );
-    final res = await _eurekaApi.notifyTencentAsrS3Upload(_payload(latest));
+    if (latest.asrMode == FlashFileAsrMode.syncClient) {
+      _log(
+        'submit sync ASR result start ${_brief(latest)} '
+        'status=${latest.clientAsrStatus ?? "completed"} textLen=${latest.clientAsrText?.length ?? 0} '
+        'error=${latest.clientAsrError ?? ""}',
+      );
+    }
+    Map<String, dynamic> res;
+    try {
+      res = latest.asrMode == FlashFileAsrMode.syncClient
+          ? await _eurekaApi.submitTencentAsrSyncResult(
+              _syncResultPayload(latest),
+            )
+          : await _eurekaApi.notifyTencentAsrS3Upload(_payload(latest));
+    } catch (e) {
+      if (latest.asrMode == FlashFileAsrMode.syncClient) {
+        _log('submit sync ASR result failed ${_brief(latest)} error=$e');
+      }
+      rethrow;
+    }
     _log('notify Eureka success ${_brief(latest)} response=$res');
+    if (latest.asrMode == FlashFileAsrMode.syncClient) {
+      _log(
+        'submit sync ASR result success ${_brief(latest)} '
+        'recording_id=${res['recording_id']} pipeline_status=${res['pipeline_status']} '
+        'message=${res['message']}',
+      );
+      if ((latest.clientAsrStatus ?? 'completed') == 'failed') {
+        _log(
+          'client sync ASR failed result recorded; keep device file ${_brief(latest)} '
+          'recording_id=${res['recording_id']}',
+        );
+        await _update(
+          task.key,
+          latest.copyWith(
+            stage: FlashFileStage.failed,
+            eurekaRecordingId: res['recording_id']?.toString(),
+            lastError: latest.clientAsrError ?? latest.clientAsrMessage,
+          ),
+        );
+        FlashFileStatusController.instance.failed(
+          latest.fileName,
+          message: latest.clientAsrMessage ?? '识别失败，请重试',
+        );
+        return;
+      }
+    }
     await _deleteLocalFlashFiles(latest);
     await _update(
       task.key,
@@ -623,20 +784,61 @@ class FlashFileWorkflow {
     'capture_ended_at': task.endTime,
     'device_crc': task.crc,
     'device_size_bytes': task.deviceSizeBytes,
+    'asr_mode': (task.asrMode ?? FlashFileAsrMode.async).name,
+    'audio_format':
+        task.audioFormat ??
+        ((task.asrMode ?? FlashFileAsrMode.async) == FlashFileAsrMode.sync
+            ? 'opus'
+            : 'mp3'),
+    'local_audio_sha256': task.localAudioSha256 ?? task.mp3Sha256,
+    'local_audio_size_bytes': task.localAudioSizeBytes ?? task.mp3SizeBytes,
     'local_mp3_sha256': task.mp3Sha256,
     'local_mp3_size_bytes': task.mp3SizeBytes,
     's3': {
       's3_key': task.s3Key,
       'upload_url': task.s3UploadUrl,
       'audio_url': task.s3AudioUrl,
-      'content_type': task.s3UploadHeaders?['Content-Type'] ?? 'audio/mpeg',
-      'headers': task.s3UploadHeaders ?? const {'Content-Type': 'audio/mpeg'},
+      'content_type':
+          task.s3UploadHeaders?['Content-Type'] ??
+          (task.audioFormat == 'opus'
+              ? 'application/octet-stream'
+              : 'audio/mpeg'),
+      'headers':
+          task.s3UploadHeaders ??
+          {
+            'Content-Type': task.audioFormat == 'opus'
+                ? 'application/octet-stream'
+                : 'audio/mpeg',
+          },
       'upload_expires_in': task.s3ExpiresIn,
       'uploaded_at': DateTime.now().toIso8601String(),
     },
     'engine_type': '16k_zh',
     'speaker_diarization': false,
     'hotword_list': '',
+  };
+
+  Map<String, dynamic> _syncResultPayload(FlashFileTask task) => {
+    'client_task_id': task.id,
+    'source': task.source.name,
+    'card_sn': task.deviceSn,
+    'device_file_name': task.fileName,
+    'capture_started_at': task.createTime,
+    'capture_ended_at': task.endTime,
+    'device_crc': task.crc,
+    'device_size_bytes': task.deviceSizeBytes,
+    'local_audio_sha256': task.localAudioSha256,
+    'local_audio_size_bytes': task.localAudioSizeBytes,
+    'audio_format': 'opus',
+    'asr_mode': 'sync_client',
+    'asr_provider': 'tencent_asr_sync_client',
+    'asr_status': task.clientAsrStatus ?? 'completed',
+    'asr_text': task.clientAsrText ?? '',
+    'asr_segments': task.clientAsrSegments ?? const [],
+    'raw_response': task.clientAsrRawResponse ?? const {},
+    'asr_error': task.clientAsrError ?? '',
+    'error_message': task.clientAsrMessage ?? task.clientAsrError ?? '',
+    'speaker_diarization': false,
   };
 
   Future<String> _deviceSn() async {
@@ -719,6 +921,7 @@ class FlashFileWorkflow {
         '${task.localOpusPath}.raw.opus',
       if (task.localOpusPath?.isNotEmpty == true) '${task.localOpusPath}.sync',
       if (task.localOpusPath?.isNotEmpty == true) '${task.localOpusPath}.temp',
+      if (task.localAudioPath?.isNotEmpty == true) task.localAudioPath!,
       if (task.localMp3Path?.isNotEmpty == true) task.localMp3Path!,
     };
     for (final path in paths) {

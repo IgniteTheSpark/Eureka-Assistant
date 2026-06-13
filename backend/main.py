@@ -33,6 +33,21 @@ validate_prod_secrets()
 from core.llm import configure_llm_env
 configure_llm_env()
 
+import logging
+
+
+def _configure_flash_file_logging() -> None:
+    flash_logger = logging.getLogger("flash_file")
+    flash_logger.setLevel(logging.INFO)
+    uvicorn_logger = logging.getLogger("uvicorn.error")
+    for handler in uvicorn_logger.handlers:
+        if handler not in flash_logger.handlers:
+            flash_logger.addHandler(handler)
+    flash_logger.propagate = False
+
+
+_configure_flash_file_logging()
+
 from agents.mcp_toolset import close_mcp_toolset
 from api.auth import router as auth_router
 from api.auth_baizhi import router as auth_baizhi_router    # §13.1 / B1 百智 OAuth login
@@ -61,6 +76,7 @@ async def lifespan(app: FastAPI):
     """App lifecycle: start the M7 reminder scheduler; shutdown cancels it and
     closes the MCP subprocess."""
     import asyncio
+    _configure_flash_file_logging()
     from core.reminder_scheduler import reminder_loop
     reminder_task = asyncio.create_task(reminder_loop())
     # §14 主动 REKA heartbeat (Phase 2): rhythm profiles (daily) + 缺口→Type A
