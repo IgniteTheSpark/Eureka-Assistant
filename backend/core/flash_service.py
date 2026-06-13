@@ -27,7 +27,12 @@ logger = logging.getLogger("flash_file")
 LOG_TAG = "[FlashFile]"
 
 
-async def get_or_create_capture_session_today(db, user_id: str, source: str) -> DBSession:
+async def get_or_create_capture_session_today(
+    db,
+    user_id: str,
+    source: str,
+    capture_session_type: Optional[str] = None,
+) -> DBSession:
     """
     Capture sessions aggregate by natural day + modality.
 
@@ -35,7 +40,7 @@ async def get_or_create_capture_session_today(db, user_id: str, source: str) -> 
     a `manual` session. This preserves the current /api/flash behavior.
     """
     is_voice = source == "voice"
-    stype = "flash" if is_voice else "manual"
+    stype = capture_session_type if capture_session_type in {"flash", "manual"} else ("flash" if is_voice else "manual")
     today = datetime.date.today()
     result = await db.execute(
         select(DBSession).where(
@@ -51,7 +56,7 @@ async def get_or_create_capture_session_today(db, user_id: str, source: str) -> 
     sess = DBSession(
         user_id=user_id,
         session_type=stype,
-        title=f"{today.month}月{today.day}日 " + ("闪念" if is_voice else "记录"),
+        title=f"{today.month}月{today.day}日 " + ("闪念" if stype == "flash" else "记录"),
         date=today,
     )
     db.add(sess)
@@ -71,6 +76,7 @@ async def process_flash_text(
     language: Optional[str] = None,
     segments: Optional[list] = None,
     session_id: str = "",
+    capture_session_type: Optional[str] = None,
 ) -> dict:
     """Create input_turn, run the Flash Pipeline, persist chat-like messages.
 
@@ -87,7 +93,7 @@ async def process_flash_text(
     input_source = source if source in {"voice", "typed", "imported"} else "voice"
     logger.info(
         "%s process_flash_text start user=%s recording=%s source=%s file_id=%s "
-        "provider=%s text_len=%s segments=%s session=%s",
+        "provider=%s text_len=%s segments=%s session=%s capture_session_type=%s",
         LOG_TAG,
         user_id,
         recording_id or "-",
@@ -97,6 +103,7 @@ async def process_flash_text(
         len(text or ""),
         len(segments or []),
         session_id or "-",
+        capture_session_type or "-",
     )
 
     try:
@@ -112,7 +119,12 @@ async def process_flash_text(
                 if not session:
                     raise HTTPException(status_code=404, detail="session not found")
             else:
-                session = await get_or_create_capture_session_today(db, user_id, input_source)
+                session = await get_or_create_capture_session_today(
+                    db,
+                    user_id,
+                    input_source,
+                    capture_session_type=capture_session_type,
+                )
 
             session_id = str(session.id)
             turn = await create_input_turn_for_message(

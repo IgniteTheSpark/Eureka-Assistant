@@ -7,7 +7,6 @@ import 'app_shell.dart';
 import 'auth/auth_controller.dart';
 import 'ble_flash/ble_flash_manager.dart';
 import 'ble_flash/ble_flash_overlay.dart';
-import 'ble_flash/flash_file_status_bar.dart';
 import 'ble_flash/flash_file_workflow.dart';
 import 'data_revision.dart';
 import 'device/device_controller.dart';
@@ -122,9 +121,6 @@ class EurekaApp extends StatelessWidget {
                                   )
                                 : const SizedBox.shrink(),
                           ),
-                          const Positioned.fill(
-                            child: IgnorePointer(child: FlashFileStatusBar()),
-                          ),
                         ],
                       ),
                     ),
@@ -220,11 +216,11 @@ class _PostAuthGateState extends State<_PostAuthGate> {
           // flash for new users.
           return const ColoredBox(color: Colors.transparent);
         }
-        // Decide once, the first time the pet is loaded. A real, un-spawned pet
-        // → onboarding. A null pet means the /api/pet fetch failed (loaded flips
-        // true in refresh()'s finally even on error) — don't drag a returning
-        // user into 孵化 over a transient blip; fall through to the shell.
-        _needsOnboarding ??= _pet.pet != null && !_pet.spawned;
+        // Decide once, the first time the pet is loaded. Onboarding is complete
+        // only after the first capture produces a real card; spawned only means
+        // the egg has hatched. A null pet means /api/pet failed — don't drag a
+        // returning user into 孵化 over a transient blip; fall through to shell.
+        _needsOnboarding ??= _pet.pet != null && !_pet.onboardingCompleted;
         if (_needsOnboarding! && !_onboardingDone) {
           return PetSpawnPage(
             onDone: () => setState(() => _onboardingDone = true),

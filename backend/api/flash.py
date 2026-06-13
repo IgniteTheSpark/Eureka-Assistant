@@ -45,6 +45,7 @@ class FlashRequest(BaseModel):
     text: str
     session_id: str = ""     # empty = get-or-create today's flash session
     source: str = "voice"    # voice | typed (per Phase B v1.3 modality)
+    capture_session_type: str = ""  # optional flash | manual override for onboarding typed first capture
     file_id: str = ""        # optional, when real audio upload exists (future)
 
 
@@ -216,6 +217,7 @@ async def flash(req: FlashRequest, user_id: str = Depends(get_current_user_id)):
         source=input_source,
         file_id=req.file_id or None,
         session_id=req.session_id,
+        capture_session_type=req.capture_session_type if req.capture_session_type in {"flash", "manual"} else None,
     )
     return FlashResponse(**{k: v for k, v in result.items() if k in FlashResponse.model_fields})
 

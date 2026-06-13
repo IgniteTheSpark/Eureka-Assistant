@@ -759,6 +759,7 @@ class Pet(Base):
     unlocked     = Column(JSON)                        # {skin:[], emblem:[], head:[], item:[]}
     milestones   = Column(JSON)                        # {capture_count, streak_days, last_event_date, domains:[]}
     spawned      = Column(Integer, nullable=False, server_default="0")  # 0 = egg (pre-hatch), 1 = hatched
+    onboarding_completed_at = Column(TIMESTAMPTZ)
     created_at   = Column(TIMESTAMPTZ, default=_utcnow)
 
     __table_args__ = (

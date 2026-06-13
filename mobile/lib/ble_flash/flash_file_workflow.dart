@@ -35,6 +35,7 @@ class FlashFileWorkflow {
   final TencentAsrS3Client _asrClient;
   final EurekaFlashFileApi _eurekaApi;
   final Map<String, FlashFileTask> _tasks = {};
+  final ValueNotifier<int> taskRevision = ValueNotifier<int>(0);
 
   bool _loaded = false;
   bool _started = false;
@@ -115,11 +116,12 @@ class FlashFileWorkflow {
           deviceSizeBytes: deviceSizeBytes,
         );
     await _save();
+    _notifyTasksChanged();
     _log(
       'realtime task upserted key=$key existing=${existing != null} '
       'createTime=$createTime endTime=$endTime crc=$crc size=$deviceSizeBytes',
     );
-    FlashFileStatusController.instance.show('闪念已入队');
+    FlashFileStatusController.instance.heard(fileName);
     if (_started) {
       unawaited(scanOfflineIfConnected());
     }
@@ -195,6 +197,7 @@ class FlashFileWorkflow {
           stage: FlashFileStage.deletingDeviceFile,
         );
         _save();
+        _notifyTasksChanged();
         _log(
           'server status moves task to delete ${_brief(task)} status=$status',
         );
@@ -203,6 +206,7 @@ class FlashFileWorkflow {
           task.stage != FlashFileStage.deletingDeviceFile) {
         _tasks[entry.key] = task.copyWith(stage: FlashFileStage.done);
         _save();
+        _notifyTasksChanged();
         _log('server status marks done ${_brief(task)}');
       } else if (status == 'failed') {
         if (task.stage == FlashFileStage.deletingDeviceFile) {
@@ -216,6 +220,7 @@ class FlashFileWorkflow {
           lastError: payload['message']?.toString(),
         );
         _save();
+        _notifyTasksChanged();
         _log(
           'server status marks failed ${_brief(task)} message=${payload['message']}',
         );
@@ -236,6 +241,23 @@ class FlashFileWorkflow {
       stage: FlashFileStage.queued,
       updatedAt: DateTime.now(),
     );
+  }
+
+  FlashFileTask? realtimeTaskForFile(String fileName) {
+    if (fileName.trim().isEmpty) return null;
+    final matches = _tasks.values.where(
+      (t) => t.source == FlashFileSource.realtime && t.fileName == fileName,
+    );
+    if (matches.isEmpty) return null;
+    return matches.reduce((a, b) => a.updatedAt.isAfter(b.updatedAt) ? a : b);
+  }
+
+  FlashFileTask? latestRealtimeTask() {
+    final matches = _tasks.values.where(
+      (t) => t.source == FlashFileSource.realtime,
+    );
+    if (matches.isEmpty) return null;
+    return matches.reduce((a, b) => a.updatedAt.isAfter(b.updatedAt) ? a : b);
   }
 
   void _kick() {
@@ -383,7 +405,10 @@ class FlashFileWorkflow {
       latest.copyWith(stage: FlashFileStage.failed, lastError: '$error'),
     );
     _log('task stopped for refresh ${_brief(latest)} error=$error');
-    FlashFileStatusController.instance.show('闪念同步失败，请刷新', isError: true);
+    FlashFileStatusController.instance.failed(
+      task.fileName,
+      message: '同步失败，请刷新',
+    );
   }
 
   bool _isPermanentFailure(FlashFileTask task, Object error) {
@@ -397,7 +422,7 @@ class FlashFileWorkflow {
       task.copyWith(stage: FlashFileStage.failed, lastError: '$error'),
     );
     _log('task failed ${_brief(task)} error=$error');
-    FlashFileStatusController.instance.show('闪念处理失败', isError: true);
+    FlashFileStatusController.instance.failed(task.fileName);
   }
 
   Future<void> _runSyncTask(FlashFileTask task) async {
@@ -410,7 +435,7 @@ class FlashFileWorkflow {
 
   Future<void> _sync(FlashFileTask task) async {
     _log('sync start ${_brief(task)}');
-    FlashFileStatusController.instance.show('正在同步闪念...');
+    FlashFileStatusController.instance.syncing(task.fileName);
     await _update(
       task.key,
       task.copyWith(stage: FlashFileStage.syncingFromCard),
@@ -475,7 +500,7 @@ class FlashFileWorkflow {
     final opusPath = task.localOpusPath;
     if (opusPath == null) throw StateError('opus path missing');
     _log('transcode start ${_brief(task)} opus=$opusPath');
-    FlashFileStatusController.instance.show('正在转换音频...');
+    FlashFileStatusController.instance.transcoding(task.fileName);
     await _update(
       task.key,
       task.copyWith(stage: FlashFileStage.convertingToMp3),
@@ -513,7 +538,7 @@ class FlashFileWorkflow {
     final mp3Path = task.localMp3Path;
     if (mp3Path == null) throw StateError('mp3 path missing');
     _log('upload start ${_brief(task)} mp3=$mp3Path');
-    FlashFileStatusController.instance.show('正在上传音频...');
+    FlashFileStatusController.instance.uploading(task.fileName);
     await _update(
       task.key,
       task.copyWith(stage: FlashFileStage.requestingS3Presign),
@@ -557,7 +582,7 @@ class FlashFileWorkflow {
   Future<void> _notifyEureka(FlashFileTask task) async {
     final latest = _tasks[task.key] ?? task;
     _log('notify Eureka start ${_brief(latest)} s3Key=${latest.s3Key}');
-    FlashFileStatusController.instance.show('正在提交上传结果...');
+    FlashFileStatusController.instance.submitting(latest.fileName);
     await _update(
       task.key,
       latest.copyWith(stage: FlashFileStage.notifyingEureka),
@@ -576,7 +601,7 @@ class FlashFileWorkflow {
 
   Future<void> _deleteDeviceFile(FlashFileTask task) async {
     _log('delete device file start ${_brief(task)}');
-    FlashFileStatusController.instance.show('正在清理卡片文件...');
+    FlashFileStatusController.instance.cleaning(task.fileName);
     final ok = await _ble.deleteFile(fileName: task.fileName);
     _log('delete device file result ${_brief(task)} ok=$ok');
     await _update(
@@ -836,5 +861,10 @@ class FlashFileWorkflow {
       _log('task updated ${_brief(task)}');
     }
     if (_started) _kick();
+    _notifyTasksChanged();
+  }
+
+  void _notifyTasksChanged() {
+    taskRevision.value++;
   }
 }

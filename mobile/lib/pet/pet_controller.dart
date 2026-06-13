@@ -13,17 +13,21 @@ import 'reka_notifications.dart';
 @immutable
 class Pet {
   final bool spawned;
+  final bool onboardingCompleted;
   final String name;
   final String seed;
   final String skin;
   final String emblem;
   final String emblemColor;
-  final Map<String, String> equipped; // head / leftItem / rightItem / carrier / aura
-  final Map<String, List<String>> unlocked; // skin / emblem / head / item / carrier / aura
+  final Map<String, String>
+  equipped; // head / leftItem / rightItem / carrier / aura
+  final Map<String, List<String>>
+  unlocked; // skin / emblem / head / item / carrier / aura
   final PetMilestones milestones;
 
   const Pet({
     required this.spawned,
+    required this.onboardingCompleted,
     required this.name,
     required this.seed,
     required this.skin,
@@ -37,10 +41,16 @@ class Pet {
   factory Pet.fromJson(Map<String, dynamic> j) {
     final eq = (j['equipped'] as Map?) ?? const {};
     final un = (j['unlocked'] as Map?) ?? const {};
-    List<String> list(dynamic v) => (v as List?)?.map((e) => '$e').toList() ?? <String>[];
+    List<String> list(dynamic v) =>
+        (v as List?)?.map((e) => '$e').toList() ?? <String>[];
     return Pet(
       spawned: j['spawned'] == true,
-      name: (j['name'] as String?)?.trim().isNotEmpty == true ? j['name'] as String : 'Reka',
+      onboardingCompleted:
+          j['onboarding_completed'] == true ||
+          (j['onboarding_completed'] == null && j['spawned'] == true),
+      name: (j['name'] as String?)?.trim().isNotEmpty == true
+          ? j['name'] as String
+          : 'Reka',
       seed: (j['seed'] as String?) ?? '',
       skin: (j['skin'] as String?) ?? 'aurora',
       emblem: (j['emblem'] as String?) ?? 'star',
@@ -57,30 +67,36 @@ class Pet {
         'emblem': list(un['emblem']),
         'head': list(un['head']),
         'item': list(un['item']),
-        'carrier': un['carrier'] != null ? list(un['carrier']) : <String>['none'],
-        'aura': un['aura'] != null ? list(un['aura']) : <String>['none', 'soft'],
+        'carrier': un['carrier'] != null
+            ? list(un['carrier'])
+            : <String>['none'],
+        'aura': un['aura'] != null
+            ? list(un['aura'])
+            : <String>['none', 'soft'],
       },
-      milestones: PetMilestones.fromJson((j['milestones'] as Map?)?.cast<String, dynamic>() ?? const {}),
+      milestones: PetMilestones.fromJson(
+        (j['milestones'] as Map?)?.cast<String, dynamic>() ?? const {},
+      ),
     );
   }
 
   /// The genome map PetView/mascot.js consumes (camelCase keys, hands resolved).
   Map<String, dynamic> get genome => {
-        'skin': skin,
-        'emblem': emblem,
-        'emblemColor': emblemColor,
-        'head': equipped['head'] ?? 'none',
-        'leftItem': equipped['leftItem'] ?? 'none',
-        'rightItem': equipped['rightItem'] ?? 'none',
-        'carrier': equipped['carrier'] ?? 'none',
-        'aura': equipped['aura'] ?? 'soft',
-      };
+    'skin': skin,
+    'emblem': emblem,
+    'emblemColor': emblemColor,
+    'head': equipped['head'] ?? 'none',
+    'leftItem': equipped['leftItem'] ?? 'none',
+    'rightItem': equipped['rightItem'] ?? 'none',
+    'carrier': equipped['carrier'] ?? 'none',
+    'aura': equipped['aura'] ?? 'soft',
+  };
 
   /// Flattened "slot:key" set of everything unlocked — for drop diffing.
   Set<String> get ownedKeys => {
-        for (final entry in unlocked.entries)
-          for (final k in entry.value) '${entry.key}:$k',
-      };
+    for (final entry in unlocked.entries)
+      for (final k in entry.value) '${entry.key}:$k',
+  };
 }
 
 @immutable
@@ -88,13 +104,17 @@ class PetMilestones {
   final int captureCount;
   final int streakDays;
   final List<String> domains;
-  const PetMilestones({required this.captureCount, required this.streakDays, required this.domains});
+  const PetMilestones({
+    required this.captureCount,
+    required this.streakDays,
+    required this.domains,
+  });
 
   factory PetMilestones.fromJson(Map<String, dynamic> j) => PetMilestones(
-        captureCount: (j['capture_count'] as num?)?.toInt() ?? 0,
-        streakDays: (j['streak_days'] as num?)?.toInt() ?? 0,
-        domains: (j['domains'] as List?)?.map((e) => '$e').toList() ?? const [],
-      );
+    captureCount: (j['capture_count'] as num?)?.toInt() ?? 0,
+    streakDays: (j['streak_days'] as num?)?.toInt() ?? 0,
+    domains: (j['domains'] as List?)?.map((e) => '$e').toList() ?? const [],
+  );
 }
 
 /// A cosmetic the pet just brought back (for the celebrate toast).
@@ -131,6 +151,7 @@ class PetController extends ChangeNotifier {
   int milestonesAchieved = 0;
 
   bool get spawned => pet?.spawned == true;
+  bool get onboardingCompleted => pet?.onboardingCompleted == true;
 
   /// True once the first /api/pet fetch has resolved (success or error). The
   /// root gate (§9.2.2 onboarding) waits on this before choosing 孵化 vs shell —
@@ -176,7 +197,9 @@ class PetController extends ChangeNotifier {
           final drops = next.ownedKeys.difference(prevOwned);
           for (final d in drops) {
             final i = d.indexOf(':');
-            if (i > 0) _toastDrop(PetDrop(d.substring(0, i), d.substring(i + 1)));
+            if (i > 0) {
+              _toastDrop(PetDrop(d.substring(0, i), d.substring(i + 1)));
+            }
           }
         }
         pet = next;
@@ -189,9 +212,12 @@ class PetController extends ChangeNotifier {
               .whereType<Map>()
               .map((e) => e.cast<String, dynamic>())
               .toList();
-          milestonesAchieved = ((mr['summary'] as Map?)?['achieved'] as num?)?.toInt() ?? 0;
+          milestonesAchieved =
+              ((mr['summary'] as Map?)?['achieved'] as num?)?.toInt() ?? 0;
         }
-      } catch (_) {/* keep the last known milestones */}
+      } catch (_) {
+        /* keep the last known milestones */
+      }
     } catch (_) {
       // best-effort; the pet is non-critical chrome
     } finally {
@@ -204,6 +230,17 @@ class PetController extends ChangeNotifier {
   /// Hatch the egg (server assigns the starter emblem + unlocked kit).
   Future<void> spawn({String name = ''}) async {
     final res = await _api.postJson('/api/pet/spawn', {'name': name});
+    _applyResult(res);
+  }
+
+  Future<void> completeOnboarding({
+    String sessionId = '',
+    String recordingId = '',
+  }) async {
+    final res = await _api.postJson('/api/pet/onboarding-complete', {
+      if (sessionId.isNotEmpty) 'session_id': sessionId,
+      if (recordingId.isNotEmpty) 'recording_id': recordingId,
+    });
     _applyResult(res);
   }
 

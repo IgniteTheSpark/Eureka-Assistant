@@ -5,11 +5,14 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app_events.dart' show navigatorKey;
+import '../auth/auth_controller.dart';
+import '../ble_flash/flash_file_status_controller.dart';
 import '../pages/chat_page.dart';
 import '../pages/pet_page.dart';
 import '../pages/pet_spawn_page.dart';
 import '../render/pet_view.dart';
 import '../theme/app_theme.dart';
+import '../theme/eureka_colors.dart';
 import 'pet_controller.dart';
 import 'pet_cosmetics.dart' show rekaGlow;
 import 'reka_chat.dart';
@@ -101,13 +104,16 @@ class FloatingMascot extends StatefulWidget {
   State<FloatingMascot> createState() => _FloatingMascotState();
 }
 
-class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStateMixin {
+class _FloatingMascotState extends State<FloatingMascot>
+    with TickerProviderStateMixin {
   static const _size = 66.0;
   static const _prefDx = 'pet_ball_dx';
   static const _prefDy = 'pet_ball_dy';
 
+  final _auth = AuthController.instance;
   final _pet = PetController.instance;
-  final GlobalKey _ballKey = GlobalKey(); // to anchor the bubble menu to the ball
+  final GlobalKey _ballKey =
+      GlobalKey(); // to anchor the bubble menu to the ball
   // Fractional position (0..1) of the travel box, so it survives rotation /
   // different screen sizes. Default ≈ bottom-right, clear of the dock.
   Offset _frac = const Offset(0.94, 0.74);
@@ -116,17 +122,22 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
   // §9.2 v4 fly-into-frame: while flying, the ball renders at a global position
   // lerped from its spot to the hero frame, scaling to hero size. Driven by this
   // controller (the overlay always ticks). v4 timing: .62s 回弹.
-  late final AnimationController _fly =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 620));
+  late final AnimationController _fly = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 620),
+  );
   Rect? _flyTarget; // global rect (the hero frame)
   Offset _flyFromCenter = Offset.zero; // global center the ball started from
-  Rect? _flyOutFrom; // §9.2 飞出: hero rect the ball flies home FROM (leaving 我的岛)
+  Rect?
+  _flyOutFrom; // §9.2 飞出: hero rect the ball flies home FROM (leaving 我的岛)
 
   // §9.2 v4 完成事件反馈 — a new notification fires a pulse ring (2 cycles / 1s)
   // around the ball + a celebrate. `_ballCelebrate` bumps the ball PetView's
   // celebrate signal; `_pulse` drives the ring.
-  late final AnimationController _pulse =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 1000));
+  late final AnimationController _pulse = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1000),
+  );
   int _ballCelebrate = 0;
   int _lastUnread = 0;
 
@@ -138,18 +149,22 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
 
   // §14.7 主动 nudge — 到达 = 轻 bob(拍肩,不是 celebrate 彩纸)+ peek 气泡;
   // 点开 = 可动作面板([记一笔]/[知道了]);忽略 = 收成「...」安静 chip。
-  late final AnimationController _bob =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 700));
+  late final AnimationController _bob = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 700),
+  );
   final _nudges = RekaNudges.instance;
   int _lastBob = 0;
   bool _nudgeExpanded = false;
   Timer? _peekTimer;
+  Pet? _lastRenderedPet;
 
   @override
   void initState() {
     super.initState();
     _pet.ensureLoaded();
     _restore();
+    _auth.addListener(_onAuth);
     RekaFly.instance.target.addListener(_onFlyTarget);
     RekaFly.instance.outFrom.addListener(_onFlyOut);
     _lastUnread = RekaNotifications.instance.unread;
@@ -157,6 +172,19 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
     rekaFunctionRequest.addListener(_onFunctionRequest);
     _lastBob = _nudges.bobSignal;
     _nudges.addListener(_onNudges);
+  }
+
+  void _onAuth() {
+    if (!mounted || _auth.isAuthed) return;
+    _activeClose?.call();
+    RekaFly.instance.cancel();
+    RekaFly.instance.outFrom.value = null;
+    if (_flyTarget != null || _flyOutFrom != null) {
+      setState(() {
+        _flyTarget = null;
+        _flyOutFrom = null;
+      });
+    }
   }
 
   void _onNudges() {
@@ -234,13 +262,14 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
     final intent = rekaFunctionRequest.value;
     if (intent == null) return;
     rekaFunctionRequest.value = null; // consume
-    if (_menuOpen || mascotSuppressed.value > 0) return;
+    if (!_auth.isAuthed || _menuOpen || mascotSuppressed.value > 0) return;
     final anchor = _anchorRect();
     if (anchor != null) _openFunction(intent, anchor);
   }
 
   @override
   void dispose() {
+    _auth.removeListener(_onAuth);
     rekaFunctionRequest.removeListener(_onFunctionRequest);
     RekaFly.instance.target.removeListener(_onFlyTarget);
     RekaFly.instance.outFrom.removeListener(_onFlyOut);
@@ -274,7 +303,9 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
     // suppressed), the ball can't fly → land immediately (board still reveals hero).
     final from = _anchorRect();
     if (from == null || mascotSuppressed.value > 0 || _pet.pet == null) {
-      RekaFly.instance.arrive(false); // can't fly → board plays its own entrance
+      RekaFly.instance.arrive(
+        false,
+      ); // can't fly → board plays its own entrance
       return;
     }
     _flyFromCenter = from.center;
@@ -311,7 +342,9 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
     final dy = p.getDouble(_prefDy);
     if (mounted) {
       setState(() {
-        if (dx != null && dy != null) _frac = Offset(dx.clamp(0, 1), dy.clamp(0, 1));
+        if (dx != null && dy != null) {
+          _frac = Offset(dx.clamp(0, 1), dy.clamp(0, 1));
+        }
         _loaded = true;
       });
     }
@@ -322,7 +355,6 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
     await p.setDouble(_prefDx, _frac.dx);
     await p.setDouble(_prefDy, _frac.dy);
   }
-
 
   // §9.2 gestures (folded design): 短按 → 雷达功能菜单; 长按 → 续上次对话.
   // While a menu is open, a tap on REKA just closes it (no re-open / no stacking).
@@ -346,7 +378,9 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
     if (!_pet.spawned) {
       _push(const PetSpawnPage());
     } else {
-      _push(const ChatPage()); // resumes the last conversation (chat_controller)
+      _push(
+        const ChatPage(),
+      ); // resumes the last conversation (chat_controller)
     }
   }
 
@@ -371,6 +405,7 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
       if (entry.mounted) entry.remove();
       if (_activeClose != null) setState(() => _activeClose = null);
     }
+
     entry = build(close);
     _activeClose = close;
     overlay.insert(entry);
@@ -385,16 +420,20 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
     final anchor = _anchorRect();
     if (navigatorKey.currentState?.overlay == null || anchor == null) return;
     final p = _pet.pet;
-    final glow = p != null ? rekaGlow(p.skin, p.equipped['aura'] ?? 'soft') : const [Color(0xFF6F9EFF)];
-    _track((close) => OverlayEntry(
-          builder: (_) => RekaRadial(
-            anchor: anchor,
-            notifCount: RekaNotifications.instance.unread,
-            glow: glow,
-            onClose: close,
-            onPick: (key) => _onPick(key, anchor),
-          ),
-        ));
+    final glow = p != null
+        ? rekaGlow(p.skin, p.equipped['aura'] ?? 'soft')
+        : const [Color(0xFF6F9EFF)];
+    _track(
+      (close) => OverlayEntry(
+        builder: (_) => RekaRadial(
+          anchor: anchor,
+          notifCount: RekaNotifications.instance.unread,
+          glow: glow,
+          onClose: close,
+          onPick: (key) => _onPick(key, anchor),
+        ),
+      ),
+    );
   }
 
   // A radial item was chosen — functions resolve in REKA bubbles; navigation
@@ -417,10 +456,16 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
   void _openFunction(String intent, Rect anchor, {String? prefillWish}) {
     if (_menuOpen) return; // radial already closed itself before _onPick ran
     if (navigatorKey.currentState?.overlay == null) return;
-    _track((close) => OverlayEntry(
-          builder: (_) => RekaChat(
-              anchor: anchor, intent: intent, prefillWish: prefillWish, onClose: close),
-        ));
+    _track(
+      (close) => OverlayEntry(
+        builder: (_) => RekaChat(
+          anchor: anchor,
+          intent: intent,
+          prefillWish: prefillWish,
+          onClose: close,
+        ),
+      ),
+    );
   }
 
   @override
@@ -431,18 +476,26 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
     // composites reliably (and avoids reload flicker when it returns).
     return ValueListenableBuilder<int>(
       valueListenable: mascotSuppressed,
-      builder: (context, suppressed, _) => _mascot(context, hidden: suppressed > 0),
+      builder: (context, suppressed, _) =>
+          _mascot(context, hidden: suppressed > 0 || !_auth.isAuthed),
     );
   }
 
   Widget _mascot(BuildContext context, {required bool hidden}) {
     return AnimatedBuilder(
-      animation: Listenable.merge([_pet, _fly, _bob]),
+      animation: Listenable.merge([_auth, _pet, _fly, _bob]),
       builder: (context, _) {
-        final p = _pet.pet;
+        final currentPet = _pet.pet;
+        if (_auth.isAuthed && currentPet != null) {
+          _lastRenderedPet = currentPet;
+        }
+        final p = currentPet ?? (!_auth.isAuthed ? _lastRenderedPet : null);
         // 蛋未孵化(onboarding 孵化页)时不挂全局浮球 —— 孵化页自己有一颗大蛋,
         // 全局再飘一颗蛋是重复且违和的。孵化后(spawned)浮球才登场。
-        if (!_loaded || p == null || !_pet.spawned) return const SizedBox.shrink();
+        if (!_loaded || p == null || (_auth.isAuthed && !_pet.spawned)) {
+          return const SizedBox.shrink();
+        }
+        final effectiveHidden = hidden || !_auth.isAuthed;
         return LayoutBuilder(
           builder: (context, constraints) {
             final maxW = constraints.maxWidth;
@@ -455,7 +508,9 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
             // ball is still suppressed (the board hero has unmounted), so the exit
             // always shows motion instead of a snap-to-home.
             if (_flyOutFrom != null) {
-              final tt = Curves.easeInOutCubic.transform(_fly.value.clamp(0.0, 1.0));
+              final tt = Curves.easeInOutCubic.transform(
+                _fly.value.clamp(0.0, 1.0),
+              );
               final homeCenter = Offset(
                 _frac.dx * travelW + _size / 2,
                 _frac.dy * travelH + _size / 2,
@@ -463,38 +518,61 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
               final c = Offset.lerp(_flyOutFrom!.center, homeCenter, tt)!;
               final from = _flyOutFrom!.width / _size;
               final scale = from + (1.0 - from) * tt;
-              return Stack(clipBehavior: Clip.none, children: [
-                Positioned(
-                  left: c.dx - _size / 2,
-                  top: c.dy - _size / 2,
-                  width: _size,
-                  height: _size,
-                  child: IgnorePointer(child: Transform.scale(scale: scale, child: _ball(context, p))),
-                ),
-              ]);
+              return Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Positioned(
+                    left: c.dx - _size / 2,
+                    top: c.dy - _size / 2,
+                    width: _size,
+                    height: _size,
+                    child: IgnorePointer(
+                      child: Transform.scale(
+                        scale: scale,
+                        child: _ball(context, p),
+                      ),
+                    ),
+                  ),
+                ],
+              );
             }
 
             // §9.2 v4 飞入相框 — fly from the remembered spot into the hero frame,
             // scaling to hero size (.62s 回弹 cubic-bezier(.5,-.2,.25,1.3)).
-            if (!hidden && _flyTarget != null) {
-              final tt = const Cubic(0.5, -0.2, 0.25, 1.3).transform(_fly.value.clamp(0.0, 1.0));
+            if (!effectiveHidden && _flyTarget != null) {
+              final tt = const Cubic(
+                0.5,
+                -0.2,
+                0.25,
+                1.3,
+              ).transform(_fly.value.clamp(0.0, 1.0));
               final c = Offset.lerp(_flyFromCenter, _flyTarget!.center, tt)!;
               final scale = 1 + (_flyTarget!.width / _size - 1) * tt;
-              return Stack(clipBehavior: Clip.none, children: [
-                Positioned(
-                  left: c.dx - _size / 2,
-                  top: c.dy - _size / 2,
-                  width: _size,
-                  height: _size,
-                  child: IgnorePointer(child: Transform.scale(scale: scale, child: _ball(context, p))),
-                ),
-              ]);
+              return Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Positioned(
+                    left: c.dx - _size / 2,
+                    top: c.dy - _size / 2,
+                    width: _size,
+                    height: _size,
+                    child: IgnorePointer(
+                      child: Transform.scale(
+                        scale: scale,
+                        child: _ball(context, p),
+                      ),
+                    ),
+                  ),
+                ],
+              );
             }
 
             // off-screen when suppressed (a page that IS REKA is showing its hero)
-            final left = hidden ? -10000.0 : _frac.dx * travelW;
+            final left = effectiveHidden ? -10000.0 : _frac.dx * travelW;
             // §14.7 轻 bob — a single gentle hop on nudge arrival (拍肩,不开 party).
-            final bobDy = _bob.isAnimating ? -9 * math.sin(math.pi * _bob.value) : 0.0;
+            final bobDy = _bob.isAnimating
+                ? -9 * math.sin(math.pi * _bob.value)
+                : 0.0;
             final top = _frac.dy * travelH + bobDy;
             return Stack(
               clipBehavior: Clip.none,
@@ -505,7 +583,7 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
                   width: _size,
                   height: _size,
                   child: IgnorePointer(
-                    ignoring: hidden,
+                    ignoring: effectiveHidden,
                     child: GestureDetector(
                       key: _ballKey,
                       behavior: HitTestBehavior.opaque,
@@ -527,7 +605,16 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
                 ),
                 // §14.7 nudge surfaces (peek 气泡 / 可动作面板 / 「...」安静 chip) —
                 // above the ball so the expanded panel's barrier wins taps.
-                if (!hidden) ..._nudgeLayer(context, left, _frac.dy * travelH, maxW, maxH),
+                if (!effectiveHidden)
+                  ..._flashStatusLayer(
+                    context,
+                    left,
+                    _frac.dy * travelH,
+                    maxW,
+                    maxH,
+                  ),
+                if (!effectiveHidden)
+                  ..._nudgeLayer(context, left, _frac.dy * travelH, maxW, maxH),
               ],
             );
           },
@@ -536,9 +623,157 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
     );
   }
 
+  List<Widget> _flashStatusLayer(
+    BuildContext context,
+    double ballLeft,
+    double ballTop,
+    double maxW,
+    double maxH,
+  ) {
+    const w = 238.0;
+    final onRight = ballLeft + _size / 2 > maxW / 2;
+    final bx = (onRight ? ballLeft - w - 8 : ballLeft + _size + 8).clamp(
+      8.0,
+      maxW - w - 8,
+    );
+    final by = (ballTop - 64).clamp(8.0, maxH - 92);
+    return [
+      Positioned(
+        left: bx,
+        top: by,
+        width: w,
+        child: IgnorePointer(
+          child: ValueListenableBuilder<FlashFileStatus>(
+            valueListenable: FlashFileStatusController.instance.status,
+            builder: (context, status, _) {
+              return AnimatedSwitcher(
+                duration: const Duration(milliseconds: 180),
+                reverseDuration: const Duration(milliseconds: 140),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                transitionBuilder: (child, animation) {
+                  final fromRekaDx = onRight ? 4.0 : -4.0;
+                  return FadeTransition(
+                    opacity: animation,
+                    child: AnimatedBuilder(
+                      animation: animation,
+                      child: child,
+                      builder: (context, child) {
+                        return Transform.translate(
+                          offset: Offset(fromRekaDx * (1 - animation.value), 0),
+                          child: child,
+                        );
+                      },
+                    ),
+                  );
+                },
+                child: status.visible
+                    ? _flashStatusBubble(
+                        context.eu,
+                        status,
+                        key: ValueKey('${status.text}${status.isError}'),
+                        onRight: onRight,
+                      )
+                    : const SizedBox.shrink(
+                        key: ValueKey('flash-status-empty'),
+                      ),
+              );
+            },
+          ),
+        ),
+      ),
+    ];
+  }
+
+  Widget _flashStatusBubble(
+    EurekaColors eu,
+    FlashFileStatus status, {
+    Key? key,
+    required bool onRight,
+  }) {
+    final border = status.isError ? eu.accentRed : eu.border;
+    final bg = status.isError
+        ? eu.accentRed.withValues(alpha: 0.12)
+        : eu.surfaceRaised;
+    return Stack(
+      key: key,
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: border.withValues(alpha: 0.86)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.22),
+                blurRadius: 14,
+                offset: const Offset(0, 5),
+              ),
+            ],
+          ),
+          child: Text(
+            status.text,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: status.isError ? eu.accentRed : eu.textHi,
+              fontSize: 13.5,
+              fontWeight: FontWeight.w700,
+              height: 1.35,
+            ),
+          ),
+        ),
+        Positioned(
+          left: onRight ? null : -4,
+          right: onRight ? -4 : null,
+          top: 24,
+          child: Transform.rotate(
+            angle: math.pi / 4,
+            child: Container(
+              width: 9,
+              height: 9,
+              decoration: BoxDecoration(
+                color: bg,
+                border: Border(
+                  left: BorderSide(
+                    color: onRight
+                        ? Colors.transparent
+                        : border.withValues(alpha: 0.86),
+                  ),
+                  bottom: BorderSide(
+                    color: onRight
+                        ? Colors.transparent
+                        : border.withValues(alpha: 0.86),
+                  ),
+                  right: BorderSide(
+                    color: onRight
+                        ? border.withValues(alpha: 0.86)
+                        : Colors.transparent,
+                  ),
+                  top: BorderSide(
+                    color: onRight
+                        ? border.withValues(alpha: 0.86)
+                        : Colors.transparent,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   // ── §14.7 nudge layer: peek bubble → action panel → quiet「...」chip ────────
   List<Widget> _nudgeLayer(
-      BuildContext context, double ballLeft, double ballTop, double maxW, double maxH) {
+    BuildContext context,
+    double ballLeft,
+    double ballTop,
+    double maxW,
+    double maxH,
+  ) {
     final eu = context.eu;
     final n = _nudges.peek;
 
@@ -554,29 +789,33 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
           child: Material(
             type: MaterialType.transparency,
             child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () {
-              final p = _nudges.pending;
-              if (p.isNotEmpty) _nudges.reopen(p.first.id);
-            },
-            child: Container(
-              width: 24,
-              height: 24,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: eu.surfaceRaised,
-                shape: BoxShape.circle,
-                border: Border.all(color: eu.brand.withValues(alpha: 0.55)),
-                boxShadow: [
-                  BoxShadow(
+              behavior: HitTestBehavior.opaque,
+              onTap: () {
+                final p = _nudges.pending;
+                if (p.isNotEmpty) _nudges.reopen(p.first.id);
+              },
+              child: Container(
+                width: 24,
+                height: 24,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: eu.surfaceRaised,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: eu.brand.withValues(alpha: 0.55)),
+                  boxShadow: [
+                    BoxShadow(
                       color: eu.brand.withValues(alpha: 0.45),
                       blurRadius: 9,
-                      spreadRadius: 1),
-                ],
+                      spreadRadius: 1,
+                    ),
+                  ],
+                ),
+                child: const Text(
+                  '💡',
+                  style: TextStyle(fontSize: 12, height: 1),
+                ),
               ),
-              child: const Text('💡', style: TextStyle(fontSize: 12, height: 1)),
             ),
-          ),
           ),
         ),
       ];
@@ -584,7 +823,10 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
 
     const w = 232.0;
     final onRight = ballLeft + _size / 2 > maxW / 2;
-    final bx = (onRight ? ballLeft - w - 8 : ballLeft + _size + 8).clamp(8.0, maxW - w - 8);
+    final bx = (onRight ? ballLeft - w - 8 : ballLeft + _size + 8).clamp(
+      8.0,
+      maxW - w - 8,
+    );
 
     if (!_nudgeExpanded) {
       // peek: 一句话气泡,点开变可动作;8s 不理会自动收成「...」(timer).
@@ -596,27 +838,37 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
           child: Material(
             type: MaterialType.transparency,
             child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: _expandNudge,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                color: eu.surfaceRaised,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: eu.border),
-                boxShadow: [
-                  BoxShadow(
+              behavior: HitTestBehavior.opaque,
+              onTap: _expandNudge,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: eu.surfaceRaised,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: eu.border),
+                  boxShadow: [
+                    BoxShadow(
                       color: Colors.black.withValues(alpha: 0.25),
                       blurRadius: 14,
-                      offset: const Offset(0, 5)),
-                ],
-              ),
-              child: Text(n.text,
+                      offset: const Offset(0, 5),
+                    ),
+                  ],
+                ),
+                child: Text(
+                  n.text,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: eu.textHi, fontSize: 13.5, height: 1.35)),
+                  style: TextStyle(
+                    color: eu.textHi,
+                    fontSize: 13.5,
+                    height: 1.35,
+                  ),
+                ),
+              ),
             ),
-          ),
           ),
         ),
       ];
@@ -639,69 +891,89 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
         child: Material(
           type: MaterialType.transparency,
           child: Container(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
-          decoration: BoxDecoration(
-            color: eu.surfaceRaised,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: eu.border),
-            boxShadow: [
-              BoxShadow(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+            decoration: BoxDecoration(
+              color: eu.surfaceRaised,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: eu.border),
+              boxShadow: [
+                BoxShadow(
                   color: Colors.black.withValues(alpha: 0.3),
                   blurRadius: 18,
-                  offset: const Offset(0, 6)),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(n.text,
-                  style: TextStyle(
-                      color: eu.textHi, fontSize: 14, fontWeight: FontWeight.w700, height: 1.35)),
-              if (n.body.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 5),
-                  child: Text(n.body,
-                      style: TextStyle(color: eu.textMid, fontSize: 12.5, height: 1.4)),
+                  offset: const Offset(0, 6),
                 ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  if (n.cta == 'log' || n.cta == 'synthesize')
-                    Expanded(
-                      child: SizedBox(
-                        height: 32,
-                        child: FilledButton(
-                          onPressed: () => n.cta == 'synthesize'
-                              ? _nudgeSynthesize(n)
-                              : _nudgeAct(n),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: eu.brand,
-                            padding: EdgeInsets.zero,
-                            textStyle:
-                                const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
-                          ),
-                          child: Text(n.cta == 'synthesize' ? '✨ 帮我理一理' : '记一笔'),
-                        ),
-                      ),
-                    ),
-                  if (n.cta == 'log' || n.cta == 'synthesize') const SizedBox(width: 8),
-                  Expanded(
-                    child: SizedBox(
-                      height: 32,
-                      child: TextButton(
-                        onPressed: () => _nudgeDismiss(n),
-                        style: TextButton.styleFrom(padding: EdgeInsets.zero),
-                        child: Text('知道了',
-                            style: TextStyle(color: eu.textMid, fontSize: 13)),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  n.text,
+                  style: TextStyle(
+                    color: eu.textHi,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    height: 1.35,
+                  ),
+                ),
+                if (n.body.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 5),
+                    child: Text(
+                      n.body,
+                      style: TextStyle(
+                        color: eu.textMid,
+                        fontSize: 12.5,
+                        height: 1.4,
                       ),
                     ),
                   ),
-                ],
-              ),
-            ],
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    if (n.cta == 'log' || n.cta == 'synthesize')
+                      Expanded(
+                        child: SizedBox(
+                          height: 32,
+                          child: FilledButton(
+                            onPressed: () => n.cta == 'synthesize'
+                                ? _nudgeSynthesize(n)
+                                : _nudgeAct(n),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: eu.brand,
+                              padding: EdgeInsets.zero,
+                              textStyle: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            child: Text(
+                              n.cta == 'synthesize' ? '✨ 帮我理一理' : '记一笔',
+                            ),
+                          ),
+                        ),
+                      ),
+                    if (n.cta == 'log' || n.cta == 'synthesize')
+                      const SizedBox(width: 8),
+                    Expanded(
+                      child: SizedBox(
+                        height: 32,
+                        child: TextButton(
+                          onPressed: () => _nudgeDismiss(n),
+                          style: TextButton.styleFrom(padding: EdgeInsets.zero),
+                          child: Text(
+                            '知道了',
+                            style: TextStyle(color: eu.textMid, fontSize: 13),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
-        ),
         ),
       ),
     ];
@@ -711,7 +983,8 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
     final eu = context.eu;
     return Stack(
       alignment: Alignment.center,
-      clipBehavior: Clip.none, // let the enlarged PetView fx spill past the 66 ball
+      clipBehavior:
+          Clip.none, // let the enlarged PetView fx spill past the 66 ball
       children: [
         // §9.2 v4 完成事件脉冲环 — expands + fades twice over 1s on a new notification.
         AnimatedBuilder(
@@ -729,7 +1002,10 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
                   height: _size,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    border: Border.all(color: eu.brandHi.withValues(alpha: op.clamp(0.0, 1.0)), width: 2),
+                    border: Border.all(
+                      color: eu.brandHi.withValues(alpha: op.clamp(0.0, 1.0)),
+                      width: 2,
+                    ),
                   ),
                 ),
               ),
@@ -798,8 +1074,14 @@ class _FloatingMascotState extends State<FloatingMascot> with TickerProviderStat
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: eu.bg, width: 1.5),
                 ),
-                child: Text(u > 99 ? '99+' : '$u',
-                    style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700)),
+                child: Text(
+                  u > 99 ? '99+' : '$u',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               );
             },
           ),

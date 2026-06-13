@@ -59,8 +59,11 @@ class _FlashSheetState extends State<_FlashSheet> {
   void _scrollEnd() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scroll.hasClients) {
-        _scroll.animateTo(_scroll.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
+        _scroll.animateTo(
+          _scroll.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
       }
     });
   }
@@ -91,7 +94,15 @@ class _FlashSheetState extends State<_FlashSheet> {
       if (!mounted) return;
       setState(() {
         turn.analyzing = false;
-        turn.result = FlashResult(ok: false, reply: '', summary: '', cards: const [], error: '$e');
+        turn.result = FlashResult(
+          ok: false,
+          sessionId: '',
+          inputTurnId: '',
+          reply: '',
+          summary: '',
+          cards: const [],
+          error: '$e',
+        );
         _sending = false;
       });
     }
@@ -101,28 +112,41 @@ class _FlashSheetState extends State<_FlashSheet> {
     final eu = context.eu;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: eu.surfaceRaised,
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12), side: BorderSide(color: eu.border)),
-        content: Row(
-          children: [
-            const Text('⚡', style: TextStyle(fontSize: 16)),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('闪念已整理', style: TextStyle(color: eu.textHi, fontWeight: FontWeight.w600)),
-                  Text('已记录 $n 项内容。', style: TextStyle(color: eu.textMid, fontSize: 12)),
-                ],
+      ..showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: eu.surfaceRaised,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: eu.border),
+          ),
+          content: Row(
+            children: [
+              const Text('⚡', style: TextStyle(fontSize: 16)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '闪念已整理',
+                      style: TextStyle(
+                        color: eu.textHi,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      '已记录 $n 项内容。',
+                      style: TextStyle(color: eu.textMid, fontSize: 12),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ));
+      );
   }
 
   /* ── voice (press-hold) ─────────────────────────────────────────────── */
@@ -144,7 +168,10 @@ class _FlashSheetState extends State<_FlashSheet> {
     setState(() => _listening = true);
     _showOverlay();
     await _speech.listen(
-      listenOptions: stt.SpeechListenOptions(partialResults: true, localeId: 'zh_CN'),
+      listenOptions: stt.SpeechListenOptions(
+        partialResults: true,
+        localeId: 'zh_CN',
+      ),
       onResult: (r) {
         _input.text = r.recognizedWords;
         _input.selection = TextSelection.collapsed(offset: _input.text.length);
@@ -174,11 +201,15 @@ class _FlashSheetState extends State<_FlashSheet> {
   Widget build(BuildContext context) {
     final eu = context.eu;
     return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
       child: Container(
         margin: const EdgeInsets.all(8),
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-        constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.85),
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
+        ),
         decoration: BoxDecoration(
           color: eu.surface,
           borderRadius: BorderRadius.circular(20),
@@ -190,12 +221,19 @@ class _FlashSheetState extends State<_FlashSheet> {
           children: [
             Row(
               children: [
-                Text('⚡ 闪念',
-                    style: TextStyle(color: eu.textHi, fontSize: 18, fontWeight: FontWeight.w700)),
+                Text(
+                  '⚡ 闪念',
+                  style: TextStyle(
+                    color: eu.textHi,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
                 const Spacer(),
                 IconButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: Icon(Icons.close, color: eu.textMid)),
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: Icon(Icons.close, color: eu.textMid),
+                ),
               ],
             ),
             const SizedBox(height: 4),
@@ -204,9 +242,15 @@ class _FlashSheetState extends State<_FlashSheet> {
                   ? Padding(
                       padding: const EdgeInsets.symmetric(vertical: 28),
                       child: Center(
-                        child: Text('说点什么 / 写点什么…\nAI 帮你拆成待办、日程、联系人…',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: eu.textLo, fontSize: 14, height: 1.5)),
+                        child: Text(
+                          '说点什么 / 写点什么…\nAI 帮你拆成待办、日程、联系人…',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: eu.textLo,
+                            fontSize: 14,
+                            height: 1.5,
+                          ),
+                        ),
                       ),
                     )
                   : ListView.builder(
@@ -251,18 +295,31 @@ class _FlashSheetState extends State<_FlashSheet> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 SizedBox(
-                    width: 12,
-                    height: 12,
-                    child: CircularProgressIndicator(strokeWidth: 1.6, color: eu.textLo)),
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 1.6,
+                    color: eu.textLo,
+                  ),
+                ),
                 const SizedBox(width: 8),
-                Text('分析中…',
-                    style: TextStyle(color: eu.textLo, fontStyle: FontStyle.italic, fontSize: 13)),
+                Text(
+                  '分析中…',
+                  style: TextStyle(
+                    color: eu.textLo,
+                    fontStyle: FontStyle.italic,
+                    fontSize: 13,
+                  ),
+                ),
               ],
             ),
           )
         else if (t.result != null) ...[
           if (t.result!.error.isNotEmpty)
-            Text('出错了：${t.result!.error}', style: TextStyle(color: eu.accentRed, fontSize: 13))
+            Text(
+              '出错了：${t.result!.error}',
+              style: TextStyle(color: eu.accentRed, fontSize: 13),
+            )
           else ...[
             Padding(
               padding: const EdgeInsets.only(top: 4, bottom: 2),
@@ -270,12 +327,13 @@ class _FlashSheetState extends State<_FlashSheet> {
                 t.result!.summary.isNotEmpty
                     ? t.result!.summary
                     : (t.result!.reply.isNotEmpty
-                        ? t.result!.reply
-                        : '已记录 ${t.result!.cards.length} 项内容。'),
+                          ? t.result!.reply
+                          : '已记录 ${t.result!.cards.length} 项内容。'),
                 style: TextStyle(color: eu.textHi, fontSize: 14),
               ),
             ),
-            for (final c in t.result!.cards) SkillCard(c, layoutOverride: 'horizontal'),
+            for (final c in t.result!.cards)
+              SkillCard(c, layoutOverride: 'horizontal'),
           ],
         ],
       ],
@@ -300,13 +358,22 @@ class _FlashSheetState extends State<_FlashSheet> {
               hintStyle: TextStyle(color: eu.textLo),
               filled: true,
               fillColor: eu.surfaceRaised,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 12,
+              ),
               border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: eu.border)),
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(color: eu.border),
+              ),
               enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: eu.border)),
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(color: eu.border),
+              ),
               focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: eu.brand)),
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(color: eu.brand),
+              ),
             ),
           ),
         ),
@@ -321,11 +388,17 @@ class _FlashSheetState extends State<_FlashSheet> {
             height: 46,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: _listening ? eu.accentRed.withValues(alpha: 0.16) : eu.surfaceRaised,
+              color: _listening
+                  ? eu.accentRed.withValues(alpha: 0.16)
+                  : eu.surfaceRaised,
               shape: BoxShape.circle,
               border: Border.all(color: _listening ? eu.accentRed : eu.border),
             ),
-            child: Icon(Icons.mic_none, color: _listening ? eu.accentRed : eu.textMid, size: 22),
+            child: Icon(
+              Icons.mic_none,
+              color: _listening ? eu.accentRed : eu.textMid,
+              size: 22,
+            ),
           ),
         ),
         const SizedBox(width: 8),
@@ -340,7 +413,11 @@ class _FlashSheetState extends State<_FlashSheet> {
                 ? const SizedBox(
                     width: 18,
                     height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
                 : const Icon(Icons.arrow_upward, color: Colors.white),
           ),
         ),
@@ -360,8 +437,10 @@ class _ListeningOverlay extends StatefulWidget {
 
 class _ListeningOverlayState extends State<_ListeningOverlay>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 900))..repeat();
+  late final AnimationController _ctrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+  )..repeat();
 
   @override
   void dispose() {
@@ -385,7 +464,13 @@ class _ListeningOverlayState extends State<_ListeningOverlay>
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 gradient: LinearGradient(colors: [eu.brand, eu.accentPurple]),
-                boxShadow: [BoxShadow(color: eu.brand.withValues(alpha: 0.5), blurRadius: 40, spreadRadius: 6)],
+                boxShadow: [
+                  BoxShadow(
+                    color: eu.brand.withValues(alpha: 0.5),
+                    blurRadius: 40,
+                    spreadRadius: 6,
+                  ),
+                ],
               ),
               child: AnimatedBuilder(
                 animation: _ctrl,
@@ -402,8 +487,14 @@ class _ListeningOverlayState extends State<_ListeningOverlay>
               ),
             ),
             const SizedBox(height: 28),
-            Text('正在聆听…',
-                style: TextStyle(color: eu.textHi, fontSize: 22, fontWeight: FontWeight.w700)),
+            Text(
+              '正在聆听…',
+              style: TextStyle(
+                color: eu.textHi,
+                fontSize: 22,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
             const SizedBox(height: 8),
             Text('松开按钮结束录音', style: TextStyle(color: eu.textMid, fontSize: 14)),
           ],
@@ -418,7 +509,10 @@ class _ListeningOverlayState extends State<_ListeningOverlay>
     return Container(
       width: 5,
       height: h,
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(3)),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(3),
+      ),
     );
   }
 }

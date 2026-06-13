@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -5,13 +6,16 @@ import 'package:flutter/services.dart' show HapticFeedback;
 
 import '../api/api_client.dart';
 import '../flash/flash.dart';
-import '../pet/floating_mascot.dart' show mascotSuppressed, releaseMascotSuppress;
+import '../pet/floating_mascot.dart'
+    show mascotSuppressed, releaseMascotSuppress;
 import '../pet/pet_controller.dart';
 import '../render/pet_view.dart';
 import '../render/skill_card.dart';
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
 import '../ble_flash/ble_flash_manager.dart';
+import '../ble_flash/flash_file_task.dart';
+import '../ble_flash/flash_file_workflow.dart';
 import '../device/device_controller.dart';
 import '../widgets/toast.dart';
 import 'device_pairing_page.dart';
@@ -35,7 +39,16 @@ import 'pet_page.dart';
 /// 由 [_PostAuthGate](../main.dart) 在 `!spawned` 时作为 home 挂载(`onDone` →
 /// 切到 shell);也保留被 `pet_page` push 的旧路径(`onDone` 为空 → 进 PetPage)。
 // 孵化弧线:蛋→破壳→现身→起名→【连卡提示】→(有卡:硬件录一句 / 没卡:打字)→ 进 app
-enum _Step { egg, born, name, pairPrompt, invite, capturing, magic, hardwareWait }
+enum _Step {
+  egg,
+  born,
+  name,
+  pairPrompt,
+  invite,
+  capturing,
+  magic,
+  hardwareWait,
+}
 
 class PetSpawnPage extends StatefulWidget {
   /// Called when the onboarding arc finishes. When provided (root-gate mount),
@@ -48,7 +61,8 @@ class PetSpawnPage extends StatefulWidget {
   State<PetSpawnPage> createState() => _PetSpawnPageState();
 }
 
-class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderStateMixin {
+class _PetSpawnPageState extends State<PetSpawnPage>
+    with SingleTickerProviderStateMixin {
   final _pet = PetController.instance;
   final _nameCtrl = TextEditingController();
   final _captureCtrl = TextEditingController();
@@ -57,18 +71,24 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
   _Step _step = _Step.egg;
   int _cracks = 0; // 0.._maxTaps — 渐进破壳累积的裂纹数
   static const _maxTaps = 4;
-  FlashResult? _result; // 魔法时刻的捕捉产物(打字路径)
-  // 硬件路径:监听录音卡是否录了一条(BleFlashManager.isFlashing,与 ASR 无关 ——
-  // 只表示「卡录到音频了」)。整理出卡是异步走 ASR 的,onboarding 不等它。
+  FlashResult? _result; // 魔法时刻的捕捉产物
+  String _captureError = '';
+  // 硬件路径:录音结束只是中间态。onboarding 必须等服务端 ASR + Flash
+  // pipeline 完成并返回至少一张成功卡片,才允许完成。
   bool _wasFlashing = false;
-  bool _cardCaptured = false;
+  int _hardwareRun = 0;
+  String _hardwareFileName = '';
+  String _hardwareStatus = '';
+  String _hardwareError = '';
 
   @override
   void initState() {
     super.initState();
     mascotSuppressed.value++; // this screen IS REKA — hide the floating one
     _shake = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 340));
+      vsync: this,
+      duration: const Duration(milliseconds: 340),
+    );
     BleFlashManager.instance.isFlashing.addListener(_onFlashingChanged);
     // Defensive: already spawned somehow → skip the egg, go straight to the
     // pair prompt (skipping the reveal/born celebration of an already-met pet).
@@ -88,13 +108,29 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
     super.dispose();
   }
 
-  // 录音卡录完一条(isFlashing true→false)且正停在硬件等待步 → 标记捕捉到。
+  // 录音卡录完一条(isFlashing true→false)且正停在硬件等待步 → 等待后端结果。
   void _onFlashingChanged() {
     final now = BleFlashManager.instance.isFlashing.value;
     if (_wasFlashing && !now && _step == _Step.hardwareWait && mounted) {
-      setState(() => _cardCaptured = true);
+      final fileName = _lastFlashFileName();
+      if (fileName.isNotEmpty) {
+        final run = ++_hardwareRun;
+        setState(() {
+          _hardwareFileName = fileName;
+          _hardwareStatus = '$_petName 已接住,正在同步录音…';
+          _hardwareError = '';
+        });
+        unawaited(_waitForHardwareResult(fileName, run));
+      }
     }
     _wasFlashing = now;
+  }
+
+  String _lastFlashFileName() {
+    final event = BleFlashManager.instance.lastEndEvent;
+    final info = (event?['info'] as Map?)?.cast<String, dynamic>() ?? const {};
+    return (info['file'] ?? info['fileName'] ?? event?['file'] ?? '')
+        .toString();
   }
 
   // ── ① 渐进破壳 ──────────────────────────────────────────────────────────
@@ -147,29 +183,193 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
     setState(() => _step = _Step.capturing);
     final api = ApiClient();
     try {
-      // 打字首捕 → 'typed' source → 进中性「记录」session,不被归成「闪念」。
-      final r = await sendFlash(api, text, source: 'typed');
+      // onboarding 首捕统一进入 flash session；source 保留 typed 作为真实输入来源。
+      final r = await sendFlash(
+        api,
+        text,
+        source: 'typed',
+        captureSessionType: 'flash',
+      );
+      if (!_hasSuccessCards(r.cards)) {
+        if (!mounted) return;
+        setState(() {
+          _step = _Step.invite;
+          _captureError = '这句话还没有整理成卡片,换一句要记录的事试试';
+        });
+        showToast(context, _captureError, error: true);
+        return;
+      }
+      await _pet.completeOnboarding(sessionId: r.sessionId);
       if (!mounted) return;
       setState(() {
         _result = r;
         _step = _Step.magic;
+        _captureError = '';
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _step = _Step.invite);
+      setState(() {
+        _step = _Step.invite;
+        _captureError = '$e';
+      });
       showToast(context, '整理失败：$e', error: true);
     } finally {
       api.close();
     }
   }
 
+  bool _hasSuccessCards(List<Map<String, dynamic>> cards) {
+    return cards.any((c) {
+      if (c['card_type'] == 'error') return false;
+      return (c['asset_id']?.toString().isNotEmpty == true) ||
+          (c['event_id']?.toString().isNotEmpty == true) ||
+          (c['contact_id']?.toString().isNotEmpty == true);
+    });
+  }
+
+  Future<void> _waitForHardwareResult(String fileName, int run) async {
+    final started = DateTime.now();
+    String recordingId = '';
+    final api = ApiClient();
+    try {
+      while (_isCurrentHardwareRun(run, fileName)) {
+        final task = FlashFileWorkflow.instance.realtimeTaskForFile(fileName);
+        if (task != null) {
+          if (task.stage == FlashFileStage.failed) {
+            _setHardwareError(run, fileName, task.lastError ?? '同步失败,请再录一次');
+            return;
+          }
+          recordingId = task.eurekaRecordingId ?? '';
+          if (recordingId.isNotEmpty) break;
+          _setHardwareStatus(run, fileName, _statusForTask(task));
+        }
+        if (DateTime.now().difference(started) > const Duration(minutes: 3)) {
+          _setHardwareError(run, fileName, '整理时间过长,可以再录一次或改用打字');
+          return;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 600));
+      }
+
+      while (_isCurrentHardwareRun(run, fileName)) {
+        final res = await api.getJson('/api/flash/recordings/$recordingId');
+        final recording =
+            ((res as Map)['recording'] as Map?)?.cast<String, dynamic>() ??
+            const <String, dynamic>{};
+        final process = recording['process_status']?.toString() ?? '';
+        final cards = ((recording['result_cards'] as List?) ?? const [])
+            .whereType<Map>()
+            .map((e) => e.cast<String, dynamic>())
+            .toList();
+        if (process == 'done') {
+          if (!_hasSuccessCards(cards)) {
+            _setHardwareError(run, fileName, '这条录音没有整理出卡片,请再录一次或改用打字');
+            return;
+          }
+          final sessionId = recording['session_id']?.toString() ?? '';
+          await _pet.completeOnboarding(
+            sessionId: sessionId,
+            recordingId: recordingId,
+          );
+          if (!mounted || !_isCurrentHardwareRun(run, fileName)) return;
+          setState(() {
+            _result = FlashResult(
+              ok: true,
+              sessionId: sessionId,
+              inputTurnId: recording['input_turn_id']?.toString() ?? '',
+              reply: '',
+              summary: recording['result_summary']?.toString() ?? '',
+              cards: cards,
+              error: '',
+            );
+            _hardwareStatus = '';
+            _hardwareError = '';
+            _step = _Step.magic;
+          });
+          return;
+        }
+        if (process == 'failed') {
+          _setHardwareError(
+            run,
+            fileName,
+            recording['error_message']?.toString() ?? '整理失败,请再录一次',
+          );
+          return;
+        }
+        _setHardwareStatus(run, fileName, _statusForRecording(recording));
+        if (DateTime.now().difference(started) > const Duration(minutes: 3)) {
+          _setHardwareError(run, fileName, '整理时间过长,可以再录一次或改用打字');
+          return;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 1500));
+      }
+    } catch (e) {
+      _setHardwareError(run, fileName, '处理失败：$e');
+    } finally {
+      api.close();
+    }
+  }
+
+  bool _isCurrentHardwareRun(int run, String fileName) {
+    return mounted &&
+        _step == _Step.hardwareWait &&
+        _hardwareRun == run &&
+        _hardwareFileName == fileName;
+  }
+
+  String _statusForTask(FlashFileTask task) {
+    return switch (task.stage) {
+      FlashFileStage.queued => '$_petName 已接住,正在排队…',
+      FlashFileStage.syncingFromCard => '正在从录音卡同步…',
+      FlashFileStage.convertingToMp3 => '正在转换音频…',
+      FlashFileStage.uploadingToS3 ||
+      FlashFileStage.requestingS3Presign ||
+      FlashFileStage.s3Uploaded => '正在上传音频…',
+      FlashFileStage.notifyingEureka => '正在提交给 $_petName…',
+      FlashFileStage.deletingDeviceFile => '正在收尾…',
+      _ => '$_petName 已接住,正在处理…',
+    };
+  }
+
+  String _statusForRecording(Map<String, dynamic> recording) {
+    final process = recording['process_status']?.toString() ?? '';
+    return switch (process) {
+      'pending' || 'asr_processing' => '正在听写录音…',
+      'asr_done' || 'processing_flash' => '听写好了,正在整理成卡片…',
+      _ => '$_petName 已接住,正在处理…',
+    };
+  }
+
+  void _setHardwareStatus(int run, String fileName, String status) {
+    if (!_isCurrentHardwareRun(run, fileName)) return;
+    setState(() => _hardwareStatus = status);
+  }
+
+  void _setHardwareError(int run, String fileName, String message) {
+    if (!_isCurrentHardwareRun(run, fileName)) return;
+    setState(() {
+      _hardwareStatus = '';
+      _hardwareError = message;
+    });
+  }
+
+  void _resetHardwareCapture() {
+    setState(_resetHardwareFields);
+  }
+
+  void _resetHardwareFields() {
+    _hardwareRun++;
+    _hardwareFileName = '';
+    _hardwareStatus = '';
+    _hardwareError = '';
+  }
+
   void _finish() {
     if (widget.onDone != null) {
       widget.onDone!();
     } else {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const PetPage()),
-      );
+      Navigator.of(
+        context,
+      ).pushReplacement(MaterialPageRoute(builder: (_) => const PetPage()));
     }
   }
 
@@ -181,13 +381,17 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
     final p = _pet.pet;
     final skin = p?.skin ?? 'aurora';
     final isEgg = _step == _Step.egg;
-    final genome = p?.genome ?? {'skin': skin, 'emblem': 'star', 'emblemColor': 'gold'};
+    final genome =
+        p?.genome ?? {'skin': skin, 'emblem': 'star', 'emblemColor': 'gold'};
     // celebrate on the born moment; idle otherwise.
     final state = _step == _Step.born ? 'celebrate' : 'idle';
     // Shrink the creature once we move into the conversational capture steps so
     // the text field + magic card have room (the column scrolls regardless).
-    final petBox = (_step == _Step.invite || _step == _Step.capturing ||
-            _step == _Step.magic || _step == _Step.pairPrompt ||
+    final petBox =
+        (_step == _Step.invite ||
+            _step == _Step.capturing ||
+            _step == _Step.magic ||
+            _step == _Step.pairPrompt ||
             _step == _Step.hardwareWait)
         ? 132.0
         : 220.0;
@@ -205,7 +409,9 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
                     center: const Alignment(0, -0.2),
                     radius: 0.9,
                     colors: [
-                      eu.brand.withValues(alpha: eu.brightness == Brightness.dark ? 0.22 : 0.14),
+                      eu.brand.withValues(
+                        alpha: eu.brightness == Brightness.dark ? 0.22 : 0.14,
+                      ),
                       eu.brand.withValues(alpha: 0.0),
                     ],
                     stops: const [0.0, 1.0],
@@ -232,7 +438,10 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
                           // damped sideways wobble, amplitude grows with cracks
                           final amp = (3 + _cracks * 2.5) * (1 - t);
                           final dx = math.sin(t * math.pi * 3) * amp;
-                          return Transform.translate(offset: Offset(dx, 0), child: child);
+                          return Transform.translate(
+                            offset: Offset(dx, 0),
+                            child: child,
+                          );
                         },
                         child: SizedBox(
                           width: petBox,
@@ -246,7 +455,9 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
                               // floating mascot wraps its ball the same way).
                               IgnorePointer(
                                 child: PetView(
-                                  key: ValueKey('spawn-${isEgg ? 'egg' : 'pet'}-$state'),
+                                  key: ValueKey(
+                                    'spawn-${isEgg ? 'egg' : 'pet'}-$state',
+                                  ),
                                   genome: genome,
                                   egg: isEgg,
                                   state: state,
@@ -258,7 +469,10 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
                                 Positioned.fill(
                                   child: IgnorePointer(
                                     child: CustomPaint(
-                                      painter: _CrackPainter(_cracks, eu.textHi),
+                                      painter: _CrackPainter(
+                                        _cracks,
+                                        eu.textHi,
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -285,13 +499,21 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('一颗灵感蛋正在孵化',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: eu.textHi, fontSize: 22, fontWeight: FontWeight.w800)),
+            Text(
+              '一颗灵感蛋正在孵化',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: eu.textHi,
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
             const SizedBox(height: 12),
-            Text('它会成为陪着你的灵感伙伴 · Reka。\n轻点蛋，亲手把它唤醒。',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: eu.textMid, fontSize: 14.5, height: 1.55)),
+            Text(
+              '它会成为陪着你的灵感伙伴 · Reka。\n轻点蛋，亲手把它唤醒。',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: eu.textMid, fontSize: 14.5, height: 1.55),
+            ),
             const SizedBox(height: 18),
             // 进度点:越点越亮,提示「再点几下」
             Row(
@@ -299,7 +521,8 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
               children: List.generate(_maxTaps, (i) {
                 final on = i < _cracks;
                 return Container(
-                  width: 8, height: 8,
+                  width: 8,
+                  height: 8,
                   margin: const EdgeInsets.symmetric(horizontal: 4),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
@@ -311,24 +534,35 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
           ],
         );
       case _Step.born:
-        return _block(eu,
-            title: '这是 $_petName',
-            body: '你专属的灵感伙伴诞生了。\n往后你随口说的每件小事，都交给它打理。',
-            cta: '给它起名  →',
-            onCta: () => setState(() => _step = _Step.name));
+        return _block(
+          eu,
+          title: '这是 $_petName',
+          body: '你专属的灵感伙伴诞生了。\n往后你随口说的每件小事，都交给它打理。',
+          cta: '给它起名  →',
+          onCta: () => setState(() => _step = _Step.name),
+        );
       case _Step.name:
         return _nameBlock(eu);
       case _Step.invite:
         return _captureBlock(eu);
       case _Step.capturing:
-        return Column(children: [
-          Text('$_petName 正在帮你整理…', style: TextStyle(color: eu.textMid, fontSize: 14)),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: 22, height: 22,
-            child: CircularProgressIndicator(strokeWidth: 2.4, color: eu.brand),
-          ),
-        ]);
+        return Column(
+          children: [
+            Text(
+              '$_petName 正在帮你整理…',
+              style: TextStyle(color: eu.textMid, fontSize: 14),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.4,
+                color: eu.brand,
+              ),
+            ),
+          ],
+        );
       case _Step.magic:
         return _magicBlock(eu);
       case _Step.pairPrompt:
@@ -342,15 +576,25 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text('给 $_petName 起个名字',
-            style: TextStyle(color: eu.textHi, fontSize: 20, fontWeight: FontWeight.w700)),
+        Text(
+          '给 $_petName 起个名字',
+          style: TextStyle(
+            color: eu.textHi,
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
         const SizedBox(height: 18),
         TextField(
           controller: _nameCtrl,
           autofocus: true,
           maxLength: 8,
           textAlign: TextAlign.center,
-          style: TextStyle(color: eu.textHi, fontSize: 18, fontWeight: FontWeight.w600),
+          style: TextStyle(
+            color: eu.textHi,
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+          ),
           decoration: InputDecoration(
             hintText: 'Reka',
             counterText: '',
@@ -379,13 +623,21 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text('来，随口说件今天的',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: eu.textHi, fontSize: 20, fontWeight: FontWeight.w800)),
+        Text(
+          '来，随口说件今天的',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: eu.textHi,
+            fontSize: 20,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
         const SizedBox(height: 10),
-        Text('想到什么记什么——一笔花销、一个念头、一件要做的事。\n$_petName 会当场替你整理成卡片。',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: eu.textMid, fontSize: 13.5, height: 1.5)),
+        Text(
+          '想到什么记什么——一笔花销、一个念头、一件要做的事。\n$_petName 会当场替你整理成卡片。',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: eu.textMid, fontSize: 13.5, height: 1.5),
+        ),
         const SizedBox(height: 18),
         TextField(
           controller: _captureCtrl,
@@ -399,7 +651,10 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
             hintStyle: TextStyle(color: eu.textLo, fontSize: 14),
             filled: true,
             fillColor: eu.surfaceRaised,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 14,
+            ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),
               borderSide: BorderSide(color: eu.border),
@@ -411,6 +666,14 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
           ),
           onSubmitted: (_) => _capture(),
         ),
+        if (_captureError.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Text(
+            _captureError,
+            textAlign: TextAlign.center,
+            style: TextStyle(color: eu.accentRed, fontSize: 12.5, height: 1.4),
+          ),
+        ],
         const SizedBox(height: 16),
         _ctaButton(eu, '交给 $_petName  →', _capture),
       ],
@@ -424,9 +687,15 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text('✨ $_petName 替你记下了',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: eu.textHi, fontSize: 19, fontWeight: FontWeight.w800)),
+        Text(
+          '✨ $_petName 替你整理好了',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: eu.textHi,
+            fontSize: 19,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
         const SizedBox(height: 14),
         if (cards.isNotEmpty)
           for (final c in cards) SkillCard(c, layoutOverride: 'horizontal')
@@ -446,9 +715,11 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
             ),
           ),
         const SizedBox(height: 18),
-        Text('你记的都在「资产库」里，随时找得到。',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: eu.textMid, fontSize: 13.5, height: 1.5)),
+        Text(
+          '你记的都在「资产库」里，随时找得到。',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: eu.textMid, fontSize: 13.5, height: 1.5),
+        ),
         const SizedBox(height: 20),
         Center(child: _ctaButton(eu, '开始使用  →', _finish)),
       ],
@@ -461,13 +732,21 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text('🎙️ 有录音卡吗?',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: eu.textHi, fontSize: 20, fontWeight: FontWeight.w800)),
+        Text(
+          '🎙️ 有录音卡吗?',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: eu.textHi,
+            fontSize: 20,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
         const SizedBox(height: 10),
-        Text('连上它,按一下就能随口记,$_petName 当场帮你整理 ——\n不用打字、不用掏手机。还没有卡也行,先用打字试试。',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: eu.textMid, fontSize: 13.5, height: 1.5)),
+        Text(
+          '连上它,按一下就能随口记,$_petName 当场帮你整理 ——\n不用打字、不用掏手机。还没有卡也行,先用打字试试。',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: eu.textMid, fontSize: 13.5, height: 1.5),
+        ),
         const SizedBox(height: 22),
         _ctaButton(eu, '连接录音卡  →', _connectDevice),
         const SizedBox(height: 10),
@@ -476,8 +755,14 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
           behavior: HitTestBehavior.opaque,
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-            child: Text('我还没有卡,用打字',
-                style: TextStyle(color: eu.brand, fontSize: 14, fontWeight: FontWeight.w600)),
+            child: Text(
+              '我还没有卡,用打字',
+              style: TextStyle(
+                color: eu.brand,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
         ),
       ],
@@ -487,44 +772,100 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
   Future<void> _connectDevice() async {
     // 复用 jigong 的配对页;返回后按是否绑成分叉:绑成 → 硬件首捕(按卡说);
     // 没绑成(取消/失败/没扫到)→ 退回打字首捕,绝不卡住。
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const DevicePairingPage()),
-    );
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const DevicePairingPage()));
     if (!mounted) return;
-    setState(() => _step =
-        DeviceController.instance.isBound ? _Step.hardwareWait : _Step.invite);
+    setState(() {
+      _resetHardwareFields();
+      _step = DeviceController.instance.isBound
+          ? _Step.hardwareWait
+          : _Step.invite;
+    });
   }
 
-  // ② 硬件首捕 —— 已连卡:让用户按一下录音卡说件今天的。靠 isFlashing 确认「卡录到
-  // 了」(与 ASR 无关);整理出卡是异步走 ASR 的,onboarding 不等它(会在资产库出现)。
-  // 始终给「先进去看看」逃生口,卡没反应也不困住人。
+  // ② 硬件首捕 —— 已连卡:让用户按一下录音卡说件今天的。录完只算接住,
+  // 必须等后端返回成功卡片后才完成 onboarding。
   Widget _hardwareWaitBlock(EurekaColors eu) {
-    if (_cardCaptured) {
+    final hasRecording = _hardwareFileName.isNotEmpty;
+    if (hasRecording) {
+      final isError = _hardwareError.isNotEmpty;
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text('✓ $_petName 接住了!',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: eu.textHi, fontSize: 20, fontWeight: FontWeight.w800)),
+          Text(
+            isError ? '这条还没整理成卡片' : '$_petName 已接住',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: isError ? eu.accentRed : eu.textHi,
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
           const SizedBox(height: 10),
-          Text('正在帮你整理,整理好的卡片会出现在「资产库」里。\n以后想记什么,按一下录音卡就行。',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: eu.textMid, fontSize: 13.5, height: 1.5)),
-          const SizedBox(height: 22),
-          _ctaButton(eu, '开始使用  →', _finish),
+          Text(
+            isError
+                ? _hardwareError
+                : (_hardwareStatus.isNotEmpty ? _hardwareStatus : '正在帮你整理成卡片…'),
+            textAlign: TextAlign.center,
+            style: TextStyle(color: eu.textMid, fontSize: 13.5, height: 1.5),
+          ),
+          const SizedBox(height: 18),
+          if (!isError)
+            SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.4,
+                color: eu.brand,
+              ),
+            ),
+          if (isError) ...[
+            _ctaButton(eu, '再录一次', _resetHardwareCapture),
+            const SizedBox(height: 10),
+            GestureDetector(
+              onTap: () => setState(() {
+                _resetHardwareFields();
+                _step = _Step.invite;
+              }),
+              behavior: HitTestBehavior.opaque,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  vertical: 8,
+                  horizontal: 16,
+                ),
+                child: Text(
+                  '改用打字',
+                  style: TextStyle(
+                    color: eu.brand,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ],
       );
     }
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text('按一下录音卡,说件今天的',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: eu.textHi, fontSize: 20, fontWeight: FontWeight.w800)),
+        Text(
+          '按一下录音卡,说件今天的',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: eu.textHi,
+            fontSize: 20,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
         const SizedBox(height: 10),
-        Text('随口说一笔花销、一个念头、一件要做的事 ——\n$_petName 会接住它,帮你整理成卡片。',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: eu.textMid, fontSize: 13.5, height: 1.5)),
+        Text(
+          '随口说一笔花销、一个念头、一件要做的事 ——\n$_petName 会接住它,帮你整理成卡片。',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: eu.textMid, fontSize: 13.5, height: 1.5),
+        ),
         const SizedBox(height: 18),
         // 「正在听」实时指示(录音卡按下时 BleFlashManager.isFlashing=true)
         ValueListenableBuilder<bool>(
@@ -536,8 +877,12 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
               mainAxisSize: MainAxisSize.min,
               children: [
                 SizedBox(
-                  width: 14, height: 14,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: eu.brand),
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: eu.brand,
+                  ),
                 ),
                 const SizedBox(width: 8),
                 Text('正在听…', style: TextStyle(color: eu.brand, fontSize: 13)),
@@ -547,30 +892,45 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
         ),
         const SizedBox(height: 14),
         GestureDetector(
-          onTap: _finish,
+          onTap: () => setState(() => _step = _Step.invite),
           behavior: HitTestBehavior.opaque,
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-            child: Text('先进去看看  →',
-                style: TextStyle(color: eu.textMid, fontSize: 14)),
+            child: Text(
+              '改用打字',
+              style: TextStyle(color: eu.textMid, fontSize: 14),
+            ),
           ),
         ),
       ],
     );
   }
 
-  Widget _block(EurekaColors eu,
-      {required String title, required String body, required String cta, required VoidCallback onCta}) {
+  Widget _block(
+    EurekaColors eu, {
+    required String title,
+    required String body,
+    required String cta,
+    required VoidCallback onCta,
+  }) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(title,
-            textAlign: TextAlign.center,
-            style: TextStyle(color: eu.textHi, fontSize: 22, fontWeight: FontWeight.w800)),
+        Text(
+          title,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: eu.textHi,
+            fontSize: 22,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
         const SizedBox(height: 12),
-        Text(body,
-            textAlign: TextAlign.center,
-            style: TextStyle(color: eu.textMid, fontSize: 14.5, height: 1.55)),
+        Text(
+          body,
+          textAlign: TextAlign.center,
+          style: TextStyle(color: eu.textMid, fontSize: 14.5, height: 1.55),
+        ),
         const SizedBox(height: 26),
         _ctaButton(eu, cta, onCta),
       ],
@@ -587,12 +947,22 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
           color: eu.brand,
           borderRadius: BorderRadius.circular(28),
           boxShadow: [
-            BoxShadow(color: eu.brand.withValues(alpha: 0.4), blurRadius: 22, offset: const Offset(0, 8)),
+            BoxShadow(
+              color: eu.brand.withValues(alpha: 0.4),
+              blurRadius: 22,
+              offset: const Offset(0, 8),
+            ),
           ],
         ),
-        child: Text(label,
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: Colors.white, fontSize: 15.5, fontWeight: FontWeight.w700)),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 15.5,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
       ),
     );
   }
