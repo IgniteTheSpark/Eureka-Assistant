@@ -58,6 +58,7 @@ class ListeningRequest(BaseModel):
 class S3UploadInfo(BaseModel):
     s3_key: str
     upload_url: str
+    audio_url: str = ""
     content_type: str = "audio/mpeg"
     headers: dict[str, str] = Field(default_factory=dict)
     upload_expires_in: Optional[int] = None
@@ -77,7 +78,7 @@ class TencentAsrS3UploadRequest(BaseModel):
     local_mp3_size_bytes: Optional[int] = None
     s3: S3UploadInfo
     engine_type: str = "16k_zh"
-    speaker_diarization: bool = True
+    speaker_diarization: bool = False
     hotword_list: str = ""
 
 
@@ -183,13 +184,22 @@ async def _ensure_card_bound(db, user_id: str, card_sn: str) -> None:
         raise HTTPException(status_code=403, detail="card not bound by current user")
 
 
-def _assert_same_upload(recording: FlashRecording, s3_key: str, upload_url: str, sha256: str | None) -> None:
+def _assert_same_upload(
+    recording: FlashRecording,
+    s3_key: str,
+    upload_url: str,
+    audio_url: str,
+    sha256: str | None,
+) -> None:
     if recording.s3_key != s3_key:
         logger.info("%s reject duplicate recording=%s reason=different_s3_key", LOG_TAG, recording.id)
         raise HTTPException(status_code=409, detail="duplicate key with different s3_key")
     if recording.s3_upload_url and recording.s3_upload_url != upload_url:
         logger.info("%s reject duplicate recording=%s reason=different_upload_url", LOG_TAG, recording.id)
         raise HTTPException(status_code=409, detail="duplicate key with different upload_url")
+    if recording.s3_audio_url and recording.s3_audio_url != audio_url:
+        logger.info("%s reject duplicate recording=%s reason=different_audio_url", LOG_TAG, recording.id)
+        raise HTTPException(status_code=409, detail="duplicate key with different audio_url")
     if sha256 and recording.local_mp3_sha256 and recording.local_mp3_sha256 != sha256:
         logger.info("%s reject duplicate recording=%s reason=different_mp3_sha256", LOG_TAG, recording.id)
         raise HTTPException(status_code=409, detail="duplicate key with different mp3 sha256")
@@ -234,6 +244,10 @@ async def tencent_asr_s3_uploads(
     if not upload_url:
         logger.info("%s reject S3 upload client_task=%s file=%s reason=missing_upload_url", LOG_TAG, client_task_id, device_file_name)
         raise HTTPException(status_code=422, detail="upload_url required")
+    audio_url = (req.s3.audio_url or "").strip()
+    if not audio_url:
+        logger.info("%s reject S3 upload client_task=%s file=%s reason=missing_audio_url", LOG_TAG, client_task_id, device_file_name)
+        raise HTTPException(status_code=422, detail="audio_url required")
     logger.info(
         "%s receive S3 upload user=%s client_task=%s card_sn=%s file=%s source=%s "
         "s3_key=%s mp3_size=%s crc=%s",
@@ -269,14 +283,26 @@ async def tencent_asr_s3_uploads(
                 )
             )).scalar_one_or_none()
         if existing is not None:
-            _assert_same_upload(existing, s3_key, upload_url, sha256)
+            _assert_same_upload(existing, s3_key, upload_url, audio_url, sha256)
             duplicate = True
+            existing_updated = False
+            if not existing.s3_upload_url:
+                existing.s3_upload_url = upload_url
+                existing_updated = True
+            if not existing.s3_audio_url:
+                existing.s3_audio_url = audio_url
+                existing_updated = True
+            if not existing.s3_upload_headers and req.s3.headers:
+                existing.s3_upload_headers = req.s3.headers
+                existing_updated = True
             if existing.process_status == "failed" and not existing.tencent_asr_task_id:
                 existing.process_status = "pending"
                 existing.tencent_status = "pending"
                 existing.tencent_error_message = None
                 existing.asr_error = None
                 existing.error_message = None
+                existing_updated = True
+            if existing_updated:
                 existing.updated_at = _now()
                 await db.commit()
                 await db.refresh(existing)
@@ -318,6 +344,7 @@ async def tencent_asr_s3_uploads(
                 s3_key=s3_key,
                 s3_content_type=req.s3.content_type,
                 s3_upload_url=upload_url,
+                s3_audio_url=audio_url,
                 s3_upload_headers=req.s3.headers or {},
                 s3_upload_expires_in=req.s3.upload_expires_in,
                 s3_uploaded_at=_parse_time(req.s3.uploaded_at),

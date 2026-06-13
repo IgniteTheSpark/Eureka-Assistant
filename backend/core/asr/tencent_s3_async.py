@@ -24,7 +24,7 @@ class TencentS3AsyncAsrClient:
         *,
         audio_url: str,
         engine_type: str = "16k_zh",
-        speaker_diarization: bool = True,
+        speaker_diarization: bool = False,
         hotword_list: str = "",
     ) -> dict:
         url = f"{self.base_url}/api/platform/speech/tencent_asr/s3_task"

@@ -241,6 +241,7 @@ class FlashRecording(Base):
     s3_key                = Column(String(512), nullable=False)
     s3_content_type       = Column(String(100))
     s3_upload_url         = Column(Text().with_variant(MEDIUMTEXT, "mysql"))
+    s3_audio_url          = Column(Text().with_variant(MEDIUMTEXT, "mysql"))
     s3_upload_headers     = Column(JSON)
     s3_upload_expires_in  = Column(Integer)
     s3_uploaded_at        = Column(TIMESTAMPTZ)

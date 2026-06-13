@@ -192,7 +192,7 @@ async def poll_tencent_asr_until_terminal(recording_id: str | uuid.UUID) -> None
         delay = 2 if poll_count == 0 else (3 if poll_count == 1 else interval)
         if time.monotonic() + delay > deadline:
             logger.info("%s ASR poll timeout before next request recording=%s task_id=%s", LOG_TAG, rid, task_id)
-            await _mark_asr_failed(rid, "Tencent ASR polling timeout", raw=None)
+            await _mark_asr_no_content(rid, raw=None)
             return
         await asyncio.sleep(delay)
         poll_count += 1
@@ -208,7 +208,7 @@ async def poll_tencent_asr_until_terminal(recording_id: str | uuid.UUID) -> None
                 str(e)[:300],
             )
             if time.monotonic() >= deadline:
-                await _mark_asr_failed(rid, str(e)[:1000], raw=None)
+                await _mark_asr_no_content(rid, raw=None)
                 return
             continue
 
@@ -236,11 +236,14 @@ async def poll_tencent_asr_until_terminal(recording_id: str | uuid.UUID) -> None
                 recording.updated_at = _now()
                 await db.commit()
             if time.monotonic() >= deadline:
-                await _mark_asr_failed(rid, "Tencent ASR polling timeout", raw=raw)
+                await _mark_asr_no_content(rid, raw=raw)
                 return
             continue
 
         if status == "finished":
+            if not (data.get("text") or "").strip():
+                await _mark_asr_no_content(rid, raw=raw)
+                return
             try:
                 result = parse_finished_result(data)
             except AsrError as e:
@@ -288,11 +291,7 @@ async def poll_tencent_asr_until_terminal(recording_id: str | uuid.UUID) -> None
                 task_id,
                 data.get("error_message"),
             )
-            await _mark_asr_failed(
-                rid,
-                str(data.get("error_message") or "Tencent ASR failed")[:1000],
-                raw=raw,
-            )
+            await _mark_asr_no_content(rid, raw=raw)
             return
 
         logger.info("%s ASR unknown status recording=%s task_id=%s status=%s", LOG_TAG, rid, task_id, status)
@@ -318,20 +317,20 @@ async def create_tencent_asr_task_if_needed(
         if recording.tencent_asr_task_id:
             logger.info("%s ASR task already exists recording=%s task_id=%s", LOG_TAG, rid, recording.tencent_asr_task_id)
             return recording
-        if not (recording.s3_upload_url or "").strip():
+        if not (recording.s3_audio_url or "").strip():
             recording.tencent_status = "failed"
-            recording.tencent_error_message = "S3 upload_url missing"
+            recording.tencent_error_message = "S3 audio_url missing"
             recording.process_status = "failed"
-            recording.asr_error = "S3 upload_url missing"
-            recording.error_message = "S3 upload_url missing"
+            recording.asr_error = "S3 audio_url missing"
+            recording.error_message = "S3 audio_url missing"
             recording.updated_at = _now()
             file = (await db.execute(select(File).where(File.id == recording.file_id))).scalar_one_or_none()
             if file:
                 file.asr_status = "failed"
             await db.commit()
             await db.refresh(recording)
-            publish_flash_file_status(recording, "failed", "S3 upload_url missing")
-            raise AsrError("S3 upload_url missing")
+            publish_flash_file_status(recording, "failed", "S3 audio_url missing")
+            raise AsrError("S3 audio_url missing")
 
         file = (await db.execute(select(File).where(File.id == recording.file_id))).scalar_one_or_none()
         recording.process_status = "asr_processing"
@@ -341,9 +340,9 @@ async def create_tencent_asr_task_if_needed(
             file.asr_status = "processing"
         await db.commit()
         await db.refresh(recording)
-        audio_url = recording.s3_upload_url
+        audio_url = recording.s3_audio_url
         engine_type = recording.tencent_engine_type or "16k_zh"
-        speaker_diarization = bool(recording.tencent_speaker_diarization if recording.tencent_speaker_diarization is not None else 1)
+        speaker_diarization = bool(recording.tencent_speaker_diarization if recording.tencent_speaker_diarization is not None else 0)
         hotword_list = recording.tencent_hotword_list or ""
 
     try:
@@ -400,6 +399,37 @@ async def _mark_asr_failed(recording_id: uuid.UUID, message: str, raw: dict | No
         await db.refresh(recording)
     publish_flash_file_status(recording, "failed", message)
     logger.info("%s ASR marked failed recording=%s message=%s", LOG_TAG, recording_id, message)
+
+
+async def _mark_asr_no_content(recording_id: uuid.UUID, raw: dict | None = None) -> None:
+    message = "文件没内容"
+    async with AsyncSessionLocal() as db:
+        recording = (await db.execute(
+            select(FlashRecording).where(FlashRecording.id == recording_id)
+        )).scalar_one_or_none()
+        if recording is None or recording.process_status not in {"pending", "asr_processing"}:
+            logger.info("%s mark ASR no-content skip recording=%s", LOG_TAG, recording_id)
+            return
+        file = (await db.execute(select(File).where(File.id == recording.file_id))).scalar_one_or_none()
+        recording.tencent_status = "finished"
+        recording.tencent_error_message = message
+        if raw is not None:
+            recording.tencent_result_response = raw
+        recording.process_status = "done"
+        recording.asr_text = ""
+        recording.asr_segments = []
+        recording.asr_error = None
+        recording.error_message = message
+        recording.result_summary = ""
+        recording.result_cards = []
+        recording.updated_at = _now()
+        recording.processed_at = _now()
+        if file:
+            file.asr_status = "completed"
+        await db.commit()
+        await db.refresh(recording)
+    publish_flash_file_status(recording, "done", message)
+    logger.info("%s ASR no content completed recording=%s", LOG_TAG, recording_id)
 
 
 async def process_recording_after_asr(recording_id: str | uuid.UUID) -> None:
