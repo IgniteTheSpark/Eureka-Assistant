@@ -17,6 +17,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('登录你的账号'), findsOneWidget);
-    expect(find.text('用百智登录'), findsOneWidget);
+    expect(find.text('用百智登录'), findsNothing);
   });
 }

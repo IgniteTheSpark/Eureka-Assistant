@@ -876,7 +876,7 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
     );
   }
 
-  /// §14.8「球球提醒」总开关行 — shown once prefs load; toggles server-side.
+  /// §14.8「Reka提醒」总开关行 — shown once prefs load; toggles server-side.
   Widget _nudgeSwitchRow(EurekaColors eu) {
     final v = _nudgesEnabled;
     if (v == null) return const SizedBox.shrink();
@@ -893,7 +893,7 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
           const Text('🐾', style: TextStyle(fontSize: 14)),
           const SizedBox(width: 8),
           Expanded(
-            child: Text('球球提醒',
+            child: Text('Reka提醒',
                 style: TextStyle(color: eu.textHi, fontSize: 13, fontWeight: FontWeight.w600)),
           ),
           Transform.scale(

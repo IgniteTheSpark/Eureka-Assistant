@@ -15,6 +15,8 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
+  static const bool _showBaizhiLogin = bool.fromEnvironment('SHOW_BAIZHI_LOGIN', defaultValue: false);
+
   final _email = TextEditingController();
   final _password = TextEditingController();
   bool _register = false; // false = login, true = register
@@ -130,43 +132,45 @@ class _LoginPageState extends State<LoginPage> {
                                 color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700)),
                   ),
                 ),
-                const SizedBox(height: 18),
-                // 「或」divider.
-                Row(children: [
-                  Expanded(child: Divider(color: eu.border, height: 1)),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: Text('或', style: TextStyle(color: eu.textLo, fontSize: 12)),
-                  ),
-                  Expanded(child: Divider(color: eu.border, height: 1)),
-                ]),
-                const SizedBox(height: 18),
-                // §13.1 用百智登录 (OAuth) — 持卡用户已有百智账号。
-                GestureDetector(
-                  onTap: (_busy || _busyBaizhi) ? null : _submitBaizhi,
-                  behavior: HitTestBehavior.opaque,
-                  child: Container(
-                    height: 50,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: eu.surfaceRaised,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: eu.border),
+                if (_showBaizhiLogin) ...[
+                  const SizedBox(height: 18),
+                  // 「或」divider.
+                  Row(children: [
+                    Expanded(child: Divider(color: eu.border, height: 1)),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: Text('或', style: TextStyle(color: eu.textLo, fontSize: 12)),
                     ),
-                    child: _busyBaizhi
-                        ? SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: eu.brand))
-                        : Row(mainAxisSize: MainAxisSize.min, children: [
-                            Icon(Icons.badge_outlined, size: 18, color: eu.textHi),
-                            const SizedBox(width: 8),
-                            Text('用百智登录',
-                                style: TextStyle(
-                                    color: eu.textHi, fontSize: 15, fontWeight: FontWeight.w600)),
-                          ]),
+                    Expanded(child: Divider(color: eu.border, height: 1)),
+                  ]),
+                  const SizedBox(height: 18),
+                  // §13.1 用百智登录 (OAuth) — 持卡用户已有百智账号。
+                  GestureDetector(
+                    onTap: (_busy || _busyBaizhi) ? null : _submitBaizhi,
+                    behavior: HitTestBehavior.opaque,
+                    child: Container(
+                      height: 50,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: eu.surfaceRaised,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: eu.border),
+                      ),
+                      child: _busyBaizhi
+                          ? SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: eu.brand))
+                          : Row(mainAxisSize: MainAxisSize.min, children: [
+                              Icon(Icons.badge_outlined, size: 18, color: eu.textHi),
+                              const SizedBox(width: 8),
+                              Text('用百智登录',
+                                  style: TextStyle(
+                                      color: eu.textHi, fontSize: 15, fontWeight: FontWeight.w600)),
+                            ]),
+                    ),
                   ),
-                ),
+                ],
                 const SizedBox(height: 16),
                 GestureDetector(
                   onTap: _busy
