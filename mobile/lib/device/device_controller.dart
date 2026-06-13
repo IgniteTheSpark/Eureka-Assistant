@@ -8,7 +8,7 @@ import 'package:flutter/services.dart';
 
 import '../api/api_client.dart';
 
-/// Hardware-connection layer for the EurekaMind 录音卡 (W1/W2 BLE card).
+/// Hardware-connection layer for the UReka 录音卡 (W1/W2 BLE card).
 ///
 /// The UI talks only to [DeviceController]. The transport below owns the real
 /// BLE plugin calls plus the server binding handshake.
@@ -233,7 +233,7 @@ class BleDeviceTransport implements DeviceTransport {
         'card_mac': resolvedCardMac.isEmpty ? null : resolvedCardMac,
         'card_mac_from': _platformName,
         'card_name': resolvedName.isEmpty ? device.name : resolvedName,
-        'card_nick': 'EurekaMind 录音卡',
+        'card_nick': 'UReka 录音卡',
         'card_app_uuid': resolvedAppUuid,
       });
       final binding = ((res as Map)['binding'] as Map).cast<String, dynamic>();
@@ -364,7 +364,7 @@ class BleDeviceTransport implements DeviceTransport {
           ? _string(binding['card_id'])
           : serial,
       bindingId: _string(binding['binding_id']),
-      name: cardName.isEmpty ? 'EurekaMind 录音卡' : cardName,
+      name: cardName.isEmpty ? 'UReka 录音卡' : cardName,
       serial: serial,
       cardDeviceUuid: deviceUuid,
       cardAppUuid: appUuid,
@@ -378,7 +378,7 @@ class BleDeviceTransport implements DeviceTransport {
   Future<void> _refreshNativeBindInfo(Map<String, dynamic> binding) async {
     final deviceName = _string(binding['card_name']).isNotEmpty
         ? _string(binding['card_name'])
-        : 'EurekaMind 录音卡';
+        : 'UReka 录音卡';
     final deviceSn = _string(binding['card_sn']);
     final deviceUuid = _string(binding['card_device_uuid']);
     final appUuid = _string(binding['card_app_uuid']);
@@ -573,7 +573,7 @@ class MockDeviceTransport implements DeviceTransport {
     _boundDevice = DeviceInfo(
       id: device.id,
       bindingId: 'mock-binding',
-      name: 'EurekaMind 录音卡',
+      name: 'UReka 录音卡',
       serial: device.serial,
       cardDeviceUuid: 'mock-device-uuid',
       cardAppUuid: 'mock-app-uuid',

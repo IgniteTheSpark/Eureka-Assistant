@@ -6,7 +6,7 @@ import '../device/device_controller.dart';
 import '../theme/app_theme.dart';
 import 'my_device_page.dart';
 
-/// First-run pairing flow for the EurekaMind 录音卡.
+/// First-run pairing flow for the UReka 录音卡.
 /// Top search pill + a 2-step onboarding pager; when the scan surfaces a device
 /// a 发现设备 sheet slides up to confirm + 连接 → 我的设备.
 class DevicePairingPage extends StatefulWidget {
