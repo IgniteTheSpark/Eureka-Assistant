@@ -12,6 +12,7 @@ import '../render/skill_card.dart';
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
 import '../widgets/toast.dart';
+import 'device_pairing_page.dart';
 import 'pet_page.dart';
 
 /// §9.2.2 孵化即 onboarding — 全新用户的第一屏。一条弧线在 ~30 秒交付产品 aha:
@@ -31,7 +32,7 @@ import 'pet_page.dart';
 ///
 /// 由 [_PostAuthGate](../main.dart) 在 `!spawned` 时作为 home 挂载(`onDone` →
 /// 切到 shell);也保留被 `pet_page` push 的旧路径(`onDone` 为空 → 进 PetPage)。
-enum _Step { egg, born, name, invite, capturing, magic }
+enum _Step { egg, born, name, invite, capturing, magic, pairDevice }
 
 class PetSpawnPage extends StatefulWidget {
   /// Called when the onboarding arc finishes. When provided (root-gate mount),
@@ -167,7 +168,8 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
     final state = _step == _Step.born ? 'celebrate' : 'idle';
     // Shrink the creature once we move into the conversational capture steps so
     // the text field + magic card have room (the column scrolls regardless).
-    final petBox = (_step == _Step.invite || _step == _Step.capturing || _step == _Step.magic)
+    final petBox = (_step == _Step.invite || _step == _Step.capturing ||
+            _step == _Step.magic || _step == _Step.pairDevice)
         ? 132.0
         : 220.0;
 
@@ -310,6 +312,8 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
         ]);
       case _Step.magic:
         return _magicBlock(eu);
+      case _Step.pairDevice:
+        return _pairDeviceBlock(eu);
     }
   }
 
@@ -425,9 +429,47 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
             textAlign: TextAlign.center,
             style: TextStyle(color: eu.textMid, fontSize: 13.5, height: 1.5)),
         const SizedBox(height: 20),
-        Center(child: _ctaButton(eu, '开始使用  →', _finish)),
+        Center(child: _ctaButton(eu, '下一步  →', () => setState(() => _step = _Step.pairDevice))),
       ],
     );
+  }
+
+  // 连接录音卡(可选)—— 录音卡是「随口说」的硬件入口:按一下就录、自动整理,
+  // 不用打字不用掏手机。复用 jigong 的配对页(§13.3);没卡/想稍后的人可跳过,
+  // 绝不卡住 onboarding。
+  Widget _pairDeviceBlock(EurekaColors eu) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text('🎙️ 连上你的录音卡',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: eu.textHi, fontSize: 20, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 10),
+        Text('有录音卡的话,按一下就能随口记 —— $_petName 当场帮你整理,\n不用打字、不用掏手机。',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: eu.textMid, fontSize: 13.5, height: 1.5)),
+        const SizedBox(height: 22),
+        _ctaButton(eu, '连接录音卡  →', _connectDevice),
+        const SizedBox(height: 10),
+        GestureDetector(
+          onTap: _finish,
+          behavior: HitTestBehavior.opaque,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+            child: Text('先不用,直接开始',
+                style: TextStyle(color: eu.textMid, fontSize: 14)),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _connectDevice() async {
+    // 复用 jigong 的配对页;返回后(无论是否绑定成功)进 app —— 配对不是进门的门槛。
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const DevicePairingPage()),
+    );
+    if (mounted) _finish();
   }
 
   Widget _block(EurekaColors eu,
