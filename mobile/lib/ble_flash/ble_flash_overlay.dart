@@ -28,90 +28,98 @@ class _BleFlashOverlayState extends State<BleFlashOverlay>
   Widget build(BuildContext context) {
     final eu = context.eu;
     return IgnorePointer(
-      child: AnimatedBuilder(
-        animation: _ctrl,
-        builder: (context, _) {
-          final pulse = 0.5 + 0.5 * math.sin(_ctrl.value * 2 * math.pi);
-          return DecoratedBox(
-            decoration: BoxDecoration(
-              color: Color.lerp(
-                const Color(0xF2090B14),
-                const Color(0xF2151630),
-                pulse,
-              ),
-            ),
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                CustomPaint(
-                  painter: _LightningPainter(
-                    progress: _ctrl.value,
-                    brand: eu.brand,
-                    accent: eu.accentPurple,
+      child: Material(
+        type: MaterialType.transparency,
+        child: DefaultTextStyle(
+          style: const TextStyle(decoration: TextDecoration.none),
+          child: AnimatedBuilder(
+            animation: _ctrl,
+            builder: (context, _) {
+              final pulse = 0.5 + 0.5 * math.sin(_ctrl.value * 2 * math.pi);
+              return DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Color.lerp(
+                    const Color(0xF2090B14),
+                    const Color(0xF2151630),
+                    pulse,
                   ),
                 ),
-                Center(
-                  child: Transform.scale(
-                    scale: 1 + 0.04 * pulse,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 132,
-                          height: 132,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Colors.white.withValues(alpha: 0.08),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.22),
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: eu.brand.withValues(alpha: 0.45),
-                                blurRadius: 48 + 18 * pulse,
-                                spreadRadius: 6 + 8 * pulse,
-                              ),
-                            ],
-                          ),
-                          child: Icon(
-                            Icons.bolt_rounded,
-                            color: const Color(0xFFFFF4A8),
-                            size: 76,
-                            shadows: [
-                              Shadow(
-                                color: eu.brand.withValues(alpha: 0.8),
-                                blurRadius: 22,
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 28),
-                        const Text(
-                          '闪念已开启',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 24,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          '正在接收硬件实时闪念',
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.68),
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    CustomPaint(
+                      painter: _LightningPainter(
+                        progress: _ctrl.value,
+                        brand: eu.brand,
+                        accent: eu.accentPurple,
+                      ),
                     ),
-                  ),
+                    Center(
+                      child: Transform.scale(
+                        scale: 1 + 0.04 * pulse,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 132,
+                              height: 132,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.white.withValues(alpha: 0.08),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.22),
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: eu.brand.withValues(alpha: 0.45),
+                                    blurRadius: 48 + 18 * pulse,
+                                    spreadRadius: 6 + 8 * pulse,
+                                  ),
+                                ],
+                              ),
+                              child: Icon(
+                                Icons.bolt_rounded,
+                                color: const Color(0xFFFFF4A8),
+                                size: 76,
+                                shadows: [
+                                  Shadow(
+                                    color: eu.brand.withValues(alpha: 0.8),
+                                    blurRadius: 22,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 28),
+                            const Text(
+                              '闪念已开启',
+                              style: TextStyle(
+                                color: Colors.white,
+                                decoration: TextDecoration.none,
+                                fontSize: 24,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              '正在接收硬件实时闪念',
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.68),
+                                decoration: TextDecoration.none,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-          );
-        },
+              );
+            },
+          ),
+        ),
       ),
     );
   }

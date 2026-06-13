@@ -87,7 +87,6 @@ class _FlashSheetState extends State<_FlashSheet> {
         _sending = false;
       });
       _scrollEnd();
-      _toast(r.cards.length);
       // Refresh other surfaces now (don't wait on the SSE `capture` event).
       bumpData();
     } catch (e) {
@@ -106,47 +105,6 @@ class _FlashSheetState extends State<_FlashSheet> {
         _sending = false;
       });
     }
-  }
-
-  void _toast(int n) {
-    final eu = context.eu;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: eu.surfaceRaised,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: eu.border),
-          ),
-          content: Row(
-            children: [
-              const Text('⚡', style: TextStyle(fontSize: 16)),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '闪念已整理',
-                      style: TextStyle(
-                        color: eu.textHi,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    Text(
-                      '已记录 $n 项内容。',
-                      style: TextStyle(color: eu.textMid, fontSize: 12),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
   }
 
   /* ── voice (press-hold) ─────────────────────────────────────────────── */

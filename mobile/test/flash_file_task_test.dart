@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eureka/ble_flash/flash_file_status_controller.dart';
 import 'package:eureka/ble_flash/flash_file_task.dart';
 
 void main() {
@@ -51,5 +52,16 @@ void main() {
     expect(restored.attemptsByStage, {'converted': 2});
     expect(restored.retryAfter, retryAt);
     expect(restored.deviceDeletePending, isTrue);
+  });
+
+  test('FlashFileStatusController describes flash files by capture time', () {
+    final controller = FlashFileStatusController.instance;
+    controller.syncing('F20260613-120523.opus');
+
+    expect(controller.status.value.text, 'Reka听到：2026年6月13日 12:05:23的闪念正在同步');
+    expect(controller.status.value.text, isNot(contains('F20260613')));
+    expect(controller.status.value.text, isNot(contains('.opus')));
+
+    controller.clear();
   });
 }

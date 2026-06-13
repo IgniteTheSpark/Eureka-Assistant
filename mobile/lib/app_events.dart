@@ -135,7 +135,9 @@ class AppEvents {
           );
           return;
         }
-        _toast(j);
+        if (type != 'flash_done') {
+          _toast(j);
+        }
         RekaNotifications.instance.add(
           icon: type == 'flash_done'
               ? '⚡'
@@ -217,8 +219,8 @@ Future<void> openNotificationTarget(String type, String link) async {
         final ctx = navigatorKey.currentContext; // fresh, post-await
         if (ev == null || ctx == null) return;
         final card = {'card_type': 'event', ...ev.cast<String, dynamic>()};
-        // ignore: use_build_context_synchronously — ctx re-fetched + null-checked above
         showAssetDetail(
+          // ignore: use_build_context_synchronously — ctx re-fetched + null-checked above
           ctx,
           data: buildCard(
             payload: card,
@@ -243,8 +245,8 @@ Future<void> openNotificationTarget(String type, String link) async {
         } catch (_) {}
         final ctx = navigatorKey.currentContext; // fresh, post-await
         if (ctx == null) return;
-        // ignore: use_build_context_synchronously — ctx re-fetched + null-checked above
         showAssetDetail(
+          // ignore: use_build_context_synchronously — ctx re-fetched + null-checked above
           ctx,
           data: buildCard(
             payload: payload,

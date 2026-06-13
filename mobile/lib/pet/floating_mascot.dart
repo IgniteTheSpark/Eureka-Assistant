@@ -1,5 +1,6 @@
 import 'dart:async' show Timer;
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -363,7 +364,7 @@ class _FloatingMascotState extends State<FloatingMascot>
       _activeClose?.call();
       return;
     }
-    if (!_pet.spawned) {
+    if (!_pet.onboardingCompleted) {
       _push(const PetSpawnPage());
     } else {
       _openRadial();
@@ -375,7 +376,7 @@ class _FloatingMascotState extends State<FloatingMascot>
       _activeClose?.call();
       return;
     }
-    if (!_pet.spawned) {
+    if (!_pet.onboardingCompleted) {
       _push(const PetSpawnPage());
     } else {
       _push(
@@ -476,8 +477,10 @@ class _FloatingMascotState extends State<FloatingMascot>
     // composites reliably (and avoids reload flicker when it returns).
     return ValueListenableBuilder<int>(
       valueListenable: mascotSuppressed,
-      builder: (context, suppressed, _) =>
-          _mascot(context, hidden: suppressed > 0 || !_auth.isAuthed),
+      builder: (context, suppressed, _) => _mascot(
+        context,
+        hidden: suppressed > 0 || !_auth.isAuthed || !_pet.onboardingCompleted,
+      ),
     );
   }
 
@@ -490,9 +493,11 @@ class _FloatingMascotState extends State<FloatingMascot>
           _lastRenderedPet = currentPet;
         }
         final p = currentPet ?? (!_auth.isAuthed ? _lastRenderedPet : null);
-        // 蛋未孵化(onboarding 孵化页)时不挂全局浮球 —— 孵化页自己有一颗大蛋,
-        // 全局再飘一颗蛋是重复且违和的。孵化后(spawned)浮球才登场。
-        if (!_loaded || p == null || (_auth.isAuthed && !_pet.spawned)) {
+        // onboarding 未完成时不展示全局浮球 —— onboarding 页自己呈现主 Reka,
+        // 避免已孵化但首捕未完成时浮球/气泡提前出现。
+        if (!_loaded ||
+            p == null ||
+            (_auth.isAuthed && !_pet.onboardingCompleted)) {
           return const SizedBox.shrink();
         }
         final effectiveHidden = hidden || !_auth.isAuthed;
@@ -630,55 +635,67 @@ class _FloatingMascotState extends State<FloatingMascot>
     double maxW,
     double maxH,
   ) {
-    const w = 238.0;
-    final onRight = ballLeft + _size / 2 > maxW / 2;
-    final bx = (onRight ? ballLeft - w - 8 : ballLeft + _size + 8).clamp(
-      8.0,
-      maxW - w - 8,
-    );
-    final by = (ballTop - 64).clamp(8.0, maxH - 92);
+    const w = 224.0;
+    final ballRect = Rect.fromLTWH(ballLeft, ballTop, _size, _size);
+    final openAbove = ballRect.top > maxH * 0.46;
+    final bx = (ballRect.center.dx - w / 2).clamp(8.0, maxW - w - 8);
+    final top = openAbove
+        ? null
+        : (ballRect.bottom + 10).clamp(8.0, maxH - 120);
+    final bottom = openAbove
+        ? (maxH - ballRect.top + 10).clamp(12.0, maxH - 80)
+        : null;
     return [
       Positioned(
         left: bx,
-        top: by,
+        top: top,
+        bottom: bottom,
         width: w,
         child: IgnorePointer(
-          child: ValueListenableBuilder<FlashFileStatus>(
-            valueListenable: FlashFileStatusController.instance.status,
-            builder: (context, status, _) {
-              return AnimatedSwitcher(
-                duration: const Duration(milliseconds: 180),
-                reverseDuration: const Duration(milliseconds: 140),
-                switchInCurve: Curves.easeOutCubic,
-                switchOutCurve: Curves.easeInCubic,
-                transitionBuilder: (child, animation) {
-                  final fromRekaDx = onRight ? 4.0 : -4.0;
-                  return FadeTransition(
-                    opacity: animation,
-                    child: AnimatedBuilder(
-                      animation: animation,
-                      child: child,
-                      builder: (context, child) {
-                        return Transform.translate(
-                          offset: Offset(fromRekaDx * (1 - animation.value), 0),
+          child: Material(
+            type: MaterialType.transparency,
+            child: DefaultTextStyle(
+              style: const TextStyle(decoration: TextDecoration.none),
+              child: ValueListenableBuilder<FlashFileStatus>(
+                valueListenable: FlashFileStatusController.instance.status,
+                builder: (context, status, _) {
+                  return AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 180),
+                    reverseDuration: const Duration(milliseconds: 140),
+                    switchInCurve: Curves.easeOutCubic,
+                    switchOutCurve: Curves.easeInCubic,
+                    transitionBuilder: (child, animation) {
+                      final fromRekaDy = openAbove ? 4.0 : -4.0;
+                      return FadeTransition(
+                        opacity: animation,
+                        child: AnimatedBuilder(
+                          animation: animation,
                           child: child,
-                        );
-                      },
-                    ),
+                          builder: (context, child) {
+                            return Transform.translate(
+                              offset: Offset(
+                                0,
+                                fromRekaDy * (1 - animation.value),
+                              ),
+                              child: child,
+                            );
+                          },
+                        ),
+                      );
+                    },
+                    child: status.visible
+                        ? _flashStatusBubble(
+                            context.eu,
+                            status,
+                            key: ValueKey('${status.text}${status.isError}'),
+                          )
+                        : const SizedBox.shrink(
+                            key: ValueKey('flash-status-empty'),
+                          ),
                   );
                 },
-                child: status.visible
-                    ? _flashStatusBubble(
-                        context.eu,
-                        status,
-                        key: ValueKey('${status.text}${status.isError}'),
-                        onRight: onRight,
-                      )
-                    : const SizedBox.shrink(
-                        key: ValueKey('flash-status-empty'),
-                      ),
-              );
-            },
+              ),
+            ),
           ),
         ),
       ),
@@ -689,27 +706,50 @@ class _FloatingMascotState extends State<FloatingMascot>
     EurekaColors eu,
     FlashFileStatus status, {
     Key? key,
-    required bool onRight,
   }) {
-    final border = status.isError ? eu.accentRed : eu.border;
-    final bg = status.isError
-        ? eu.accentRed.withValues(alpha: 0.12)
-        : eu.surfaceRaised;
-    return Stack(
+    final p = _pet.pet;
+    final glow = p != null
+        ? rekaGlow(p.skin, p.equipped['aura'] ?? 'soft')
+        : const [Color(0xFF6F9EFF)];
+    final t0 = status.isError ? eu.accentRed : glow.first;
+    final t1 = status.isError ? eu.accentRed : glow.last;
+    final topC = Color.alphaBlend(
+      t0.withValues(alpha: status.isError ? 0.18 : 0.26),
+      const Color(0xC410161E),
+    );
+    final botC = Color.alphaBlend(
+      t1.withValues(alpha: status.isError ? 0.10 : 0.14),
+      const Color(0xD10C111E),
+    );
+    final border = Color.alphaBlend(
+      t0.withValues(alpha: status.isError ? 0.76 : 0.50),
+      eu.border,
+    );
+    return ClipRRect(
       key: key,
-      clipBehavior: Clip.none,
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      borderRadius: BorderRadius.circular(22),
+      child: BackdropFilter(
+        filter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
-            color: bg,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: border.withValues(alpha: 0.86)),
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [topC, botC],
+            ),
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: border),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.22),
-                blurRadius: 14,
-                offset: const Offset(0, 5),
+                color: Colors.black.withValues(alpha: 0.42),
+                blurRadius: 30,
+                offset: const Offset(0, 12),
+              ),
+              BoxShadow(
+                color: t0.withValues(alpha: status.isError ? 0.24 : 0.34),
+                blurRadius: 24,
+                spreadRadius: -8,
               ),
             ],
           ),
@@ -718,51 +758,17 @@ class _FloatingMascotState extends State<FloatingMascot>
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              color: status.isError ? eu.accentRed : eu.textHi,
+              color: status.isError
+                  ? const Color(0xFFFFD0D0)
+                  : Colors.white.withValues(alpha: 0.94),
+              decoration: TextDecoration.none,
               fontSize: 13.5,
               fontWeight: FontWeight.w700,
               height: 1.35,
             ),
           ),
         ),
-        Positioned(
-          left: onRight ? null : -4,
-          right: onRight ? -4 : null,
-          top: 24,
-          child: Transform.rotate(
-            angle: math.pi / 4,
-            child: Container(
-              width: 9,
-              height: 9,
-              decoration: BoxDecoration(
-                color: bg,
-                border: Border(
-                  left: BorderSide(
-                    color: onRight
-                        ? Colors.transparent
-                        : border.withValues(alpha: 0.86),
-                  ),
-                  bottom: BorderSide(
-                    color: onRight
-                        ? Colors.transparent
-                        : border.withValues(alpha: 0.86),
-                  ),
-                  right: BorderSide(
-                    color: onRight
-                        ? border.withValues(alpha: 0.86)
-                        : Colors.transparent,
-                  ),
-                  top: BorderSide(
-                    color: onRight
-                        ? border.withValues(alpha: 0.86)
-                        : Colors.transparent,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
+      ),
     );
   }
 
