@@ -171,12 +171,13 @@ class DeviceSilentReconnect {
       }
 
       if (Platform.isIOS) {
-        final status = await _ble.getBluetoothStatus();
-        _log('bluetooth ios status=$status');
-        if (status != 'poweredOn') return false;
         final inited = await _ble.initNativeBluetoothSdk();
         _log('bluetooth ios init=$inited');
-        return inited == true;
+        if (inited != true) return false;
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        final status = await _ble.getBluetoothStatus();
+        _log('bluetooth ios status=$status');
+        return status == 'poweredOn';
       }
       final inited = await _ble.initNativeBluetoothSdk();
       _log('bluetooth other init=$inited');
@@ -264,6 +265,9 @@ class DeviceSilentReconnect {
     final cardMac = discovered.cardMac.isNotEmpty
         ? discovered.cardMac
         : binding.cardMac;
+    if (Platform.isIOS) {
+      await _setNativeBindInfoFromBinding(match);
+    }
     _log(
       'ble connect call sn=${binding.serial} appUuid=${_mask(binding.appUuid)} '
       'deviceUuid=${_mask(binding.deviceUuid)} cardMac=${_mask(cardMac)}',
@@ -285,6 +289,40 @@ class DeviceSilentReconnect {
     );
     await _setNativeBindInfo(connected);
     return connected;
+  }
+
+  Future<void> _setNativeBindInfoFromBinding(_MatchedCard match) async {
+    final binding = match.binding;
+    if (binding.serial.isEmpty ||
+        binding.deviceUuid.isEmpty ||
+        binding.appUuid.isEmpty) {
+      _log(
+        'iOS pre-setBindInfo skipped: missing required fields '
+        'sn=${binding.serial}',
+      );
+      return;
+    }
+    final discovered = match.discovered;
+    final cardMac = discovered.cardMac.isNotEmpty
+        ? discovered.cardMac
+        : binding.cardMac;
+    try {
+      _log(
+        'iOS pre-setBindInfo start sn=${binding.serial} '
+        'deviceUuid=${_mask(binding.deviceUuid)} '
+        'appUuid=${_mask(binding.appUuid)} cardMac=${_mask(cardMac)}',
+      );
+      await _ble.setBindInfo(
+        deviceName: binding.name,
+        deviceSN: binding.serial,
+        deviceUUID: binding.deviceUuid,
+        appUUID: binding.appUuid,
+        cardMac: cardMac,
+      );
+      _log('iOS pre-setBindInfo success sn=${binding.serial}');
+    } catch (e) {
+      _log('iOS pre-setBindInfo ignored error=$e');
+    }
   }
 
   Future<void> _setNativeBindInfo(DeviceInfo device) async {
