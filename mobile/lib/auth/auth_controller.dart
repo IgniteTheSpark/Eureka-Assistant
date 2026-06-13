@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -7,6 +8,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../app_events.dart';
 import '../api/api_client.dart';
 import '../api/auth_store.dart';
+import '../ble_flash/ble_flash_manager.dart';
+import '../ble_flash/flash_file_workflow.dart';
+import '../device/device_controller.dart';
 import '../pet/pet_controller.dart';
 import '../pet/reka_nudges.dart';
 import '../pet/reka_notifications.dart';
@@ -20,16 +24,19 @@ class AuthController extends ChangeNotifier {
 
   static const _kToken = 'eureka_token';
   static const _kEmail = 'eureka_email';
+  static const _kUserId = 'eureka_user_id';
   // Deep-link scheme the backend redirects to after 百智 OAuth (matches
   // EUREKA_APP_SCHEME server-side). The web-auth session intercepts it.
   static const _kBaizhiScheme = 'eureka';
 
   String? _email;
+  String? _userId;
   bool _loaded = false;
   int _sessionEpoch = 0;
 
   String? get email => _email;
-  bool get isAuthed => AuthStore.token != null;
+  String? get userId => _userId;
+  bool get isAuthed => AuthStore.token != null && _userId != null;
   bool get loaded => _loaded;
   int get sessionEpoch => _sessionEpoch;
 
@@ -40,6 +47,8 @@ class AuthController extends ChangeNotifier {
     const devToken = String.fromEnvironment('DEV_TOKEN');
     if (devToken.isNotEmpty) {
       AuthStore.token = devToken;
+      AuthStore.userId = 'dev';
+      _userId = 'dev';
       _email = 'dev@local';
     } else {
       // Never let storage init wedge the gate — time out / swallow errors and
@@ -50,9 +59,14 @@ class AuthController extends ChangeNotifier {
         );
         AuthStore.token = sp.getString(_kToken);
         _email = sp.getString(_kEmail);
-        if (AuthStore.token != null) _sessionEpoch++;
+        _userId = sp.getString(_kUserId);
+        AuthStore.userId = _userId;
+        if (AuthStore.token != null && _userId == null) {
+          await _restoreCurrentUser();
+        }
+        if (isAuthed) _sessionEpoch++;
       } catch (_) {
-        AuthStore.token = null;
+        _clearAuthMemory();
       }
     }
     _loaded = true;
@@ -76,7 +90,13 @@ class AuthController extends ChangeNotifier {
       final m = (res as Map).cast<String, dynamic>();
       final token = m['token'] as String?;
       if (token == null) return '登录失败，请重试';
-      await _finishLogin(token, ((m['user'] as Map?)?['email']) as String?);
+      final user = (m['user'] as Map?)?.cast<String, dynamic>();
+      final ok = await _finishLogin(
+        token,
+        userId: user?['id']?.toString(),
+        email: user?['email'] as String?,
+      );
+      if (!ok) return '登录失败，请重试';
       return null;
     } on ApiException catch (e) {
       return _errMsg(e);
@@ -108,10 +128,8 @@ class AuthController extends ChangeNotifier {
       if (err != null && err.isNotEmpty) return '百智登录失败，请重试';
       final token = params['token'];
       if (token == null || token.isEmpty) return '百智登录失败，请重试';
-      await _finishLogin(
-        token,
-        null,
-      ); // 百智 user — email comes from 百智, not stored here
+      final ok = await _finishLogin(token, userId: null, email: null);
+      if (!ok) return '百智登录失败，请重试';
       return null;
     } on ApiException catch (e) {
       return _errMsg(e);
@@ -125,20 +143,39 @@ class AuthController extends ChangeNotifier {
   }
 
   /// Commit a freshly minted Eureka session token: mirror into [AuthStore] +
-  /// persist. [email] is null for 百智-OAuth users (no email/password locally).
-  Future<void> _finishLogin(String token, String? email) async {
-    _resetPerUserState();
+  /// persist. [email] can be null for 百智-OAuth users.
+  Future<bool> _finishLogin(
+    String token, {
+    required String? userId,
+    required String? email,
+  }) async {
+    await _resetPerUserState();
     AuthStore.token = token;
-    _email = email;
+    var resolvedUserId = _clean(userId);
+    var resolvedEmail = email;
+    if (resolvedUserId == null) {
+      final me = await _fetchCurrentUser();
+      resolvedUserId = _clean(me?['id']);
+      resolvedEmail ??= me?['email'] as String?;
+    }
+    if (resolvedUserId == null) {
+      _clearAuthMemory();
+      return false;
+    }
+    _userId = resolvedUserId;
+    _email = resolvedEmail;
+    AuthStore.userId = resolvedUserId;
     _sessionEpoch++;
     final sp = await SharedPreferences.getInstance();
     await sp.setString(_kToken, token);
-    if (email != null) {
-      await sp.setString(_kEmail, email);
+    await sp.setString(_kUserId, resolvedUserId);
+    if (resolvedEmail != null) {
+      await sp.setString(_kEmail, resolvedEmail);
     } else {
       await sp.remove(_kEmail);
     }
     notifyListeners();
+    return true;
   }
 
   String _errMsg(ApiException e) {
@@ -151,13 +188,13 @@ class AuthController extends ChangeNotifier {
   }
 
   Future<void> logout() async {
-    AuthStore.token = null;
-    _email = null;
+    _clearAuthMemory();
     _sessionEpoch++;
-    _resetPerUserState();
+    await _resetPerUserState();
     final sp = await SharedPreferences.getInstance();
     await sp.remove(_kToken);
     await sp.remove(_kEmail);
+    await sp.remove(_kUserId);
     await sp.remove(
       'eureka:active_chat_session',
     ); // don't resume across accounts
@@ -168,8 +205,11 @@ class AuthController extends ChangeNotifier {
   /// 401) doesn't leak the previous user's REKA onto the login screen / next
   /// account. Pet reset also forces the next user's 孵化 onboarding to re-decide
   /// from a fresh /api/pet (a stale spawned snapshot would skip it).
-  void _resetPerUserState() {
+  Future<void> _resetPerUserState() async {
     AppEvents.instance.stop();
+    FlashFileWorkflow.instance.stop();
+    await BleFlashManager.instance.stop();
+    await DeviceController.instance.disconnectForLogout();
     PetController.instance.reset();
     RekaNudges.instance.reset();
     RekaNotifications.instance.clear();
@@ -177,16 +217,60 @@ class AuthController extends ChangeNotifier {
 
   void _onUnauthorized() {
     // Token expired server-side — drop it so the gate shows login.
-    if (AuthStore.token == null && _email == null) return;
-    AuthStore.token = null;
-    _email = null;
+    if (AuthStore.token == null && _email == null && _userId == null) return;
+    _clearAuthMemory();
     _sessionEpoch++;
-    _resetPerUserState();
+    unawaited(_resetPerUserState());
     SharedPreferences.getInstance().then((sp) {
       sp.remove(_kToken);
       sp.remove(_kEmail);
+      sp.remove(_kUserId);
     });
     notifyListeners();
+  }
+
+  Future<void> _restoreCurrentUser() async {
+    final me = await _fetchCurrentUser();
+    final id = _clean(me?['id']);
+    if (id == null) {
+      _clearAuthMemory();
+      final sp = await SharedPreferences.getInstance();
+      await sp.remove(_kToken);
+      await sp.remove(_kEmail);
+      await sp.remove(_kUserId);
+      return;
+    }
+    _userId = id;
+    _email = me?['email'] as String? ?? _email;
+    AuthStore.userId = id;
+    final sp = await SharedPreferences.getInstance();
+    await sp.setString(_kUserId, id);
+    if (_email != null) await sp.setString(_kEmail, _email!);
+  }
+
+  Future<Map<String, dynamic>?> _fetchCurrentUser() async {
+    final api = ApiClient();
+    try {
+      final res = await api.getJson('/api/auth/me');
+      final user = (res as Map)['user'];
+      return user is Map ? user.cast<String, dynamic>() : null;
+    } catch (_) {
+      return null;
+    } finally {
+      api.close();
+    }
+  }
+
+  void _clearAuthMemory() {
+    AuthStore.token = null;
+    AuthStore.userId = null;
+    _email = null;
+    _userId = null;
+  }
+
+  String? _clean(Object? value) {
+    final s = value?.toString().trim();
+    return s == null || s.isEmpty ? null : s;
   }
 }
 

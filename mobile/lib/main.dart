@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
@@ -34,7 +36,6 @@ Future<void> main() async {
   // login vs. app shell once loaded. (AppEvents/SSE need the token, so they
   // start only once authed — see _AuthGate.)
   AuthController.instance.load();
-  BleFlashManager.instance.start();
   runApp(const ProviderScope(child: EurekaApp()));
 }
 
@@ -159,7 +160,8 @@ class _AuthGate extends StatelessWidget {
         if (!auth.isAuthed) return const LoginPage();
         // Authed: open the hardware/notifications SSE bridge (idempotent).
         AppEvents.instance.start();
-        FlashFileWorkflow.instance.start();
+        BleFlashManager.instance.start();
+        unawaited(FlashFileWorkflow.instance.start(auth.userId!));
         return _startSession.isEmpty
             ? KeyedSubtree(
                 key: ValueKey(auth.sessionEpoch),

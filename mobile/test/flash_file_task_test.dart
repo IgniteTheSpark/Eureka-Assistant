@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eureka/ble_flash/flash_file_workflow.dart';
 import 'package:eureka/ble_flash/flash_file_status_controller.dart';
 import 'package:eureka/ble_flash/flash_file_task.dart';
 
@@ -99,5 +100,20 @@ void main() {
     expect(controller.status.value.text, isNot(contains('.opus')));
 
     controller.clear();
+  });
+
+  test('FlashFileWorkflow task storage is scoped by user id', () {
+    expect(
+      FlashFileWorkflow.debugPrefsKeyForUser('user-a'),
+      'flash_file_tasks_v1:user-a',
+    );
+    expect(
+      FlashFileWorkflow.debugPrefsKeyForUser('user-b'),
+      'flash_file_tasks_v1:user-b',
+    );
+    expect(
+      FlashFileWorkflow.debugPrefsKeyForUser(' user-a '),
+      'flash_file_tasks_v1:user-a',
+    );
   });
 }

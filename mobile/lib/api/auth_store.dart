@@ -4,5 +4,6 @@
 /// was present* (expired/invalid) so the app can bounce back to login.
 class AuthStore {
   static String? token;
+  static String? userId;
   static void Function()? onUnauthorized;
 }

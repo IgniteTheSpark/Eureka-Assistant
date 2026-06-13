@@ -82,6 +82,8 @@ abstract class DeviceTransport {
 
   Future<DeviceInfo?> loadBoundDevice();
 
+  Future<void> disconnect();
+
   Future<void> unbind(DeviceInfo device, {required bool deleteData});
 }
 
@@ -270,6 +272,20 @@ class BleDeviceTransport implements DeviceTransport {
       rethrow;
     } catch (_) {
       return null;
+    }
+  }
+
+  @override
+  Future<void> disconnect() async {
+    try {
+      await _ble.closeBLESync();
+    } catch (_) {
+      // Best effort: logout should not fail because sync mode was not open.
+    }
+    try {
+      await _ble.disconnect();
+    } catch (e) {
+      throw _toDeviceError(e);
     }
   }
 
@@ -544,6 +560,8 @@ class MockDeviceTransport implements DeviceTransport {
     cardMac: 'mock-card-mac',
   );
   DeviceInfo? _boundDevice;
+  int disconnectCalls = 0;
+  int unbindCalls = 0;
 
   @override
   Stream<String> get bluetoothStateStream => Stream<String>.empty();
@@ -589,7 +607,14 @@ class MockDeviceTransport implements DeviceTransport {
   Future<DeviceInfo?> loadBoundDevice() async => _boundDevice;
 
   @override
+  Future<void> disconnect() async {
+    disconnectCalls += 1;
+    deviceConnected = false;
+  }
+
+  @override
   Future<void> unbind(DeviceInfo device, {required bool deleteData}) async {
+    unbindCalls += 1;
     await Future<void>.delayed(const Duration(milliseconds: 400));
     deviceConnected = false;
     _boundDevice = null;
@@ -827,6 +852,23 @@ class DeviceController extends ChangeNotifier {
       error = e;
       state = DeviceConnState.error;
     }
+    notifyListeners();
+  }
+
+  Future<void> disconnectForLogout() async {
+    _scanRequested = false;
+    _startingScan = false;
+    await _scanSub?.cancel();
+    _scanSub = null;
+    try {
+      await _transport.disconnect();
+    } catch (_) {
+      // Logout cleanup is best-effort. It must never turn into an unbind.
+    }
+    device = null;
+    discovered = const [];
+    error = null;
+    state = DeviceConnState.idle;
     notifyListeners();
   }
 

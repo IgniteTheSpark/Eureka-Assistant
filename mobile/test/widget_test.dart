@@ -10,6 +10,7 @@ void main() {
   testWidgets('unauthenticated app shows the login gate', (tester) async {
     SharedPreferences.setMockInitialValues({});
     AuthStore.token = null;
+    AuthStore.userId = null;
     await AuthController.instance.load();
 
     await tester.pumpWidget(const ProviderScope(child: EurekaApp()));

@@ -29,8 +29,12 @@ class FlashFileWorkflow {
   static final FlashFileWorkflow instance = FlashFileWorkflow._();
 
   static const _logTag = '[FlashFile]';
-  static const _prefsKey = 'flash_file_tasks_v1';
+  static const _prefsKeyPrefix = 'flash_file_tasks_v1';
   static const _smallOpusThresholdBytes = 5 * 1024 * 1024;
+
+  @visibleForTesting
+  static String debugPrefsKeyForUser(String userId) =>
+      '$_prefsKeyPrefix:${userId.trim()}';
   final BrBluetoothPlugin _ble;
   final BrAudioConverterPlugin _converter;
   final TencentAsrS3Client _asrClient;
@@ -45,6 +49,8 @@ class FlashFileWorkflow {
   bool _uploadRunning = false;
   bool _notifyRunning = false;
   bool _deviceConnected = false;
+  int _runId = 0;
+  String? _userId;
   Set<String> _syncableFlashFiles = const {};
   Timer? _wakeTimer;
 
@@ -55,22 +61,67 @@ class FlashFileWorkflow {
       'mode=${task.asrMode?.name ?? "-"} asrTask=${task.tencentAsrTaskId ?? "-"} '
       'recording=${task.eurekaRecordingId ?? "-"}';
 
-  Future<void> start() async {
-    _log('workflow start requested');
+  Future<void> start(String userId) async {
+    final normalizedUserId = userId.trim();
+    if (normalizedUserId.isEmpty) {
+      _log('skip workflow start: user id missing');
+      return;
+    }
+    if (_started && _userId == normalizedUserId) {
+      _log('workflow already started user=$normalizedUserId');
+      return;
+    }
+    if (_started) {
+      stop();
+    }
+    _log('workflow start requested user=$normalizedUserId');
+    _runId++;
+    final runId = _runId;
+    _userId = normalizedUserId;
     _started = true;
-    await _load();
+    _loaded = false;
+    _tasks.clear();
+    _syncableFlashFiles = const {};
+    _deviceConnected = false;
+    _notifyTasksChanged();
+    await _load(runId);
+    if (!_isActiveRun(runId)) return;
     _log('workflow loaded tasks count=${_tasks.length}');
     await scanOfflineIfConnected();
+    if (!_isActiveRun(runId)) return;
     _kick();
   }
 
+  void stop() {
+    if (!_started && _userId == null && _tasks.isEmpty) return;
+    _log('workflow stop requested user=${_userId ?? "-"}');
+    _started = false;
+    _runId++;
+    _userId = null;
+    _loaded = false;
+    _deviceConnected = false;
+    _syncRunning = false;
+    _transcodeRunning = false;
+    _uploadRunning = false;
+    _notifyRunning = false;
+    _syncableFlashFiles = const {};
+    _wakeTimer?.cancel();
+    _wakeTimer = null;
+    _tasks.clear();
+    FlashFileStatusController.instance.clear();
+    _notifyTasksChanged();
+    unawaited(_closeBleSyncMode());
+  }
+
   Future<void> scanOfflineIfConnected() async {
+    final runId = _runId;
     if (!_started) {
       _log('skip offline scan: workflow not started');
       return;
     }
     try {
       _deviceConnected = await _ble.isConnected() == true;
+      if (!_isActiveRun(runId)) return;
       if (_deviceConnected) {
         _log('device connected; start offline scan');
         await scanOffline();
@@ -85,6 +136,7 @@ class FlashFileWorkflow {
   }
 
   Future<void> handleConnectionChanged(bool connected) async {
+    if (!_started) return;
     _deviceConnected = connected;
     _log('device connection changed connected=$connected');
     if (!connected) {
@@ -101,12 +153,19 @@ class FlashFileWorkflow {
     int? crc,
     int? deviceSizeBytes,
   }) async {
+    final runId = _runId;
+    if (!_isActiveRun(runId)) {
+      _log('ignore realtime file: workflow not active fileName=$fileName');
+      return;
+    }
     if (!isFlashFileName(fileName)) {
       _log('ignore realtime file: not flash file fileName=$fileName');
       return;
     }
-    await _load();
+    await _load(runId);
+    if (!_isActiveRun(runId)) return;
     final sn = await _deviceSn();
+    if (!_isActiveRun(runId)) return;
     final key = '$sn:$fileName';
     final existing = _tasks[key];
     _tasks[key] = (existing ?? _newTask(sn, fileName, FlashFileSource.realtime))
@@ -117,7 +176,8 @@ class FlashFileWorkflow {
           crc: crc,
           deviceSizeBytes: deviceSizeBytes,
         );
-    await _save();
+    await _save(runId);
+    if (!_isActiveRun(runId)) return;
     _notifyTasksChanged();
     _log(
       'realtime task upserted key=$key existing=${existing != null} '
@@ -130,14 +190,18 @@ class FlashFileWorkflow {
   }
 
   Future<void> scanOffline() async {
+    final runId = _runId;
     if (!_started) {
       _log('skip offline scan: workflow not started');
       return;
     }
-    await _load();
+    await _load(runId);
+    if (!_isActiveRun(runId)) return;
     final sn = await _deviceSn();
+    if (!_isActiveRun(runId)) return;
     _log('offline scan start sn=$sn');
     final res = await _withBleSyncMode(() => _ble.getFileList());
+    if (!_isActiveRun(runId)) return;
     final names = _extractFileNames(res);
     final flashNames = names.where(isFlashFileName).toList();
     _syncableFlashFiles = flashNames.toSet();
@@ -173,7 +237,8 @@ class FlashFileWorkflow {
     _log(
       'offline scan done flashCount=${flashNames.length} added=$added deleteRetry=$deleteRetry',
     );
-    await _save();
+    await _save(runId);
+    if (!_isActiveRun(runId)) return;
     if (flashNames.isEmpty && deleteRetry == 0) {
       FlashFileStatusController.instance.clear();
     }
@@ -181,6 +246,8 @@ class FlashFileWorkflow {
   }
 
   void applyServerStatus(Map<String, dynamic> payload) {
+    final runId = _runId;
+    if (!_isActiveRun(runId)) return;
     final taskId = payload['client_task_id']?.toString();
     final status = payload['status']?.toString();
     if (taskId == null || taskId.isEmpty || status == null) {
@@ -198,7 +265,7 @@ class FlashFileWorkflow {
         _tasks[entry.key] = task.copyWith(
           stage: FlashFileStage.deletingDeviceFile,
         );
-        _save();
+        unawaited(_save(runId));
         _notifyTasksChanged();
         _log(
           'server status moves task to delete ${_brief(task)} status=$status',
@@ -207,7 +274,7 @@ class FlashFileWorkflow {
       } else if (status == 'done' &&
           task.stage != FlashFileStage.deletingDeviceFile) {
         _tasks[entry.key] = task.copyWith(stage: FlashFileStage.done);
-        _save();
+        unawaited(_save(runId));
         _notifyTasksChanged();
         _log('server status marks done ${_brief(task)}');
       } else if (status == 'failed') {
@@ -221,7 +288,7 @@ class FlashFileWorkflow {
           stage: FlashFileStage.failed,
           lastError: payload['message']?.toString(),
         );
-        _save();
+        unawaited(_save(runId));
         _notifyTasksChanged();
         _log(
           'server status marks failed ${_brief(task)} message=${payload['message']}',
@@ -264,27 +331,32 @@ class FlashFileWorkflow {
 
   void _kick() {
     if (!_started) return;
+    final runId = _runId;
     _wakeTimer?.cancel();
     _wakeTimer = null;
     _kickStageWorker(
+      runId: runId,
       isRunning: () => _syncRunning,
       setRunning: (v) => _syncRunning = v,
       nextTask: _nextSyncTask,
       runTask: _runSyncTask,
     );
     _kickStageWorker(
+      runId: runId,
       isRunning: () => _transcodeRunning,
       setRunning: (v) => _transcodeRunning = v,
       nextTask: () => _nextStageTask({FlashFileStage.syncedToPhone}),
       runTask: _prepareUploadAudio,
     );
     _kickStageWorker(
+      runId: runId,
       isRunning: () => _uploadRunning,
       setRunning: (v) => _uploadRunning = v,
       nextTask: () => _nextStageTask({FlashFileStage.converted}),
       runTask: _upload,
     );
     _kickStageWorker(
+      runId: runId,
       isRunning: () => _notifyRunning,
       setRunning: (v) => _notifyRunning = v,
       nextTask: () => _nextStageTask({FlashFileStage.s3Uploaded}),
@@ -293,29 +365,32 @@ class FlashFileWorkflow {
   }
 
   void _kickStageWorker({
+    required int runId,
     required bool Function() isRunning,
     required void Function(bool) setRunning,
     required FlashFileTask? Function() nextTask,
-    required Future<void> Function(FlashFileTask) runTask,
+    required Future<void> Function(FlashFileTask, int) runTask,
   }) {
-    if (isRunning()) return;
+    if (!_isActiveRun(runId) || isRunning()) return;
     setRunning(true);
     Future<void>(() async {
       try {
         while (true) {
+          if (!_isActiveRun(runId)) break;
           final task = nextTask();
           if (task == null) break;
           _log('worker picked ${_brief(task)}');
           try {
-            await runTask(task);
+            await runTask(task, runId);
           } catch (e) {
+            if (!_isActiveRun(runId)) break;
             _log('worker task error ${_brief(task)} error=$e');
-            await _retryOrFail(task, e);
+            await _retryOrFail(task, e, runId);
           }
         }
       } finally {
-        setRunning(false);
-        _scheduleNextWake();
+        if (_runId == runId) setRunning(false);
+        if (_isActiveRun(runId)) _scheduleNextWake();
       }
     });
   }
@@ -340,7 +415,10 @@ class FlashFileWorkflow {
     final delay = nextDelay < const Duration(seconds: 1)
         ? const Duration(seconds: 1)
         : nextDelay;
-    _wakeTimer = Timer(delay, _kick);
+    final runId = _runId;
+    _wakeTimer = Timer(delay, () {
+      if (_isActiveRun(runId)) _kick();
+    });
     _log('scheduled next workflow wake delay=${delay.inSeconds}s');
   }
 
@@ -395,17 +473,20 @@ class FlashFileWorkflow {
     return retryAfter == null || !retryAfter.isAfter(DateTime.now());
   }
 
-  Future<void> _retryOrFail(FlashFileTask task, Object error) async {
+  Future<void> _retryOrFail(FlashFileTask task, Object error, int runId) async {
+    if (!_isActiveRun(runId)) return;
     if (_isPermanentFailure(task, error)) {
       _log('permanent failure ${_brief(task)} error=$error');
-      await _markFailed(task, error);
+      await _markFailed(task, error, runId);
       return;
     }
     final latest = _tasks[task.key] ?? task;
     await _update(
       task.key,
       latest.copyWith(stage: FlashFileStage.failed, lastError: '$error'),
+      runId,
     );
+    if (!_isActiveRun(runId)) return;
     _log('task stopped for refresh ${_brief(latest)} error=$error');
     FlashFileStatusController.instance.failed(
       task.fileName,
@@ -418,31 +499,37 @@ class FlashFileWorkflow {
     return false;
   }
 
-  Future<void> _markFailed(FlashFileTask task, Object error) async {
+  Future<void> _markFailed(FlashFileTask task, Object error, int runId) async {
     await _update(
       task.key,
       task.copyWith(stage: FlashFileStage.failed, lastError: '$error'),
+      runId,
     );
+    if (!_isActiveRun(runId)) return;
     _log('task failed ${_brief(task)} error=$error');
     FlashFileStatusController.instance.failed(task.fileName);
   }
 
-  Future<void> _runSyncTask(FlashFileTask task) async {
+  Future<void> _runSyncTask(FlashFileTask task, int runId) async {
     if (task.stage == FlashFileStage.deletingDeviceFile) {
-      await _deleteDeviceFile(task);
+      await _deleteDeviceFile(task, runId);
       return;
     }
-    await _sync(task);
+    await _sync(task, runId);
   }
 
-  Future<void> _sync(FlashFileTask task) async {
+  Future<void> _sync(FlashFileTask task, int runId) async {
+    if (!_isActiveRun(runId)) return;
     _log('sync start ${_brief(task)}');
     FlashFileStatusController.instance.syncing(task.fileName);
     await _update(
       task.key,
       task.copyWith(stage: FlashFileStage.syncingFromCard),
+      runId,
     );
+    if (!_isActiveRun(runId)) return;
     final dir = await _ble.getDefaultStorageDirectory();
+    if (!_isActiveRun(runId)) return;
     final localPath = _resolveLocalPath(
       const <String, dynamic>{},
       dir,
@@ -460,6 +547,7 @@ class FlashFileWorkflow {
           deviceSizeBytes: task.deviceSizeBytes ?? File(localPath).lengthSync(),
           localOpusPath: localPath,
         ),
+        runId,
       );
       return;
     }
@@ -484,6 +572,7 @@ class FlashFileWorkflow {
         return _ble.syncAudioFile(fileName: task.fileName, directory: dir);
       }
     });
+    if (!_isActiveRun(runId)) return;
     final map = result is Map
         ? result.cast<String, dynamic>()
         : <String, dynamic>{};
@@ -500,10 +589,12 @@ class FlashFileWorkflow {
         deviceSizeBytes: task.deviceSizeBytes ?? file.lengthSync(),
         localOpusPath: path,
       ),
+      runId,
     );
   }
 
-  Future<void> _prepareUploadAudio(FlashFileTask task) async {
+  Future<void> _prepareUploadAudio(FlashFileTask task, int runId) async {
+    if (!_isActiveRun(runId)) return;
     final opusPath = task.localOpusPath;
     if (opusPath == null) throw StateError('opus path missing');
     final opusFile = File(opusPath);
@@ -516,8 +607,10 @@ class FlashFileWorkflow {
         'size=$opusSize threshold=$_smallOpusThresholdBytes noS3=true noTranscode=true',
       );
       final uploadPath = await _stripMarkIfNeeded(opusPath);
+      if (!_isActiveRun(runId)) return;
       final audio = File(uploadPath);
       final bytes = await audio.readAsBytes();
+      if (!_isActiveRun(runId)) return;
       await _update(
         task.key,
         task.copyWith(
@@ -528,6 +621,7 @@ class FlashFileWorkflow {
           localAudioSha256: sha256.convert(bytes).toString(),
           localAudioSizeBytes: bytes.length,
         ),
+        runId,
       );
       _log(
         'small opus ready ${_brief(task)} upload=$uploadPath bytes=${bytes.length}',
@@ -539,8 +633,11 @@ class FlashFileWorkflow {
     await _update(
       task.key,
       task.copyWith(stage: FlashFileStage.convertingToMp3),
+      runId,
     );
+    if (!_isActiveRun(runId)) return;
     final input = await _stripMarkIfNeeded(opusPath);
+    if (!_isActiveRun(runId)) return;
     final mp3Path = opusPath.replaceFirst(
       RegExp(r'\.opus$', caseSensitive: false),
       '.mp3',
@@ -550,6 +647,7 @@ class FlashFileWorkflow {
       outputPath: mp3Path,
       meetingId: task.id,
     );
+    if (!_isActiveRun(runId)) return;
     if (ok != true || !File(mp3Path).existsSync()) {
       throw StateError('opus to mp3 failed');
     }
@@ -568,16 +666,18 @@ class FlashFileWorkflow {
         mp3Sha256: sha256.convert(bytes).toString(),
         mp3SizeBytes: bytes.length,
       ),
+      runId,
     );
     _log(
       'transcode success ${_brief(task)} mp3=$mp3Path bytes=${bytes.length}',
     );
   }
 
-  Future<void> _upload(FlashFileTask task) async {
+  Future<void> _upload(FlashFileTask task, int runId) async {
+    if (!_isActiveRun(runId)) return;
     final asrMode = task.asrMode ?? FlashFileAsrMode.async;
     if (asrMode == FlashFileAsrMode.syncClient) {
-      await _runClientSyncAsr(task);
+      await _runClientSyncAsr(task, runId);
       return;
     }
     final audioFormat = task.audioFormat ?? 'mp3';
@@ -592,7 +692,9 @@ class FlashFileWorkflow {
     await _update(
       task.key,
       task.copyWith(stage: FlashFileStage.requestingS3Presign),
+      runId,
     );
+    if (!_isActiveRun(runId)) return;
     final uploadName = audioFormat == 'opus'
         ? task.fileName
         : task.fileName.replaceFirst(
@@ -606,6 +708,7 @@ class FlashFileWorkflow {
       filename: uploadName,
       contentType: contentType,
     );
+    if (!_isActiveRun(runId)) return;
     if (presign.s3Key.isEmpty ||
         presign.uploadUrl.isEmpty ||
         presign.audioUrl.isEmpty) {
@@ -624,20 +727,25 @@ class FlashFileWorkflow {
         s3UploadHeaders: presign.headers,
         s3ExpiresIn: presign.expiresIn,
       ),
+      runId,
     );
+    if (!_isActiveRun(runId)) return;
     await _asrClient.uploadFile(
       uploadUrl: presign.uploadUrl,
       headers: presign.headers,
       file: File(audioPath),
     );
+    if (!_isActiveRun(runId)) return;
     _log('upload success ${_brief(task)} s3Key=${presign.s3Key}');
     await _update(
       task.key,
       _tasks[task.key]!.copyWith(stage: FlashFileStage.s3Uploaded),
+      runId,
     );
   }
 
-  Future<void> _runClientSyncAsr(FlashFileTask task) async {
+  Future<void> _runClientSyncAsr(FlashFileTask task, int runId) async {
+    if (!_isActiveRun(runId)) return;
     final audioPath = task.localAudioPath ?? task.localOpusPath;
     if (audioPath == null) throw StateError('audio path missing');
     _log('client sync ASR start ${_brief(task)} audio=$audioPath');
@@ -648,7 +756,11 @@ class FlashFileWorkflow {
         'status=${task.clientAsrStatus ?? "completed"} textLen=${task.clientAsrText?.length ?? 0} '
         'error=${task.clientAsrError ?? ""}',
       );
-      await _update(task.key, task.copyWith(stage: FlashFileStage.s3Uploaded));
+      await _update(
+        task.key,
+        task.copyWith(stage: FlashFileStage.s3Uploaded),
+        runId,
+      );
       return;
     }
     try {
@@ -656,6 +768,7 @@ class FlashFileWorkflow {
         file: File(audioPath),
         speakerDiarization: false,
       );
+      if (!_isActiveRun(runId)) return;
       await _update(
         task.key,
         task.copyWith(
@@ -667,6 +780,7 @@ class FlashFileWorkflow {
           clientAsrError: '',
           clientAsrMessage: result.text.trim().isEmpty ? '文件没内容' : '',
         ),
+        runId,
       );
       _log(
         'client sync ASR success ${_brief(task)} textLen=${result.text.length} segments=${result.segments.length}',
@@ -690,19 +804,23 @@ class FlashFileWorkflow {
           clientAsrError: error,
           clientAsrMessage: '识别失败已记录',
         ),
+        runId,
       );
       return;
     }
   }
 
-  Future<void> _notifyEureka(FlashFileTask task) async {
+  Future<void> _notifyEureka(FlashFileTask task, int runId) async {
+    if (!_isActiveRun(runId)) return;
     final latest = _tasks[task.key] ?? task;
     _log('notify Eureka start ${_brief(latest)} s3Key=${latest.s3Key}');
     FlashFileStatusController.instance.submitting(latest.fileName);
     await _update(
       task.key,
       latest.copyWith(stage: FlashFileStage.notifyingEureka),
+      runId,
     );
+    if (!_isActiveRun(runId)) return;
     if (latest.asrMode == FlashFileAsrMode.syncClient) {
       _log(
         'submit sync ASR result start ${_brief(latest)} '
@@ -723,6 +841,7 @@ class FlashFileWorkflow {
       }
       rethrow;
     }
+    if (!_isActiveRun(runId)) return;
     _log('notify Eureka success ${_brief(latest)} response=$res');
     if (latest.asrMode == FlashFileAsrMode.syncClient) {
       _log(
@@ -742,7 +861,9 @@ class FlashFileWorkflow {
             eurekaRecordingId: res['recording_id']?.toString(),
             lastError: latest.clientAsrError ?? latest.clientAsrMessage,
           ),
+          runId,
         );
+        if (!_isActiveRun(runId)) return;
         FlashFileStatusController.instance.failed(
           latest.fileName,
           message: latest.clientAsrMessage ?? '识别失败，请重试',
@@ -751,19 +872,23 @@ class FlashFileWorkflow {
       }
     }
     await _deleteLocalFlashFiles(latest);
+    if (!_isActiveRun(runId)) return;
     await _update(
       task.key,
       latest.copyWith(
         stage: FlashFileStage.deletingDeviceFile,
         eurekaRecordingId: res['recording_id']?.toString(),
       ),
+      runId,
     );
   }
 
-  Future<void> _deleteDeviceFile(FlashFileTask task) async {
+  Future<void> _deleteDeviceFile(FlashFileTask task, int runId) async {
+    if (!_isActiveRun(runId)) return;
     _log('delete device file start ${_brief(task)}');
     FlashFileStatusController.instance.cleaning(task.fileName);
     final ok = await _ble.deleteFile(fileName: task.fileName);
+    if (!_isActiveRun(runId)) return;
     _log('delete device file result ${_brief(task)} ok=$ok');
     await _update(
       task.key,
@@ -771,7 +896,9 @@ class FlashFileWorkflow {
         stage: ok == true ? FlashFileStage.done : FlashFileStage.done,
         deviceDeletePending: ok != true,
       ),
+      runId,
     );
+    if (!_isActiveRun(runId)) return;
     FlashFileStatusController.instance.clear();
   }
 
@@ -977,10 +1104,12 @@ class FlashFileWorkflow {
     return out.toList();
   }
 
-  Future<void> _load() async {
+  Future<void> _load(int runId) async {
+    if (!_isActiveRun(runId)) return;
     if (_loaded) return;
     _loaded = true;
     final sp = await SharedPreferences.getInstance();
+    if (!_isActiveRun(runId)) return;
     final raw = sp.getString(_prefsKey);
     if (raw == null || raw.isEmpty) {
       _log('load persisted tasks: empty');
@@ -992,6 +1121,7 @@ class FlashFileWorkflow {
       return;
     }
     for (final item in list) {
+      if (!_isActiveRun(runId)) return;
       if (item is Map) {
         final task = _recoverLoadedTask(
           FlashFileTask.fromJson(item.cast<String, dynamic>()),
@@ -1044,18 +1174,22 @@ class FlashFileWorkflow {
     );
   }
 
-  Future<void> _save() async {
+  Future<void> _save(int runId) async {
+    if (!_isActiveRun(runId)) return;
     final sp = await SharedPreferences.getInstance();
+    if (!_isActiveRun(runId)) return;
     await sp.setString(
       _prefsKey,
       jsonEncode(_tasks.values.map((t) => t.toJson()).toList()),
     );
   }
 
-  Future<void> _update(String key, FlashFileTask task) async {
+  Future<void> _update(String key, FlashFileTask task, int runId) async {
+    if (!_isActiveRun(runId)) return;
     final old = _tasks[key];
     _tasks[key] = task;
-    await _save();
+    await _save(runId);
+    if (!_isActiveRun(runId)) return;
     if (old?.stage != task.stage) {
       _log(
         'stage changed key=$key ${old?.stage.name ?? "-"} -> ${task.stage.name}',
@@ -1065,6 +1199,25 @@ class FlashFileWorkflow {
     }
     if (_started) _kick();
     _notifyTasksChanged();
+  }
+
+  bool _isActiveRun(int runId) =>
+      _started && _runId == runId && _userId?.isNotEmpty == true;
+
+  String get _prefsKey {
+    final id = _userId;
+    if (id == null || id.isEmpty) {
+      throw StateError('flash workflow user id missing');
+    }
+    return debugPrefsKeyForUser(id);
+  }
+
+  Future<void> _closeBleSyncMode() async {
+    try {
+      await _ble.closeBLESync();
+    } catch (_) {
+      // Best effort: sync mode may not be open.
+    }
   }
 
   void _notifyTasksChanged() {
