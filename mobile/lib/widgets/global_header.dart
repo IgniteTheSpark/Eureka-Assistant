@@ -46,10 +46,19 @@ class GlobalHeaderBar extends StatelessWidget {
             tooltip: '个人中心',
             onTap: () => _openProfile(context),
           ),
-          _GhostButton(
-            icon: Icons.devices_outlined,
-            tooltip: '设备连接',
-            onTap: () => _openDevice(context),
+          AnimatedBuilder(
+            animation: DeviceController.instance,
+            builder: (context, _) {
+              final dev = DeviceController.instance;
+              final connected =
+                  dev.state == DeviceConnState.connected && dev.isBound;
+              return _GhostButton(
+                icon: Icons.devices_outlined,
+                tooltip: '设备连接',
+                color: connected ? eu.accentGreen : null,
+                onTap: () => _openDevice(context),
+              );
+            },
           ),
         ],
       ),
@@ -60,10 +69,12 @@ class GlobalHeaderBar extends StatelessWidget {
 class _GhostButton extends StatelessWidget {
   final IconData icon;
   final String tooltip;
+  final Color? color;
   final VoidCallback onTap;
   const _GhostButton({
     required this.icon,
     required this.tooltip,
+    this.color,
     required this.onTap,
   });
 
@@ -73,7 +84,7 @@ class _GhostButton extends StatelessWidget {
     return IconButton(
       tooltip: tooltip,
       onPressed: onTap,
-      icon: Icon(icon, color: eu.textMid),
+      icon: Icon(icon, color: color ?? eu.textMid),
     );
   }
 }

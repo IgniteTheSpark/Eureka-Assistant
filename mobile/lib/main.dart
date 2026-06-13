@@ -163,7 +163,10 @@ class _AuthGate extends StatelessWidget {
         AppEvents.instance.start();
         FlashFileWorkflow.instance.start();
         return _startSession.isEmpty
-            ? const _PostAuthGate()
+            ? KeyedSubtree(
+                key: ValueKey(auth.sessionEpoch),
+                child: const _PostAuthGate(),
+              )
             : SessionDetailPage(sessionId: _startSession, title: '会话详情');
       },
     );

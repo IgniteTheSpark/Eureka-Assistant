@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 
 import 'api/api_client.dart';
 import 'api/sse_client.dart';
@@ -31,29 +32,51 @@ class AppEvents {
   static const _flashLogTag = '[FlashFile]';
 
   bool _started = false;
+  int _runId = 0;
+  http.Client? _client;
 
   void _flashLog(String message) => debugPrint('$_flashLogTag SSE $message');
 
   void start() {
     if (_started) return;
     _started = true;
+    final runId = ++_runId;
     _flashLog('app events start');
-    _run();
+    _run(runId);
     // §14.7: restore today's un-acted nudges → quiet「...」chip on the ball.
     RekaNudges.instance.loadPending();
   }
 
-  Future<void> _run() async {
-    while (true) {
+  void stop() {
+    if (!_started) return;
+    _started = false;
+    _runId++;
+    listeningNotifier.value = false;
+    _client?.close();
+    _client = null;
+  }
+
+  Future<void> _run(int runId) async {
+    while (_started && runId == _runId) {
+      final client = http.Client();
+      _client = client;
       try {
-        await for (final ev in getSse('/api/notifications/stream')) {
+        await for (final ev in getSse(
+          '/api/notifications/stream',
+          client: client,
+        )) {
+          if (!_started || runId != _runId) break;
           _handle(ev);
         }
       } catch (e) {
         // connection dropped — reconnect below
         _flashLog('SSE disconnected error=$e');
+      } finally {
+        if (identical(_client, client)) _client = null;
+        client.close();
       }
       listeningNotifier.value = false;
+      if (!_started || runId != _runId) break;
       await Future<void>.delayed(const Duration(seconds: 3));
     }
   }

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../app_events.dart';
 import '../api/api_client.dart';
 import '../api/auth_store.dart';
 import '../pet/pet_controller.dart';
@@ -25,10 +26,12 @@ class AuthController extends ChangeNotifier {
 
   String? _email;
   bool _loaded = false;
+  int _sessionEpoch = 0;
 
   String? get email => _email;
   bool get isAuthed => AuthStore.token != null;
   bool get loaded => _loaded;
+  int get sessionEpoch => _sessionEpoch;
 
   /// Read any persisted token on startup. A `--dart-define=DEV_TOKEN=...` lets a
   /// headless/dev build skip the login screen for screenshot verification.
@@ -42,10 +45,12 @@ class AuthController extends ChangeNotifier {
       // Never let storage init wedge the gate — time out / swallow errors and
       // proceed unauthenticated (→ login) if prefs are unavailable.
       try {
-        final sp = await SharedPreferences.getInstance()
-            .timeout(const Duration(seconds: 3));
+        final sp = await SharedPreferences.getInstance().timeout(
+          const Duration(seconds: 3),
+        );
         AuthStore.token = sp.getString(_kToken);
         _email = sp.getString(_kEmail);
+        if (AuthStore.token != null) _sessionEpoch++;
       } catch (_) {
         AuthStore.token = null;
       }
@@ -103,7 +108,10 @@ class AuthController extends ChangeNotifier {
       if (err != null && err.isNotEmpty) return '百智登录失败，请重试';
       final token = params['token'];
       if (token == null || token.isEmpty) return '百智登录失败，请重试';
-      await _finishLogin(token, null); // 百智 user — email comes from 百智, not stored here
+      await _finishLogin(
+        token,
+        null,
+      ); // 百智 user — email comes from 百智, not stored here
       return null;
     } on ApiException catch (e) {
       return _errMsg(e);
@@ -119,8 +127,10 @@ class AuthController extends ChangeNotifier {
   /// Commit a freshly minted Eureka session token: mirror into [AuthStore] +
   /// persist. [email] is null for 百智-OAuth users (no email/password locally).
   Future<void> _finishLogin(String token, String? email) async {
+    _resetPerUserState();
     AuthStore.token = token;
     _email = email;
+    _sessionEpoch++;
     final sp = await SharedPreferences.getInstance();
     await sp.setString(_kToken, token);
     if (email != null) {
@@ -143,11 +153,14 @@ class AuthController extends ChangeNotifier {
   Future<void> logout() async {
     AuthStore.token = null;
     _email = null;
+    _sessionEpoch++;
     _resetPerUserState();
     final sp = await SharedPreferences.getInstance();
     await sp.remove(_kToken);
     await sp.remove(_kEmail);
-    await sp.remove('eureka:active_chat_session'); // don't resume across accounts
+    await sp.remove(
+      'eureka:active_chat_session',
+    ); // don't resume across accounts
     notifyListeners();
   }
 
@@ -156,6 +169,7 @@ class AuthController extends ChangeNotifier {
   /// account. Pet reset also forces the next user's 孵化 onboarding to re-decide
   /// from a fresh /api/pet (a stale spawned snapshot would skip it).
   void _resetPerUserState() {
+    AppEvents.instance.stop();
     PetController.instance.reset();
     RekaNudges.instance.reset();
     RekaNotifications.instance.clear();
@@ -166,6 +180,7 @@ class AuthController extends ChangeNotifier {
     if (AuthStore.token == null && _email == null) return;
     AuthStore.token = null;
     _email = null;
+    _sessionEpoch++;
     _resetPerUserState();
     SharedPreferences.getInstance().then((sp) {
       sp.remove(_kToken);
