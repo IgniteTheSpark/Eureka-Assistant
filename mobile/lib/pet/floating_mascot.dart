@@ -1,4 +1,4 @@
-import 'dart:async' show Timer;
+import 'dart:async' show Timer, unawaited;
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -8,9 +8,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../app_events.dart' show navigatorKey;
 import '../auth/auth_controller.dart';
 import '../ble_flash/flash_file_status_controller.dart';
+import '../chat/recent_session.dart';
 import '../pages/chat_page.dart';
 import '../pages/pet_page.dart';
 import '../pages/pet_spawn_page.dart';
+import '../pages/session_detail_page.dart';
 import '../render/pet_view.dart';
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
@@ -390,9 +392,27 @@ class _FloatingMascotState extends State<FloatingMascot>
     if (!_pet.onboardingCompleted) {
       _push(const PetSpawnPage());
     } else {
-      _push(
-        const ChatPage(),
-      ); // resumes the last conversation (chat_controller)
+      unawaited(_openLatestSession());
+    }
+  }
+
+  Future<void> _openLatestSession() async {
+    final latest = await RecentSessionStore.resolve();
+    if (!mounted) return;
+    if (latest == null) {
+      _push(const ChatPage());
+      return;
+    }
+    switch (latest.type) {
+      case 'flash':
+        _push(SessionDetailPage(sessionId: latest.id, title: '闪念'));
+        return;
+      case 'chat':
+        _push(ChatPage(boundSessionId: latest.id));
+        return;
+      default:
+        _push(const ChatPage());
+        return;
     }
   }
 
@@ -488,10 +508,8 @@ class _FloatingMascotState extends State<FloatingMascot>
     // composites reliably (and avoids reload flicker when it returns).
     return ValueListenableBuilder<int>(
       valueListenable: mascotSuppressed,
-      builder: (context, suppressed, _) => _mascot(
-        context,
-        suppressed: suppressed,
-      ),
+      builder: (context, suppressed, _) =>
+          _mascot(context, suppressed: suppressed),
     );
   }
 

@@ -10,6 +10,7 @@ import '../api/api_client.dart';
 import '../api/auth_store.dart';
 import '../ble_flash/ble_flash_manager.dart';
 import '../ble_flash/flash_file_workflow.dart';
+import '../chat/recent_session.dart';
 import '../device/device_controller.dart';
 import '../device/device_silent_reconnect.dart';
 import '../pet/pet_controller.dart';
@@ -208,6 +209,8 @@ class AuthController extends ChangeNotifier {
     await sp.remove(
       'eureka:active_chat_session',
     ); // don't resume across accounts
+    await sp.remove(recentSessionIdKey);
+    await sp.remove(recentSessionTypeKey);
     notifyListeners();
   }
 

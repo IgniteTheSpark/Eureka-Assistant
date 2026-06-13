@@ -1,4 +1,5 @@
 import '../api/api_client.dart';
+import '../chat/recent_session.dart';
 
 /// Result of a flash capture (POST /api/flash). `cards` are the derived asset/
 /// event/contact/task cards, same shape the chat renders.
@@ -35,8 +36,8 @@ class FlashResult {
   );
 }
 
-/// [source] = capture modality: 'voice'(硬件闪念,默认)→ 闪念 session;
-/// 'typed'(打字,如 onboarding 首捕)→ 中性「记录」session(打字 ≠ 闪念)。
+/// [source] records the real capture modality. [captureSessionType] can force
+/// onboarding typed capture into a flash session while keeping source='typed'.
 Future<FlashResult> sendFlash(
   ApiClient api,
   String text, {
@@ -49,5 +50,9 @@ Future<FlashResult> sendFlash(
     if (captureSessionType.isNotEmpty)
       'capture_session_type': captureSessionType,
   });
-  return FlashResult.fromJson((res as Map).cast<String, dynamic>());
+  final result = FlashResult.fromJson((res as Map).cast<String, dynamic>());
+  if (result.sessionId.isNotEmpty) {
+    await RecentSessionStore.save(id: result.sessionId, type: 'flash');
+  }
+  return result;
 }

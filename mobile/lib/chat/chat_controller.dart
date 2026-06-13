@@ -8,6 +8,7 @@ import '../api/api_client.dart';
 import '../api/sse_client.dart';
 import '../data_revision.dart';
 import 'chat_models.dart';
+import 'recent_session.dart';
 
 /// Persists the last active chat session so the Agent entry resumes it (web
 /// parity: `eureka:active_chat_session`). Cleared on 新对话 / logout.
@@ -60,7 +61,9 @@ class ChatController extends ChangeNotifier {
       } else {
         await sp.setString(_kActiveSession, id);
       }
-    } catch (_) {/* best-effort */}
+    } catch (_) {
+      /* best-effort */
+    }
   }
 
   /// Resume the last active session (Agent entry with no bound subject). No-op
@@ -70,7 +73,9 @@ class ChatController extends ChangeNotifier {
       final sp = await SharedPreferences.getInstance();
       final id = sp.getString(_kActiveSession);
       if (id != null && id.isNotEmpty) await loadSession(id);
-    } catch (_) {/* stay on a blank chat */}
+    } catch (_) {
+      /* stay on a blank chat */
+    }
   }
 
   /// Start a fresh conversation. Clears the bound subject (anchored context) AND
@@ -85,6 +90,7 @@ class ChatController extends ChangeNotifier {
     contextAssets = [];
     error = null;
     _persistActive(null);
+    RecentSessionStore.clear();
     notifyListeners();
   }
 
@@ -131,7 +137,8 @@ class ChatController extends ChangeNotifier {
       return SessionInfo(
         m['id'] as String? ?? '',
         (title == null || title.isEmpty) ? '新对话' : title,
-        DateTime.tryParse(m['created_at'] as String? ?? '')?.toLocal() ?? DateTime.now(),
+        DateTime.tryParse(m['created_at'] as String? ?? '')?.toLocal() ??
+            DateTime.now(),
       );
     }).toList();
   }
@@ -160,11 +167,9 @@ class ChatController extends ChangeNotifier {
     // Restore the attached context assets so the chip rail isn't empty after
     // reopening a history session (codex r2). Best-effort — a failure just
     // leaves no chips, same as before.
-    String? loadedType;
     try {
       final s = await _api.getJson('/api/sessions/$id');
       final sess = (s is Map ? s['session'] : null) as Map?;
-      loadedType = (sess?['session_type'] as String?)?.trim();
       // Adopt the session's stored title (e.g. 「6月13日 闪念」) when the caller
       // didn't pass one. resumeLast() has only the id, so without this the
       // header falls back to the first user line in displayTitle and a resumed
@@ -176,21 +181,19 @@ class ChatController extends ChangeNotifier {
       final ca = (sess?['context_assets'] as List?) ?? const [];
       contextAssets = ca
           .whereType<Map>()
-          .map((m) => (id: m['id'] as String? ?? '', label: m['label'] as String? ?? '资产'))
+          .map(
+            (m) => (
+              id: m['id'] as String? ?? '',
+              label: m['label'] as String? ?? '资产',
+            ),
+          )
           .where((c) => c.id.isNotEmpty)
           .toList();
     } catch (_) {
       contextAssets = [];
     }
-    // 根治: only a genuine chat conversation becomes the "last conversation"
-    // that 长按 REKA (续上次对话 → resumeLast) resumes. A flash/manual capture
-    // session is loaded through this same loadSession by SessionDetailPage
-    // (闪念通知 / 卡片来源会话 / 历史列表); persisting it here would hijack
-    // eureka:active_chat_session, so resumeLast would replay a capture session
-    // in the chat surface (the 「今天吃饭120」 doppelganger). New chats persist
-    // via the lazy-create path, not here, so gating this never drops a fresh
-    // thread. Unknown type (session fetch failed) → don't persist (anti-pollution).
-    if (loadedType == 'chat') _persistActive(id);
+    _persistActive(id);
+    RecentSessionStore.save(id: id, type: 'chat');
     notifyListeners();
     // §1.5.1.3 batch A — a turn may still be generating server-side (we left
     // mid-generation and came back). Its agent message is `running` → shown as
@@ -206,17 +209,28 @@ class ChatController extends ChangeNotifier {
     for (final mm in raw.whereType<Map>()) {
       final m = mm.cast<String, dynamic>();
       if (m['role'] == 'user') {
-        messages.add(ChatMessage.user(m['id'] as String? ?? 'u', m['text'] as String? ?? ''));
+        messages.add(
+          ChatMessage.user(
+            m['id'] as String? ?? 'u',
+            m['text'] as String? ?? '',
+          ),
+        );
       } else if (m['role'] == 'agent') {
         final running = (m['status'] as String? ?? 'done') == 'running';
         final msg = ChatMessage.agent(m['id'] as String? ?? 'a');
-        msg.streaming = running;   // running → 「分析中…」 (chat_page renders it)
+        msg.streaming = running; // running → 「分析中…」 (chat_page renders it)
         final tc = m['tool_call'];
-        if (tc is Map) msg.parts.add(ToolCallPart(tc['name'] as String? ?? '?'));
+        if (tc is Map) {
+          msg.parts.add(ToolCallPart(tc['name'] as String? ?? '?'));
+        }
         final tr = m['tool_result'];
         if (tr is Map) {
-          msg.parts.add(ToolResultPart(
-              tr['name'] as String? ?? '?', (tr['response'] as Map?)?.cast<String, dynamic>() ?? {}));
+          msg.parts.add(
+            ToolResultPart(
+              tr['name'] as String? ?? '?',
+              (tr['response'] as Map?)?.cast<String, dynamic>() ?? {},
+            ),
+          );
         }
         final text = m['text'] as String?;
         if (text != null && text.isNotEmpty) {
@@ -225,8 +239,14 @@ class ChatController extends ChangeNotifier {
         }
         final cards = m['cards'];
         if (cards is List && cards.isNotEmpty) {
-          msg.parts.add(CardsPart(
-              cards.whereType<Map>().map((e) => e.cast<String, dynamic>()).toList()));
+          msg.parts.add(
+            CardsPart(
+              cards
+                  .whereType<Map>()
+                  .map((e) => e.cast<String, dynamic>())
+                  .toList(),
+            ),
+          );
         }
         final el = m['elapsed_ms'];
         if (el is num) msg.elapsedMs = el.toInt();
@@ -237,31 +257,36 @@ class ChatController extends ChangeNotifier {
 
   /// Any agent turn still generating server-side?
   bool _hasPending(List raw) => raw.whereType<Map>().any(
-      (m) => m['role'] == 'agent' && (m['status'] as String? ?? 'done') == 'running');
+    (m) =>
+        m['role'] == 'agent' && (m['status'] as String? ?? 'done') == 'running',
+  );
 
   /// Reconcile a session that had an in-flight turn on load: poll the message
   /// log until the running turn lands (or a timeout), then rebuild + render the
   /// reply/cards. Stops if the user switches sessions or the controller dies.
   Future<void> _reconcilePending(String id) async {
-    if (_pollingSession == id) return;   // already polling this one
+    if (_pollingSession == id) return; // already polling this one
     _pollingSession = id;
     final deadline = DateTime.now().add(const Duration(seconds: 150));
     try {
-      while (!_disposed && sessionId == id && DateTime.now().isBefore(deadline)) {
+      while (!_disposed &&
+          sessionId == id &&
+          DateTime.now().isBefore(deadline)) {
         await Future<void>.delayed(const Duration(milliseconds: 1500));
         if (_disposed || sessionId != id) break;
         final res = await _api.getJson('/api/sessions/$id/messages');
         final raw = (res is Map ? res['messages'] : null) as List? ?? const [];
         if (_disposed || sessionId != id) break;
         if (!_hasPending(raw)) {
-          _applyMessages(raw);     // turn landed → reply + cards now present
+          _applyMessages(raw); // turn landed → reply + cards now present
           notifyListeners();
-          bumpData();              // a turn may have created assets → refresh other surfaces
+          bumpData(); // a turn may have created assets → refresh other surfaces
           break;
         }
       }
-    } catch (_) {/* best-effort; stop polling on error */}
-    finally {
+    } catch (_) {
+      /* best-effort; stop polling on error */
+    } finally {
       if (_pollingSession == id) _pollingSession = null;
     }
   }
@@ -365,7 +390,10 @@ class ChatController extends ChangeNotifier {
         final sid = ev.json['session_id'];
         if (sid is String && sid.isNotEmpty) {
           sessionId = sid;
-          _persistActive(sid); // a new lazily-created session becomes the active one
+          _persistActive(
+            sid,
+          ); // a new lazily-created session becomes the active one
+          RecentSessionStore.save(id: sid, type: 'chat');
         }
       case 'token':
         final txt = ev.json['text'];
@@ -373,10 +401,15 @@ class ChatController extends ChangeNotifier {
       case 'tool_call':
         agent.parts.add(ToolCallPart(ev.json['name'] as String? ?? '?'));
       case 'tool_result':
-        final resp = (ev.json['response'] as Map?)?.cast<String, dynamic>() ?? {};
-        agent.parts.add(ToolResultPart(ev.json['name'] as String? ?? '?', resp));
+        final resp =
+            (ev.json['response'] as Map?)?.cast<String, dynamic>() ?? {};
+        agent.parts.add(
+          ToolResultPart(ev.json['name'] as String? ?? '?', resp),
+        );
       case 'error':
-        agent.parts.add(ErrorPart(ev.json['message'] as String? ?? 'stream error'));
+        agent.parts.add(
+          ErrorPart(ev.json['message'] as String? ?? 'stream error'),
+        );
       case 'done':
         agent.elapsedMs = (ev.json['elapsed_ms'] as num?)?.toInt();
         agent.tokens = (ev.json['total_tokens'] as num?)?.toInt();
