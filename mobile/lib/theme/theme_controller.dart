@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 
 import 'app_theme.dart';
 
-/// App-wide theme mode. The web defaults to dark (atmosphere); the header
+/// App-wide theme mode. The app defaults to light; the header
 /// sun/moon toggle flips it. Kept as a global ValueNotifier so any surface can
 /// toggle without threading state through every widget.
-final themeModeNotifier = ValueNotifier<ThemeMode>(ThemeMode.dark);
+final themeModeNotifier = ValueNotifier<ThemeMode>(ThemeMode.light);
 
 void toggleThemeMode() {
   themeModeNotifier.value =
