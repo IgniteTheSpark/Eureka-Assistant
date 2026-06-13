@@ -160,9 +160,11 @@ class ChatController extends ChangeNotifier {
     // Restore the attached context assets so the chip rail isn't empty after
     // reopening a history session (codex r2). Best-effort — a failure just
     // leaves no chips, same as before.
+    String? loadedType;
     try {
       final s = await _api.getJson('/api/sessions/$id');
       final sess = (s is Map ? s['session'] : null) as Map?;
+      loadedType = (sess?['session_type'] as String?)?.trim();
       // Adopt the session's stored title (e.g. 「6月13日 闪念」) when the caller
       // didn't pass one. resumeLast() has only the id, so without this the
       // header falls back to the first user line in displayTitle and a resumed
@@ -180,7 +182,15 @@ class ChatController extends ChangeNotifier {
     } catch (_) {
       contextAssets = [];
     }
-    _persistActive(id);
+    // 根治: only a genuine chat conversation becomes the "last conversation"
+    // that 长按 REKA (续上次对话 → resumeLast) resumes. A flash/manual capture
+    // session is loaded through this same loadSession by SessionDetailPage
+    // (闪念通知 / 卡片来源会话 / 历史列表); persisting it here would hijack
+    // eureka:active_chat_session, so resumeLast would replay a capture session
+    // in the chat surface (the 「今天吃饭120」 doppelganger). New chats persist
+    // via the lazy-create path, not here, so gating this never drops a fresh
+    // thread. Unknown type (session fetch failed) → don't persist (anti-pollution).
+    if (loadedType == 'chat') _persistActive(id);
     notifyListeners();
     // §1.5.1.3 batch A — a turn may still be generating server-side (we left
     // mid-generation and came back). Its agent message is `running` → shown as
