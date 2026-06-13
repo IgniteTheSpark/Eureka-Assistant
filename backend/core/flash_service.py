@@ -27,6 +27,40 @@ logger = logging.getLogger("flash_file")
 LOG_TAG = "[FlashFile]"
 
 
+def _is_inline_flash(
+    recording_id: Optional[str],
+    client_task_id: Optional[str],
+    device_file_name: Optional[str],
+) -> bool:
+    return not (
+        (recording_id or "").strip()
+        or (client_task_id or "").strip()
+        or (device_file_name or "").strip()
+    )
+
+
+def _publish_flash_terminal_status(
+    user_id: str,
+    *,
+    session_id: str,
+    input_turn_id: str,
+    status: str,
+    message: str,
+) -> None:
+    publish_event(
+        user_id,
+        "flash_file_status",
+        type="flash_file_status",
+        recording_id="",
+        client_task_id="",
+        device_file_name="",
+        session_id=session_id,
+        input_turn_id=input_turn_id,
+        status=status,
+        message=message,
+    )
+
+
 async def get_or_create_capture_session_today(
     db,
     user_id: str,
@@ -93,6 +127,7 @@ async def process_flash_text(
         f"(周{'一二三四五六日'[_now_local.weekday()]})"
     )
     input_source = source if source in {"voice", "typed", "imported"} else "voice"
+    inline_flash = _is_inline_flash(recording_id, client_task_id, device_file_name)
     logger.info(
         "%s process_flash_text start user=%s recording=%s source=%s file_id=%s "
         "provider=%s text_len=%s segments=%s session=%s capture_session_type=%s",
@@ -205,6 +240,14 @@ async def process_flash_text(
         )
     except Exception as e:
         logger.exception("%s process_flash_text pipeline exception recording=%s", LOG_TAG, recording_id or "-")
+        if inline_flash:
+            _publish_flash_terminal_status(
+                user_id,
+                session_id=session_id,
+                input_turn_id=input_turn_id,
+                status="failed",
+                message=str(e)[:200] or "闪念整理失败",
+            )
         return {
             "ok": False,
             "session_id": session_id,
@@ -241,6 +284,18 @@ async def process_flash_text(
     except Exception:
         logger.exception("%s process_flash_text persist agent message failed recording=%s", LOG_TAG, recording_id or "-")
         pass
+
+    if inline_flash:
+        ok = result.get("ok", True)
+        _publish_flash_terminal_status(
+            user_id,
+            session_id=session_id,
+            input_turn_id=input_turn_id,
+            status="done" if ok else "failed",
+            message="闪念已整理"
+            if ok
+            else (result.get("error") or "闪念整理失败"),
+        )
 
     derived = result.get("derived_assets", []) or cards
     if result.get("ok", True) and derived:
