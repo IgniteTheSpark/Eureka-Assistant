@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../device/device_controller.dart';
+import '../device/device_silent_reconnect.dart';
 import '../theme/app_theme.dart';
 import 'my_device_page.dart';
 
@@ -28,6 +29,7 @@ class _DevicePairingPageState extends State<DevicePairingPage> {
   @override
   void initState() {
     super.initState();
+    unawaited(DeviceSilentReconnect.instance.stop());
     _dev.addListener(_onDevice);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;

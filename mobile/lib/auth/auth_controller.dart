@@ -11,6 +11,7 @@ import '../api/auth_store.dart';
 import '../ble_flash/ble_flash_manager.dart';
 import '../ble_flash/flash_file_workflow.dart';
 import '../device/device_controller.dart';
+import '../device/device_silent_reconnect.dart';
 import '../pet/pet_controller.dart';
 import '../pet/reka_nudges.dart';
 import '../pet/reka_notifications.dart';
@@ -71,6 +72,7 @@ class AuthController extends ChangeNotifier {
     }
     _loaded = true;
     notifyListeners();
+    _tryReconnectAfterAuth();
   }
 
   /// Returns null on success, or a user-facing error message.
@@ -175,7 +177,15 @@ class AuthController extends ChangeNotifier {
       await sp.remove(_kEmail);
     }
     notifyListeners();
+    _tryReconnectAfterAuth();
     return true;
+  }
+
+  void _tryReconnectAfterAuth() {
+    if (!isAuthed) return;
+    unawaited(
+      DeviceSilentReconnect.instance.tryReconnect(sessionKey: _sessionEpoch),
+    );
   }
 
   String _errMsg(ApiException e) {
@@ -208,6 +218,7 @@ class AuthController extends ChangeNotifier {
   Future<void> _resetPerUserState() async {
     AppEvents.instance.stop();
     FlashFileWorkflow.instance.stop();
+    await DeviceSilentReconnect.instance.stop();
     await BleFlashManager.instance.stop();
     await DeviceController.instance.disconnectForLogout();
     PetController.instance.reset();
