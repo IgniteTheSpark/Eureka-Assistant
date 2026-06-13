@@ -11,6 +11,8 @@ import '../render/pet_view.dart';
 import '../render/skill_card.dart';
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
+import '../ble_flash/ble_flash_manager.dart';
+import '../device/device_controller.dart';
 import '../widgets/toast.dart';
 import 'device_pairing_page.dart';
 import 'pet_page.dart';
@@ -32,7 +34,8 @@ import 'pet_page.dart';
 ///
 /// 由 [_PostAuthGate](../main.dart) 在 `!spawned` 时作为 home 挂载(`onDone` →
 /// 切到 shell);也保留被 `pet_page` push 的旧路径(`onDone` 为空 → 进 PetPage)。
-enum _Step { egg, born, name, invite, capturing, magic, pairDevice }
+// 孵化弧线:蛋→破壳→现身→起名→【连卡提示】→(有卡:硬件录一句 / 没卡:打字)→ 进 app
+enum _Step { egg, born, name, pairPrompt, invite, capturing, magic, hardwareWait }
 
 class PetSpawnPage extends StatefulWidget {
   /// Called when the onboarding arc finishes. When provided (root-gate mount),
@@ -54,7 +57,11 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
   _Step _step = _Step.egg;
   int _cracks = 0; // 0.._maxTaps — 渐进破壳累积的裂纹数
   static const _maxTaps = 4;
-  FlashResult? _result; // 魔法时刻的捕捉产物
+  FlashResult? _result; // 魔法时刻的捕捉产物(打字路径)
+  // 硬件路径:监听录音卡是否录了一条(BleFlashManager.isFlashing,与 ASR 无关 ——
+  // 只表示「卡录到音频了」)。整理出卡是异步走 ASR 的,onboarding 不等它。
+  bool _wasFlashing = false;
+  bool _cardCaptured = false;
 
   @override
   void initState() {
@@ -62,10 +69,11 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
     mascotSuppressed.value++; // this screen IS REKA — hide the floating one
     _shake = AnimationController(
       vsync: this, duration: const Duration(milliseconds: 340));
+    BleFlashManager.instance.isFlashing.addListener(_onFlashingChanged);
     // Defensive: already spawned somehow → skip the egg, go straight to the
-    // invite (skipping the reveal/born celebration of an already-met pet).
+    // pair prompt (skipping the reveal/born celebration of an already-met pet).
     if (_pet.spawned) {
-      _step = _Step.invite;
+      _step = _Step.pairPrompt;
       _nameCtrl.text = _pet.pet?.name ?? 'Reka';
     }
   }
@@ -73,10 +81,20 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
   @override
   void dispose() {
     releaseMascotSuppress();
+    BleFlashManager.instance.isFlashing.removeListener(_onFlashingChanged);
     _shake.dispose();
     _nameCtrl.dispose();
     _captureCtrl.dispose();
     super.dispose();
+  }
+
+  // 录音卡录完一条(isFlashing true→false)且正停在硬件等待步 → 标记捕捉到。
+  void _onFlashingChanged() {
+    final now = BleFlashManager.instance.isFlashing.value;
+    if (_wasFlashing && !now && _step == _Step.hardwareWait && mounted) {
+      setState(() => _cardCaptured = true);
+    }
+    _wasFlashing = now;
   }
 
   // ── ① 渐进破壳 ──────────────────────────────────────────────────────────
@@ -114,7 +132,7 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
     try {
       if (name.isNotEmpty && name != _pet.pet?.name) await _pet.rename(name);
       if (!mounted) return;
-      setState(() => _step = _Step.invite);
+      setState(() => _step = _Step.pairPrompt);
     } catch (e) {
       if (!mounted) return;
       showToast(context, '保存失败：$e', error: true);
@@ -169,7 +187,8 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
     // Shrink the creature once we move into the conversational capture steps so
     // the text field + magic card have room (the column scrolls regardless).
     final petBox = (_step == _Step.invite || _step == _Step.capturing ||
-            _step == _Step.magic || _step == _Step.pairDevice)
+            _step == _Step.magic || _step == _Step.pairPrompt ||
+            _step == _Step.hardwareWait)
         ? 132.0
         : 220.0;
 
@@ -312,8 +331,10 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
         ]);
       case _Step.magic:
         return _magicBlock(eu);
-      case _Step.pairDevice:
-        return _pairDeviceBlock(eu);
+      case _Step.pairPrompt:
+        return _pairPromptBlock(eu);
+      case _Step.hardwareWait:
+        return _hardwareWaitBlock(eu);
     }
   }
 
@@ -429,35 +450,34 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
             textAlign: TextAlign.center,
             style: TextStyle(color: eu.textMid, fontSize: 13.5, height: 1.5)),
         const SizedBox(height: 20),
-        Center(child: _ctaButton(eu, '下一步  →', () => setState(() => _step = _Step.pairDevice))),
+        Center(child: _ctaButton(eu, '开始使用  →', _finish)),
       ],
     );
   }
 
-  // 连接录音卡(可选)—— 录音卡是「随口说」的硬件入口:按一下就录、自动整理,
-  // 不用打字不用掏手机。复用 jigong 的配对页(§13.3);没卡/想稍后的人可跳过,
-  // 绝不卡住 onboarding。
-  Widget _pairDeviceBlock(EurekaColors eu) {
+  // ① 连卡提示(孵化后第一件事)—— 决定首捕用哪种方式:有卡用硬件、没卡用打字。
+  // 录音卡是「随口说」的零摩擦入口;没卡/想稍后的人可走打字,绝不卡住 onboarding。
+  Widget _pairPromptBlock(EurekaColors eu) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text('🎙️ 连上你的录音卡',
+        Text('🎙️ 有录音卡吗?',
             textAlign: TextAlign.center,
             style: TextStyle(color: eu.textHi, fontSize: 20, fontWeight: FontWeight.w800)),
         const SizedBox(height: 10),
-        Text('有录音卡的话,按一下就能随口记 —— $_petName 当场帮你整理,\n不用打字、不用掏手机。',
+        Text('连上它,按一下就能随口记,$_petName 当场帮你整理 ——\n不用打字、不用掏手机。还没有卡也行,先用打字试试。',
             textAlign: TextAlign.center,
             style: TextStyle(color: eu.textMid, fontSize: 13.5, height: 1.5)),
         const SizedBox(height: 22),
         _ctaButton(eu, '连接录音卡  →', _connectDevice),
         const SizedBox(height: 10),
         GestureDetector(
-          onTap: _finish,
+          onTap: () => setState(() => _step = _Step.invite),
           behavior: HitTestBehavior.opaque,
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-            child: Text('先不用,直接开始',
-                style: TextStyle(color: eu.textMid, fontSize: 14)),
+            child: Text('我还没有卡,用打字',
+                style: TextStyle(color: eu.brand, fontSize: 14, fontWeight: FontWeight.w600)),
           ),
         ),
       ],
@@ -465,11 +485,78 @@ class _PetSpawnPageState extends State<PetSpawnPage> with SingleTickerProviderSt
   }
 
   Future<void> _connectDevice() async {
-    // 复用 jigong 的配对页;返回后(无论是否绑定成功)进 app —— 配对不是进门的门槛。
+    // 复用 jigong 的配对页;返回后按是否绑成分叉:绑成 → 硬件首捕(按卡说);
+    // 没绑成(取消/失败/没扫到)→ 退回打字首捕,绝不卡住。
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const DevicePairingPage()),
     );
-    if (mounted) _finish();
+    if (!mounted) return;
+    setState(() => _step =
+        DeviceController.instance.isBound ? _Step.hardwareWait : _Step.invite);
+  }
+
+  // ② 硬件首捕 —— 已连卡:让用户按一下录音卡说件今天的。靠 isFlashing 确认「卡录到
+  // 了」(与 ASR 无关);整理出卡是异步走 ASR 的,onboarding 不等它(会在资产库出现)。
+  // 始终给「先进去看看」逃生口,卡没反应也不困住人。
+  Widget _hardwareWaitBlock(EurekaColors eu) {
+    if (_cardCaptured) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('✓ $_petName 接住了!',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: eu.textHi, fontSize: 20, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 10),
+          Text('正在帮你整理,整理好的卡片会出现在「资产库」里。\n以后想记什么,按一下录音卡就行。',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: eu.textMid, fontSize: 13.5, height: 1.5)),
+          const SizedBox(height: 22),
+          _ctaButton(eu, '开始使用  →', _finish),
+        ],
+      );
+    }
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text('按一下录音卡,说件今天的',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: eu.textHi, fontSize: 20, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 10),
+        Text('随口说一笔花销、一个念头、一件要做的事 ——\n$_petName 会接住它,帮你整理成卡片。',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: eu.textMid, fontSize: 13.5, height: 1.5)),
+        const SizedBox(height: 18),
+        // 「正在听」实时指示(录音卡按下时 BleFlashManager.isFlashing=true)
+        ValueListenableBuilder<bool>(
+          valueListenable: BleFlashManager.instance.isFlashing,
+          builder: (_, flashing, _) => AnimatedOpacity(
+            opacity: flashing ? 1 : 0.0,
+            duration: const Duration(milliseconds: 200),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: 14, height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: eu.brand),
+                ),
+                const SizedBox(width: 8),
+                Text('正在听…', style: TextStyle(color: eu.brand, fontSize: 13)),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        GestureDetector(
+          onTap: _finish,
+          behavior: HitTestBehavior.opaque,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+            child: Text('先进去看看  →',
+                style: TextStyle(color: eu.textMid, fontSize: 14)),
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _block(EurekaColors eu,
