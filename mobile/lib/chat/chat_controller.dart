@@ -163,6 +163,14 @@ class ChatController extends ChangeNotifier {
     try {
       final s = await _api.getJson('/api/sessions/$id');
       final sess = (s is Map ? s['session'] : null) as Map?;
+      // Adopt the session's stored title (e.g. 「6月13日 闪念」) when the caller
+      // didn't pass one. resumeLast() has only the id, so without this the
+      // header falls back to the first user line in displayTitle and a resumed
+      // flash/capture session looks like a stray 「今天吃饭120块钱」 duplicate.
+      if (title == null) {
+        final st = (sess?['title'] as String?)?.trim();
+        if (st != null && st.isNotEmpty) sessionTitle = st;
+      }
       final ca = (sess?['context_assets'] as List?) ?? const [];
       contextAssets = ca
           .whereType<Map>()
