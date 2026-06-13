@@ -347,12 +347,24 @@ async def companion_loop() -> None:
     log.info("companion heartbeat started (interval=%ss)", HEARTBEAT_INTERVAL_SEC)
     last_recompute_day = ""
     while True:
-        try:
-            today_bj = datetime.now(timezone.utc).astimezone(_BEIJING).strftime("%Y-%m-%d")
-            if today_bj != last_recompute_day:
+        # Daily offline recompute is ISOLATED from the per-tick scan: a failing
+        # recompute (e.g. a transient DB hiccup, or rhythm_profiles missing during
+        # a mid-deploy window) must NOT skip scan_once. Earlier both shared one try
+        # with recompute first, so a recompute exception (a) skipped that tick's
+        # scan AND (b) left last_recompute_day unset → it retried+failed every tick
+        # → ALL nudges (incl. accumulation offers that don't even need profiles)
+        # silently stopped. Two try blocks fix that.
+        today_bj = datetime.now(timezone.utc).astimezone(_BEIJING).strftime("%Y-%m-%d")
+        if today_bj != last_recompute_day:
+            try:
                 await recompute_all()
                 await expire_stale()
                 last_recompute_day = today_bj
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:   # don't let a recompute failure block the scan
+                log.warning("companion daily recompute failed: %s", exc)
+        try:
             await scan_once()
         except asyncio.CancelledError:
             raise
