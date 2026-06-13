@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 
 import 'app_events.dart';
 import 'app_shell.dart';
@@ -21,8 +22,9 @@ import 'theme/eureka_colors.dart';
 import 'theme/theme_controller.dart';
 import 'widgets/listening_overlay.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   WidgetsBinding.instance.addObserver(_FlashFileLifecycleObserver());
   // START_THEME=light|dark lets a build boot into a theme for screenshot parity
   // (the runtime toggle can't be driven headless).
