@@ -113,5 +113,5 @@ flutter {
 }
 
 dependencies {
-    implementation("com.bairong.lib:loglib:1.0.1")
+    implementation("com.bairong.lib:loglib:1.0.2")
 }
