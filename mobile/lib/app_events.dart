@@ -8,6 +8,7 @@ import 'api/sse_client.dart';
 import 'ble_flash/flash_file_status_controller.dart';
 import 'ble_flash/flash_file_workflow.dart';
 import 'data_revision.dart';
+import 'flash/flash_processing_state.dart';
 import 'pages/calendar_page.dart';
 import 'pages/report_viewer_page.dart';
 import 'pages/session_detail_page.dart';
@@ -90,6 +91,7 @@ class AppEvents {
       case 'capture':
         // Input turn persisted → refresh so the flash session shows it +「正在整理」.
         _flashLog('capture event session=${ev.json['session_id']}');
+        FlashProcessingStatus.instance.applyCapture(ev.json);
         bumpData();
       case 'flash_file_status':
         _flashLog(
@@ -97,6 +99,7 @@ class AppEvents {
           'clientTask=${ev.json['client_task_id']} status=${ev.json['status']} '
           'file=${ev.json['device_file_name']} message=${ev.json['message']}',
         );
+        FlashProcessingStatus.instance.applyFlashStatus(ev.json);
         FlashFileStatusController.instance.applyServerStatus(ev.json);
         FlashFileWorkflow.instance.applyServerStatus(ev.json);
         bumpData();

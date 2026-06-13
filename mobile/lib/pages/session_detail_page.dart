@@ -6,6 +6,7 @@ import '../chat/chat_controller.dart';
 import '../chat/chat_models.dart';
 import '../chat/markdown_text.dart';
 import '../data_revision.dart';
+import '../flash/flash_processing_state.dart';
 import '../render/skill_card.dart';
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
@@ -19,7 +20,11 @@ import '../theme/eureka_colors.dart';
 class SessionDetailPage extends StatefulWidget {
   final String sessionId;
   final String title;
-  const SessionDetailPage({super.key, required this.sessionId, required this.title});
+  const SessionDetailPage({
+    super.key,
+    required this.sessionId,
+    required this.title,
+  });
 
   @override
   State<SessionDetailPage> createState() => _SessionDetailPageState();
@@ -44,6 +49,7 @@ class _SessionDetailPageState extends State<SessionDetailPage> {
     // Hardware capture / flash-done bumps dataRevision → reload so a new
     // capture's input +「正在整理」+ cards appear live in this open session.
     dataRevision.addListener(_reload);
+    FlashProcessingStatus.instance.revision.addListener(_onChange);
   }
 
   void _reload() => _chat.loadSession(_sessionId);
@@ -52,11 +58,13 @@ class _SessionDetailPageState extends State<SessionDetailPage> {
   Future<void> _loadMeta() async {
     try {
       final res = await _api.getJson('/api/sessions/$_sessionId');
-      final s = ((res is Map ? res['session'] : null) as Map?)?.cast<String, dynamic>();
+      final s = ((res is Map ? res['session'] : null) as Map?)
+          ?.cast<String, dynamic>();
       if (s == null) return;
       String t;
       if (s['session_type'] == 'flash') {
-        final d = DateTime.tryParse((s['date'] as String?) ?? '')?.toLocal() ??
+        final d =
+            DateTime.tryParse((s['date'] as String?) ?? '')?.toLocal() ??
             DateTime.tryParse((s['created_at'] as String?) ?? '')?.toLocal();
         t = d != null ? '${d.month}月${d.day}日 闪念' : '闪念';
       } else {
@@ -96,8 +104,11 @@ class _SessionDetailPageState extends State<SessionDetailPage> {
   void _scrollToEnd() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scroll.hasClients) {
-        _scroll.animateTo(_scroll.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
+        _scroll.animateTo(
+          _scroll.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
       }
     });
   }
@@ -112,6 +123,7 @@ class _SessionDetailPageState extends State<SessionDetailPage> {
   @override
   void dispose() {
     dataRevision.removeListener(_reload);
+    FlashProcessingStatus.instance.revision.removeListener(_onChange);
     _chat.removeListener(_onChange);
     _chat.dispose();
     _api.close();
@@ -124,13 +136,18 @@ class _SessionDetailPageState extends State<SessionDetailPage> {
   Widget build(BuildContext context) {
     final eu = context.eu;
     final msgs = _chat.messages;
-    // 「正在整理」 when the last turn is a still-unanswered user message (a fresh
-    // capture awaiting analysis) — web ChatPage parity.
-    final analyzing = !_loading && msgs.isNotEmpty && msgs.last.isUser;
+    final flashProcessing = FlashProcessingStatus.instance.stateForSession(
+      _sessionId,
+    );
+    final analyzing = !_loading && flashProcessing != null;
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: eu.bg,
-      drawer: _SessionsDrawer(chat: _chat, current: _sessionId, onPick: _openSession),
+      drawer: _SessionsDrawer(
+        chat: _chat,
+        current: _sessionId,
+        onPick: _openSession,
+      ),
       appBar: AppBar(
         backgroundColor: eu.bg,
         foregroundColor: eu.textHi,
@@ -140,8 +157,14 @@ class _SessionDetailPageState extends State<SessionDetailPage> {
           tooltip: '返回',
           onPressed: () => Navigator.of(context).maybePop(),
         ),
-        title: Text(_title,
-            style: TextStyle(color: eu.textHi, fontSize: 16, fontWeight: FontWeight.w700)),
+        title: Text(
+          _title,
+          style: TextStyle(
+            color: eu.textHi,
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
         actions: [
           IconButton(
             tooltip: '历史会话',
@@ -158,48 +181,68 @@ class _SessionDetailPageState extends State<SessionDetailPage> {
               child: _loading
                   ? const Center(child: CircularProgressIndicator())
                   : _error != null
-                      ? Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(24),
-                            child: Text('加载失败：$_error',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(color: eu.accentRed)),
-                          ),
-                        )
-                      : msgs.isEmpty
-                          ? Center(child: Text('没有记录', style: TextStyle(color: eu.textMid)))
-                          : ListView.builder(
-                              controller: _scroll,
-                              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                              itemCount: msgs.length + (analyzing ? 1 : 0),
-                              itemBuilder: (_, i) {
-                                if (i >= msgs.length) return _analyzingRow(eu);
-                                return _Bubble(msgs[i], _sessionId);
-                              },
-                            ),
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Text(
+                          '加载失败：$_error',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: eu.accentRed),
+                        ),
+                      ),
+                    )
+                  : msgs.isEmpty
+                  ? Center(
+                      child: Text('没有记录', style: TextStyle(color: eu.textMid)),
+                    )
+                  : ListView.builder(
+                      controller: _scroll,
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                      itemCount: msgs.length + (analyzing ? 1 : 0),
+                      itemBuilder: (_, i) {
+                        if (i >= msgs.length) {
+                          return _analyzingRow(
+                            eu,
+                            flashProcessing?.message ?? '正在整理…',
+                          );
+                        }
+                        return _Bubble(msgs[i], _sessionId);
+                      },
+                    ),
             ),
-            _InputBar(controller: _input, onSend: _send, streaming: _chat.streaming),
+            _InputBar(
+              controller: _input,
+              onSend: _send,
+              streaming: _chat.streaming,
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _analyzingRow(EurekaColors eu) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-                width: 12,
-                height: 12,
-                child: CircularProgressIndicator(strokeWidth: 1.6, color: eu.textLo)),
-            const SizedBox(width: 8),
-            Text('正在整理…',
-                style: TextStyle(color: eu.textLo, fontStyle: FontStyle.italic, fontSize: 13)),
-          ],
+  Widget _analyzingRow(EurekaColors eu, String text) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 6),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: 12,
+          height: 12,
+          child: CircularProgressIndicator(strokeWidth: 1.6, color: eu.textLo),
         ),
-      );
+        const SizedBox(width: 8),
+        Text(
+          text,
+          style: TextStyle(
+            color: eu.textLo,
+            fontStyle: FontStyle.italic,
+            fontSize: 13,
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 /// History drawer — list sessions, tap to open one in place (web sessions sidebar).
@@ -207,7 +250,11 @@ class _SessionsDrawer extends StatefulWidget {
   final ChatController chat;
   final String current;
   final ValueChanged<String> onPick;
-  const _SessionsDrawer({required this.chat, required this.current, required this.onPick});
+  const _SessionsDrawer({
+    required this.chat,
+    required this.current,
+    required this.onPick,
+  });
 
   @override
   State<_SessionsDrawer> createState() => _SessionsDrawerState();
@@ -228,8 +275,14 @@ class _SessionsDrawerState extends State<_SessionsDrawer> {
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
               child: Align(
                 alignment: Alignment.centerLeft,
-                child: Text('历史会话',
-                    style: TextStyle(color: eu.textHi, fontSize: 18, fontWeight: FontWeight.w700)),
+                child: Text(
+                  '历史会话',
+                  style: TextStyle(
+                    color: eu.textHi,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               ),
             ),
             Expanded(
@@ -241,7 +294,9 @@ class _SessionsDrawerState extends State<_SessionsDrawer> {
                   }
                   final ss = snap.data ?? const [];
                   if (ss.isEmpty) {
-                    return Center(child: Text('暂无会话', style: TextStyle(color: eu.textMid)));
+                    return Center(
+                      child: Text('暂无会话', style: TextStyle(color: eu.textMid)),
+                    );
                   }
                   return ListView.builder(
                     itemCount: ss.length,
@@ -250,12 +305,19 @@ class _SessionsDrawerState extends State<_SessionsDrawer> {
                       final active = s.id == widget.current;
                       return ListTile(
                         selected: active,
-                        title: Text(s.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(color: active ? eu.brand : eu.textHi, fontSize: 14)),
-                        subtitle: Text('${s.createdAt.month}月${s.createdAt.day}日',
-                            style: TextStyle(color: eu.textLo, fontSize: 11)),
+                        title: Text(
+                          s.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: active ? eu.brand : eu.textHi,
+                            fontSize: 14,
+                          ),
+                        ),
+                        subtitle: Text(
+                          '${s.createdAt.month}月${s.createdAt.day}日',
+                          style: TextStyle(color: eu.textLo, fontSize: 11),
+                        ),
                         onTap: () => widget.onPick(s.id),
                       );
                     },
@@ -305,8 +367,10 @@ class _Bubble extends StatelessWidget {
           children: [
             for (final p in m.parts) _part(context, p),
             if (m.streaming && m.parts.isEmpty)
-              Text('分析中…',
-                  style: TextStyle(color: eu.textLo, fontStyle: FontStyle.italic)),
+              Text(
+                '分析中…',
+                style: TextStyle(color: eu.textLo, fontStyle: FontStyle.italic),
+              ),
           ],
         ),
       ),
@@ -318,8 +382,8 @@ class _Bubble extends StatelessWidget {
   // 「由对话/闪念创建」(not 手动创建) — provenance is consistent with 资产库. §9/§3.
   Map<String, dynamic> _withSession(Map<String, dynamic> c) =>
       (c['session_id'] is String && (c['session_id'] as String).isNotEmpty)
-          ? c
-          : {...c, 'session_id': sessionId};
+      ? c
+      : {...c, 'session_id': sessionId};
 
   Widget _part(BuildContext context, ChatPart p) {
     final eu = context.eu;
@@ -336,17 +400,26 @@ class _Bubble extends StatelessWidget {
         if (isQueryTool(name) || cards.isEmpty) return const SizedBox.shrink();
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: [for (final c in cards) SkillCard(_withSession(c), layoutOverride: 'horizontal')],
+          children: [
+            for (final c in cards)
+              SkillCard(_withSession(c), layoutOverride: 'horizontal'),
+          ],
         );
       case CardsPart(:final cards):
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: [for (final c in cards) SkillCard(_withSession(c), layoutOverride: 'horizontal')],
+          children: [
+            for (final c in cards)
+              SkillCard(_withSession(c), layoutOverride: 'horizontal'),
+          ],
         );
       case ErrorPart(:final message):
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 3),
-          child: Text(message, style: TextStyle(color: eu.accentRed, fontSize: 12)),
+          child: Text(
+            message,
+            style: TextStyle(color: eu.accentRed, fontSize: 12),
+          ),
         );
     }
   }
@@ -356,7 +429,11 @@ class _InputBar extends StatelessWidget {
   final TextEditingController controller;
   final VoidCallback onSend;
   final bool streaming;
-  const _InputBar({required this.controller, required this.onSend, required this.streaming});
+  const _InputBar({
+    required this.controller,
+    required this.onSend,
+    required this.streaming,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -378,7 +455,10 @@ class _InputBar extends StatelessWidget {
                 hintStyle: TextStyle(color: eu.textLo),
                 filled: true,
                 fillColor: eu.surfaceRaised,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(22),
                   borderSide: BorderSide(color: eu.border),
@@ -402,7 +482,10 @@ class _InputBar extends StatelessWidget {
                 ? const SizedBox(
                     width: 18,
                     height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
                   )
                 : const Icon(Icons.arrow_upward, color: Colors.white),
           ),

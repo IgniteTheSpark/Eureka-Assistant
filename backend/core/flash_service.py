@@ -77,6 +77,8 @@ async def process_flash_text(
     segments: Optional[list] = None,
     session_id: str = "",
     capture_session_type: Optional[str] = None,
+    client_task_id: Optional[str] = None,
+    device_file_name: Optional[str] = None,
 ) -> dict:
     """Create input_turn, run the Flash Pipeline, persist chat-like messages.
 
@@ -161,8 +163,36 @@ async def process_flash_text(
             "elapsed_ms": int((time.monotonic() - t0) * 1000),
         }
 
-    publish_event(user_id, "capture", session_id=session_id)
-    logger.info("%s process_flash_text capture published user=%s recording=%s session=%s", LOG_TAG, user_id, recording_id or "-", session_id)
+    publish_event(
+        user_id,
+        "capture",
+        session_id=session_id,
+        input_turn_id=input_turn_id,
+        recording_id=recording_id or "",
+        client_task_id=client_task_id or "",
+        device_file_name=device_file_name or "",
+        status="input_persisted",
+    )
+    publish_event(
+        user_id,
+        "flash_file_status",
+        type="flash_file_status",
+        recording_id=recording_id or "",
+        client_task_id=client_task_id or "",
+        device_file_name=device_file_name or "",
+        session_id=session_id,
+        input_turn_id=input_turn_id,
+        status="processing_flash",
+        message="正在整理闪念",
+    )
+    logger.info(
+        "%s process_flash_text capture published user=%s recording=%s session=%s input_turn=%s",
+        LOG_TAG,
+        user_id,
+        recording_id or "-",
+        session_id,
+        input_turn_id,
+    )
 
     try:
         logger.info("%s process_flash_text pipeline start recording=%s input_turn=%s", LOG_TAG, recording_id or "-", input_turn_id)

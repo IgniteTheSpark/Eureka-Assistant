@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -50,6 +51,8 @@ def publish_flash_file_status(recording: FlashRecording, status: str, message: s
         recording_id=str(recording.id),
         client_task_id=recording.client_task_id,
         device_file_name=recording.device_file_name,
+        session_id=str(recording.session_id) if recording.session_id else "",
+        input_turn_id=str(recording.input_turn_id) if recording.input_turn_id else "",
         status=status,
         message=message,
     )
@@ -154,6 +157,11 @@ async def process_recording(recording_id: str | uuid.UUID) -> None:
             select(FlashRecording.process_status).where(FlashRecording.id == rid)
         )).scalar_one_or_none()
     if latest_status in {"asr_done", "processing_flash"}:
+        if await _has_prior_unfinished_recording(rid):
+            logger.info("%s process recording=%s waits for prior flash recording", LOG_TAG, rid)
+            await asyncio.sleep(3)
+            await enqueue(rid)
+            return
         await process_recording_after_asr(rid)
     else:
         logger.info("%s process recording=%s latest_status=%s no pipeline run", LOG_TAG, rid, latest_status)
@@ -532,6 +540,70 @@ async def _mark_asr_no_content(recording_id: uuid.UUID, raw: dict | None = None)
     logger.info("%s ASR no content completed recording=%s", LOG_TAG, recording_id)
 
 
+def _recording_file_time(device_file_name: str | None) -> datetime | None:
+    match = re.match(r"^F(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})", (device_file_name or "").strip(), re.I)
+    if not match:
+        return None
+    try:
+        return datetime(
+            int(match.group(1)),
+            int(match.group(2)),
+            int(match.group(3)),
+            int(match.group(4)),
+            int(match.group(5)),
+            int(match.group(6)),
+            tzinfo=timezone.utc,
+        )
+    except ValueError:
+        return None
+
+
+def _normalize_dt(value: datetime | None) -> datetime:
+    if value is None:
+        return datetime.max.replace(tzinfo=timezone.utc)
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _recording_order_key(recording: FlashRecording) -> tuple[datetime, str]:
+    order_time = (
+        recording.capture_started_at
+        or _recording_file_time(recording.device_file_name)
+        or recording.created_at
+    )
+    return (_normalize_dt(order_time), str(recording.id))
+
+
+async def _has_prior_unfinished_recording(recording_id: uuid.UUID) -> bool:
+    async with AsyncSessionLocal() as db:
+        current = (await db.execute(
+            select(FlashRecording).where(FlashRecording.id == recording_id)
+        )).scalar_one_or_none()
+        if current is None:
+            return False
+        candidates = (await db.execute(
+            select(FlashRecording).where(
+                FlashRecording.user_id == current.user_id,
+                FlashRecording.id != current.id,
+                FlashRecording.process_status.in_(["pending", "asr_processing", "asr_done", "processing_flash"]),
+            )
+        )).scalars().all()
+
+    current_key = _recording_order_key(current)
+    for candidate in candidates:
+        if _recording_order_key(candidate) < current_key:
+            logger.info(
+                "%s prior unfinished recording blocks pipeline current=%s prior=%s prior_status=%s",
+                LOG_TAG,
+                recording_id,
+                candidate.id,
+                candidate.process_status,
+            )
+            return True
+    return False
+
+
 async def process_recording_after_asr(recording_id: str | uuid.UUID) -> None:
     rid = uuid.UUID(str(recording_id))
     async with AsyncSessionLocal() as db:
@@ -571,6 +643,8 @@ async def process_recording_after_asr(recording_id: str | uuid.UUID) -> None:
         file_id = str(recording.file_id)
         provider = recording.asr_provider
         segments = recording.asr_segments
+        client_task_id = recording.client_task_id
+        device_file_name = recording.device_file_name
 
     try:
         result = await process_flash_text(
@@ -581,6 +655,8 @@ async def process_recording_after_asr(recording_id: str | uuid.UUID) -> None:
             recording_id=str(rid),
             asr_provider=provider,
             segments=segments if isinstance(segments, list) else None,
+            client_task_id=client_task_id,
+            device_file_name=device_file_name,
         )
     except Exception as e:
         logger.exception("%s pipeline exception recording=%s", LOG_TAG, rid)
@@ -615,9 +691,12 @@ async def process_recording_after_asr(recording_id: str | uuid.UUID) -> None:
             return
 
         recording.process_status = "failed"
+        recording.session_id = uuid.UUID(result["session_id"]) if result.get("session_id") else recording.session_id
+        recording.input_turn_id = uuid.UUID(result["input_turn_id"]) if result.get("input_turn_id") else recording.input_turn_id
         recording.error_message = result.get("error") or "flash pipeline failed"
         recording.updated_at = _now()
         await db.commit()
+        await db.refresh(recording)
         publish_flash_file_status(recording, "failed", recording.error_message or "处理失败")
         logger.info("%s pipeline failed recording=%s error=%s", LOG_TAG, rid, recording.error_message)
 
