@@ -119,6 +119,7 @@ class _FloatingMascotState extends State<FloatingMascot>
   // different screen sizes. Default ≈ bottom-right, clear of the dock.
   Offset _frac = const Offset(0.94, 0.74);
   bool _loaded = false;
+  late bool _wasAuthed;
 
   // §9.2 v4 fly-into-frame: while flying, the ball renders at a global position
   // lerped from its spot to the hero frame, scaling to hero size. Driven by this
@@ -163,6 +164,7 @@ class _FloatingMascotState extends State<FloatingMascot>
   @override
   void initState() {
     super.initState();
+    _wasAuthed = _auth.isAuthed;
     _pet.ensureLoaded();
     _restore();
     _auth.addListener(_onAuth);
@@ -176,7 +178,16 @@ class _FloatingMascotState extends State<FloatingMascot>
   }
 
   void _onAuth() {
-    if (!mounted || _auth.isAuthed) return;
+    if (!mounted) return;
+    final isAuthed = _auth.isAuthed;
+    if (isAuthed) {
+      if (!_wasAuthed) {
+        _wasAuthed = true;
+        _pet.ensureLoaded();
+      }
+      return;
+    }
+    _wasAuthed = false;
     _activeClose?.call();
     RekaFly.instance.cancel();
     RekaFly.instance.outFrom.value = null;
@@ -479,12 +490,12 @@ class _FloatingMascotState extends State<FloatingMascot>
       valueListenable: mascotSuppressed,
       builder: (context, suppressed, _) => _mascot(
         context,
-        hidden: suppressed > 0 || !_auth.isAuthed || !_pet.onboardingCompleted,
+        suppressed: suppressed,
       ),
     );
   }
 
-  Widget _mascot(BuildContext context, {required bool hidden}) {
+  Widget _mascot(BuildContext context, {required int suppressed}) {
     return AnimatedBuilder(
       animation: Listenable.merge([_auth, _pet, _fly, _bob]),
       builder: (context, _) {
@@ -500,7 +511,8 @@ class _FloatingMascotState extends State<FloatingMascot>
             (_auth.isAuthed && !_pet.onboardingCompleted)) {
           return const SizedBox.shrink();
         }
-        final effectiveHidden = hidden || !_auth.isAuthed;
+        final effectiveHidden =
+            suppressed > 0 || !_auth.isAuthed || !_pet.onboardingCompleted;
         return LayoutBuilder(
           builder: (context, constraints) {
             final maxW = constraints.maxWidth;

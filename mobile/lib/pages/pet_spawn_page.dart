@@ -100,7 +100,10 @@ class _PetSpawnPageState extends State<PetSpawnPage>
 
   @override
   void dispose() {
-    releaseMascotSuppress();
+    // dispose runs while the route tree is being torn down; releasing the
+    // global notifier immediately can mark the floating mascot dirty while the
+    // tree is locked. Defer to the next frame, same as PetPage.
+    WidgetsBinding.instance.addPostFrameCallback((_) => releaseMascotSuppress());
     BleFlashManager.instance.isFlashing.removeListener(_onFlashingChanged);
     _shake.dispose();
     _nameCtrl.dispose();

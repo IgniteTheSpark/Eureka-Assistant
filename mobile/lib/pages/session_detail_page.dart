@@ -35,11 +35,13 @@ class _SessionDetailPageState extends State<SessionDetailPage> {
   final _api = ApiClient();
   final _input = TextEditingController();
   final _scroll = ScrollController();
+  final _tailKey = GlobalKey();
   final _scaffoldKey = GlobalKey<ScaffoldState>();
   late String _sessionId = widget.sessionId;
   late String _title = widget.title;
   bool _loading = true;
   Object? _error;
+  int _scrollRequest = 0;
 
   @override
   void initState() {
@@ -102,14 +104,47 @@ class _SessionDetailPageState extends State<SessionDetailPage> {
   }
 
   void _scrollToEnd() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scroll.hasClients) {
+    final request = ++_scrollRequest;
+    void alignTail({required bool animated}) {
+      if (!mounted || request != _scrollRequest) return;
+      final tailContext = _tailKey.currentContext;
+      if (tailContext != null) {
+        Scrollable.ensureVisible(
+          tailContext,
+          alignment: 1,
+          duration: animated
+              ? const Duration(milliseconds: 200)
+              : Duration.zero,
+          curve: Curves.easeOut,
+        );
+        return;
+      }
+      if (!_scroll.hasClients) return;
+      final pos = _scroll.position;
+      final target = pos.maxScrollExtent
+          .clamp(pos.minScrollExtent, pos.maxScrollExtent)
+          .toDouble();
+      if (animated) {
         _scroll.animateTo(
-          _scroll.position.maxScrollExtent,
+          target,
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeOut,
         );
+      } else {
+        _scroll.jumpTo(target);
       }
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      alignTail(animated: true);
+      Future<void>.delayed(
+        const Duration(milliseconds: 80),
+        () => alignTail(animated: false),
+      );
+      Future<void>.delayed(
+        const Duration(milliseconds: 240),
+        () => alignTail(animated: false),
+      );
     });
   }
 
@@ -200,13 +235,22 @@ class _SessionDetailPageState extends State<SessionDetailPage> {
                       padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                       itemCount: msgs.length + (analyzing ? 1 : 0),
                       itemBuilder: (_, i) {
+                        final tail =
+                            (i == msgs.length - 1 && !analyzing) ||
+                            (i == msgs.length && analyzing);
                         if (i >= msgs.length) {
-                          return _analyzingRow(
+                          final child = _analyzingRow(
                             eu,
                             flashProcessing?.message ?? '正在整理…',
                           );
+                          return tail
+                              ? KeyedSubtree(key: _tailKey, child: child)
+                              : child;
                         }
-                        return _Bubble(msgs[i], _sessionId);
+                        final child = _Bubble(msgs[i], _sessionId);
+                        return tail
+                            ? KeyedSubtree(key: _tailKey, child: child)
+                            : child;
                       },
                     ),
             ),

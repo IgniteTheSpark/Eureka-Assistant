@@ -50,7 +50,9 @@ class _ChatPageState extends State<ChatPage> {
   String? _anchorLabel;
   final _input = TextEditingController();
   final _scroll = ScrollController();
+  final _tailKey = GlobalKey();
   final _scaffoldKey = GlobalKey<ScaffoldState>();
+  int _scrollRequest = 0;
 
   // §1.5.1 开场 hint — 空态脚手架(opener + 起聊 chips),仅锚定会话且无历史时
   // 显示;不落库为消息,用户点 chip / 打字即进入正常对话。
@@ -92,17 +94,56 @@ class _ChatPageState extends State<ChatPage> {
     // Restore the context chip rail after a history session loads (codex r2 —
     // was empty on reopen). Seeds once: manual attaches make _context non-empty.
     if (_context.isEmpty && _chat.contextAssets.isNotEmpty) {
-      _context.addAll(_chat.contextAssets.map((c) => (id: c.id, label: c.label)));
+      _context.addAll(
+        _chat.contextAssets.map((c) => (id: c.id, label: c.label)),
+      );
     }
     setState(() {});
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scroll.hasClients) {
+    _scrollToEnd();
+  }
+
+  void _scrollToEnd() {
+    final request = ++_scrollRequest;
+    void alignTail({required bool animated}) {
+      if (!mounted || request != _scrollRequest) return;
+      final tailContext = _tailKey.currentContext;
+      if (tailContext != null) {
+        Scrollable.ensureVisible(
+          tailContext,
+          alignment: 1,
+          duration: animated
+              ? const Duration(milliseconds: 200)
+              : Duration.zero,
+          curve: Curves.easeOut,
+        );
+        return;
+      }
+      if (!_scroll.hasClients) return;
+      final pos = _scroll.position;
+      final target = pos.maxScrollExtent
+          .clamp(pos.minScrollExtent, pos.maxScrollExtent)
+          .toDouble();
+      if (animated) {
         _scroll.animateTo(
-          _scroll.position.maxScrollExtent,
+          target,
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeOut,
         );
+      } else {
+        _scroll.jumpTo(target);
       }
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      alignTail(animated: true);
+      Future<void>.delayed(
+        const Duration(milliseconds: 80),
+        () => alignTail(animated: false),
+      );
+      Future<void>.delayed(
+        const Duration(milliseconds: 240),
+        () => alignTail(animated: false),
+      );
     });
   }
 
@@ -119,8 +160,10 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> _loadOpeningHint(String type, String id) async {
     final api = ApiClient();
     try {
-      final r = await api.getJson('/api/sessions/opening-hint',
-          query: {'subject_type': type, 'subject_id': id});
+      final r = await api.getJson(
+        '/api/sessions/opening-hint',
+        query: {'subject_type': type, 'subject_id': id},
+      );
       if (!mounted || r is! Map) return;
       setState(() {
         _hintOpener = r['opener'] as String?;
@@ -129,7 +172,9 @@ class _ChatPageState extends State<ChatPage> {
             .take(3)
             .toList();
       });
-    } catch (_) {/* hint 是增强,失败不打扰 */} finally {
+    } catch (_) {
+      /* hint 是增强,失败不打扰 */
+    } finally {
       api.close();
     }
   }
@@ -168,22 +213,34 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
-  Widget _ctxChip(EurekaColors eu, String icon, String label, {bool accent = false}) {
+  Widget _ctxChip(
+    EurekaColors eu,
+    String icon,
+    String label, {
+    bool accent = false,
+  }) {
     return Container(
       margin: const EdgeInsets.only(right: 6),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: accent ? eu.brand.withValues(alpha: 0.12) : eu.surfaceRaised,
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: accent ? eu.brand.withValues(alpha: 0.30) : eu.border),
+        border: Border.all(
+          color: accent ? eu.brand.withValues(alpha: 0.30) : eu.border,
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(icon, style: const TextStyle(fontSize: 11)),
           const SizedBox(width: 5),
-          Text(label,
-              style: TextStyle(color: accent ? eu.textHi : eu.textMid, fontSize: 12)),
+          Text(
+            label,
+            style: TextStyle(
+              color: accent ? eu.textHi : eu.textMid,
+              fontSize: 12,
+            ),
+          ),
         ],
       ),
     );
@@ -276,7 +333,10 @@ class _ChatPageState extends State<ChatPage> {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                          color: eu.textHi, fontSize: 20, fontWeight: FontWeight.w700),
+                        color: eu.textHi,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -292,21 +352,34 @@ class _ChatPageState extends State<ChatPage> {
             Expanded(
               child: msgs.isEmpty
                   ? (_hintOpener != null
-                      ? _openingHint(eu)
-                      : Center(
-                          child: Text('问 Agent 任何事…',
-                              style: TextStyle(color: eu.textMid, fontSize: 15))))
+                        ? _openingHint(eu)
+                        : Center(
+                            child: Text(
+                              '问 Agent 任何事…',
+                              style: TextStyle(color: eu.textMid, fontSize: 15),
+                            ),
+                          ))
                   : ListView.builder(
                       controller: _scroll,
                       padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                       itemCount: msgs.length,
-                      itemBuilder: (_, i) => _Bubble(
-                        msgs[i],
-                        onPrecipitate: (skill) => _precipitate(msgs[i], skill),
-                      ),
+                      itemBuilder: (_, i) {
+                        final child = _Bubble(
+                          msgs[i],
+                          onPrecipitate: (skill) =>
+                              _precipitate(msgs[i], skill),
+                        );
+                        return i == msgs.length - 1
+                            ? KeyedSubtree(key: _tailKey, child: child)
+                            : child;
+                      },
                     ),
             ),
-            _InputBar(controller: _input, onSend: _send, streaming: _chat.streaming),
+            _InputBar(
+              controller: _input,
+              onSend: _send,
+              streaming: _chat.streaming,
+            ),
           ],
         ),
       ),
@@ -327,10 +400,15 @@ class _ChatPageState extends State<ChatPage> {
                 Text('✦', style: TextStyle(color: eu.brand, fontSize: 15)),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(_hintOpener!,
-                      style: TextStyle(
-                          color: eu.textHi, fontSize: 15.5, height: 1.5,
-                          fontWeight: FontWeight.w600)),
+                  child: Text(
+                    _hintOpener!,
+                    style: TextStyle(
+                      color: eu.textHi,
+                      fontSize: 15.5,
+                      height: 1.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -344,15 +422,20 @@ class _ChatPageState extends State<ChatPage> {
                     onTap: () => _sendStarter(st),
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 9),
+                        horizontal: 14,
+                        vertical: 9,
+                      ),
                       decoration: BoxDecoration(
                         color: eu.brand.withValues(alpha: 0.10),
                         borderRadius: BorderRadius.circular(999),
-                        border:
-                            Border.all(color: eu.brand.withValues(alpha: 0.35)),
+                        border: Border.all(
+                          color: eu.brand.withValues(alpha: 0.35),
+                        ),
                       ),
-                      child: Text(st,
-                          style: TextStyle(color: eu.brand, fontSize: 13.5)),
+                      child: Text(
+                        st,
+                        style: TextStyle(color: eu.brand, fontSize: 13.5),
+                      ),
                     ),
                   ),
               ],
@@ -396,10 +479,15 @@ class _Bubble extends StatelessWidget {
     // part, OR a non-query tool_result that yielded cards. If so, hide
     // 沉淀为资产 — the user already got a real asset. (Must include CardsPart, or
     // a replayed/created-card turn wrongly offers precipitate after reload.)
-    final hasCards = m.parts.any((p) =>
-        (p is CardsPart && p.cards.isNotEmpty) ||
-        (p is ToolResultPart && !isQueryTool(p.name) && extractCards(p.response).isNotEmpty));
-    final showPrecipitate = !m.streaming &&
+    final hasCards = m.parts.any(
+      (p) =>
+          (p is CardsPart && p.cards.isNotEmpty) ||
+          (p is ToolResultPart &&
+              !isQueryTool(p.name) &&
+              extractCards(p.response).isNotEmpty),
+    );
+    final showPrecipitate =
+        !m.streaming &&
         onPrecipitate != null &&
         fullText.length > 8 &&
         !hasCards;
@@ -413,11 +501,17 @@ class _Bubble extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             for (var idx = 0; idx < m.parts.length; idx++)
-              _part(context, m.parts[idx],
-                  isLast: idx == m.parts.length - 1, streaming: m.streaming),
+              _part(
+                context,
+                m.parts[idx],
+                isLast: idx == m.parts.length - 1,
+                streaming: m.streaming,
+              ),
             if (m.streaming && m.parts.isEmpty)
-              Text('分析中…',
-                  style: TextStyle(color: eu.textLo, fontStyle: FontStyle.italic)),
+              Text(
+                '分析中…',
+                style: TextStyle(color: eu.textLo, fontStyle: FontStyle.italic),
+              ),
             if (m.streaming &&
                 m.parts.isNotEmpty &&
                 (m.parts.last is ToolResultPart || m.parts.last is CardsPart))
@@ -431,8 +525,12 @@ class _Bubble extends StatelessWidget {
     );
   }
 
-  Widget _part(BuildContext context, ChatPart p,
-      {required bool isLast, required bool streaming}) {
+  Widget _part(
+    BuildContext context,
+    ChatPart p, {
+    required bool isLast,
+    required bool streaming,
+  }) {
     final eu = context.eu;
     switch (p) {
       case TextPart(:final text):
@@ -462,24 +560,37 @@ class _Bubble extends StatelessWidget {
           return _CollapsibleQueryResult(label: _toolLabel(name), cards: cards);
         }
         if (cards.isEmpty) {
-          return _chip(context, '${_toolLabel(name)} 完成', eu.textLo,
-              icon: Icons.check_rounded);
+          return _chip(
+            context,
+            '${_toolLabel(name)} 完成',
+            eu.textLo,
+            icon: Icons.check_rounded,
+          );
         }
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: [for (final c in cards) SkillCard(c, layoutOverride: 'horizontal')],
+          children: [
+            for (final c in cards) SkillCard(c, layoutOverride: 'horizontal'),
+          ],
         );
       case CardsPart(:final cards):
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: [for (final c in cards) SkillCard(c, layoutOverride: 'horizontal')],
+          children: [
+            for (final c in cards) SkillCard(c, layoutOverride: 'horizontal'),
+          ],
         );
       case ErrorPart(:final message):
         return _chip(context, message, eu.accentRed);
     }
   }
 
-  Widget _chip(BuildContext context, String label, Color color, {IconData? icon}) {
+  Widget _chip(
+    BuildContext context,
+    String label,
+    Color color, {
+    IconData? icon,
+  }) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Container(
@@ -500,7 +611,11 @@ class _Bubble extends StatelessWidget {
             // Flexible + softWrap so a long message (e.g. a raw error) wraps
             // instead of overflowing the bubble horizontally.
             Flexible(
-              child: Text(label, softWrap: true, style: TextStyle(color: color, fontSize: 12)),
+              child: Text(
+                label,
+                softWrap: true,
+                style: TextStyle(color: color, fontSize: 12),
+              ),
             ),
           ],
         ),
@@ -544,11 +659,20 @@ class _Bubble extends StatelessWidget {
           SizedBox(
             width: 12,
             height: 12,
-            child: CircularProgressIndicator(strokeWidth: 1.6, color: eu.textLo),
+            child: CircularProgressIndicator(
+              strokeWidth: 1.6,
+              color: eu.textLo,
+            ),
           ),
           const SizedBox(width: 6),
-          Text('处理中…',
-              style: TextStyle(color: eu.textLo, fontStyle: FontStyle.italic, fontSize: 13)),
+          Text(
+            '处理中…',
+            style: TextStyle(
+              color: eu.textLo,
+              fontStyle: FontStyle.italic,
+              fontSize: 13,
+            ),
+          ),
         ],
       ),
     );
@@ -560,15 +684,22 @@ class _Bubble extends StatelessWidget {
     final ms = m.elapsedMs;
     final tk = m.tokens;
     if (ms != null && ms > 0) {
-      bits.add(ms < 1000 ? '用时 ${ms}ms' : '用时 ${(ms / 1000).toStringAsFixed(1)}s');
+      bits.add(
+        ms < 1000 ? '用时 ${ms}ms' : '用时 ${(ms / 1000).toStringAsFixed(1)}s',
+      );
     }
     if (tk != null && tk > 0) {
-      bits.add(tk < 1000 ? '$tk tokens' : '${(tk / 1000).toStringAsFixed(1)}k tokens');
+      bits.add(
+        tk < 1000 ? '$tk tokens' : '${(tk / 1000).toStringAsFixed(1)}k tokens',
+      );
     }
     if (bits.isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(top: 2),
-      child: Text(bits.join(' · '), style: TextStyle(color: eu.textLo, fontSize: 10)),
+      child: Text(
+        bits.join(' · '),
+        style: TextStyle(color: eu.textLo, fontSize: 10),
+      ),
     );
   }
 
@@ -603,10 +734,12 @@ class _StreamingText extends StatefulWidget {
   State<_StreamingText> createState() => _StreamingTextState();
 }
 
-class _StreamingTextState extends State<_StreamingText> with SingleTickerProviderStateMixin {
-  late final AnimationController _c =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 900))
-        ..repeat(reverse: true);
+class _StreamingTextState extends State<_StreamingText>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+  )..repeat(reverse: true);
 
   @override
   void dispose() {
@@ -619,21 +752,24 @@ class _StreamingTextState extends State<_StreamingText> with SingleTickerProvide
     final eu = context.eu;
     final base = TextStyle(color: eu.text, fontSize: 14, height: 1.4);
     return RichText(
-      text: TextSpan(style: base, children: [
-        TextSpan(text: widget.text),
-        WidgetSpan(
-          alignment: PlaceholderAlignment.middle,
-          child: FadeTransition(
-            opacity: _c,
-            child: Container(
-              width: 7,
-              height: 15,
-              margin: const EdgeInsets.only(left: 1),
-              color: eu.brand,
+      text: TextSpan(
+        style: base,
+        children: [
+          TextSpan(text: widget.text),
+          WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: FadeTransition(
+              opacity: _c,
+              child: Container(
+                width: 7,
+                height: 15,
+                margin: const EdgeInsets.only(left: 1),
+                color: eu.brand,
+              ),
             ),
           ),
-        ),
-      ]),
+        ],
+      ),
     );
   }
 }
@@ -646,7 +782,8 @@ class _CollapsibleQueryResult extends StatefulWidget {
   const _CollapsibleQueryResult({required this.label, required this.cards});
 
   @override
-  State<_CollapsibleQueryResult> createState() => _CollapsibleQueryResultState();
+  State<_CollapsibleQueryResult> createState() =>
+      _CollapsibleQueryResultState();
 }
 
 class _CollapsibleQueryResultState extends State<_CollapsibleQueryResult> {
@@ -676,19 +813,25 @@ class _CollapsibleQueryResultState extends State<_CollapsibleQueryResult> {
                 children: [
                   Icon(Icons.search_rounded, size: 13, color: eu.textLo),
                   const SizedBox(width: 5),
-                  Text('${widget.label} · 找到 $n 项',
-                      style: TextStyle(color: eu.textLo, fontSize: 12)),
+                  Text(
+                    '${widget.label} · 找到 $n 项',
+                    style: TextStyle(color: eu.textLo, fontSize: 12),
+                  ),
                   if (n > 0) ...[
                     const SizedBox(width: 4),
-                    Icon(_open ? Icons.expand_less : Icons.chevron_right,
-                        size: 15, color: eu.textLo),
+                    Icon(
+                      _open ? Icons.expand_less : Icons.chevron_right,
+                      size: 15,
+                      color: eu.textLo,
+                    ),
                   ],
                 ],
               ),
             ),
           ),
           if (_open)
-            for (final c in widget.cards) SkillCard(c, layoutOverride: 'horizontal'),
+            for (final c in widget.cards)
+              SkillCard(c, layoutOverride: 'horizontal'),
         ],
       ),
     );
@@ -707,10 +850,7 @@ class _PrecipitateMenu extends StatefulWidget {
 
 class _PrecipitateMenuState extends State<_PrecipitateMenu> {
   // idea/notes/misc merged into 随记 (notes). Precipitate offers 待办 or 随记.
-  static const _types = [
-    ('todo', '✅', '待办'),
-    ('notes', '✍️', '随记'),
-  ];
+  static const _types = [('todo', '✅', '待办'), ('notes', '✍️', '随记')];
 
   String _state = 'idle'; // idle | saving | done | error
   String _label = '';
@@ -743,7 +883,10 @@ class _PrecipitateMenuState extends State<_PrecipitateMenu> {
           children: [
             Icon(Icons.check, size: 14, color: eu.accentGreen),
             const SizedBox(width: 4),
-            Text('已沉淀为$_label', style: TextStyle(color: eu.accentGreen, fontSize: 12)),
+            Text(
+              '已沉淀为$_label',
+              style: TextStyle(color: eu.accentGreen, fontSize: 12),
+            ),
           ],
         ),
       );
@@ -758,7 +901,8 @@ class _PrecipitateMenuState extends State<_PrecipitateMenu> {
           _pick(t.$1, t.$3);
         },
         itemBuilder: (_) => [
-          for (final t in _types) PopupMenuItem(value: t.$1, child: Text('${t.$2} ${t.$3}')),
+          for (final t in _types)
+            PopupMenuItem(value: t.$1, child: Text('${t.$2} ${t.$3}')),
         ],
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -769,11 +913,21 @@ class _PrecipitateMenuState extends State<_PrecipitateMenu> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(_state == 'saving' ? Icons.hourglass_empty : Icons.bookmark_border,
-                  size: 13, color: isError ? eu.accentRed : eu.textLo),
+              Icon(
+                _state == 'saving'
+                    ? Icons.hourglass_empty
+                    : Icons.bookmark_border,
+                size: 13,
+                color: isError ? eu.accentRed : eu.textLo,
+              ),
               const SizedBox(width: 4),
-              Text(isError ? '沉淀失败,重试' : '沉淀为资产',
-                  style: TextStyle(color: isError ? eu.accentRed : eu.textLo, fontSize: 12)),
+              Text(
+                isError ? '沉淀失败,重试' : '沉淀为资产',
+                style: TextStyle(
+                  color: isError ? eu.accentRed : eu.textLo,
+                  fontSize: 12,
+                ),
+              ),
               Icon(Icons.arrow_drop_down, size: 16, color: eu.textLo),
             ],
           ),
@@ -824,8 +978,10 @@ class _SessionsDrawerState extends State<_SessionsDrawer> {
       builder: (ctx) => AlertDialog(
         backgroundColor: eu.surfaceRaised,
         title: Text('删除会话？', style: TextStyle(color: eu.textHi)),
-        content: Text('「${s.title}」将被删除，其中产生的资产会保留。',
-            style: TextStyle(color: eu.textMid)),
+        content: Text(
+          '「${s.title}」将被删除，其中产生的资产会保留。',
+          style: TextStyle(color: eu.textMid),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -833,8 +989,13 @@ class _SessionsDrawerState extends State<_SessionsDrawer> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: Text('删除',
-                style: TextStyle(color: eu.accentRed, fontWeight: FontWeight.w600)),
+            child: Text(
+              '删除',
+              style: TextStyle(
+                color: eu.accentRed,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
         ],
       ),
@@ -865,13 +1026,19 @@ class _SessionsDrawerState extends State<_SessionsDrawer> {
               padding: const EdgeInsets.fromLTRB(16, 16, 8, 8),
               child: Row(
                 children: [
-                  Text('历史对话',
-                      style: TextStyle(
-                          color: eu.textHi, fontSize: 18, fontWeight: FontWeight.w700)),
+                  Text(
+                    '历史对话',
+                    style: TextStyle(
+                      color: eu.textHi,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                   const Spacer(),
                   TextButton.icon(
                     onPressed: () {
-                      widget.onNewConversation(); // clears anchor + context + session
+                      widget
+                          .onNewConversation(); // clears anchor + context + session
                       Navigator.of(context).pop();
                     },
                     icon: const Icon(Icons.add, size: 18),
@@ -889,12 +1056,16 @@ class _SessionsDrawerState extends State<_SessionsDrawer> {
 
   Widget _list(EurekaColors eu) {
     if (_error != null) {
-      return Center(child: Text('加载失败', style: TextStyle(color: eu.textMid)));
+      return Center(
+        child: Text('加载失败', style: TextStyle(color: eu.textMid)),
+      );
     }
     final ss = _sessions;
     if (ss == null) return const Center(child: CircularProgressIndicator());
     if (ss.isEmpty) {
-      return Center(child: Text('暂无会话', style: TextStyle(color: eu.textMid)));
+      return Center(
+        child: Text('暂无会话', style: TextStyle(color: eu.textMid)),
+      );
     }
     return ListView.builder(
       itemCount: ss.length,
@@ -914,12 +1085,19 @@ class _SessionsDrawerState extends State<_SessionsDrawer> {
             child: Icon(Icons.delete_outline, color: eu.accentRed),
           ),
           child: ListTile(
-            title: Text(s.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: active ? eu.brand : eu.textHi, fontSize: 14)),
-            subtitle: Text('${s.createdAt.month}月${s.createdAt.day}日',
-                style: TextStyle(color: eu.textLo, fontSize: 11)),
+            title: Text(
+              s.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: active ? eu.brand : eu.textHi,
+                fontSize: 14,
+              ),
+            ),
+            subtitle: Text(
+              '${s.createdAt.month}月${s.createdAt.day}日',
+              style: TextStyle(color: eu.textLo, fontSize: 11),
+            ),
             onTap: () async {
               await widget.chat.loadSession(s.id, title: s.title);
               if (mounted) Navigator.of(context).pop();
@@ -961,7 +1139,10 @@ class _InputBar extends StatelessWidget {
                 hintStyle: TextStyle(color: eu.textLo),
                 filled: true,
                 fillColor: eu.surfaceRaised,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(22),
                   borderSide: BorderSide(color: eu.border),
@@ -985,7 +1166,10 @@ class _InputBar extends StatelessWidget {
                 ? const SizedBox(
                     width: 18,
                     height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
                   )
                 : const Icon(Icons.arrow_upward, color: Colors.white),
           ),
@@ -994,4 +1178,3 @@ class _InputBar extends StatelessWidget {
     );
   }
 }
-

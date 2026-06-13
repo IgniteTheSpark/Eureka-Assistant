@@ -26,6 +26,7 @@ RUN_MIGRATIONS="1"
 RUN_SEED="0"
 BUILD_BACKEND="0"
 FOLLOW_LOGS="0"
+FORCE_RECREATE="0"
 
 usage() {
   cat <<'EOF'
@@ -44,6 +45,8 @@ Options:
   --build       启动前重新 build backend 镜像；改 requirements/Dockerfile 后使用
   --seed        迁移后执行 python -m db.seed；首次初始化或技能种子变更后使用
   --no-migrate  start/restart 时跳过 alembic upgrade head
+  --force-recreate
+                清空本地 MySQL 数据卷并重启；仅支持 start/restart，会二次确认
   --logs        start/restart 后跟随 backend 日志
   -h, --help    显示帮助
 
@@ -51,6 +54,7 @@ Examples:
   ./local_backend.sh
   ./local_backend.sh restart --logs
   ./local_backend.sh restart --build
+  ./local_backend.sh restart --force-recreate
   ./local_backend.sh migrate
 
 Android 真机本地包 API_BASE:
@@ -66,6 +70,10 @@ log() {
 
 warn() {
   printf '\033[1;33m警告：\033[0m %s\n' "$*" >&2
+}
+
+danger() {
+  printf '\033[1;31m%s\033[0m\n' "$*" >&2
 }
 
 die() {
@@ -106,6 +114,43 @@ start_db() {
   log "启动 MySQL"
   compose up -d db
   wait_for_db
+}
+
+confirm_force_recreate() {
+  local answer
+  danger "危险操作：将清空本地 MySQL 数据卷，并重建后端数据。"
+  read -r -p "确认清空本地 MySQL 数据并重启后端？[y/N] " answer || answer=""
+  case "$answer" in
+    y|Y) ;;
+    *)
+      warn "已取消清库重启"
+      exit 0
+      ;;
+  esac
+}
+
+mysql_data_volume() {
+  local cid volume
+  cid="$(compose ps -aq db 2>/dev/null || true)"
+  if [ -z "$cid" ]; then
+    log "创建 db 容器以定位 MySQL 数据卷" >&2
+    compose up -d db >&2
+    cid="$(compose ps -aq db 2>/dev/null || true)"
+  fi
+  [ -n "$cid" ] || die "找不到 db 容器，无法定位 MySQL 数据卷"
+
+  volume="$(docker inspect -f '{{range .Mounts}}{{if and (eq .Destination "/var/lib/mysql") (eq .Type "volume")}}{{.Name}}{{end}}{{end}}' "$cid" 2>/dev/null || true)"
+  [ -n "$volume" ] || die "找不到 db 的 /var/lib/mysql 数据卷，拒绝继续清理"
+  printf '%s\n' "$volume"
+}
+
+reset_mysql_data_volume() {
+  local volume
+  volume="$(mysql_data_volume)"
+  log "停止 compose 服务（不使用 down -v）"
+  compose down
+  log "删除 MySQL 数据卷：$volume"
+  docker volume rm "$volume" >/dev/null
 }
 
 build_backend_if_needed() {
@@ -159,12 +204,20 @@ print_urls() {
 }
 
 do_start() {
+  if [ "$FORCE_RECREATE" = "1" ]; then
+    confirm_force_recreate
+    reset_mysql_data_volume
+    RUN_SEED="1"
+  fi
   start_db
   build_backend_if_needed
   run_migrations
   run_seed_if_needed
   start_backend
   print_urls
+  if [ "$FORCE_RECREATE" = "1" ]; then
+    danger "数据已重启，app 需要卸载重装。"
+  fi
   if [ "$FOLLOW_LOGS" = "1" ]; then
     compose logs -f backend
   fi
@@ -210,6 +263,10 @@ while [ "$#" -gt 0 ]; do
       RUN_MIGRATIONS="0"
       shift
       ;;
+    --force-recreate)
+      FORCE_RECREATE="1"
+      shift
+      ;;
     --logs)
       FOLLOW_LOGS="1"
       shift
@@ -223,6 +280,16 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
 done
+
+if [ "$FORCE_RECREATE" = "1" ]; then
+  case "$ACTION" in
+    start|restart) ;;
+    *) die "--force-recreate 仅支持 start/restart" ;;
+  esac
+  if [ "$RUN_MIGRATIONS" != "1" ]; then
+    die "--force-recreate 不能与 --no-migrate 一起使用"
+  fi
+fi
 
 need_cmd docker
 
