@@ -70,6 +70,8 @@ class DeviceOperationException implements Exception {
 abstract class DeviceTransport {
   Stream<String> get bluetoothStateStream;
 
+  Stream<bool> get connectionStateStream;
+
   Future<bool> isBluetoothPoweredOn();
 
   Future<bool> isDeviceConnected();
@@ -99,6 +101,20 @@ class BleDeviceTransport implements DeviceTransport {
   Stream<String> get bluetoothStateStream => _ble.bluetoothStateChangedStream
       .map((event) => event['state']?.toString().trim() ?? '')
       .where((state) => state.isNotEmpty);
+
+  @override
+  Stream<bool> get connectionStateStream => _ble.rawEventStream
+      .map((event) {
+        final eventName = event['event']?.toString();
+        if (eventName == 'deviceDisconnected') return false;
+        if (eventName != 'connectionStateChanged') return null;
+        return event['isConnected'] == true ||
+            event['connected'] == true ||
+            event['state']?.toString().toLowerCase() == 'connected';
+      })
+      .where((connected) => connected != null)
+      .cast<bool>()
+      .distinct();
 
   @override
   Future<bool> isBluetoothPoweredOn() async {
@@ -566,6 +582,17 @@ class MockDeviceTransport implements DeviceTransport {
   @override
   Stream<String> get bluetoothStateStream => Stream<String>.empty();
 
+  final StreamController<bool> _connectionStateController =
+      StreamController<bool>.broadcast();
+
+  @override
+  Stream<bool> get connectionStateStream => _connectionStateController.stream;
+
+  void emitConnectionState(bool connected) {
+    deviceConnected = connected;
+    _connectionStateController.add(connected);
+  }
+
   @override
   Future<bool> isBluetoothPoweredOn() async => true;
 
@@ -629,6 +656,10 @@ class DeviceController extends ChangeNotifier {
       _handleBluetoothState,
       onError: (_) {},
     );
+    _connectionSub = _transport.connectionStateStream.listen(
+      _handleConnectionState,
+      onError: (_) {},
+    );
   }
 
   final DeviceTransport _transport;
@@ -644,6 +675,7 @@ class DeviceController extends ChangeNotifier {
 
   StreamSubscription<List<DiscoveredDevice>>? _scanSub;
   StreamSubscription<String>? _bluetoothSub;
+  StreamSubscription<bool>? _connectionSub;
   bool _scanRequested = false;
   bool _startingScan = false;
 
@@ -837,6 +869,25 @@ class DeviceController extends ChangeNotifier {
     }
   }
 
+  void _handleConnectionState(bool connected) {
+    if (!connected) {
+      if (state != DeviceConnState.connected && device == null) return;
+      device = null;
+      discovered = const [];
+      error = null;
+      state = DeviceConnState.idle;
+      notifyListeners();
+      return;
+    }
+
+    if (state == DeviceConnState.connecting ||
+        state == DeviceConnState.scanning ||
+        isBound) {
+      return;
+    }
+    unawaited(refreshBoundDevice());
+  }
+
   Future<void> unbind({required bool deleteData}) async {
     final current = device;
     if (current == null) return;
@@ -876,6 +927,7 @@ class DeviceController extends ChangeNotifier {
   void dispose() {
     _scanSub?.cancel();
     _bluetoothSub?.cancel();
+    _connectionSub?.cancel();
     super.dispose();
   }
 }
