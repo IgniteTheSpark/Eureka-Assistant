@@ -321,7 +321,7 @@ class _DeviceArt extends StatelessWidget {
                             Row(
                               children: [
                                 const Text(
-                                  'EUREKA',
+                                  'UReka',
                                   style: TextStyle(
                                     color: Colors.white,
                                     fontSize: 11,
@@ -381,7 +381,7 @@ class _DeviceArt extends StatelessWidget {
                 const Padding(
                   padding: EdgeInsets.only(bottom: 16),
                   child: Text(
-                    'EUREKA',
+                    'UReka',
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 11,
