@@ -76,9 +76,24 @@ def _parse_iso(s: Any) -> Optional[datetime]:
     return dt
 
 
-def effective_at_for_asset(asset: Asset, skill_name: str) -> datetime:
-    """Compute effective_at for an asset based on its skill type + payload."""
+def effective_at_for_asset(asset: Asset, skill_name: str,
+                           render_spec: Optional[dict] = None) -> datetime:
+    """Compute effective_at for an asset based on its skill type + payload.
+
+    Per-skill time anchor (发生型 skill): a skill may declare
+    `render_spec.timeline_anchor = "<payload field>"` — the field that holds
+    when the thing *happened* (a 球赛 played on 6/5, a workout done yesterday).
+    When present and parseable it wins, so a match recorded today lands on its
+    play date in 流 instead of today. Pure record skills (notes/灵感) declare no
+    anchor → created_at, unchanged. todo/expense keep their built-in anchors.
+    """
     payload = asset.payload or {}
+    rs = render_spec if isinstance(render_spec, dict) else {}
+    anchor = rs.get("timeline_anchor")
+    if anchor:
+        dt = _parse_iso(payload.get(anchor))
+        if dt:
+            return dt
     if skill_name == "todo":
         return _parse_iso(payload.get("due_date")) or asset.created_at
     if skill_name == "expense":
@@ -87,7 +102,7 @@ def effective_at_for_asset(asset: Asset, skill_name: str) -> datetime:
         return (_parse_iso(payload.get("at"))
                 or _parse_iso(payload.get("date"))
                 or asset.created_at)
-    # idea / notes / misc / contact / (future custom) — created_at by default
+    # idea / notes / misc / contact / (no-anchor custom) — created_at by default
     return asset.created_at
 
 
@@ -197,7 +212,7 @@ def _asset_item(asset: Asset, skill_name: str, render_spec: Optional[dict] = Non
     return {
         "kind":                 "asset",
         "id":                   str(asset.id),
-        "effective_at":         _iso(effective_at_for_asset(asset, skill_name)),
+        "effective_at":         _iso(effective_at_for_asset(asset, skill_name, render_spec)),
         "created_at":           _iso(asset.created_at),
         "title":                str(title)[:120],
         "subtitle":             str(subtitle)[:120],

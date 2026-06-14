@@ -50,7 +50,8 @@ DESIGN_INSTRUCTION = """
     "secondary_field":  "string (payload 字段名,可省)",
     "secondary_format": "text|relative_date|absolute_date|time|currency|duration|badge|truncate_40",
     "meta_fields":      [{"field": "string", "format": "可省"}],
-    "actions":          ["check"|"edit"|"delete"|"open"]
+    "actions":          ["check"|"edit"|"delete"|"open"],
+    "timeline_anchor":  "string (payload 字段名,可省;发生型 skill 必给 — 见「时间锚」规则)"
   },
   "sample_payload": {        // 示范数据一条,用于前端实时预览 card 的样子
     "<field>": <value>
@@ -78,6 +79,17 @@ DESIGN_INSTRUCTION = """
     是「主观叙述」→ true,否则 false。markdown 是纯文本的超集,标 true 没坏处,只是给更大的编辑区。
 - primary_field 必填,选最能一眼识别这条记录的字段(跑步 → 距离;读书 → 书名)
 - secondary_format 不确定就 "text",日期/时间字段用 "relative_date" 或 "absolute_date"
+- **时间锚 `timeline_anchor`(关键!发生型 skill 必给)**:判断这个 skill 记的是
+    「**在某个时间点发生的事**」(球赛/锻炼/约会/打卡/会议——有"哪天发生"的概念,
+    且常常**事后补记**),还是「**此刻的想法/记录**」(随记/灵感/笔记——没有"发生
+    时间",就是当下记下)。
+    · **发生型** → payload_schema 里必须有一个 `date` 或 `datetime` 字段(key 用
+      `date`/`occurred_at`/`played_at` 之类,标 `required: true`)记录**发生当天**,
+      并把 `render_spec.timeline_anchor` 设成那个字段的 key。这样「流/月/年」会把它
+      落到**发生当天**而非录入当天(例:6月5日打的球今天才记,也落在 6月5日)。
+      每条记录都要抽取并填这个字段(一句话记多场不同日期 → 每张卡各填各的日期)。
+    · **记录型** → **不要**设 timeline_anchor(留空),自动走录入时间 created_at。
+    · 拿不准:这条记录用户会说「那天/上周/6月X日……」来定位它吗?会 → 发生型。
 - **字段覆盖(关键!别让用户记的东西在卡片上消失)**:payload 里每个有意义的
     字段都要能在卡片上看到 —— 要么是 primary_field / secondary_field,要么进
     meta_fields。尤其是自由文本字段(note / 备注 / 感想 / 描述 / 心情),用户
@@ -151,6 +163,7 @@ RESPONSE_SCHEMA = {
                 "meta_fields":      {"type": "array"},
                 "field_units":      {"type": "object"},
                 "actions":          {"type": "array"},
+                "timeline_anchor":  {"type": "string"},
             },
         },
         "sample_payload": {"type": "object"},
