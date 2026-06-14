@@ -7,7 +7,6 @@ import 'package:webview_flutter/webview_flutter.dart';
 
 import '../api/api_client.dart';
 import '../data_revision.dart';
-import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
 import '../widgets/toast.dart';
 
@@ -209,7 +208,11 @@ class _ReportViewerPageState extends State<ReportViewerPage> {
 
   @override
   Widget build(BuildContext context) {
-    final eu = context.eu;
+    // 报告查看器是固定深色面(WebView/scaffold 背景硬编码 0xFF0B0E16,报告 HTML
+    // 按深色设计)。chrome(appbar + 原生「✦ 接下来」代办 bar)必须用深色主题色,
+    // 不能跟随 app 明暗 —— 否则默认浅色模式下 eu.textHi/textLo 变深色文字,压在
+    // 深色 bar 上不可读。固定用 EurekaColors.dark,与报告深色面一致。
+    final eu = EurekaColors.dark;
     return Scaffold(
       backgroundColor: const Color(0xFF0B0E16),
       appBar: AppBar(
