@@ -322,9 +322,10 @@ source_file_offset, asr_provider, language, created_at}`。供资产详情页的
 |---|---|---|
 | POST | `/api/reports` | 渲染管线产出后写入(body: `{title, genre, content_md, html, spec_json}`)→ 返回 `{id}` |
 | GET | `/api/reports?limit=` | 列表(标题/genre/spec 摘要/created_at,倒序),供「报告」容器 |
-| GET | `/api/reports/{id}` | 单条(含 `html` + `content_md` + `spec_json`),供查看器/重渲染 |
+| GET | `/api/reports/{id}` | 单条(含 `html` + `content_md` + `spec_json`),供查看器/重渲染。**`?lite=1`**:把内联 base64 配图剥成 `<img src="/api/reports/{id}/image/N">`(payload ~2.4MB→~25KB,见 §6.6.2「lite 取图」);默认返自包含版供分享 |
+| GET | `/api/reports/{id}/image/{idx}` | **配图字节**:从存储 html 抽第 idx 张 base64 解码吐图(`image/jpeg` 等 + `Cache-Control: immutable` 长缓存)。**免 Bearer**(凭不可猜的报告 UUID),供 lite html 的 `<img>` / WebView 直取;越界→404、坏 id→400 |
 | DELETE | `/api/reports/{id}` | 删除 |
-| POST | `/api/reports/generate` | **SSE**:跑整条 §6 管线(dispatch → 取数 → 内容 → render → 落库)。事件 `status`(分阶段)→ `report` → `done`;数据不足回 `insufficient`、出错回 `error`。body: `{user_wish, selected_summary?, source_asset_ids?}` |
+| POST | `/api/reports/generate` | **SSE**:跑整条 §6 管线(dispatch → 取数 → 内容 → render → 落库)。事件 `status`(分阶段)→ `report` → `done`;数据不足回 `insufficient`、出错回 `error`。body: `{user_wish, selected_summary?, source_asset_ids?, lite?}`(`lite:true` → `report` 事件回 lite html,§6.6.2) |
 | POST | `/api/reports/intake` | 引导对话判定:body `{messages}` → `{ready:true}` 或 `{ready:false, ask}`(一句澄清)。**无工具、不落库** |
 | POST | `/api/reports/{id}/rerender` | 换装重渲染:body `{palette?, surface?}`,默认 bump seed |
 | GET | `/api/reports/{id}/actions` | **§6.13 报告→待办**:`suggested_actions` + 每条 `created`(已建?)/`asset_id`(防重状态) |
