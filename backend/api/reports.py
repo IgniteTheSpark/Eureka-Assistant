@@ -10,10 +10,12 @@ The pipeline (agents/report_pipeline.py) is the usual writer via POST; the
 report container lists via GET and the WebView viewer reads one via GET /{id}.
 """
 import asyncio
+import base64
+import re
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 
@@ -46,6 +48,32 @@ def _full(r: Report) -> dict:
     return {**_meta(r), "content_md": r.content_md, "html": r.html}
 
 
+# ── lite html (§6 perf) ──────────────────────────────────────────────────────
+# The stored html inlines AI cover images as base64 data: URIs so an EXPORTED
+# .html stays self-contained (shareable offline). That makes the in-app payload
+# huge — one 2K Seedream image ≈ 2-3MB, vs ~25KB of real markup. For in-app
+# OPEN/GENERATE we strip the base64 to a URL ref; GET /reports/{id}/image/{idx}
+# serves the bytes (cacheable). Storage stays self-contained → SHARE is
+# unaffected. The lite html is in-app ONLY and the viewer must
+# loadHtmlString(..., baseUrl=<api origin>) so the root-relative ref resolves.
+_DATA_IMG_RE = re.compile(r"data:image/[A-Za-z0-9.+-]+;base64,[A-Za-z0-9+/=]+")
+
+
+def _to_lite_html(report_id: str, html: str) -> str:
+    """Swap each inline base64 image data: URI for a lightweight URL ref. The
+    Nth match maps to GET /reports/{id}/image/N — same regex + order as the
+    image endpoint's findall, so indices stay aligned."""
+    idx = 0
+
+    def _repl(_m: "re.Match[str]") -> str:
+        nonlocal idx
+        url = f"/api/reports/{report_id}/image/{idx}"
+        idx += 1
+        return url
+
+    return _DATA_IMG_RE.sub(_repl, html or "")
+
+
 class CreateReportRequest(BaseModel):
     title: str
     genre: str
@@ -70,7 +98,10 @@ async def list_reports(
 
 
 @router.get("/reports/{report_id}")
-async def get_report(report_id: str, user_id: str = Depends(get_current_user_id)):
+async def get_report(report_id: str, lite: int = Query(0),
+                     user_id: str = Depends(get_current_user_id)):
+    """One full report. `lite=1` strips inlined base64 images to URL refs (fast
+    in-app open); default returns the self-contained html (used for share)."""
     try:
         rid = uuid.UUID(report_id)
     except ValueError:
@@ -81,7 +112,41 @@ async def get_report(report_id: str, user_id: str = Depends(get_current_user_id)
         )).scalar_one_or_none()
     if r is None:
         raise HTTPException(status_code=404, detail="report not found")
-    return {"ok": True, "report": _full(r)}
+    payload = _full(r)
+    if lite:
+        payload["html"] = _to_lite_html(report_id, payload["html"])
+    return {"ok": True, "report": payload}
+
+
+@router.get("/reports/{report_id}/image/{idx}")
+async def report_image(report_id: str, idx: int):
+    """Serve the idx-th inlined AI image of a report as raw bytes — the target of
+    the lite html's <img src>. No Bearer on purpose: the unguessable report UUID
+    is the capability (same sensitivity as the report), which lets a WebView
+    <img> and the HTTP cache fetch it without an auth header."""
+    try:
+        rid = uuid.UUID(report_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid report id")
+    if idx < 0:
+        raise HTTPException(status_code=404, detail="no such image")
+    async with AsyncSessionLocal() as db:
+        html = (await db.execute(
+            select(Report.html).where(Report.id == rid)
+        )).scalar_one_or_none()
+    if html is None:
+        raise HTTPException(status_code=404, detail="report not found")
+    uris = _DATA_IMG_RE.findall(html)
+    if idx >= len(uris):
+        raise HTTPException(status_code=404, detail="no such image")
+    try:
+        head, b64 = uris[idx].split(",", 1)
+        mime = head[len("data:"):head.index(";")] or "image/png"
+        raw = base64.b64decode(b64)
+    except Exception:
+        raise HTTPException(status_code=500, detail="bad image data")
+    return Response(content=raw, media_type=mime,
+                    headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
 
 @router.post("/reports")
@@ -131,6 +196,7 @@ class GenerateReportRequest(BaseModel):
     user_wish: str
     source_asset_ids: list[str] | None = None
     selected_summary: list | None = None
+    lite: bool = False   # strip inlined base64 images → URL refs (fast in-app)
 
 
 # Strong refs to in-flight generation tasks so they survive the SSE client
@@ -171,6 +237,8 @@ async def generate_report(req: GenerateReportRequest, user_id: str = Depends(get
                                    "先多记几条，或换个时间范围 / 资产类型再试。",
                     }))
                 else:
+                    if req.lite and rep.get("id") and rep.get("html"):
+                        rep = {**rep, "html": _to_lite_html(str(rep["id"]), rep["html"])}
                     await queue.put(("report", rep))
             except Exception as e:  # surface, don't crash the stream
                 await queue.put(("error", {"message": str(e)[:300]}))
