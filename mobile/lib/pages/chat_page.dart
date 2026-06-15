@@ -340,6 +340,13 @@ class _ChatPageState extends State<ChatPage> {
                     ),
                   ),
                   const SizedBox(width: 8),
+                  // 新会话直接放在头部,和「历史对话」平齐 —— 不必先打开历史抽屉
+                  // 再去右上角找「新对话」。复用 _newConversation(原地清空开新线程)。
+                  IconButton(
+                    tooltip: '新会话',
+                    icon: Icon(Icons.add_comment_outlined, color: eu.textMid),
+                    onPressed: _newConversation,
+                  ),
                   IconButton(
                     tooltip: '历史对话',
                     icon: Icon(Icons.history, color: eu.textMid),
