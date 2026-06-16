@@ -19,12 +19,12 @@ class ChipletRing {
   Future<void> connect(String deviceId) => _p.connect(deviceId);
   Future<void> disconnect() => _p.disconnect();
 
-  Stream<RingAudioFrame> startRecording() {
-    final s = _p.audioFrames();
-    _p.startRecording();
-    return s;
-  }
+  /// Passive stream of decoded 16-bit PCM frames. Subscribing does NOT start the
+  /// hardware — frames only flow between [startRecording] and [stopRecording].
+  Stream<RingAudioFrame> get audioFrames => _p.audioFrames();
 
+  /// Start the ring streaming audio (CONTROL_AUDIO_ADPCM on). Frames arrive on [audioFrames].
+  Future<void> startRecording() => _p.startRecording();
   Future<void> stopRecording() => _p.stopRecording();
 
   // ---- On-device (local) recording + file management ----

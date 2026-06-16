@@ -8,30 +8,37 @@ class RingFrame {
   final int channels;
 }
 
-typedef StartAudioFn = Stream<RingFrame> Function();
-typedef StopAudioFn = Future<void> Function();
+typedef RecCmdFn = Future<void> Function();
 typedef TranscribeFn = Future<String> Function(Uint8List pcm, int sampleRate, int channels);
 typedef CreateCardFn = Future<void> Function(String text);
 
 /// Double-click the ring to start a capture; double-click again to stop, which
 /// transcribes the accumulated PCM and files it as a flash card.
+///
+/// [audioFrames] is the PASSIVE frame stream (subscribing has no hardware side
+/// effect — frames only flow after [startRecording]). The start/stop COMMANDS are
+/// separate so that double-click actually toggles the ring, and so that nothing is
+/// recorded at app launch. Frames are buffered only while a capture is active.
 class RingCaptureController {
   RingCaptureController({
     required Stream<int> keyEvents,
-    required StartAudioFn startAudio,
-    required StopAudioFn stopAudio,
+    required Stream<RingFrame> audioFrames,
+    required RecCmdFn startRecording,
+    required RecCmdFn stopRecording,
     required TranscribeFn transcribe,
     required CreateCardFn createCard,
     this.sampleRate = 8000,
   })  : _keyEvents = keyEvents,
-        _startAudio = startAudio,
-        _stopAudio = stopAudio,
+        _audioFrames = audioFrames,
+        _startRecording = startRecording,
+        _stopRecording = stopRecording,
         _transcribe = transcribe,
         _createCard = createCard;
 
   final Stream<int> _keyEvents;
-  final StartAudioFn _startAudio;
-  final StopAudioFn _stopAudio;
+  final Stream<RingFrame> _audioFrames;
+  final RecCmdFn _startRecording;
+  final RecCmdFn _stopRecording;
   final TranscribeFn _transcribe;
   final CreateCardFn _createCard;
   final int sampleRate;
@@ -46,8 +53,8 @@ class RingCaptureController {
     _keySub ??= _keyEvents.listen((k) {
       if (k == 2) _toggle();
     });
-    // Subscribe eagerly so no frames are dropped when recording begins.
-    _audioSub ??= _startAudio().listen((f) {
+    // Subscribe to the passive frame stream eagerly; only buffer while recording.
+    _audioSub ??= _audioFrames.listen((f) {
       if (_recording) {
         _channels = f.channels;
         _buf.add(f.pcm);
@@ -66,11 +73,12 @@ class RingCaptureController {
   void _beginRecording() {
     _recording = true;
     _buf.clear();
+    _startRecording(); // CONTROL_AUDIO_ADPCM on
   }
 
   Future<void> _stop() async {
     _recording = false;
-    await _stopAudio();
+    await _stopRecording(); // CONTROL_AUDIO_ADPCM off
     final pcm = _buf.toBytes();
     if (pcm.isEmpty) return;
     final text = await _transcribe(pcm, sampleRate, _channels);

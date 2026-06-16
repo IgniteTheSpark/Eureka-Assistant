@@ -9,23 +9,27 @@ void main() {
     final audio = StreamController<List<int>>.broadcast();
     final cards = <String>[];
 
+    var startCmds = 0, stopCmds = 0;
     final c = RingCaptureController(
       keyEvents: keys.stream,
-      startAudio: () { return audio.stream.map((b) =>
-          RingFrame(pcm: Uint8List.fromList(b), channels: 1)); },
-      stopAudio: () async {},
+      audioFrames: audio.stream.map((b) => RingFrame(pcm: Uint8List.fromList(b), channels: 1)),
+      startRecording: () async { startCmds++; },
+      stopRecording: () async { stopCmds++; },
       transcribe: (pcm, sr, ch) async => 'hello ${pcm.length}',
       createCard: (text) async { cards.add(text); },
     );
     c.start();
 
     keys.add(2);                 // start
+    await Future<void>.delayed(Duration.zero);
     audio.add(List.filled(800, 1));
     audio.add(List.filled(800, 2));
     await Future<void>.delayed(Duration.zero);
     keys.add(2);                 // stop -> transcribe -> card
     await Future<void>.delayed(const Duration(milliseconds: 10));
 
+    expect(startCmds, 1);        // start command sent on first double-click
+    expect(stopCmds, 1);         // stop command sent on second
     expect(cards.length, 1);
     expect(cards.first, 'hello 1600');
     await c.dispose();

@@ -105,10 +105,11 @@ class _RingDebugPageState extends State<RingDebugPage> {
   void _record() {
     _pcm.clear();
     _audioSub?.cancel();
-    _audioSub = _ring.startRecording().listen((f) {
+    _audioSub = _ring.audioFrames.listen((f) {
       _channels = f.channels;
       _pcm.add(f.pcm);
     });
+    _ring.startRecording();
     if (mounted) setState(() => _recording = true);
   }
 
