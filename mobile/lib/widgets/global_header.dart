@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
@@ -8,6 +9,7 @@ import '../device/device_controller.dart';
 import '../pages/connected_apps_page.dart';
 import '../pages/device_pairing_page.dart';
 import '../pages/my_device_page.dart';
+import '../pages/ring_debug_page.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_controller.dart';
 import 'toast.dart';
@@ -181,6 +183,43 @@ void _openProfile(BuildContext context) {
                 ),
               ),
             ),
+            if (kDebugMode) ...[
+              const SizedBox(height: 10),
+              GestureDetector(
+                onTap: () {
+                  Navigator.of(sheetCtx).pop();
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const RingDebugPage()),
+                  );
+                },
+                behavior: HitTestBehavior.opaque,
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 14,
+                  ),
+                  decoration: BoxDecoration(
+                    color: eu.bg,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: eu.border),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.bluetooth_audio_outlined, size: 19, color: eu.textMid),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          '[Debug] Ring 调试',
+                          style: TextStyle(color: eu.textHi, fontSize: 15),
+                        ),
+                      ),
+                      Icon(Icons.chevron_right, size: 18, color: eu.textLo),
+                    ],
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(height: 10),
             GestureDetector(
               onTap: () {
