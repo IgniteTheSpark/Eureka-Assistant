@@ -14,6 +14,7 @@ import com.lm.sdk.BLEService
 import com.lm.sdk.LmAPILite
 import com.lm.sdk.LogicalApi
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
+import com.lm.sdk.inter.IKeyDownListener
 import com.lm.sdk.library.AppConfig
 import com.lm.sdk.lmApiInter.IAudioListenerLite
 import com.lm.sdk.lmApiInter.IResponseListenerLite
@@ -28,9 +29,17 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private lateinit var methods: MethodChannel
     private lateinit var audio: EventChannel
     private lateinit var state: EventChannel
+    private lateinit var key: EventChannel
 
     @Volatile private var audioSink: EventChannel.EventSink? = null
     @Volatile private var stateSink: EventChannel.EventSink? = null
+    @Volatile private var keySink: EventChannel.EventSink? = null
+
+    // Ring gesture/key codes: 0=long-press 1=single 2=double 3=triple 4=up 5=down 6=left 7=right
+    private val keyListener = IKeyDownListener { keyCode ->
+        android.util.Log.i("ChipletRing", "ringPushKeyDownResult key=$keyCode")
+        main.post { keySink?.success(keyCode) }
+    }
 
     private val main = Handler(Looper.getMainLooper())
     private val found = LinkedHashMap<String, BluetoothDevice>()
@@ -141,6 +150,12 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 override fun onCancel(args: Any?) { stateSink = null }
             })
         }
+        key = EventChannel(b.binaryMessenger, "chiplet_ring/key").also {
+            it.setStreamHandler(object : EventChannel.StreamHandler {
+                override fun onListen(args: Any?, sink: EventChannel.EventSink?) { keySink = sink }
+                override fun onCancel(args: Any?) { keySink = null }
+            })
+        }
         // FIX 3: Guard against double-registration.
         // The SDK's BLEService dispatches connect-state via androidx LocalBroadcastManager
         // (app-local), NOT global broadcasts — so we must register on LBM, matching the demo.
@@ -168,6 +183,7 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         }
         if (!wlsRegistered) {
             LmAPILite.addWLSCmdListener(appContext, responseListener)
+            LmAPILite.KEY_DOWN_LISTENER(keyListener) // ring gesture/button events
             wlsRegistered = true
         }
     }

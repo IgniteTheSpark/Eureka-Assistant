@@ -19,11 +19,23 @@ class _RingDebugPageState extends State<RingDebugPage> {
 
   StreamSubscription<RingState>? _stateSub;
   StreamSubscription<RingAudioFrame>? _audioSub;
+  StreamSubscription<int>? _keySub;
+  bool _recording = false;
+  int? _lastKey;
 
   @override
   void initState() {
     super.initState();
     _stateSub = _ring.state.listen((s) { if (mounted) setState(() => _state = s); });
+    // Ring gesture: double-click (key code 2) toggles recording, mirroring the
+    // vendor demo's double-click-to-record. Single-tap also shown for debugging.
+    _keySub = _ring.keyEvents.listen((k) {
+      if (!mounted) return;
+      setState(() => _lastKey = k);
+      if (k == 2) {
+        if (_recording) { _stopAndExport(); } else { _record(); }
+      }
+    });
   }
 
   void _record() {
@@ -33,9 +45,11 @@ class _RingDebugPageState extends State<RingDebugPage> {
       _channels = f.channels;
       _pcm.add(f.pcm);
     });
+    if (mounted) setState(() => _recording = true);
   }
 
   Future<void> _stopAndExport() async {
+    if (mounted) setState(() => _recording = false);
     await _ring.stopRecording();
     final wav = pcmToWav(_pcm.toBytes(), sampleRate: 8000, channels: _channels);
     final dir = await getTemporaryDirectory();
@@ -48,6 +62,7 @@ class _RingDebugPageState extends State<RingDebugPage> {
   void dispose() {
     _stateSub?.cancel();
     _audioSub?.cancel();
+    _keySub?.cancel();
     super.dispose();
   }
 
@@ -56,6 +71,16 @@ class _RingDebugPageState extends State<RingDebugPage> {
     return Scaffold(
       appBar: AppBar(title: Text('Ring Debug · ${_state.conn.name}')),
       body: Column(children: [
+        Padding(
+          padding: const EdgeInsets.all(8),
+          child: Text(
+            '${_recording ? "● 录音中" : "○ 待机"}   双击戒指开始/停止   最近按键: ${_lastKey ?? "-"}',
+            style: TextStyle(
+              color: _recording ? Colors.red : null,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
         Wrap(spacing: 8, children: [
           ElevatedButton(onPressed: _ring.startScan, child: const Text('扫描')),
           ElevatedButton(onPressed: _record, child: const Text('录音')),
