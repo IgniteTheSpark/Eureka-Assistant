@@ -1,6 +1,8 @@
 import 'dart:async';
 
+import 'package:chiplet_ring/chiplet_ring.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../device/device_controller.dart';
 import '../device/device_silent_reconnect.dart';
@@ -10,6 +12,9 @@ import 'my_device_page.dart';
 /// First-run pairing flow for the UReka 录音卡.
 /// Top search pill + a 2-step onboarding pager; when the scan surfaces a device
 /// a 发现设备 sheet slides up to confirm + 连接 → 我的设备.
+
+enum _PairTarget { card, ring }
+
 class DevicePairingPage extends StatefulWidget {
   const DevicePairingPage({super.key});
 
@@ -26,6 +31,12 @@ class _DevicePairingPageState extends State<DevicePairingPage> {
   int _page = 0;
   bool _sheetOpen = false;
 
+  _PairTarget _target = _PairTarget.card;
+  final _ring = ChipletRing();
+  RingState _ringState = const RingState(conn: RingConnState.disconnected, devices: []);
+  StreamSubscription<RingState>? _ringSub;
+  String? _lastRingId;
+
   @override
   void initState() {
     super.initState();
@@ -33,11 +44,21 @@ class _DevicePairingPageState extends State<DevicePairingPage> {
     _dev.addListener(_onDevice);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      _startScanTimer?.cancel();
-      _startScanTimer = Timer(_scanDelay, () {
-        if (!mounted) return;
-        unawaited(_dev.ensurePermissionAndStartScan());
-      });
+      if (_target == _PairTarget.card) {
+        _startScanTimer?.cancel();
+        _startScanTimer = Timer(_scanDelay, () {
+          if (!mounted) return;
+          unawaited(_dev.ensurePermissionAndStartScan());
+        });
+      }
+    });
+    _ringSub = _ring.state.listen((s) async {
+      if (!mounted) return;
+      setState(() => _ringState = s);
+      if (s.conn == RingConnState.connected && _lastRingId != null) {
+        final sp = await SharedPreferences.getInstance();
+        await sp.setString('ring_mac', _lastRingId!);
+      }
     });
   }
 
@@ -47,6 +68,8 @@ class _DevicePairingPageState extends State<DevicePairingPage> {
     _dev.removeListener(_onDevice);
     _dev.stopScan();
     _pager.dispose();
+    _ringSub?.cancel();
+    _ring.stopScan();
     super.dispose();
   }
 
@@ -82,6 +105,25 @@ class _DevicePairingPageState extends State<DevicePairingPage> {
     }
   }
 
+  void _selectTarget(_PairTarget t) {
+    if (_target == t) return;
+    setState(() => _target = t);
+    if (t == _PairTarget.ring) {
+      _dev.stopScan();
+      _ring.startScan();
+    } else {
+      _ring.stopScan();
+      unawaited(_dev.ensurePermissionAndStartScan());
+    }
+  }
+
+  Future<void> _connectRing(String id) async {
+    _lastRingId = id;
+    await _ring.connect(id);
+    final sp = await SharedPreferences.getInstance();
+    await sp.setString('ring_mac', id);
+  }
+
   @override
   Widget build(BuildContext context) {
     final eu = context.eu;
@@ -110,64 +152,246 @@ class _DevicePairingPageState extends State<DevicePairingPage> {
                 ],
               ),
             ),
-            const SizedBox(height: 4),
-            _SearchPill(scanning: _dev.state == DeviceConnState.scanning),
-            if (_dev.errorMessage != null && _dev.discovered.isEmpty) ...[
-              const SizedBox(height: 10),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+              child: SegmentedButton<_PairTarget>(
+                segments: const [
+                  ButtonSegment(value: _PairTarget.card, label: Text('录音卡')),
+                  ButtonSegment(value: _PairTarget.ring, label: Text('戒指')),
+                ],
+                selected: {_target},
+                onSelectionChanged: (s) => _selectTarget(s.first),
+              ),
+            ),
+            if (_target == _PairTarget.card) ...[
+              const SizedBox(height: 4),
+              _SearchPill(scanning: _dev.state == DeviceConnState.scanning),
+              if (_dev.errorMessage != null && _dev.discovered.isEmpty) ...[
+                const SizedBox(height: 10),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 28),
+                  child: Text(
+                    _dev.errorMessage!,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: eu.accentRed,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+              Expanded(
+                child: PageView(
+                  controller: _pager,
+                  onPageChanged: (i) => setState(() => _page = i),
+                  children: const [
+                    _PairStep(
+                      art: _DeviceArt(showButtonHint: true),
+                      title: '开启设备',
+                      lines: ['按住电源键 5 秒。', '首次设置时只需执行一次。'],
+                    ),
+                    _PairStep(
+                      art: _DeviceArt(connected: true, battery: 80),
+                      title: '开始蓝牙配对',
+                      lines: ['按一次电源键。', '屏幕亮起后，请将设备保持在附近。'],
+                    ),
+                  ],
+                ),
+              ),
+              _Dots(count: 2, index: _page),
+              const SizedBox(height: 20),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 28),
-                child: Text(
-                  _dev.errorMessage!,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: eu.accentRed,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
+                padding: const EdgeInsets.only(bottom: 16),
+                child: Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(
+                        text: '需要帮助？',
+                        style: TextStyle(color: eu.textLo, fontSize: 13),
+                      ),
+                      TextSpan(
+                        text: '联系客服',
+                        style: TextStyle(
+                          color: eu.brand,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
             ],
-            Expanded(
-              child: PageView(
-                controller: _pager,
-                onPageChanged: (i) => setState(() => _page = i),
-                children: const [
-                  _PairStep(
-                    art: _DeviceArt(showButtonHint: true),
-                    title: '开启设备',
-                    lines: ['按住电源键 5 秒。', '首次设置时只需执行一次。'],
-                  ),
-                  _PairStep(
-                    art: _DeviceArt(connected: true, battery: 80),
-                    title: '开始蓝牙配对',
-                    lines: ['按一次电源键。', '屏幕亮起后，请将设备保持在附近。'],
-                  ),
-                ],
-              ),
-            ),
-            _Dots(count: 2, index: _page),
-            const SizedBox(height: 20),
-            Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: Text.rich(
-                TextSpan(
+            if (_target == _PairTarget.ring) ...[
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Row(
                   children: [
-                    TextSpan(
-                      text: '需要帮助？',
-                      style: TextStyle(color: eu.textLo, fontSize: 13),
-                    ),
-                    TextSpan(
-                      text: '联系客服',
+                    Icon(Icons.bluetooth_searching, size: 18, color: eu.brand),
+                    const SizedBox(width: 8),
+                    Text(
+                      _ringState.conn == RingConnState.scanning
+                          ? '正在搜索戒指…'
+                          : _ringState.conn == RingConnState.connecting
+                              ? '正在连接…'
+                              : _ringState.conn == RingConnState.connected
+                                  ? '戒指已连接'
+                                  : '准备搜索戒指…',
                       style: TextStyle(
-                        color: eu.brand,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
+                        color: eu.textHi,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ],
                 ),
               ),
-            ),
+              const SizedBox(height: 12),
+              if (_ringState.conn == RingConnState.connected)
+                Expanded(
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.check_circle, size: 64, color: eu.brand),
+                        const SizedBox(height: 16),
+                        Text(
+                          '戒指已连接',
+                          style: TextStyle(
+                            color: eu.textHi,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        if (_lastRingId != null) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            _lastRingId!,
+                            style: TextStyle(
+                              color: eu.textLo,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                )
+              else
+                Expanded(
+                  child: _ringState.devices.isEmpty
+                      ? Center(
+                          child: Text(
+                            '未发现戒指设备，请确认戒指已开启',
+                            style: TextStyle(color: eu.textMid, fontSize: 14),
+                            textAlign: TextAlign.center,
+                          ),
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          itemCount: _ringState.devices.length,
+                          separatorBuilder: (_, _) => const SizedBox(height: 12),
+                          itemBuilder: (context, index) {
+                            final d = _ringState.devices[index];
+                            final isConnecting =
+                                _ringState.conn == RingConnState.connecting;
+                            return Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: eu.surfaceRaised,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: eu.border),
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 48,
+                                    height: 48,
+                                    decoration: BoxDecoration(
+                                      color: eu.surfaceRaised,
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(color: eu.border),
+                                    ),
+                                    child: Icon(
+                                      Icons.radio_button_checked,
+                                      color: eu.brand,
+                                      size: 26,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          d.name.isEmpty ? '戒指设备' : d.name,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: eu.textHi,
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          '${d.id}  RSSI: ${d.rssi}',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: eu.textLo,
+                                            fontSize: 11,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  GestureDetector(
+                                    onTap: isConnecting
+                                        ? null
+                                        : () => unawaited(_connectRing(d.id)),
+                                    behavior: HitTestBehavior.opaque,
+                                    child: Container(
+                                      width: 68,
+                                      height: 36,
+                                      alignment: Alignment.center,
+                                      decoration: BoxDecoration(
+                                        color: isConnecting
+                                            ? eu.textLo
+                                            : eu.brand,
+                                        borderRadius:
+                                            BorderRadius.circular(999),
+                                      ),
+                                      child: isConnecting
+                                          ? const SizedBox(
+                                              width: 16,
+                                              height: 16,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                color: Colors.white,
+                                              ),
+                                            )
+                                          : const Text(
+                                              '连接',
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                ),
+            ],
           ],
         ),
       ),
