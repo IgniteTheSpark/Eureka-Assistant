@@ -8,8 +8,11 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Handler
 import android.os.Looper
+import com.lm.sdk.AdPcmTool
 import com.lm.sdk.BLEService
+import com.lm.sdk.LmAPILite
 import com.lm.sdk.LogicalApi
+import com.lm.sdk.lmApiInter.IAudioListenerLite
 import com.lm.sdk.utils.BLEUtils
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.EventChannel
@@ -27,6 +30,28 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
 
     private val main = Handler(Looper.getMainLooper())
     private val found = LinkedHashMap<String, BluetoothDevice>()
+
+    private var seq = 0
+    private val adpcm = AdPcmTool()
+
+    private val audioListener = object : IAudioListenerLite {
+        override fun controlAudioResult(bytes: ByteArray, audioType: Int) {
+            // CALIBRATE (device-untested): assume `bytes` is ADPCM-encoded audio and the 2nd int arg
+            // is the input byte length (bytes.size). Verify against real ring output:
+            // - If audio is garbled/silent, the int param may be a frame-count flag rather than byte length.
+            // - If audio is already PCM (not ADPCM), skip decode and use `bytes` directly.
+            // audioType: 1 = mono, 2 = stereo
+            val pcm = if (audioType == 2) adpcm.decodeADPCMDualChannel(bytes, bytes.size)
+                      else adpcm.decodeADPCMMonoChannel(bytes, bytes.size)
+            val s = seq++
+            main.post { audioSink?.success(mapOf("pcm" to pcm.toList(), "seq" to s, "channels" to audioType)) }
+        }
+        override fun controlAudioRawDataResult(bytes: ByteArray) {}
+        override fun getControlAudioAdpcmResult(adpcm: Boolean) {}
+        override fun pushAudioInformationResult(success: Boolean) {}
+        override fun TOUCH_AUDIO_FINISH_XUN_FEI() {}
+        override fun recordingResult(result: Boolean) {}
+    }
     private val lastRssi = HashMap<String, Int>()
     private var receiverRegistered = false
 
@@ -104,8 +129,16 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 result.success(null)
             }
             "disconnect" -> { BLEUtils.disconnectBLE(appContext); result.success(null) }
-            "startRecording" -> { /* Task 7 */ result.success(null) }
-            "stopRecording" -> { /* Task 7 */ result.success(null) }
+            "startRecording" -> {
+                seq = 0
+                adpcm.resetAllDecoders()
+                LmAPILite.CONTROL_AUDIO_ADPCM(1, audioListener)
+                result.success(null)
+            }
+            "stopRecording" -> {
+                LmAPILite.CONTROL_AUDIO_ADPCM(0, audioListener)
+                result.success(null)
+            }
             else -> result.notImplemented()
         }
     }
