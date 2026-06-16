@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:chiplet_ring/chiplet_ring.dart';
@@ -16,15 +17,19 @@ class _RingDebugPageState extends State<RingDebugPage> {
   final _pcm = BytesBuilder();
   int _channels = 1;
 
+  StreamSubscription<RingState>? _stateSub;
+  StreamSubscription<RingAudioFrame>? _audioSub;
+
   @override
   void initState() {
     super.initState();
-    _ring.state.listen((s) => setState(() => _state = s));
+    _stateSub = _ring.state.listen((s) { if (mounted) setState(() => _state = s); });
   }
 
   void _record() {
     _pcm.clear();
-    _ring.startRecording().listen((f) {
+    _audioSub?.cancel();
+    _audioSub = _ring.startRecording().listen((f) {
       _channels = f.channels;
       _pcm.add(f.pcm);
     });
@@ -37,6 +42,13 @@ class _RingDebugPageState extends State<RingDebugPage> {
     final path = '${dir.path}/ring_${DateTime.now().millisecondsSinceEpoch}.wav';
     await File(path).writeAsBytes(wav);
     await Share.shareXFiles([XFile(path)], text: 'ring recording');
+  }
+
+  @override
+  void dispose() {
+    _stateSub?.cancel();
+    _audioSub?.cancel();
+    super.dispose();
   }
 
   @override

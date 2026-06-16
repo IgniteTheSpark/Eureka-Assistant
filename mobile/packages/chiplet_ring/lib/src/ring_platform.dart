@@ -19,7 +19,7 @@ class RingPlatform {
   Stream<RingState> states() => _state.receiveBroadcastStream().map((e) {
         final m = e as Map;
         return RingState(
-          conn: RingConnState.values.byName(m['conn'] as String),
+          conn: RingConnState.values.asNameMap()[m['conn'] as String?] ?? RingConnState.error,
           devices: ((m['devices'] as List?) ?? [])
               .map((d) => RingDevice.fromMap(d as Map))
               .toList(),

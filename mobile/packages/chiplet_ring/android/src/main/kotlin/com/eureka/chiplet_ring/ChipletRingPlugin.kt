@@ -25,8 +25,8 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private lateinit var audio: EventChannel
     private lateinit var state: EventChannel
 
-    private var audioSink: EventChannel.EventSink? = null
-    private var stateSink: EventChannel.EventSink? = null
+    @Volatile private var audioSink: EventChannel.EventSink? = null
+    @Volatile private var stateSink: EventChannel.EventSink? = null
 
     private val main = Handler(Looper.getMainLooper())
     private val found = LinkedHashMap<String, BluetoothDevice>()
@@ -55,18 +55,17 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private val lastRssi = HashMap<String, Int>()
     private var receiverRegistered = false
 
+    // FIX 1: All access to found/lastRssi maps happens on main thread inside main.post{}
     private val leScanCallback = BluetoothAdapter.LeScanCallback { device, rssi, bytes ->
         val info = LogicalApi.getBleDeviceInfoWhenBleScan(device, rssi, bytes, false) ?: return@LeScanCallback
-        found[device.address] = device
-        lastRssi[device.address] = rssi
-        emitScanning()
-    }
-
-    private fun emitScanning() {
-        val devices = found.values.map {
-            mapOf("id" to it.address, "name" to (it.name ?: ""), "rssi" to (lastRssi[it.address] ?: 0))
+        main.post {
+            found[device.address] = device
+            lastRssi[device.address] = rssi
+            val devices = found.values.map {
+                mapOf("id" to it.address, "name" to (it.name ?: ""), "rssi" to (lastRssi[it.address] ?: 0))
+            }
+            stateSink?.success(mapOf("conn" to "scanning", "devices" to devices))
         }
-        main.post { stateSink?.success(mapOf("conn" to "scanning", "devices" to devices)) }
     }
 
     private val connReceiver = object : BroadcastReceiver() {
@@ -94,14 +93,17 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 override fun onCancel(args: Any?) { stateSink = null }
             })
         }
-        val filter = IntentFilter(BLEService.BROADCAST_CONNECT_STATE_CHANGE)
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            appContext.registerReceiver(connReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            @Suppress("UnspecifiedRegisterReceiverFlag")
-            appContext.registerReceiver(connReceiver, filter)
+        // FIX 3: Guard against double-registration
+        if (!receiverRegistered) {
+            val filter = IntentFilter(BLEService.BROADCAST_CONNECT_STATE_CHANGE)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                appContext.registerReceiver(connReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                @Suppress("UnspecifiedRegisterReceiverFlag")
+                appContext.registerReceiver(connReceiver, filter)
+            }
+            receiverRegistered = true
         }
-        receiverRegistered = true
     }
 
     override fun onDetachedFromEngine(b: FlutterPlugin.FlutterPluginBinding) {
@@ -113,31 +115,55 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         when (call.method) {
             "startScan" -> {
                 found.clear(); lastRssi.clear()
-                BLEUtils.startLeScan(appContext, leScanCallback)
-                main.post { stateSink?.success(mapOf("conn" to "scanning", "devices" to emptyList<Any>())) }
-                result.success(null)
+                // FIX 2: Guard BLEUtils call with try/catch
+                try {
+                    BLEUtils.startLeScan(appContext, leScanCallback)
+                    main.post { stateSink?.success(mapOf("conn" to "scanning", "devices" to emptyList<Any>())) }
+                    result.success(null)
+                } catch (e: Throwable) { result.error("ring_error", e.message, null) }
             }
-            "stopScan" -> { BLEUtils.stopLeScan(appContext, leScanCallback); result.success(null) }
+            "stopScan" -> {
+                // FIX 2: Guard BLEUtils call with try/catch
+                try {
+                    BLEUtils.stopLeScan(appContext, leScanCallback)
+                    result.success(null)
+                } catch (e: Throwable) { result.error("ring_error", e.message, null) }
+            }
             "connect" -> {
                 val id = call.argument<String>("id")
                 if (id == null) { result.error("no_id", "connect requires id", null); return }
                 val dev = found[id] ?: BluetoothAdapter.getDefaultAdapter()?.getRemoteDevice(id)
                 if (dev == null) { result.error("no_device", "device not found: $id", null); return }
-                BLEUtils.isHIDDevice = false
-                main.post { stateSink?.success(mapOf("conn" to "connecting", "devices" to emptyList<Any>())) }
-                BLEUtils.connectLockByBLE(appContext, dev)
-                result.success(null)
+                // FIX 2: Guard BLEUtils call with try/catch
+                try {
+                    BLEUtils.isHIDDevice = false
+                    main.post { stateSink?.success(mapOf("conn" to "connecting", "devices" to emptyList<Any>())) }
+                    BLEUtils.connectLockByBLE(appContext, dev)
+                    result.success(null)
+                } catch (e: Throwable) { result.error("ring_error", e.message, null) }
             }
-            "disconnect" -> { BLEUtils.disconnectBLE(appContext); result.success(null) }
+            "disconnect" -> {
+                // FIX 2: Guard BLEUtils call with try/catch
+                try {
+                    BLEUtils.disconnectBLE(appContext)
+                    result.success(null)
+                } catch (e: Throwable) { result.error("ring_error", e.message, null) }
+            }
             "startRecording" -> {
                 seq = 0
-                adpcm.resetAllDecoders()
-                LmAPILite.CONTROL_AUDIO_ADPCM(1, audioListener)
-                result.success(null)
+                // FIX 2: Guard adpcm + LmAPILite calls with try/catch
+                try {
+                    adpcm.resetAllDecoders()
+                    LmAPILite.CONTROL_AUDIO_ADPCM(1, audioListener)
+                    result.success(null)
+                } catch (e: Throwable) { result.error("ring_error", e.message, null) }
             }
             "stopRecording" -> {
-                LmAPILite.CONTROL_AUDIO_ADPCM(0, audioListener)
-                result.success(null)
+                // FIX 2: Guard LmAPILite call with try/catch
+                try {
+                    LmAPILite.CONTROL_AUDIO_ADPCM(0, audioListener)
+                    result.success(null)
+                } catch (e: Throwable) { result.error("ring_error", e.message, null) }
             }
             else -> result.notImplemented()
         }
