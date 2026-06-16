@@ -1,6 +1,6 @@
 # Spec · ChipletRing 智能戒指录音接入(Android 优先)
 
-> **状态:设计已确认(2026-06-16),待进入实施。** 目标 = 把 BraveChip 勇芯智能戒指作为**新的录音输入源**接入 UReka(Eureka-Assistant)Flutter app,替代/补充现有 W1/W2 录音卡。**本期只做录音链路,不接健康数据(心率/血氧/睡眠/ECG 全部不做)。**
+> **状态:里程碑 1 已跑通(2026-06-17,真机+真戒指验证)。** 目标 = 把 BraveChip 勇芯智能戒指作为**新的录音输入源**接入 UReka(Eureka-Assistant)Flutter app,替代/补充现有 W1/W2 录音卡。**本期只做录音链路,不接健康数据(心率/血氧/睡眠/ECG 全部不做)。** 实测结论见文末 §7。
 >
 > SDK 来源:`https://github.com/BravechipSpace/ChipletRing-APPSDK`(Android `ChipletRing-1.3.3-release.aar`,包名 `com.lm.sdk`)。
 > **本卡描述 WHAT / 契约 + 真实 API 形态;实际代码写在新插件 `mobile/packages/chiplet_ring` + `mobile/lib`(里程碑 1 不碰现有 `lib/ble_flash`、`lib/device`)。**
@@ -103,4 +103,24 @@ class ChipletRing {
 
 - Dart 门面单测(mock channel);Android 解码关键逻辑可单测。
 - 真机联调为主(SDK 必须配真戒指)。
-- 新分支(建议 `feat/chiplet-ring-audio`);里程碑 1 单独成 PR。
+- 分支 `feat/chiplet-ring-audio`;里程碑 1 单独成 PR。
+
+## 7. 里程碑 1 实测结论(2026-06-17,真机 Galaxy Z Fold5 / Android 16 + 真戒指 BCL6032CA2)
+
+**结论:扫描→连接→双击手势录音→ADPCM(SDK 内部解码)→PCM→导出 WAV,音质清晰、速率正确,全链路跑通。** 以下是踩通的关键点(都是 bare aar 不会告诉你的,接手务必照做):
+
+1. **SDK 必须初始化**:`LmAPILite.init(application)` + `AppConfig.setOverseas(false)`。不做则静态 Application 引用为 null,停录音/存文件 `sendBroadcast` NPE。我们在插件首次用到时懒初始化。
+2. **bare aar 不带依赖,需手动补**:`androidx.localbroadcastmanager:localbroadcastmanager:1.1.0`(`BLEService.onCreate` 用到,缺了连接直接崩)、`org.greenrobot:greendao:3.3.0`、`com.google.code.gson:gson`、`org.jetbrains:annotations`。网络相关(okhttputils/retrofit)本地录音用不到,没加。
+3. **连接状态走 LocalBroadcastManager**:SDK 用 `LocalBroadcastManager` 发 `BLEService.BROADCAST_CONNECT_STATE_CHANGE`(不是全局广播)。必须 `LocalBroadcastManager.getInstance(ctx).registerReceiver(...)`,否则永远收不到、卡在 connecting。
+4. **连接成功必须做 token 握手保活**:注册 `IResponseListenerLite`(`LmAPILite.addWLSCmdListener`),在 `lmBleConnectionSucceeded(code==7)` 里调 `BLEUtils.setGetToken(true)`。不做的话连上约 **5 秒就掉线**、反复重连、音频起不来。
+5. **连接前先停扫描**:`BLEUtils.stopLeScan(...)`。边扫边连会让 GATT 不稳;且扫描回调会把 UI 状态冲掉。
+6. **音频回调 `controlAudioResult(bytes, audioType)` 给的已经是解码好的 PCM**(SDK 内部已 ADPCM→PCM;原始 ADPCM 另走 `controlAudioRawDataResult`)。**不要再用 `AdPcmTool` 解一遍**,否则纯杂音。直接透传 bytes。
+7. **采样率 = 8000 Hz**(16-bit、`audioType` 1=单声道/2=双声道)。按 16000 写 WAV 会语速快一倍。
+8. **录音触发**:`CONTROL_AUDIO_ADPCM(1)` 开 / `(0)` 关(参数是 **int**)。
+9. **硬件手势**:注册 `IKeyDownListener`(`LmAPILite.KEY_DOWN_LISTENER`),`ringPushKeyDownResult(key)`,key:0=长按 1=单击 2=双击 3=三击 4-7=滑动。我们用**双击(2)**开/关录音。
+10. **白灯 vs 绿灯**:我们截获双击→app 主动开**实时流(白灯)**,这是接闪念要的(实时 PCM)。Demo 的**绿灯**是戒指固件的**本地录音模式**(存戒指、事后拉文件),是另一套机制,后续可选。
+11. **两套 BLE 栈并存**:公司 `br_flutter_plugin_ble`(`BrBluetoothManager`)也会感知同一戒指。目前实测加上 token 保活后连接已稳;里程碑 2 仍需关注扫描/前台服务协调。
+
+**调试入口**:登录页 `kDebugMode` 下「[Debug] Ring 调试（免登录）」→ 扫描/连接/双击录音/导出 WAV。后端地址走 `--dart-define=API_BASE`(默认 `localhost:8000`),戒指链路不依赖后端。
+
+**里程碑 2(接闪念)前仍需**:确认 8kHz/16-bit 单声道 PCM 与现有转写后端契合(可能要重采样到 16k);把戒指 PCM 流对齐 `BleFlashManager` 数据形态;前台服务保活长录音。
