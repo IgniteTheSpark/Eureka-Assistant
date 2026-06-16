@@ -366,7 +366,11 @@ git commit -m "feat(ring): ring scan/connect entry in device pairing page"
 
 ## Task 5: 端到端真机联调(里程碑2 验收)
 
-> 需要:真机 + 真戒指 + 可用后端(`flutter run --debug --dart-define=API_BASE=<可用后端>`;ASR 走 tencentAsrBase)。
+> **本地后端联调(已定:全部走本地)**:
+> 1. 本机起后端:`cd Eureka-Assistant && docker compose up`(MySQL `db` + `backend`,监听 `:8000`;或 `./local_backend.sh`)。
+> 2. 手机端口转发到本机:`adb reverse tcp:8000 tcp:8000` —— 这样 app 默认的 `API_BASE=http://localhost:8000` 在手机上就直达本机后端,**无需改 dart-define**。
+> 3. `cd mobile && flutter run --debug`(真机 + 真戒指)。
+> ASR 仍走 `Config.tencentAsrBase`(独立服务)。
 
 - [ ] **Step 1: 跑通 双击→说话→双击→出卡片**
 
@@ -389,7 +393,7 @@ git commit -m "feat(ring): ring scan/connect entry in device pairing page"
 
 1. **ASR 采样率/格式**:戒指是 **8kHz/16bit 单声道**;`recognizeFile` 上传 `audio/wav`。腾讯 ASR 引擎可能默认 16k 中文模型 → 若 8k WAV 识别为空或乱:① 改用 8k 引擎(看 `/api/platform/speech/asr` 是否有引擎参数),或 ② 端上把 8k PCM 线性重采样到 16k 再封 WAV。先按 8k 试,据日志定。
 2. **`TencentAsrSyncResult` 文本字段名**:Task 3 用 `.text`,以真实定义为准。
-3. **后端地址**:`/api/flash` 走 `Config.apiBase`,debug 默认 localhost → 联调必须 `--dart-define=API_BASE=<可用后端>`。
+3. **后端地址(已定:本地)**:`/api/flash` 走 `Config.apiBase`(默认 `localhost:8000`)。本地联调用 `adb reverse tcp:8000 tcp:8000` 把手机 localhost 转发到本机后端,默认值即可用,无需 dart-define。
 4. **两套 BLE 栈**:戒指 + 录音卡同时连时的扫描/前台服务协调(里程碑1已加 token 保活,连接稳;此处复测并存)。
 
 ## 后续(不在本计划)
