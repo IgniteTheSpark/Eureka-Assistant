@@ -18,6 +18,10 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        // Local Maven repo containing the vendored ChipletRing aar.
+        maven {
+            url = uri("${rootDir}/local-maven")
+        }
     }
 }
 
@@ -72,6 +76,10 @@ kotlin {
 }
 
 dependencies {
+    // ChipletRing BraveChip SDK vendored via local-maven repo (AGP forbids direct aar fileTree in library modules).
+    api("com.lm.sdk:ChipletRing:1.3.3@aar")
+    // st25sdk: plain jar, allowed directly in library modules.
+    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar"))))
     testImplementation("org.jetbrains.kotlin:kotlin-test")
     testImplementation("org.mockito:mockito-core:5.0.0")
 }

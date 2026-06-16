@@ -78,6 +78,9 @@ dependencies:
     git:
       url: git@git.100credit.cn:ai2c/app/flutter_lib/br_flutter_plugin_ble.git
       ref: v1.0.4
+  # ChipletRing BraveChip SDK Flutter plugin (vendored aar)
+  chiplet_ring:
+    path: packages/chiplet_ring
 
 dev_dependencies:
   flutter_test:
