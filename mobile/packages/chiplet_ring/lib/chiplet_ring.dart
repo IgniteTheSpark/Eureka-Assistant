@@ -26,4 +26,26 @@ class ChipletRing {
   }
 
   Future<void> stopRecording() => _p.stopRecording();
+
+  // ---- On-device (local) recording + file management ----
+  /// Tell the ring to record locally to its own storage (green-LED mode).
+  Future<void> startLocalRecording({int total = 1200, int slice = 600}) =>
+      _p.startLocalRecording(total: total, slice: slice);
+  Future<void> stopLocalRecording() => _p.stopLocalRecording();
+
+  /// Request the on-device file list. Results stream on [fileEvents] as {kind:'item',...}.
+  Future<void> getFileList() => _p.getFileList();
+
+  /// Download a file; audio bytes arrive on [fileEvents] as {kind:'audio', pcm:[...]}.
+  /// [type] is the file's type (last `_`-segment of its name); [id] is its identifier bytes.
+  Future<void> downloadFile(int type, List<int> id) => _p.downloadFile(type, id);
+
+  /// Delete one file by its identifier bytes.
+  Future<void> deleteFile(List<int> id) => _p.deleteFile(id);
+
+  /// Format the ring filesystem (deletes ALL local files).
+  Future<void> formatFiles() => _p.formatFiles();
+
+  /// File-op event stream: {kind: item|audio|text|done|deleted|formatted|memory|memoryFull, ...}.
+  Stream<Map> get fileEvents => _p.fileEvents();
 }

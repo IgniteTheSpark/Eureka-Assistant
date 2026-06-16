@@ -15,8 +15,11 @@ import com.lm.sdk.LmAPILite
 import com.lm.sdk.LogicalApi
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.lm.sdk.inter.IKeyDownListener
+import com.lm.sdk.inter.IFileListListener
+import com.lm.sdk.inter.FileResponseCallback
 import com.lm.sdk.library.AppConfig
 import com.lm.sdk.lmApiInter.IAudioListenerLite
+import com.lm.sdk.lmApiInter.ICommonalityListenerLite
 import com.lm.sdk.lmApiInter.IResponseListenerLite
 import com.lm.sdk.utils.BLEUtils
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -30,10 +33,57 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private lateinit var audio: EventChannel
     private lateinit var state: EventChannel
     private lateinit var key: EventChannel
+    private lateinit var file: EventChannel
 
     @Volatile private var audioSink: EventChannel.EventSink? = null
     @Volatile private var stateSink: EventChannel.EventSink? = null
     @Volatile private var keySink: EventChannel.EventSink? = null
+    @Volatile private var fileSink: EventChannel.EventSink? = null
+
+    // On-device file ops (local recordings live here). One IFileListListener serves both
+    // GET_FILE_LIST (-> file()/getFileContentFinish) and GET_FILE_CONTENT (-> fileContent/
+    // AudioFileContent/getFileContentFinish). Events are streamed to Dart on chiplet_ring/file.
+    private val fileListListener = object : IFileListListener {
+        override fun file(count: Int, index: Int, size: Int, name: String, raw: ByteArray) {
+            android.util.Log.i("ChipletRing", "file list item #$index/$count name=$name size=$size")
+            main.post { fileSink?.success(mapOf(
+                "kind" to "item", "count" to count, "index" to index,
+                "size" to size, "name" to name, "id" to raw.toList())) }
+        }
+        override fun fileContent(content: String) {
+            main.post { fileSink?.success(mapOf("kind" to "text", "content" to content)) }
+        }
+        override fun AudioFileContent(content: ByteArray) {
+            android.util.Log.i("ChipletRing", "AudioFileContent len=${content.size}")
+            main.post { fileSink?.success(mapOf("kind" to "audio", "pcm" to content.toList())) }
+        }
+        override fun getFileContentFinish() {
+            main.post { fileSink?.success(mapOf("kind" to "done")) }
+        }
+    }
+
+    // PERFORM_FORMAT_FILESYSTEM / GET_FILE_MEMORY use the lower-level FileResponseCallback.
+    // We only log here; the format handler also emits a "formatted" event optimistically.
+    private val fileRespCb = object : FileResponseCallback {
+        override fun onFileListReceived(b: ByteArray) {}
+        override fun onFileInfoReceived(b: ByteArray) {}
+        override fun onFileDownloadEndReceived(b: ByteArray) {}
+        override fun onDownloadAllFileProgress(b: ByteArray) {}
+        override fun oneFileDownloadSuccess() {}
+        override fun onDownloadStatusReceived(b: ByteArray) {}
+        override fun onFileDataReceived(b: ByteArray) {}
+        override fun onFileState(state: Int) {
+            android.util.Log.i("ChipletRing", "onFileState=$state")
+            main.post { fileSink?.success(mapOf("kind" to "memory", "state" to state)) }
+        }
+        override fun onFilePushFileName(b: ByteArray) {}
+        override fun onFilePushFileData(b: ByteArray) {}
+        override fun onFileResumeBreakpoint(a: Int, b: Long, c: Long) {}
+        override fun onFileResumeBreakpointProgress(a: Int) {}
+        override fun localMemoryFull(a: Int, b: Int, c: Int) {
+            main.post { fileSink?.success(mapOf("kind" to "memoryFull", "a" to a, "b" to b, "c" to c)) }
+        }
+    }
 
     // Ring gesture/key codes: 0=long-press 1=single 2=double 3=triple 4=up 5=down 6=left 7=right
     private val keyListener = IKeyDownListener { keyCode ->
@@ -156,6 +206,12 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 override fun onCancel(args: Any?) { keySink = null }
             })
         }
+        file = EventChannel(b.binaryMessenger, "chiplet_ring/file").also {
+            it.setStreamHandler(object : EventChannel.StreamHandler {
+                override fun onListen(args: Any?, sink: EventChannel.EventSink?) { fileSink = sink }
+                override fun onCancel(args: Any?) { fileSink = null }
+            })
+        }
         // FIX 3: Guard against double-registration.
         // The SDK's BLEService dispatches connect-state via androidx LocalBroadcastManager
         // (app-local), NOT global broadcasts — so we must register on LBM, matching the demo.
@@ -250,6 +306,50 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 try {
                     android.util.Log.i("ChipletRing", "stopRecording -> CONTROL_AUDIO_ADPCM(0)")
                     LmAPILite.CONTROL_AUDIO_ADPCM(0, audioListener)
+                    result.success(null)
+                } catch (e: Throwable) { result.error("ring_error", e.message, null) }
+            }
+            // ---- On-device (local) recording + file management ----
+            "startLocalRecording" -> {
+                val total = call.argument<Int>("total") ?: 1200
+                val slice = call.argument<Int>("slice") ?: 600
+                try {
+                    android.util.Log.i("ChipletRing", "CMD_START_STOP_RECORDING(true,$total,$slice)")
+                    LmAPILite.CMD_START_STOP_RECORDING(true, total, slice, audioListener)
+                    result.success(null)
+                } catch (e: Throwable) { result.error("ring_error", e.message, null) }
+            }
+            "stopLocalRecording" -> {
+                try {
+                    android.util.Log.i("ChipletRing", "CMD_START_STOP_RECORDING(false)")
+                    LmAPILite.CMD_START_STOP_RECORDING(false, 0, 0, audioListener)
+                    result.success(null)
+                } catch (e: Throwable) { result.error("ring_error", e.message, null) }
+            }
+            "getFileList" -> {
+                try { LmAPILite.GET_FILE_LIST(fileListListener); result.success(null) }
+                catch (e: Throwable) { result.error("ring_error", e.message, null) }
+            }
+            "downloadFile" -> {
+                val type = call.argument<Int>("type") ?: 0
+                val id = (call.argument<List<Int>>("id"))?.map { it.toByte() }?.toByteArray() ?: ByteArray(0)
+                try { LmAPILite.GET_FILE_CONTENT(type, id, fileListListener); result.success(null) }
+                catch (e: Throwable) { result.error("ring_error", e.message, null) }
+            }
+            "deleteFile" -> {
+                val id = (call.argument<List<Int>>("id"))?.map { it.toByte() }?.toByteArray() ?: ByteArray(0)
+                try {
+                    LmAPILite.DELETE_FILE(id, object : ICommonalityListenerLite {
+                        override fun success() { main.post { fileSink?.success(mapOf("kind" to "deleted", "ok" to true)) } }
+                        override fun fail() { main.post { fileSink?.success(mapOf("kind" to "deleted", "ok" to false)) } }
+                    })
+                    result.success(null)
+                } catch (e: Throwable) { result.error("ring_error", e.message, null) }
+            }
+            "formatFiles" -> {
+                try {
+                    LmAPILite.PERFORM_FORMAT_FILESYSTEM(fileRespCb)
+                    main.post { fileSink?.success(mapOf("kind" to "formatted")) }
                     result.success(null)
                 } catch (e: Throwable) { result.error("ring_error", e.message, null) }
             }
