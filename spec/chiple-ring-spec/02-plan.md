@@ -338,29 +338,86 @@ git commit -m "feat(ring): wire RingCaptureController to ring + tencent ASR + se
 
 ---
 
-## Task 4: 正式 UI 里能连戒指(最小入口)
+## Task 4: 设备配对页——先选设备类型(戒指/卡片),再连接(已定)
 
 **Files:**
-- Modify: `mobile/lib/pages/device_pairing_page.dart`(或新增 `mobile/lib/ring/ring_pairing_section.dart`)
+- Modify: `mobile/lib/pages/device_pairing_page.dart`
 
-里程碑 1 的连接入口在 debug 页。里程碑 2 要让普通用户能连戒指。最小做法:在现有设备配对页加一个"戒指"区块,复用 `ChipletRing.startScan/state/connect`(逻辑同 debug 页,但去掉 `kDebugMode` 门控)。
+**已定 UX**:配对页顶部让用户**先选"戒指"还是"录音卡"**(分段控件/两个 tab),再进入对应的扫描+连接流程。卡片走现有 `DeviceController`;戒指走 `ChipletRing`。两者并列,互不干扰。
 
-- [ ] **Step 1: 加戒指扫描/连接区块**
+- [ ] **Step 1: 加设备类型选择 + 戒指扫描/连接区块**
 
-在设备配对页加一个 `ChipletRing` 实例 + 一段「扫描戒指 / 选择连接」UI(列表项点连接),状态用 `ChipletRing.state`。代码可直接搬 `ring_debug_page.dart` 的扫描/连接部分(不含录音/文件按钮)。
+在配对页加一个 `enum PairTarget { card, ring }` 的选择(默认 card,保持现状)。选 ring 时渲染戒指区块:`ChipletRing` 实例 + `startScan()` + `state` 列表 + 点项 `connect(id)`(逻辑搬 `ring_debug_page.dart` 扫描/连接部分,去掉录音/文件按钮、去掉 `kDebugMode`)。选 card 时维持现有卡片 UI 不变。
 
-- [ ] **Step 2: 编译 + 真机确认能在正式页连上戒指**
+- [ ] **Step 2: 连上后持久化戒指 MAC(供 Task 6 自动回连)**
+
+戒指 `state` 变 `connected` 时,把所连设备 id(MAC)存入 SharedPreferences:
+```dart
+final sp = await SharedPreferences.getInstance();
+await sp.setString('ring_mac', deviceId);
+```
+(`shared_preferences` 已是项目依赖。)
+
+- [ ] **Step 3: 编译 + 真机确认**
 
 Run: `cd mobile && flutter run --debug`(真机)
-Expected: 在设备配对页能扫描到戒指、点连接后状态变 connected。
+Expected: 配对页选「戒指」→ 扫描到 → 点连接 → connected;`ring_mac` 已写入。卡片流程不受影响。
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 cd /Users/admin/workwork/eureka-staff/Eureka-Assistant
 git add mobile/lib/pages/device_pairing_page.dart
-git commit -m "feat(ring): ring scan/connect entry in device pairing page"
+git commit -m "feat(ring): device-type picker (ring/card) + ring connect + persist mac"
 ```
+
+---
+
+## Task 6: 长连接保活 + App 打开自动回连
+
+**Files:**
+- Create: `mobile/lib/ring/ring_reconnect.dart`
+- Modify: `mobile/lib/ring/ring_capture_controller.dart`(断线钩子)、`mobile/lib/main.dart`(登录后触发)
+- Modify: `mobile/packages/chiplet_ring` 插件——补 `reconnect()` / `setSavedMac()` / `isConnected()` 方法(透传 `BLEUtils.reconnectionLockByBLE` / `setMac` / `isConnected`)
+
+**已确认的 SDK 能力**:`BLEUtils.reconnectionLockByBLE(context)`(重连)、`BLEUtils.setMac(mac)`、`BLEUtils.isConnected()`;连接保活靠已做的 `setGetToken(true)` + SDK 前台 `BLEService`。
+
+- [ ] **Step 1: 插件补重连方法**
+
+在 `ChipletRingPlugin.kt` 加 method handler:`reconnect`(`BLEUtils.reconnectionLockByBLE(appContext)`)、`setSavedMac`(`BLEUtils.setMac(call.argument("mac"))`)、`isConnected`(`result.success(BLEUtils.isConnected())`);Dart 门面加对应 `Future<void> reconnect()` / `setSavedMac(String)` / `Future<bool> isConnected()`。
+
+- [ ] **Step 2: 断线自动重连(带去抖)**
+
+在 `RingCaptureController`(或新 `ring_reconnect.dart`)监听 `ChipletRing.state`:收到 `disconnected` 且存在 `ring_mac` 时,延迟 ~3s 后 `setSavedMac(mac)` + `reconnect()`;成功(`connected`)则清除重试计时器。避免无限风暴:连续失败做指数退避(3s→6s→12s,封顶 ~30s)。
+
+```dart
+// ring_reconnect.dart 核心
+void onState(RingConnState s) {
+  if (s == RingConnState.connected) { _backoff = 3; _timer?.cancel(); return; }
+  if (s == RingConnState.disconnected && _ringMac != null) {
+    _timer?.cancel();
+    _timer = Timer(Duration(seconds: _backoff), () async {
+      await _ring.setSavedMac(_ringMac!);
+      await _ring.reconnect();
+      _backoff = (_backoff * 2).clamp(3, 30);
+    });
+  }
+}
+```
+
+- [ ] **Step 3: App 打开/登录后静默回连**
+
+在 `main.dart` 登录后(与 `RingCaptureController.start()` 同处):读 `ring_mac`,若有则 `setSavedMac(mac)` + `reconnect()`(静默,失败吞掉),对齐卡片 `DeviceSilentReconnect`。
+
+- [ ] **Step 4: 前台服务保活确认(息屏长录音)**
+
+真机验证:连上戒指后息屏 5–10 分钟,连接是否保持 / 断后能否自动回连。若 Android 14+ 前台服务被限:补 `POST_NOTIFICATIONS` 权限申请,确认 `com.lm.sdk.BLEService` 以前台通知运行。
+
+- [ ] **Step 5: 真机验收**
+
+- 杀连接(戒指走远/重启蓝牙)→ app 自动重连回 connected。
+- 杀 app 重开 → 自动回连到上次戒指。
+- Commit:`git commit -m "feat(ring): keep-alive auto-reconnect + reconnect-on-launch"`
 
 ---
 
@@ -398,17 +455,18 @@ git commit -m "feat(ring): ring scan/connect entry in device pairing page"
 
 ## 后续(不在本计划)
 
-- **长录音前台服务保活**(超过几分钟的录音 / 息屏)。
-- **完整戒指配对 UX**(绑定持久化、重连、电量显示)。
-- **本地文件路线**(绿灯脱机录 → 事后同步,debug 已具雏形)。
-- **录音源选择 UX**(卡片/戒指切换、默认源)。
+- **本地文件路线**(绿灯脱机录 → 事后同步;debug 面板已具雏形:列表/删除/格式化真机已验证,下载音频格式待验)。
+- **录音源选择 UX**(卡片/戒指作为捕捉源切换、默认源、电量显示)。
 - **iOS 端**。
+
+> 注:长连接保活 + 自动回连(断线重连、开 app 回连)已纳入 Task 6;前台服务息屏保活在 Task 6 Step 4 验证,若 Android 14+ 受限则在该步补 `POST_NOTIFICATIONS`。
 
 ## 自查(spec 覆盖)
 
 - 方案 A(实时流→ASR→卡片)→ Task 1–3。
 - 复用 ASR(`recognizeFile`)+ 建卡(`sendFlash`)→ Task 1/3。
-- 双击触发(里程碑1已验证)→ Task 2。
-- 正式 UI 连戒指 → Task 4。
-- 端到端验收 + 回归 → Task 5。
+- 双击触发(已定,里程碑1已验证)→ Task 2。
+- 配对页先选设备类型(戒指/卡片)再连(已定)+ 持久化 MAC → Task 4。
+- 端到端验收(本地后端 + adb reverse)+ 回归 → Task 5。
+- 长连接保活 + 断线/开 app 自动回连(已确认 SDK `reconnectionLockByBLE`/`setMac`/`isConnected`)→ Task 6。
 - 8k/格式契合(00-spec §5.3 未决)→ 校准点 1。
