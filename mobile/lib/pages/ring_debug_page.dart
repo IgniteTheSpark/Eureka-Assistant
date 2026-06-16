@@ -37,7 +37,7 @@ class _RingDebugPageState extends State<RingDebugPage> {
 
   Future<void> _stopAndExport() async {
     await _ring.stopRecording();
-    final wav = pcmToWav(_pcm.toBytes(), sampleRate: 16000, channels: _channels);
+    final wav = pcmToWav(_pcm.toBytes(), sampleRate: 8000, channels: _channels);
     final dir = await getTemporaryDirectory();
     final path = '${dir.path}/ring_${DateTime.now().millisecondsSinceEpoch}.wav';
     await File(path).writeAsBytes(wav);

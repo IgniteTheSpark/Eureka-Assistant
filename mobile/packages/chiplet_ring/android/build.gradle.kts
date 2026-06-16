@@ -80,6 +80,14 @@ dependencies {
     api("com.lm.sdk:ChipletRing:1.3.3@aar")
     // st25sdk: plain jar, allowed directly in library modules.
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar"))))
+    // The bare aar declares no transitive deps; these are the SDK's runtime requirements
+    // (mirrors the official demo app). BLEService.onCreate needs LocalBroadcastManager;
+    // device/data flows use greenDAO + gson. Network libs (okhttputils/retrofit) omitted —
+    // the local BLE/audio path doesn't need them and com.zhy:okhttputils is jcenter-only.
+    implementation("androidx.localbroadcastmanager:localbroadcastmanager:1.1.0")
+    implementation("org.greenrobot:greendao:3.3.0")
+    implementation("com.google.code.gson:gson:2.11.0")
+    implementation("org.jetbrains:annotations:15.0")
     testImplementation("org.jetbrains.kotlin:kotlin-test")
     testImplementation("org.mockito:mockito-core:5.0.0")
 }
