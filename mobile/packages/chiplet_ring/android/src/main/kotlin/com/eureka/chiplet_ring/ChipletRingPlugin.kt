@@ -353,6 +353,25 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                     result.success(null)
                 } catch (e: Throwable) { result.error("ring_error", e.message, null) }
             }
+            // ---- Keep-alive / auto-reconnect ----
+            "setSavedMac" -> {
+                val mac = call.argument<String>("mac")
+                try {
+                    if (mac != null) BLEUtils.setMac(mac)
+                    result.success(null)
+                } catch (e: Throwable) { result.error("ring_error", e.message, null) }
+            }
+            "reconnect" -> {
+                try {
+                    android.util.Log.i("ChipletRing", "reconnectionLockByBLE")
+                    BLEUtils.reconnectionLockByBLE(appContext)
+                    result.success(null)
+                } catch (e: Throwable) { result.error("ring_error", e.message, null) }
+            }
+            "isConnected" -> {
+                try { result.success(BLEUtils.isConnected()) }
+                catch (e: Throwable) { result.error("ring_error", e.message, null) }
+            }
             else -> result.notImplemented()
         }
     }

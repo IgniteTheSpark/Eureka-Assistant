@@ -48,4 +48,11 @@ class ChipletRing {
 
   /// File-op event stream: {kind: item|audio|text|done|deleted|formatted|memory|memoryFull, ...}.
   Stream<Map> get fileEvents => _p.fileEvents();
+
+  // ---- Keep-alive / auto-reconnect ----
+  /// Set the MAC to reconnect to (call before [reconnect] on launch).
+  Future<void> setSavedMac(String mac) => _p.setSavedMac(mac);
+  /// Reconnect to the last/saved device (BLEUtils.reconnectionLockByBLE).
+  Future<void> reconnect() => _p.reconnect();
+  Future<bool> isConnected() => _p.isConnected();
 }

@@ -37,6 +37,12 @@ class RingPlatform {
   Stream<Map> fileEvents() =>
       _file.receiveBroadcastStream().map((e) => e as Map);
 
+  // ---- Keep-alive / auto-reconnect ----
+  Future<void> setSavedMac(String mac) => _methods.invokeMethod('setSavedMac', {'mac': mac});
+  Future<void> reconnect() => _methods.invokeMethod('reconnect');
+  Future<bool> isConnected() async =>
+      (await _methods.invokeMethod('isConnected')) == true;
+
   Stream<RingState> states() => _state.receiveBroadcastStream().map((e) {
         final m = e as Map;
         return RingState(

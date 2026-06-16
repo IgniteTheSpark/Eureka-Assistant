@@ -7,6 +7,7 @@ import '../api/tencent_asr_s3_client.dart';
 import '../flash/flash.dart';
 import 'ring_asr.dart';
 import 'ring_capture_controller.dart';
+import 'ring_reconnect.dart';
 
 /// Wires the ring (chiplet_ring plugin) → Tencent ASR → /api/flash card creation.
 ///
@@ -15,12 +16,15 @@ import 'ring_capture_controller.dart';
 /// Reuses the existing ASR client and `sendFlash`; does not touch the W1/W2 card flow.
 
 RingCaptureController? _ringCapture;
+RingReconnect? _ringReconnect;
 
 /// Start ring capture once. Idempotent — safe to call on every auth rebuild
 /// (the auth gate in main.dart re-runs this block whenever it rebuilds).
 void startRingCapture(ApiClient api) {
   if (_ringCapture != null) return;
   final ring = ChipletRing();
+  // Keep the ring connected: reconnect on launch (saved MAC) + after drops.
+  _ringReconnect = RingReconnect(ring)..start();
   final asrClient = TencentAsrS3Client(); // baseUrl defaults to AppConfig.tencentAsrBase
   final asr = RingAsr(
     recognize: (File wav) async {
@@ -44,4 +48,6 @@ void startRingCapture(ApiClient api) {
 Future<void> stopRingCapture() async {
   await _ringCapture?.dispose();
   _ringCapture = null;
+  await _ringReconnect?.dispose();
+  _ringReconnect = null;
 }
