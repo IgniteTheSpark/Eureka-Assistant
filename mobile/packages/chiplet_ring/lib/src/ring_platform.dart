@@ -8,6 +8,16 @@ class RingPlatform {
   static const _key = EventChannel('chiplet_ring/key');
   static const _file = EventChannel('chiplet_ring/file');
 
+  // Cache one broadcast stream per channel. Each EventChannel has a SINGLE native
+  // sink; calling receiveBroadcastStream() again would re-trigger native onListen
+  // and overwrite that sink, so only the last subscriber would get events. Sharing
+  // one cached broadcast stream means a single native listen, fanned out in Dart —
+  // so RingConnection, the pairing page, the reconnector, etc. all receive events.
+  static final Stream<dynamic> _audioRaw = _audio.receiveBroadcastStream();
+  static final Stream<dynamic> _stateRaw = _state.receiveBroadcastStream();
+  static final Stream<dynamic> _keyRaw = _key.receiveBroadcastStream();
+  static final Stream<dynamic> _fileRaw = _file.receiveBroadcastStream();
+
   Future<void> startScan() => _methods.invokeMethod('startScan');
   Future<void> stopScan() => _methods.invokeMethod('stopScan');
   Future<void> connect(String id) => _methods.invokeMethod('connect', {'id': id});
@@ -16,11 +26,11 @@ class RingPlatform {
   Future<void> stopRecording() => _methods.invokeMethod('stopRecording');
 
   Stream<RingAudioFrame> audioFrames() =>
-      _audio.receiveBroadcastStream().map((e) => RingAudioFrame.fromMap(e as Map));
+      _audioRaw.map((e) => RingAudioFrame.fromMap(e as Map));
 
   /// Ring gesture/key codes: 0=long-press 1=single 2=double 3=triple 4..7=swipes.
   Stream<int> keyEvents() =>
-      _key.receiveBroadcastStream().map((e) => (e as num).toInt());
+      _keyRaw.map((e) => (e as num).toInt());
 
   // ---- On-device (local) recording + file management ----
   Future<void> startLocalRecording({int total = 1200, int slice = 600}) =>
@@ -35,7 +45,7 @@ class RingPlatform {
 
   /// File-op events: {kind: item|audio|text|done|deleted|formatted|memory|memoryFull, ...}
   Stream<Map> fileEvents() =>
-      _file.receiveBroadcastStream().map((e) => e as Map);
+      _fileRaw.map((e) => e as Map);
 
   // ---- Keep-alive / auto-reconnect ----
   Future<void> setSavedMac(String mac) => _methods.invokeMethod('setSavedMac', {'mac': mac});
@@ -43,7 +53,7 @@ class RingPlatform {
   Future<bool> isConnected() async =>
       (await _methods.invokeMethod('isConnected')) == true;
 
-  Stream<RingState> states() => _state.receiveBroadcastStream().map((e) {
+  Stream<RingState> states() => _stateRaw.map((e) {
         final m = e as Map;
         return RingState(
           conn: RingConnState.values.asNameMap()[m['conn'] as String?] ?? RingConnState.error,
