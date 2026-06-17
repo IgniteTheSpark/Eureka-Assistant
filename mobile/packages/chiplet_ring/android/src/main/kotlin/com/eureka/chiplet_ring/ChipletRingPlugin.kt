@@ -391,9 +391,12 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 try {
                     LmAPILite.GET_BATTERY(0, object : IBatteryListenerLite {
                         override fun battery(type: Int, electricity: Int) {
+                            android.util.Log.i("ChipletRing", "battery(type=$type, electricity=$electricity)")
                             if (type == 0 && !replied) { replied = true; main.post { result.success(electricity) } }
                         }
-                        override fun battery_push(type: Int, electricity: Int) {}
+                        override fun battery_push(type: Int, electricity: Int) {
+                            android.util.Log.i("ChipletRing", "battery_push(type=$type, electricity=$electricity)")
+                        }
                     })
                 } catch (e: Throwable) { if (!replied) { replied = true; result.error("ring_error", e.message, null) } }
             }
