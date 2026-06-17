@@ -9,6 +9,8 @@ import '../device/device_controller.dart';
 import '../pages/connected_apps_page.dart';
 import '../pages/device_pairing_page.dart';
 import '../pages/my_device_page.dart';
+import '../pages/my_ring_page.dart';
+import '../ring/ring_connection.dart';
 import '../pages/ring_debug_page.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_controller.dart';
@@ -49,11 +51,14 @@ class GlobalHeaderBar extends StatelessWidget {
             onTap: () => _openProfile(context),
           ),
           AnimatedBuilder(
-            animation: DeviceController.instance,
+            animation: Listenable.merge(
+              [DeviceController.instance, RingConnection.instance],
+            ),
             builder: (context, _) {
               final dev = DeviceController.instance;
-              final connected =
+              final cardConnected =
                   dev.state == DeviceConnState.connected && dev.isBound;
+              final connected = cardConnected || RingConnection.instance.isConnected;
               return _GhostButton(
                 icon: Icons.devices_outlined,
                 tooltip: '设备连接',
@@ -264,6 +269,14 @@ Future<void> _openDeviceResolved(BuildContext context) async {
   try {
     final target = await DeviceController.instance.resolveEntryTarget();
     if (!context.mounted) return;
+    // No card device bound but a ring is connected → show the ring detail page.
+    if (target != DeviceEntryTarget.myDevice &&
+        RingConnection.instance.isConnected) {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const MyRingPage()),
+      );
+      return;
+    }
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => target == DeviceEntryTarget.myDevice

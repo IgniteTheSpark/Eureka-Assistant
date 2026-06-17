@@ -12,6 +12,7 @@ import 'ble_flash/ble_flash_manager.dart';
 import 'ble_flash/ble_flash_overlay.dart';
 import 'ble_flash/flash_file_workflow.dart';
 import 'ring/ring_capture_service.dart';
+import 'ring/ring_connection.dart';
 import 'data_revision.dart';
 import 'device/device_controller.dart';
 import 'pages/login_page.dart';
@@ -166,6 +167,7 @@ class _AuthGate extends StatelessWidget {
         unawaited(FlashFileWorkflow.instance.start(auth.userId!));
         // 戒指实时录音 → 闪念(里程碑2)。幂等;仅在戒指连接后双击才生效。
         startRingCapture(ApiClient());
+        RingConnection.instance.ensureStarted(); // 全局戒指连接态(头部图标用)
         return _startSession.isEmpty
             ? KeyedSubtree(
                 key: ValueKey(auth.sessionEpoch),

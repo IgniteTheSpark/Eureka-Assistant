@@ -8,6 +8,7 @@ import '../device/device_controller.dart';
 import '../device/device_silent_reconnect.dart';
 import '../theme/app_theme.dart';
 import 'my_device_page.dart';
+import 'my_ring_page.dart';
 
 /// First-run pairing flow for the UReka 录音卡.
 /// Top search pill + a 2-step onboarding pager; when the scan surfaces a device
@@ -36,6 +37,7 @@ class _DevicePairingPageState extends State<DevicePairingPage> {
   RingState _ringState = const RingState(conn: RingConnState.disconnected, devices: []);
   StreamSubscription<RingState>? _ringSub;
   String? _lastRingId;
+  bool _ringNavigated = false;
 
   @override
   void initState() {
@@ -55,9 +57,18 @@ class _DevicePairingPageState extends State<DevicePairingPage> {
     _ringSub = _ring.state.listen((s) async {
       if (!mounted) return;
       setState(() => _ringState = s);
-      if (s.conn == RingConnState.connected && _lastRingId != null) {
-        final sp = await SharedPreferences.getInstance();
-        await sp.setString('ring_mac', _lastRingId!);
+      if (s.conn == RingConnState.connected) {
+        if (_lastRingId != null) {
+          final sp = await SharedPreferences.getInstance();
+          await sp.setString('ring_mac', _lastRingId!);
+        }
+        // Mirror the card flow: on connect, go to the ring detail page.
+        if (!_ringNavigated && mounted) {
+          _ringNavigated = true;
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const MyRingPage()),
+          );
+        }
       }
     });
   }
