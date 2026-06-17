@@ -53,6 +53,29 @@ class RingPlatform {
   Future<bool> isConnected() async =>
       (await _methods.invokeMethod('isConnected')) == true;
 
+  // ---- Device info (async one-shot; null on timeout/failure) ----
+  Future<int?> getBattery() async {
+    try {
+      final v = await _methods
+          .invokeMethod('getBattery')
+          .timeout(const Duration(seconds: 6));
+      return (v as num?)?.toInt();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<Map?> getVersion() async {
+    try {
+      final v = await _methods
+          .invokeMethod('getVersion')
+          .timeout(const Duration(seconds: 6));
+      return v as Map?;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Stream<RingState> states() => _stateRaw.map((e) {
         final m = e as Map;
         return RingState(

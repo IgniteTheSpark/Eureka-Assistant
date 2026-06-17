@@ -19,8 +19,10 @@ import com.lm.sdk.inter.IFileListListener
 import com.lm.sdk.inter.FileResponseCallback
 import com.lm.sdk.library.AppConfig
 import com.lm.sdk.lmApiInter.IAudioListenerLite
+import com.lm.sdk.lmApiInter.IBatteryListenerLite
 import com.lm.sdk.lmApiInter.ICommonalityListenerLite
 import com.lm.sdk.lmApiInter.IResponseListenerLite
+import com.lm.sdk.lmApiInter.IVersionListenerLite
 import com.lm.sdk.utils.BLEUtils
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.EventChannel
@@ -371,6 +373,28 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             "isConnected" -> {
                 try { result.success(BLEUtils.isConnected()) }
                 catch (e: Throwable) { result.error("ring_error", e.message, null) }
+            }
+            // ---- Device info (battery / firmware) — one-shot async queries ----
+            "getBattery" -> {
+                var replied = false
+                try {
+                    LmAPILite.GET_BATTERY(0, object : IBatteryListenerLite {
+                        override fun battery(type: Int, electricity: Int) {
+                            if (type == 0 && !replied) { replied = true; main.post { result.success(electricity) } }
+                        }
+                        override fun battery_push(type: Int, electricity: Int) {}
+                    })
+                } catch (e: Throwable) { if (!replied) { replied = true; result.error("ring_error", e.message, null) } }
+            }
+            "getVersion" -> {
+                var replied = false
+                try {
+                    LmAPILite.GET_VERSION(true, object : IVersionListenerLite {
+                        override fun versionResult(fw: String, hw: String) {
+                            if (!replied) { replied = true; main.post { result.success(mapOf("fw" to fw, "hw" to hw)) } }
+                        }
+                    })
+                } catch (e: Throwable) { if (!replied) { replied = true; result.error("ring_error", e.message, null) } }
             }
             else -> result.notImplemented()
         }

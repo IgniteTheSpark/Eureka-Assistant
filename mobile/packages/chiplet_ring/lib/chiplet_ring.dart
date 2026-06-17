@@ -55,4 +55,10 @@ class ChipletRing {
   /// Reconnect to the last/saved device (BLEUtils.reconnectionLockByBLE).
   Future<void> reconnect() => _p.reconnect();
   Future<bool> isConnected() => _p.isConnected();
+
+  /// Battery percentage (0-100), or null on timeout/failure.
+  Future<int?> getBattery() => _p.getBattery();
+
+  /// Firmware/hardware version: {fw, hw}, or null on timeout/failure.
+  Future<Map?> getVersion() => _p.getVersion();
 }

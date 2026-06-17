@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:chiplet_ring/chiplet_ring.dart';
+
+import '../ring/ring_art.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -235,7 +237,9 @@ class _DevicePairingPageState extends State<DevicePairingPage> {
               ),
             ],
             if (_target == _PairTarget.ring) ...[
-              const SizedBox(height: 8),
+              const SizedBox(height: 16),
+              const Center(child: RingArt(size: 150)),
+              const SizedBox(height: 16),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
                 child: Row(
