@@ -46,18 +46,24 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     // GET_FILE_LIST (-> file()/getFileContentFinish) and GET_FILE_CONTENT (-> fileContent/
     // AudioFileContent/getFileContentFinish). Events are streamed to Dart on chiplet_ring/file.
     private val fileListListener = object : IFileListListener {
-        override fun file(count: Int, index: Int, size: Int, name: String, raw: ByteArray) {
-            android.util.Log.i("ChipletRing", "file list item #$index/$count name=$name size=$size")
+        // SDK may pass null for raw/name — declare nullable to avoid Kotlin's
+        // non-null parameter NPE (which was silently dropping every file entry).
+        override fun file(count: Int, index: Int, size: Int, name: String?, raw: ByteArray?) {
+            android.util.Log.i("ChipletRing", "file list item #$index/$count name=$name size=$size rawLen=${raw?.size ?: -1}")
+            val nm = name ?: ""
+            // Use raw bytes as the file id if provided, else fall back to the name bytes
+            // (GET_FILE_CONTENT/DELETE_FILE need an identifier).
+            val id = raw?.toList() ?: nm.toByteArray().toList()
             main.post { fileSink?.success(mapOf(
                 "kind" to "item", "count" to count, "index" to index,
-                "size" to size, "name" to name, "id" to raw.toList())) }
+                "size" to size, "name" to nm, "id" to id)) }
         }
-        override fun fileContent(content: String) {
-            main.post { fileSink?.success(mapOf("kind" to "text", "content" to content)) }
+        override fun fileContent(content: String?) {
+            main.post { fileSink?.success(mapOf("kind" to "text", "content" to (content ?: ""))) }
         }
-        override fun AudioFileContent(content: ByteArray) {
-            android.util.Log.i("ChipletRing", "AudioFileContent len=${content.size}")
-            main.post { fileSink?.success(mapOf("kind" to "audio", "pcm" to content.toList())) }
+        override fun AudioFileContent(content: ByteArray?) {
+            android.util.Log.i("ChipletRing", "AudioFileContent len=${content?.size ?: 0}")
+            main.post { fileSink?.success(mapOf("kind" to "audio", "pcm" to (content?.toList() ?: emptyList<Int>()))) }
         }
         override fun getFileContentFinish() {
             main.post { fileSink?.success(mapOf("kind" to "done")) }
