@@ -73,17 +73,23 @@ class RingCaptureController {
   void _beginRecording() {
     _recording = true;
     _buf.clear();
-    _startRecording(); // CONTROL_AUDIO_ADPCM on
+    // Fire-and-forget the start command; never let it throw into the key handler.
+    _startRecording().catchError((_) {});
   }
 
   Future<void> _stop() async {
     _recording = false;
-    await _stopRecording(); // CONTROL_AUDIO_ADPCM off
-    final pcm = _buf.toBytes();
-    if (pcm.isEmpty) return;
-    final text = await _transcribe(pcm, sampleRate, _channels);
-    if (text.trim().isEmpty) return;
-    await _createCard(text);
+    // Reset state first so a failed ASR/card never leaves the controller stuck.
+    try {
+      await _stopRecording(); // CONTROL_AUDIO_ADPCM off
+      final pcm = _buf.toBytes();
+      if (pcm.isEmpty) return;
+      final text = await _transcribe(pcm, sampleRate, _channels);
+      if (text.trim().isEmpty) return;
+      await _createCard(text);
+    } catch (_) {
+      // swallow — a transcription/network failure must not break future captures
+    }
   }
 
   Future<void> dispose() async {

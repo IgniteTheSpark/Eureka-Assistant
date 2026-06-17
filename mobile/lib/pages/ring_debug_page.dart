@@ -33,14 +33,12 @@ class _RingDebugPageState extends State<RingDebugPage> {
   void initState() {
     super.initState();
     _stateSub = _ring.state.listen((s) { if (mounted) setState(() => _state = s); });
-    // Ring gesture: double-click (key code 2) toggles recording, mirroring the
-    // vendor demo's double-click-to-record. Single-tap also shown for debugging.
+    // Double-click capture is owned by the global RingCaptureController (→ 闪念 card),
+    // so the debug page only shows the key code here to avoid double-handling the
+    // same gesture. Use the manual buttons below to test raw WAV export.
     _keySub = _ring.keyEvents.listen((k) {
       if (!mounted) return;
       setState(() => _lastKey = k);
-      if (k == 2) {
-        if (_recording) { _stopAndExport(); } else { _record(); }
-      }
     });
     _fileSub = _ring.fileEvents.listen(_onFileEvent);
   }
@@ -140,7 +138,7 @@ class _RingDebugPageState extends State<RingDebugPage> {
         Padding(
           padding: const EdgeInsets.all(8),
           child: Text(
-            '${_recording ? "● 录音中" : "○ 待机"}   双击戒指开始/停止   最近按键: ${_lastKey ?? "-"}',
+            '${_recording ? "● 录音中" : "○ 待机"}   双击=全局闪念捕捉 · 按钮=本地导出   最近按键: ${_lastKey ?? "-"}',
             style: TextStyle(
               color: _recording ? Colors.red : null,
               fontWeight: FontWeight.w600,
