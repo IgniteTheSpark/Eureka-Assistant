@@ -51,6 +51,11 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         override fun file(count: Int, index: Int, size: Int, name: String?, raw: ByteArray?) {
             android.util.Log.i("ChipletRing", "file list item #$index/$count name=$name size=$size rawLen=${raw?.size ?: -1}")
             val nm = name ?: ""
+            // Empty/placeholder callback = "no files" / end-of-list marker. Don't surface it as a file.
+            if (nm.isEmpty() && size <= 0 && (raw == null || raw.isEmpty())) {
+                main.post { fileSink?.success(mapOf("kind" to "empty", "count" to count)) }
+                return
+            }
             // Use raw bytes as the file id if provided, else fall back to the name bytes
             // (GET_FILE_CONTENT/DELETE_FILE need an identifier).
             val id = raw?.toList() ?: nm.toByteArray().toList()

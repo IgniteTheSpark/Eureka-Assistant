@@ -48,6 +48,9 @@ class _RingDebugPageState extends State<RingDebugPage> {
       case 'item':
         if (mounted) setState(() => _files.add(Map.from(e)));
         break;
+      case 'empty':
+        _toast('戒指上无本地文件');
+        break;
       case 'audio':
         _dl.add(List<int>.from(e['pcm'] as List));
         break;
