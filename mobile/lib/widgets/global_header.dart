@@ -64,11 +64,11 @@ class GlobalHeaderBar extends StatelessWidget {
               final String tooltip;
               final Color? color;
               if (ringConnected) {
-                icon = Icons.bluetooth_audio;
+                icon = Icons.panorama_fish_eye; // 小戒指(环形)
                 tooltip = '戒指已连接';
                 color = eu.accentGreen;
               } else if (cardConnected) {
-                icon = Icons.devices;
+                icon = Icons.credit_card; // 小卡片
                 tooltip = '录音卡已连接';
                 color = eu.accentGreen;
               } else {
