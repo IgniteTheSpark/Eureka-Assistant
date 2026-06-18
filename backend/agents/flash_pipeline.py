@@ -134,8 +134,13 @@ def _fallback_result_from_tool_events(tool_events: list) -> Optional[dict]:
         if data.get("event_id"):   out["event_id"]   = data["event_id"]
         if data.get("contact_id"): out["contact_id"] = data["contact_id"]
         if data.get("payload"):    out["payload"]    = data["payload"]
-        # Some tools (create_event) flatten title/start_at to top level
-        for k in ("title", "start_at", "end_at"):
+        # Some tools flatten display fields to the top level:
+        #   create_event   → title / start_at / end_at
+        #   create_contact → name / company / phone / email (NOT in payload)
+        # Without these, a contact synthesized from tool_events loses its name →
+        # _contact_card falls back to the generic "联系人 / 已新建".
+        for k in ("title", "start_at", "end_at",
+                  "name", "company", "phone", "email", "contact_action"):
             if data.get(k):
                 out[k] = data[k]
         return out
@@ -428,11 +433,10 @@ async def _run_intent(
     result["skill"] = f"{itype}-skill"
     result["source_text"] = source
 
-    # v1.4.x: dispatcher mis-routed an event without end_at to event-skill;
-    # event tool's hard validation rejected. Auto-rerun as todo so the user
-    # gets a usable todo card instead of an error card.
-    if (itype == "event" and not result.get("ok")
-        and "should be todo" in str(result.get("error", "")).lower()):
+    # 单时点的「约/会」没拿到真实 event_id 就转 todo —— 不只匹配 "should be todo"
+    # 字符串:event agent 偶发幻觉式 ok=true 却没真建 event,旧条件(需 ok=false)会漏,
+    # 导致既无 todo 又渲染幽灵日程卡。改判 event_id 缺失,可靠落成 todo。
+    if itype == "event" and not result.get("event_id"):
         fallback_intent = {"type": "todo", "source_text": source}
         return await _run_intent(
             fallback_intent, user_text, session_id, source_input_turn_id,
@@ -720,7 +724,11 @@ def _make_card(r: dict, render_specs: dict) -> dict:
 
     # 2. Special-case data shapes
     if skill == "event-skill":
-        return _event_card(r)
+        # 只有真正落库(有 event_id)才出 event 卡。event agent 偶发幻觉式 ok=true
+        # 却没真建 event(硬检查拒单时点)→ 不渲染幽灵日程卡;_run_intent 已转 todo。
+        if r.get("event_id"):
+            return _event_card(r)
+        return _error_card(r, render_specs)
     if skill == "task-skill":
         return _task_card(r)
     if skill == "contact-skill" and status == "pending_confirmation":
@@ -864,6 +872,61 @@ def _aggregate(results: list, session_id: str, input_turn_id: str, render_specs:
 
 # ── Public entry point ────────────────────────────────────────────────────────
 
+async def _reconcile_turn_orphans(user_id: str, input_turn_id: str, results: list) -> None:
+    """Bug fix: a flash sub-skill agent sometimes calls create_asset / create_contact
+    more than once for the same item (DeepSeek tool-call double-fire). The extra
+    rows persist in the DB but are NOT surfaced as cards — orphan duplicates the
+    user sees in the library / 流 but never as a session card (e.g. 3 cards but 5
+    expense assets; 1 contact card but 2 高强 rows). Prune any asset / event /
+    contact / task created for THIS turn whose id isn't in the pipeline's
+    surfaced-id set.
+
+    Type-agnostic: keys ONLY on the surfaced ids (one per intent result), never on
+    a skill's payload schema — so built-in AND custom skills, and ALL created
+    kinds, are covered uniformly. Guard: only prune a kind when ≥1 surfaced id
+    actually belongs to this turn (keep ∩ turn-ids non-empty), so a lone legit
+    entity whose id wasn't surfaced is never wrongly deleted. AssetField cascades
+    (FK). Best-effort: any failure leaves the dup rather than risk real data."""
+    if not input_turn_id:
+        return
+    try:
+        tid = uuid.UUID(str(input_turn_id))
+    except (ValueError, TypeError):
+        return
+    from sqlalchemy import delete as _sa_delete
+    from db.models import Asset, Event, Contact, Task
+    # FK-safe order: Task.result_asset_id → assets (prune Task before its
+    # placeholder Asset); assets may reference contact/event → those last.
+    registry = [(Task, "task_id"), (Asset, "asset_id"),
+                (Contact, "contact_id"), (Event, "event_id")]
+    try:
+        async with AsyncSessionLocal() as db:
+            pruned = False
+            for model, key in registry:
+                keep = {str(r[key]) for r in results
+                        if isinstance(r, dict) and r.get(key)}
+                if not keep:                      # nothing of this kind surfaced
+                    continue
+                ids = (await db.execute(
+                    select(model.id).where(
+                        model.user_id == user_id,
+                        model.source_input_turn_id == tid,
+                    )
+                )).scalars().all()
+                id_strs = {str(i) for i in ids}
+                if not (keep & id_strs):          # surfaced ids not from this turn → skip
+                    continue
+                orphans = [i for i in ids if str(i) not in keep]
+                if orphans:
+                    await db.execute(_sa_delete(model).where(model.id.in_(orphans)))
+                    pruned = True
+            if pruned:
+                await db.commit()
+    except Exception:
+        # FK / transient — leave dups rather than risk deleting real data.
+        pass
+
+
 async def run_flash_pipeline(
     user_text: str,
     session_id: str,
@@ -913,4 +976,7 @@ async def run_flash_pipeline(
     for intent, r in zip(intents, results):
         if isinstance(r, dict) and r.get("asset_id"):
             await _apply_domain(r.get("asset_id"), intent.get("domain"), user_id)
+    # Bug fix: drop orphan duplicates (sub-agent double create_asset/create_contact)
+    # before the user sees the library — keep only the ids surfaced as cards.
+    await _reconcile_turn_orphans(user_id, input_turn_id, results)
     return _aggregate(results, session_id, input_turn_id, render_specs)
