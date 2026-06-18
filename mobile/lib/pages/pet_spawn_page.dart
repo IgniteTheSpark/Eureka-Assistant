@@ -736,7 +736,7 @@ class _PetSpawnPageState extends State<PetSpawnPage>
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          '🎙️ 有录音卡吗?',
+          '🎙️ 有录音设备吗?',
           textAlign: TextAlign.center,
           style: TextStyle(
             color: eu.textHi,
@@ -746,12 +746,14 @@ class _PetSpawnPageState extends State<PetSpawnPage>
         ),
         const SizedBox(height: 10),
         Text(
-          '连上它,按一下就能随口记,$_petName 当场帮你整理 ——\n不用打字、不用掏手机。还没有卡也行,先用打字试试。',
+          '录音卡或戒指都行 —— 连上它,按一下就能随口记,$_petName 当场帮你整理。\n还没有设备也行,先用打字试试。',
           textAlign: TextAlign.center,
           style: TextStyle(color: eu.textMid, fontSize: 13.5, height: 1.5),
         ),
         const SizedBox(height: 22),
-        _ctaButton(eu, '连接录音卡  →', _connectDevice),
+        _ctaButton(eu, '连接录音卡', () => _connectDevice('card')),
+        const SizedBox(height: 12),
+        _ctaSecondary(eu, '连接戒指', () => _connectDevice('ring')),
         const SizedBox(height: 10),
         GestureDetector(
           onTap: () => setState(() => _step = _Step.invite),
@@ -759,7 +761,7 @@ class _PetSpawnPageState extends State<PetSpawnPage>
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
             child: Text(
-              '我还没有卡,用打字',
+              '我还没有设备,用打字',
               style: TextStyle(
                 color: eu.brand,
                 fontSize: 14,
@@ -772,12 +774,13 @@ class _PetSpawnPageState extends State<PetSpawnPage>
     );
   }
 
-  Future<void> _connectDevice() async {
-    // 复用 jigong 的配对页;返回后按是否绑成分叉:绑成 → 硬件首捕(按卡说);
-    // 没绑成(取消/失败/没扫到)→ 退回打字首捕,绝不卡住。
-    await Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => const DevicePairingPage()));
+  Future<void> _connectDevice(String device) async {
+    // 复用 jigong 的配对页,按选择的设备类型('card'/'ring')直接进扫描,跳过页内
+    // 二次选择。返回后按是否绑成分叉:绑成录音卡 → 硬件首捕(按卡说);戒指 /
+    // 取消 / 失败 → 退回打字首捕(戒指已配对、入 app 后照常用),绝不卡住。
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => DevicePairingPage(initialDevice: device)),
+    );
     if (!mounted) return;
     setState(() {
       _resetHardwareFields();
@@ -962,6 +965,32 @@ class _PetSpawnPageState extends State<PetSpawnPage>
           textAlign: TextAlign.center,
           style: const TextStyle(
             color: Colors.white,
+            fontSize: 15.5,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Outline CTA — used for the secondary device choice (戒指) so 录音卡 reads as
+  // primary while both stay equally tappable.
+  Widget _ctaSecondary(EurekaColors eu, String label, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 13),
+        decoration: BoxDecoration(
+          color: eu.surfaceRaised,
+          borderRadius: BorderRadius.circular(28),
+          border: Border.all(color: eu.border),
+        ),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: eu.textHi,
             fontSize: 15.5,
             fontWeight: FontWeight.w700,
           ),

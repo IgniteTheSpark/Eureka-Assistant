@@ -19,7 +19,10 @@ import 'my_ring_page.dart';
 enum _PairTarget { card, ring }
 
 class DevicePairingPage extends StatefulWidget {
-  const DevicePairingPage({super.key});
+  /// Pre-selected device type from onboarding's 录音卡/戒指 choice:
+  /// 'card' | 'ring' | null. null → show the in-page chooser (default).
+  final String? initialDevice;
+  const DevicePairingPage({super.key, this.initialDevice});
 
   @override
   State<DevicePairingPage> createState() => _DevicePairingPageState();
@@ -49,6 +52,13 @@ class _DevicePairingPageState extends State<DevicePairingPage> {
     super.initState();
     unawaited(DeviceSilentReconnect.instance.stop());
     _dev.addListener(_onDevice);
+    // Onboarding can pre-pick the device type so we skip the in-page chooser and
+    // scan straight away. null → user picks 录音卡/戒指 here.
+    if (widget.initialDevice == 'card') {
+      _target = _PairTarget.card;
+    } else if (widget.initialDevice == 'ring') {
+      _target = _PairTarget.ring;
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (_target == _PairTarget.card) {
@@ -57,6 +67,8 @@ class _DevicePairingPageState extends State<DevicePairingPage> {
           if (!mounted) return;
           unawaited(_dev.ensurePermissionAndStartScan());
         });
+      } else if (_target == _PairTarget.ring) {
+        _ring.startScan();
       }
     });
     _ringSub = _ring.state.listen((s) {
