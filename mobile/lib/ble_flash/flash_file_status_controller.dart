@@ -60,6 +60,13 @@ class FlashFileStatusController {
     show(_processingText(fileName, '收尾'), fileName: fileName);
   }
 
+  /// Ring capture does on-device ASR (no file-sync workflow), so it drives the
+  /// 「正在…」bubble directly to mirror the card's progressive status instead of
+  /// a single static line. [action] e.g. '听写' / '整理'.
+  void processing(String action, {String fileName = ''}) {
+    show(_processingText(fileName, action), fileName: fileName);
+  }
+
   void failed(String fileName, {String? message}) {
     final label = _flashLabel(fileName);
     final suffix = message == null || message.trim().isEmpty

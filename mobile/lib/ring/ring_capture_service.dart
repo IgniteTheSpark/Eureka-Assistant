@@ -4,6 +4,7 @@ import 'package:chiplet_ring/chiplet_ring.dart';
 
 import '../api/api_client.dart';
 import '../api/tencent_asr_s3_client.dart';
+import '../ble_flash/flash_file_status_controller.dart';
 import '../flash/flash.dart';
 import 'ring_asr.dart';
 import 'ring_capture_controller.dart';
@@ -34,12 +35,32 @@ void startRingCapture(ApiClient api) {
   );
   _ringCapture = RingCaptureController(
     keyEvents: ring.keyEvents,
-    audioFrames: ring.audioFrames.map((f) => RingFrame(pcm: f.pcm, channels: f.channels)),
+    audioFrames:
+        ring.audioFrames.map((f) => RingFrame(pcm: f.pcm, channels: f.channels, seq: f.seq)),
     startRecording: ring.startRecording,
     stopRecording: ring.stopRecording,
     transcribe: (pcm, sr, ch) => asr.transcribePcm(pcm, sampleRate: sr, channels: ch),
     createCard: (text) async {
       await sendFlash(api, text, source: 'voice');
+    },
+    // Mirror the card's progressive「Reka听到：…正在X」bubble (floating mascot)
+    // instead of a single static line. Ring ASR is on-device, so the「听写」beat
+    // has no server counterpart — the client must drive it.
+    onPhase: (phase) {
+      final s = FlashFileStatusController.instance;
+      switch (phase) {
+        case RingCapturePhase.recording:
+          break; // recording on-device; no bubble until we have audio to file
+        case RingCapturePhase.transcribing:
+          s.processing('听写');
+        case RingCapturePhase.filing:
+          s.processing('整理');
+        case RingCapturePhase.done:
+        case RingCapturePhase.empty:
+          s.clear();
+        case RingCapturePhase.error:
+          s.failed('');
+      }
     },
   )..start();
 }
