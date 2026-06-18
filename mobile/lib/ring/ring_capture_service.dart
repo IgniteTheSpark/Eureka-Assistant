@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:chiplet_ring/chiplet_ring.dart';
+import 'package:flutter/foundation.dart';
 
 import '../api/api_client.dart';
 import '../api/tencent_asr_s3_client.dart';
@@ -9,6 +10,11 @@ import '../flash/flash.dart';
 import 'ring_asr.dart';
 import 'ring_capture_controller.dart';
 import 'ring_reconnect.dart';
+
+/// Most recent ring-capture flash result. Onboarding watches this to advance its
+/// 「双击戒指说一句」step the moment a capture files a card. null = none yet in
+/// the current listen window (set null before listening to ignore stale results).
+final ValueNotifier<FlashResult?> ringLastFlash = ValueNotifier<FlashResult?>(null);
 
 /// Wires the ring (chiplet_ring plugin) → Tencent ASR → /api/flash card creation.
 ///
@@ -41,7 +47,8 @@ void startRingCapture(ApiClient api) {
     stopRecording: ring.stopRecording,
     transcribe: (pcm, sr, ch) => asr.transcribePcm(pcm, sampleRate: sr, channels: ch),
     createCard: (text) async {
-      await sendFlash(api, text, source: 'voice');
+      final result = await sendFlash(api, text, source: 'voice');
+      ringLastFlash.value = result; // onboarding's 戒指 capture step watches this
     },
     // Mirror the card's progressive「Reka听到：…正在X」bubble (floating mascot)
     // instead of a single static line. Ring ASR is on-device, so the「听写」beat
