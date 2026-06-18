@@ -93,14 +93,56 @@ class _AssetViewState extends State<_AssetView> {
   bool _busy = false;
   late String? _domain = widget.data.domain;
 
-  CardData get data => widget.data;
-  Map<String, dynamic> get payload => widget.payload;
+  // Canonical asset data. Seeded from the (possibly partial / stale) card the
+  // caller passed, then refreshed from the server in initState so EVERY surface
+  // that opens this sheet — 资产库 / 会话内卡片 / 聊天 / 通知 — renders the SAME
+  // full content, and 编辑 prefills from the complete payload. See _hydrate.
+  late Map<String, dynamic> _payload = Map<String, dynamic>.from(widget.payload);
+  late CardData _data = widget.data;
+
+  CardData get data => _data;
+  Map<String, dynamic> get payload => _payload;
   String get cardType => widget.cardType;
 
   bool get _deletable => widget.assetId != null;
   bool get _editable => widget.assetId != null;
   bool get _domainEditable =>
       widget.assetId != null && cardType != 'event' && cardType != 'contact' && cardType != 'task';
+
+  @override
+  void initState() {
+    super.initState();
+    _hydrate();
+  }
+
+  // Single source of truth: re-fetch the asset by id so the detail never renders
+  // the stale snapshot a session message happened to carry — that's why a card
+  // looked different in a 会话 vs the 资产库. On any failure (offline / 404) we
+  // silently keep the passed payload, so this is never worse than before.
+  Future<void> _hydrate() async {
+    final id = widget.assetId;
+    if (id == null) return;
+    // event/contact/task are 真身 entities with their own forms; their cards
+    // already carry the full flat entity, so only asset-backed cards re-fetch.
+    if (cardType == 'event' || cardType == 'contact' || cardType == 'task') return;
+    try {
+      final res = await _api.getJson('/api/assets/$id');
+      final asset = (res is Map ? res['asset'] : null) as Map?;
+      final full = (asset?['payload'] as Map?)?.cast<String, dynamic>();
+      if (full == null || !mounted) return;
+      setState(() {
+        _payload = full;
+        final dm = asset?['domain'] as String?;
+        if (dm != null) _domain = dm;
+        if (widget.spec != null) {
+          _data = buildCard(payload: full, spec: widget.spec, displayName: widget.data.title)
+              .copyWith(domain: _domain);
+        }
+      });
+    } catch (_) {
+      // keep widget.payload — no-op
+    }
+  }
 
   @override
   void dispose() {
@@ -382,7 +424,7 @@ class _AssetViewState extends State<_AssetView> {
                           height: 1.18,
                           fontWeight: FontWeight.w800,
                           letterSpacing: -0.3)),
-                  if (data.subtitle.isNotEmpty) ...[
+                  if (data.subtitle.isNotEmpty && !_secondaryIsBody) ...[
                     const SizedBox(height: 3),
                     Text(data.subtitle, style: TextStyle(color: eu.textMid, fontSize: 14)),
                   ],
@@ -503,8 +545,30 @@ class _AssetViewState extends State<_AssetView> {
 
   /* ── body: structured 信息 fields + markdown doc blocks ──────────────────── */
 
-  // 主→title, 副→subtitle are shown ONCE in the hero — never repeated here.
-  // Short fields → 信息 rows; long-text fields (any key, by length) → md blocks.
+  // A field is "正文/body" text → render it as a full 内容 block (regardless of
+  // length, never truncated) instead of a one-line hero subtitle. Uses the SAME
+  // body-key set the editor uses (_isDocKey: content/note/description/…), plus
+  // schema-declared `long` fields and `truncate_*` formats (notes.content is
+  // secondary_format: truncate_40). Keeps 展示 and 编辑 on identical field logic.
+  bool _isBodyField(String key) {
+    if (_isDocKey(key)) return true;
+    final s = widget.spec;
+    if (s == null) return false;
+    if (s.longFields.contains(key)) return true;
+    final fmt = s.formatForField(key);
+    return fmt != null && fmt.startsWith('truncate_');
+  }
+
+  // The secondary (hero subtitle) is actually body text → don't also show it as
+  // a truncated subtitle; it renders below as the full 内容 block.
+  bool get _secondaryIsBody {
+    final sk = widget.spec?.secondaryField;
+    return sk != null && _isBodyField(sk);
+  }
+
+  // 主→title shown ONCE in the hero (never repeated). 副 shows in the hero only
+  // when it's a short attribute; body副 (e.g. notes.content) renders below.
+  // Short fields → 信息 rows; long-text / body fields → md 内容 blocks.
   List<Widget> _bodyParts(EurekaColors eu) {
     final primaryKey = widget.spec?.primaryField;
     final secondaryKey = widget.spec?.secondaryField;
@@ -533,7 +597,12 @@ class _AssetViewState extends State<_AssetView> {
         stats.add((label: label, value: _chips(eu, value)));
         return;
       }
-      if (value is String && _isLongText(value)) {
+      // body text (or just-long text) → full 内容 block — but never the primary,
+      // which is already the big hero title.
+      if (value is String &&
+          value.trim().isNotEmpty &&
+          key != primaryKey &&
+          (_isLongText(value) || _isBodyField(key))) {
         docs.add(_DocBlock(label: label, text: value, onExpand: widget.onExpand));
         return;
       }
@@ -739,6 +808,18 @@ class _DocBlockState extends State<_DocBlock> {
       widget.text,
       baseStyle: TextStyle(color: eu.text, fontSize: 15, height: 1.62),
     );
+    // Short body text (e.g. a one-line 随记) shows in full — the clip + fade +
+    // 展开全文 toggle only makes sense for genuinely long documents.
+    if (!_isLongText(widget.text)) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(widget.label, style: TextStyle(color: eu.textLo, fontSize: 11, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          md,
+        ],
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
