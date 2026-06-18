@@ -34,7 +34,9 @@ class _DevicePairingPageState extends State<DevicePairingPage> {
   int _page = 0;
   bool _sheetOpen = false;
 
-  _PairTarget _target = _PairTarget.card;
+  // null = user hasn't chosen a device type yet (so we don't auto-scan a card and
+  // pop its full-screen sheet over the picker). Pick card/ring first, then scan.
+  _PairTarget? _target;
   final _ring = ChipletRing();
   RingState _ringState = const RingState(conn: RingConnState.disconnected, devices: []);
   StreamSubscription<RingState>? _ringSub;
@@ -88,7 +90,11 @@ class _DevicePairingPageState extends State<DevicePairingPage> {
 
   void _onDevice() {
     if (!mounted) return;
-    if (_dev.discovered.isNotEmpty && !_sheetOpen && !_dev.isBound) {
+    // Only surface the card discover sheet when the user is actually pairing a card.
+    if (_target == _PairTarget.card &&
+        _dev.discovered.isNotEmpty &&
+        !_sheetOpen &&
+        !_dev.isBound) {
       _showDiscoverSheet();
     }
     setState(() {});
@@ -113,9 +119,9 @@ class _DevicePairingPageState extends State<DevicePairingPage> {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => const MyDevicePage()),
       );
-    } else if (connected == false && mounted) {
-      Navigator.of(context).maybePop();
     }
+    // On dismiss: stay on the pairing page (don't pop it) so the user can switch
+    // to the ring, or re-scan, instead of being kicked out entirely.
   }
 
   void _selectTarget(_PairTarget t) {
@@ -172,10 +178,22 @@ class _DevicePairingPageState extends State<DevicePairingPage> {
                   ButtonSegment(value: _PairTarget.card, label: Text('录音卡')),
                   ButtonSegment(value: _PairTarget.ring, label: Text('戒指')),
                 ],
-                selected: {_target},
-                onSelectionChanged: (s) => _selectTarget(s.first),
+                emptySelectionAllowed: true,
+                selected: _target == null ? <_PairTarget>{} : {_target!},
+                onSelectionChanged: (s) {
+                  if (s.isNotEmpty) _selectTarget(s.first);
+                },
               ),
             ),
+            if (_target == null)
+              Expanded(
+                child: Center(
+                  child: Text(
+                    '请选择要连接的设备',
+                    style: TextStyle(color: eu.textMid, fontSize: 15),
+                  ),
+                ),
+              ),
             if (_target == _PairTarget.card) ...[
               const SizedBox(height: 4),
               _SearchPill(scanning: _dev.state == DeviceConnState.scanning),

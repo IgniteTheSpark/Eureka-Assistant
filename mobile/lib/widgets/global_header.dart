@@ -58,11 +58,28 @@ class GlobalHeaderBar extends StatelessWidget {
               final dev = DeviceController.instance;
               final cardConnected =
                   dev.state == DeviceConnState.connected && dev.isBound;
-              final connected = cardConnected || RingConnection.instance.isConnected;
+              final ringConnected = RingConnection.instance.isConnected;
+              // Distinguish which device is connected (ring takes precedence in the icon).
+              final IconData icon;
+              final String tooltip;
+              final Color? color;
+              if (ringConnected) {
+                icon = Icons.bluetooth_audio;
+                tooltip = '戒指已连接';
+                color = eu.accentGreen;
+              } else if (cardConnected) {
+                icon = Icons.devices;
+                tooltip = '录音卡已连接';
+                color = eu.accentGreen;
+              } else {
+                icon = Icons.devices_outlined;
+                tooltip = '设备连接';
+                color = null;
+              }
               return _GhostButton(
-                icon: Icons.devices_outlined,
-                tooltip: '设备连接',
-                color: connected ? eu.accentGreen : null,
+                icon: icon,
+                tooltip: tooltip,
+                color: color,
                 onTap: () => _openDevice(context),
               );
             },
