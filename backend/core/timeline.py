@@ -88,6 +88,10 @@ def effective_at_for_asset(asset: Asset, skill_name: str,
     anchor → created_at, unchanged. todo/expense keep their built-in anchors.
     """
     payload = asset.payload or {}
+    # §4.5.0a: user stated a clock time → occurred_at is the precise moment and
+    # wins over every payload-derived anchor (it's exactly "when it happened").
+    if getattr(asset, "occurred_at", None):
+        return asset.occurred_at
     rs = render_spec if isinstance(render_spec, dict) else {}
     anchor = rs.get("timeline_anchor")
     if anchor:
@@ -214,6 +218,10 @@ def _asset_item(asset: Asset, skill_name: str, render_spec: Optional[dict] = Non
         "id":                   str(asset.id),
         "effective_at":         _iso(effective_at_for_asset(asset, skill_name, render_spec)),
         "created_at":           _iso(asset.created_at),
+        # §4.5.0a 落段信号:period = user 只说了模糊时段; has_clock_time = user 说了
+        # 钟点(occurred_at 已 set,effective_at 即该精确时刻)。两者皆无 = 捕捉兜底。
+        "period":               getattr(asset, "period", None) or "",
+        "has_clock_time":       getattr(asset, "occurred_at", None) is not None,
         "title":                str(title)[:120],
         "subtitle":             str(subtitle)[:120],
         "skill_name":           skill_name,

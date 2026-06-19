@@ -41,6 +41,13 @@ class TimelineItem {
   /// For flash (input_turn) captures: {skill_name|"event"|"contact": count}.
   final Map<String, int> derived;
 
+  /// §4.5.0a 落段:user 只说了模糊时段时填(凌晨/上午/中午/下午/晚上),否则 ''。
+  final String period;
+
+  /// True when the user stated a clock time (asset.occurred_at set → effectiveAt
+  /// is that precise moment). Events with a start time count via `kind`.
+  final bool hasClockTime;
+
   TimelineItem({
     required this.kind,
     required this.id,
@@ -56,6 +63,8 @@ class TimelineItem {
     this.eventId,
     this.contactId,
     this.payload = const {},
+    this.period = '',
+    this.hasClockTime = false,
   });
 
   factory TimelineItem.fromJson(Map<String, dynamic> j) {
@@ -80,6 +89,8 @@ class TimelineItem {
         for (final e in rawDerived.entries)
           if (e.value is num) e.key: (e.value as num).toInt(),
       },
+      period: j['period'] as String? ?? '',
+      hasClockTime: j['has_clock_time'] == true,
     );
   }
 }

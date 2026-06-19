@@ -47,11 +47,31 @@ class DayRender extends StatelessWidget {
     return _Band.evening;
   }
 
-  // A non-event whose effectiveAt landed exactly on midnight had no clock time
-  // extracted → it shows under the day's「没说时间」soft group, not a timed row.
-  static bool _hasClockTime(TimelineItem it) {
+  static _Band? _bandFromName(String period) {
+    switch (period) {
+      case '凌晨':
+        return _Band.dawn;
+      case '上午':
+        return _Band.morning;
+      case '中午':
+        return _Band.noon;
+      case '下午':
+        return _Band.afternoon;
+      case '晚上':
+        return _Band.evening;
+    }
+    return null;
+  }
+
+  // A timed row shows a clock time: events (start_at), assets whose user stated a
+  // 钟点 (hasClockTime), and the capture-time fallback all count. period-only
+  // assets are NOT timed — they land in their 段's soft「没具体时间」group with no
+  // time; a genuinely time-less asset (midnight, no period) drops to the bottom.
+  static bool _isTimed(TimelineItem it) {
     if (it.allDay) return false;
     if (it.kind == 'event') return true;
+    if (it.hasClockTime) return true;
+    if (it.period.isNotEmpty) return false;
     return !(it.effectiveAt.hour == 0 && it.effectiveAt.minute == 0);
   }
 
@@ -60,17 +80,26 @@ class DayRender extends StatelessWidget {
     // Flash captures are surfaced via the ⚡ pill, never as band cards.
     final visible = items.where((i) => i.kind != 'input_turn').toList();
 
-    final allDay = visible.where((i) => i.allDay).toList();
-    final noTime = visible.where((i) => !i.allDay && !_hasClockTime(i)).toList();
-    final timed = visible.where(_hasClockTime).toList()
-      ..sort((a, b) => a.effectiveAt.compareTo(b.effectiveAt));
+    final allDay = <TimelineItem>[];
+    final bandTimed = <_Band, List<TimelineItem>>{};
+    final bandSoft = <_Band, List<TimelineItem>>{}; // period-only, no clock time
+    final bottomNoTime = <TimelineItem>[];
 
-    final byBand = <_Band, List<TimelineItem>>{};
-    for (final it in timed) {
-      byBand.putIfAbsent(_periodOf(it.effectiveAt.hour), () => []).add(it);
+    for (final it in visible) {
+      if (it.allDay) {
+        allDay.add(it);
+      } else if (_isTimed(it)) {
+        bandTimed.putIfAbsent(_periodOf(it.effectiveAt.hour), () => []).add(it);
+      } else {
+        final b = _bandFromName(it.period);
+        (b != null ? bandSoft.putIfAbsent(b, () => []) : bottomNoTime).add(it);
+      }
+    }
+    for (final l in bandTimed.values) {
+      l.sort((a, b) => a.effectiveAt.compareTo(b.effectiveAt));
     }
 
-    if (allDay.isEmpty && noTime.isEmpty && byBand.isEmpty) {
+    if (allDay.isEmpty && bottomNoTime.isEmpty && bandTimed.isEmpty && bandSoft.isEmpty) {
       return const SizedBox.shrink();
     }
 
@@ -83,11 +112,13 @@ class DayRender extends StatelessWidget {
     }
 
     for (final def in _kBands) {
-      final bandItems = byBand[def.band];
-      if (bandItems == null || bandItems.isEmpty) continue;
+      final timed = bandTimed[def.band] ?? const <TimelineItem>[];
+      final soft = bandSoft[def.band] ?? const <TimelineItem>[];
+      if (timed.isEmpty && soft.isEmpty) continue;
       children.add(_BandSection(
         def: def,
-        items: bandItems,
+        items: timed,
+        soft: soft,
         skills: skills,
         compact: compact,
         isNow: def.band == nowBand,
@@ -96,8 +127,8 @@ class DayRender extends StatelessWidget {
       children.add(SizedBox(height: compact ? 8 : 9));
     }
 
-    if (noTime.isNotEmpty) {
-      children.add(_NoTimeGroup(items: noTime, skills: skills, compact: compact, onTap: onTapItem));
+    if (bottomNoTime.isNotEmpty) {
+      children.add(_NoTimeGroup(items: bottomNoTime, skills: skills, compact: compact, onTap: onTapItem));
     } else if (children.isNotEmpty) {
       children.removeLast(); // drop the trailing gap after the last band
     }
@@ -131,6 +162,7 @@ class _BandSection extends StatelessWidget {
   const _BandSection({
     required this.def,
     required this.items,
+    required this.soft,
     required this.skills,
     required this.compact,
     required this.isNow,
@@ -138,7 +170,8 @@ class _BandSection extends StatelessWidget {
   });
 
   final _BandDef def;
-  final List<TimelineItem> items;
+  final List<TimelineItem> items; // timed rows (clock time / capture fallback)
+  final List<TimelineItem> soft; // period-only rows (no clock time)
   final Map<String, SkillMeta> skills;
   final bool compact;
   final bool isNow;
@@ -184,6 +217,32 @@ class _BandSection extends StatelessWidget {
           for (var i = 0; i < items.length; i++) ...[
             if (i > 0) SizedBox(height: compact ? 6 : 7),
             _ItemRow(item: items[i], skills: skills, compact: compact, onTap: onTap),
+          ],
+          // period-only rows fall into this 段's soft「没具体时间」tail (brief §2.1):
+          // a very faint divider + dimmed cards, no time column.
+          if (soft.isNotEmpty) ...[
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                  compact ? 34 : 40, items.isEmpty ? 0 : (compact ? 9 : 11), 0, compact ? 5 : 6),
+              child: Row(
+                children: [
+                  Text('没具体时间',
+                      style: TextStyle(color: eu.textLo, fontSize: 9, letterSpacing: 0.3)),
+                  const SizedBox(width: 7),
+                  Expanded(child: Container(height: 1, color: eu.rule)),
+                ],
+              ),
+            ),
+            for (var i = 0; i < soft.length; i++) ...[
+              if (i > 0) SizedBox(height: compact ? 6 : 7),
+              _ItemRow(
+                  item: soft[i],
+                  skills: skills,
+                  compact: compact,
+                  showTime: false,
+                  muted: true,
+                  onTap: onTap),
+            ],
           ],
         ],
       ),

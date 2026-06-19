@@ -45,6 +45,8 @@ async def tool_create_asset(
     source_input_turn_id: str = "",
     domain: str = "",
     user_id: str = "default",
+    period: str = "",
+    occurred_at: str = "",
 ) -> str:
     """
     Create a new asset under a skill the user has registered.
@@ -56,6 +58,11 @@ async def tool_create_asset(
     domain: optional §8 life-domain by content — one of
             工作/学习/健康/运动/社交/娱乐/生活/灵感. Omit if unsure; the service
             falls back to the skill's default domain.
+    occurred_at / period (§4.5.0a 落段) — set ONLY when the user states a time,
+            never invent:
+            · 说了钟点("下午3点买的")→ occurred_at = ISO8601+08:00 精确时刻;
+            · 只说了模糊时段("早上花了8块")→ period ∈ 凌晨/上午/中午/下午/晚上;
+            · 没说时间("买了瓶水")→ 两个都留空(前端按捕捉时刻落段)。
 
     The skill must exist in user_skills for the current user. An unregistered
     skill name returns an error — do NOT retry with a different name without
@@ -65,7 +72,8 @@ async def tool_create_asset(
     `tool_create_note` below — fewer payload mistakes. Use this generic tool for
     expense and custom skills.
     """
-    return _jsonify(await create_asset(user_skill_name, payload, session_id, source_input_turn_id, domain, user_id))
+    return _jsonify(await create_asset(
+        user_skill_name, payload, session_id, source_input_turn_id, domain, user_id, period, occurred_at))
 
 
 @mcp.tool()

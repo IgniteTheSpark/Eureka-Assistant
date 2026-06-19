@@ -58,6 +58,24 @@ def _err(msg: str):
 
 # ── Asset tools ────────────────────────────────────────────────────────────────
 
+_PERIODS = {"凌晨", "上午", "中午", "下午", "晚上"}
+
+
+def _norm_period(p: str) -> "str | None":
+    p = (p or "").strip()
+    return p if p in _PERIODS else None
+
+
+def _parse_occurred(s: str):
+    s = (s or "").strip()
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
 async def create_asset(
     user_skill_name: str,
     payload: str,
@@ -65,6 +83,8 @@ async def create_asset(
     source_input_turn_id: str = "",
     domain: str = "",
     user_id: str = "default",
+    period: str = "",
+    occurred_at: str = "",
 ) -> dict:
     """
     Create an asset under a registered skill, and index its queryable fields.
@@ -76,6 +96,11 @@ async def create_asset(
     domain (§8): optional life-domain label (工作/学习/健康/运动/社交/娱乐/生活/灵感).
     Agent passes it by CONTENT when it can tell ("交报告"→工作, "买菜"→生活). When
     omitted/invalid, the service falls back to the skill's prior, else null.
+
+    period / occurred_at (§4.5.0a 落段) — fill ONLY when the user stated a time:
+      · 说了钟点("下午3点")→ occurred_at = ISO8601+08:00 精确时刻 (+ period 推出来);
+      · 只说了模糊时段("早上")→ period ∈ 凌晨/上午/中午/下午/晚上;
+      · 没说时间 → 两个都留空(前端按捕捉时刻 created_at 兜底落段)。不要臆造。
     """
     try:
         payload_dict = json.loads(payload) if isinstance(payload, str) else payload
@@ -104,6 +129,8 @@ async def create_asset(
             source_input_turn_id=uuid.UUID(source_input_turn_id) if source_input_turn_id else None,
             payload=payload_dict,
             domain=resolved_domain,
+            period=_norm_period(period),
+            occurred_at=_parse_occurred(occurred_at),
         )
         db.add(asset)
         await db.flush()  # populate asset.id before indexing
