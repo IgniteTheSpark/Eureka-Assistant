@@ -200,7 +200,11 @@ class _RingDebugPageState extends State<RingDebugPage> {
                 title: Text('${f['name']}'),
                 subtitle: Text('size=${f['size']}  type=${_typeOf('${f['name']}')}'),
                 trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                  IconButton(icon: const Icon(Icons.download), tooltip: '下载并播放', onPressed: () => _download(f)),
+                  IconButton(
+                    icon: const Icon(Icons.download),
+                    tooltip: '下载(待SDK修复)',
+                    onPressed: () => _toast('离线下载会触发 SDK 1.3.3 崩溃(fileContentType OOM),待勇芯更新 aar 后启用'),
+                  ),
                   IconButton(icon: const Icon(Icons.delete, color: Colors.red), tooltip: '删除', onPressed: () => _ring.deleteFile(List<int>.from(f['id'] as List))),
                 ]),
               ),
