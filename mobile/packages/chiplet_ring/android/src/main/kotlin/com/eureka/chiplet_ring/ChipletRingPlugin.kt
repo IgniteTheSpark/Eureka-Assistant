@@ -75,22 +75,47 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         }
     }
 
-    // PERFORM_FORMAT_FILESYSTEM / GET_FILE_MEMORY use the lower-level FileResponseCallback.
-    // We only log here; the format handler also emits a "formatted" event optimistically.
+    // Download via the NEWER FileResponseCallback API (DOWNLOAD_FILE). The old
+    // GET_FILE_CONTENT path crashes the SDK (fileContentAudioType OOM) on .bin files.
+    // Offline files are ADPCM 8k mono — accumulate raw bytes, decode on completion.
+    private val dlBuf = java.io.ByteArrayOutputStream()
+    private val fileAdpcm = AdPcmTool()
+    @Volatile private var dlFinished = true
+
+    private fun finishDownload() {
+        if (dlFinished) return
+        dlFinished = true
+        val adpcmBytes: ByteArray
+        synchronized(dlBuf) { adpcmBytes = dlBuf.toByteArray() }
+        android.util.Log.i("ChipletRing", "download finished adpcmBytes=${adpcmBytes.size}")
+        val pcm = try {
+            fileAdpcm.decodeADPCMMonoChannel(adpcmBytes, adpcmBytes.size)
+        } catch (e: Throwable) {
+            android.util.Log.e("ChipletRing", "file adpcm decode failed: ${e.message}")
+            ByteArray(0)
+        }
+        main.post {
+            fileSink?.success(mapOf("kind" to "audio", "pcm" to pcm.toList()))
+            fileSink?.success(mapOf("kind" to "done"))
+        }
+    }
+
     private val fileRespCb = object : FileResponseCallback {
-        override fun onFileListReceived(b: ByteArray) {}
-        override fun onFileInfoReceived(b: ByteArray) {}
-        override fun onFileDownloadEndReceived(b: ByteArray) {}
-        override fun onDownloadAllFileProgress(b: ByteArray) {}
-        override fun oneFileDownloadSuccess() {}
-        override fun onDownloadStatusReceived(b: ByteArray) {}
-        override fun onFileDataReceived(b: ByteArray) {}
+        override fun onFileListReceived(b: ByteArray?) {}
+        override fun onFileInfoReceived(b: ByteArray?) {}
+        override fun onFileDownloadEndReceived(b: ByteArray?) { finishDownload() }
+        override fun onDownloadAllFileProgress(b: ByteArray?) {}
+        override fun oneFileDownloadSuccess() { finishDownload() }
+        override fun onDownloadStatusReceived(b: ByteArray?) {}
+        override fun onFileDataReceived(b: ByteArray?) {
+            if (b != null && b.isNotEmpty()) synchronized(dlBuf) { dlBuf.write(b) }
+        }
         override fun onFileState(state: Int) {
             android.util.Log.i("ChipletRing", "onFileState=$state")
             main.post { fileSink?.success(mapOf("kind" to "memory", "state" to state)) }
         }
-        override fun onFilePushFileName(b: ByteArray) {}
-        override fun onFilePushFileData(b: ByteArray) {}
+        override fun onFilePushFileName(b: ByteArray?) {}
+        override fun onFilePushFileData(b: ByteArray?) {}
         override fun onFileResumeBreakpoint(a: Int, b: Long, c: Long) {}
         override fun onFileResumeBreakpointProgress(a: Int) {}
         override fun localMemoryFull(a: Int, b: Int, c: Int) {
@@ -344,10 +369,16 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 catch (e: Throwable) { result.error("ring_error", e.message, null) }
             }
             "downloadFile" -> {
-                val type = call.argument<Int>("type") ?: 0
                 val id = (call.argument<List<Int>>("id"))?.map { it.toByte() }?.toByteArray() ?: ByteArray(0)
-                try { LmAPILite.GET_FILE_CONTENT(type, id, fileListListener); result.success(null) }
-                catch (e: Throwable) { result.error("ring_error", e.message, null) }
+                try {
+                    synchronized(dlBuf) { dlBuf.reset() }
+                    dlFinished = false
+                    fileAdpcm.resetAllDecoders()
+                    // Newer, non-crashing download path (FileResponseCallback). Chunks arrive
+                    // via onFileDataReceived; finishDownload() decodes ADPCM→PCM on completion.
+                    LmAPILite.DOWNLOAD_FILE(id, fileRespCb)
+                    result.success(null)
+                } catch (e: Throwable) { result.error("ring_error", e.message, null) }
             }
             "deleteFile" -> {
                 val id = (call.argument<List<Int>>("id"))?.map { it.toByte() }?.toByteArray() ?: ByteArray(0)

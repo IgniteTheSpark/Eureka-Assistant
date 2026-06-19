@@ -45,6 +45,17 @@ class RingReconnect {
     _ensureReconnecting();
   }
 
+  /// Forget the saved ring (on unbind): clear the in-memory MAC and stop all
+  /// reconnect activity so it won't auto-reconnect until a new pairing. The
+  /// caller is responsible for removing 'ring_mac' from prefs (for cold start).
+  void forget() {
+    _log('forget');
+    _mac = null;
+    _stopScan();
+    _retryTimer?.cancel();
+    _retryTimer = null;
+  }
+
   /// Pause auto-reconnect (e.g. while the pairing page does its own scan).
   void pause() {
     _paused = true;

@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../ring/ring_art.dart';
 import '../ring/ring_connection.dart';
+import '../ring/ring_reconnect.dart';
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
 
@@ -58,6 +59,9 @@ class _MyRingPageState extends State<MyRingPage> {
   }
 
   Future<void> _unbind() async {
+    // Stop auto-reconnect first (clears the in-memory MAC) so the disconnect
+    // below isn't immediately undone by the reconnector.
+    RingReconnect.instance.forget();
     try {
       await _ring.disconnect();
     } catch (_) {}
