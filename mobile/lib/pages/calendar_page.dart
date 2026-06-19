@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../api/api_client.dart';
 import '../data_revision.dart';
 import '../render/asset_detail_sheet.dart';
+import '../render/day_render.dart';
 import '../render/render_spec.dart';
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
@@ -1476,14 +1477,14 @@ class _DayRow extends StatelessWidget {
               behavior: HitTestBehavior.opaque,
               child: SizedBox(width: 64, child: railHeader(eu, day, isToday, monthBoundary)),
             ),
-            Expanded(child: _tile(eu, corner)),
+            Expanded(child: _tile(context, eu, corner)),
           ],
         ),
       ),
     );
   }
 
-  Widget _tile(EurekaColors eu, String? corner) {
+  Widget _tile(BuildContext context, EurekaColors eu, String? corner) {
     return GestureDetector(
       // tapping an item (opaque, deeper) opens it; tapping the tile's empty area
       // opens the day view.
@@ -1492,18 +1493,16 @@ class _DayRow extends StatelessWidget {
       child: Container(
         margin: const EdgeInsets.only(left: 6),
         constraints: const BoxConstraints(minHeight: 72),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: dayTileDecoration(eu),
         child: Stack(
           children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                for (var i = 0; i < items.length; i++) ...[
-                  if (i > 0) const SizedBox(height: 8),
-                  _TileItemRow(item: items[i], skills: skills),
-                ],
-              ],
+            // §流: the day reuses the same 时段水洗带 as DayDetail, compact.
+            DayRender(
+              items: items,
+              skills: skills,
+              compact: true,
+              onTapItem: (it) => _openTimelineItem(context, it, skills),
             ),
             // TODAY / TOMORROW corner tag (web ScheduleView labels these tiles).
             if (corner != null)
@@ -1515,103 +1514,6 @@ class _DayRow extends StatelessWidget {
               ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// A single row inside a 流 day tile (no own background).
-class _TileItemRow extends StatelessWidget {
-  final TimelineItem item;
-  final Map<String, SkillMeta> skills;
-  const _TileItemRow({required this.item, required this.skills});
-
-  String get _time =>
-      '${item.effectiveAt.hour.toString().padLeft(2, '0')}:${item.effectiveAt.minute.toString().padLeft(2, '0')}';
-
-  @override
-  Widget build(BuildContext context) {
-    final eu = context.eu;
-    final isFlash = item.kind == 'input_turn';
-    final icon = isFlash
-        ? '⚡'
-        : item.kind == 'event'
-            ? '📅'
-            : item.kind == 'contact'
-                ? '👤'
-                : resolveMeta(item.skillName ?? 'misc', skills).icon;
-
-    final time = SizedBox(
-      width: 44,
-      child: Text(_time, style: euMono(fontSize: 10.5, color: eu.textMid)),
-    );
-    final glyph = SizedBox(
-      width: 18,
-      child: Center(child: Text(icon, style: const TextStyle(fontSize: 13))),
-    );
-
-    if (isFlash) {
-      final entries = item.derived.entries.where((e) => e.value > 0).toList();
-      // §4.514: flash renders as ⚡ + 产出 breakdown「✅ 待办×2 · 👤 联系人×1」
-      // ONLY — no transcript/summary line (摘要 is clutter; the count is the
-      // signal). Tap opens the capture session for the full text.
-      final breakdown = entries.isEmpty
-          ? '闪念'
-          : entries.map((e) {
-              final m = resolveMeta(e.key, skills);
-              return '${m.icon} ${m.label}×${e.value}';
-            }).join('  ·  ');
-      return GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () => _openFlashSession(context, item),
-        // mainAxisSize.min + Flexible → the row hugs its content, so the blank
-        // area to the right of a short row falls through to the tile (day view),
-        // not this item. (Flexible, not Expanded, still ellipsizes long text.)
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            time,
-            const SizedBox(width: 8),
-            glyph,
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(breakdown,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                      color: eu.textHi,
-                      fontSize: 13,
-                      height: 1.35,
-                      fontWeight: FontWeight.w500)),
-            ),
-          ],
-        ),
-      );
-    }
-
-    // Non-flash: one clean line — time · icon · title (no subtitle), matching
-    // the web ScheduleView (the subtitle was clutter that hurt readability).
-    // Tappable → opens the item's detail sheet (web handleItemTap).
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () => _openTimelineItem(context, item, skills),
-      // hug content (see flash branch) so only the text/icon opens the item;
-      // the blank to its right opens the day view.
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          time,
-          const SizedBox(width: 8),
-          glyph,
-          const SizedBox(width: 8),
-          Flexible(
-            child: Text(item.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                    color: eu.textHi, fontSize: 13.5, height: 1.35, fontWeight: FontWeight.w500)),
-          ),
-        ],
       ),
     );
   }
@@ -1813,14 +1715,21 @@ class _DayDetailPageState extends State<DayDetailPage> {
     );
   }
 
-  // ── LIST view (default) ──
+  // ── 非日程 view (default) — 段视图 DayRender (5 时段水洗带) ──
   Widget _listView(EurekaColors eu, List<TimelineItem> items, Map<String, SkillMeta> skills) {
-    if (items.isEmpty) return _empty(eu);
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-      itemCount: items.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 4),
-      itemBuilder: (_, i) => _itemRow(eu, items[i], skills),
+    // Flash captures live in the ⚡ pill, not the bands — if a day has only those,
+    // the segment view is empty → show the gentle empty state.
+    if (items.where((i) => i.kind != 'input_turn').isEmpty) return _empty(eu);
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 96),
+      children: [
+        DayRender(
+          items: items,
+          skills: skills,
+          highlightNow: _sameDay(DateTime.now()),
+          onTapItem: (it) => _openTimelineItem(context, it, skills),
+        ),
+      ],
     );
   }
 
