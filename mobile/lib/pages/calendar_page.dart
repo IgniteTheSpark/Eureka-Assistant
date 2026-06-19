@@ -11,6 +11,7 @@ import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
 import '../timeline/timeline.dart';
 import 'create_asset.dart';
+import 'day_flash_view.dart';
 import 'session_detail_page.dart';
 
 /// Open a flash capture's session as a read-only replay (web parity: tapping a
@@ -1475,7 +1476,25 @@ class _DayRow extends StatelessWidget {
             GestureDetector(
               onTap: onOpen,
               behavior: HitTestBehavior.opaque,
-              child: SizedBox(width: 64, child: railHeader(eu, day, isToday, monthBoundary)),
+              child: SizedBox(
+                width: 64,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    railHeader(eu, day, isToday, monthBoundary),
+                    if (FlashPill.flashesIn(items).isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: FlashPill(
+                          day: day,
+                          flashes: FlashPill.flashesIn(items),
+                          skills: skills,
+                          compact: true,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
             ),
             Expanded(child: _tile(context, eu, corner)),
           ],
@@ -1646,7 +1665,7 @@ class _DayDetailPageState extends State<DayDetailPage> {
               final firstLoad = data == null && snap.connectionState != ConnectionState.done;
               return Column(
                 children: [
-                  _header(eu),
+                  _header(eu, items, skills),
                   Expanded(
                     child: firstLoad
                         ? const Center(child: CircularProgressIndicator())
@@ -1663,7 +1682,7 @@ class _DayDetailPageState extends State<DayDetailPage> {
     );
   }
 
-  Widget _header(EurekaColors eu) {
+  Widget _header(EurekaColors eu, List<TimelineItem> items, Map<String, SkillMeta> skills) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 6, 12, 10),
       child: Row(
@@ -1686,31 +1705,57 @@ class _DayDetailPageState extends State<DayDetailPage> {
               ],
             ),
           ),
-          GestureDetector(
-            onTap: () => setState(() {
-              _view = _view == 'list' ? 'schedule' : 'list';
-              _didAnchor = false;
-            }),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
-              decoration: BoxDecoration(
-                color: _view == 'schedule' ? eu.accentPurple.withValues(alpha: 0.20) : eu.surfaceRaised,
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(
-                    color: _view == 'schedule' ? eu.accentPurple.withValues(alpha: 0.45) : eu.border),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(_view == 'schedule' ? Icons.list : Icons.schedule, size: 14, color: eu.textHi),
-                  const SizedBox(width: 6),
-                  Text(_view == 'schedule' ? '列表' : '日程',
-                      style: TextStyle(color: eu.textHi, fontSize: 12.5, fontWeight: FontWeight.w600)),
-                ],
-              ),
-            ),
+          // ⚡N闪念 pill — consistent across surfaces; N=0 self-hides.
+          FlashPill(
+            day: widget.day,
+            flashes: FlashPill.flashesIn(items),
+            skills: skills,
+            compact: true,
           ),
+          const SizedBox(width: 8),
+          _modeToggle(eu),
         ],
+      ),
+    );
+  }
+
+  // 「非日程 / 日程」segmented control (固定命名). 非日程 = DayRender 段视图;
+  // 日程 = 24h 网格.
+  Widget _modeToggle(EurekaColors eu) {
+    Widget seg(String label, String mode) {
+      final active = _view == mode;
+      return GestureDetector(
+        onTap: () => setState(() {
+          _view = mode;
+          _didAnchor = false;
+        }),
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
+          decoration: BoxDecoration(
+            color: active ? eu.surface : Colors.transparent,
+            borderRadius: BorderRadius.circular(999),
+            border: active ? Border.all(color: eu.border) : null,
+          ),
+          child: Text(label,
+              style: TextStyle(
+                  color: active ? eu.textHi : eu.textLo,
+                  fontSize: 12,
+                  fontWeight: active ? FontWeight.w600 : FontWeight.w500)),
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: eu.surfaceRaised,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: eu.border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [seg('非日程', 'list'), seg('日程', 'schedule')],
       ),
     );
   }
