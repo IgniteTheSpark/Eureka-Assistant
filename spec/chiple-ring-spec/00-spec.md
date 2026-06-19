@@ -1,6 +1,8 @@
 # Spec · ChipletRing 智能戒指录音接入(Android 优先)
 
-> **状态:里程碑 1 已跑通(2026-06-17,真机+真戒指验证)。** 目标 = 把 BraveChip 勇芯智能戒指作为**新的录音输入源**接入 UReka(Eureka-Assistant)Flutter app,替代/补充现有 W1/W2 录音卡。**本期只做录音链路,不接健康数据(心率/血氧/睡眠/ECG 全部不做)。** 实测结论见文末 §7。
+> **状态:里程碑 1 + 2 已交付(实时录音→闪念、连接稳定+自动回连、配对/详情/图标 UI);离线文件同步被 SDK 1.3.3 bug 阻塞。最终交付状态见 [03-status.md](03-status.md)。**
+>
+> （以下为里程碑 1 当时的记录。）里程碑 1 已跑通(2026-06-17,真机+真戒指验证)。 目标 = 把 BraveChip 勇芯智能戒指作为**新的录音输入源**接入 UReka(Eureka-Assistant)Flutter app,替代/补充现有 W1/W2 录音卡。**本期只做录音链路,不接健康数据(心率/血氧/睡眠/ECG 全部不做)。** 实测结论见文末 §7。
 >
 > SDK 来源:`https://github.com/BravechipSpace/ChipletRing-APPSDK`(Android `ChipletRing-1.3.3-release.aar`,包名 `com.lm.sdk`)。
 > **本卡描述 WHAT / 契约 + 真实 API 形态;实际代码写在新插件 `mobile/packages/chiplet_ring` + `mobile/lib`(里程碑 1 不碰现有 `lib/ble_flash`、`lib/device`)。**
