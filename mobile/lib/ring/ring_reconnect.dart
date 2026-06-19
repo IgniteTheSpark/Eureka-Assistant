@@ -1,64 +1,130 @@
 import 'dart:async';
 
 import 'package:chiplet_ring/chiplet_ring.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Keeps the ring connected: reconnects on app launch (to the saved MAC) and
-/// after any drop, with exponential backoff. All failures are swallowed — this
-/// must never block or surface UI (mirrors the card's DeviceSilentReconnect).
+/// Keeps the ring connected by SCANNING for the saved MAC and connecting when it
+/// appears — the same robust pattern the card uses (DeviceSilentReconnect).
+///
+/// reconnectionLockByBLE() alone is unreliable after the app process is killed
+/// (it relies on the SDK's in-memory "last device", which is gone on cold start),
+/// so on launch / after a drop we actively scan and connect by MAC instead.
+///
+/// Singleton so the pairing page can [pause] it while the user manually scans
+/// (two scanners on one BLE stack would fight), then [resume] on exit.
 class RingReconnect {
-  RingReconnect(this._ring);
-  final ChipletRing _ring;
+  RingReconnect._();
+  static final RingReconnect instance = RingReconnect._();
 
+  final ChipletRing _ring = ChipletRing();
   StreamSubscription<RingState>? _sub;
-  Timer? _timer;
-  int _backoff = 3; // seconds
+  Timer? _retryTimer;
+  Timer? _scanTimer;
+  int _backoff = 3; // seconds between retry rounds
   String? _mac;
+  bool _connected = false;
+  bool _scanning = false;
+  bool _paused = false;
 
+  void _log(String m) => debugPrint('[RingReconnect] $m');
+
+  /// Begin keeping the ring connected. Idempotent.
   Future<void> start() async {
-    final sp = await SharedPreferences.getInstance();
-    _mac = sp.getString('ring_mac');
+    _mac = (await SharedPreferences.getInstance()).getString('ring_mac');
     _sub ??= _ring.state.listen(_onState);
-    if (_mac != null && _mac!.isNotEmpty) {
-      _attempt(); // reconnect to the previously-paired ring on launch
-    }
+    _log('start mac=${_mac ?? "-"}');
+    _ensureReconnecting();
+  }
+
+  bool get _hasMac => _mac != null && _mac!.isNotEmpty;
+
+  /// Refresh the saved MAC (call after a fresh pairing).
+  Future<void> refreshMac() async {
+    _mac = (await SharedPreferences.getInstance()).getString('ring_mac');
+    _ensureReconnecting();
+  }
+
+  /// Pause auto-reconnect (e.g. while the pairing page does its own scan).
+  void pause() {
+    _paused = true;
+    _stopScan();
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    _log('paused');
+  }
+
+  /// Resume auto-reconnect after the pairing page closes. Re-reads the saved MAC
+  /// (it may have changed if the user just paired a different ring).
+  void resume() {
+    _paused = false;
+    _log('resumed');
+    SharedPreferences.getInstance().then((sp) {
+      _mac = sp.getString('ring_mac');
+      _ensureReconnecting();
+    });
   }
 
   void _onState(RingState s) {
-    if (s.conn == RingConnState.connected) {
+    final nowConnected = s.conn == RingConnState.connected;
+    // While scanning for reconnect, connect as soon as the saved ring shows up.
+    if (!nowConnected && _scanning && _hasMac && s.devices.any((d) => d.id == _mac)) {
+      _log('saved ring found while scanning → connect');
+      _stopScan();
+      _ring.connect(_mac!);
+    }
+    _connected = nowConnected;
+    if (_connected) {
       _backoff = 3;
-      _timer?.cancel();
-      _timer = null;
-      return;
-    }
-    if (s.conn == RingConnState.disconnected &&
-        _mac != null &&
-        _mac!.isNotEmpty) {
-      _schedule();
+      _stopScan();
+      _retryTimer?.cancel();
+      _retryTimer = null;
+    } else {
+      _ensureReconnecting(); // (re)start scanning toward the saved ring
     }
   }
 
-  void _schedule() {
-    _timer?.cancel();
-    _timer = Timer(Duration(seconds: _backoff), _attempt);
+  /// Drive a scan round whenever we should be reconnecting but aren't already.
+  void _ensureReconnecting() {
+    if (_paused || _connected || !_hasMac) return;
+    if (_scanning || _retryTimer != null) return; // already working on it
+    _beginScanRound();
   }
 
-  Future<void> _attempt() async {
-    final mac = _mac;
-    if (mac == null || mac.isEmpty) return;
-    try {
-      await _ring.setSavedMac(mac);
-      await _ring.reconnect();
-    } catch (_) {
-      // swallow — next disconnect/backoff will retry
+  void _beginScanRound() {
+    if (_paused || _connected || !_hasMac || _scanning) return;
+    _scanning = true;
+    _log('scan round start (backoff=$_backoff)');
+    _ring.startScan();
+    _scanTimer?.cancel();
+    _scanTimer = Timer(const Duration(seconds: 20), () {
+      _stopScan();
+      if (!_connected && !_paused) _scheduleRetry();
+    });
+  }
+
+  void _scheduleRetry() {
+    _retryTimer?.cancel();
+    _retryTimer = Timer(Duration(seconds: _backoff), () {
+      _backoff = (_backoff * 2).clamp(3, 60);
+      _beginScanRound();
+    });
+  }
+
+  void _stopScan() {
+    if (_scanning) {
+      _scanning = false;
+      _ring.stopScan();
     }
-    _backoff = (_backoff * 2).clamp(3, 30);
+    _scanTimer?.cancel();
+    _scanTimer = null;
   }
 
   Future<void> dispose() async {
     await _sub?.cancel();
     _sub = null;
-    _timer?.cancel();
-    _timer = null;
+    _retryTimer?.cancel();
+    _stopScan();
+    _connected = false;
   }
 }

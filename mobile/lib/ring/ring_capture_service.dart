@@ -23,15 +23,14 @@ final ValueNotifier<FlashResult?> ringLastFlash = ValueNotifier<FlashResult?>(nu
 /// Reuses the existing ASR client and `sendFlash`; does not touch the W1/W2 card flow.
 
 RingCaptureController? _ringCapture;
-RingReconnect? _ringReconnect;
 
 /// Start ring capture once. Idempotent — safe to call on every auth rebuild
 /// (the auth gate in main.dart re-runs this block whenever it rebuilds).
 void startRingCapture(ApiClient api) {
   if (_ringCapture != null) return;
   final ring = ChipletRing();
-  // Keep the ring connected: reconnect on launch (saved MAC) + after drops.
-  _ringReconnect = RingReconnect(ring)..start();
+  // Keep the ring connected: scan-and-connect to the saved MAC on launch + after drops.
+  RingReconnect.instance.start();
   final asrClient = TencentAsrS3Client(); // baseUrl defaults to AppConfig.tencentAsrBase
   final asr = RingAsr(
     recognize: (File wav) async {
@@ -76,6 +75,5 @@ void startRingCapture(ApiClient api) {
 Future<void> stopRingCapture() async {
   await _ringCapture?.dispose();
   _ringCapture = null;
-  await _ringReconnect?.dispose();
-  _ringReconnect = null;
+  await RingReconnect.instance.dispose();
 }

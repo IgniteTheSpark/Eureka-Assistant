@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:chiplet_ring/chiplet_ring.dart';
 
 import '../ring/ring_art.dart';
+import '../ring/ring_reconnect.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -51,6 +52,7 @@ class _DevicePairingPageState extends State<DevicePairingPage> {
   void initState() {
     super.initState();
     unawaited(DeviceSilentReconnect.instance.stop());
+    RingReconnect.instance.pause(); // avoid clashing with manual ring scan here
     _dev.addListener(_onDevice);
     // Onboarding can pre-pick the device type so we skip the in-page chooser and
     // scan straight away. null → user picks 录音卡/戒指 here.
@@ -91,6 +93,7 @@ class _DevicePairingPageState extends State<DevicePairingPage> {
     _pager.dispose();
     _ringSub?.cancel();
     _ring.stopScan();
+    RingReconnect.instance.resume(); // re-enable auto-reconnect (re-reads saved MAC)
     super.dispose();
   }
 
