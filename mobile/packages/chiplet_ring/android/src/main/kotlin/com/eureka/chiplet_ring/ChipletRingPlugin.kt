@@ -49,7 +49,6 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         // SDK may pass null for raw/name — declare nullable to avoid Kotlin's
         // non-null parameter NPE (which was silently dropping every file entry).
         override fun file(count: Int, index: Int, size: Int, name: String?, raw: ByteArray?) {
-            android.util.Log.i("ChipletRing", "file list item #$index/$count name=$name size=$size rawLen=${raw?.size ?: -1}")
             val nm = name ?: ""
             // Empty/placeholder callback = "no files" / end-of-list marker. Don't surface it as a file.
             if (nm.isEmpty() && size <= 0 && (raw == null || raw.isEmpty())) {
@@ -67,7 +66,6 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             main.post { fileSink?.success(mapOf("kind" to "text", "content" to (content ?: ""))) }
         }
         override fun AudioFileContent(content: ByteArray?) {
-            android.util.Log.i("ChipletRing", "AudioFileContent len=${content?.size ?: 0}")
             main.post { fileSink?.success(mapOf("kind" to "audio", "pcm" to (content?.toList() ?: emptyList<Int>()))) }
         }
         override fun getFileContentFinish() {
@@ -87,7 +85,6 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         dlFinished = true
         val adpcmBytes: ByteArray
         synchronized(dlBuf) { adpcmBytes = dlBuf.toByteArray() }
-        android.util.Log.i("ChipletRing", "download finished adpcmBytes=${adpcmBytes.size}")
         val pcm = try {
             fileAdpcm.decodeADPCMMonoChannel(adpcmBytes, adpcmBytes.size)
         } catch (e: Throwable) {
@@ -111,7 +108,6 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             if (b != null && b.isNotEmpty()) synchronized(dlBuf) { dlBuf.write(b) }
         }
         override fun onFileState(state: Int) {
-            android.util.Log.i("ChipletRing", "onFileState=$state")
             main.post { fileSink?.success(mapOf("kind" to "memory", "state" to state)) }
         }
         override fun onFilePushFileName(b: ByteArray?) {}
@@ -125,7 +121,6 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
 
     // Ring gesture/key codes: 0=long-press 1=single 2=double 3=triple 4=up 5=down 6=left 7=right
     private val keyListener = IKeyDownListener { keyCode ->
-        android.util.Log.i("ChipletRing", "ringPushKeyDownResult key=$keyCode")
         main.post { keySink?.success(keyCode) }
     }
 
@@ -144,21 +139,11 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             val s = seq++
             main.post { audioSink?.success(mapOf("pcm" to bytes.toList(), "seq" to s, "channels" to audioType)) }
         }
-        override fun controlAudioRawDataResult(bytes: ByteArray) {
-            android.util.Log.i("ChipletRing", "controlAudioRawDataResult len=${bytes.size}")
-        }
-        override fun getControlAudioAdpcmResult(adpcm: Boolean) {
-            android.util.Log.i("ChipletRing", "getControlAudioAdpcmResult adpcm=$adpcm")
-        }
-        override fun pushAudioInformationResult(success: Boolean) {
-            android.util.Log.i("ChipletRing", "pushAudioInformationResult success=$success")
-        }
-        override fun TOUCH_AUDIO_FINISH_XUN_FEI() {
-            android.util.Log.i("ChipletRing", "TOUCH_AUDIO_FINISH_XUN_FEI")
-        }
-        override fun recordingResult(result: Boolean) {
-            android.util.Log.i("ChipletRing", "recordingResult result=$result")
-        }
+        override fun controlAudioRawDataResult(bytes: ByteArray) {}
+        override fun getControlAudioAdpcmResult(adpcm: Boolean) {}
+        override fun pushAudioInformationResult(success: Boolean) {}
+        override fun TOUCH_AUDIO_FINISH_XUN_FEI() {}
+        override fun recordingResult(result: Boolean) {}
     }
     private val lastRssi = HashMap<String, Int>()
     private var receiverRegistered = false
@@ -186,12 +171,10 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     // connection after ~5s and audio never streams (mirrors the official demo).
     private val responseListener = object : IResponseListenerLite {
         override fun lmBleConnecting(code: Int) {
-            android.util.Log.i("ChipletRing", "lmBleConnecting code=$code")
             BLEUtils.setConnecting(true)
             main.post { stateSink?.success(mapOf("conn" to "connecting", "devices" to emptyList<Any>())) }
         }
         override fun lmBleConnectionSucceeded(code: Int) {
-            android.util.Log.i("ChipletRing", "lmBleConnectionSucceeded code=$code")
             BLEUtils.setConnecting(false)
             if (code == 7) {
                 BLEUtils.setGetToken(true) // token handshake keeps the link alive
@@ -199,20 +182,18 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             }
         }
         override fun lmBleConnectionFailed(code: Int) {
-            android.util.Log.i("ChipletRing", "lmBleConnectionFailed code=$code")
             BLEUtils.setGetToken(false)
             BLEUtils.setConnecting(false)
             main.post { stateSink?.success(mapOf("conn" to "disconnected", "devices" to emptyList<Any>())) }
         }
-        override fun timeOut(msg: String?) { android.util.Log.i("ChipletRing", "timeOut $msg") }
-        override fun saveData(data: String?) { android.util.Log.i("ChipletRing", "saveData $data") }
+        override fun timeOut(msg: String?) {}
+        override fun saveData(data: String?) {}
     }
 
     private val connReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context?, intent: Intent?) {
             if (intent?.action == BLEService.BROADCAST_CONNECT_STATE_CHANGE) {
                 val s = intent.getIntExtra(BLEService.BROADCAST_CONNECT_STATE_VALUE, -1)
-                android.util.Log.i("ChipletRing", "connState=$s (success=${BLEService.CONNECT_STATE_SUCCESS})")
                 val conn = when (s) {
                     BLEService.CONNECT_STATE_SUCCESS -> "connected"
                     BLEService.CONNECT_STATE_SERVICE_DISCONNECTED -> "disconnected"
@@ -334,7 +315,6 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 // FIX 2: Guard adpcm + LmAPILite calls with try/catch
                 try {
                     adpcm.resetAllDecoders()
-                    android.util.Log.i("ChipletRing", "startRecording -> CONTROL_AUDIO_ADPCM(1)")
                     LmAPILite.CONTROL_AUDIO_ADPCM(1, audioListener)
                     result.success(null)
                 } catch (e: Throwable) { result.error("ring_error", e.message, null) }
@@ -342,7 +322,6 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             "stopRecording" -> {
                 // FIX 2: Guard LmAPILite call with try/catch
                 try {
-                    android.util.Log.i("ChipletRing", "stopRecording -> CONTROL_AUDIO_ADPCM(0)")
                     LmAPILite.CONTROL_AUDIO_ADPCM(0, audioListener)
                     result.success(null)
                 } catch (e: Throwable) { result.error("ring_error", e.message, null) }
@@ -352,14 +331,12 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 val total = call.argument<Int>("total") ?: 1200
                 val slice = call.argument<Int>("slice") ?: 600
                 try {
-                    android.util.Log.i("ChipletRing", "CMD_START_STOP_RECORDING(true,$total,$slice)")
                     LmAPILite.CMD_START_STOP_RECORDING(true, total, slice, audioListener)
                     result.success(null)
                 } catch (e: Throwable) { result.error("ring_error", e.message, null) }
             }
             "stopLocalRecording" -> {
                 try {
-                    android.util.Log.i("ChipletRing", "CMD_START_STOP_RECORDING(false)")
                     LmAPILite.CMD_START_STOP_RECORDING(false, 0, 0, audioListener)
                     result.success(null)
                 } catch (e: Throwable) { result.error("ring_error", e.message, null) }
@@ -407,7 +384,6 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             }
             "reconnect" -> {
                 try {
-                    android.util.Log.i("ChipletRing", "reconnectionLockByBLE")
                     BLEUtils.reconnectionLockByBLE(appContext)
                     result.success(null)
                 } catch (e: Throwable) { result.error("ring_error", e.message, null) }
@@ -422,12 +398,9 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 try {
                     LmAPILite.GET_BATTERY(0, object : IBatteryListenerLite {
                         override fun battery(type: Int, electricity: Int) {
-                            android.util.Log.i("ChipletRing", "battery(type=$type, electricity=$electricity)")
                             if (type == 0 && !replied) { replied = true; main.post { result.success(electricity) } }
                         }
-                        override fun battery_push(type: Int, electricity: Int) {
-                            android.util.Log.i("ChipletRing", "battery_push(type=$type, electricity=$electricity)")
-                        }
+                        override fun battery_push(type: Int, electricity: Int) {}
                     })
                 } catch (e: Throwable) { if (!replied) { replied = true; result.error("ring_error", e.message, null) } }
             }

@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:chiplet_ring/chiplet_ring.dart';
-import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Keeps the ring connected by SCANNING for the saved MAC and connecting when it
@@ -27,13 +26,10 @@ class RingReconnect {
   bool _scanning = false;
   bool _paused = false;
 
-  void _log(String m) => debugPrint('[RingReconnect] $m');
-
   /// Begin keeping the ring connected. Idempotent.
   Future<void> start() async {
     _mac = (await SharedPreferences.getInstance()).getString('ring_mac');
     _sub ??= _ring.state.listen(_onState);
-    _log('start mac=${_mac ?? "-"}');
     _ensureReconnecting();
   }
 
@@ -49,7 +45,6 @@ class RingReconnect {
   /// reconnect activity so it won't auto-reconnect until a new pairing. The
   /// caller is responsible for removing 'ring_mac' from prefs (for cold start).
   void forget() {
-    _log('forget');
     _mac = null;
     _stopScan();
     _retryTimer?.cancel();
@@ -62,14 +57,12 @@ class RingReconnect {
     _stopScan();
     _retryTimer?.cancel();
     _retryTimer = null;
-    _log('paused');
   }
 
   /// Resume auto-reconnect after the pairing page closes. Re-reads the saved MAC
   /// (it may have changed if the user just paired a different ring).
   void resume() {
     _paused = false;
-    _log('resumed');
     SharedPreferences.getInstance().then((sp) {
       _mac = sp.getString('ring_mac');
       _ensureReconnecting();
@@ -80,7 +73,6 @@ class RingReconnect {
     final nowConnected = s.conn == RingConnState.connected;
     // While scanning for reconnect, connect as soon as the saved ring shows up.
     if (!nowConnected && _scanning && _hasMac && s.devices.any((d) => d.id == _mac)) {
-      _log('saved ring found while scanning → connect');
       _stopScan();
       _ring.connect(_mac!);
     }
@@ -105,7 +97,6 @@ class RingReconnect {
   void _beginScanRound() {
     if (_paused || _connected || !_hasMac || _scanning) return;
     _scanning = true;
-    _log('scan round start (backoff=$_backoff)');
     _ring.startScan();
     _scanTimer?.cancel();
     _scanTimer = Timer(const Duration(seconds: 20), () {

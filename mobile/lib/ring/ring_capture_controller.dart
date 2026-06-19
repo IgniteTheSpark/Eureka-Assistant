@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart';
-
 /// Minimal frame shape so the controller is testable without the plugin types.
 class RingFrame {
   RingFrame({required this.pcm, required this.channels, this.seq = 0});
@@ -128,11 +126,6 @@ class RingCaptureController {
       final pcm = _buf.toBytes();
       final bytesPerSec = sampleRate * 2 * (_channels <= 0 ? 1 : _channels);
       final approxSecs = bytesPerSec == 0 ? 0.0 : pcm.length / bytesPerSec;
-      // Diagnostics for「收音不完整」: compare ~dur against how long you actually
-      // spoke (rate mismatch), and watch droppedFrames (BLE loss).
-      debugPrint('[RingCapture] stop bytes=${pcm.length} frames=$_frames '
-          'droppedFrames=$_droppedFrames channels=$_channels sr=$sampleRate '
-          '~dur=${approxSecs.toStringAsFixed(1)}s');
       if (pcm.isEmpty) {
         onPhase?.call(RingCapturePhase.empty);
         return;
