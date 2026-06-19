@@ -1,17 +1,29 @@
 import 'dart:async';
 
+import 'package:chiplet_ring/chiplet_ring.dart';
+
+import '../ring/ring_art.dart';
+import '../ring/ring_reconnect.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../device/device_controller.dart';
 import '../device/device_silent_reconnect.dart';
 import '../theme/app_theme.dart';
 import 'my_device_page.dart';
+import 'my_ring_page.dart';
 
 /// First-run pairing flow for the UReka 录音卡.
 /// Top search pill + a 2-step onboarding pager; when the scan surfaces a device
 /// a 发现设备 sheet slides up to confirm + 连接 → 我的设备.
+
+enum _PairTarget { card, ring }
+
 class DevicePairingPage extends StatefulWidget {
-  const DevicePairingPage({super.key});
+  /// Pre-selected device type from onboarding's 录音卡/戒指 choice:
+  /// 'card' | 'ring' | null. null → show the in-page chooser (default).
+  final String? initialDevice;
+  const DevicePairingPage({super.key, this.initialDevice});
 
   @override
   State<DevicePairingPage> createState() => _DevicePairingPageState();
@@ -26,18 +38,50 @@ class _DevicePairingPageState extends State<DevicePairingPage> {
   int _page = 0;
   bool _sheetOpen = false;
 
+  // null = user hasn't chosen a device type yet (so we don't auto-scan a card and
+  // pop its full-screen sheet over the picker). Pick card/ring first, then scan.
+  _PairTarget? _target;
+  final _ring = ChipletRing();
+  RingState _ringState = const RingState(conn: RingConnState.disconnected, devices: []);
+  StreamSubscription<RingState>? _ringSub;
+  String? _lastRingId;
+  bool _ringNavigated = false;
+  bool _ringSheetOpen = false;
+
   @override
   void initState() {
     super.initState();
     unawaited(DeviceSilentReconnect.instance.stop());
+    RingReconnect.instance.pause(); // avoid clashing with manual ring scan here
     _dev.addListener(_onDevice);
+    // Onboarding can pre-pick the device type so we skip the in-page chooser and
+    // scan straight away. null → user picks 录音卡/戒指 here.
+    if (widget.initialDevice == 'card') {
+      _target = _PairTarget.card;
+    } else if (widget.initialDevice == 'ring') {
+      _target = _PairTarget.ring;
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      _startScanTimer?.cancel();
-      _startScanTimer = Timer(_scanDelay, () {
-        if (!mounted) return;
-        unawaited(_dev.ensurePermissionAndStartScan());
-      });
+      if (_target == _PairTarget.card) {
+        _startScanTimer?.cancel();
+        _startScanTimer = Timer(_scanDelay, () {
+          if (!mounted) return;
+          unawaited(_dev.ensurePermissionAndStartScan());
+        });
+      } else if (_target == _PairTarget.ring) {
+        _ring.startScan();
+      }
+    });
+    _ringSub = _ring.state.listen((s) {
+      if (!mounted) return;
+      setState(() => _ringState = s);
+      if (_target == _PairTarget.ring &&
+          s.devices.isNotEmpty &&
+          !_ringSheetOpen &&
+          s.conn != RingConnState.connected) {
+        _showRingSheet();
+      }
     });
   }
 
@@ -47,12 +91,19 @@ class _DevicePairingPageState extends State<DevicePairingPage> {
     _dev.removeListener(_onDevice);
     _dev.stopScan();
     _pager.dispose();
+    _ringSub?.cancel();
+    _ring.stopScan();
+    RingReconnect.instance.resume(); // re-enable auto-reconnect (re-reads saved MAC)
     super.dispose();
   }
 
   void _onDevice() {
     if (!mounted) return;
-    if (_dev.discovered.isNotEmpty && !_sheetOpen && !_dev.isBound) {
+    // Only surface the card discover sheet when the user is actually pairing a card.
+    if (_target == _PairTarget.card &&
+        _dev.discovered.isNotEmpty &&
+        !_sheetOpen &&
+        !_dev.isBound) {
       _showDiscoverSheet();
     }
     setState(() {});
@@ -77,9 +128,51 @@ class _DevicePairingPageState extends State<DevicePairingPage> {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => const MyDevicePage()),
       );
-    } else if (connected == false && mounted) {
-      Navigator.of(context).maybePop();
     }
+    // On dismiss: stay on the pairing page (don't pop it) so the user can switch
+    // to the ring, or re-scan, instead of being kicked out entirely.
+  }
+
+  Future<void> _showRingSheet() async {
+    _ringSheetOpen = true;
+    final connected = await showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      enableDrag: false,
+      isDismissible: false,
+      isScrollControlled: true,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+      ),
+      builder: (_) => _RingDiscoverSheet(ring: _ring, onConnect: _connectRing),
+    );
+    _ringSheetOpen = false;
+    if (connected == true && mounted) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const MyRingPage()),
+      );
+    }
+    // On dismiss: stay on the page (user can re-pick or re-scan).
+  }
+
+  void _selectTarget(_PairTarget t) {
+    if (_target == t) return;
+    setState(() => _target = t);
+    if (t == _PairTarget.ring) {
+      _dev.stopScan();
+      _ring.startScan();
+    } else {
+      _ring.stopScan();
+      unawaited(_dev.ensurePermissionAndStartScan());
+    }
+  }
+
+  Future<void> _connectRing(String id) async {
+    _lastRingId = id;
+    await _ring.connect(id);
+    final sp = await SharedPreferences.getInstance();
+    await sp.setString('ring_mac', id);
   }
 
   @override
@@ -100,7 +193,19 @@ class _DevicePairingPageState extends State<DevicePairingPage> {
                       size: 18,
                       color: eu.textMid,
                     ),
-                    onPressed: () => Navigator.of(context).maybePop(),
+                    onPressed: () {
+                      if (_target != null) {
+                        setState(() {
+                          _target = null;
+                          _ringState = const RingState(conn: RingConnState.disconnected, devices: []);
+                          _ringNavigated = false;
+                        });
+                        _dev.stopScan();
+                        _ring.stopScan();
+                      } else {
+                        Navigator.of(context).maybePop();
+                      }
+                    },
                   ),
                   const Spacer(),
                   IconButton(
@@ -110,64 +215,90 @@ class _DevicePairingPageState extends State<DevicePairingPage> {
                 ],
               ),
             ),
-            const SizedBox(height: 4),
-            _SearchPill(scanning: _dev.state == DeviceConnState.scanning),
-            if (_dev.errorMessage != null && _dev.discovered.isEmpty) ...[
-              const SizedBox(height: 10),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 28),
-                child: Text(
-                  _dev.errorMessage!,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: eu.accentRed,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
+            if (_target == null)
+              Expanded(child: _DeviceChooser(onPick: _selectTarget)),
+            if (_target == _PairTarget.card) ...[
+              const SizedBox(height: 4),
+              _SearchPill(scanning: _dev.state == DeviceConnState.scanning),
+              if (_dev.errorMessage != null && _dev.discovered.isEmpty) ...[
+                const SizedBox(height: 10),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 28),
+                  child: Text(
+                    _dev.errorMessage!,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: eu.accentRed,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
-              ),
-            ],
-            Expanded(
-              child: PageView(
-                controller: _pager,
-                onPageChanged: (i) => setState(() => _page = i),
-                children: const [
-                  _PairStep(
-                    art: _DeviceArt(showButtonHint: true),
-                    title: '开启设备',
-                    lines: ['按住电源键 5 秒。', '首次设置时只需执行一次。'],
-                  ),
-                  _PairStep(
-                    art: _DeviceArt(connected: true, battery: 80),
-                    title: '开始蓝牙配对',
-                    lines: ['按一次电源键。', '屏幕亮起后，请将设备保持在附近。'],
-                  ),
-                ],
-              ),
-            ),
-            _Dots(count: 2, index: _page),
-            const SizedBox(height: 20),
-            Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: Text.rich(
-                TextSpan(
-                  children: [
-                    TextSpan(
-                      text: '需要帮助？',
-                      style: TextStyle(color: eu.textLo, fontSize: 13),
+              ],
+              Expanded(
+                child: PageView(
+                  controller: _pager,
+                  onPageChanged: (i) => setState(() => _page = i),
+                  children: const [
+                    _PairStep(
+                      art: _DeviceArt(showButtonHint: true),
+                      title: '开启设备',
+                      lines: ['按住电源键 5 秒。', '首次设置时只需执行一次。'],
                     ),
-                    TextSpan(
-                      text: '联系客服',
-                      style: TextStyle(
-                        color: eu.brand,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                      ),
+                    _PairStep(
+                      art: _DeviceArt(connected: true, battery: 80),
+                      title: '开始蓝牙配对',
+                      lines: ['按一次电源键。', '屏幕亮起后，请将设备保持在附近。'],
                     ),
                   ],
                 ),
               ),
-            ),
+              _Dots(count: 2, index: _page),
+              const SizedBox(height: 20),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(
+                        text: '需要帮助？',
+                        style: TextStyle(color: eu.textLo, fontSize: 13),
+                      ),
+                      TextSpan(
+                        text: '联系客服',
+                        style: TextStyle(
+                          color: eu.brand,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+            if (_target == _PairTarget.ring) ...[
+              const SizedBox(height: 24),
+              const Center(child: RingArt(size: 160)),
+              const SizedBox(height: 28),
+              Expanded(
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.bluetooth_searching, size: 22, color: eu.brand),
+                      const SizedBox(height: 12),
+                      Text(
+                        _ringState.conn == RingConnState.connecting ? '正在连接戒指…' : '正在搜索戒指…',
+                        style: TextStyle(color: eu.textMid, fontSize: 15),
+                      ),
+                      const SizedBox(height: 6),
+                      Text('请将戒指靠近手机', style: TextStyle(color: eu.textLo, fontSize: 13)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -645,6 +776,215 @@ class _DiscoveredDeviceTile extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Big two-tile chooser shown before any scan: 录音卡 vs 戒指.
+class _DeviceChooser extends StatelessWidget {
+  final void Function(_PairTarget) onPick;
+  const _DeviceChooser({required this.onPick});
+
+  @override
+  Widget build(BuildContext context) {
+    final eu = context.eu;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+      child: Column(
+        children: [
+          const SizedBox(height: 8),
+          Text('选择要连接的设备',
+              style: TextStyle(color: eu.textHi, fontSize: 18, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 24),
+          Expanded(
+            child: _ChoiceCard(
+              label: '录音卡',
+              art: const _DeviceArt(),
+              onTap: () => onPick(_PairTarget.card),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Expanded(
+            child: _ChoiceCard(
+              label: '戒指',
+              art: const RingArt(size: 120),
+              onTap: () => onPick(_PairTarget.ring),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ChoiceCard extends StatelessWidget {
+  final String label;
+  final Widget art;
+  final VoidCallback onTap;
+  const _ChoiceCard({required this.label, required this.art, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final eu = context.eu;
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: eu.surfaceRaised,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: eu.border),
+        ),
+        child: Column(
+          children: [
+            Expanded(
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: FittedBox(child: art),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: Text(label,
+                  style: TextStyle(color: eu.textHi, fontSize: 17, fontWeight: FontWeight.w700)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 发现戒指 modal — mirrors _DiscoverSheet for the card. Lists scanned rings,
+/// connects on tap, pops true once connected.
+class _RingDiscoverSheet extends StatefulWidget {
+  final ChipletRing ring;
+  final Future<void> Function(String id) onConnect;
+  const _RingDiscoverSheet({required this.ring, required this.onConnect});
+
+  @override
+  State<_RingDiscoverSheet> createState() => _RingDiscoverSheetState();
+}
+
+class _RingDiscoverSheetState extends State<_RingDiscoverSheet> {
+  RingState _state = const RingState(conn: RingConnState.disconnected, devices: []);
+  StreamSubscription<RingState>? _sub;
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = widget.ring.state.listen((s) {
+      if (!mounted) return;
+      if (s.conn == RingConnState.connected) {
+        Navigator.of(context).pop(true);
+        return;
+      }
+      setState(() => _state = s);
+    });
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final eu = context.eu;
+    final connecting = _state.conn == RingConnState.connecting;
+    final devices = _state.devices;
+    final bottomPadding = MediaQuery.paddingOf(context).bottom;
+    final sheetHeight = MediaQuery.sizeOf(context).height * 0.8;
+    return SafeArea(
+      top: false,
+      child: Container(
+        height: sheetHeight,
+        decoration: BoxDecoration(
+          color: eu.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
+        ),
+        padding: EdgeInsets.fromLTRB(20, 18, 20, 24 + bottomPadding),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text('发现戒指',
+                    style: TextStyle(color: eu.textHi, fontSize: 20, fontWeight: FontWeight.w700)),
+                const Spacer(),
+                GestureDetector(
+                  onTap: () => Navigator.of(context).maybePop(false),
+                  behavior: HitTestBehavior.opaque,
+                  child: SizedBox(width: 36, height: 36, child: Icon(Icons.close, color: eu.textMid)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text('请确认要连接的戒指。', style: TextStyle(color: eu.textMid, fontSize: 13)),
+            const SizedBox(height: 16),
+            Expanded(
+              child: devices.isEmpty
+                  ? Center(child: Text('正在搜索…', style: TextStyle(color: eu.textMid)))
+                  : ListView.separated(
+                      padding: EdgeInsets.zero,
+                      primary: false,
+                      itemCount: devices.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 12),
+                      itemBuilder: (context, index) {
+                        final d = devices[index];
+                        return Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: eu.surfaceRaised,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: eu.border),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.radio_button_checked, color: eu.brand, size: 26),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(d.name.isEmpty ? '戒指设备' : d.name,
+                                        maxLines: 1, overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(color: eu.textHi, fontSize: 15, fontWeight: FontWeight.w600)),
+                                    const SizedBox(height: 2),
+                                    Text('${d.id}  RSSI:${d.rssi}',
+                                        maxLines: 1, overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(color: eu.textLo, fontSize: 11)),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              GestureDetector(
+                                onTap: connecting ? null : () => widget.onConnect(d.id),
+                                behavior: HitTestBehavior.opaque,
+                                child: Container(
+                                  width: 68, height: 36, alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    color: connecting ? eu.textLo : eu.brand,
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  child: connecting
+                                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                      : const Text('连接', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }

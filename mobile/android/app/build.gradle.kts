@@ -47,6 +47,15 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // chiplet_ring 的原生 SDK 只随 arm64-v8a / armeabi-v7a 提供 .so,限制 ABI
+        // 避免打出缺原生库的 x86_64 包。但 abiFilters 不能与 --split-per-abi 的
+        // splits 共存(否则报 Conflicting configuration),所以仅在非 split 构建时
+        // 限制;--split-per-abi 时交给 Flutter 按 ABI 拆分(发版脚本只取 v8a 包)。
+        if (!project.hasProperty("split-per-abi")) {
+            ndk {
+                abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            }
+        }
     }
 
     buildFeatures {

@@ -62,6 +62,8 @@ dependencies:
   webview_flutter: ^4.10.0
   # Export/share a report (.html) via the iOS system share sheet (§6.7 分享).
   share_plus: ^10.0.0
+  # Temp-dir access for WAV export (ring debug, §task-8).
+  path_provider: ^2.1.0
   # §13.1 百智 OAuth login — opens the 百智 oauth-bridge in an ASWebAuthenticationSession
   # (iOS) and captures the backend's `eureka://auth?token=<jwt>` deep-link callback.
   # iOS needs no native config (the session intercepts the scheme); Android uses a
@@ -78,6 +80,9 @@ dependencies:
     git:
       url: git@git.100credit.cn:ai2c/app/flutter_lib/br_flutter_plugin_ble.git
       ref: v1.0.4
+  # ChipletRing BraveChip SDK Flutter plugin (vendored aar)
+  chiplet_ring:
+    path: packages/chiplet_ring
 
 dev_dependencies:
   flutter_test:

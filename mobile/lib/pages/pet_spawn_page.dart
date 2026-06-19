@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:chiplet_ring/chiplet_ring.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 
 import '../api/api_client.dart';
 import '../flash/flash.dart';
+import '../ring/ring_capture_service.dart';
 import '../pet/floating_mascot.dart'
     show mascotSuppressed, releaseMascotSuppress;
 import '../pet/pet_controller.dart';
@@ -48,6 +50,7 @@ enum _Step {
   capturing,
   magic,
   hardwareWait,
+  ringWait, // paired a 戒指 → 双击说一句,等戒指闪念落卡
 }
 
 class PetSpawnPage extends StatefulWidget {
@@ -105,6 +108,7 @@ class _PetSpawnPageState extends State<PetSpawnPage>
     // tree is locked. Defer to the next frame, same as PetPage.
     WidgetsBinding.instance.addPostFrameCallback((_) => releaseMascotSuppress());
     BleFlashManager.instance.isFlashing.removeListener(_onFlashingChanged);
+    ringLastFlash.removeListener(_onRingFlash);
     _shake.dispose();
     _nameCtrl.dispose();
     _captureCtrl.dispose();
@@ -572,6 +576,8 @@ class _PetSpawnPageState extends State<PetSpawnPage>
         return _pairPromptBlock(eu);
       case _Step.hardwareWait:
         return _hardwareWaitBlock(eu);
+      case _Step.ringWait:
+        return _ringWaitBlock(eu);
     }
   }
 
@@ -736,7 +742,7 @@ class _PetSpawnPageState extends State<PetSpawnPage>
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          '🎙️ 有录音卡吗?',
+          '🎙️ 有录音设备吗?',
           textAlign: TextAlign.center,
           style: TextStyle(
             color: eu.textHi,
@@ -746,12 +752,14 @@ class _PetSpawnPageState extends State<PetSpawnPage>
         ),
         const SizedBox(height: 10),
         Text(
-          '连上它,按一下就能随口记,$_petName 当场帮你整理 ——\n不用打字、不用掏手机。还没有卡也行,先用打字试试。',
+          '录音卡或戒指都行 —— 连上它,按一下就能随口记,$_petName 当场帮你整理。\n还没有设备也行,先用打字试试。',
           textAlign: TextAlign.center,
           style: TextStyle(color: eu.textMid, fontSize: 13.5, height: 1.5),
         ),
         const SizedBox(height: 22),
-        _ctaButton(eu, '连接录音卡  →', _connectDevice),
+        _ctaButton(eu, '连接录音卡', () => _connectDevice('card')),
+        const SizedBox(height: 12),
+        _ctaSecondary(eu, '连接戒指', () => _connectDevice('ring')),
         const SizedBox(height: 10),
         GestureDetector(
           onTap: () => setState(() => _step = _Step.invite),
@@ -759,7 +767,7 @@ class _PetSpawnPageState extends State<PetSpawnPage>
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
             child: Text(
-              '我还没有卡,用打字',
+              '我还没有设备,用打字',
               style: TextStyle(
                 color: eu.brand,
                 fontSize: 14,
@@ -772,19 +780,99 @@ class _PetSpawnPageState extends State<PetSpawnPage>
     );
   }
 
-  Future<void> _connectDevice() async {
-    // 复用 jigong 的配对页;返回后按是否绑成分叉:绑成 → 硬件首捕(按卡说);
-    // 没绑成(取消/失败/没扫到)→ 退回打字首捕,绝不卡住。
-    await Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => const DevicePairingPage()));
+  // 戒指首捕引导:双击戒指说一句。全局 RingCaptureController 负责录音→闪念,
+  // 悬浮 reka 上会走「听写→整理」状态;落卡后 _onRingFlash 推进到魔法时刻。
+  Widget _ringWaitBlock(EurekaColors eu) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          '💍 双击戒指,说一句想记的事',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: eu.textHi, fontSize: 20, fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          '双击戒指开始录音,说完再双击结束 ——\n$_petName 会当场帮你整理成卡片。',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: eu.textMid, fontSize: 13.5, height: 1.5),
+        ),
+        const SizedBox(height: 22),
+        Icon(Icons.radio_button_checked, size: 26, color: eu.brand),
+        const SizedBox(height: 8),
+        Text('等待戒指录音…', style: TextStyle(color: eu.textLo, fontSize: 13)),
+        const SizedBox(height: 14),
+        GestureDetector(
+          onTap: _leaveRingWaitForTyping,
+          behavior: HitTestBehavior.opaque,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+            child: Text(
+              '改用打字',
+              style: TextStyle(color: eu.brand, fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _connectDevice(String device) async {
+    // 复用 jigong 的配对页,按选择的设备类型('card'/'ring')直接进扫描,跳过页内
+    // 二次选择。返回后按是否绑成分叉,绝不卡住。
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => DevicePairingPage(initialDevice: device)),
+    );
     if (!mounted) return;
+    if (device == 'ring') {
+      // 戒指:绑成 → 双击说一句的首捕(全局戒指采集已在跑);没绑成 → 退回打字。
+      final connected = await ChipletRing().isConnected();
+      if (!mounted) return;
+      if (connected) {
+        _beginRingWait();
+      } else {
+        setState(() => _step = _Step.invite);
+      }
+      return;
+    }
     setState(() {
       _resetHardwareFields();
       _step = DeviceController.instance.isBound
           ? _Step.hardwareWait
           : _Step.invite;
     });
+  }
+
+  // 戒指首捕:双击戒指说一句 → 全局 RingCaptureController 录音→ASR→闪念,产出卡
+  // 片时通过 ringLastFlash 通知本页推进到「魔法时刻」。打字兜底,绝不卡住。
+  void _beginRingWait() {
+    ringLastFlash.value = null; // 忽略此前的历史结果
+    ringLastFlash.addListener(_onRingFlash);
+    setState(() => _step = _Step.ringWait);
+  }
+
+  void _onRingFlash() {
+    final r = ringLastFlash.value;
+    if (r == null || !mounted || _step != _Step.ringWait) return;
+    if (!_hasSuccessCards(r.cards)) return; // 空/没认出 → 继续等,让用户再说一次
+    ringLastFlash.removeListener(_onRingFlash);
+    unawaited(_completeRingOnboarding(r));
+  }
+
+  Future<void> _completeRingOnboarding(FlashResult r) async {
+    try {
+      await _pet.completeOnboarding(sessionId: r.sessionId);
+    } catch (_) {}
+    if (!mounted) return;
+    setState(() {
+      _result = r;
+      _step = _Step.magic;
+    });
+  }
+
+  void _leaveRingWaitForTyping() {
+    ringLastFlash.removeListener(_onRingFlash);
+    setState(() => _step = _Step.invite);
   }
 
   // ② 硬件首捕 —— 已连卡:让用户按一下录音卡说件今天的。录完只算接住,
@@ -962,6 +1050,32 @@ class _PetSpawnPageState extends State<PetSpawnPage>
           textAlign: TextAlign.center,
           style: const TextStyle(
             color: Colors.white,
+            fontSize: 15.5,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Outline CTA — used for the secondary device choice (戒指) so 录音卡 reads as
+  // primary while both stay equally tappable.
+  Widget _ctaSecondary(EurekaColors eu, String label, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 13),
+        decoration: BoxDecoration(
+          color: eu.surfaceRaised,
+          borderRadius: BorderRadius.circular(28),
+          border: Border.all(color: eu.border),
+        ),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: eu.textHi,
             fontSize: 15.5,
             fontWeight: FontWeight.w700,
           ),

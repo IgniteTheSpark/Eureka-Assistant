@@ -20,6 +20,10 @@ allprojects {
             url = uri(mavenRepoUrl)
             isAllowInsecureProtocol = true
         }
+        // Vendored ChipletRing BraveChip SDK aar (local Maven layout inside the chiplet_ring plugin).
+        maven {
+            url = uri("${rootProject.projectDir}/../packages/chiplet_ring/android/local-maven")
+        }
     }
 }
 

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
@@ -8,6 +9,9 @@ import '../device/device_controller.dart';
 import '../pages/connected_apps_page.dart';
 import '../pages/device_pairing_page.dart';
 import '../pages/my_device_page.dart';
+import '../pages/my_ring_page.dart';
+import '../ring/ring_connection.dart';
+import '../pages/ring_debug_page.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_controller.dart';
 import 'toast.dart';
@@ -47,15 +51,35 @@ class GlobalHeaderBar extends StatelessWidget {
             onTap: () => _openProfile(context),
           ),
           AnimatedBuilder(
-            animation: DeviceController.instance,
+            animation: Listenable.merge(
+              [DeviceController.instance, RingConnection.instance],
+            ),
             builder: (context, _) {
               final dev = DeviceController.instance;
-              final connected =
+              final cardConnected =
                   dev.state == DeviceConnState.connected && dev.isBound;
+              final ringConnected = RingConnection.instance.isConnected;
+              // Distinguish which device is connected (ring takes precedence in the icon).
+              final IconData icon;
+              final String tooltip;
+              final Color? color;
+              if (ringConnected) {
+                icon = Icons.panorama_fish_eye; // 小戒指(环形)
+                tooltip = '戒指已连接';
+                color = eu.accentGreen;
+              } else if (cardConnected) {
+                icon = Icons.credit_card; // 小卡片
+                tooltip = '录音卡已连接';
+                color = eu.accentGreen;
+              } else {
+                icon = Icons.devices_outlined;
+                tooltip = '设备连接';
+                color = null;
+              }
               return _GhostButton(
-                icon: Icons.devices_outlined,
-                tooltip: '设备连接',
-                color: connected ? eu.accentGreen : null,
+                icon: icon,
+                tooltip: tooltip,
+                color: color,
                 onTap: () => _openDevice(context),
               );
             },
@@ -181,6 +205,43 @@ void _openProfile(BuildContext context) {
                 ),
               ),
             ),
+            if (kDebugMode) ...[
+              const SizedBox(height: 10),
+              GestureDetector(
+                onTap: () {
+                  Navigator.of(sheetCtx).pop();
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const RingDebugPage()),
+                  );
+                },
+                behavior: HitTestBehavior.opaque,
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 14,
+                  ),
+                  decoration: BoxDecoration(
+                    color: eu.bg,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: eu.border),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.bluetooth_audio_outlined, size: 19, color: eu.textMid),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          '[Debug] Ring 调试',
+                          style: TextStyle(color: eu.textHi, fontSize: 15),
+                        ),
+                      ),
+                      Icon(Icons.chevron_right, size: 18, color: eu.textLo),
+                    ],
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(height: 10),
             GestureDetector(
               onTap: () {
@@ -225,6 +286,14 @@ Future<void> _openDeviceResolved(BuildContext context) async {
   try {
     final target = await DeviceController.instance.resolveEntryTarget();
     if (!context.mounted) return;
+    // No card device bound but a ring is connected → show the ring detail page.
+    if (target != DeviceEntryTarget.myDevice &&
+        RingConnection.instance.isConnected) {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const MyRingPage()),
+      );
+      return;
+    }
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => target == DeviceEntryTarget.myDevice

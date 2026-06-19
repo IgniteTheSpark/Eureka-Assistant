@@ -1,7 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../auth/auth_controller.dart';
+import 'ring_debug_page.dart';
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
 
@@ -193,6 +195,16 @@ class _LoginPageState extends State<LoginPage> {
                     textAlign: TextAlign.center,
                   ),
                 ),
+                if (kDebugMode) ...[
+                  const SizedBox(height: 12),
+                  TextButton.icon(
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const RingDebugPage()),
+                    ),
+                    icon: const Icon(Icons.bluetooth_audio_outlined, size: 18),
+                    label: const Text('[Debug] Ring 调试（免登录）'),
+                  ),
+                ],
               ],
             ),
           ),

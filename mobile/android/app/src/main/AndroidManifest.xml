@@ -26,7 +26,8 @@
     <application
         android:label="eureka"
         android:name=".EurekaApplication"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        tools:replace="android:label">
         <activity
             android:name=".MainActivity"
             android:exported="true"
