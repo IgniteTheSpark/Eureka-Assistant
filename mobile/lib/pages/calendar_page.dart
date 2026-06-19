@@ -1920,6 +1920,10 @@ class _DayDetailPageState extends State<DayDetailPage> {
     final now = DateTime.now();
     final isToday = _sameDay(now);
     final gridHeight = (_kGridEndHour - _kGridStartHour) * _kHourHeight;
+    // 重叠规则:同时段事件等分成并列列(google-calendar 式)。grid 占满 body 宽。
+    final cols = _eventColumns(timed);
+    const leftPad = 62.0, gap = 3.0;
+    final avail = (MediaQuery.sizeOf(context).width - leftPad - 12.0).clamp(40.0, double.infinity);
     return SingleChildScrollView(
       controller: _gridScroll,
       child: SizedBox(
@@ -1949,8 +1953,14 @@ class _DayDetailPageState extends State<DayDetailPage> {
                   ),
                 ),
               ),
-            // Timed event blocks
-            for (final it in timed) _eventBlock(eu, it, skills),
+            // Timed event blocks — overlap-aware columns (重叠规则: 等分列)
+            for (final it in timed)
+              _eventBlock(eu, it, skills,
+                  col: cols[it.id]?.$1 ?? 0,
+                  count: cols[it.id]?.$2 ?? 1,
+                  leftPad: leftPad,
+                  avail: avail,
+                  gap: gap),
             // "now" line — only on today
             if (isToday)
               Positioned(
@@ -1980,7 +1990,65 @@ class _DayDetailPageState extends State<DayDetailPage> {
     );
   }
 
-  Widget _eventBlock(EurekaColors eu, TimelineItem it, Map<String, SkillMeta> skills) {
+  static int _startMin(TimelineItem it) => it.effectiveAt.hour * 60 + it.effectiveAt.minute;
+  static int _endMin(TimelineItem it) {
+    final s = _startMin(it);
+    var e = it.endAt != null ? it.endAt!.hour * 60 + it.endAt!.minute : s + 30;
+    if (e <= s) e = s + 30;
+    return e;
+  }
+
+  // 重叠规则:把事件按重叠 cluster 分配并列列(每列内不重叠),返回每条的
+  // (列序号, 该 cluster 的总列数)。一个 cluster 等分成 N 列。
+  Map<String, (int, int)> _eventColumns(List<TimelineItem> events) {
+    final sorted = [...events]
+      ..sort((a, b) {
+        final c = _startMin(a).compareTo(_startMin(b));
+        return c != 0 ? c : _endMin(b).compareTo(_endMin(a));
+      });
+    final out = <String, (int, int)>{};
+    final cluster = <TimelineItem>[];
+    var clusterEnd = -1;
+
+    void flush() {
+      if (cluster.isEmpty) return;
+      final colEnds = <int>[]; // end-min of the last event placed in each column
+      final colOf = <String, int>{};
+      for (final e in cluster) {
+        final s = _startMin(e);
+        var placed = -1;
+        for (var i = 0; i < colEnds.length; i++) {
+          if (colEnds[i] <= s) {
+            placed = i;
+            break;
+          }
+        }
+        if (placed == -1) {
+          placed = colEnds.length;
+          colEnds.add(0);
+        }
+        colEnds[placed] = _endMin(e);
+        colOf[e.id] = placed;
+      }
+      final count = colEnds.length;
+      for (final e in cluster) {
+        out[e.id] = (colOf[e.id] ?? 0, count);
+      }
+      cluster.clear();
+      clusterEnd = -1;
+    }
+
+    for (final e in sorted) {
+      if (cluster.isNotEmpty && _startMin(e) >= clusterEnd) flush();
+      cluster.add(e);
+      if (_endMin(e) > clusterEnd) clusterEnd = _endMin(e);
+    }
+    flush();
+    return out;
+  }
+
+  Widget _eventBlock(EurekaColors eu, TimelineItem it, Map<String, SkillMeta> skills,
+      {required int col, required int count, required double leftPad, required double avail, required double gap}) {
     final start = it.effectiveAt;
     final startMin = start.hour * 60 + start.minute;
     var endMin = it.endAt != null ? it.endAt!.hour * 60 + it.endAt!.minute : startMin + 30;
@@ -1990,10 +2058,12 @@ class _DayDetailPageState extends State<DayDetailPage> {
     final height = rawH < 24 ? 24.0 : rawH;
     final isEvent = it.kind == 'event';
     final accent = isEvent ? eu.accentPurple : eu.accentBlue;
+    final colW = (avail - gap * (count - 1)) / count;
+    final left = leftPad + col * (colW + gap);
     return Positioned(
       top: top,
-      left: 62,
-      right: 12,
+      left: left,
+      width: colW,
       height: height,
       child: GestureDetector(
         onTap: () => _openTimelineItem(context, it, skills),
