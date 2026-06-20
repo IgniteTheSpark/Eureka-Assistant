@@ -182,17 +182,11 @@ class FlashPill extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text('⚡', style: TextStyle(fontSize: compact ? 13 : 15)),
-            SizedBox(width: compact ? 4 : 5),
+            SizedBox(width: compact ? 3 : 4),
             Text('$n',
                 style: euMono(
                     fontSize: compact ? 12.5 : 13.5,
                     fontWeight: FontWeight.w700,
-                    color: eu.brand)),
-            const SizedBox(width: 3),
-            Text('闪念',
-                style: TextStyle(
-                    fontSize: compact ? 11.5 : 12.5,
-                    fontWeight: FontWeight.w600,
                     color: eu.brand)),
           ],
         ),

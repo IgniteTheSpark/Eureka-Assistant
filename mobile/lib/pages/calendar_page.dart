@@ -854,12 +854,25 @@ class _EmptyDayRow extends StatelessWidget {
               ),
               Expanded(
                 child: Container(
-                  height: 46,
+                  height: 58,
                   decoration: BoxDecoration(
-                    color: eu.surface.withValues(alpha: 0.35),
+                    color: eu.surface.withValues(alpha: 0.5),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(color: eu.border),
+                    boxShadow: [
+                      BoxShadow(
+                          color: Colors.black.withValues(
+                              alpha: eu.brightness == Brightness.dark
+                                  ? 0.18
+                                  : 0.05),
+                          blurRadius: 6,
+                          offset: const Offset(0, 2)),
+                    ],
                   ),
+                  clipBehavior: Clip.antiAlias,
+                  child: CustomPaint(
+                      painter:
+                          _HatchPainter(eu.textLo.withValues(alpha: 0.10))),
                 ),
               ),
             ],
@@ -1243,58 +1256,18 @@ class _SelectedDayFooter extends StatefulWidget {
 
 class _SelectedDayFooterState extends State<_SelectedDayFooter> {
   final _scroll = ScrollController();
-  final _vpKey = GlobalKey(); // the content viewport, to read band positions
-  final _bandKeys = List.generate(6, (_) => GlobalKey());
-  final _curSeg = ValueNotifier<(String, String, Color)?>(null);
-
-  @override
-  void initState() {
-    super.initState();
-    _scroll.addListener(_recompute);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _recompute());
-  }
 
   @override
   void didUpdateWidget(_SelectedDayFooter old) {
     super.didUpdateWidget(old);
-    if (old.day != widget.day) {
-      if (_scroll.hasClients) _scroll.jumpTo(0);
-      WidgetsBinding.instance.addPostFrameCallback((_) => _recompute());
-    }
+    // Switching the selected day resets the footer scroll to the top.
+    if (old.day != widget.day && _scroll.hasClients) _scroll.jumpTo(0);
   }
 
   @override
   void dispose() {
-    _scroll.removeListener(_recompute);
     _scroll.dispose();
-    _curSeg.dispose();
     super.dispose();
-  }
-
-  // 当前时段 = last band whose top has scrolled under the fixed 日头 (real positions).
-  void _recompute() {
-    if (!mounted) return;
-    final groups = _bandGroupsOf(widget.items);
-    if (groups.isEmpty) {
-      _curSeg.value = null;
-      return;
-    }
-    final vp = _vpKey.currentContext?.findRenderObject() as RenderBox?;
-    var cur = 0;
-    if (vp != null && vp.attached) {
-      for (var i = 0; i < groups.length && i < _bandKeys.length; i++) {
-        final rb = _bandKeys[i].currentContext?.findRenderObject() as RenderBox?;
-        if (rb == null || !rb.attached) continue;
-        final top = rb.localToGlobal(Offset.zero, ancestor: vp).dy;
-        if (top <= 28) {
-          cur = i;
-        } else {
-          break;
-        }
-      }
-    }
-    final seg = (groups[cur].$1, groups[cur].$2, groups[cur].$3);
-    if (seg != _curSeg.value) _curSeg.value = seg;
   }
 
   @override
@@ -1314,22 +1287,20 @@ class _SelectedDayFooterState extends State<_SelectedDayFooter> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // §月 sticky 日头(固定 footer 顶):日期·周几 · ⚡N · 当前时段。点 → DayDetail。
+          // §月 sticky 日头(固定 footer 顶):日期·周几(左) + ⚡N(最右)。点 → DayDetail。
           _header(eu, flashes),
           Expanded(
             child: hasContent
                 ? SingleChildScrollView(
-                    key: _vpKey,
                     controller: _scroll,
                     padding: const EdgeInsets.fromLTRB(16, 10, 16, 96),
-                    // 点空白内容 → day detail;条目仍开各自详情。(同流:不挡纵向滚动)
+                    // 点空白内容 → day detail;条目仍开各自详情。(不挡纵向滚动)
                     child: GestureDetector(
                       behavior: HitTestBehavior.opaque,
                       onTap: widget.onOpenDay,
                       child: _BandView(
                         items: widget.items,
                         skills: widget.skills,
-                        bandKeys: _bandKeys,
                         onTap: (it) =>
                             _openTimelineItem(context, it, widget.skills),
                       ),
@@ -1371,7 +1342,6 @@ class _SelectedDayFooterState extends State<_SelectedDayFooter> {
             ],
           ),
           border: Border(bottom: BorderSide(color: eu.border)),
-          // 与流日头一致的差异化软阴影。
           boxShadow: [
             BoxShadow(
                 color: Colors.black.withValues(alpha: 0.05),
@@ -1390,32 +1360,14 @@ class _SelectedDayFooterState extends State<_SelectedDayFooter> {
                       fontWeight: FontWeight.w700,
                       color: isToday ? eu.brand : eu.textHi)),
             ),
-            if (flashes.isNotEmpty) ...[
-              const SizedBox(width: 9),
+            const Spacer(),
+            // 闪念 → 最右侧(⚡N,无「闪念」字样)。点 → 当天闪念 session。
+            if (flashes.isNotEmpty)
               FlashPill(
                   day: widget.day,
                   flashes: flashes,
                   skills: widget.skills,
                   compact: true),
-            ],
-            const Spacer(),
-            ValueListenableBuilder<(String, String, Color)?>(
-              valueListenable: _curSeg,
-              builder: (_, seg, _) => seg == null
-                  ? const SizedBox.shrink()
-                  : Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _segOrb(seg.$3, 11),
-                        const SizedBox(width: 5),
-                        Text(seg.$2,
-                            style: TextStyle(
-                                fontSize: 11,
-                                color: eu.textMid,
-                                letterSpacing: 0.3)),
-                      ],
-                    ),
-            ),
           ],
         ),
       ),
@@ -1564,19 +1516,20 @@ class _DayRow extends StatefulWidget {
 }
 
 class _DayRowState extends State<_DayRow> {
-  // Keyed tile so the sticky 日头 can read the day's height + viewport position.
+  // Keyed tile so the sticky 左列 can read the day's height + viewport position.
   final _tileKey = GlobalKey();
-  // Per-band keys (≥ max 6 bands) so 当前时段 reads the real seg-block positions.
-  final _bandKeys = List.generate(6, (_) => GlobalKey());
   ScrollableState? _scrollable;
-  // The scroll offset at which this day's 日头 starts pinning. Frozen once the day
+  // The scroll offset at which this day's 左列 starts pinning. Frozen once the day
   // crosses the viewport top so the float is driven by the live scroll offset
   // (smooth) instead of a one-frame-lagged localToGlobal (which jitters).
   double? _pin;
 
-  // 统一日头 bar 高度 + 左侧日期纵列宽(= 内容缩进,日期 hang 在这条 gutter 里)。
-  static const double _headerH = 40;
-  static const double _dateW = 52;
+  // 左侧日期/闪念纵列宽(= 内容左缩进)。
+  static const double _railW = 56;
+
+  // 左列高度(日期 + 可选闪念 pill),用于钉到当天底部的 clamp。
+  double get _railHeight =>
+      42 + (FlashPill.flashesIn(widget.items).isNotEmpty ? 32 : 0);
 
   @override
   void didChangeDependencies() {
@@ -1584,13 +1537,10 @@ class _DayRowState extends State<_DayRow> {
     _scrollable = Scrollable.maybeOf(context);
   }
 
-  // How far the day's 日头 has floated up inside the tile (0 = at the tile top;
-  // clamped so it stops at the day's bottom, 被下一天推走)。While the day's top is
-  // at/below the viewport top, refresh the pin anchor and keep the header at the
-  // tile top; once it crosses, freeze the anchor and drive the float from the live
-  // scroll offset — no per-frame localToGlobal in the pinned phase, so no jitter.
-  double _headerOffset(double tileH) {
-    final maxOff = tileH - _headerH;
+  // 左列(日期+闪念)随滚动钉顶/下滑,停在当天底部。钉住后用 live scroll offset 驱动
+  // (不再每帧 localToGlobal 滞后 → 不抖);未钉住时持续刷新锚点、左列贴在当天顶部。
+  double _railOffset(double tileH) {
+    final maxOff = tileH - _railHeight;
     if (maxOff <= 0) return 0;
     final rb = _tileKey.currentContext?.findRenderObject() as RenderBox?;
     final vp = _scrollable?.context.findRenderObject() as RenderBox?;
@@ -1606,35 +1556,11 @@ class _DayRowState extends State<_DayRow> {
     return (widget.scroll.offset - _pin!).clamp(0.0, maxOff);
   }
 
-  // 当前时段 = the last band whose top has scrolled under the 日头 (real seg-block
-  // positions via _bandKeys, matching the wireframe JS — exact, no estimate drift).
-  (String, String, Color)? _segAt(
-      List<(String, String, Color, List<TimelineItem>)> groups) {
-    if (groups.isEmpty) return null;
-    final vp = _scrollable?.context.findRenderObject() as RenderBox?;
-    var cur = 0;
-    if (vp != null && vp.attached) {
-      for (var i = 0; i < groups.length && i < _bandKeys.length; i++) {
-        final rb = _bandKeys[i].currentContext?.findRenderObject() as RenderBox?;
-        if (rb == null || !rb.attached) continue;
-        final top = rb.localToGlobal(Offset.zero, ancestor: vp).dy; // band top vs viewport
-        if (top - _headerH <= 16) {
-          cur = i;
-        } else {
-          break; // bands are top-to-bottom: once one is below the 日头, so are the rest
-        }
-      }
-    }
-    return (groups[cur].$1, groups[cur].$2, groups[cur].$3);
-  }
-
   @override
   Widget build(BuildContext context) {
     final eu = context.eu;
     final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final isToday = widget.day == today;
-    final groups = _bandGroupsOf(widget.items);
+    final isToday = widget.day == DateTime(now.year, now.month, now.day);
     final flashes = FlashPill.flashesIn(widget.items);
 
     return Padding(
@@ -1642,40 +1568,36 @@ class _DayRowState extends State<_DayRow> {
       child: Container(
         key: _tileKey,
         margin: const EdgeInsets.symmetric(horizontal: 6),
-        constraints: const BoxConstraints(minHeight: 56),
+        constraints: const BoxConstraints(minHeight: 52),
         child: Stack(
           children: [
-            // 内容(右栏):时段 bands(段头保留),左缩进让出日期纵列、top 让出 content header。
+            // 右内容:时段 bands(各段自带 段头);左缩进让出日期纵列,无固定 header。
             // 点空白 → DayDetail。
             GestureDetector(
               onTap: widget.onOpen,
               behavior: HitTestBehavior.opaque,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(_dateW, _headerH + 2, 2, 2),
+                padding: const EdgeInsets.fromLTRB(_railW, 2, 2, 2),
                 child: _BandView(
                   items: widget.items,
                   skills: widget.skills,
-                  bandKeys: _bandKeys,
                   onTap: (it) => _openTimelineItem(context, it, widget.skills),
                 ),
               ),
             ),
-            // sticky 单元 = 左侧独立日期 + 右侧 content header(⚡+时段),二者一起移动、
-            // 钉顶、被下一天推走。日期落在左 gutter(内容已右缩进,不会重叠)。
+            // 左列:日期 + 闪念(回到日期下方),作为一个整体 sticky 一起跟随滚动。
             Positioned(
               top: 0,
               left: 0,
-              right: 0,
               child: ListenableBuilder(
                 listenable: widget.scroll,
                 builder: (_, _) {
                   final rb =
                       _tileKey.currentContext?.findRenderObject() as RenderBox?;
-                  final off = _headerOffset(rb?.size.height ?? 0);
-                  final seg = _segAt(groups);
+                  final off = _railOffset(rb?.size.height ?? 0);
                   return Transform.translate(
                     offset: Offset(0, off),
-                    child: _stickyUnit(eu, isToday, flashes, seg),
+                    child: _rail(eu, isToday, flashes),
                   );
                 },
               ),
@@ -1686,112 +1608,65 @@ class _DayRowState extends State<_DayRow> {
     );
   }
 
-  // 左日期 + 右 content header,作为一个整体随滚动钉顶/移动。
-  Widget _stickyUnit(EurekaColors eu, bool isToday, List<TimelineItem> flashes,
-      (String, String, Color)? seg) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // 左:独立日期(无底色,落在 gutter 里)。点 → DayDetail。
-        GestureDetector(
-          onTap: widget.onOpen,
-          behavior: HitTestBehavior.opaque,
-          child: SizedBox(
-            width: _dateW,
-            child: Padding(
-              padding: const EdgeInsets.only(left: 4, top: 1),
-              child: _dateCol(eu, isToday),
-            ),
-          ),
-        ),
-        // 右:content header(⚡ + 当前时段),有底色以盖住下方滚动内容。
-        Expanded(child: _contentHeader(eu, flashes, seg)),
-      ],
-    );
-  }
-
-  Widget _dateCol(EurekaColors eu, bool isToday) {
+  // 左列:周缩写 + 日号(今天蓝 + 蓝点)+ 闪念 pill(回到日期下方)。
+  Widget _rail(EurekaColors eu, bool isToday, List<TimelineItem> flashes) {
     const wd = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
     final d = widget.day;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(wd[d.weekday % 7],
-            style: euMono(
-                fontSize: 9,
-                letterSpacing: 1.2,
-                color: isToday ? eu.brand : eu.textLo.withValues(alpha: 0.85))),
-        Text('${d.day}',
-            style: TextStyle(
-                fontSize: 23,
-                height: 1.05,
-                fontWeight: FontWeight.w600,
-                color: isToday ? eu.brand : eu.textHi)),
-      ],
-    );
-  }
-
-  Widget _contentHeader(EurekaColors eu, List<TimelineItem> flashes,
-      (String, String, Color)? seg) {
-    return GestureDetector(
-      onTap: widget.onOpen, // 点 header 空白 → DayDetail
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        height: _headerH,
-        padding: const EdgeInsets.fromLTRB(10, 0, 8, 0),
-        decoration: BoxDecoration(
-          color: eu.surfaceRaised,
-          border: Border(bottom: BorderSide(color: eu.border)),
-        ),
-        child: Row(
-          children: [
-            // ⚡N闪念 = chat 入口;N=0 显「无闪念」淡字。
-            if (flashes.isNotEmpty)
-              FlashPill(
+    return SizedBox(
+      width: _railW,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // 日期 → DayDetail
+          GestureDetector(
+            onTap: widget.onOpen,
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.only(left: 4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(wd[d.weekday % 7],
+                      style: euMono(
+                          fontSize: 9,
+                          letterSpacing: 1.2,
+                          color: isToday
+                              ? eu.brand
+                              : eu.textLo.withValues(alpha: 0.85))),
+                  Text('${d.day}',
+                      style: TextStyle(
+                          fontSize: 23,
+                          height: 1.05,
+                          fontWeight: FontWeight.w600,
+                          color: isToday ? eu.brand : eu.textHi)),
+                  if (isToday)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 3, left: 1),
+                      child: Container(
+                          width: 5,
+                          height: 5,
+                          decoration: BoxDecoration(
+                              color: eu.brand, shape: BoxShape.circle)),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          // 闪念 pill(日期下方)。⚡ → 当天「X月X日 闪念」session。
+          if (flashes.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 8, left: 1),
+              child: FlashPill(
                   day: widget.day,
                   flashes: flashes,
                   skills: widget.skills,
-                  compact: true)
-            else
-              Text('无闪念', style: TextStyle(fontSize: 10.5, color: eu.textLo)),
-            const Spacer(),
-            // 当前时段(随滚动变):发光球 + 段名
-            if (seg != null) ...[
-              _segOrb(seg.$3, 11),
-              const SizedBox(width: 5),
-              Text(seg.$2,
-                  style: TextStyle(
-                      fontSize: 11, letterSpacing: 0.3, color: eu.textMid)),
-            ],
-            const SizedBox(width: 7),
-            Text(_relLabel(),
-                style:
-                    TextStyle(fontSize: 9, color: eu.textLo, letterSpacing: 0.4)),
-          ],
-        ),
+                  compact: true),
+            ),
+        ],
       ),
     );
-  }
-
-  String _relLabel() {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final diff = widget.day.difference(today).inDays;
-    switch (diff) {
-      case 0:
-        return '今天';
-      case -1:
-        return '昨天';
-      case -2:
-        return '前天';
-      case 1:
-        return '明天';
-      case 2:
-        return '后天';
-      default:
-        return '';
-    }
   }
 }
 
@@ -1805,30 +1680,22 @@ class _BandView extends StatelessWidget {
     required this.items,
     required this.skills,
     this.onTap,
-    this.bandKeys,
   });
 
   final List<TimelineItem> items;
   final Map<String, SkillMeta> skills;
   final void Function(TimelineItem)? onTap;
-  // Optional per-band keys so the day's sticky 日头 can read which 时段 sits under
-  // it (随滚动联动). Indexed by band order (same as _bandGroupsOf).
-  final List<GlobalKey>? bandKeys;
 
   @override
   Widget build(BuildContext context) {
     final eu = context.eu;
     final groups = _bandGroupsOf(items);
-    final keys = bandKeys;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         for (var g = 0; g < groups.length; g++) ...[
           if (g > 0) const SizedBox(height: 11),
-          KeyedSubtree(
-            key: keys != null && g < keys.length ? keys[g] : null,
-            child: _bandBlock(context, eu, groups[g]),
-          ),
+          _bandBlock(context, eu, groups[g]),
         ],
       ],
     );
@@ -2032,6 +1899,26 @@ class _DashedRRect extends CustomPainter {
 
   @override
   bool shouldRepaint(_DashedRRect old) => old.color != color;
+}
+
+// 斜纹占位 — diagonal hatch fill for empty days (空块斜纹).
+class _HatchPainter extends CustomPainter {
+  _HatchPainter(this.color);
+  final Color color;
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 1
+      ..style = PaintingStyle.stroke;
+    const gap = 9.0;
+    for (var x = 0.0; x < size.width + size.height; x += gap) {
+      canvas.drawLine(Offset(x, 0), Offset(x - size.height, size.height), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_HatchPainter old) => old.color != color;
 }
 
 // 是否「没有时间」(沉段尾、虚线、不显时刻):有 event/钟点 → 有时间;只说了时段没说
