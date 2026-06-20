@@ -385,10 +385,13 @@ class _TimelineViewState extends State<_TimelineView> {
   DateTime? _selectedDay;
 
   DateTime _today = _d(DateTime.now());
-  String? _overlayText; // 「今天 / N 天后 / N 月前 …」
-  bool _overlayVisible = false;
-  bool _todayInView = true;
+  // Overlay watermark + 回今天 button as notifiers: the per-scroll _updateOverlay
+  // updates ONLY these layers (ValueListenableBuilder) instead of setState-
+  // rebuilding (and repainting every band gradient) the whole timeline per frame.
+  final _overlay = ValueNotifier<({String? text, bool visible})>((text: null, visible: false));
+  final _todayInView = ValueNotifier<bool>(true);
   Timer? _fadeTimer;
+  Timer? _overlayThrottle; // coalesce the O(rows) render-object scan to ~10fps
 
   static DateTime _d(DateTime x) => DateTime(x.year, x.month, x.day);
   static String _dayStr(DateTime d) => '${d.year}-${d.month}-${d.day}';
@@ -412,6 +415,9 @@ class _TimelineViewState extends State<_TimelineView> {
   void dispose() {
     calendarHome.removeListener(_onHome);
     _fadeTimer?.cancel();
+    _overlayThrottle?.cancel();
+    _overlay.dispose();
+    _todayInView.dispose();
     _scroll.dispose();
     super.dispose();
   }
@@ -427,7 +433,12 @@ class _TimelineViewState extends State<_TimelineView> {
     if (_didScroll && !_growingPast && _pastDays < 3650 && p.pixels - p.minScrollExtent < 600) {
       _growPast();
     }
-    _updateOverlay();
+    // Throttle the overlay scan (O(rows) render-object queries) to ~10fps —
+    // running it every scroll frame + setState was the main 流 jank.
+    _overlayThrottle ??= Timer(const Duration(milliseconds: 100), () {
+      _overlayThrottle = null;
+      if (mounted) _updateOverlay();
+    });
   }
 
   void _growPast() {
@@ -484,17 +495,13 @@ class _TimelineViewState extends State<_TimelineView> {
       }
     }
 
-    final label = bestStr != null ? _distanceLabel(_parse(bestStr!)) : _overlayText;
-    if (label != _overlayText || !_overlayVisible || todayIn != _todayInView) {
-      setState(() {
-        _overlayText = label;
-        _overlayVisible = true;
-        _todayInView = todayIn;
-      });
-    }
+    final label = bestStr != null ? _distanceLabel(_parse(bestStr!)) : _overlay.value.text;
+    // Notifier writes → only the watermark / button layers rebuild, not the list.
+    _overlay.value = (text: label, visible: true);
+    _todayInView.value = todayIn;
     _fadeTimer?.cancel();
     _fadeTimer = Timer(const Duration(milliseconds: 280), () {
-      if (mounted) setState(() => _overlayVisible = false);
+      if (mounted) _overlay.value = (text: _overlay.value.text, visible: false);
     });
   }
 
@@ -558,7 +565,7 @@ class _TimelineViewState extends State<_TimelineView> {
     final tctx = _dayKeys[_dayStr(_today)]?.currentContext;
     if (tctx != null) {
       Scrollable.ensureVisible(tctx, alignment: 0.06, duration: Duration.zero);
-      if (!_todayInView) setState(() => _todayInView = true);
+      _todayInView.value = true;
       return;
     }
     if (iter >= 12) return;
@@ -669,62 +676,72 @@ class _TimelineViewState extends State<_TimelineView> {
           controller: _scroll,
           padding: const EdgeInsets.only(top: 6, right: 16, bottom: 100),
           itemCount: rows.length,
-          itemBuilder: (_, i) => _rowWidget(rows[i]),
+          // RepaintBoundary isolates each day's repaint (band gradients) so a row
+          // never drags its neighbours into a repaint during scroll.
+          itemBuilder: (_, i) => RepaintBoundary(child: _rowWidget(rows[i])),
         ),
-        // A — floating distance watermark on the right, fades 280ms after scroll.
-        if (_overlayText != null)
-          Positioned.fill(
-            child: IgnorePointer(
-              child: Align(
-                alignment: const Alignment(0.95, -0.12),
-                child: AnimatedOpacity(
-                  opacity: _overlayVisible ? 0.16 : 0.0,
-                  duration: const Duration(milliseconds: 220),
-                  child: Text(
-                    _overlayText!,
-                    textAlign: TextAlign.right,
-                    style: TextStyle(
-                      fontSize: 60,
-                      height: 0.9,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -1.5,
-                      color: eu.textHi,
+        // A — floating distance watermark; the notifier rebuilds ONLY this layer.
+        Positioned.fill(
+          child: IgnorePointer(
+            child: ValueListenableBuilder<({String? text, bool visible})>(
+              valueListenable: _overlay,
+              builder: (_, ov, _) => ov.text == null
+                  ? const SizedBox.shrink()
+                  : Align(
+                      alignment: const Alignment(0.95, -0.12),
+                      child: AnimatedOpacity(
+                        opacity: ov.visible ? 0.16 : 0.0,
+                        duration: const Duration(milliseconds: 220),
+                        child: Text(
+                          ov.text!,
+                          textAlign: TextAlign.right,
+                          style: TextStyle(
+                            fontSize: 60,
+                            height: 0.9,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: -1.5,
+                            color: eu.textHi,
+                          ),
+                        ),
+                      ),
+                    ),
+            ),
+          ),
+        ),
+        // E — 跳回今天 button, only when today is off-screen (notifier-driven).
+        Positioned(
+          bottom: 104,
+          left: 0,
+          right: 0,
+          child: ValueListenableBuilder<bool>(
+            valueListenable: _todayInView,
+            builder: (_, inView, _) => inView
+                ? const SizedBox.shrink()
+                : Center(
+                    child: GestureDetector(
+                      onTap: _jumpToToday,
+                      child: Container(
+                        width: 46,
+                        height: 46,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: eu.surfaceRaised,
+                          border: Border.all(color: eu.border),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.35),
+                              blurRadius: 18,
+                              offset: const Offset(0, 6),
+                            ),
+                          ],
+                        ),
+                        child: Icon(Icons.today_outlined, size: 20, color: eu.textHi),
+                      ),
                     ),
                   ),
-                ),
-              ),
-            ),
           ),
-        // E — 跳回今天 button, only when today is off-screen.
-        if (!_todayInView)
-          Positioned(
-            bottom: 104,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: GestureDetector(
-                onTap: _jumpToToday,
-                child: Container(
-                  width: 46,
-                  height: 46,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: eu.surfaceRaised,
-                    border: Border.all(color: eu.border),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.35),
-                        blurRadius: 18,
-                        offset: const Offset(0, 6),
-                      ),
-                    ],
-                  ),
-                  child: Icon(Icons.today_outlined, size: 20, color: eu.textHi),
-                ),
-              ),
-            ),
-          ),
+        ),
       ],
     );
   }
