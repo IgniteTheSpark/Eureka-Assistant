@@ -222,6 +222,8 @@ def _asset_item(asset: Asset, skill_name: str, render_spec: Optional[dict] = Non
         # 钟点(occurred_at 已 set,effective_at 即该精确时刻)。两者皆无 = 捕捉兜底。
         "period":               getattr(asset, "period", None) or "",
         "has_clock_time":       getattr(asset, "occurred_at", None) is not None,
+        # §8 生活领域(工作/学习/健康/运动/社交/娱乐/生活/灵感)— drives the 流/月 卡片领域 tag.
+        "domain":               getattr(asset, "domain", None) or "",
         "title":                str(title)[:120],
         "subtitle":             str(subtitle)[:120],
         "skill_name":           skill_name,

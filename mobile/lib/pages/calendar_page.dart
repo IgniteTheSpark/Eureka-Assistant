@@ -8,6 +8,7 @@ import '../render/asset_detail_sheet.dart';
 import '../render/day_render.dart';
 import '../render/render_spec.dart';
 import '../theme/app_theme.dart';
+import '../theme/domains.dart';
 import '../theme/eureka_colors.dart';
 import '../timeline/timeline.dart';
 import 'create_asset.dart';
@@ -516,10 +517,10 @@ class _TimelineViewState extends State<_TimelineView> {
     // _BandView) or the estimate runs tall on flash-heavy days and overshoots.
     final items = all.where((i) => i.kind != 'input_turn').toList();
     if (items.isEmpty) return 50;
-    // Band tiles (§流 段视图): each non-empty 时段 adds a 段头 + wash padding
-    // (~34); rows ~30. Counting bands keeps the seek-to-today estimate honest.
+    // sticky 日头 (~48) + 时段 bands (each: 段头 + wash padding ~34) + rows ~30.
+    // Counting bands keeps the seek-to-today estimate honest.
     final bands = <int>{for (final it in items) _bandIndexOf(it)};
-    return 28.0 + bands.length * 34 + items.length * 30;
+    return 48.0 + bands.length * 34 + items.length * 30;
   }
 
   double _offsetToToday() {
@@ -829,76 +830,61 @@ class _EmptyDayRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final eu = context.eu;
     final now = DateTime.now();
-    final isToday = day.year == now.year && day.month == now.month && day.day == now.day;
-    final tomorrow = DateTime(now.year, now.month, now.day).add(const Duration(days: 1));
-    final isTomorrow = day == tomorrow;
-    final label = isToday ? 'TODAY' : isTomorrow ? 'TOMORROW' : null;
+    final today = DateTime(now.year, now.month, now.day);
+    final isToday = day == today;
+    const wd = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+    final fg = isToday ? eu.brand : eu.textLo;
+    // §流 空日:折成一条细线(日期 + 渐隐线 + 空闲),点选 → 露出「在这天记一笔」。
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: IntrinsicHeight(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            GestureDetector(
-              onTap: onSelect,
-              behavior: HitTestBehavior.opaque,
-              child: SizedBox(width: 64, child: railHeader(eu, day, isToday, monthBoundary)),
-            ),
-            Expanded(
-              child: GestureDetector(
-                onTap: onSelect, // tap to select/deselect this empty day
-                behavior: HitTestBehavior.opaque,
-                child: Container(
-                  margin: const EdgeInsets.only(left: 6),
-                  constraints: const BoxConstraints(minHeight: 72),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: selected
-                      ? BoxDecoration(
-                          color: eu.brand.withValues(alpha: 0.08),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: eu.brand.withValues(alpha: 0.5)),
-                        )
-                      : dayTileDecoration(eu),
-                  child: Stack(
+      child: GestureDetector(
+        onTap: onSelect,
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+          decoration: BoxDecoration(
+            color: selected
+                ? eu.brand.withValues(alpha: 0.07)
+                : eu.surface.withValues(alpha: 0.35),
+            borderRadius: BorderRadius.circular(13),
+            border: Border.all(
+                color: selected ? eu.brand.withValues(alpha: 0.5) : eu.border),
+          ),
+          child: Row(
+            children: [
+              Text('${day.day}',
+                  style: TextStyle(fontSize: 17, height: 1, color: fg)),
+              const SizedBox(width: 5),
+              Text(wd[day.weekday % 7],
+                  style: euMono(
+                      fontSize: 8.5,
+                      color: isToday ? eu.brand : eu.textLo.withValues(alpha: 0.7))),
+              const SizedBox(width: 9),
+              Container(width: 1, height: 16, color: eu.border),
+              const Spacer(),
+              if (selected)
+                GestureDetector(
+                  onTap: () => showCreateMenu(context, presetDate: day),
+                  behavior: HitTestBehavior.opaque,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (selected)
-                        Center(
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text('空闲',
-                                  style: TextStyle(
-                                      color: eu.textLo, fontStyle: FontStyle.italic, fontSize: 13)),
-                              const SizedBox(width: 16),
-                              GestureDetector(
-                                onTap: () => showCreateMenu(context, presetDate: day),
-                                behavior: HitTestBehavior.opaque,
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(Icons.add, size: 15, color: eu.brand),
-                                    const SizedBox(width: 3),
-                                    Text('在这天记一笔',
-                                        style: TextStyle(
-                                            color: eu.brand, fontSize: 12.5, fontWeight: FontWeight.w600)),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      if (label != null)
-                        Align(
-                          alignment: Alignment.topRight,
-                          child: Text(label,
-                              style: euMono(fontSize: 9, letterSpacing: 2, color: eu.textMid)),
-                        ),
+                      Icon(Icons.add, size: 14, color: eu.brand),
+                      const SizedBox(width: 3),
+                      Text('在这天记一笔',
+                          style: TextStyle(
+                              color: eu.brand,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600)),
                     ],
                   ),
-                ),
-              ),
-            ),
-          ],
+                )
+              else
+                Text('空闲 · 点这天记一笔',
+                    style: TextStyle(fontSize: 11.5, color: eu.textLo)),
+            ],
+          ),
         ),
       ),
     );
@@ -1260,7 +1246,7 @@ class _MonthCell extends StatelessWidget {
 }
 
 /// Pinned footer under the month scroll — the selected day's items.
-class _SelectedDayFooter extends StatelessWidget {
+class _SelectedDayFooter extends StatefulWidget {
   final DateTime day;
   final List<TimelineItem> items;
   final Map<String, SkillMeta> skills;
@@ -1273,98 +1259,200 @@ class _SelectedDayFooter extends StatelessWidget {
   });
 
   @override
+  State<_SelectedDayFooter> createState() => _SelectedDayFooterState();
+}
+
+class _SelectedDayFooterState extends State<_SelectedDayFooter> {
+  final _scroll = ScrollController();
+  final _vpKey = GlobalKey(); // the content viewport, to read band positions
+  final _bandKeys = List.generate(6, (_) => GlobalKey());
+  final _curSeg = ValueNotifier<(String, String, Color)?>(null);
+
+  @override
+  void initState() {
+    super.initState();
+    _scroll.addListener(_recompute);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _recompute());
+  }
+
+  @override
+  void didUpdateWidget(_SelectedDayFooter old) {
+    super.didUpdateWidget(old);
+    if (old.day != widget.day) {
+      if (_scroll.hasClients) _scroll.jumpTo(0);
+      WidgetsBinding.instance.addPostFrameCallback((_) => _recompute());
+    }
+  }
+
+  @override
+  void dispose() {
+    _scroll.removeListener(_recompute);
+    _scroll.dispose();
+    _curSeg.dispose();
+    super.dispose();
+  }
+
+  // 当前时段 = last band whose top has scrolled under the fixed 日头 (real positions).
+  void _recompute() {
+    if (!mounted) return;
+    final groups = _bandGroupsOf(widget.items);
+    if (groups.isEmpty) {
+      _curSeg.value = null;
+      return;
+    }
+    final vp = _vpKey.currentContext?.findRenderObject() as RenderBox?;
+    var cur = 0;
+    if (vp != null && vp.attached) {
+      for (var i = 0; i < groups.length && i < _bandKeys.length; i++) {
+        final rb = _bandKeys[i].currentContext?.findRenderObject() as RenderBox?;
+        if (rb == null || !rb.attached) continue;
+        final top = rb.localToGlobal(Offset.zero, ancestor: vp).dy;
+        if (top <= 14) {
+          cur = i;
+        } else {
+          break;
+        }
+      }
+    }
+    final seg = (groups[cur].$1, groups[cur].$2, groups[cur].$3);
+    if (seg != _curSeg.value) _curSeg.value = seg;
+  }
+
+  @override
   Widget build(BuildContext context) {
     final eu = context.eu;
+    final flashes = FlashPill.flashesIn(widget.items);
+    final hasContent =
+        widget.items.where((i) => i.kind != 'input_turn').isNotEmpty;
     return Container(
       width: double.infinity,
-      // Fills the Expanded slot under the (now single-month) grid — the content
-      // area is the bigger half; it scrolls internally on busy days.
       decoration: BoxDecoration(
         color: eu.brightness == Brightness.dark
             ? Colors.white.withValues(alpha: 0.03)
             : Colors.black.withValues(alpha: 0.03),
         border: Border(top: BorderSide(color: eu.border)),
       ),
-      padding: const EdgeInsets.fromLTRB(20, 14, 20, 96),
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Tap the header → full day view (hour grid + list). The whole day
-            // cell also re-opens on a second tap (see _MonthView._onDayTap).
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: onOpenDay,
-              child: Row(
-                children: [
-                  Flexible(
-                    child: Text(_fullDateLabel(day),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: euMono(fontSize: 10.5, letterSpacing: 1.8, color: eu.textMid)),
-                  ),
-                  // ⚡N pill — flash 收敛到日期 header,和流一致。放大成非 compact
-                  // (「N 条闪念」),不混进内容。
-                  if (FlashPill.flashesIn(items).isNotEmpty) ...[
-                    const SizedBox(width: 10),
-                    FlashPill(
-                        day: day,
-                        flashes: FlashPill.flashesIn(items),
-                        skills: skills),
-                  ],
-                  const Spacer(),
-                  // 更多 → a tappable pill, bigger than the old 10px text.
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: eu.brand.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(color: eu.brand.withValues(alpha: 0.3)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // §月 sticky 日头(固定 footer 顶):日期·周几 · ⚡N · 当前时段。点 → DayDetail。
+          _header(eu, flashes),
+          Expanded(
+            child: hasContent
+                ? SingleChildScrollView(
+                    key: _vpKey,
+                    controller: _scroll,
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 96),
+                    // 点空白内容 → day detail;条目仍开各自详情。
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: widget.onOpenDay,
+                      child: _BandView(
+                        items: widget.items,
+                        skills: widget.skills,
+                        bandKeys: _bandKeys,
+                        onTap: (it) =>
+                            _openTimelineItem(context, it, widget.skills),
+                      ),
                     ),
-                    child: Row(
+                  )
+                : GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: widget.onOpenDay,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                      child: Text('空闲',
+                          style: TextStyle(
+                              color: eu.textLo,
+                              fontStyle: FontStyle.italic,
+                              fontSize: 13)),
+                    ),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _header(EurekaColors eu, List<TimelineItem> flashes) {
+    final isToday = _isToday;
+    return GestureDetector(
+      onTap: widget.onOpenDay,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 11, 16, 11),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color.alphaBlend(
+                  eu.brand.withValues(alpha: 0.05), eu.surfaceRaised),
+              eu.surfaceRaised,
+            ],
+          ),
+          border: Border(bottom: BorderSide(color: eu.border)),
+        ),
+        child: Row(
+          children: [
+            Flexible(
+              child: Text(_dateLabel(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: isToday ? eu.brand : eu.textHi)),
+            ),
+            if (flashes.isNotEmpty) ...[
+              const SizedBox(width: 9),
+              FlashPill(
+                  day: widget.day,
+                  flashes: flashes,
+                  skills: widget.skills,
+                  compact: true),
+            ],
+            const Spacer(),
+            ValueListenableBuilder<(String, String, Color)?>(
+              valueListenable: _curSeg,
+              builder: (_, seg, _) => seg == null
+                  ? const SizedBox.shrink()
+                  : Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text('更多',
+                        _segOrb(seg.$3, 11),
+                        const SizedBox(width: 5),
+                        Text(seg.$2,
                             style: TextStyle(
-                                fontSize: 13, fontWeight: FontWeight.w600, color: eu.brand)),
-                        Icon(Icons.chevron_right, size: 16, color: eu.brand),
+                                fontSize: 11,
+                                color: eu.textMid,
+                                letterSpacing: 0.3)),
                       ],
                     ),
-                  ),
-                ],
-              ),
             ),
-            const SizedBox(height: 10),
-            if (items.where((i) => i.kind != 'input_turn').isEmpty)
-              Text('空闲', style: TextStyle(color: eu.textLo, fontStyle: FontStyle.italic, fontSize: 13))
-            else
-              // §月:套用流的段视图(时段水洗带)。没说时间的内容落「没说时间」段,
-              // 不再被误标「全天」;闪念已上 header pill。
-              _BandView(
-                items: items,
-                skills: skills,
-                onTap: (it) => _openTimelineItem(context, it, skills),
-              ),
           ],
         ),
       ),
     );
   }
 
-  String _fullDateLabel(DateTime d) {
+  bool get _isToday {
+    final n = DateTime.now();
+    return widget.day == DateTime(n.year, n.month, n.day);
+  }
+
+  String _dateLabel() {
     const wd = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-    final weekday = wd[d.weekday % 7];
+    final d = widget.day;
     final today = DateTime.now();
     final t0 = DateTime(today.year, today.month, today.day);
     final diff = DateTime(d.year, d.month, d.day).difference(t0).inDays;
-    // Only flag 今天/明天; 昨天 / N 天前后 is noise next to the explicit date.
     final dist = diff == 0
         ? ' · 今天'
         : diff == 1
             ? ' · 明天'
             : '';
-    return '$weekday$dist · ${d.month}月${d.day}日';
+    return '${d.month}月${d.day}日 ${wd[d.weekday % 7]}$dist';
   }
 }
 
@@ -1490,9 +1578,15 @@ class _DayRow extends StatefulWidget {
 }
 
 class _DayRowState extends State<_DayRow> {
-  // Keyed content so the rail can read the day tile's height + viewport position.
-  final _contentKey = GlobalKey();
+  // Keyed tile so the sticky 日头 can read the day's height + viewport position.
+  final _tileKey = GlobalKey();
+  // Per-band keys (≥ max 6 bands) so 当前时段 reads the real seg-block positions.
+  final _bandKeys = List.generate(6, (_) => GlobalKey());
   ScrollableState? _scrollable;
+
+  // 统一日头 bar 高度 + 左侧日期纵列宽(= 内容缩进,日期 hang 在这条 gutter 里)。
+  static const double _headerH = 40;
+  static const double _dateW = 52;
 
   @override
   void didChangeDependencies() {
@@ -1500,20 +1594,38 @@ class _DayRowState extends State<_DayRow> {
     _scrollable = Scrollable.maybeOf(context);
   }
 
-  double get _railHeight =>
-      56 + (FlashPill.flashesIn(widget.items).isNotEmpty ? 26.0 : 0.0);
-
-  // Sticky offset: the rail tracks the viewport top, clamped inside the day's
-  // content — top-left when the day's top is at the viewport top, sliding to
-  // bottom-left as the day scrolls up past it. One localToGlobal per visible row.
-  double _railTop() {
-    final rb = _contentKey.currentContext?.findRenderObject() as RenderBox?;
+  // How far the day's tile top has scrolled above the viewport top, clamped so the
+  // sticky 日头 pins at the viewport top and stops at the day's bottom (被下一天推走)。
+  double _headerOffset(double tileH) {
+    final rb = _tileKey.currentContext?.findRenderObject() as RenderBox?;
     final vp = _scrollable?.context.findRenderObject() as RenderBox?;
     if (rb == null || !rb.attached || vp == null || !vp.attached) return 0;
-    final dy = rb.localToGlobal(Offset.zero, ancestor: vp).dy; // content top vs viewport
-    final maxOff = rb.size.height - _railHeight;
+    final dy = rb.localToGlobal(Offset.zero, ancestor: vp).dy; // tile top vs viewport
+    final maxOff = tileH - _headerH;
     if (maxOff <= 0) return 0;
     return (-dy).clamp(0.0, maxOff);
+  }
+
+  // 当前时段 = the last band whose top has scrolled under the 日头 (real seg-block
+  // positions via _bandKeys, matching the wireframe JS — exact, no estimate drift).
+  (String, String, Color)? _segAt(
+      List<(String, String, Color, List<TimelineItem>)> groups) {
+    if (groups.isEmpty) return null;
+    final vp = _scrollable?.context.findRenderObject() as RenderBox?;
+    var cur = 0;
+    if (vp != null && vp.attached) {
+      for (var i = 0; i < groups.length && i < _bandKeys.length; i++) {
+        final rb = _bandKeys[i].currentContext?.findRenderObject() as RenderBox?;
+        if (rb == null || !rb.attached) continue;
+        final top = rb.localToGlobal(Offset.zero, ancestor: vp).dy; // band top vs viewport
+        if (top - _headerH <= 16) {
+          cur = i;
+        } else {
+          break; // bands are top-to-bottom: once one is below the 日头, so are the rest
+        }
+      }
+    }
+    return (groups[cur].$1, groups[cur].$2, groups[cur].$3);
   }
 
   @override
@@ -1522,83 +1634,159 @@ class _DayRowState extends State<_DayRow> {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final isToday = widget.day == today;
+    final groups = _bandGroupsOf(widget.items);
+    final flashes = FlashPill.flashesIn(widget.items);
 
-    // Built ONCE: the scroll listener only re-wraps this in a Transform (the rail
-    // subtree itself is not rebuilt per scroll frame).
-    final rail = GestureDetector(
-      onTap: widget.onOpen,
-      behavior: HitTestBehavior.opaque,
-      child: SizedBox(
-        width: 64,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Container(
+        key: _tileKey,
+        margin: const EdgeInsets.symmetric(horizontal: 6),
+        constraints: const BoxConstraints(minHeight: 80),
+        decoration: dayTileDecoration(eu),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
           children: [
-            // Bounded height: railHeader is a Stack with a Positioned(top+bottom)
-            // "today" line, which needs a definite height.
-            SizedBox(
-              height: 56,
-              child: railHeader(eu, widget.day, isToday, widget.monthBoundary),
-            ),
-            // §流:闪念收敛到日期旁的 ⚡N pill,不再混进时段 bands。N=0 自隐。
-            if (FlashPill.flashesIn(widget.items).isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: FlashPill(
-                  day: widget.day,
-                  flashes: FlashPill.flashesIn(widget.items),
+            // 内容:时段 bands(段头保留),缩进 = 日期宽,top 让出日头。点空白 → DayDetail。
+            GestureDetector(
+              onTap: widget.onOpen,
+              behavior: HitTestBehavior.opaque,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(_dateW, _headerH + 4, 10, 10),
+                child: _BandView(
+                  items: widget.items,
                   skills: widget.skills,
-                  compact: true,
+                  bandKeys: _bandKeys,
+                  onTap: (it) => _openTimelineItem(context, it, widget.skills),
                 ),
               ),
+            ),
+            // 统一 sticky 日头:日号·周缩写 · ⚡N · 当前时段 · 相对标签。钉顶、被下一天推走。
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: ListenableBuilder(
+                listenable: widget.scroll,
+                builder: (_, _) {
+                  final rb =
+                      _tileKey.currentContext?.findRenderObject() as RenderBox?;
+                  final off = _headerOffset(rb?.size.height ?? 0);
+                  final seg = _segAt(groups);
+                  return Transform.translate(
+                    offset: Offset(0, off),
+                    child: _dayHead(eu, isToday, flashes, seg),
+                  );
+                },
+              ),
+            ),
           ],
         ),
       ),
     );
+  }
 
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Stack(
-        children: [
-          // Content indented 64px to leave the rail's column free.
-          Padding(
-            padding: const EdgeInsets.only(left: 64),
-            child: KeyedSubtree(key: _contentKey, child: _tile(context, eu)),
+  Widget _dayHead(EurekaColors eu, bool isToday, List<TimelineItem> flashes,
+      (String, String, Color)? seg) {
+    const wd = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+    final d = widget.day;
+    final dateColor = isToday ? eu.brand : eu.textHi;
+    return GestureDetector(
+      onTap: widget.onOpen, // 点日头(日期区)→ DayDetail
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        height: _headerH,
+        padding: const EdgeInsets.symmetric(horizontal: 11),
+        decoration: BoxDecoration(
+          // 差异化:暖调微抬升 + 底描边 + 软阴影,与下方内容拉开层次。
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color.alphaBlend(eu.brand.withValues(alpha: 0.05), eu.surfaceRaised),
+              eu.surfaceRaised,
+            ],
           ),
-          // §流:日期 + ⚡ pill rail —— sticky:随滚动在当天容器内上下移动。
-          Positioned.fill(
-            child: ListenableBuilder(
-              listenable: widget.scroll,
-              child: Align(alignment: Alignment.topLeft, child: rail),
-              builder: (_, child) =>
-                  Transform.translate(offset: Offset(0, _railTop()), child: child),
+          border: Border(bottom: BorderSide(color: eu.border)),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black.withValues(alpha: 0.05),
+                blurRadius: 5,
+                offset: const Offset(0, 2)),
+          ],
+        ),
+        child: Row(
+          children: [
+            // 日号 + 周缩写(今天蓝)
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Text('${d.day}',
+                    style: TextStyle(
+                        fontSize: 21,
+                        height: 1,
+                        fontWeight: FontWeight.w600,
+                        color: dateColor)),
+                const SizedBox(width: 4),
+                Text(wd[d.weekday % 7],
+                    style: euMono(
+                        fontSize: 8.5,
+                        color: isToday ? eu.brand : eu.textLo)),
+              ],
             ),
-          ),
-        ],
+            const SizedBox(width: 9),
+            Container(width: 1, height: 18, color: eu.border),
+            const SizedBox(width: 9),
+            // ⚡N闪念 = chat 入口;N=0 显「无闪念」淡字。
+            if (flashes.isNotEmpty)
+              FlashPill(
+                  day: widget.day,
+                  flashes: flashes,
+                  skills: widget.skills,
+                  compact: true)
+            else
+              Text('无闪念',
+                  style: TextStyle(fontSize: 10.5, color: eu.textLo)),
+            const Spacer(),
+            // 当前时段(随滚动变):发光球 + 段名
+            if (seg != null) ...[
+              _segOrb(seg.$3, 11),
+              const SizedBox(width: 5),
+              Text(seg.$2,
+                  style: TextStyle(
+                      fontSize: 11,
+                      letterSpacing: 0.3,
+                      color: eu.textMid)),
+            ],
+            const SizedBox(width: 7),
+            // 相对标签(极淡)
+            Text(_relLabel(),
+                style: TextStyle(fontSize: 9, color: eu.textLo, letterSpacing: 0.4)),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _tile(BuildContext context, EurekaColors eu) {
-    return GestureDetector(
-      // tapping an item (opaque, deeper) opens it; tapping the tile's empty area
-      // opens the day view.
-      onTap: widget.onOpen,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        margin: const EdgeInsets.only(left: 6),
-        // 有闪念 pill 的短日子要够高,否则 sticky rail 的 pill 会被裁掉。
-        constraints: BoxConstraints(
-            minHeight: FlashPill.flashesIn(widget.items).isNotEmpty ? 100 : 72),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: dayTileDecoration(eu),
-        // §流: compact 段视图 (时段水洗带). Same _BandView reused in the 月 footer.
-        child: _BandView(
-          items: widget.items,
-          skills: widget.skills,
-          onTap: (it) => _openTimelineItem(context, it, widget.skills),
-        ),
-      ),
-    );
+  String _relLabel() {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final diff = widget.day.difference(today).inDays;
+    switch (diff) {
+      case 0:
+        return '今天';
+      case -1:
+        return '昨天';
+      case -2:
+        return '前天';
+      case 1:
+        return '明天';
+      case 2:
+        return '后天';
+      default:
+        return '';
+    }
   }
 }
 
@@ -1608,22 +1796,34 @@ class _DayRowState extends State<_DayRow> {
 /// never as a band row. Reused by _DayRow (流) and the 月 day footer so the two
 /// stay in lockstep.
 class _BandView extends StatelessWidget {
-  const _BandView({required this.items, required this.skills, this.onTap});
+  const _BandView({
+    required this.items,
+    required this.skills,
+    this.onTap,
+    this.bandKeys,
+  });
 
   final List<TimelineItem> items;
   final Map<String, SkillMeta> skills;
   final void Function(TimelineItem)? onTap;
+  // Optional per-band keys so the day's sticky 日头 can read which 时段 sits under
+  // it (随滚动联动). Indexed by band order (same as _bandGroupsOf).
+  final List<GlobalKey>? bandKeys;
 
   @override
   Widget build(BuildContext context) {
     final eu = context.eu;
     final groups = _bandGroupsOf(items);
+    final keys = bandKeys;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         for (var g = 0; g < groups.length; g++) ...[
           if (g > 0) const SizedBox(height: 11),
-          _bandBlock(context, eu, groups[g]),
+          KeyedSubtree(
+            key: keys != null && g < keys.length ? keys[g] : null,
+            child: _bandBlock(context, eu, groups[g]),
+          ),
         ],
       ],
     );
@@ -1637,52 +1837,72 @@ class _BandView extends StatelessWidget {
     EurekaColors eu,
     (String, String, Color, List<TimelineItem>) group,
   ) {
-    final (emoji, label, tint, list) = group;
+    final (_, label, tint, list) = group;
+    // 有钟点的在上(按时刻);说了时段没说钟点的沉到段尾(虚线、不显时间)。
+    final timed = [for (final it in list) if (!_noTime(it)) it];
+    final noTime = [for (final it in list) if (_noTime(it)) it];
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
+        // 段色块:色温微洗在 base surface 上;卡片用 surfaceRaised 抬升、自然浮起。
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            Color.alphaBlend(tint.withValues(alpha: 0.10), eu.surfaceRaised),
-            Color.alphaBlend(tint.withValues(alpha: 0.03), eu.surfaceRaised),
+            Color.alphaBlend(tint.withValues(alpha: 0.16), eu.surface),
+            Color.alphaBlend(tint.withValues(alpha: 0.07), eu.surface),
           ],
         ),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(12),
       ),
-      padding: const EdgeInsets.fromLTRB(9, 7, 9, 9),
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // 段头:发光球 + 段名 + 向右渐隐细线。
           Padding(
-            padding: const EdgeInsets.only(bottom: 6),
+            padding: const EdgeInsets.only(bottom: 8, left: 2),
             child: Row(
-              mainAxisSize: MainAxisSize.min,
               children: [
-                Text(emoji, style: const TextStyle(fontSize: 10.5)),
-                const SizedBox(width: 5),
+                _segOrb(tint, 12),
+                const SizedBox(width: 7),
                 Text(label,
                     style: TextStyle(
                         color: eu.textMid,
                         fontSize: 11,
-                        letterSpacing: 0.4,
+                        letterSpacing: 1.2,
                         fontWeight: FontWeight.w600)),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Container(
+                    height: 1,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(colors: [
+                        tint.withValues(alpha: 0.42),
+                        tint.withValues(alpha: 0),
+                      ]),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
-          for (var i = 0; i < list.length; i++) ...[
+          for (var i = 0; i < timed.length; i++) ...[
             if (i > 0) const SizedBox(height: 7),
-            // 没说时间 items have no clock — drop the time column (keep the indent).
-            _row(context, eu, list[i], showTime: label != '没说时间'),
+            _card(context, eu, timed[i], noTime: false),
+          ],
+          for (var i = 0; i < noTime.length; i++) ...[
+            SizedBox(height: timed.isEmpty && i == 0 ? 0 : 7),
+            _card(context, eu, noTime[i], noTime: true),
           ],
         ],
       ),
     );
   }
 
-  Widget _row(BuildContext context, EurekaColors eu, TimelineItem it,
-      {bool showTime = true}) {
+  // One record = 左侧时刻列 + 带边框小卡片(icon + 标题省略 + 领域 tag)。无时刻 = 虚线、空时刻列。
+  Widget _card(BuildContext context, EurekaColors eu, TimelineItem it,
+      {required bool noTime}) {
     final icon = it.kind == 'event'
         ? '📅'
         : it.kind == 'contact'
@@ -1690,36 +1910,131 @@ class _BandView extends StatelessWidget {
             : resolveMeta(it.skillName ?? 'misc', skills).icon;
     final time = '${it.effectiveAt.hour.toString().padLeft(2, '0')}:'
         '${it.effectiveAt.minute.toString().padLeft(2, '0')}';
+    final inner = Row(
+      children: [
+        Text(icon, style: const TextStyle(fontSize: 13)),
+        const SizedBox(width: 7),
+        Flexible(
+          child: Text(it.title.isEmpty ? '记录' : it.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                  color: eu.textHi, fontSize: 12.5, fontWeight: FontWeight.w500)),
+        ),
+        if (isDomain(it.domain)) ...[
+          const SizedBox(width: 6),
+          _domTag(eu, it.domain),
+        ],
+      ],
+    );
+    const pad = EdgeInsets.symmetric(horizontal: 9, vertical: 7);
+    final radius = BorderRadius.circular(9);
+    final Widget box = noTime
+        ? CustomPaint(
+            foregroundPainter:
+                _DashedRRect(color: eu.textLo.withValues(alpha: 0.5)),
+            child: Container(
+              decoration: BoxDecoration(
+                  color: eu.surfaceRaised.withValues(alpha: 0.55),
+                  borderRadius: radius),
+              padding: pad,
+              child: inner,
+            ),
+          )
+        : Container(
+            decoration: BoxDecoration(
+              color: eu.surfaceRaised,
+              borderRadius: radius,
+              border: Border.all(color: eu.border, width: 1.2),
+            ),
+            padding: pad,
+            child: inner,
+          );
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onTap == null ? null : () => onTap!(it),
       child: Row(
-        mainAxisSize: MainAxisSize.min,
         children: [
           SizedBox(
-              width: 44,
-              child: showTime
-                  ? Text(time, style: euMono(fontSize: 10.5, color: eu.textMid))
-                  : null),
-          const SizedBox(width: 8),
-          SizedBox(
-              width: 18,
-              child: Center(child: Text(icon, style: const TextStyle(fontSize: 13)))),
-          const SizedBox(width: 8),
-          Flexible(
-            child: Text(it.title.isEmpty ? '记录' : it.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                    color: eu.textHi,
-                    fontSize: 13.5,
-                    height: 1.35,
-                    fontWeight: FontWeight.w500)),
+            width: 38,
+            child: noTime
+                ? null
+                : Text(time,
+                    textAlign: TextAlign.right,
+                    style: euMono(fontSize: 10, color: eu.textMid)),
           ),
+          const SizedBox(width: 7),
+          Expanded(child: box),
         ],
       ),
     );
   }
+
+  Widget _domTag(EurekaColors eu, String domain) {
+    final c = domainColor(eu, domain);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+      decoration: BoxDecoration(
+          color: c.withValues(alpha: 0.16),
+          borderRadius: BorderRadius.circular(999)),
+      child: Text(domain,
+          style: TextStyle(fontSize: 9, color: c, fontWeight: FontWeight.w600)),
+    );
+  }
+}
+
+// 发光小球 — radial highlight + soft glow of the band tint. Shared by 段头 + 日头。
+Widget _segOrb(Color tint, double size) => Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: RadialGradient(
+          center: const Alignment(-0.3, -0.4),
+          colors: [Color.lerp(tint, Colors.white, 0.55)!, tint],
+          stops: const [0, 0.78],
+        ),
+        boxShadow: [
+          BoxShadow(color: tint.withValues(alpha: 0.5), blurRadius: size * 0.5),
+        ],
+      ),
+    );
+
+// Dashed rounded-rect border for「没有时间」cards (Flutter has no native dashed border).
+class _DashedRRect extends CustomPainter {
+  _DashedRRect({required this.color});
+  final Color color;
+  static const double _radius = 9, _dash = 4, _gap = 3;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = Path()
+      ..addRRect(
+          RRect.fromRectAndRadius(Offset.zero & size, const Radius.circular(_radius)));
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.3;
+    for (final m in path.computeMetrics()) {
+      var d = 0.0;
+      while (d < m.length) {
+        canvas.drawPath(
+            m.extractPath(d, (d + _dash).clamp(0.0, m.length)), paint);
+        d += _dash + _gap;
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DashedRRect old) => old.color != color;
+}
+
+// 是否「没有时间」(沉段尾、虚线、不显时刻):有 event/钟点 → 有时间;只说了时段没说
+// 钟点 → 无时间;两者皆无的午夜兜底 → 无时间。
+bool _noTime(TimelineItem it) {
+  if (it.kind == 'event' || it.hasClockTime) return false;
+  if (it.period.isNotEmpty) return true;
+  return it.effectiveAt.hour == 0 && it.effectiveAt.minute == 0;
 }
 
 // Bucket a day's items into ordered time-of-day bands (凌晨/上午/中午/下午/晚上) +
@@ -1729,14 +2044,15 @@ class _BandView extends StatelessWidget {
 List<(String, String, Color, List<TimelineItem>)> _bandGroupsOf(
   List<TimelineItem> items,
 ) {
-  // emoji · 时段 · wash tint (indigo→cyan→gold→orange→violet; slate for no-time).
+  // 时段 · 色温 tint (凌晨蓝灰 → 上午暖金 → 中午亮金 → 下午琥珀 → 晚上冷蓝;灰=没有时间)。
+  // emoji 不再画(段头用发光球),保留占位以不动元组形状。
   const defs = [
-    ('🌙', '凌晨', Color(0xFF6B7CFF)),
-    ('🌅', '上午', Color(0xFF26C6DA)),
-    ('☀️', '中午', Color(0xFFF5B81E)),
-    ('🌆', '下午', Color(0xFFF97316)),
-    ('🌃', '晚上', Color(0xFFA78BFA)),
-    ('🕒', '没说时间', Color(0xFF94A3B8)),
+    ('', '凌晨', Color(0xFF6B75C0)),
+    ('', '上午', Color(0xFFF2B440)),
+    ('', '中午', Color(0xFFF3A034)),
+    ('', '下午', Color(0xFFE89149)),
+    ('', '晚上', Color(0xFF5B69B2)),
+    ('', '没有时间', Color(0xFF9AA0AD)),
   ];
   final buckets = List.generate(6, (_) => <TimelineItem>[]);
   for (final it in items) {

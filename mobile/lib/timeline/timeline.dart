@@ -48,6 +48,9 @@ class TimelineItem {
   /// is that precise moment). Events with a start time count via `kind`.
   final bool hasClockTime;
 
+  /// §8 生活领域(工作/学习/健康/运动/社交/娱乐/生活/灵感),否则 ''。流/月卡片的领域 tag。
+  final String domain;
+
   TimelineItem({
     required this.kind,
     required this.id,
@@ -65,6 +68,7 @@ class TimelineItem {
     this.payload = const {},
     this.period = '',
     this.hasClockTime = false,
+    this.domain = '',
   });
 
   factory TimelineItem.fromJson(Map<String, dynamic> j) {
@@ -91,6 +95,7 @@ class TimelineItem {
       },
       period: j['period'] as String? ?? '',
       hasClockTime: j['has_clock_time'] == true,
+      domain: j['domain'] as String? ?? '',
     );
   }
 }
