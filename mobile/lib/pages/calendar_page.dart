@@ -801,7 +801,7 @@ Widget _railMonthLabel(EurekaColors eu, DateTime day) {
   );
 }
 
-class _EmptyDayRow extends StatelessWidget {
+class _EmptyDayRow extends StatefulWidget {
   final DateTime day;
   final bool monthBoundary;
   const _EmptyDayRow({
@@ -811,54 +811,67 @@ class _EmptyDayRow extends StatelessWidget {
   });
 
   @override
+  State<_EmptyDayRow> createState() => _EmptyDayRowState();
+}
+
+class _EmptyDayRowState extends State<_EmptyDayRow> {
+  // 空日:第一次点 → 框内露出引导语;点引导语才弹创建 sheet(不一点就弹)。
+  bool _revealed = false;
+
+  @override
   Widget build(BuildContext context) {
     final eu = context.eu;
     final now = DateTime.now();
-    final isToday = day == DateTime(now.year, now.month, now.day);
+    final isToday = widget.day == DateTime(now.year, now.month, now.day);
     const wd = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
     final fg = isToday ? eu.brand : eu.textLo;
-    // §流 空日:与有内容的日子同构 —— 日期独立在左,右侧一个淡淡的空框(不塞文案)。
-    // 点 → 在这天快记。
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: GestureDetector(
-        onTap: () => showCreateMenu(context, presetDate: day),
-        behavior: HitTestBehavior.opaque,
-        child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 6),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SizedBox(
-                width: 52,
-                child: Padding(
-                  padding: const EdgeInsets.only(left: 4, top: 1),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(wd[day.weekday % 7],
-                          style: euMono(
-                              fontSize: 9,
-                              letterSpacing: 1.2,
-                              color: fg.withValues(alpha: 0.8))),
-                      Text('${day.day}',
-                          style: TextStyle(
-                              fontSize: 23,
-                              height: 1.05,
-                              fontWeight: FontWeight.w600,
-                              color: fg)),
-                    ],
-                  ),
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 6),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 60,
+              child: Padding(
+                padding: const EdgeInsets.only(left: 4, top: 1),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(wd[widget.day.weekday % 7],
+                        style: euMono(
+                            fontSize: 9,
+                            letterSpacing: 1.2,
+                            color: fg.withValues(alpha: 0.8))),
+                    Text('${widget.day.day}',
+                        style: TextStyle(
+                            fontSize: 23,
+                            height: 1.05,
+                            fontWeight: FontWeight.w600,
+                            color: fg)),
+                  ],
                 ),
               ),
-              Expanded(
+            ),
+            Expanded(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _revealed
+                    ? () => showCreateMenu(context, presetDate: widget.day)
+                    : () => setState(() => _revealed = true),
                 child: Container(
                   height: 58,
                   decoration: BoxDecoration(
-                    color: eu.surface.withValues(alpha: 0.5),
+                    color: _revealed
+                        ? eu.brand.withValues(alpha: 0.06)
+                        : eu.surface.withValues(alpha: 0.5),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: eu.border),
+                    border: Border.all(
+                        color: _revealed
+                            ? eu.brand.withValues(alpha: 0.4)
+                            : eu.border),
                     boxShadow: [
                       BoxShadow(
                           color: Colors.black.withValues(
@@ -870,13 +883,28 @@ class _EmptyDayRow extends StatelessWidget {
                     ],
                   ),
                   clipBehavior: Clip.antiAlias,
-                  child: CustomPaint(
-                      painter:
-                          _HatchPainter(eu.textLo.withValues(alpha: 0.10))),
+                  child: _revealed
+                      ? Center(
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.add, size: 15, color: eu.brand),
+                              const SizedBox(width: 4),
+                              Text('在这天记一笔',
+                                  style: TextStyle(
+                                      color: eu.brand,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600)),
+                            ],
+                          ),
+                        )
+                      : CustomPaint(
+                          painter: _HatchPainter(
+                              eu.textLo.withValues(alpha: 0.10))),
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -1351,7 +1379,8 @@ class _SelectedDayFooterState extends State<_SelectedDayFooter> {
         ),
         child: Row(
           children: [
-            Flexible(
+            // Expanded(不是 Flexible+Spacer)——日期占满左侧、闪念真正贴到最右,无留白。
+            Expanded(
               child: Text(_dateLabel(),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -1360,14 +1389,15 @@ class _SelectedDayFooterState extends State<_SelectedDayFooter> {
                       fontWeight: FontWeight.w700,
                       color: isToday ? eu.brand : eu.textHi)),
             ),
-            const Spacer(),
-            // 闪念 → 最右侧(⚡N,无「闪念」字样)。点 → 当天闪念 session。
-            if (flashes.isNotEmpty)
+            // 闪念 → 最右侧(⚡N,无「闪念」字样),与左侧日期对称。点 → 当天闪念 session。
+            if (flashes.isNotEmpty) ...[
+              const SizedBox(width: 8),
               FlashPill(
                   day: widget.day,
                   flashes: flashes,
                   skills: widget.skills,
                   compact: true),
+            ],
           ],
         ),
       ),
@@ -1524,8 +1554,8 @@ class _DayRowState extends State<_DayRow> {
   // (smooth) instead of a one-frame-lagged localToGlobal (which jitters).
   double? _pin;
 
-  // 左侧日期/闪念纵列宽(= 内容左缩进)。
-  static const double _railW = 56;
+  // 左侧日期/闪念纵列宽(= 内容左缩进)。够宽以容下「⚡NN」pill,避免溢出。
+  static const double _railW = 60;
 
   // 左列高度(日期 + 可选闪念 pill),用于钉到当天底部的 clamp。
   double get _railHeight =>
@@ -1571,17 +1601,35 @@ class _DayRowState extends State<_DayRow> {
         constraints: const BoxConstraints(minHeight: 52),
         child: Stack(
           children: [
-            // 右内容:时段 bands(各段自带 段头);左缩进让出日期纵列,无固定 header。
-            // 点空白 → DayDetail。
+            // 右内容:各时段 block 仍分块,但一起装进一个浅色「day 容器」表达"同一天",
+            // 不再松散漂浮。左缩进让出日期纵列,无固定 header。点空白 → DayDetail。
             GestureDetector(
               onTap: widget.onOpen,
               behavior: HitTestBehavior.opaque,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(_railW, 2, 2, 2),
-                child: _BandView(
-                  items: widget.items,
-                  skills: widget.skills,
-                  onTap: (it) => _openTimelineItem(context, it, widget.skills),
+                padding: const EdgeInsets.fromLTRB(_railW, 2, 6, 2),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: eu.surfaceRaised,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: eu.border),
+                    boxShadow: [
+                      BoxShadow(
+                          color: Colors.black.withValues(
+                              alpha: eu.brightness == Brightness.dark
+                                  ? 0.18
+                                  : 0.04),
+                          blurRadius: 6,
+                          offset: const Offset(0, 2)),
+                    ],
+                  ),
+                  padding: const EdgeInsets.all(7),
+                  child: _BandView(
+                    items: widget.items,
+                    skills: widget.skills,
+                    onTap: (it) =>
+                        _openTimelineItem(context, it, widget.skills),
+                  ),
                 ),
               ),
             ),
@@ -1641,15 +1689,6 @@ class _DayRowState extends State<_DayRow> {
                           height: 1.05,
                           fontWeight: FontWeight.w600,
                           color: isToday ? eu.brand : eu.textHi)),
-                  if (isToday)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 3, left: 1),
-                      child: Container(
-                          width: 5,
-                          height: 5,
-                          decoration: BoxDecoration(
-                              color: eu.brand, shape: BoxShape.circle)),
-                    ),
                 ],
               ),
             ),

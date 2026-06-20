@@ -170,7 +170,7 @@ class FlashPill extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       onTap: () => _open(context),
       child: Container(
-        padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 12, vertical: compact ? 5 : 7),
+        padding: EdgeInsets.symmetric(horizontal: compact ? 8 : 12, vertical: compact ? 5 : 7),
         constraints: BoxConstraints(minHeight: compact ? 28 : 34),
         // §design 闪念表达:白底浅蓝描边胶囊「⚡ N 闪念」(= chat 入口)。
         decoration: BoxDecoration(
