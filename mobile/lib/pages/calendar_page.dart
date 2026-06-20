@@ -817,32 +817,50 @@ class _EmptyDayRow extends StatelessWidget {
     final isToday = day == DateTime(now.year, now.month, now.day);
     const wd = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
     final fg = isToday ? eu.brand : eu.textLo;
-    // §流 空日:一个干净的空框(保留"框感",不塞文案)。点 → 在这天快记。
+    // §流 空日:与有内容的日子同构 —— 日期独立在左,右侧一个淡淡的空框(不塞文案)。
+    // 点 → 在这天快记。
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 12),
       child: GestureDetector(
         onTap: () => showCreateMenu(context, presetDate: day),
         behavior: HitTestBehavior.opaque,
         child: Container(
           margin: const EdgeInsets.symmetric(horizontal: 6),
-          constraints: const BoxConstraints(minHeight: 60),
-          padding: const EdgeInsets.fromLTRB(14, 11, 14, 11),
-          decoration: dayTileDecoration(eu),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('${day.day}',
-                  style: TextStyle(
-                      fontSize: 19, height: 1, fontWeight: FontWeight.w600, color: fg)),
-              const SizedBox(width: 5),
-              Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: Text(wd[day.weekday % 7],
-                    style: euMono(
-                        fontSize: 8.5,
-                        color: isToday
-                            ? eu.brand
-                            : eu.textLo.withValues(alpha: 0.7))),
+              SizedBox(
+                width: 52,
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 4, top: 1),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(wd[day.weekday % 7],
+                          style: euMono(
+                              fontSize: 9,
+                              letterSpacing: 1.2,
+                              color: fg.withValues(alpha: 0.8))),
+                      Text('${day.day}',
+                          style: TextStyle(
+                              fontSize: 23,
+                              height: 1.05,
+                              fontWeight: FontWeight.w600,
+                              color: fg)),
+                    ],
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Container(
+                  height: 46,
+                  decoration: BoxDecoration(
+                    color: eu.surface.withValues(alpha: 0.35),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: eu.border),
+                  ),
+                ),
               ),
             ],
           ),
@@ -1620,21 +1638,20 @@ class _DayRowState extends State<_DayRow> {
     final flashes = FlashPill.flashesIn(widget.items);
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Container(
         key: _tileKey,
         margin: const EdgeInsets.symmetric(horizontal: 6),
-        constraints: const BoxConstraints(minHeight: 80),
-        decoration: dayTileDecoration(eu),
-        clipBehavior: Clip.antiAlias,
+        constraints: const BoxConstraints(minHeight: 56),
         child: Stack(
           children: [
-            // 内容:时段 bands(段头保留),缩进 = 日期宽,top 让出日头。点空白 → DayDetail。
+            // 内容(右栏):时段 bands(段头保留),左缩进让出日期纵列、top 让出 content header。
+            // 点空白 → DayDetail。
             GestureDetector(
               onTap: widget.onOpen,
               behavior: HitTestBehavior.opaque,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(_dateW, _headerH + 4, 10, 10),
+                padding: const EdgeInsets.fromLTRB(_dateW, _headerH + 2, 2, 2),
                 child: _BandView(
                   items: widget.items,
                   skills: widget.skills,
@@ -1643,7 +1660,8 @@ class _DayRowState extends State<_DayRow> {
                 ),
               ),
             ),
-            // 统一 sticky 日头:日号·周缩写 · ⚡N · 当前时段 · 相对标签。钉顶、被下一天推走。
+            // sticky 单元 = 左侧独立日期 + 右侧 content header(⚡+时段),二者一起移动、
+            // 钉顶、被下一天推走。日期落在左 gutter(内容已右缩进,不会重叠)。
             Positioned(
               top: 0,
               left: 0,
@@ -1657,7 +1675,7 @@ class _DayRowState extends State<_DayRow> {
                   final seg = _segAt(groups);
                   return Transform.translate(
                     offset: Offset(0, off),
-                    child: _dayHead(eu, isToday, flashes, seg),
+                    child: _stickyUnit(eu, isToday, flashes, seg),
                   );
                 },
               ),
@@ -1668,58 +1686,66 @@ class _DayRowState extends State<_DayRow> {
     );
   }
 
-  Widget _dayHead(EurekaColors eu, bool isToday, List<TimelineItem> flashes,
+  // 左日期 + 右 content header,作为一个整体随滚动钉顶/移动。
+  Widget _stickyUnit(EurekaColors eu, bool isToday, List<TimelineItem> flashes,
       (String, String, Color)? seg) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // 左:独立日期(无底色,落在 gutter 里)。点 → DayDetail。
+        GestureDetector(
+          onTap: widget.onOpen,
+          behavior: HitTestBehavior.opaque,
+          child: SizedBox(
+            width: _dateW,
+            child: Padding(
+              padding: const EdgeInsets.only(left: 4, top: 1),
+              child: _dateCol(eu, isToday),
+            ),
+          ),
+        ),
+        // 右:content header(⚡ + 当前时段),有底色以盖住下方滚动内容。
+        Expanded(child: _contentHeader(eu, flashes, seg)),
+      ],
+    );
+  }
+
+  Widget _dateCol(EurekaColors eu, bool isToday) {
     const wd = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
     final d = widget.day;
-    final dateColor = isToday ? eu.brand : eu.textHi;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(wd[d.weekday % 7],
+            style: euMono(
+                fontSize: 9,
+                letterSpacing: 1.2,
+                color: isToday ? eu.brand : eu.textLo.withValues(alpha: 0.85))),
+        Text('${d.day}',
+            style: TextStyle(
+                fontSize: 23,
+                height: 1.05,
+                fontWeight: FontWeight.w600,
+                color: isToday ? eu.brand : eu.textHi)),
+      ],
+    );
+  }
+
+  Widget _contentHeader(EurekaColors eu, List<TimelineItem> flashes,
+      (String, String, Color)? seg) {
     return GestureDetector(
-      onTap: widget.onOpen, // 点日头(日期区)→ DayDetail
+      onTap: widget.onOpen, // 点 header 空白 → DayDetail
       behavior: HitTestBehavior.opaque,
       child: Container(
         height: _headerH,
-        padding: const EdgeInsets.symmetric(horizontal: 11),
+        padding: const EdgeInsets.fromLTRB(10, 0, 8, 0),
         decoration: BoxDecoration(
-          // 差异化:暖调微抬升 + 底描边 + 软阴影,与下方内容拉开层次。
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Color.alphaBlend(eu.brand.withValues(alpha: 0.05), eu.surfaceRaised),
-              eu.surfaceRaised,
-            ],
-          ),
+          color: eu.surfaceRaised,
           border: Border(bottom: BorderSide(color: eu.border)),
-          boxShadow: [
-            BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 5,
-                offset: const Offset(0, 2)),
-          ],
         ),
         child: Row(
           children: [
-            // 日号 + 周缩写(今天蓝)
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.baseline,
-              textBaseline: TextBaseline.alphabetic,
-              children: [
-                Text('${d.day}',
-                    style: TextStyle(
-                        fontSize: 21,
-                        height: 1,
-                        fontWeight: FontWeight.w600,
-                        color: dateColor)),
-                const SizedBox(width: 4),
-                Text(wd[d.weekday % 7],
-                    style: euMono(
-                        fontSize: 8.5,
-                        color: isToday ? eu.brand : eu.textLo)),
-              ],
-            ),
-            const SizedBox(width: 9),
-            Container(width: 1, height: 18, color: eu.border),
-            const SizedBox(width: 9),
             // ⚡N闪念 = chat 入口;N=0 显「无闪念」淡字。
             if (flashes.isNotEmpty)
               FlashPill(
@@ -1728,8 +1754,7 @@ class _DayRowState extends State<_DayRow> {
                   skills: widget.skills,
                   compact: true)
             else
-              Text('无闪念',
-                  style: TextStyle(fontSize: 10.5, color: eu.textLo)),
+              Text('无闪念', style: TextStyle(fontSize: 10.5, color: eu.textLo)),
             const Spacer(),
             // 当前时段(随滚动变):发光球 + 段名
             if (seg != null) ...[
@@ -1737,14 +1762,12 @@ class _DayRowState extends State<_DayRow> {
               const SizedBox(width: 5),
               Text(seg.$2,
                   style: TextStyle(
-                      fontSize: 11,
-                      letterSpacing: 0.3,
-                      color: eu.textMid)),
+                      fontSize: 11, letterSpacing: 0.3, color: eu.textMid)),
             ],
             const SizedBox(width: 7),
-            // 相对标签(极淡)
             Text(_relLabel(),
-                style: TextStyle(fontSize: 9, color: eu.textLo, letterSpacing: 0.4)),
+                style:
+                    TextStyle(fontSize: 9, color: eu.textLo, letterSpacing: 0.4)),
           ],
         ),
       ),
