@@ -987,32 +987,23 @@ class _MonthView extends StatefulWidget {
 }
 
 class _MonthViewState extends State<_MonthView> {
-  final _scroll = ScrollController();
-  final _focusKey = GlobalKey();
+  // Show ONE month (the date grid was eating the screen as a 13-month scroll);
+  // prev/next switch it, and the 年视图 still drives it via focusMonth.
+  late DateTime _displayMonth = DateTime(widget.focusMonth.year, widget.focusMonth.month);
   late DateTime _selected = _dayOnly(DateTime.now());
-  late final List<DateTime> _months = [
-    for (var i = -6; i <= 6; i++)
-      DateTime(widget.focusMonth.year, widget.focusMonth.month + i),
-  ];
 
   static DateTime _dayOnly(DateTime d) => DateTime(d.year, d.month, d.day);
 
   @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final ctx = _focusKey.currentContext;
-      if (ctx != null) {
-        Scrollable.ensureVisible(ctx, alignment: 0.0, duration: Duration.zero);
-      }
-    });
+  void didUpdateWidget(_MonthView old) {
+    super.didUpdateWidget(old);
+    if (widget.focusMonth != old.focusMonth) {
+      _displayMonth = DateTime(widget.focusMonth.year, widget.focusMonth.month);
+    }
   }
 
-  @override
-  void dispose() {
-    _scroll.dispose();
-    super.dispose();
-  }
+  void _shiftMonth(int delta) => setState(
+      () => _displayMonth = DateTime(_displayMonth.year, _displayMonth.month + delta));
 
   void _openDay(DateTime d) {
     Navigator.of(context).push(MaterialPageRoute(
@@ -1035,37 +1026,66 @@ class _MonthViewState extends State<_MonthView> {
     final selItems = widget.byDay[_selected] ?? const <TimelineItem>[];
     return Column(
       children: [
-        Expanded(
-          // Eager Column (not a lazy ListView) so the focus-month block is laid
-          // out on first frame and ensureVisible can scroll to it on mount.
-          child: SingleChildScrollView(
-            controller: _scroll,
-            padding: const EdgeInsets.only(top: 4, bottom: 12),
-            child: Column(
-              children: [
-                for (final m in _months)
-                  _MonthBlock(
-                    key: m.year == widget.focusMonth.year && m.month == widget.focusMonth.month
-                        ? _focusKey
-                        : null,
-                    month: m,
-                    byDay: widget.byDay,
-                    selected: _selected,
-                    onSelect: _onDayTap,
-                  ),
-              ],
-            ),
-          ),
+        _monthSwitcher(context),
+        _MonthBlock(
+          month: _displayMonth,
+          byDay: widget.byDay,
+          selected: _selected,
+          onSelect: _onDayTap,
         ),
-        _SelectedDayFooter(
-          day: _selected,
-          items: selItems,
-          skills: widget.skills,
-          onOpenDay: () => _openDay(_selected),
+        // Footer fills the rest → the content area is now the bigger half.
+        Expanded(
+          child: _SelectedDayFooter(
+            day: _selected,
+            items: selItems,
+            skills: widget.skills,
+            onOpenDay: () => _openDay(_selected),
+          ),
         ),
       ],
     );
   }
+
+  // ‹ 2026年6月 › — arrows switch the single displayed month; tap the label to
+  // jump back to the current month. (年视图 selecting a month also drives this.)
+  Widget _monthSwitcher(BuildContext context) {
+    final eu = context.eu;
+    final now = DateTime.now();
+    final isCur = _displayMonth.year == now.year && _displayMonth.month == now.month;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 10, 10, 2),
+      child: Row(
+        children: [
+          _arrow(eu, Icons.chevron_left, () => _shiftMonth(-1)),
+          Expanded(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: isCur
+                  ? null
+                  : () => setState(() => _displayMonth = DateTime(now.year, now.month)),
+              child: Center(
+                child: Text('${_displayMonth.year}年${_displayMonth.month}月',
+                    style: TextStyle(
+                        color: isCur ? eu.brand : eu.textHi,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700)),
+              ),
+            ),
+          ),
+          _arrow(eu, Icons.chevron_right, () => _shiftMonth(1)),
+        ],
+      ),
+    );
+  }
+
+  Widget _arrow(EurekaColors eu, IconData icon, VoidCallback onTap) => GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: Icon(icon, size: 22, color: eu.textMid),
+        ),
+      );
 }
 
 class _MonthBlock extends StatelessWidget {
@@ -1074,7 +1094,6 @@ class _MonthBlock extends StatelessWidget {
   final DateTime selected;
   final ValueChanged<DateTime> onSelect;
   const _MonthBlock({
-    super.key,
     required this.month,
     required this.byDay,
     required this.selected,
@@ -1087,35 +1106,16 @@ class _MonthBlock extends StatelessWidget {
   Widget build(BuildContext context) {
     final eu = context.eu;
     final now = DateTime.now();
-    final isCurrentMonth = month.year == now.year && month.month == now.month;
     // 42 cells from the Sunday on/before the 1st.
     final first = DateTime(month.year, month.month, 1);
     final start = first.subtract(Duration(days: first.weekday % 7));
     final cells = [for (var i = 0; i < 42; i++) start.add(Duration(days: i))];
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Text('${month.month}月',
-                  style: TextStyle(
-                      color: isCurrentMonth ? eu.brand : eu.textHi,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                      shadows: isCurrentMonth
-                          ? [Shadow(color: eu.brand.withValues(alpha: 0.4), blurRadius: 14)]
-                          : null)),
-              const SizedBox(width: 8),
-              Text('${month.year}',
-                  style: euMono(fontSize: 10.5, letterSpacing: 1.4, color: eu.textLo)),
-            ],
-          ),
-          const SizedBox(height: 8),
           Row(
             children: [
               for (final w in _wd)
@@ -1133,7 +1133,7 @@ class _MonthBlock extends StatelessWidget {
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             mainAxisSpacing: 2,
-            childAspectRatio: 1.0,
+            childAspectRatio: 1.2,
             children: [
               for (final d in cells)
                 _MonthCell(
@@ -1259,10 +1259,8 @@ class _SelectedDayFooter extends StatelessWidget {
     final eu = context.eu;
     return Container(
       width: double.infinity,
-      // Fixed height (not maxHeight) so the month grid above never reflows when
-      // you select a busy day vs. an empty one — the footer is a stable panel
-      // that scrolls internally when its day has many items.
-      height: MediaQuery.of(context).size.height * 0.30,
+      // Fills the Expanded slot under the (now single-month) grid — the content
+      // area is the bigger half; it scrolls internally on busy days.
       decoration: BoxDecoration(
         color: eu.brightness == Brightness.dark
             ? Colors.white.withValues(alpha: 0.03)
@@ -1288,18 +1286,34 @@ class _SelectedDayFooter extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: euMono(fontSize: 10.5, letterSpacing: 1.8, color: eu.textMid)),
                   ),
-                  // ⚡N pill — flash 收敛到日期 header,和流一致;不混进内容。
+                  // ⚡N pill — flash 收敛到日期 header,和流一致。放大成非 compact
+                  // (「N 条闪念」),不混进内容。
                   if (FlashPill.flashesIn(items).isNotEmpty) ...[
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 10),
                     FlashPill(
                         day: day,
                         flashes: FlashPill.flashesIn(items),
-                        skills: skills,
-                        compact: true),
+                        skills: skills),
                   ],
                   const Spacer(),
-                  Text('更多', style: euMono(fontSize: 10, letterSpacing: 1.2, color: eu.brand)),
-                  Icon(Icons.chevron_right, size: 16, color: eu.brand),
+                  // 更多 → a tappable pill, bigger than the old 10px text.
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: eu.brand.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: eu.brand.withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text('更多',
+                            style: TextStyle(
+                                fontSize: 13, fontWeight: FontWeight.w600, color: eu.brand)),
+                        Icon(Icons.chevron_right, size: 16, color: eu.brand),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -1326,16 +1340,13 @@ class _SelectedDayFooter extends StatelessWidget {
     final today = DateTime.now();
     final t0 = DateTime(today.year, today.month, today.day);
     final diff = DateTime(d.year, d.month, d.day).difference(t0).inDays;
+    // Only flag 今天/明天; 昨天 / N 天前后 is noise next to the explicit date.
     final dist = diff == 0
-        ? '今天'
+        ? ' · 今天'
         : diff == 1
-            ? '明天'
-            : diff == -1
-                ? '昨天'
-                : diff > 0
-                    ? '$diff 天后'
-                    : '${-diff} 天前';
-    return '$weekday · $dist · ${d.month}月${d.day}日';
+            ? ' · 明天'
+            : '';
+    return '$weekday$dist · ${d.month}月${d.day}日';
   }
 }
 

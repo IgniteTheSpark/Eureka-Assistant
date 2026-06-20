@@ -92,7 +92,6 @@ class _AssetViewState extends State<_AssetView> {
   final _api = ApiClient();
   bool _busy = false;
   late String? _domain = widget.data.domain;
-  String? _period; // §4.5.0a 时段(段纠错);hydrated from the asset, null = 未指定
 
   // Canonical asset data. Seeded from the (possibly partial / stale) card the
   // caller passed, then refreshed from the server in initState so EVERY surface
@@ -109,7 +108,6 @@ class _AssetViewState extends State<_AssetView> {
   bool get _editable => widget.assetId != null;
   bool get _domainEditable =>
       widget.assetId != null && cardType != 'event' && cardType != 'contact' && cardType != 'task';
-  bool get _periodEditable => _domainEditable; // 段纠错 only for asset-backed cards
 
   @override
   void initState() {
@@ -136,8 +134,6 @@ class _AssetViewState extends State<_AssetView> {
         _payload = full;
         final dm = asset?['domain'] as String?;
         if (dm != null) _domain = dm;
-        final pd = asset?['period'] as String?;
-        _period = (pd != null && pd.isNotEmpty) ? pd : null;
         if (widget.spec != null) {
           _data = buildCard(payload: full, spec: widget.spec, displayName: widget.data.title)
               .copyWith(domain: _domain);
@@ -331,70 +327,6 @@ class _AssetViewState extends State<_AssetView> {
     } catch (_) {/* keep optimistic value; revision refresh will reconcile */}
   }
 
-  static const _kPeriods = ['凌晨', '上午', '中午', '下午', '晚上'];
-
-  // §4.5.0a 段纠错:agent 放错时段时,用户一点就挪;选「不指定」回到按记录时间落段。
-  Future<void> _pickPeriod() async {
-    final eu = context.eu;
-    final picked = await showModalBottomSheet<String?>(
-      context: context,
-      backgroundColor: eu.surface,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('选择时段', style: TextStyle(color: eu.textHi, fontSize: 16, fontWeight: FontWeight.w700)),
-              const SizedBox(height: 4),
-              Text('放错段了?选一个时段;选「不指定」回到按记录时间落段',
-                  style: TextStyle(color: eu.textLo, fontSize: 11.5)),
-              const SizedBox(height: 14),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final p in _kPeriods)
-                    GestureDetector(
-                      onTap: () => Navigator.pop(ctx, p),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-                        decoration: BoxDecoration(
-                          color: eu.brand.withValues(alpha: _period == p ? 0.24 : 0.10),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                              color: eu.brand.withValues(alpha: _period == p ? 0.6 : 0.26)),
-                        ),
-                        child: Text(p,
-                            style: TextStyle(color: eu.textHi, fontSize: 13, fontWeight: FontWeight.w600)),
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              GestureDetector(
-                onTap: () => Navigator.pop(ctx, '__clear__'),
-                child: Text('不指定时段', style: TextStyle(color: eu.textMid, fontSize: 13)),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    if (picked == null || !mounted) return;
-    final newPeriod = picked == '__clear__' ? null : picked;
-    if (newPeriod == _period) return;
-    setState(() => _period = newPeriod);
-    try {
-      await _api.putJson('/api/assets/${widget.assetId}', {'period': newPeriod ?? ''});
-      bumpData();
-    } catch (_) {/* optimistic; revision refresh reconciles */}
-  }
-
   /* ── build ───────────────────────────────────────────────────────────────── */
 
   @override
@@ -501,7 +433,7 @@ class _AssetViewState extends State<_AssetView> {
             ),
           ],
         ),
-        if (_domainEditable || isDomain(_domain) || _periodEditable || _period != null) ...[
+        if (_domainEditable || isDomain(_domain)) ...[
           const SizedBox(height: 11),
           Wrap(
             spacing: 8,
@@ -523,21 +455,6 @@ class _AssetViewState extends State<_AssetView> {
                 )
               else if (isDomain(_domain))
                 DomainChip(_domain),
-              // §4.5.0a 时段(段纠错)
-              if (_periodEditable)
-                GestureDetector(
-                  onTap: _busy ? null : _pickPeriod,
-                  behavior: HitTestBehavior.opaque,
-                  child: _period != null
-                      ? Row(mainAxisSize: MainAxisSize.min, children: [
-                          _periodChip(eu, _period!),
-                          const SizedBox(width: 6),
-                          Icon(Icons.edit, size: 12, color: eu.textLo),
-                        ])
-                      : _addChip(eu, '＋ 时段'),
-                )
-              else if (_period != null)
-                _periodChip(eu, _period!),
             ],
           ),
         ],
@@ -552,18 +469,6 @@ class _AssetViewState extends State<_AssetView> {
           border: Border.all(color: eu.border),
         ),
         child: Text(label, style: TextStyle(color: eu.textLo, fontSize: 11.5)),
-      );
-
-  static const _periodEmoji = {'凌晨': '🌙', '上午': '🌅', '中午': '☀️', '下午': '🌆', '晚上': '🌃'};
-
-  Widget _periodChip(EurekaColors eu, String p) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-        decoration: BoxDecoration(
-          color: eu.brand.withValues(alpha: 0.16),
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: Text('${_periodEmoji[p] ?? '🕐'} $p',
-            style: TextStyle(color: eu.brand, fontSize: 10.5, fontWeight: FontWeight.w600)),
       );
 
   // Sticky bottom action bar (讨论 / 编辑 / 删除). A short fade strip lets the
