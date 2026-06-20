@@ -765,6 +765,7 @@ class _TimelineViewState extends State<_TimelineView> {
       skills: widget.data.skills,
       monthBoundary: r.monthBoundary,
       onOpen: () => _openDay(r.day),
+      scroll: _scroll,
     );
   }
 
@@ -1465,7 +1466,7 @@ class _YearMonthCell extends StatelessWidget {
 /// A day in the 流: a left date rail (weekday cap + big date, today brand line
 /// + glow) beside a colored tile (brand-faint gradient) holding the day's rows.
 /// Mirrors the web ScheduleView.
-class _DayRow extends StatelessWidget {
+class _DayRow extends StatefulWidget {
   final DateTime day;
   final List<TimelineItem> items;
   final Map<String, SkillMeta> skills;
@@ -1473,61 +1474,105 @@ class _DayRow extends StatelessWidget {
   // §流:tap the date or the tile's empty area → open the day view (which has the
   // per-day add button). Items keep their own taps (open the item detail).
   final VoidCallback onOpen;
+  final ScrollController scroll; // drives the sticky rail
   const _DayRow({
     super.key,
     required this.day,
     required this.items,
     required this.skills,
     required this.onOpen,
+    required this.scroll,
     this.monthBoundary = false,
   });
+
+  @override
+  State<_DayRow> createState() => _DayRowState();
+}
+
+class _DayRowState extends State<_DayRow> {
+  // Keyed content so the rail can read the day tile's height + viewport position.
+  final _contentKey = GlobalKey();
+  ScrollableState? _scrollable;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _scrollable = Scrollable.maybeOf(context);
+  }
+
+  double get _railHeight =>
+      56 + (FlashPill.flashesIn(widget.items).isNotEmpty ? 26.0 : 0.0);
+
+  // Sticky offset: the rail tracks the viewport top, clamped inside the day's
+  // content — top-left when the day's top is at the viewport top, sliding to
+  // bottom-left as the day scrolls up past it. One localToGlobal per visible row.
+  double _railTop() {
+    final rb = _contentKey.currentContext?.findRenderObject() as RenderBox?;
+    final vp = _scrollable?.context.findRenderObject() as RenderBox?;
+    if (rb == null || !rb.attached || vp == null || !vp.attached) return 0;
+    final dy = rb.localToGlobal(Offset.zero, ancestor: vp).dy; // content top vs viewport
+    final maxOff = rb.size.height - _railHeight;
+    if (maxOff <= 0) return 0;
+    return (-dy).clamp(0.0, maxOff);
+  }
 
   @override
   Widget build(BuildContext context) {
     final eu = context.eu;
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final isToday = day == today;
+    final isToday = widget.day == today;
+
+    // Built ONCE: the scroll listener only re-wraps this in a Transform (the rail
+    // subtree itself is not rebuilt per scroll frame).
+    final rail = GestureDetector(
+      onTap: widget.onOpen,
+      behavior: HitTestBehavior.opaque,
+      child: SizedBox(
+        width: 64,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Bounded height: railHeader is a Stack with a Positioned(top+bottom)
+            // "today" line, which needs a definite height.
+            SizedBox(
+              height: 56,
+              child: railHeader(eu, widget.day, isToday, widget.monthBoundary),
+            ),
+            // §流:闪念收敛到日期旁的 ⚡N pill,不再混进时段 bands。N=0 自隐。
+            if (FlashPill.flashesIn(widget.items).isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: FlashPill(
+                  day: widget.day,
+                  flashes: FlashPill.flashesIn(widget.items),
+                  skills: widget.skills,
+                  compact: true,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      // No IntrinsicHeight / Stack: both force fragile passes that blank the lazy
-      // 流 list once a row holds a min-Column rail or a stretch child. The rail is
-      // top-aligned (date + ⚡N pill); the tile's minHeight keeps short days tidy.
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Stack(
         children: [
-          // The date opens the day view — reliable even when the tile is packed.
-          GestureDetector(
-            onTap: onOpen,
-            behavior: HitTestBehavior.opaque,
-            child: SizedBox(
-              width: 64,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Bounded height: railHeader is a Stack with a Positioned(top+
-                  // bottom) "today" line, which needs a definite height — an
-                  // unbounded min-Column made it unmeasurable → blank 流.
-                  SizedBox(
-                    height: 56,
-                    child: railHeader(eu, day, isToday, monthBoundary),
-                  ),
-                  // §流:闪念收敛到日期旁的 ⚡N pill,不再混进时段 bands。N=0 自隐。
-                  if (FlashPill.flashesIn(items).isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: FlashPill(
-                        day: day,
-                        flashes: FlashPill.flashesIn(items),
-                        skills: skills,
-                        compact: true,
-                      ),
-                    ),
-                ],
-              ),
+          // Content indented 64px to leave the rail's column free.
+          Padding(
+            padding: const EdgeInsets.only(left: 64),
+            child: KeyedSubtree(key: _contentKey, child: _tile(context, eu)),
+          ),
+          // §流:日期 + ⚡ pill rail —— sticky:随滚动在当天容器内上下移动。
+          Positioned.fill(
+            child: ListenableBuilder(
+              listenable: widget.scroll,
+              child: Align(alignment: Alignment.topLeft, child: rail),
+              builder: (_, child) =>
+                  Transform.translate(offset: Offset(0, _railTop()), child: child),
             ),
           ),
-          Expanded(child: _tile(context, eu)),
         ],
       ),
     );
@@ -1537,7 +1582,7 @@ class _DayRow extends StatelessWidget {
     return GestureDetector(
       // tapping an item (opaque, deeper) opens it; tapping the tile's empty area
       // opens the day view.
-      onTap: onOpen,
+      onTap: widget.onOpen,
       behavior: HitTestBehavior.opaque,
       child: Container(
         margin: const EdgeInsets.only(left: 6),
@@ -1546,14 +1591,13 @@ class _DayRow extends StatelessWidget {
         decoration: dayTileDecoration(eu),
         // §流: compact 段视图 (时段水洗带). Same _BandView reused in the 月 footer.
         child: _BandView(
-          items: items,
-          skills: skills,
-          onTap: (it) => _openTimelineItem(context, it, skills),
+          items: widget.items,
+          skills: widget.skills,
+          onTap: (it) => _openTimelineItem(context, it, widget.skills),
         ),
       ),
     );
   }
-
 }
 
 /// §流 / 月 compact 段视图 — a day's items grouped into 时段水洗带 (段头 + rows),
