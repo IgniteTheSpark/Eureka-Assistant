@@ -91,6 +91,7 @@ class _AssetView extends StatefulWidget {
 class _AssetViewState extends State<_AssetView> {
   final _api = ApiClient();
   bool _busy = false;
+  bool? _doneOverride; // optimistic 完成 state for checkable (todo) cards
   late String? _domain = widget.data.domain;
 
   // Canonical asset data. Seeded from the (possibly partial / stale) card the
@@ -106,6 +107,10 @@ class _AssetViewState extends State<_AssetView> {
 
   bool get _deletable => widget.assetId != null;
   bool get _editable => widget.assetId != null;
+  // Checkable (todo) cards carry a non-null checkDone (set by buildCard) and a
+  // real asset id → the 完成 affordances render + toggle.
+  bool get _checkable => data.checkDone != null && widget.assetId != null;
+  bool get _done => _doneOverride ?? (data.checkDone == true);
   bool get _domainEditable =>
       widget.assetId != null && cardType != 'event' && cardType != 'contact' && cardType != 'task';
 
@@ -240,6 +245,22 @@ class _AssetViewState extends State<_AssetView> {
     nav.push(MaterialPageRoute(
       builder: (_) => ChatPage(subjectType: _subjectType(), subjectId: id, subjectLabel: data.title),
     ));
+  }
+
+  // 完成 / 撤销完成 — same PUT status path the 资产库 card uses; optimistic.
+  Future<void> _toggleDone() async {
+    final id = widget.assetId;
+    if (id == null) return;
+    final next = !_done;
+    setState(() => _doneOverride = next);
+    try {
+      await _api.putJson('/api/assets/$id', {
+        'payload_patch': {'status': next ? 'done' : 'pending'},
+      });
+      bumpData();
+    } catch (_) {
+      if (mounted) setState(() => _doneOverride = !next); // revert on failure
+    }
   }
 
   // §4 长内容编辑：全屏编辑页(支持 md 文档),而非二次弹出的底部 sheet。
@@ -394,23 +415,61 @@ class _AssetViewState extends State<_AssetView> {
   Widget _hero(EurekaColors eu) {
     final a = accentOf(data.accentColor, eu);
     final bigTitle = widget.spec?.primaryFormat == 'currency' || data.title.runes.length <= 4;
+    final iconTile = Container(
+      width: 46,
+      height: 46,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(colors: [a.bg, Colors.transparent]),
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(color: a.edge),
+      ),
+      child: Opacity(
+        opacity: _done ? 0.4 : 1.0,
+        child: Text(data.icon, style: const TextStyle(fontSize: 23)),
+      ),
+    );
+    // checkable (todo) → the icon doubles as a tappable 完成 checkbox.
+    final iconWidget = !_checkable
+        ? iconTile
+        : SizedBox(
+            width: 46,
+            height: 46,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                iconTile,
+                Positioned(
+                  right: -5,
+                  bottom: -5,
+                  child: GestureDetector(
+                    onTap: _busy ? null : _toggleDone,
+                    behavior: HitTestBehavior.opaque,
+                    child: Container(
+                      width: 24,
+                      height: 24,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: _done ? eu.accentGreen : eu.surfaceRaised,
+                        border: Border.all(color: eu.accentGreen, width: 2),
+                      ),
+                      child: _done
+                          ? const Icon(Icons.check, size: 14, color: Colors.white)
+                          : null,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Container(
-              width: 46,
-              height: 46,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(colors: [a.bg, Colors.transparent]),
-                borderRadius: BorderRadius.circular(13),
-                border: Border.all(color: a.edge),
-              ),
-              child: Text(data.icon, style: const TextStyle(fontSize: 23)),
-            ),
+            iconWidget,
             const SizedBox(width: 11),
             Expanded(
               child: Column(
@@ -419,11 +478,12 @@ class _AssetViewState extends State<_AssetView> {
                 children: [
                   Text(data.title,
                       style: TextStyle(
-                          color: eu.textHi,
+                          color: _done ? eu.textMid : eu.textHi,
                           fontSize: bigTitle ? 30 : 22,
                           height: 1.18,
                           fontWeight: FontWeight.w800,
-                          letterSpacing: -0.3)),
+                          letterSpacing: -0.3,
+                          decoration: _done ? TextDecoration.lineThrough : null)),
                   if (data.subtitle.isNotEmpty && !_secondaryIsBody) ...[
                     const SizedBox(height: 3),
                     Text(data.subtitle, style: TextStyle(color: eu.textMid, fontSize: 14)),
@@ -494,10 +554,30 @@ class _AssetViewState extends State<_AssetView> {
           padding: EdgeInsets.fromLTRB(18, 0, 18, 16 + bottomInset),
           child: Row(
             children: [
+              // 完成 is the primary action for todos; 编辑 drops to a ghost button.
+              if (_checkable) ...[
+                Expanded(
+                  flex: 13,
+                  child: _barBtn(
+                    eu,
+                    _done ? Icons.undo : Icons.check,
+                    _done ? '撤销完成' : '完成',
+                    _done ? eu.textMid : Colors.white,
+                    !_done,
+                    _busy ? null : _toggleDone,
+                  ),
+                ),
+                const SizedBox(width: 9),
+              ],
               Expanded(flex: 10, child: _barBtn(eu, Icons.auto_awesome, '讨论', eu.brand, false, _busy ? null : _discuss)),
-              const SizedBox(width: 9),
-              if (_editable)
-                Expanded(flex: 13, child: _barBtn(eu, Icons.edit_outlined, '编辑', Colors.white, true, _busy ? null : _edit)),
+              if (_editable) ...[
+                const SizedBox(width: 9),
+                Expanded(
+                  flex: 11,
+                  child: _barBtn(eu, Icons.edit_outlined, '编辑',
+                      _checkable ? eu.textHi : Colors.white, !_checkable, _busy ? null : _edit),
+                ),
+              ],
               if (_deletable) ...[
                 const SizedBox(width: 9),
                 _barIcon(eu, Icons.delete_outline, eu.accentRed, _busy ? null : _confirmDelete),

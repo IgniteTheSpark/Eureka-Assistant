@@ -143,7 +143,9 @@ Future<Map<String, SkillMeta>> fetchSkills(ApiClient api) async {
     if (name == null) continue;
     final rs = (s['render_spec'] as Map?)?.cast<String, dynamic>();
     out[name] = SkillMeta(
-      rs?['icon'] as String? ?? '•',
+      // Pin built-in glyphs (待办 → 📋) even for surfaces that read the meta map
+      // directly (e.g. 资产库 container tiles), not just via resolveMeta.
+      _pinnedIcons[name] ?? (rs?['icon'] as String? ?? '•'),
       s['display_name'] as String? ?? name,
       rs?['accent_color'] as String? ?? 'gray',
       s['user_skill_id'] as String?,

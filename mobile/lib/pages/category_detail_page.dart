@@ -40,6 +40,7 @@ class CategoryDetailPage extends StatefulWidget {
 class _CategoryDetailPageState extends State<CategoryDetailPage> {
   final _api = ApiClient();
   late List<AssetItem> _assets = widget.assets;
+  bool _showCompleted = false; // 代办:默认只看未完成
 
   // Built-in skills that can't be deleted. idea/misc merged into 随记 (notes),
   // so the protected set is {todo, expense, 随记}; system skills
@@ -158,10 +159,15 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
         builder: (context, rev, _) {
           _maybeReload(rev);
           final isExternal = widget.skillName == 'external_ref';
-          final sorted = [..._assets]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+          final isTodo = widget.skillName == 'todo';
+          // 代办:默认隐藏已完成,按截止日期升序(无截止排最后);其它技能按创建时间。
+          final sorted = isTodo
+              ? (_assets.where((a) => _showCompleted || !_isDone(a)).toList()..sort(_byDue))
+              : ([..._assets]..sort((a, b) => b.createdAt.compareTo(a.createdAt)));
           // 外部容器装的是「同步到第三方的引用」——顶部放一个去「已连接应用」的入口,
           // 让用户从"看外部产物"直接跳到"管外部连接"(§4.4.2)。即使空列表也显示。
-          if (sorted.isEmpty && !isExternal) {
+          // 代办也始终进 ListView(要露出「显示已完成」开关)。
+          if (sorted.isEmpty && !isExternal && !isTodo) {
             return Center(child: Text('还没有记录', style: TextStyle(color: eu.textMid, fontSize: 14)));
           }
           return ListView(
@@ -171,16 +177,21 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                 _manageConnectionsCard(eu),
                 const SizedBox(height: 14),
               ],
+              if (isTodo) _completedToggle(eu),
               if (sorted.isEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 28),
                   child: Center(
                     child: Text(
-                      isExternal ? '还没有同步到外部的内容' : '还没有记录',
+                      isTodo
+                          ? (_showCompleted ? '还没有代办' : '没有未完成的代办 🎉')
+                          : (isExternal ? '还没有同步到外部的内容' : '还没有记录'),
                       style: TextStyle(color: eu.textMid, fontSize: 14),
                     ),
                   ),
                 )
+              else if (isTodo)
+                ..._withDueHeaders(eu, sorted)
               else
                 ..._withDayHeaders(eu, sorted),
             ],
@@ -275,5 +286,93 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
     final y = now.subtract(const Duration(days: 1));
     final isYesterday = d.year == y.year && d.month == y.month && d.day == y.day;
     return isToday ? '今天' : isYesterday ? '昨天' : '${d.month}月${d.day}日';
+  }
+
+  // ── 代办 due-date helpers ──
+  bool _isDone(AssetItem a) =>
+      a.payload['status'] == 'done' || a.payload['done'] == true;
+
+  DateTime? _due(AssetItem a) {
+    final raw = a.payload['due_date'];
+    if (raw is! String || raw.trim().isEmpty) return null;
+    var s = raw.trim().replaceAll('Z', '+00:00');
+    if (s.length == 10) s += 'T00:00:00'; // YYYY-MM-DD → local midnight
+    return DateTime.tryParse(s)?.toLocal();
+  }
+
+  // due asc; no-due last; ties by newest-created.
+  int _byDue(AssetItem a, AssetItem b) {
+    final da = _due(a), db = _due(b);
+    if (da == null && db == null) return b.createdAt.compareTo(a.createdAt);
+    if (da == null) return 1;
+    if (db == null) return -1;
+    final c = da.compareTo(db);
+    return c != 0 ? c : b.createdAt.compareTo(a.createdAt);
+  }
+
+  Widget _completedToggle(EurekaColors eu) {
+    final done = _assets.where(_isDone).length;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => setState(() => _showCompleted = !_showCompleted),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(_showCompleted ? Icons.check_box : Icons.check_box_outline_blank,
+                    size: 16, color: _showCompleted ? eu.brand : eu.textLo),
+                const SizedBox(width: 5),
+                Text('显示已完成${done > 0 ? ' ($done)' : ''}',
+                    style: TextStyle(color: eu.textMid, fontSize: 12.5)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // 代办按「截止」分组:已逾期 / 今天 / 明天 / 具体日期 / 无截止日期。
+  List<Widget> _withDueHeaders(EurekaColors eu, List<AssetItem> items) {
+    final out = <Widget>[];
+    final now = DateTime.now();
+    String? lastKey;
+    for (final a in items) {
+      final (key, label) = _dueBucket(_due(a), now);
+      if (key != lastKey) {
+        lastKey = key;
+        out.add(Padding(
+          padding: const EdgeInsets.only(top: 10, bottom: 2),
+          child: Text(label,
+              style: euMono(
+                  fontSize: 10,
+                  letterSpacing: 1.2,
+                  color: key == 'overdue' ? eu.accentRed : eu.textLo)),
+        ));
+      }
+      out.add(SkillCard({
+        'user_skill_name': a.skillName,
+        'payload': a.payload,
+        'asset_id': a.id,
+        'session_id': a.sessionId,
+        'domain': a.domain,
+      }, layoutOverride: 'horizontal'));
+    }
+    return out;
+  }
+
+  (String, String) _dueBucket(DateTime? due, DateTime now) {
+    if (due == null) return ('none', '无截止日期');
+    final d = DateTime(due.year, due.month, due.day);
+    final t0 = DateTime(now.year, now.month, now.day);
+    final diff = d.difference(t0).inDays;
+    if (diff < 0) return ('overdue', '已逾期');
+    if (diff == 0) return ('today', '今天');
+    if (diff == 1) return ('tomorrow', '明天');
+    return ('d${d.month}-${d.day}', '${d.month}月${d.day}日');
   }
 }
