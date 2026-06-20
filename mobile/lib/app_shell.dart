@@ -81,8 +81,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver, RouteA
 
   @override
   void didPopNext() {
-    // A pushed page (chat / detail / report) was popped back to the shell.
-    if (_index == 0) calendarHome.value++; // calendar → 流 · 今天
+    // A pushed page (chat / detail / session) was popped back to the shell. Keep
+    // the 流's last scroll position — the IndexedStack kept it alive underneath, so
+    // returning lands where the user left off (回今天 button / re-tap 今天 recenter).
   }
 
   @override
@@ -98,7 +99,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver, RouteA
   }
 
   void _go(int i) {
-    if (i == 0) calendarHome.value++; // tap 今天 → calendar resets to 流 · 今天
+    // Re-tap 今天 while already on the calendar → reset to 流 · 今天; switching TO
+    // the calendar from another tab keeps its last position (IndexedStack-kept).
+    if (i == 0 && _index == 0) calendarHome.value++;
     // Leaving 我的岛 → fly the ball home from the hero frame (§9.2 飞出相框). Measure
     // now, while the board is still laid out; the ball outlives the tab swap.
     if (_index == 2 && i != 2) {

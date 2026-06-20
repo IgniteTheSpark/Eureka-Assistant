@@ -1586,7 +1586,9 @@ class _DayRowState extends State<_DayRow> {
       behavior: HitTestBehavior.opaque,
       child: Container(
         margin: const EdgeInsets.only(left: 6),
-        constraints: const BoxConstraints(minHeight: 72),
+        // 有闪念 pill 的短日子要够高,否则 sticky rail 的 pill 会被裁掉。
+        constraints: BoxConstraints(
+            minHeight: FlashPill.flashesIn(widget.items).isNotEmpty ? 100 : 72),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: dayTileDecoration(eu),
         // §流: compact 段视图 (时段水洗带). Same _BandView reused in the 月 footer.

@@ -165,28 +165,49 @@ class FlashPill extends StatelessWidget {
     final eu = context.eu;
     final n = flashes.length;
     if (n == 0) return const SizedBox.shrink();
+    // 闪念是主功能 → pill 做大、易点。
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: () => Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => DayFlashView(day: day, flashes: flashes, skills: skills),
-      )),
+      onTap: () => _open(context),
       child: Container(
-        padding: EdgeInsets.symmetric(horizontal: compact ? 6 : 10, vertical: compact ? 2 : 4),
+        padding: EdgeInsets.symmetric(horizontal: compact ? 9 : 12, vertical: compact ? 6 : 7),
+        constraints: BoxConstraints(minHeight: compact ? 32 : 36),
         decoration: BoxDecoration(
-          color: eu.brand.withValues(alpha: 0.14),
+          color: eu.brand.withValues(alpha: 0.18),
           borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: eu.brand.withValues(alpha: 0.4)),
+          border: Border.all(color: eu.brand.withValues(alpha: 0.55), width: 1.3),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('⚡', style: TextStyle(fontSize: compact ? 9 : 12)),
+            Text('⚡', style: TextStyle(fontSize: compact ? 14 : 15)),
             SizedBox(width: compact ? 3 : 5),
             Text(compact ? '$n' : '$n 条闪念',
-                style: euMono(fontSize: compact ? 9 : 12, color: eu.brand)),
+                style: euMono(
+                    fontSize: compact ? 13 : 13.5,
+                    fontWeight: FontWeight.w700,
+                    color: eu.brand)),
           ],
         ),
       ),
     );
+  }
+
+  void _open(BuildContext context) {
+    // 单条闪念 → 直接进它的 session(不再过一层当日列表);多条 → 当日闪念列表。
+    if (flashes.length == 1) {
+      final f = flashes.first;
+      final sid = f.sessionId;
+      if (sid != null && sid.isNotEmpty) {
+        Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => SessionDetailPage(
+              sessionId: sid, title: '${f.effectiveAt.month}月${f.effectiveAt.day}日 闪念'),
+        ));
+        return;
+      }
+    }
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => DayFlashView(day: day, flashes: flashes, skills: skills),
+    ));
   }
 }
