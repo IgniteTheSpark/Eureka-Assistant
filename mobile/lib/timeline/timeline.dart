@@ -96,7 +96,7 @@ class TimelineItem {
 }
 
 const _builtin = <String, SkillMeta>{
-  'todo': SkillMeta('✅', '待办', 'blue'),
+  'todo': SkillMeta('📋', '待办', 'blue'),
   'event': SkillMeta('📅', '日程', 'purple'),
   'contact': SkillMeta('👤', '名片', 'neutral'),
   'notes': SkillMeta('✍️', '随记', 'amber'),   // 随记 (idea/misc merged in)
@@ -106,11 +106,20 @@ const _builtin = <String, SkillMeta>{
   'external_ref': SkillMeta('🔗', '外部', 'purple'),
 };
 
+/// Built-in glyphs the client pins regardless of the server's render_spec — the
+/// seed mirrors these, but the client owns the canonical look. 待办 must read as
+/// "to-do" (📋), not "done" (✅). Custom user skills are unaffected.
+const _pinnedIcons = <String, String>{'todo': '📋'};
+
 /// Resolve a skill / derived key to its icon + label. Custom skills live only
 /// in the registry, so look there first (mirrors the web derivedMeta fix).
 SkillMeta resolveMeta(String key, Map<String, SkillMeta> registry) {
   if (key == 'event') return _builtin['event']!;
-  return registry[key] ?? _builtin[key] ?? SkillMeta('•', key);
+  final m = registry[key] ?? _builtin[key] ?? SkillMeta('•', key);
+  final pin = _pinnedIcons[key];
+  return pin == null
+      ? m
+      : SkillMeta(pin, m.label, m.accentColor, m.userSkillId, m.enabled);
 }
 
 Future<List<TimelineItem>> fetchTimeline(ApiClient api) async {

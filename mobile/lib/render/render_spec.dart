@@ -199,7 +199,10 @@ CardData buildCard({
   }
   return CardData(
     layout: spec.cardLayout,
-    icon: spec.icon,
+    // 待办 must read as "to-do" (📋), not "done" (✅). Only the todo skill seeds ✅,
+    // so swapping the glyph here pins it across cards/detail sheets, mirroring the
+    // resolveMeta pin used by the calendar lists. (DB/seed updated to 📋 too.)
+    icon: spec.icon == '✅' ? '📋' : spec.icon,
     accentColor: spec.accentColor,
     title: primary.isNotEmpty ? primary : displayName,
     subtitle: secondary,

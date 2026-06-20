@@ -154,13 +154,14 @@ class _BandDef {
   final Color tint; // subtle color-temperature wash over the dark surface
 }
 
-// Cool → warm → cool across the day, mapped to the dark theme as low-alpha washes.
+// Distinct hues across the day so 上午/中午/下午 don't blur together: indigo →
+// cyan → gold → orange → violet (cool → warm → cool in temperature).
 const _kBands = <_BandDef>[
-  _BandDef(_Band.dawn, '凌晨', '🌙', Color(0xFF6F9EFF)),
-  _BandDef(_Band.morning, '上午', '🌅', Color(0xFFF5C977)),
-  _BandDef(_Band.noon, '中午', '☀️', Color(0xFFFFD98A)),
-  _BandDef(_Band.afternoon, '下午', '🌆', Color(0xFFE9A977)),
-  _BandDef(_Band.evening, '晚上', '🌃', Color(0xFF8B9DFF)),
+  _BandDef(_Band.dawn, '凌晨', '🌙', Color(0xFF6B7CFF)),
+  _BandDef(_Band.morning, '上午', '🌅', Color(0xFF26C6DA)),
+  _BandDef(_Band.noon, '中午', '☀️', Color(0xFFF5B81E)),
+  _BandDef(_Band.afternoon, '下午', '🌆', Color(0xFFF97316)),
+  _BandDef(_Band.evening, '晚上', '🌃', Color(0xFFA78BFA)),
 ];
 
 class _BandSection extends StatelessWidget {

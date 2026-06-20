@@ -504,11 +504,13 @@ class _TimelineViewState extends State<_TimelineView> {
   // Estimated pixel height per row — used to jump to today on mount without
   // relying on lazy-built GlobalKey contexts.
   double _estRowHeight(_DayR r) {
-    final items = widget.data.byDay[r.day] ?? const <TimelineItem>[];
+    final all = widget.data.byDay[r.day] ?? const <TimelineItem>[];
+    // Flash lives in the rail pill, not the band tile — exclude it (matching
+    // _BandView) or the estimate runs tall on flash-heavy days and overshoots.
+    final items = all.where((i) => i.kind != 'input_turn').toList();
     if (items.isEmpty) return 50;
     // Band tiles (§流 段视图): each non-empty 时段 adds a 段头 + wash padding
-    // (~34); rows ~30. Counting bands keeps the seek-to-today estimate honest
-    // (a flat per-item guess undershot, landing the open a day early).
+    // (~34); rows ~30. Counting bands keeps the seek-to-today estimate honest.
     final bands = <int>{for (final it in items) _bandIndexOf(it)};
     return 28.0 + bands.length * 34 + items.length * 30;
   }
@@ -524,10 +526,20 @@ class _TimelineViewState extends State<_TimelineView> {
 
   // Mount-time scroll so today sits near the top (past above, future below).
   // The estimate gets the viewport close; _seekToday then converges exactly.
-  void _autoScroll() {
-    if (_didScroll || !mounted || !_scroll.hasClients) return;
-    _didScroll = true;
+  void _autoScroll([int tries = 0]) {
+    if (_didScroll || !mounted) return;
+    // Need an attached position that has reported content dimensions, else
+    // maxScrollExtent/jumpTo throw and (since _didScroll would already be set)
+    // every retry bails at the guard → silent blank 流. Retry via Future.delayed
+    // (event-loop), not a post-frame, so an idle app still advances.
+    if (!_scroll.hasClients || !_scroll.position.hasContentDimensions) {
+      if (tries < 40) {
+        Future.delayed(const Duration(milliseconds: 32), () => _autoScroll(tries + 1));
+      }
+      return;
+    }
     _scroll.jumpTo(_offsetToToday().clamp(0.0, _scroll.position.maxScrollExtent));
+    _didScroll = true;
     WidgetsBinding.instance.addPostFrameCallback((_) => _seekToday());
   }
 
@@ -1270,59 +1282,40 @@ class _SelectedDayFooter extends StatelessWidget {
               onTap: onOpenDay,
               child: Row(
                 children: [
-                  Expanded(
+                  Flexible(
                     child: Text(_fullDateLabel(day),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: euMono(fontSize: 10.5, letterSpacing: 1.8, color: eu.textMid)),
                   ),
-                  Text('日程', style: euMono(fontSize: 10, letterSpacing: 1.2, color: eu.brand)),
+                  // ⚡N pill — flash 收敛到日期 header,和流一致;不混进内容。
+                  if (FlashPill.flashesIn(items).isNotEmpty) ...[
+                    const SizedBox(width: 8),
+                    FlashPill(
+                        day: day,
+                        flashes: FlashPill.flashesIn(items),
+                        skills: skills,
+                        compact: true),
+                  ],
+                  const Spacer(),
+                  Text('更多', style: euMono(fontSize: 10, letterSpacing: 1.2, color: eu.brand)),
                   Icon(Icons.chevron_right, size: 16, color: eu.brand),
                 ],
               ),
             ),
             const SizedBox(height: 10),
-            if (items.isEmpty)
+            if (items.where((i) => i.kind != 'input_turn').isEmpty)
               Text('空闲', style: TextStyle(color: eu.textLo, fontStyle: FontStyle.italic, fontSize: 13))
             else
-              for (final it in items) _footerRow(context, eu, it),
+              // §月:套用流的段视图(时段水洗带)。没说时间的内容落「没说时间」段,
+              // 不再被误标「全天」;闪念已上 header pill。
+              _BandView(
+                items: items,
+                skills: skills,
+                onTap: (it) => _openTimelineItem(context, it, skills),
+              ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _footerRow(BuildContext context, EurekaColors eu, TimelineItem it) {
-    final isFlash = it.kind == 'input_turn';
-    final time = isFlash || (it.effectiveAt.hour == 0 && it.effectiveAt.minute == 0)
-        ? (isFlash
-            ? '${it.effectiveAt.hour.toString().padLeft(2, '0')}:${it.effectiveAt.minute.toString().padLeft(2, '0')}'
-            : '全天')
-        : '${it.effectiveAt.hour.toString().padLeft(2, '0')}:${it.effectiveAt.minute.toString().padLeft(2, '0')}';
-    final icon = isFlash
-        ? '⚡'
-        : it.kind == 'event'
-            ? '📅'
-            : it.kind == 'contact'
-                ? '👤'
-                : resolveMeta(it.skillName ?? 'misc', skills).icon;
-    final row = Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(width: 42, child: Text(time, style: euMono(fontSize: 10.5, color: eu.textMid))),
-        const SizedBox(width: 8),
-        SizedBox(width: 18, child: Center(child: Text(icon, style: const TextStyle(fontSize: 13)))),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(it.title.isEmpty ? '闪念' : it.title,
-              style: TextStyle(color: eu.textHi, fontSize: 13.5, height: 1.35, fontWeight: FontWeight.w500)),
-        ),
-      ],
-    );
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () => _openTimelineItem(context, it, skills),
-        child: row,
       ),
     );
   }
@@ -1467,30 +1460,52 @@ class _DayRow extends StatelessWidget {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final isToday = day == today;
-    final isTomorrow = day == today.add(const Duration(days: 1));
-    final corner = isToday ? 'TODAY' : isTomorrow ? 'TOMORROW' : null;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: IntrinsicHeight(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // The date opens the day view — reliable even when the tile is packed
-            // with items (little empty area left to tap).
-            GestureDetector(
-              onTap: onOpen,
-              behavior: HitTestBehavior.opaque,
-              child: SizedBox(width: 64, child: railHeader(eu, day, isToday, monthBoundary)),
+      // No IntrinsicHeight / Stack: both force fragile passes that blank the lazy
+      // 流 list once a row holds a min-Column rail or a stretch child. The rail is
+      // top-aligned (date + ⚡N pill); the tile's minHeight keeps short days tidy.
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // The date opens the day view — reliable even when the tile is packed.
+          GestureDetector(
+            onTap: onOpen,
+            behavior: HitTestBehavior.opaque,
+            child: SizedBox(
+              width: 64,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Bounded height: railHeader is a Stack with a Positioned(top+
+                  // bottom) "today" line, which needs a definite height — an
+                  // unbounded min-Column made it unmeasurable → blank 流.
+                  SizedBox(
+                    height: 56,
+                    child: railHeader(eu, day, isToday, monthBoundary),
+                  ),
+                  // §流:闪念收敛到日期旁的 ⚡N pill,不再混进时段 bands。N=0 自隐。
+                  if (FlashPill.flashesIn(items).isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: FlashPill(
+                        day: day,
+                        flashes: FlashPill.flashesIn(items),
+                        skills: skills,
+                        compact: true,
+                      ),
+                    ),
+                ],
+              ),
             ),
-            Expanded(child: _tile(context, eu, corner)),
-          ],
-        ),
+          ),
+          Expanded(child: _tile(context, eu)),
+        ],
       ),
     );
   }
 
-  Widget _tile(BuildContext context, EurekaColors eu, String? corner) {
-    final groups = _bandGroups(items);
+  Widget _tile(BuildContext context, EurekaColors eu) {
     return GestureDetector(
       // tapping an item (opaque, deeper) opens it; tapping the tile's empty area
       // opens the day view.
@@ -1501,91 +1516,48 @@ class _DayRow extends StatelessWidget {
         constraints: const BoxConstraints(minHeight: 72),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: dayTileDecoration(eu),
-        child: Stack(
-          children: [
-            // §流: compact 段视图 — items grouped into time-of-day bands (段头 +
-            // 内容), per the calendar design. Built from the simple rows that
-            // render reliably in the stream's lazy list; the full DayRender widget
-            // can't be measured inside a 100+ day ListView.builder (→ blank 流), so
-            // its 段视图 is mirrored here with safe primitives.
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                for (var g = 0; g < groups.length; g++) ...[
-                  if (g > 0) const SizedBox(height: 11),
-                  _bandBlock(context, eu, groups[g]),
-                ],
-              ],
-            ),
-            // TODAY / TOMORROW corner tag (web ScheduleView labels these tiles).
-            if (corner != null)
-              Positioned(
-                top: 0,
-                right: 0,
-                child: Text(corner,
-                    style: euMono(fontSize: 9, letterSpacing: 2, color: eu.textMid)),
-              ),
-          ],
+        // §流: compact 段视图 (时段水洗带). Same _BandView reused in the 月 footer.
+        child: _BandView(
+          items: items,
+          skills: skills,
+          onTap: (it) => _openTimelineItem(context, it, skills),
         ),
       ),
     );
   }
 
-  Widget _streamRow(BuildContext context, EurekaColors eu, TimelineItem it,
-      {bool showTime = true}) {
-    final isFlash = it.kind == 'input_turn';
-    final icon = isFlash
-        ? '⚡'
-        : it.kind == 'event'
-            ? '📅'
-            : it.kind == 'contact'
-                ? '👤'
-                : resolveMeta(it.skillName ?? 'misc', skills).icon;
-    final time = '${it.effectiveAt.hour.toString().padLeft(2, '0')}:'
-        '${it.effectiveAt.minute.toString().padLeft(2, '0')}';
-    final String label;
-    if (isFlash) {
-      final entries = it.derived.entries.where((e) => e.value > 0).toList();
-      label = entries.isEmpty
-          ? '闪念'
-          : entries.map((e) {
-              final m = resolveMeta(e.key, skills);
-              return '${m.icon} ${m.label}×${e.value}';
-            }).join('  ·  ');
-    } else {
-      label = it.title.isEmpty ? '记录' : it.title;
-    }
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () =>
-          isFlash ? _openFlashSession(context, it) : _openTimelineItem(context, it, skills),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SizedBox(
-              width: 44,
-              child: showTime
-                  ? Text(time, style: euMono(fontSize: 10.5, color: eu.textMid))
-                  : null),
-          const SizedBox(width: 8),
-          SizedBox(width: 18, child: Center(child: Text(icon, style: const TextStyle(fontSize: 13)))),
-          const SizedBox(width: 8),
-          Flexible(
-            child: Text(label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                    color: eu.textHi, fontSize: 13.5, height: 1.35, fontWeight: FontWeight.w500)),
-          ),
+}
+
+/// §流 / 月 compact 段视图 — a day's items grouped into 时段水洗带 (段头 + rows),
+/// built from stream-safe primitives (DayRender can't be measured inside the lazy
+/// 流/月 lists). Flash (input_turn) is excluded — it lives in the day's ⚡N pill,
+/// never as a band row. Reused by _DayRow (流) and the 月 day footer so the two
+/// stay in lockstep.
+class _BandView extends StatelessWidget {
+  const _BandView({required this.items, required this.skills, this.onTap});
+
+  final List<TimelineItem> items;
+  final Map<String, SkillMeta> skills;
+  final void Function(TimelineItem)? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final eu = context.eu;
+    final groups = _bandGroupsOf(items);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var g = 0; g < groups.length; g++) ...[
+          if (g > 0) const SizedBox(height: 11),
+          _bandBlock(context, eu, groups[g]),
         ],
-      ),
+      ],
     );
   }
 
-  // §流 compact 段视图 — one 时段水洗带: a faint vertical wash of the band tint
-  // over the raised surface (Direction B), holding 段头 (emoji + 时段) + its rows.
-  // width:∞ makes the band fill the tile (the tile Column is start-aligned, which
-  // — unlike a stretch Column — stays measurable in the stream's lazy list).
+  // One 时段水洗带: a faint vertical wash of the band tint over the raised surface
+  // (Direction B), holding 段头 (emoji + 时段) + its rows. width:∞ fills the parent;
+  // the start-aligned Column (not a stretch Column) stays measurable in lazy lists.
   Widget _bandBlock(
     BuildContext context,
     EurekaColors eu,
@@ -1628,42 +1600,82 @@ class _DayRow extends StatelessWidget {
           for (var i = 0; i < list.length; i++) ...[
             if (i > 0) const SizedBox(height: 7),
             // 没说时间 items have no clock — drop the time column (keep the indent).
-            _streamRow(context, eu, list[i], showTime: label != '没说时间'),
+            _row(context, eu, list[i], showTime: label != '没说时间'),
           ],
         ],
       ),
     );
   }
 
-  // Bucket a day's items into ordered time-of-day bands (凌晨/上午/中午/下午/晚上)
-  // + a「没说时间」tail, matching DayRender's placement: explicit 时段 (period)
-  // wins; else a clock time / event / non-midnight falls in its hour's band; a
-  // bare midnight capture drops to「没说时间」.
-  List<(String, String, Color, List<TimelineItem>)> _bandGroups(
-    List<TimelineItem> items,
-  ) {
-    // emoji · 时段 · wash tint (cool→warm→cool across the day; neutral for no-time).
-    const defs = [
-      ('🌙', '凌晨', Color(0xFF6F9EFF)),
-      ('🌅', '上午', Color(0xFFF5C977)),
-      ('☀️', '中午', Color(0xFFFFD98A)),
-      ('🌆', '下午', Color(0xFFE9A977)),
-      ('🌃', '晚上', Color(0xFF8B9DFF)),
-      ('🕒', '没说时间', Color(0xFF94A0B3)),
-    ];
-    final buckets = List.generate(6, (_) => <TimelineItem>[]);
-    for (final it in items) {
-      buckets[_bandIndexOf(it)].add(it);
-    }
-    final out = <(String, String, Color, List<TimelineItem>)>[];
-    for (var i = 0; i < defs.length; i++) {
-      if (buckets[i].isNotEmpty) {
-        out.add((defs[i].$1, defs[i].$2, defs[i].$3, buckets[i]));
-      }
-    }
-    return out;
+  Widget _row(BuildContext context, EurekaColors eu, TimelineItem it,
+      {bool showTime = true}) {
+    final icon = it.kind == 'event'
+        ? '📅'
+        : it.kind == 'contact'
+            ? '👤'
+            : resolveMeta(it.skillName ?? 'misc', skills).icon;
+    final time = '${it.effectiveAt.hour.toString().padLeft(2, '0')}:'
+        '${it.effectiveAt.minute.toString().padLeft(2, '0')}';
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap == null ? null : () => onTap!(it),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+              width: 44,
+              child: showTime
+                  ? Text(time, style: euMono(fontSize: 10.5, color: eu.textMid))
+                  : null),
+          const SizedBox(width: 8),
+          SizedBox(
+              width: 18,
+              child: Center(child: Text(icon, style: const TextStyle(fontSize: 13)))),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(it.title.isEmpty ? '记录' : it.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    color: eu.textHi,
+                    fontSize: 13.5,
+                    height: 1.35,
+                    fontWeight: FontWeight.w500)),
+          ),
+        ],
+      ),
+    );
   }
+}
 
+// Bucket a day's items into ordered time-of-day bands (凌晨/上午/中午/下午/晚上) +
+// a「没说时间」tail. Flash (input_turn) is excluded (→ ⚡ pill). Placement matches
+// DayRender: explicit 时段 (period) wins; else a clock time / event / non-midnight
+// falls in its hour's band; a bare midnight capture drops to「没说时间」.
+List<(String, String, Color, List<TimelineItem>)> _bandGroupsOf(
+  List<TimelineItem> items,
+) {
+  // emoji · 时段 · wash tint (indigo→cyan→gold→orange→violet; slate for no-time).
+  const defs = [
+    ('🌙', '凌晨', Color(0xFF6B7CFF)),
+    ('🌅', '上午', Color(0xFF26C6DA)),
+    ('☀️', '中午', Color(0xFFF5B81E)),
+    ('🌆', '下午', Color(0xFFF97316)),
+    ('🌃', '晚上', Color(0xFFA78BFA)),
+    ('🕒', '没说时间', Color(0xFF94A3B8)),
+  ];
+  final buckets = List.generate(6, (_) => <TimelineItem>[]);
+  for (final it in items) {
+    if (it.kind == 'input_turn') continue; // flash → ⚡ pill, never a band row
+    buckets[_bandIndexOf(it)].add(it);
+  }
+  final out = <(String, String, Color, List<TimelineItem>)>[];
+  for (var i = 0; i < defs.length; i++) {
+    if (buckets[i].isNotEmpty) {
+      out.add((defs[i].$1, defs[i].$2, defs[i].$3, buckets[i]));
+    }
+  }
+  return out;
 }
 
 // §流 compact 段视图 — which time-of-day band an item falls in (0凌晨…4晚上,
@@ -1767,6 +1779,8 @@ class _DayDetailPageState extends State<DayDetailPage> {
     final timed = <TimelineItem>[];
     final captured = <TimelineItem>[];
     for (final it in items) {
+      // 闪念 lives in the DayDetail header ⚡N pill — not as a 随记 in the 捕捉 tabs.
+      if (it.kind == 'input_turn') continue;
       if (it.kind == 'event') {
         (it.allDay ? allDay : timed).add(it);
       } else {

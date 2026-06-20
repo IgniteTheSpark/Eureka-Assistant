@@ -1197,7 +1197,7 @@ class _AssetEditPageState extends State<AssetEditPage> {
         Navigator.of(context).pop(<String, dynamic>{
           'user_skill_name': widget.cardType,
           'display_name': widget.displayName ?? widget.cardType,
-          'icon': widget.spec?.icon ?? '✅',
+          'icon': widget.spec?.icon ?? '📋',
           'payload': payload,
         });
       }
