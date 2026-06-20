@@ -382,9 +382,6 @@ class _TimelineViewState extends State<_TimelineView> {
   void _openDay(DateTime d) =>
       Navigator.of(context).push(MaterialPageRoute(builder: (_) => DayDetailPage(day: d)));
 
-  // 空日不常驻按钮:点选某个空日才露出「+ 在这天记一笔」(再点取消)。null = 无选中。
-  DateTime? _selectedDay;
-
   DateTime _today = _d(DateTime.now());
   // Overlay watermark + 回今天 button as notifiers: the per-scroll _updateOverlay
   // updates ONLY these layers (ValueListenableBuilder) instead of setState-
@@ -751,13 +748,7 @@ class _TimelineViewState extends State<_TimelineView> {
     final items = widget.data.byDay[r.day] ?? const <TimelineItem>[];
     final key = _keyFor(r.day);
     if (items.isEmpty) {
-      return _EmptyDayRow(
-        key: key,
-        day: r.day,
-        monthBoundary: r.monthBoundary,
-        selected: _selectedDay == r.day,
-        onSelect: () => setState(() => _selectedDay = (_selectedDay == r.day) ? null : r.day),
-      );
+      return _EmptyDayRow(key: key, day: r.day, monthBoundary: r.monthBoundary);
     }
     return _DayRow(
       key: key,
@@ -813,16 +804,9 @@ Widget _railMonthLabel(EurekaColors eu, DateTime day) {
 class _EmptyDayRow extends StatelessWidget {
   final DateTime day;
   final bool monthBoundary;
-  // §流:an empty day is a blank tile by default (NOT a permanent button). Tap to
-  // select → it reveals「+ 在这天记一笔」(tap that → create directly; re-tap the
-  // tile to deselect). Keeps long empty stretches clean.
-  final bool selected;
-  final VoidCallback onSelect;
   const _EmptyDayRow({
     super.key,
     required this.day,
-    required this.selected,
-    required this.onSelect,
     this.monthBoundary = false,
   });
 
@@ -830,59 +814,36 @@ class _EmptyDayRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final eu = context.eu;
     final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final isToday = day == today;
+    final isToday = day == DateTime(now.year, now.month, now.day);
     const wd = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
     final fg = isToday ? eu.brand : eu.textLo;
-    // §流 空日:折成一条细线(日期 + 渐隐线 + 空闲),点选 → 露出「在这天记一笔」。
+    // §流 空日:一个干净的空框(保留"框感",不塞文案)。点 → 在这天快记。
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: GestureDetector(
-        onTap: onSelect,
+        onTap: () => showCreateMenu(context, presetDate: day),
         behavior: HitTestBehavior.opaque,
         child: Container(
           margin: const EdgeInsets.symmetric(horizontal: 6),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-          decoration: BoxDecoration(
-            color: selected
-                ? eu.brand.withValues(alpha: 0.07)
-                : eu.surface.withValues(alpha: 0.35),
-            borderRadius: BorderRadius.circular(13),
-            border: Border.all(
-                color: selected ? eu.brand.withValues(alpha: 0.5) : eu.border),
-          ),
+          constraints: const BoxConstraints(minHeight: 60),
+          padding: const EdgeInsets.fromLTRB(14, 11, 14, 11),
+          decoration: dayTileDecoration(eu),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text('${day.day}',
-                  style: TextStyle(fontSize: 17, height: 1, color: fg)),
+                  style: TextStyle(
+                      fontSize: 19, height: 1, fontWeight: FontWeight.w600, color: fg)),
               const SizedBox(width: 5),
-              Text(wd[day.weekday % 7],
-                  style: euMono(
-                      fontSize: 8.5,
-                      color: isToday ? eu.brand : eu.textLo.withValues(alpha: 0.7))),
-              const SizedBox(width: 9),
-              Container(width: 1, height: 16, color: eu.border),
-              const Spacer(),
-              if (selected)
-                GestureDetector(
-                  onTap: () => showCreateMenu(context, presetDate: day),
-                  behavior: HitTestBehavior.opaque,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.add, size: 14, color: eu.brand),
-                      const SizedBox(width: 3),
-                      Text('在这天记一笔',
-                          style: TextStyle(
-                              color: eu.brand,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600)),
-                    ],
-                  ),
-                )
-              else
-                Text('空闲 · 点这天记一笔',
-                    style: TextStyle(fontSize: 11.5, color: eu.textLo)),
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(wd[day.weekday % 7],
+                    style: euMono(
+                        fontSize: 8.5,
+                        color: isToday
+                            ? eu.brand
+                            : eu.textLo.withValues(alpha: 0.7))),
+              ),
             ],
           ),
         ),
@@ -1307,7 +1268,7 @@ class _SelectedDayFooterState extends State<_SelectedDayFooter> {
         final rb = _bandKeys[i].currentContext?.findRenderObject() as RenderBox?;
         if (rb == null || !rb.attached) continue;
         final top = rb.localToGlobal(Offset.zero, ancestor: vp).dy;
-        if (top <= 14) {
+        if (top <= 28) {
           cur = i;
         } else {
           break;
@@ -1343,7 +1304,7 @@ class _SelectedDayFooterState extends State<_SelectedDayFooter> {
                     key: _vpKey,
                     controller: _scroll,
                     padding: const EdgeInsets.fromLTRB(16, 10, 16, 96),
-                    // 点空白内容 → day detail;条目仍开各自详情。
+                    // 点空白内容 → day detail;条目仍开各自详情。(同流:不挡纵向滚动)
                     child: GestureDetector(
                       behavior: HitTestBehavior.opaque,
                       onTap: widget.onOpenDay,
@@ -1392,6 +1353,13 @@ class _SelectedDayFooterState extends State<_SelectedDayFooter> {
             ],
           ),
           border: Border(bottom: BorderSide(color: eu.border)),
+          // 与流日头一致的差异化软阴影。
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black.withValues(alpha: 0.05),
+                blurRadius: 5,
+                offset: const Offset(0, 2)),
+          ],
         ),
         child: Row(
           children: [
@@ -1583,6 +1551,10 @@ class _DayRowState extends State<_DayRow> {
   // Per-band keys (≥ max 6 bands) so 当前时段 reads the real seg-block positions.
   final _bandKeys = List.generate(6, (_) => GlobalKey());
   ScrollableState? _scrollable;
+  // The scroll offset at which this day's 日头 starts pinning. Frozen once the day
+  // crosses the viewport top so the float is driven by the live scroll offset
+  // (smooth) instead of a one-frame-lagged localToGlobal (which jitters).
+  double? _pin;
 
   // 统一日头 bar 高度 + 左侧日期纵列宽(= 内容缩进,日期 hang 在这条 gutter 里)。
   static const double _headerH = 40;
@@ -1594,16 +1566,26 @@ class _DayRowState extends State<_DayRow> {
     _scrollable = Scrollable.maybeOf(context);
   }
 
-  // How far the day's tile top has scrolled above the viewport top, clamped so the
-  // sticky 日头 pins at the viewport top and stops at the day's bottom (被下一天推走)。
+  // How far the day's 日头 has floated up inside the tile (0 = at the tile top;
+  // clamped so it stops at the day's bottom, 被下一天推走)。While the day's top is
+  // at/below the viewport top, refresh the pin anchor and keep the header at the
+  // tile top; once it crosses, freeze the anchor and drive the float from the live
+  // scroll offset — no per-frame localToGlobal in the pinned phase, so no jitter.
   double _headerOffset(double tileH) {
-    final rb = _tileKey.currentContext?.findRenderObject() as RenderBox?;
-    final vp = _scrollable?.context.findRenderObject() as RenderBox?;
-    if (rb == null || !rb.attached || vp == null || !vp.attached) return 0;
-    final dy = rb.localToGlobal(Offset.zero, ancestor: vp).dy; // tile top vs viewport
     final maxOff = tileH - _headerH;
     if (maxOff <= 0) return 0;
-    return (-dy).clamp(0.0, maxOff);
+    final rb = _tileKey.currentContext?.findRenderObject() as RenderBox?;
+    final vp = _scrollable?.context.findRenderObject() as RenderBox?;
+    if (rb != null && rb.attached && vp != null && vp.attached) {
+      final dy = rb.localToGlobal(Offset.zero, ancestor: vp).dy; // tile top vs viewport
+      if (dy >= 0) {
+        _pin = widget.scroll.offset + dy; // not pinned yet — keep anchor fresh
+        return 0;
+      }
+      _pin ??= widget.scroll.offset + dy; // built already pinned (e.g. after seek)
+    }
+    if (_pin == null) return 0;
+    return (widget.scroll.offset - _pin!).clamp(0.0, maxOff);
   }
 
   // 当前时段 = the last band whose top has scrolled under the 日头 (real seg-block

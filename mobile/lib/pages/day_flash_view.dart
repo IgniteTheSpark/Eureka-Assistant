@@ -170,22 +170,29 @@ class FlashPill extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       onTap: () => _open(context),
       child: Container(
-        padding: EdgeInsets.symmetric(horizontal: compact ? 9 : 12, vertical: compact ? 6 : 7),
-        constraints: BoxConstraints(minHeight: compact ? 32 : 36),
+        padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 12, vertical: compact ? 5 : 7),
+        constraints: BoxConstraints(minHeight: compact ? 28 : 34),
+        // §design 闪念表达:白底浅蓝描边胶囊「⚡ N 闪念」(= chat 入口)。
         decoration: BoxDecoration(
-          color: eu.brand.withValues(alpha: 0.18),
+          color: Color.alphaBlend(eu.brand.withValues(alpha: 0.10), eu.surfaceRaised),
           borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: eu.brand.withValues(alpha: 0.55), width: 1.3),
+          border: Border.all(color: eu.brand.withValues(alpha: 0.5), width: 1.3),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('⚡', style: TextStyle(fontSize: compact ? 14 : 15)),
-            SizedBox(width: compact ? 3 : 5),
-            Text(compact ? '$n' : '$n 条闪念',
+            Text('⚡', style: TextStyle(fontSize: compact ? 13 : 15)),
+            SizedBox(width: compact ? 4 : 5),
+            Text('$n',
                 style: euMono(
-                    fontSize: compact ? 13 : 13.5,
+                    fontSize: compact ? 12.5 : 13.5,
                     fontWeight: FontWeight.w700,
+                    color: eu.brand)),
+            const SizedBox(width: 3),
+            Text('闪念',
+                style: TextStyle(
+                    fontSize: compact ? 11.5 : 12.5,
+                    fontWeight: FontWeight.w600,
                     color: eu.brand)),
           ],
         ),
@@ -194,20 +201,17 @@ class FlashPill extends StatelessWidget {
   }
 
   void _open(BuildContext context) {
-    // 单条闪念 → 直接进它的 session(不再过一层当日列表);多条 → 当日闪念列表。
-    if (flashes.length == 1) {
-      final f = flashes.first;
-      final sid = f.sessionId;
-      if (sid != null && sid.isNotEmpty) {
-        Navigator.of(context).push(MaterialPageRoute(
-          builder: (_) => SessionDetailPage(
-              sessionId: sid, title: '${f.effectiveAt.month}月${f.effectiveAt.day}日 闪念'),
-        ));
-        return;
-      }
-    }
+    // §design 闪念 = chat 入口:直接进当天的「X月X日 闪念」session,不再过当日列表页。
+    // 多条 → 进最近一条有 session 的捕捉(就是那天的 闪念 对话)。
+    final sorted = [...flashes]..sort((a, b) => b.effectiveAt.compareTo(a.effectiveAt));
+    final f = sorted.firstWhere(
+        (x) => (x.sessionId?.isNotEmpty ?? false),
+        orElse: () => sorted.first);
+    final sid = f.sessionId;
+    if (sid == null || sid.isEmpty) return;
     Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => DayFlashView(day: day, flashes: flashes, skills: skills),
+      builder: (_) => SessionDetailPage(
+          sessionId: sid, title: '${day.month}月${day.day}日 闪念'),
     ));
   }
 }
