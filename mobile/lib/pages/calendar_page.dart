@@ -506,7 +506,11 @@ class _TimelineViewState extends State<_TimelineView> {
   double _estRowHeight(_DayR r) {
     final items = widget.data.byDay[r.day] ?? const <TimelineItem>[];
     if (items.isEmpty) return 50;
-    return 24.0 + items.length * 30 + (items.length - 1) * 8 + 6;
+    // Band tiles (§流 段视图): each non-empty 时段 adds a 段头 + wash padding
+    // (~34); rows ~30. Counting bands keeps the seek-to-today estimate honest
+    // (a flat per-item guess undershot, landing the open a day early).
+    final bands = <int>{for (final it in items) _bandIndexOf(it)};
+    return 28.0 + bands.length * 34 + items.length * 30;
   }
 
   double _offsetToToday() {
@@ -1486,6 +1490,7 @@ class _DayRow extends StatelessWidget {
   }
 
   Widget _tile(BuildContext context, EurekaColors eu, String? corner) {
+    final groups = _bandGroups(items);
     return GestureDetector(
       // tapping an item (opaque, deeper) opens it; tapping the tile's empty area
       // opens the day view.
@@ -1498,15 +1503,17 @@ class _DayRow extends StatelessWidget {
         decoration: dayTileDecoration(eu),
         child: Stack(
           children: [
-            // §流: one compact line per item (time · icon · title; flash → ⚡ 产出).
-            // (DayRender's 段视图 is used in DayDetail; in the dense 流 tile it
-            // rendered blank, so the stream keeps simple rows for now.)
+            // §流: compact 段视图 — items grouped into time-of-day bands (段头 +
+            // 内容), per the calendar design. Built from the simple rows that
+            // render reliably in the stream's lazy list; the full DayRender widget
+            // can't be measured inside a 100+ day ListView.builder (→ blank 流), so
+            // its 段视图 is mirrored here with safe primitives.
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                for (var i = 0; i < items.length; i++) ...[
-                  if (i > 0) const SizedBox(height: 8),
-                  _streamRow(context, eu, items[i]),
+                for (var g = 0; g < groups.length; g++) ...[
+                  if (g > 0) const SizedBox(height: 11),
+                  _bandBlock(context, eu, groups[g]),
                 ],
               ],
             ),
@@ -1524,7 +1531,8 @@ class _DayRow extends StatelessWidget {
     );
   }
 
-  Widget _streamRow(BuildContext context, EurekaColors eu, TimelineItem it) {
+  Widget _streamRow(BuildContext context, EurekaColors eu, TimelineItem it,
+      {bool showTime = true}) {
     final isFlash = it.kind == 'input_turn';
     final icon = isFlash
         ? '⚡'
@@ -1554,7 +1562,11 @@ class _DayRow extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          SizedBox(width: 44, child: Text(time, style: euMono(fontSize: 10.5, color: eu.textMid))),
+          SizedBox(
+              width: 44,
+              child: showTime
+                  ? Text(time, style: euMono(fontSize: 10.5, color: eu.textMid))
+                  : null),
           const SizedBox(width: 8),
           SizedBox(width: 18, child: Center(child: Text(icon, style: const TextStyle(fontSize: 13)))),
           const SizedBox(width: 8),
@@ -1569,6 +1581,118 @@ class _DayRow extends StatelessWidget {
       ),
     );
   }
+
+  // §流 compact 段视图 — one 时段水洗带: a faint vertical wash of the band tint
+  // over the raised surface (Direction B), holding 段头 (emoji + 时段) + its rows.
+  // width:∞ makes the band fill the tile (the tile Column is start-aligned, which
+  // — unlike a stretch Column — stays measurable in the stream's lazy list).
+  Widget _bandBlock(
+    BuildContext context,
+    EurekaColors eu,
+    (String, String, Color, List<TimelineItem>) group,
+  ) {
+    final (emoji, label, tint, list) = group;
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color.alphaBlend(tint.withValues(alpha: 0.10), eu.surfaceRaised),
+            Color.alphaBlend(tint.withValues(alpha: 0.03), eu.surfaceRaised),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      padding: const EdgeInsets.fromLTRB(9, 7, 9, 9),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(emoji, style: const TextStyle(fontSize: 10.5)),
+                const SizedBox(width: 5),
+                Text(label,
+                    style: TextStyle(
+                        color: eu.textMid,
+                        fontSize: 11,
+                        letterSpacing: 0.4,
+                        fontWeight: FontWeight.w600)),
+              ],
+            ),
+          ),
+          for (var i = 0; i < list.length; i++) ...[
+            if (i > 0) const SizedBox(height: 7),
+            // 没说时间 items have no clock — drop the time column (keep the indent).
+            _streamRow(context, eu, list[i], showTime: label != '没说时间'),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // Bucket a day's items into ordered time-of-day bands (凌晨/上午/中午/下午/晚上)
+  // + a「没说时间」tail, matching DayRender's placement: explicit 时段 (period)
+  // wins; else a clock time / event / non-midnight falls in its hour's band; a
+  // bare midnight capture drops to「没说时间」.
+  List<(String, String, Color, List<TimelineItem>)> _bandGroups(
+    List<TimelineItem> items,
+  ) {
+    // emoji · 时段 · wash tint (cool→warm→cool across the day; neutral for no-time).
+    const defs = [
+      ('🌙', '凌晨', Color(0xFF6F9EFF)),
+      ('🌅', '上午', Color(0xFFF5C977)),
+      ('☀️', '中午', Color(0xFFFFD98A)),
+      ('🌆', '下午', Color(0xFFE9A977)),
+      ('🌃', '晚上', Color(0xFF8B9DFF)),
+      ('🕒', '没说时间', Color(0xFF94A0B3)),
+    ];
+    final buckets = List.generate(6, (_) => <TimelineItem>[]);
+    for (final it in items) {
+      buckets[_bandIndexOf(it)].add(it);
+    }
+    final out = <(String, String, Color, List<TimelineItem>)>[];
+    for (var i = 0; i < defs.length; i++) {
+      if (buckets[i].isNotEmpty) {
+        out.add((defs[i].$1, defs[i].$2, defs[i].$3, buckets[i]));
+      }
+    }
+    return out;
+  }
+
+}
+
+// §流 compact 段视图 — which time-of-day band an item falls in (0凌晨…4晚上,
+// 5没说时间). Explicit 时段 (period) wins; else a clock time / event / non-midnight
+// lands in its hour's band; a bare midnight capture drops to「没说时间」. Top-level
+// so the 流 tile and the seek's row-height estimate share one rule.
+int _bandIndexOf(TimelineItem it) {
+  switch (it.period) {
+    case '凌晨':
+      return 0;
+    case '上午':
+      return 1;
+    case '中午':
+      return 2;
+    case '下午':
+      return 3;
+    case '晚上':
+      return 4;
+  }
+  final timed = it.kind == 'event' ||
+      it.hasClockTime ||
+      !(it.effectiveAt.hour == 0 && it.effectiveAt.minute == 0);
+  if (!timed) return 5;
+  final h = it.effectiveAt.hour;
+  if (h <= 5) return 0;
+  if (h <= 11) return 1;
+  if (h == 12) return 2;
+  if (h <= 17) return 3;
+  return 4;
 }
 
 /* ── 日 — full-screen day view (web DayDetailSheet parity) ──────────────────
