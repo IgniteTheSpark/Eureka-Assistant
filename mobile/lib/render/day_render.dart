@@ -10,7 +10,11 @@ import '../timeline/timeline.dart';
 /// Each band = a soft 段头 + rows of [time column + 3-line card DNA]. All-day events
 /// pin to a top「全天」strip; items with no clock time fall to a bottom「没说时间」group.
 ///
-/// Reused by TodayPage, the 流 stream tile ([compact] = true), and DayDetail「非日程」.
+/// Used by DayDetail「非日程」(directly inside a ListView). NOTE: the 流 stream does
+/// NOT use DayRender — inside its lazy 100+ day ListView.builder the SliverList can
+/// never measure a DayRender child (no content dimensions → blank 流). The 流
+/// reimplements the same 段视图 with stream-safe primitives (_bandGroups / _bandBlock
+/// in calendar_page.dart); keep the two band rules (_bandIndexOf) in sync.
 ///
 /// Placement is by [TimelineItem.effectiveAt] (server = occurred_at ?? event
 /// start_at ?? created_at). "No clock time" is approximated for v1 by a midnight
@@ -31,7 +35,8 @@ class DayRender extends StatelessWidget {
   final List<TimelineItem> items;
   final Map<String, SkillMeta> skills;
 
-  /// 流 tile passes true → tighter paddings + smaller type so many days stack.
+  /// Tighter paddings + smaller type for dense contexts (e.g. a future TodayPage).
+  /// The 流 stream uses its own band view, not this widget — see the class note.
   final bool compact;
 
   /// Today only → mark the band containing the current hour as「现在」.
