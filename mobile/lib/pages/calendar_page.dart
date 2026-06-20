@@ -1476,25 +1476,7 @@ class _DayRow extends StatelessWidget {
             GestureDetector(
               onTap: onOpen,
               behavior: HitTestBehavior.opaque,
-              child: SizedBox(
-                width: 64,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    railHeader(eu, day, isToday, monthBoundary),
-                    if (FlashPill.flashesIn(items).isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: FlashPill(
-                          day: day,
-                          flashes: FlashPill.flashesIn(items),
-                          skills: skills,
-                          compact: true,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
+              child: SizedBox(width: 64, child: railHeader(eu, day, isToday, monthBoundary)),
             ),
             Expanded(child: _tile(context, eu, corner)),
           ],
@@ -1516,12 +1498,17 @@ class _DayRow extends StatelessWidget {
         decoration: dayTileDecoration(eu),
         child: Stack(
           children: [
-            // §流: the day reuses the same 时段水洗带 as DayDetail, compact.
-            DayRender(
-              items: items,
-              skills: skills,
-              compact: true,
-              onTapItem: (it) => _openTimelineItem(context, it, skills),
+            // §流: one compact line per item (time · icon · title; flash → ⚡ 产出).
+            // (DayRender's 段视图 is used in DayDetail; in the dense 流 tile it
+            // rendered blank, so the stream keeps simple rows for now.)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (var i = 0; i < items.length; i++) ...[
+                  if (i > 0) const SizedBox(height: 8),
+                  _streamRow(context, eu, items[i]),
+                ],
+              ],
             ),
             // TODAY / TOMORROW corner tag (web ScheduleView labels these tiles).
             if (corner != null)
@@ -1533,6 +1520,52 @@ class _DayRow extends StatelessWidget {
               ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _streamRow(BuildContext context, EurekaColors eu, TimelineItem it) {
+    final isFlash = it.kind == 'input_turn';
+    final icon = isFlash
+        ? '⚡'
+        : it.kind == 'event'
+            ? '📅'
+            : it.kind == 'contact'
+                ? '👤'
+                : resolveMeta(it.skillName ?? 'misc', skills).icon;
+    final time = '${it.effectiveAt.hour.toString().padLeft(2, '0')}:'
+        '${it.effectiveAt.minute.toString().padLeft(2, '0')}';
+    final String label;
+    if (isFlash) {
+      final entries = it.derived.entries.where((e) => e.value > 0).toList();
+      label = entries.isEmpty
+          ? '闪念'
+          : entries.map((e) {
+              final m = resolveMeta(e.key, skills);
+              return '${m.icon} ${m.label}×${e.value}';
+            }).join('  ·  ');
+    } else {
+      label = it.title.isEmpty ? '记录' : it.title;
+    }
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () =>
+          isFlash ? _openFlashSession(context, it) : _openTimelineItem(context, it, skills),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(width: 44, child: Text(time, style: euMono(fontSize: 10.5, color: eu.textMid))),
+          const SizedBox(width: 8),
+          SizedBox(width: 18, child: Center(child: Text(icon, style: const TextStyle(fontSize: 13)))),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    color: eu.textHi, fontSize: 13.5, height: 1.35, fontWeight: FontWeight.w500)),
+          ),
+        ],
       ),
     );
   }
