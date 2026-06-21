@@ -115,11 +115,14 @@ async def create_asset(
             return _err(f"skill not registered for user: {user_skill_name}")
 
         # §8 domain resolution: explicit (by content) → per-skill prior
-        # (user_skills.domain) → base prior (machine_name) → null.
+        # (user_skills.domain) → base prior (machine_name) → 「生活」兜底。
+        # 产品决策 2026-06:每条记录都打一个域(永不 null),流/月的领域 tag 才一致;
+        # agent 提示已要求必打,这里是最后的安全网(qa/event 不走此路、不受影响)。
         resolved_domain = (
             normalize_domain(domain)
             or normalize_domain(user_skill.domain)
             or prior_for_skill(user_skill_name)
+            or "生活"
         )
 
         asset = Asset(
