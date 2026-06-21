@@ -67,6 +67,7 @@ def _norm_period(p: str) -> "str | None":
 
 
 def _parse_occurred(s: str):
+    from datetime import datetime  # module has no top-level datetime import
     s = (s or "").strip()
     if not s:
         return None
@@ -85,6 +86,7 @@ async def create_asset(
     user_id: str = "default",
     period: str = "",
     occurred_at: str = "",
+    created_at: str = "",
 ) -> dict:
     """
     Create an asset under a registered skill, and index its queryable fields.
@@ -135,6 +137,11 @@ async def create_asset(
             period=_norm_period(period),
             occurred_at=_parse_occurred(occurred_at),
         )
+        # 「在这天记一笔」: 显式 created_at → 锚到那天(记录类资产 effective_at=created_at,
+        # 否则会落到今天)。占位 todo/expense 仍由各自 due_date/date 决定 effective_at。
+        _ca = _parse_occurred(created_at)
+        if _ca:
+            asset.created_at = _ca
         db.add(asset)
         await db.flush()  # populate asset.id before indexing
 

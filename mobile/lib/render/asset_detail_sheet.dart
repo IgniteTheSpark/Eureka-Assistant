@@ -1172,11 +1172,21 @@ class _AssetEditPageState extends State<AssetEditPage> {
       if (l.isNotEmpty) payload[k] = l;
     });
     try {
-      await _api.postJson('/api/assets', {
+      final body = <String, dynamic>{
         'user_skill_name': widget.cardType,
         'payload': payload,
         'domain': _domain ?? '', // '' → backend uses the skill's prior
-      });
+      };
+      // 「在这天记一笔」: 在某天创建 → created_at 锚到那天(那天 + 此刻时分),否则
+      // 随记等无日期字段的记录类资产会按 created_at 落到今天。todo/expense 仍由各自
+      // due_date/date 决定 effective_at,这里只是兜底锚点。
+      final pd = widget.presetDate;
+      if (pd != null) {
+        final now = DateTime.now();
+        body['created_at'] = _isoBeijing(
+            DateTime(pd.year, pd.month, pd.day, now.hour, now.minute, now.second));
+      }
+      await _api.postJson('/api/assets', body);
       bumpData();
       if (mounted) {
         Navigator.of(context).pop(<String, dynamic>{

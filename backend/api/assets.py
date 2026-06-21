@@ -44,6 +44,9 @@ class CreateAssetRequest(BaseModel):
     session_id: str = ""
     source_input_turn_id: str = ""
     domain: str = ""              # §8 life-domain; "" → service falls back to skill prior
+    # 「在这天记一笔」: 手动在某天创建 → 把 created_at 锚到那天(否则记录类资产
+    # effective_at=created_at 会落到今天)。ISO8601+08:00;"" → 用 now。
+    created_at: str = ""
 
 
 class UpdateAssetRequest(BaseModel):
@@ -249,6 +252,7 @@ async def manual_create_asset(
         source_input_turn_id=req.source_input_turn_id,
         domain=req.domain,
         user_id=user_id,
+        created_at=req.created_at,
     )
 
 
