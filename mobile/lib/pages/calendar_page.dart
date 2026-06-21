@@ -2061,6 +2061,7 @@ class _DayDetailPageState extends State<DayDetailPage> {
   String _view = 'schedule'; // §B 默认「日程」网格(从流钻进某天 = 想看精确日程);'list' = 非日程段视图
   String? _capturedTab; // active type in 记录·按类型
   bool _unschedExpanded = false; // 待安排条是否展开全部
+  final Set<String> _expandedClusters = {}; // 同点待办计数 chip 展开态(按代表 id)
   bool _didAnchor = false;
   // Items deleted via swipe — filtered out immediately so the row leaves the
   // list cleanly (avoids the "dismissed Dismissible still in tree" error) while
@@ -2130,6 +2131,17 @@ class _DayDetailPageState extends State<DayDetailPage> {
     return p['status'] == 'done' ||
         p['done'] == true ||
         p['completed'] == true;
+  }
+
+  // ○ 点击 → 勾选/取消完成(PUT status,复用详情页路径);bumpData 即时重拉反映。
+  Future<void> _toggleTodoDone(TimelineItem it) async {
+    final next = !_isDone(it);
+    try {
+      await _api.putJson('/api/assets/${it.id}', {
+        'payload_patch': {'status': next ? 'done' : 'pending'},
+      });
+    } catch (_) {}
+    bumpData();
   }
 
   void _anchorGrid(List<TimelineItem> timed) {
@@ -2381,19 +2393,25 @@ class _DayDetailPageState extends State<DayDetailPage> {
       onTap: () => _openTimelineItem(context, it, skills),
       child: Row(
         children: [
-          Container(
-            width: 16,
-            height: 16,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: done ? eu.accentGreen : Colors.transparent,
-              border: Border.all(
-                  color: done ? eu.accentGreen : eu.textLo.withValues(alpha: 0.6),
-                  width: 1.5),
+          GestureDetector(
+            onTap: () => _toggleTodoDone(it),
+            behavior: HitTestBehavior.opaque,
+            child: Container(
+              width: 16,
+              height: 16,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: done ? eu.accentGreen : Colors.transparent,
+                border: Border.all(
+                    color: done
+                        ? eu.accentGreen
+                        : eu.textLo.withValues(alpha: 0.6),
+                    width: 1.5),
+              ),
+              child: done
+                  ? const Icon(Icons.check, size: 11, color: Colors.white)
+                  : null,
             ),
-            child: done
-                ? const Icon(Icons.check, size: 11, color: Colors.white)
-                : null,
           ),
           const SizedBox(width: 9),
           Expanded(
@@ -2537,8 +2555,24 @@ class _DayDetailPageState extends State<DayDetailPage> {
     final now = DateTime.now();
     final isToday = _sameDay(now);
     final gridHeight = (_kGridEndHour - _kGridStartHour) * _kHourHeight;
-    // 重叠规则:同时段事件等分成并列列(google-calendar 式)。grid 占满 body 宽。
-    final cols = _eventColumns(timed);
+    // §B 同一时刻 N 个待办收成一个「计数 chip」:按 startMin 把同点待办聚成 cluster,
+    // 只把代表项放进列布局(渲染时换成计数 chip);事件 / 单条待办照旧。
+    final clusters = <String, List<TimelineItem>>{}; // repId → 同点待办们
+    final layout = <TimelineItem>[];
+    final byMin = <int, List<TimelineItem>>{};
+    for (final it in timed) {
+      if (it.kind != 'event' && it.skillName == 'todo') {
+        byMin.putIfAbsent(_startMin(it), () => []).add(it);
+      } else {
+        layout.add(it);
+      }
+    }
+    byMin.forEach((_, todos) {
+      if (todos.length > 1) clusters[todos.first.id] = todos;
+      layout.add(todos.first);
+    });
+    // 重叠规则:同时段事件/待办等分成并列列(google-calendar 式)。grid 占满 body 宽。
+    final cols = _eventColumns(layout);
     const leftPad = 62.0, gap = 3.0;
     final avail = (MediaQuery.sizeOf(context).width - leftPad - 12.0).clamp(40.0, double.infinity);
     return SingleChildScrollView(
@@ -2570,14 +2604,21 @@ class _DayDetailPageState extends State<DayDetailPage> {
                   ),
                 ),
               ),
-            // Timed event blocks — overlap-aware columns (重叠规则: 等分列)
-            for (final it in timed)
-              _eventBlock(eu, it, skills,
-                  col: cols[it.id]?.$1 ?? 0,
-                  count: cols[it.id]?.$2 ?? 1,
-                  leftPad: leftPad,
-                  avail: avail,
-                  gap: gap),
+            // Timed event / 待办 blocks — overlap-aware columns;同点多待办 = 计数 chip。
+            for (final it in layout)
+              clusters.containsKey(it.id)
+                  ? _todoClusterBlock(eu, clusters[it.id]!, skills,
+                      col: cols[it.id]?.$1 ?? 0,
+                      count: cols[it.id]?.$2 ?? 1,
+                      leftPad: leftPad,
+                      avail: avail,
+                      gap: gap)
+                  : _eventBlock(eu, it, skills,
+                      col: cols[it.id]?.$1 ?? 0,
+                      count: cols[it.id]?.$2 ?? 1,
+                      leftPad: leftPad,
+                      avail: avail,
+                      gap: gap),
             // "now" line — only on today
             if (isToday)
               Positioned(
@@ -2698,20 +2739,25 @@ class _DayDetailPageState extends State<DayDetailPage> {
             children: [
               Row(
                 children: [
-                  // 待办落格 = 带 ○ 勾选框(已完成 = 绿勾 + 删除线);事件无勾选框。
+                  // 待办落格 = 带 ○ 勾选框(点 ○ 直接完成;done = 绿勾 + 删除线);事件无框。
                   if (isTodo) ...[
-                    Container(
-                      width: 14,
-                      height: 14,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: done ? eu.accentGreen : Colors.transparent,
-                        border: Border.all(
-                            color: done ? eu.accentGreen : accent, width: 1.5),
+                    GestureDetector(
+                      onTap: () => _toggleTodoDone(it),
+                      behavior: HitTestBehavior.opaque,
+                      child: Container(
+                        width: 14,
+                        height: 14,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: done ? eu.accentGreen : Colors.transparent,
+                          border: Border.all(
+                              color: done ? eu.accentGreen : accent, width: 1.5),
+                        ),
+                        child: done
+                            ? const Icon(Icons.check,
+                                size: 9, color: Colors.white)
+                            : null,
                       ),
-                      child: done
-                          ? const Icon(Icons.check, size: 9, color: Colors.white)
-                          : null,
                     ),
                     const SizedBox(width: 6),
                   ],
@@ -2737,6 +2783,65 @@ class _DayDetailPageState extends State<DayDetailPage> {
                     style: TextStyle(color: eu.textMid, fontSize: 10.5)),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  // §B 同一时刻 N 个待办 → 一个「N 个待办 ▾」计数 chip,点开就地展成可勾小列表。
+  Widget _todoClusterBlock(
+      EurekaColors eu, List<TimelineItem> todos, Map<String, SkillMeta> skills,
+      {required int col,
+      required int count,
+      required double leftPad,
+      required double avail,
+      required double gap}) {
+    final repId = todos.first.id;
+    final expanded = _expandedClusters.contains(repId);
+    final top = _startMin(todos.first) / 60.0 * _kHourHeight;
+    final colW = (avail - gap * (count - 1)) / count;
+    final left = leftPad + col * (colW + gap);
+    final accent = eu.accentBlue;
+    return Positioned(
+      top: top,
+      left: left,
+      width: colW,
+      child: Container(
+        decoration: BoxDecoration(
+          color: accent.withValues(alpha: 0.20),
+          borderRadius: BorderRadius.circular(8),
+          border: Border(left: BorderSide(color: accent, width: 3)),
+        ),
+        padding: const EdgeInsets.fromLTRB(8, 4, 6, 5),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            GestureDetector(
+              onTap: () => setState(() => expanded
+                  ? _expandedClusters.remove(repId)
+                  : _expandedClusters.add(repId)),
+              behavior: HitTestBehavior.opaque,
+              child: Row(
+                children: [
+                  Text('${todos.length} 个待办',
+                      style: TextStyle(
+                          color: accent,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700)),
+                  const Spacer(),
+                  Icon(expanded ? Icons.expand_less : Icons.expand_more,
+                      size: 16, color: accent),
+                ],
+              ),
+            ),
+            if (expanded)
+              for (final t in todos)
+                Padding(
+                  padding: const EdgeInsets.only(top: 5),
+                  child: _todoCheckRow(eu, t, skills),
+                ),
+          ],
         ),
       ),
     );
