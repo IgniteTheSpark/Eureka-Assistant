@@ -2315,7 +2315,7 @@ class _DayDetailPageState extends State<DayDetailPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (b.records.isNotEmpty) _capturedSection(eu, b.records, skills),
-        _sectionTitle(eu, '日程'),
+        _sectionTitle(eu, '日程', primary: true),
         if (b.allDay.isNotEmpty) _allDayRow(eu, b.allDay, skills),
         if (b.unscheduled.isNotEmpty) _unscheduledBar(eu, b.unscheduled, skills),
         Expanded(child: _hourGrid(eu, b.grid, skills, dayEmpty)),
@@ -2329,12 +2329,12 @@ class _DayDetailPageState extends State<DayDetailPage> {
     final shown = _unschedExpanded ? todos : todos.take(3).toList();
     final rest = todos.length - shown.length;
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      margin: const EdgeInsets.fromLTRB(16, 6, 16, 4),
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      // P1 主次:去掉品牌边框 → 轻量「托盘」(无边框 + 极淡填充),次于下方日程网格。
       decoration: BoxDecoration(
-        color: eu.brand.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: eu.brand.withValues(alpha: 0.25)),
+        color: eu.brand.withValues(alpha: 0.045),
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2433,11 +2433,30 @@ class _DayDetailPageState extends State<DayDetailPage> {
 
   /// Unified small section heading (mono caps + optional trailing widget) —
   /// shared by 「今日捕捉」 and 「日程安排」 so they read as one system.
-  Widget _sectionTitle(EurekaColors eu, String text, {Widget? trailing}) => Padding(
-        padding: const EdgeInsets.fromLTRB(20, 12, 16, 8),
+  // primary = 主区段标题(日程网格):实心标题 + 品牌竖条,明确是这屏的主体;
+  // 非 primary(记录·按类型)= 安静小标签,读作次级 → 主次分明。
+  Widget _sectionTitle(EurekaColors eu, String text,
+          {Widget? trailing, bool primary = false}) =>
+      Padding(
+        padding: EdgeInsets.fromLTRB(20, primary ? 14 : 12, 16, primary ? 6 : 8),
         child: Row(
           children: [
-            Text(text, style: euMono(fontSize: 10, letterSpacing: 2.2, color: eu.textLo)),
+            if (primary) ...[
+              Container(
+                  width: 3,
+                  height: 15,
+                  decoration: BoxDecoration(
+                      color: eu.brand,
+                      borderRadius: BorderRadius.circular(2))),
+              const SizedBox(width: 9),
+            ],
+            Text(text,
+                style: primary
+                    ? TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: eu.textHi)
+                    : euMono(fontSize: 10, letterSpacing: 2.2, color: eu.textLo)),
             if (trailing != null) ...[
               const SizedBox(width: 12),
               Expanded(child: trailing),
