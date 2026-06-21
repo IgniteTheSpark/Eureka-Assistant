@@ -2058,8 +2058,9 @@ class _DayDetailPageState extends State<DayDetailPage> {
   int _loadedRev = -1;
   Future<_DayData>? _future;
   _DayData? _last; // stale-while-revalidate: keep showing this during reloads
-  String _view = 'list'; // list | schedule
-  String? _capturedTab; // active type in 今日捕捉
+  String _view = 'schedule'; // §B 默认「日程」网格(从流钻进某天 = 想看精确日程);'list' = 非日程段视图
+  String? _capturedTab; // active type in 记录·按类型
+  bool _unschedExpanded = false; // 待安排条是否展开全部
   bool _didAnchor = false;
   // Items deleted via swipe — filtered out immediately so the row leaves the
   // list cleanly (avoids the "dismissed Dismissible still in tree" error) while
@@ -2091,24 +2092,44 @@ class _DayDetailPageState extends State<DayDetailPage> {
     super.dispose();
   }
 
-  // ── bucket ──
-  // The hour grid (日历) shows **only 日程 = events** (per product). Everything
-  // else — todos, expenses, ideas, contacts, notes — is a time-less "capture"
-  // and goes to the categorized 今日捕捉 section, never on the grid.
-  (List<TimelineItem>, List<TimelineItem>, List<TimelineItem>) _bucket(List<TimelineItem> items) {
+  // ── bucket (§B 日程网格)──
+  // 网格 = 事件 + **有时刻待办**;无时刻待办 → 顶部「待安排」条;结果记录(网球/记账/
+  // 睡眠/带娃…)→ 顶部「记录·按类型」容器、不进网格;全天事件 → 顶部「全天」条。
+  ({
+    List<TimelineItem> allDay,
+    List<TimelineItem> grid,
+    List<TimelineItem> unscheduled,
+    List<TimelineItem> records,
+  }) _bucket(List<TimelineItem> items) {
     final allDay = <TimelineItem>[];
-    final timed = <TimelineItem>[];
-    final captured = <TimelineItem>[];
+    final grid = <TimelineItem>[]; // 事件(有时刻) + 待办(有时刻)
+    final unscheduled = <TimelineItem>[]; // 无时刻待办
+    final records = <TimelineItem>[]; // 结果记录(非事件非待办)
     for (final it in items) {
-      // 闪念 lives in the DayDetail header ⚡N pill — not as a 随记 in the 捕捉 tabs.
-      if (it.kind == 'input_turn') continue;
+      if (it.kind == 'input_turn') continue; // 闪念在 header ⚡N
       if (it.kind == 'event') {
-        (it.allDay ? allDay : timed).add(it);
+        (it.allDay ? allDay : grid).add(it);
+      } else if (it.skillName == 'todo') {
+        (_todoTimed(it) ? grid : unscheduled).add(it);
       } else {
-        captured.add(it);
+        records.add(it);
       }
     }
-    return (allDay, timed, captured);
+    return (allDay: allDay, grid: grid, unscheduled: unscheduled, records: records);
+  }
+
+  // 待办有没有"落格"的时刻:说了钟点(occurred_at)或 due 是非午夜时刻 → 进网格;
+  // 否则(只有日期 / 没说时间)→「待安排」。
+  static bool _todoTimed(TimelineItem it) =>
+      it.hasClockTime ||
+      !(it.effectiveAt.hour == 0 && it.effectiveAt.minute == 0);
+
+  // 待办是否已完成(status=done / done / completed 任一)。
+  static bool _isDone(TimelineItem it) {
+    final p = it.payload;
+    return p['status'] == 'done' ||
+        p['done'] == true ||
+        p['completed'] == true;
   }
 
   void _anchorGrid(List<TimelineItem> timed) {
@@ -2272,16 +2293,120 @@ class _DayDetailPageState extends State<DayDetailPage> {
 
   // ── SCHEDULE view (hour grid) ──
   Widget _scheduleView(EurekaColors eu, List<TimelineItem> items, Map<String, SkillMeta> skills) {
-    final (allDay, timed, captured) = _bucket(items);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _anchorGrid(timed));
+    final b = _bucket(items);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _anchorGrid(b.grid));
+    final dayEmpty = items.where((i) => i.kind != 'input_turn').isEmpty;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (allDay.isNotEmpty) _allDayRow(eu, allDay, skills),
-        if (captured.isNotEmpty) _capturedSection(eu, captured, skills),
-        _sectionTitle(eu, '日程安排'),
-        Expanded(child: _hourGrid(eu, timed, skills, items.isEmpty)),
+        if (b.allDay.isNotEmpty) _allDayRow(eu, b.allDay, skills),
+        if (b.unscheduled.isNotEmpty) _unscheduledBar(eu, b.unscheduled, skills),
+        if (b.records.isNotEmpty) _capturedSection(eu, b.records, skills),
+        _sectionTitle(eu, '日程'),
+        Expanded(child: _hourGrid(eu, b.grid, skills, dayEmpty)),
       ],
+    );
+  }
+
+  // 顶部「待安排」轻条 = 无时刻待办;最多 3 条 + 头部「共 N 条」+ 展开其余(内部滚)。
+  Widget _unscheduledBar(
+      EurekaColors eu, List<TimelineItem> todos, Map<String, SkillMeta> skills) {
+    final shown = _unschedExpanded ? todos : todos.take(3).toList();
+    final rest = todos.length - shown.length;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      decoration: BoxDecoration(
+        color: eu.brand.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: eu.brand.withValues(alpha: 0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Row(
+              children: [
+                Text('待安排',
+                    style: euMono(
+                        fontSize: 10, letterSpacing: 1.5, color: eu.brand)),
+                const Spacer(),
+                Text('共 ${todos.length} 条',
+                    style: TextStyle(fontSize: 10.5, color: eu.textLo)),
+              ],
+            ),
+          ),
+          ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: _unschedExpanded ? 220 : 999),
+            child: ListView.separated(
+              padding: EdgeInsets.zero,
+              shrinkWrap: true,
+              physics: _unschedExpanded
+                  ? const ClampingScrollPhysics()
+                  : const NeverScrollableScrollPhysics(),
+              itemCount: shown.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 5),
+              itemBuilder: (_, i) => _todoCheckRow(eu, shown[i], skills),
+            ),
+          ),
+          if (rest > 0 || _unschedExpanded)
+            Center(
+              child: GestureDetector(
+                onTap: () => setState(() => _unschedExpanded = !_unschedExpanded),
+                behavior: HitTestBehavior.opaque,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                      _unschedExpanded ? '收起 ⌃' : '展开其余 $rest 条 ⌄',
+                      style: TextStyle(
+                          fontSize: 11.5,
+                          color: eu.brand,
+                          fontWeight: FontWeight.w600)),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  // 一条待办行(○ 勾选框 + 标题)。点行 → 详情;done 显勾 + 删除线。
+  Widget _todoCheckRow(
+      EurekaColors eu, TimelineItem it, Map<String, SkillMeta> skills) {
+    final done = _isDone(it);
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _openTimelineItem(context, it, skills),
+      child: Row(
+        children: [
+          Container(
+            width: 16,
+            height: 16,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: done ? eu.accentGreen : Colors.transparent,
+              border: Border.all(
+                  color: done ? eu.accentGreen : eu.textLo.withValues(alpha: 0.6),
+                  width: 1.5),
+            ),
+            child: done
+                ? const Icon(Icons.check, size: 11, color: Colors.white)
+                : null,
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(it.title.isEmpty ? '待办' : it.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    color: done ? eu.textLo : eu.textHi,
+                    fontSize: 13,
+                    decoration: done ? TextDecoration.lineThrough : null)),
+          ),
+        ],
+      ),
     );
   }
 
@@ -2386,7 +2511,7 @@ class _DayDetailPageState extends State<DayDetailPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          _sectionTitle(eu, '今日捕捉', trailing: tabRow),
+          _sectionTitle(eu, '记录 · 按类型', trailing: tabRow),
           // Fixed 3-row window (60px row + 4px gap) — the section never changes
           // height when switching tabs, so the hour grid below stays put. Fewer
           // than 3 items → empty space; more → scrolls inside.
@@ -2549,6 +2674,8 @@ class _DayDetailPageState extends State<DayDetailPage> {
     final rawH = (endMin - startMin) / 60.0 * _kHourHeight;
     final height = rawH < 24 ? 24.0 : rawH;
     final isEvent = it.kind == 'event';
+    final isTodo = !isEvent && it.skillName == 'todo';
+    final done = isTodo && _isDone(it);
     final accent = isEvent ? eu.accentPurple : eu.accentBlue;
     final colW = (avail - gap * (count - 1)) / count;
     final left = leftPad + col * (colW + gap);
@@ -2560,7 +2687,7 @@ class _DayDetailPageState extends State<DayDetailPage> {
       child: GestureDetector(
         onTap: () => _openTimelineItem(context, it, skills),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
           decoration: BoxDecoration(
             color: accent.withValues(alpha: 0.20),
             borderRadius: BorderRadius.circular(8),
@@ -2569,10 +2696,40 @@ class _DayDetailPageState extends State<DayDetailPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(it.title.isEmpty ? (isEvent ? '事件' : '待办') : it.title,
-                  maxLines: height > 40 ? 2 : 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: eu.textHi, fontSize: 12.5, fontWeight: FontWeight.w600, height: 1.2)),
+              Row(
+                children: [
+                  // 待办落格 = 带 ○ 勾选框(已完成 = 绿勾 + 删除线);事件无勾选框。
+                  if (isTodo) ...[
+                    Container(
+                      width: 14,
+                      height: 14,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: done ? eu.accentGreen : Colors.transparent,
+                        border: Border.all(
+                            color: done ? eu.accentGreen : accent, width: 1.5),
+                      ),
+                      child: done
+                          ? const Icon(Icons.check, size: 9, color: Colors.white)
+                          : null,
+                    ),
+                    const SizedBox(width: 6),
+                  ],
+                  Expanded(
+                    child: Text(
+                        it.title.isEmpty ? (isEvent ? '事件' : '待办') : it.title,
+                        maxLines: height > 40 ? 2 : 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            color: done ? eu.textLo : eu.textHi,
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                            height: 1.2,
+                            decoration:
+                                done ? TextDecoration.lineThrough : null)),
+                  ),
+                ],
+              ),
               if (it.location != null && it.location!.isNotEmpty && height > 44)
                 Text(it.location!,
                     maxLines: 1,
