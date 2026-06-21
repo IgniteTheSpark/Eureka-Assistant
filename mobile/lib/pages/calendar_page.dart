@@ -1613,14 +1613,14 @@ class _DayRowState extends State<_DayRow> {
                     color: eu.surfaceRaised,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: eu.border),
+                    // P2 表层深度:暖色软阴影(非纯黑)→ day 容器明确浮起 bg,修 beige-on-beige 扁平。
                     boxShadow: [
                       BoxShadow(
-                          color: Colors.black.withValues(
-                              alpha: eu.brightness == Brightness.dark
-                                  ? 0.18
-                                  : 0.04),
-                          blurRadius: 6,
-                          offset: const Offset(0, 2)),
+                          color: eu.brightness == Brightness.dark
+                              ? Colors.black.withValues(alpha: 0.28)
+                              : const Color(0xFF6B5A3A).withValues(alpha: 0.13),
+                          blurRadius: 18,
+                          offset: const Offset(0, 6)),
                     ],
                   ),
                   padding: const EdgeInsets.all(7),
@@ -1881,15 +1881,13 @@ class _BandView extends StatelessWidget {
     );
   }
 
+  // P3 降卡片色噪:领域 = 一个安静的小色点(不再色块 pill);领域名仍在详情可读。
   Widget _domTag(EurekaColors eu, String domain) {
     final c = domainColor(eu, domain);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-      decoration: BoxDecoration(
-          color: c.withValues(alpha: 0.16),
-          borderRadius: BorderRadius.circular(999)),
-      child: Text(domain,
-          style: TextStyle(fontSize: 9, color: c, fontWeight: FontWeight.w600)),
+      width: 7,
+      height: 7,
+      decoration: BoxDecoration(shape: BoxShape.circle, color: c),
     );
   }
 }

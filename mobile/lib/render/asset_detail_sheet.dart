@@ -412,23 +412,54 @@ class _AssetViewState extends State<_AssetView> {
   }
 
   // icon + title (size scales for short numeric heroes) + subtitle + domain.
-  Widget _hero(EurekaColors eu) {
-    final a = accentOf(data.accentColor, eu);
-    final bigTitle = widget.spec?.primaryFormat == 'currency' || data.title.runes.length <= 4;
-    final iconTile = Container(
+  // P3 联系人头像:首字母 monogram + 名字 hash 派生色环,替掉灰色 👤 蛋。
+  Widget _monogramAvatar(EurekaColors eu, String name) {
+    final t = name.trim();
+    final initial =
+        t.runes.isEmpty ? '?' : String.fromCharCode(t.runes.first).toUpperCase();
+    final palette = [
+      eu.accentBlue,
+      eu.accentPurple,
+      eu.accentGreen,
+      eu.accentAmber,
+      eu.accentCyan,
+      eu.brand,
+    ];
+    final c = palette[t.hashCode.abs() % palette.length];
+    return Container(
       width: 46,
       height: 46,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        gradient: LinearGradient(colors: [a.bg, Colors.transparent]),
-        borderRadius: BorderRadius.circular(13),
-        border: Border.all(color: a.edge),
+        shape: BoxShape.circle,
+        color: c.withValues(alpha: 0.16),
+        border: Border.all(color: c.withValues(alpha: 0.5), width: 1.5),
       ),
-      child: Opacity(
-        opacity: _done ? 0.4 : 1.0,
-        child: Text(data.icon, style: const TextStyle(fontSize: 23)),
-      ),
+      child: Text(initial,
+          style:
+              TextStyle(color: c, fontSize: 20, fontWeight: FontWeight.w700)),
     );
+  }
+
+  Widget _hero(EurekaColors eu) {
+    final a = accentOf(data.accentColor, eu);
+    final bigTitle = widget.spec?.primaryFormat == 'currency' || data.title.runes.length <= 4;
+    final iconTile = widget.cardType == 'contact'
+        ? _monogramAvatar(eu, data.title)
+        : Container(
+            width: 46,
+            height: 46,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(colors: [a.bg, Colors.transparent]),
+              borderRadius: BorderRadius.circular(13),
+              border: Border.all(color: a.edge),
+            ),
+            child: Opacity(
+              opacity: _done ? 0.4 : 1.0,
+              child: Text(data.icon, style: const TextStyle(fontSize: 23)),
+            ),
+          );
     // checkable (todo) → the icon doubles as a tappable 完成 checkbox.
     final iconWidget = !_checkable
         ? iconTile
