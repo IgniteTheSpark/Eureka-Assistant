@@ -146,7 +146,7 @@ sessions, contacts, events, timeline, tasks, notifications。
 | GET | `/api/assets` | `user_skill_name, session_id, field, op, value, contains, limit, domain?` | 列表(`limit` 默认 50)。给了 `field/op/value` 走 `asset_fields` 结构化查询;`domain` 可选过滤(8 选 1) |
 | GET | `/api/assets/counts` | — | **每技能全量计数**(all-time `GROUP BY`):`{counts:{<skill>:<n>}, total}`。资产库容器格子用它显**总数**(不是 `/api/assets` 那个 limit=50 窗口里碰巧有几条)。**路由上必须在 `/{id}` 之前声明** |
 | GET | `/api/assets/{id}` | — | 单条 |
-| POST | `/api/assets` | `CreateAssetRequest{user_skill_name, payload, session_id, source_input_turn_id, domain?}` | → `tool_create_asset`。`domain` 省略 → 服务端回落技能 prior 或 null（§7） |
+| POST | `/api/assets` | `CreateAssetRequest{user_skill_name, payload, session_id, source_input_turn_id, domain?, created_at?}` | → `tool_create_asset`。`domain` 省略 → 服务端回落 技能 prior → 基线 prior → **「生活」兜底,永不 null**（§8.2）。`created_at?` =「在这天记一笔」把记录锚到某天（[§4.5.4](04-frontend.md)） |
 | PUT | `/api/assets/{id}` | `UpdateAssetRequest{payload_patch?, domain?}` | patch 合并 + 重建 `asset_fields`;`domain` 与 payload 同一次提交(编辑表单改领域,§4.4.3a) |
 | DELETE | `/api/assets/{id}` | — | 删 |
 

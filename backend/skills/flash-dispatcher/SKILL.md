@@ -101,7 +101,7 @@ Google Calendar 事件 / 钉钉消息 / Linear issue / 等)?
 
 ## 输出格式
 
-只输出 JSON，不加任何说明文字、不加 markdown 代码块。**每个 intent 带上 `domain`**(模糊则省略):
+只输出 JSON，不加任何说明文字、不加 markdown 代码块。**每个 asset 类 intent(todo/event/expense/contact/notes)都必须带 `domain`**(实在拿不准 → 落「生活」,**绝不留空**;`qa` / `task` 除外):
 
 ```
 {"intents": [{"type": "todo", "domain": "工作", "source_text": "..."}]}
