@@ -1825,7 +1825,8 @@ class _BandView extends StatelessWidget {
       children: [
         Text(icon, style: const TextStyle(fontSize: 13)),
         const SizedBox(width: 7),
-        Flexible(
+        // Expanded(而非 Flexible)→ 标题吃满中间,领域色点被推到卡片最右、各条对齐。
+        Expanded(
           child: Text(it.title.isEmpty ? '记录' : it.title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -1833,34 +1834,35 @@ class _BandView extends StatelessWidget {
                   color: eu.textHi, fontSize: 12.5, fontWeight: FontWeight.w500)),
         ),
         if (isDomain(it.domain)) ...[
-          const SizedBox(width: 6),
+          const SizedBox(width: 8),
           _domTag(eu, it.domain),
         ],
       ],
     );
-    const pad = EdgeInsets.symmetric(horizontal: 9, vertical: 7);
-    final radius = BorderRadius.circular(9);
-    final Widget box = noTime
-        ? CustomPaint(
-            foregroundPainter:
-                _DashedRRect(color: eu.textLo.withValues(alpha: 0.5)),
-            child: Container(
-              decoration: BoxDecoration(
-                  color: eu.surfaceRaised.withValues(alpha: 0.55),
-                  borderRadius: radius),
-              padding: pad,
-              child: inner,
-            ),
-          )
-        : Container(
-            decoration: BoxDecoration(
-              color: eu.surfaceRaised,
-              borderRadius: radius,
-              border: Border.all(color: eu.border, width: 1.2),
-            ),
-            padding: pad,
-            child: inner,
-          );
+    const pad = EdgeInsets.symmetric(horizontal: 10, vertical: 8);
+    final radius = BorderRadius.circular(10);
+    // P1 悬浮态:去掉每条 item 的边框,用一道轻暖阴影让它浮在 day 容器上;
+    // 没有时间的(noTime)用更淡填充 + 无阴影,读作"还没落定"。
+    final Widget box = Container(
+      decoration: BoxDecoration(
+        color:
+            noTime ? eu.surfaceRaised.withValues(alpha: 0.5) : eu.surfaceRaised,
+        borderRadius: radius,
+        boxShadow: noTime
+            ? null
+            : [
+                BoxShadow(
+                  color: eu.brightness == Brightness.dark
+                      ? Colors.black.withValues(alpha: 0.22)
+                      : const Color(0xFF6B5A3A).withValues(alpha: 0.10),
+                  blurRadius: 7,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+      ),
+      padding: pad,
+      child: inner,
+    );
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onTap == null ? null : () => onTap!(it),
@@ -1908,35 +1910,6 @@ Widget _segOrb(Color tint, double size) => Container(
         ],
       ),
     );
-
-// Dashed rounded-rect border for「没有时间」cards (Flutter has no native dashed border).
-class _DashedRRect extends CustomPainter {
-  _DashedRRect({required this.color});
-  final Color color;
-  static const double _radius = 9, _dash = 4, _gap = 3;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final path = Path()
-      ..addRRect(
-          RRect.fromRectAndRadius(Offset.zero & size, const Radius.circular(_radius)));
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.3;
-    for (final m in path.computeMetrics()) {
-      var d = 0.0;
-      while (d < m.length) {
-        canvas.drawPath(
-            m.extractPath(d, (d + _dash).clamp(0.0, m.length)), paint);
-        d += _dash + _gap;
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(_DashedRRect old) => old.color != color;
-}
 
 // 斜纹占位 — diagonal hatch fill for empty days (空块斜纹).
 class _HatchPainter extends CustomPainter {
@@ -2315,7 +2288,7 @@ class _DayDetailPageState extends State<DayDetailPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (b.records.isNotEmpty) _capturedSection(eu, b.records, skills),
-        _sectionTitle(eu, '日程', primary: true),
+        _sectionTitle(eu, '日程'),
         if (b.allDay.isNotEmpty) _allDayRow(eu, b.allDay, skills),
         if (b.unscheduled.isNotEmpty) _unscheduledBar(eu, b.unscheduled, skills),
         Expanded(child: _hourGrid(eu, b.grid, skills, dayEmpty)),
@@ -2433,30 +2406,24 @@ class _DayDetailPageState extends State<DayDetailPage> {
 
   /// Unified small section heading (mono caps + optional trailing widget) —
   /// shared by 「今日捕捉」 and 「日程安排」 so they read as one system.
-  // primary = 主区段标题(日程网格):实心标题 + 品牌竖条,明确是这屏的主体;
-  // 非 primary(记录·按类型)= 安静小标签,读作次级 → 主次分明。
-  Widget _sectionTitle(EurekaColors eu, String text,
-          {Widget? trailing, bool primary = false}) =>
+  // 两个对等 section 的标题(记录 / 日程):品牌竖条 + 实心标题。两个 section 同款,
+  // 不分主次 —— 它们是并列的两段(记录段 / 日程段)。
+  Widget _sectionTitle(EurekaColors eu, String text, {Widget? trailing}) =>
       Padding(
-        padding: EdgeInsets.fromLTRB(20, primary ? 14 : 12, 16, primary ? 6 : 8),
+        padding: const EdgeInsets.fromLTRB(20, 14, 16, 8),
         child: Row(
           children: [
-            if (primary) ...[
-              Container(
-                  width: 3,
-                  height: 15,
-                  decoration: BoxDecoration(
-                      color: eu.brand,
-                      borderRadius: BorderRadius.circular(2))),
-              const SizedBox(width: 9),
-            ],
+            Container(
+                width: 3,
+                height: 15,
+                decoration: BoxDecoration(
+                    color: eu.brand, borderRadius: BorderRadius.circular(2))),
+            const SizedBox(width: 9),
             Text(text,
-                style: primary
-                    ? TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: eu.textHi)
-                    : euMono(fontSize: 10, letterSpacing: 2.2, color: eu.textLo)),
+                style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w700,
+                    color: eu.textHi)),
             if (trailing != null) ...[
               const SizedBox(width: 12),
               Expanded(child: trailing),
@@ -2551,7 +2518,13 @@ class _DayDetailPageState extends State<DayDetailPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          _sectionTitle(eu, '记录 · 按类型', trailing: tabRow),
+          _sectionTitle(eu, '记录'),
+          // 类型选择(随记 / 记账 …)移进容器内、标题下方一行,不再挤在标题行里。
+          if (tabRow != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 16, 8),
+              child: tabRow,
+            ),
           // Fixed 3-row window (60px row + 4px gap) — the section never changes
           // height when switching tabs, so the hour grid below stays put. Fewer
           // than 3 items → empty space; more → scrolls inside.
