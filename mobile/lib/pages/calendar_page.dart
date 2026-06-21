@@ -2308,13 +2308,14 @@ class _DayDetailPageState extends State<DayDetailPage> {
     final b = _bucket(items);
     WidgetsBinding.instance.addPostFrameCallback((_) => _anchorGrid(b.grid));
     final dayEmpty = items.where((i) => i.kind != 'input_turn').isEmpty;
+    // 顺序(用户定 2026-06):记录(顶) → 日程;「全天 / 待安排」都收进日程 section、在网格之上。
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (b.allDay.isNotEmpty) _allDayRow(eu, b.allDay, skills),
-        if (b.unscheduled.isNotEmpty) _unscheduledBar(eu, b.unscheduled, skills),
         if (b.records.isNotEmpty) _capturedSection(eu, b.records, skills),
         _sectionTitle(eu, '日程'),
+        if (b.allDay.isNotEmpty) _allDayRow(eu, b.allDay, skills),
+        if (b.unscheduled.isNotEmpty) _unscheduledBar(eu, b.unscheduled, skills),
         Expanded(child: _hourGrid(eu, b.grid, skills, dayEmpty)),
       ],
     );

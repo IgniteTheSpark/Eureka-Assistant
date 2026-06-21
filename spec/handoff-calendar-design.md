@@ -171,6 +171,7 @@
 > ### ✅ 已落地(2026-06,commit `74f12fc` B1 + `9f4f21c` B2)
 > B1 / B3.1 / B3.3 / B3.4 / B5 已实现并真机验证渲染(`calendar_page.dart` `_DayDetailPageState`):
 > - **B1 桶分** `_bucket` → 全天事件→「全天」条、有时刻事件 + 有时刻待办→24h 网格、无时刻待办→「待安排」条、结果记录→「**记录 · 按类型**」容器;DayDetail **默认镜头改「日程」**(原为「非日程」,对齐 §4.5.4)。
+> - **版面顺序(用户定 2026-06)** 从上到下 = **「记录 · 按类型」容器(顶) → 「日程」section**;**「全天」条 + 「待安排」条都收进「日程」section、在 24h 网格之上**(待安排 = 日程的一部分,不再是独立顶栏)。
 > - **B3.3 计数 chip** 同 `startMin` 的 N 个待办聚成「**N 个待办 ▾**」,点开就地展可勾小列表(`_expandedClusters` / `_todoClusterBlock`)。
 > - **B3.1 待办落格** 网格待办块带 ○ 勾选框(done = 绿勾 + 删除线);事件无框。
 > - **勾选完成** ○ 点击 → `_toggleTodoDone` PUT `payload_patch.status` + `bumpData` 即时重拉(网格块 / 待安排条 / chip 展开行通用)。
