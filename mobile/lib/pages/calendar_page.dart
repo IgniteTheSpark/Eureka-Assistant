@@ -2037,6 +2037,10 @@ int _bandIndexOf(TimelineItem it) {
 const double _kHourHeight = 56;
 const int _kGridStartHour = 0;
 const int _kGridEndHour = 24;
+// 「N 个待办」计数 chip 展开态(手风琴):折叠头高 + 每条展开行高。展开时在网格里
+// 插入 N*_kClusterRowH 的真实高度、把下方内容整体下推(不悬浮覆盖)。
+const double _kClusterHeaderH = 28;
+const double _kClusterRowH = 30;
 
 class DayDetailPage extends StatefulWidget {
   final DateTime day;
@@ -2555,7 +2559,7 @@ class _DayDetailPageState extends State<DayDetailPage> {
       EurekaColors eu, List<TimelineItem> timed, Map<String, SkillMeta> skills, bool dayEmpty) {
     final now = DateTime.now();
     final isToday = _sameDay(now);
-    final gridHeight = (_kGridEndHour - _kGridStartHour) * _kHourHeight;
+    final baseGridHeight = (_kGridEndHour - _kGridStartHour) * _kHourHeight;
     // §B 同一时刻 N 个待办收成一个「计数 chip」:按 startMin 把同点待办聚成 cluster,
     // 只把代表项放进列布局(渲染时换成计数 chip);事件 / 单条待办照旧。
     final clusters = <String, List<TimelineItem>>{}; // repId → 同点待办们
@@ -2572,6 +2576,26 @@ class _DayDetailPageState extends State<DayDetailPage> {
       if (todos.length > 1) clusters[todos.first.id] = todos;
       layout.add(todos.first);
     });
+    // §B 手风琴:每个「展开」的计数 chip 在它的时刻插入 N*行高 的真实高度;pushAt(y) =
+    // y 之上所有展开 chip 的插入量之和 → 加到每个元素的 top,把下方内容整体下推、不悬浮覆盖。
+    final expansions = <(double, double)>[]; // (baseTop, extraHeight)
+    clusters.forEach((repId, todos) {
+      if (_expandedClusters.contains(repId)) {
+        expansions.add((
+          _startMin(todos.first) / 60.0 * _kHourHeight,
+          todos.length * _kClusterRowH,
+        ));
+      }
+    });
+    double pushAt(double baseTop) {
+      var s = 0.0;
+      for (final e in expansions) {
+        if (e.$1 < baseTop) s += e.$2;
+      }
+      return s;
+    }
+    final gridHeight =
+        baseGridHeight + expansions.fold<double>(0.0, (a, e) => a + e.$2);
     // 重叠规则:同时段事件/待办等分成并列列(google-calendar 式)。grid 占满 body 宽。
     final cols = _eventColumns(layout);
     const leftPad = 62.0, gap = 3.0;
@@ -2585,7 +2609,8 @@ class _DayDetailPageState extends State<DayDetailPage> {
             // Hour rows + labels
             for (int h = _kGridStartHour; h < _kGridEndHour; h++)
               Positioned(
-                top: (h - _kGridStartHour) * _kHourHeight,
+                top: (h - _kGridStartHour) * _kHourHeight +
+                    pushAt((h - _kGridStartHour) * _kHourHeight),
                 left: 0,
                 right: 0,
                 height: _kHourHeight,
@@ -2613,17 +2638,20 @@ class _DayDetailPageState extends State<DayDetailPage> {
                       count: cols[it.id]?.$2 ?? 1,
                       leftPad: leftPad,
                       avail: avail,
-                      gap: gap)
+                      gap: gap,
+                      topOffset: pushAt(_startMin(it) / 60.0 * _kHourHeight))
                   : _eventBlock(eu, it, skills,
                       col: cols[it.id]?.$1 ?? 0,
                       count: cols[it.id]?.$2 ?? 1,
                       leftPad: leftPad,
                       avail: avail,
-                      gap: gap),
+                      gap: gap,
+                      topOffset: pushAt(_startMin(it) / 60.0 * _kHourHeight)),
             // "now" line — only on today
             if (isToday)
               Positioned(
-                top: (now.hour * 60 + now.minute) / 60.0 * _kHourHeight,
+                top: (now.hour * 60 + now.minute) / 60.0 * _kHourHeight +
+                    pushAt((now.hour * 60 + now.minute) / 60.0 * _kHourHeight),
                 left: 52,
                 right: 12,
                 child: Row(
@@ -2707,12 +2735,17 @@ class _DayDetailPageState extends State<DayDetailPage> {
   }
 
   Widget _eventBlock(EurekaColors eu, TimelineItem it, Map<String, SkillMeta> skills,
-      {required int col, required int count, required double leftPad, required double avail, required double gap}) {
+      {required int col,
+      required int count,
+      required double leftPad,
+      required double avail,
+      required double gap,
+      double topOffset = 0}) {
     final start = it.effectiveAt;
     final startMin = start.hour * 60 + start.minute;
     var endMin = it.endAt != null ? it.endAt!.hour * 60 + it.endAt!.minute : startMin + 30;
     if (endMin <= startMin) endMin = startMin + 30;
-    final top = startMin / 60.0 * _kHourHeight;
+    final top = startMin / 60.0 * _kHourHeight + topOffset;
     final rawH = (endMin - startMin) / 60.0 * _kHourHeight;
     final height = rawH < 24 ? 24.0 : rawH;
     final isEvent = it.kind == 'event';
@@ -2796,52 +2829,58 @@ class _DayDetailPageState extends State<DayDetailPage> {
       required int count,
       required double leftPad,
       required double avail,
-      required double gap}) {
+      required double gap,
+      double topOffset = 0}) {
     final repId = todos.first.id;
     final expanded = _expandedClusters.contains(repId);
-    final top = _startMin(todos.first) / 60.0 * _kHourHeight;
+    final top = _startMin(todos.first) / 60.0 * _kHourHeight + topOffset;
     final colW = (avail - gap * (count - 1)) / count;
     final left = leftPad + col * (colW + gap);
     final accent = eu.accentBlue;
+    // 折叠 = 头一块;展开 = 头 + N 行(固定行高,精确等于 _hourGrid 在此处插入的
+    // N*_kClusterRowH)→「撑大时间块、把下方内容整体下推」,不再悬浮覆盖其他 block。
     return Positioned(
       top: top,
       left: left,
       width: colW,
+      height: _kClusterHeaderH + (expanded ? todos.length * _kClusterRowH : 0),
       child: Container(
+        clipBehavior: Clip.hardEdge,
         decoration: BoxDecoration(
-          color: accent.withValues(alpha: 0.20),
+          color: accent.withValues(alpha: expanded ? 0.16 : 0.20),
           borderRadius: BorderRadius.circular(8),
           border: Border(left: BorderSide(color: accent, width: 3)),
         ),
-        padding: const EdgeInsets.fromLTRB(8, 4, 6, 5),
+        padding: const EdgeInsets.symmetric(horizontal: 8),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
           children: [
-            GestureDetector(
-              onTap: () => setState(() => expanded
-                  ? _expandedClusters.remove(repId)
-                  : _expandedClusters.add(repId)),
-              behavior: HitTestBehavior.opaque,
-              child: Row(
-                children: [
-                  Text('${todos.length} 个待办',
-                      style: TextStyle(
-                          color: accent,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700)),
-                  const Spacer(),
-                  Icon(expanded ? Icons.expand_less : Icons.expand_more,
-                      size: 16, color: accent),
-                ],
+            SizedBox(
+              height: _kClusterHeaderH,
+              child: GestureDetector(
+                onTap: () => setState(() => expanded
+                    ? _expandedClusters.remove(repId)
+                    : _expandedClusters.add(repId)),
+                behavior: HitTestBehavior.opaque,
+                child: Row(
+                  children: [
+                    Text('${todos.length} 个待办',
+                        style: TextStyle(
+                            color: accent,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700)),
+                    const Spacer(),
+                    Icon(expanded ? Icons.expand_less : Icons.expand_more,
+                        size: 16, color: accent),
+                  ],
+                ),
               ),
             ),
             if (expanded)
               for (final t in todos)
-                Padding(
-                  padding: const EdgeInsets.only(top: 5),
-                  child: _todoCheckRow(eu, t, skills),
-                ),
+                SizedBox(
+                    height: _kClusterRowH,
+                    child: _todoCheckRow(eu, t, skills)),
           ],
         ),
       ),
