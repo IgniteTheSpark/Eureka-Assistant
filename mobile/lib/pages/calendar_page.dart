@@ -2289,74 +2289,146 @@ class _DayDetailPageState extends State<DayDetailPage> {
       children: [
         if (b.records.isNotEmpty) _capturedSection(eu, b.records, skills),
         _sectionTitle(eu, '日程'),
-        if (b.allDay.isNotEmpty) _allDayRow(eu, b.allDay, skills),
-        if (b.unscheduled.isNotEmpty) _unscheduledBar(eu, b.unscheduled, skills),
+        // 全天 + 待安排 = 网格顶部两个并列轻托盘(全天左 / 待安排右),同款样式。
+        if (b.allDay.isNotEmpty || b.unscheduled.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 2, 16, 8),
+            child: _topTrays(eu, b.allDay, b.unscheduled, skills),
+          ),
         Expanded(child: _hourGrid(eu, b.grid, skills, dayEmpty)),
       ],
     );
   }
 
-  // 顶部「待安排」轻条 = 无时刻待办;最多 3 条 + 头部「共 N 条」+ 展开其余(内部滚)。
-  Widget _unscheduledBar(
-      EurekaColors eu, List<TimelineItem> todos, Map<String, SkillMeta> skills) {
-    final shown = _unschedExpanded ? todos : todos.take(3).toList();
-    final rest = todos.length - shown.length;
+  // 网格顶部两个并列「轻托盘」(全天 / 待安排)= 同款容器 + 同款标题样式。
+  Widget _topTray(EurekaColors eu,
+      {required String label, String? count, required Widget child}) {
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 6, 16, 4),
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-      // P1 主次:去掉品牌边框 → 轻量「托盘」(无边框 + 极淡填充),次于下方日程网格。
+      padding: const EdgeInsets.fromLTRB(11, 8, 11, 9),
       decoration: BoxDecoration(
-        color: eu.brand.withValues(alpha: 0.045),
+        color: eu.surfaceRaised.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(10),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Padding(
-            padding: const EdgeInsets.only(bottom: 6),
-            child: Row(
-              children: [
-                Text('待安排',
-                    style: euMono(
-                        fontSize: 10, letterSpacing: 1.5, color: eu.brand)),
+          Row(
+            children: [
+              Text(label,
+                  style: euMono(
+                      fontSize: 10, letterSpacing: 1.5, color: eu.textMid)),
+              if (count != null) ...[
                 const Spacer(),
-                Text('共 ${todos.length} 条',
-                    style: TextStyle(fontSize: 10.5, color: eu.textLo)),
+                Text(count, style: TextStyle(fontSize: 10, color: eu.textLo)),
               ],
-            ),
+            ],
           ),
-          ConstrainedBox(
-            constraints: BoxConstraints(maxHeight: _unschedExpanded ? 220 : 999),
-            child: ListView.separated(
-              padding: EdgeInsets.zero,
-              shrinkWrap: true,
-              physics: _unschedExpanded
-                  ? const ClampingScrollPhysics()
-                  : const NeverScrollableScrollPhysics(),
-              itemCount: shown.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 5),
-              itemBuilder: (_, i) => _todoCheckRow(eu, shown[i], skills),
-            ),
-          ),
-          if (rest > 0 || _unschedExpanded)
-            Center(
-              child: GestureDetector(
-                onTap: () => setState(() => _unschedExpanded = !_unschedExpanded),
-                behavior: HitTestBehavior.opaque,
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Text(
-                      _unschedExpanded ? '收起 ⌃' : '展开其余 $rest 条 ⌄',
-                      style: TextStyle(
-                          fontSize: 11.5,
-                          color: eu.brand,
-                          fontWeight: FontWeight.w600)),
-                ),
-              ),
-            ),
+          const SizedBox(height: 7),
+          child,
         ],
       ),
+    );
+  }
+
+  // 全天(左)+ 待安排(右)左右并列;只有一个时占满整行。
+  Widget _topTrays(EurekaColors eu, List<TimelineItem> allDay,
+      List<TimelineItem> unscheduled, Map<String, SkillMeta> skills) {
+    final left = allDay.isNotEmpty
+        ? _topTray(eu,
+            label: '全天', child: _allDayTrayContent(eu, allDay, skills))
+        : null;
+    final right = unscheduled.isNotEmpty
+        ? _topTray(eu,
+            label: '待安排',
+            count: '共 ${unscheduled.length} 条',
+            child: _unscheduledTrayContent(eu, unscheduled, skills))
+        : null;
+    if (left == null && right == null) return const SizedBox.shrink();
+    if (left != null && right != null) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(child: left),
+          const SizedBox(width: 8),
+          Expanded(child: right),
+        ],
+      );
+    }
+    return left ?? right!;
+  }
+
+  // 全天事件 = 正常的行(紫点 + 标题),不再是 pill。
+  Widget _allDayTrayContent(EurekaColors eu, List<TimelineItem> allDay,
+      Map<String, SkillMeta> skills) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (final it in allDay)
+          GestureDetector(
+            onTap: () => _openTimelineItem(context, it, skills),
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              child: Row(
+                children: [
+                  Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                          shape: BoxShape.circle, color: eu.accentPurple)),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Text(it.title.isEmpty ? '事件' : it.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: eu.textHi, fontSize: 13)),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  // 待安排内容:○ 待办行(≤3)+ 展开其余 N 条(内部滚)。
+  Widget _unscheduledTrayContent(EurekaColors eu, List<TimelineItem> todos,
+      Map<String, SkillMeta> skills) {
+    final shown = _unschedExpanded ? todos : todos.take(3).toList();
+    final rest = todos.length - shown.length;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: _unschedExpanded ? 220 : 999),
+          child: ListView.separated(
+            padding: EdgeInsets.zero,
+            shrinkWrap: true,
+            physics: _unschedExpanded
+                ? const ClampingScrollPhysics()
+                : const NeverScrollableScrollPhysics(),
+            itemCount: shown.length,
+            separatorBuilder: (_, _) => const SizedBox(height: 5),
+            itemBuilder: (_, i) => _todoCheckRow(eu, shown[i], skills),
+          ),
+        ),
+        if (rest > 0 || _unschedExpanded)
+          GestureDetector(
+            onTap: () => setState(() => _unschedExpanded = !_unschedExpanded),
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(_unschedExpanded ? '收起 ⌃' : '展开其余 $rest 条 ⌄',
+                  style: TextStyle(
+                      fontSize: 11.5,
+                      color: eu.brand,
+                      fontWeight: FontWeight.w600)),
+            ),
+          ),
+      ],
     );
   }
 
@@ -2432,41 +2504,6 @@ class _DayDetailPageState extends State<DayDetailPage> {
         ),
       );
 
-  Widget _allDayRow(EurekaColors eu, List<TimelineItem> allDay, Map<String, SkillMeta> skills) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(20, 4, 16, 12),
-      decoration: BoxDecoration(border: Border(bottom: BorderSide(color: eu.rule))),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('全天', style: euMono(fontSize: 10, letterSpacing: 2.2, color: eu.textLo)),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                for (final it in allDay)
-                  GestureDetector(
-                    onTap: () => _openTimelineItem(context, it, skills),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: eu.accentPurple.withValues(alpha: 0.18),
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(color: eu.accentPurple.withValues(alpha: 0.40)),
-                      ),
-                      child: Text(it.title.isEmpty ? '事件' : it.title,
-                          style: TextStyle(color: eu.textHi, fontSize: 12)),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
   static const _captureLabels = <String, String>{
     'todo': '待办', 'expense': '记账', 'contact': '名片',
