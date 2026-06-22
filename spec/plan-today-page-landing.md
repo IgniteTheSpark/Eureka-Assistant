@@ -1,5 +1,7 @@
 # 今日页 (Today Page landing) Implementation Plan
 
+> **✅ 已落地 2026-06-22** (branch `feat/today-page-landing`) — Slice 0–7 全部完成、4 边态真机验过；落地决策 / 与原型的偏差见 [04-frontend §4.5.0「已落地」块](04-frontend.md)。下文留作实施记录。
+
 > **For agentic workers:** implement task-by-task; steps use `- [ ]`. This is a **Flutter mobile UI feature** — the TDD default is adapted (see "Verification model"). Truth sources, read first: [handoff-today-landing.md](handoff-today-landing.md) (scope/order), [prototype-today-page.md](prototype-today-page.md) (verbatim hifi tokens/motion/physics constants), [04-frontend §4.5.0](04-frontend.md) (logic/data). The prototype README is the **verbatim visual spec** — this plan references its exact tokens rather than re-typing them; "see README §X" means copy those literal values.
 
 **Goal:** Replace tab0 with a new `TodayPage` home: two frosted panels (① Next Action card-fan, ② Dashboard) floating over a ③ full-screen physics bubble pool of today's captured assets, with Reka on top.

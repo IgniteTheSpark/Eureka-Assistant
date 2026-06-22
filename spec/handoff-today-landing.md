@@ -3,6 +3,8 @@
 > **今日页 = 首页 tab0 landing**，两块：**① Next Action** + **② Recorded（Dashboard + 气泡池）**，浮在一个全屏物理气泡场之上，Reka 浮球在最上层。
 > **三份真值**：逻辑 / 数据 / 决策 = [§4.5.0](04-frontend.md)；**hifi 视觉 / 动效 / 物理参数 = [prototype-today-page.md](prototype-today-page.md)**（用户原型 README，逐字）；设计意图 = [handoff-calendar-design §E](handoff-calendar-design.md)。
 > 本卡 = **实施范围 + 对齐 + 复用 + 别做 + 顺序**。
+>
+> **✅ 已落地 2026-06-22**（branch `feat/today-page-landing`）—— nav + Part 1 + Part 2（池 + dashboard + 三图）+ 记录详情 + 4 边态全部真机验过；**决策 / 与原型的偏差**见 [04-frontend §4.5.0「已落地」块](04-frontend.md)。本卡留作实施记录。
 
 ---
 
