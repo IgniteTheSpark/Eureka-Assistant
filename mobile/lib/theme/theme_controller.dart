@@ -14,7 +14,10 @@ void toggleThemeMode() {
 
 /// Sun/moon button that flips the app theme (mirrors the web HeaderControls).
 class ThemeToggle extends StatelessWidget {
-  const ThemeToggle({super.key});
+  const ThemeToggle({super.key, this.onDark = false});
+
+  /// Light control color for the today page's dark header (see GlobalHeaderBar).
+  final bool onDark;
 
   @override
   Widget build(BuildContext context) {
@@ -27,7 +30,7 @@ class ThemeToggle extends StatelessWidget {
           tooltip: dark ? '切换到日间' : '切换到夜间',
           onPressed: toggleThemeMode,
           icon: Icon(dark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
-              color: eu.textMid),
+              color: onDark ? Colors.white70 : eu.textMid),
         );
       },
     );

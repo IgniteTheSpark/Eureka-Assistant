@@ -22,7 +22,11 @@ import 'toast.dart';
 /// Per-page headers keep only their page-specific content (segmented / title /
 /// refresh).
 class GlobalHeaderBar extends StatelessWidget {
-  const GlobalHeaderBar({super.key});
+  const GlobalHeaderBar({super.key, this.onDark = false});
+
+  /// Render against the today page's dark "atmosphere" (tab0): the bar blends
+  /// into #0B1220 with light controls instead of the light calendar/library bg.
+  final bool onDark;
 
   @override
   Widget build(BuildContext context) {
@@ -30,8 +34,10 @@ class GlobalHeaderBar extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(18, 2, 4, 2),
       decoration: BoxDecoration(
-        color: eu.bg,
-        border: Border(bottom: BorderSide(color: eu.rule)),
+        color: onDark ? const Color(0xFF0B1220) : eu.bg,
+        border: Border(
+            bottom: BorderSide(
+                color: onDark ? const Color(0x14FFFFFF) : eu.rule)),
       ),
       child: Row(
         children: [
@@ -43,11 +49,12 @@ class GlobalHeaderBar extends StatelessWidget {
             colorFilter: ColorFilter.mode(eu.brand, BlendMode.srcIn),
           ),
           const Spacer(),
-          const ThemeToggle(),
+          ThemeToggle(onDark: onDark),
           // 通知 moved onto REKA (§9.2) — no header bell.
           _GhostButton(
             icon: Icons.person_outline,
             tooltip: '个人中心',
+            onDark: onDark,
             onTap: () => _openProfile(context),
           ),
           AnimatedBuilder(
@@ -80,6 +87,7 @@ class GlobalHeaderBar extends StatelessWidget {
                 icon: icon,
                 tooltip: tooltip,
                 color: color,
+                onDark: onDark,
                 onTap: () => _openDevice(context),
               );
             },
@@ -94,11 +102,13 @@ class _GhostButton extends StatelessWidget {
   final IconData icon;
   final String tooltip;
   final Color? color;
+  final bool onDark;
   final VoidCallback onTap;
   const _GhostButton({
     required this.icon,
     required this.tooltip,
     this.color,
+    this.onDark = false,
     required this.onTap,
   });
 
@@ -108,7 +118,7 @@ class _GhostButton extends StatelessWidget {
     return IconButton(
       tooltip: tooltip,
       onPressed: onTap,
-      icon: Icon(icon, color: color ?? eu.textMid),
+      icon: Icon(icon, color: color ?? (onDark ? Colors.white70 : eu.textMid)),
     );
   }
 }

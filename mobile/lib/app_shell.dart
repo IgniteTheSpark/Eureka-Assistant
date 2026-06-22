@@ -113,7 +113,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver, RouteA
         bottom: false,
         child: Column(
         children: [
-          const GlobalHeaderBar(),
+          GlobalHeaderBar(onDark: _index == 0),
           Expanded(
             child: Stack(
               children: [
