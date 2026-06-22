@@ -51,6 +51,8 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
   bool _open = true;
   bool _noTimeOpen = false;
   int _index = 0;
+  DateTime _now = DateTime.now();
+  Timer? _tick; // 1s tick for the focal card's live countdown
   final Set<String> _completing = {}; // ids mid-PUT (avoid double-tap)
 
   // Tinder-style swipe on the focal card.
@@ -63,6 +65,9 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
   @override
   void initState() {
     super.initState();
+    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() => _now = DateTime.now());
+    });
     _fly =
         AnimationController(
             vsync: this,
@@ -88,6 +93,7 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
 
   @override
   void dispose() {
+    _tick?.cancel();
     _fly.dispose();
     _api.close();
     super.dispose();
@@ -218,10 +224,11 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
   // ── deck (Tinder-style card stack) ──────────────────────────────────────────
   Widget _deck(List<ChainItem> chain, int idx) {
     final progress = (_drag.dx.abs() / 130).clamp(0.0, 1.0);
+    final stacked = idx + 1 < chain.length; // ≥1 card behind the focal
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 4, 14, 10),
       child: SizedBox(
-        height: 108,
+        height: stacked ? 148 : 128,
         child: Stack(
           clipBehavior: Clip.none,
           children: [
@@ -272,17 +279,26 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
         scale: scale,
         alignment: Alignment.topCenter,
         child: Opacity(
-          opacity: 1 - depth * 0.16,
+          // solid (not see-through) so the stack reads as finished cards, not a
+          // translucent placeholder; just a touch dimmer per depth.
+          opacity: 1 - depth * 0.07,
           child: Container(
-            height: 80,
+            height: 128,
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [_p.shellTop, _p.shellBottom],
               ),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: _p.panelBorder),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: _p.cardBorder),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: _p.dark ? 0.3 : 0.08),
+                  blurRadius: 16,
+                  offset: const Offset(0, 8),
+                ),
+              ],
             ),
           ),
         ),
@@ -290,15 +306,82 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
     );
   }
 
-  /// The focal card = the **same global unified card** as 资产库 / 日历
-  /// (SkillCard, 'horizontal'). Wrapped in IgnorePointer so its own tap /
-  /// checkbox / swipe-to-delete don't fight the deck's drag-to-cycle; the deck
-  /// owns tap (→ detail) + swipe itself.
+  /// Focal = a "big card" that **nests the global SkillCard** ('horizontal',
+  /// same as 资产库/日历) + a live countdown footer (per review: keep the global
+  /// card look, bring the timing back). Opaque (cardTop/cardBottom) so the stack
+  /// behind doesn't bleed through. The SkillCard is IgnorePointer'd so its own
+  /// tap/checkbox/swipe-delete don't fight the deck; the deck owns tap + swipe.
   Widget _focalCard(ChainItem it) {
-    return SizedBox(
+    return Container(
+      height: 128,
       width: double.infinity,
-      child: IgnorePointer(
-        child: SkillCard(it.card, layoutOverride: 'horizontal'),
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [_p.cardTop, _p.cardBottom],
+        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _p.cardBorder),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: _p.dark ? 0.5 : 0.16),
+            blurRadius: 30,
+            offset: const Offset(0, 14),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Expanded(
+            child: IgnorePointer(
+              child: SkillCard(it.card, layoutOverride: 'horizontal'),
+            ),
+          ),
+          const SizedBox(height: 4),
+          _countdownRow(it),
+        ],
+      ),
+    );
+  }
+
+  /// Live countdown footer on the focal card. Event: 还剩/进行中/X 后开始;
+  /// timed todo: X 后到期 / 已到期. Drives the 1s [_tick].
+  Widget _countdownRow(ChainItem it) {
+    final start = it.at;
+    final started = !_now.isBefore(start);
+    final String label;
+    if (it.kind == 'event') {
+      if (!started) {
+        label = '⏳ ${fmtCountdown(start.difference(_now))} 后开始';
+      } else if (it.dur != null) {
+        final end = start.add(it.dur!);
+        label = _now.isBefore(end)
+            ? '进行中 · 还剩 ${fmtCountdown(end.difference(_now))}'
+            : '已结束';
+      } else {
+        label = '进行中';
+      }
+    } else {
+      label = started ? '已到期' : '⏳ ${fmtCountdown(start.difference(_now))} 后到期';
+    }
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: _p.accent.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: _p.accent,
+          fontSize: 12.5,
+          fontWeight: FontWeight.w600,
+          fontFeatures: const [FontFeature.tabularFigures()],
+        ),
       ),
     );
   }
@@ -341,7 +424,7 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
   /// restarts at the first.
   Widget _endCard() {
     return Container(
-      height: 154,
+      height: 128,
       width: double.infinity,
       alignment: Alignment.center,
       decoration: BoxDecoration(
@@ -350,7 +433,7 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
           end: Alignment.bottomCenter,
           colors: [_p.cardTop, _p.cardBottom],
         ),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: _p.cardBorder),
       ),
       child: Column(

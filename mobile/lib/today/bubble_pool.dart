@@ -55,7 +55,10 @@ class _BubblePoolState extends State<BubblePool>
   final ValueNotifier<int> _repaint = ValueNotifier(0);
   final Map<String, PoolAsset> _byId = {};
   StreamSubscription<AccelerometerEvent>? _accel;
-  Offset _gravity = const Offset(0, 20); // current (tilt-driven) gravity (world)
+  Offset _gravity = const Offset(
+    0,
+    20,
+  ); // current (tilt-driven) gravity (world)
 
   @override
   void initState() {
@@ -177,9 +180,11 @@ class _BubblePoolState extends State<BubblePool>
       for (var i = 0; i < widget.pool.length; i++) {
         final a = widget.pool[i];
         if (!f.has(a.id)) {
+          // drop in just BELOW the ceiling (y>0), never above it — a body spawned
+          // above the ceiling edge gets blocked by it and sticks to the top.
           f.addBubble(
             a.id,
-            Offset(box.width * (0.3 + 0.4 * ((i % 5) / 4)), -23),
+            Offset(box.width * (0.3 + 0.4 * ((i % 5) / 4)), 26),
             23,
           );
         }
@@ -203,7 +208,7 @@ class _BubblePoolState extends State<BubblePool>
   }
 
   /// The floating dock pill in pool coords (matches FloatingDock: bottom-centered,
-  /// ~180×52, ~14 above the bottom). Its top edge is the tent apex.
+  /// ~180×52, ~14 above the bottom). BubbleField turns it into a solid box collider.
   Rect _dockRect(Size box) =>
       Rect.fromLTWH(box.width / 2 - 90, box.height - 66, 180, 52);
 

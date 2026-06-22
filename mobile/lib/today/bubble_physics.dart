@@ -22,10 +22,11 @@ class Bubble {
 }
 
 /// forge2d-backed bubble pool (≈ the Matter.js reference): bouncy, rolly circles
-/// in a closed box whose floor is a ∧ "tent" peaking at the dock's top-center —
-/// so bodies slide to the two sides and can never overlap or sink under the dock.
-/// Drag = velocity-chase toward the finger; gravity follows device tilt; sleeping
-/// + battery handled by Box2D's native body sleep. y is screen-down (gravity +y).
+/// in a closed box (floor + walls + ceiling). The floating dock is a **solid box
+/// collider** (extended down to the floor) so bodies physically collide with the
+/// nav — they rest on top + in the corners beside it, never overlapping or
+/// sinking under it. Drag = velocity-chase toward the finger; gravity follows
+/// device tilt; sleeping + battery via Box2D's native body sleep. y is screen-down.
 class BubbleField {
   BubbleField({
     required this.box,
@@ -55,21 +56,35 @@ class BubbleField {
 
   void step([double dt = 1 / 60]) => _world.stepDt(dt);
 
-  // ── static bounds: ∧ tent floor (apex at dock-top-center) + walls + ceiling ──
+  // ── static bounds: closed box (floor+walls+ceiling) + the dock as a solid box ──
   void _buildBounds(Rect dock) {
     final w = box.width / _scale, h = box.height / _scale;
-    final apex = Vector2(w / 2, dock.top / _scale);
-    final body = _world.createBody(BodyDef()..type = BodyType.static);
-    void edge(Vector2 a, Vector2 b) => body.createFixture(
+    final walls = _world.createBody(BodyDef()..type = BodyType.static);
+    void edge(Vector2 a, Vector2 b) => walls.createFixture(
       FixtureDef(EdgeShape()..set(a, b), friction: 0.4, restitution: 0.1),
     );
-    // tent: bottom-left corner → apex → bottom-right corner (two diverging lines)
-    edge(Vector2(0, h), apex);
-    edge(apex, Vector2(w, h));
-    // side walls + ceiling close the box (flip-to-rise rests against the top)
-    edge(Vector2(0, 0), Vector2(0, h));
-    edge(Vector2(w, 0), Vector2(w, h));
-    edge(Vector2(0, 0), Vector2(w, 0));
+    edge(Vector2(0, h), Vector2(w, h)); // floor
+    edge(Vector2(0, 0), Vector2(0, h)); // left wall
+    edge(Vector2(w, 0), Vector2(w, h)); // right wall
+    edge(Vector2(0, 0), Vector2(w, 0)); // ceiling (flip-to-rise rests here)
+    // The floating dock = a solid static box, extended down to the floor so no
+    // bubble can wedge into the ~14px gap under the real (floating) dock. Bodies
+    // collide with it: pile on top + in the two corners beside it.
+    final halfW = dock.width / 2 / _scale;
+    final halfH = (box.height - dock.top) / 2 / _scale;
+    final center = Vector2(dock.center.dx / _scale, dock.top / _scale + halfH);
+    final dockBody = _world.createBody(
+      BodyDef()
+        ..type = BodyType.static
+        ..position = center,
+    );
+    dockBody.createFixture(
+      FixtureDef(
+        PolygonShape()..setAsBox(halfW, halfH, Vector2.zero(), 0),
+        friction: 0.4,
+        restitution: 0.2,
+      ),
+    );
   }
 
   /// Add a dynamic bubble at [posPx] (pixels). Drop-in spawns it above the top.
