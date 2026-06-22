@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../api/api_client.dart';
 import '../data_revision.dart';
+import '../today/next_action.dart';
 import '../today/today_data.dart';
 
 /// 今日页 (首页 tab0 = landing). Two frosted panels — ① Next Action, ② Dashboard —
@@ -78,11 +79,16 @@ class _TodayPageState extends State<TodayPage> {
           ),
         ),
         // ── Front: panels column (Slice 3 Next Action + Slice 5 Dashboard) ──
-        const Column(
+        Column(
           children: [
-            Expanded(child: SizedBox()),
+            NextActionPanel(
+              chain: data.chain,
+              noTimeTodos: data.noTimeTodos,
+            ),
+            // the bubble pool (Slice 4) shows through this transparent gap.
+            const Expanded(child: SizedBox()),
             // reserved gap so the bottom-most panel clears the floating dock.
-            SizedBox(height: 78),
+            const SizedBox(height: 78),
           ],
         ),
         if (_kDebugTodayCounts)

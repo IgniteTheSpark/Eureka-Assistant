@@ -37,5 +37,28 @@ void main() {
       ], now);
       expect(r.chain.map((e) => e.id), ['soon', 'late']);
     });
+
+    test('in-progress event (started 10m ago, ends in 50m) stays, sorts first', () {
+      final inProgress = ChainItem(
+          kind: 'event',
+          id: 'now',
+          title: 'now',
+          at: now.subtract(const Duration(minutes: 10)),
+          timed: true,
+          dur: const Duration(hours: 1));
+      final r = splitChain([ev('later', now.add(const Duration(hours: 2))), inProgress], now);
+      expect(r.chain.map((e) => e.id), ['now', 'later']);
+    });
+
+    test('event whose end already passed → dropped', () {
+      final ended = ChainItem(
+          kind: 'event',
+          id: 'ended',
+          title: 'ended',
+          at: now.subtract(const Duration(hours: 2)),
+          timed: true,
+          dur: const Duration(hours: 1));
+      expect(splitChain([ended], now).chain, isEmpty);
+    });
   });
 }

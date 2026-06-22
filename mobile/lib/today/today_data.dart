@@ -88,9 +88,13 @@ class TodayData {
   for (final it in all) {
     if (!it.timed) {
       if (it.kind == 'todo') noTime.add(it);
-    } else if (!it.at.isBefore(now)) {
-      chain.add(it);
+      continue;
     }
+    // Drop only once the action is *over*: an event keeps until its end (so an
+    // in-progress meeting stays the focal action with a progress bar); a todo
+    // (no duration) keeps until its due moment passes.
+    final end = it.dur != null ? it.at.add(it.dur!) : it.at;
+    if (!end.isBefore(now)) chain.add(it);
   }
   chain.sort((a, b) => a.at.compareTo(b.at));
   return (chain: chain, noTime: noTime);
