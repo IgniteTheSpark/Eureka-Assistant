@@ -8,6 +8,7 @@ import '../today/bubble_pool.dart';
 import '../today/dashboard.dart';
 import '../today/next_action.dart';
 import '../today/today_data.dart';
+import '../today/today_palette.dart';
 
 /// 今日页 (首页 tab0 = landing). Two frosted panels — ① Next Action, ② Dashboard —
 /// float over a ③ full-screen physics bubble pool (today's captured assets), with
@@ -31,7 +32,8 @@ class TodayPage extends StatefulWidget {
 class _TodayPageState extends State<TodayPage> {
   final ApiClient _api = ApiClient();
   final Map<int, Future<TodayData>> _cache = {};
-  String _filterKey = 'all'; // dashboard chip → scopes summary/charts + dims pool
+  String _filterKey =
+      'all'; // dashboard chip → scopes summary/charts + dims pool
   String? _highlightId; // a bubble lit up from the dashboard's latest-row tap
   Timer? _hlTimer;
 
@@ -64,31 +66,32 @@ class _TodayPageState extends State<TodayPage> {
         return FutureBuilder<TodayData>(
           future: _futureFor(rev),
           builder: (context, snap) =>
-              _buildStack(snap.data ?? TodayData.empty),
+              _buildStack(context, snap.data ?? TodayData.empty),
         );
       },
     );
   }
 
-  Widget _buildStack(TodayData data) {
+  Widget _buildStack(BuildContext context, TodayData data) {
+    final p = TodayPalette.of(context);
     return Stack(
       // expand to fill the tab area; otherwise the Stack sizes to its only
       // non-positioned child (a width-less Column) and collapses to a sliver.
       fit: StackFit.expand,
       children: [
-        // ── Back: full-screen bubble field (Slice 4 fills this) ──
-        const Positioned.fill(child: ColoredBox(color: Color(0xFF0B1220))),
+        // ── Back: atmosphere (dark navy / warm light, per theme) ──
+        Positioned.fill(child: ColoredBox(color: p.atmosphereBottom)),
         // Radial atmosphere overlay (prototype token:
-        // radial-gradient(130% 60% at 50% -5%, #13203a, #0b1220 60%)).
-        const Positioned.fill(
+        // radial-gradient(130% 60% at 50% -5%, top, bottom 60%)).
+        Positioned.fill(
           child: IgnorePointer(
             child: DecoratedBox(
               decoration: BoxDecoration(
                 gradient: RadialGradient(
-                  center: Alignment(0, -1.05),
+                  center: const Alignment(0, -1.05),
                   radius: 1.3,
-                  colors: [Color(0xFF13203A), Color(0xFF0B1220)],
-                  stops: [0.0, 0.6],
+                  colors: [p.atmosphereTop, p.atmosphereBottom],
+                  stops: const [0.0, 0.6],
                 ),
               ),
             ),
@@ -106,10 +109,7 @@ class _TodayPageState extends State<TodayPage> {
         // ── Front: panels column (Slice 3 Next Action + Slice 5 Dashboard) ──
         Column(
           children: [
-            NextActionPanel(
-              chain: data.chain,
-              noTimeTodos: data.noTimeTodos,
-            ),
+            NextActionPanel(chain: data.chain, noTimeTodos: data.noTimeTodos),
             // Dashboard hidden entirely when there are no records today.
             if (data.pool.isNotEmpty)
               Dashboard(

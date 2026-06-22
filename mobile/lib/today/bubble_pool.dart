@@ -13,6 +13,7 @@ import '../theme/app_theme.dart'; // context.eu
 import '../theme/domains.dart' show domainColor;
 import 'bubble_physics.dart';
 import 'today_data.dart';
+import 'today_palette.dart';
 
 /// Part 2 (back layer) — the physics bubble pool. Each of today's captured assets
 /// is a falling/colliding/settling bubble behind the frosted panels. Domain =
@@ -103,8 +104,8 @@ class _BubblePoolState extends State<BubblePool>
   /// additionally needs ≥1 awake body; the accelerometer stays subscribed while
   /// live (to catch a fresh tilt) but only a meaningful tilt wakes the pool.
   void _syncRunning() {
-    final foreground = WidgetsBinding.instance.lifecycleState ==
-            AppLifecycleState.resumed ||
+    final foreground =
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed ||
         WidgetsBinding.instance.lifecycleState == null;
     final live = widget.active && foreground;
     _syncAccel(live);
@@ -149,7 +150,8 @@ class _BubblePoolState extends State<BubblePool>
   }
 
   void _rebuildField(Size box) {
-    final reuse = _field != null && box == _box; // same field, pool just changed
+    final reuse =
+        _field != null && box == _box; // same field, pool just changed
     _box = box;
     _poolKey = _keyOf(widget.pool);
     _byId
@@ -194,7 +196,10 @@ class _BubblePoolState extends State<BubblePool>
       for (var i = 0; i < pool.length; i++)
         Bubble(
           id: pool[i].id,
-          x: r * 1.5 + (cols == 1 ? 0 : (i % cols) * span) + (i.isEven ? 5 : -5),
+          x:
+              r * 1.5 +
+              (cols == 1 ? 0 : (i % cols) * span) +
+              (i.isEven ? 5 : -5),
           y: r * 2 + (i ~/ cols) * (r * 1.5),
           r: r,
         ),
@@ -205,10 +210,10 @@ class _BubblePoolState extends State<BubblePool>
   /// slide past its sides instead of piling behind it. Matches FloatingDock:
   /// bottom-centered, ~14 above the bottom, ~180×52 (the solver inflates by r).
   Rect _navAabb(Size box) => Rect.fromCenter(
-        center: Offset(box.width / 2, box.height - 40),
-        width: 180,
-        height: 52,
-      );
+    center: Offset(box.width / 2, box.height - 40),
+    width: 180,
+    height: 52,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -283,20 +288,23 @@ class _BubblePoolState extends State<BubblePool>
     );
   }
 
-  Widget _empty() => const Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('🫧', style: TextStyle(fontSize: 34)),
-            SizedBox(height: 10),
-            Text('今天还没有记录',
-                style: TextStyle(
-                    color: Color(0xD0FFFFFF),
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600)),
-          ],
+  Widget _empty() => Center(
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text('🫧', style: TextStyle(fontSize: 34)),
+        const SizedBox(height: 10),
+        Text(
+          '今天还没有记录',
+          style: TextStyle(
+            color: TodayPalette.of(context).body,
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+          ),
         ),
-      );
+      ],
+    ),
+  );
 
   /// Nearest bubble to [p] within its radius (+ slop), else null.
   Bubble? _hit(BubbleField field, Offset p) {
@@ -312,7 +320,6 @@ class _BubblePoolState extends State<BubblePool>
     }
     return best;
   }
-
 }
 
 /// type (skill name) → glyph. Matches the app's canonical built-ins (todo 📋,
@@ -361,13 +368,18 @@ String typeName(String type) {
 /// sheet (hero + fields + actions, theme-aware) renders identically. No bespoke
 /// today-page sheet.
 void openAssetSheet(BuildContext context, PoolAsset a) {
-  final specs = ProviderScope.containerOf(context, listen: false)
-          .read(renderSpecsProvider)
-          .valueOrNull ??
+  final specs =
+      ProviderScope.containerOf(
+        context,
+        listen: false,
+      ).read(renderSpecsProvider).valueOrNull ??
       const <String, RenderSpec>{};
   final spec = specs[a.type] ?? synthesizeSpec(a.type);
-  final data = buildCard(payload: a.payload, spec: spec, displayName: a.type)
-      .copyWith(domain: a.domain.isEmpty ? null : a.domain);
+  final data = buildCard(
+    payload: a.payload,
+    spec: spec,
+    displayName: a.type,
+  ).copyWith(domain: a.domain.isEmpty ? null : a.domain);
   showAssetDetail(
     context,
     data: data,
@@ -445,7 +457,9 @@ class _BubblePainter extends CustomPainter {
       // type glyph
       final tp = TextPainter(
         text: TextSpan(
-            text: glyphOf(b.id), style: TextStyle(fontSize: b.r * 0.85)),
+          text: glyphOf(b.id),
+          style: TextStyle(fontSize: b.r * 0.85),
+        ),
         textDirection: TextDirection.ltr,
       )..layout();
       tp.paint(canvas, c - Offset(tp.width / 2, tp.height / 2));

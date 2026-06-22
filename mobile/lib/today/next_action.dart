@@ -9,6 +9,7 @@ import '../theme/app_theme.dart'; // context.eu
 import '../theme/domains.dart' show domainColor;
 import '../theme/eureka_colors.dart';
 import 'today_data.dart';
+import 'today_palette.dart';
 
 /// Format a countdown [d] for the focal card: "1 时 05 分" once ≥1h, else
 /// "23 分 00 秒". Clamps negatives to zero. Pure → unit-tested
@@ -21,14 +22,6 @@ String fmtCountdown(Duration d) {
   final s = d.inSeconds % 60;
   return h > 0 ? '$h 时 ${two(m)} 分' : '${two(m)} 分 ${two(s)} 秒';
 }
-
-// ── prototype dark tokens (the page is its own dark "atmosphere", not eu) ──────
-const _panelBg = Color(0xA80F1728); // rgba(15,23,40,.66)
-const _panelBorder = Color(0x17FFFFFF); // rgba(255,255,255,.09)
-const _accent = Color(0xFF8AB4FF);
-const _titleColor = Color(0xFFE6EDF3);
-const _muted = Color(0x80FFFFFF); // white .5
-const _muted40 = Color(0x66FFFFFF);
 
 /// Part 1 — the swipeable stack of upcoming timed actions + the no-time todo
 /// list. Floats (frosted) over the bubble pool. Tokens = prototype "Next Action
@@ -64,6 +57,7 @@ class _NextActionPanelState extends State<NextActionPanel>
   late final AnimationController _fly;
   Offset _flyFrom = Offset.zero, _flyTo = Offset.zero;
   int _pendingDelta = 0; // index change applied when a fly-off finishes
+  late TodayPalette _p; // light/dark token set, refreshed each build
 
   @override
   void initState() {
@@ -145,6 +139,7 @@ class _NextActionPanelState extends State<NextActionPanel>
   @override
   Widget build(BuildContext context) {
     final eu = context.eu;
+    _p = TodayPalette.of(context);
     final chain = widget.chain;
     final hasChain = chain.isNotEmpty;
     final idx = hasChain ? _index.clamp(0, chain.length - 1) : 0;
@@ -152,9 +147,9 @@ class _NextActionPanelState extends State<NextActionPanel>
     return Container(
       margin: const EdgeInsets.fromLTRB(14, 4, 14, 0),
       decoration: BoxDecoration(
-        color: _panelBg,
+        color: _p.panelBg,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: _panelBorder),
+        border: Border.all(color: _p.panelBorder),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -181,10 +176,10 @@ class _NextActionPanelState extends State<NextActionPanel>
           children: [
             Expanded(
               child: _open || focal == null
-                  ? const Text(
+                  ? Text(
                       '接下来',
                       style: TextStyle(
-                        color: _muted40,
+                        color: _p.faint,
                         fontSize: 10,
                         letterSpacing: 1.6,
                         fontWeight: FontWeight.w600,
@@ -194,8 +189,8 @@ class _NextActionPanelState extends State<NextActionPanel>
                       focal.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: _titleColor,
+                      style: TextStyle(
+                        color: _p.title,
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
                       ),
@@ -206,8 +201,8 @@ class _NextActionPanelState extends State<NextActionPanel>
                 padding: const EdgeInsets.only(right: 8),
                 child: Text(
                   '${idx + 1} / $total',
-                  style: const TextStyle(
-                    color: _accent,
+                  style: TextStyle(
+                    color: _p.accent,
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
                     fontFeatures: [FontFeature.tabularFigures()],
@@ -217,7 +212,7 @@ class _NextActionPanelState extends State<NextActionPanel>
             Icon(
               _open ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
               size: 20,
-              color: _muted40,
+              color: _p.faint,
             ),
           ],
         ),
@@ -279,13 +274,13 @@ class _NextActionPanelState extends State<NextActionPanel>
           child: Container(
             height: 150,
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
+              gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                colors: [Color(0xF51E2C4A), Color(0xF5141E36)],
+                colors: [_p.shellTop, _p.shellBottom],
               ),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0x14FFFFFF)),
+              border: Border.all(color: _p.panelBorder),
             ),
           ),
         ),
@@ -301,18 +296,18 @@ class _NextActionPanelState extends State<NextActionPanel>
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(16, 13, 16, 13),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
+        gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [Color(0xF522304E), Color(0xF5162139)],
+          colors: [_p.cardTop, _p.cardBottom],
         ),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0x26FFFFFF)),
-        boxShadow: const [
+        border: Border.all(color: _p.cardBorder),
+        boxShadow: [
           BoxShadow(
-            color: Color(0x80000000),
+            color: Colors.black.withValues(alpha: _p.dark ? 0.5 : 0.16),
             blurRadius: 30,
-            offset: Offset(0, 14),
+            offset: const Offset(0, 14),
           ),
         ],
       ),
@@ -339,13 +334,13 @@ class _NextActionPanelState extends State<NextActionPanel>
                   isEvent ? (it.sub == '事件' ? '事件' : '事件 · ${it.sub}') : '待办',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: _muted, fontSize: 12),
+                  style: TextStyle(color: _p.muted, fontSize: 12),
                 ),
               ),
               Text(
                 _hm(it.at),
-                style: const TextStyle(
-                  color: _muted,
+                style: TextStyle(
+                  color: _p.muted,
                   fontSize: 12,
                   fontFeatures: [FontFeature.tabularFigures()],
                 ),
@@ -357,8 +352,8 @@ class _NextActionPanelState extends State<NextActionPanel>
             it.title,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: _titleColor,
+            style: TextStyle(
+              color: _p.title,
               fontSize: 20,
               fontWeight: FontWeight.w600,
             ),
@@ -385,8 +380,8 @@ class _NextActionPanelState extends State<NextActionPanel>
       children: [
         Text(
           label,
-          style: const TextStyle(
-            color: _accent,
+          style: TextStyle(
+            color: _p.accent,
             fontSize: 13,
             fontWeight: FontWeight.w600,
             fontFeatures: [FontFeature.tabularFigures()],
@@ -398,8 +393,8 @@ class _NextActionPanelState extends State<NextActionPanel>
           child: LinearProgressIndicator(
             value: started ? frac.toDouble() : 0,
             minHeight: 5,
-            backgroundColor: const Color(0x1AFFFFFF),
-            valueColor: const AlwaysStoppedAnimation(_accent),
+            backgroundColor: _p.accent.withValues(alpha: 0.15),
+            valueColor: AlwaysStoppedAnimation(_p.accent),
           ),
         ),
         const SizedBox(height: 8),
@@ -407,10 +402,10 @@ class _NextActionPanelState extends State<NextActionPanel>
           alignment: Alignment.centerRight,
           child: GestureDetector(
             onTap: () => _openCalendar(it),
-            child: const Text(
+            child: Text(
               '在日历看 ›',
               style: TextStyle(
-                color: _accent,
+                color: _p.accent,
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
               ),
@@ -431,7 +426,7 @@ class _NextActionPanelState extends State<NextActionPanel>
             it.note ?? '',
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: _muted, fontSize: 12),
+            style: TextStyle(color: _p.muted, fontSize: 12),
           ),
         ),
         const SizedBox(width: 10),
@@ -440,23 +435,23 @@ class _NextActionPanelState extends State<NextActionPanel>
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
             decoration: BoxDecoration(
-              color: const Color(0x246F9EFF),
+              color: _p.accent.withValues(alpha: 0.14),
               borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: const Color(0x666F9EFF)),
+              border: Border.all(color: _p.accent.withValues(alpha: 0.42)),
             ),
             child: busy
-                ? const SizedBox(
+                ? SizedBox(
                     width: 13,
                     height: 13,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      color: _accent,
+                      color: _p.accent,
                     ),
                   )
-                : const Text(
+                : Text(
                     '完成 ✓',
                     style: TextStyle(
-                      color: _accent,
+                      color: _p.accent,
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
                     ),
@@ -482,14 +477,14 @@ class _NextActionPanelState extends State<NextActionPanel>
                 children: [
                   Text(
                     '🕒 无时间待办 $n',
-                    style: const TextStyle(color: _muted, fontSize: 12),
+                    style: TextStyle(color: _p.muted, fontSize: 12),
                   ),
                   Icon(
                     _noTimeOpen
                         ? Icons.keyboard_arrow_up
                         : Icons.keyboard_arrow_down,
                     size: 18,
-                    color: _muted40,
+                    color: _p.faint,
                   ),
                 ],
               ),
@@ -504,9 +499,9 @@ class _NextActionPanelState extends State<NextActionPanel>
       margin: const EdgeInsets.fromLTRB(14, 0, 14, 12),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: const Color(0xB3080E1A),
+        color: _p.inset,
         borderRadius: BorderRadius.circular(13),
-        border: Border.all(color: const Color(0x24FFFFFF)),
+        border: Border.all(color: _p.panelBorder),
       ),
       child: Column(
         children: [
@@ -533,10 +528,10 @@ class _NextActionPanelState extends State<NextActionPanel>
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: it.done ? _muted : const Color(0xD0FFFFFF),
+                        color: it.done ? _p.muted : _p.body,
                         fontSize: 14,
                         decoration: it.done ? TextDecoration.lineThrough : null,
-                        decorationColor: _muted,
+                        decorationColor: _p.muted,
                       ),
                     ),
                   ),
@@ -550,12 +545,12 @@ class _NextActionPanelState extends State<NextActionPanel>
                       height: 24,
                       child: Center(
                         child: _completing.contains(it.id)
-                            ? const SizedBox(
+                            ? SizedBox(
                                 width: 14,
                                 height: 14,
                                 child: CircularProgressIndicator(
                                   strokeWidth: 1.5,
-                                  color: _accent,
+                                  color: _p.accent,
                                 ),
                               )
                             : Container(
@@ -564,18 +559,16 @@ class _NextActionPanelState extends State<NextActionPanel>
                                 alignment: Alignment.center,
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
-                                  color: it.done ? _accent : null,
+                                  color: it.done ? _p.accent : null,
                                   border: Border.all(
-                                    color: it.done
-                                        ? _accent
-                                        : const Color(0x66FFFFFF),
+                                    color: it.done ? _p.accent : _p.faint,
                                   ),
                                 ),
                                 child: it.done
-                                    ? const Icon(
+                                    ? Icon(
                                         Icons.check,
                                         size: 13,
-                                        color: Color(0xFF0B1220),
+                                        color: _p.onAccent,
                                       )
                                     : null,
                               ),
@@ -592,16 +585,16 @@ class _NextActionPanelState extends State<NextActionPanel>
 
   // ── empty ───────────────────────────────────────────────────────────────────
   Widget _emptyDeck() {
-    return const Padding(
-      padding: EdgeInsets.fromLTRB(16, 6, 16, 18),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 18),
       child: Column(
         children: [
-          Text('🌤️', style: TextStyle(fontSize: 30)),
+          const Text('🌤️', style: TextStyle(fontSize: 30)),
           SizedBox(height: 8),
           Text(
             '今天还没有日程或待办',
             style: TextStyle(
-              color: _titleColor,
+              color: _p.title,
               fontSize: 15,
               fontWeight: FontWeight.w600,
             ),
