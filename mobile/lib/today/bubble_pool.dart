@@ -19,7 +19,7 @@ import 'today_palette.dart';
 /// is a falling/colliding/settling bubble behind the frosted panels. Domain =
 /// fill color (§8), type = centered glyph. Driven by one [Ticker] that sleeps
 /// when every body sleeps and stops when the page is hidden/backgrounded
-/// (battery). Solver = bubble_physics.dart (unit-tested). Plan: Slice 4.
+/// (battery). Physics = forge2d (Box2D) in bubble_physics.dart. Plan: Slice 4.
 class BubblePool extends StatefulWidget {
   const BubblePool({
     super.key,
@@ -54,10 +54,8 @@ class _BubblePoolState extends State<BubblePool>
   String _poolKey = '';
   final ValueNotifier<int> _repaint = ValueNotifier(0);
   final Map<String, PoolAsset> _byId = {};
-  Bubble? _held; // bubble currently dragged
-  Offset _lastDelta = Offset.zero; // recent finger delta → throw velocity
   StreamSubscription<AccelerometerEvent>? _accel;
-  Offset _gravity = const Offset(0, 0.44); // current (tilt-driven) gravity
+  Offset _gravity = const Offset(0, 20); // current (tilt-driven) gravity (world)
 
   @override
   void initState() {
@@ -133,7 +131,7 @@ class _BubblePoolState extends State<BubblePool>
   /// it's flipped. Near-flat (on a desk) falls back to straight down so the pool
   /// still settles at the bottom instead of floating off-screen. Micro-jitter is
   /// ignored so a steady hold lets the pool sleep.
-  static const double _gMag = 0.44;
+  static const double _gMag = 20.0;
   void _onAccel(AccelerometerEvent e) {
     final mag = math.sqrt(e.x * e.x + e.y * e.y);
     final g = mag < 1.2
@@ -151,7 +149,7 @@ class _BubblePoolState extends State<BubblePool>
 
   void _rebuildField(Size box) {
     final reuse =
-        _field != null && box == _box; // same field, pool just changed
+        _field != null && box == _box; // same world, pool just changed
     _box = box;
     _poolKey = _keyOf(widget.pool);
     _byId
@@ -161,59 +159,53 @@ class _BubblePoolState extends State<BubblePool>
       _field = null;
       return;
     }
-    final existing = reuse
-        ? {for (final b in _field!.bubbles) b.id: b}
-        : const <String, Bubble>{};
-    final spawned = _spawn(widget.pool, box);
-    final bubbles = <Bubble>[
-      for (var i = 0; i < widget.pool.length; i++)
-        existing[widget.pool[i].id] ??
-            // a new record drops in from above the ceiling (reuse), or joins the
-            // initial staggered layout (first build / resize).
-            (Bubble(
-              id: widget.pool[i].id,
-              x: spawned[i].x,
-              y: reuse ? -23.0 : spawned[i].y,
-              r: 23,
-            )..wake()),
-    ];
-    _field = BubbleField(
-      box: box,
-      bubbles: bubbles,
-      navAabb: _navAabb(box),
-      gravity: _gravity,
-    );
-    if (!reuse) _field!.wakeAll();
+    if (!reuse) {
+      // fresh world: stagger the bodies across the top, let them fall + settle.
+      final f = BubbleField(box: box, dock: _dockRect(box), gravity: _gravity);
+      final pos = _spawnPositions(widget.pool.length, box);
+      for (var i = 0; i < widget.pool.length; i++) {
+        f.addBubble(widget.pool[i].id, pos[i], 23);
+      }
+      _field = f;
+    } else {
+      // same world: drop new records in from the top; remove gone ones.
+      final f = _field!;
+      final ids = widget.pool.map((a) => a.id).toSet();
+      for (final b in [...f.bubbles]) {
+        if (!ids.contains(b.id)) f.removeBubble(b);
+      }
+      for (var i = 0; i < widget.pool.length; i++) {
+        final a = widget.pool[i];
+        if (!f.has(a.id)) {
+          f.addBubble(
+            a.id,
+            Offset(box.width * (0.3 + 0.4 * ((i % 5) / 4)), -23),
+            23,
+          );
+        }
+      }
+    }
     _syncRunning();
   }
 
-  /// Stagger bodies across the upper area; gravity settles them into a pile.
-  List<Bubble> _spawn(List<PoolAsset> pool, Size box) {
+  /// Staggered spawn positions (px) across the upper area; gravity settles them.
+  List<Offset> _spawnPositions(int n, Size box) {
     const r = 23.0;
     final cols = math.max(1, (box.width / (r * 2.6)).floor());
     final span = (box.width - r * 3) / math.max(1, cols - 1);
     return [
-      for (var i = 0; i < pool.length; i++)
-        Bubble(
-          id: pool[i].id,
-          x:
-              r * 1.5 +
-              (cols == 1 ? 0 : (i % cols) * span) +
-              (i.isEven ? 5 : -5),
-          y: r * 2 + (i ~/ cols) * (r * 1.5),
-          r: r,
+      for (var i = 0; i < n; i++)
+        Offset(
+          r * 1.5 + (cols == 1 ? 0 : (i % cols) * span) + (i.isEven ? 5 : -5),
+          r * 2 + (i ~/ cols) * (r * 1.5),
         ),
     ];
   }
 
-  /// The floating dock pill, in pool coordinates, as an AABB collider so bodies
-  /// slide past its sides instead of piling behind it. Matches FloatingDock:
-  /// bottom-centered, ~14 above the bottom, ~180×52 (the solver inflates by r).
-  Rect _navAabb(Size box) => Rect.fromCenter(
-    center: Offset(box.width / 2, box.height - 40),
-    width: 180,
-    height: 52,
-  );
+  /// The floating dock pill in pool coords (matches FloatingDock: bottom-centered,
+  /// ~180×52, ~14 above the bottom). Its top edge is the tent apex.
+  Rect _dockRect(Size box) =>
+      Rect.fromLTWH(box.width / 2 - 90, box.height - 66, 180, 52);
 
   @override
   Widget build(BuildContext context) {
@@ -235,42 +227,21 @@ class _BubblePoolState extends State<BubblePool>
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTapUp: (d) {
-            final b = _hit(field, d.localPosition);
+            final b = field.hit(d.localPosition);
             if (b != null) openAssetSheet(context, _byId[b.id]!);
           },
           onPanStart: (d) {
-            final b = _hit(field, d.localPosition);
+            final b = field.hit(d.localPosition);
             if (b != null) {
-              _held = b;
-              field.held = b;
-              b
-                ..wake()
-                ..vx = 0
-                ..vy = 0;
+              field.grab(b);
               _syncRunning();
             }
           },
           onPanUpdate: (d) {
-            final h = _held;
-            if (h == null) return;
-            h.x = d.localPosition.dx.clamp(h.r, box.width - h.r);
-            h.y = d.localPosition.dy.clamp(h.r, box.height - h.r);
-            _lastDelta = d.delta;
-            h.wake();
-            _syncRunning();
-            _repaint.value++;
-          },
-          onPanEnd: (_) {
-            final h = _held;
-            if (h == null) return;
-            const mx = BubbleField.maxSpeed;
-            h
-              ..vx = _lastDelta.dx.clamp(-mx, mx)
-              ..vy = _lastDelta.dy.clamp(-mx, mx);
-            field.held = null;
-            _held = null;
+            field.dragTo(d.localPosition);
             _syncRunning();
           },
+          onPanEnd: (_) => field.release(),
           child: CustomPaint(
             size: box,
             painter: _BubblePainter(
@@ -305,21 +276,6 @@ class _BubblePoolState extends State<BubblePool>
       ],
     ),
   );
-
-  /// Nearest bubble to [p] within its radius (+ slop), else null.
-  Bubble? _hit(BubbleField field, Offset p) {
-    Bubble? best;
-    var bestD = double.infinity;
-    for (final b in field.bubbles) {
-      final dx = b.x - p.dx, dy = b.y - p.dy;
-      final d = math.sqrt(dx * dx + dy * dy);
-      if (d <= b.r + 6 && d < bestD) {
-        best = b;
-        bestD = d;
-      }
-    }
-    return best;
-  }
 }
 
 /// type (skill name) → glyph. Matches the app's canonical built-ins (todo 📋,

@@ -84,6 +84,7 @@ dependencies:
   chiplet_ring:
     path: packages/chiplet_ring
   sensors_plus: ^7.0.0
+  forge2d: ^0.14.2+1
 
 dev_dependencies:
   flutter_test:
