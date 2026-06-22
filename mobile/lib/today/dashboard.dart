@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../pages/session_detail_page.dart';
+import '../theme/app_theme.dart'; // context.eu
 import 'bubble_pool.dart' show glyphForType, typeName;
+import 'charts.dart';
 import 'today_data.dart';
 import 'today_summary.dart';
 
@@ -53,6 +55,10 @@ class _DashboardState extends State<Dashboard> {
     final types = counts.keys.toList()
       ..sort((a, b) => counts[b]!.compareTo(counts[a]!));
     final summary = summaryFor(widget.filterKey, widget.pool);
+    final groups = chartGroups(context.eu, widget.filterKey, widget.pool);
+    final scopeLabel = widget.filterKey == 'all'
+        ? '今日构成 · 按类型'
+        : '${typeName(widget.filterKey)} · 按领域';
 
     return Container(
       margin: const EdgeInsets.fromLTRB(14, 8, 14, 0),
@@ -68,6 +74,7 @@ class _DashboardState extends State<Dashboard> {
           if (_open) ...[
             _chips(counts, types),
             _summaryStrip(summary),
+            ChartView(groups: groups, scopeLabel: scopeLabel),
           ],
         ],
       ),
