@@ -1,6 +1,8 @@
-# Handoff · 今日页 + 流时段分组 + 闪念移出流
+# Handoff · 日历（流 / 月 / DayDetail）时段分组 + 闪念移出流
 
-> 给 **coding agent + design** 的实施范围。一句话:**新增「今日页」做首页 tab0,日历(流/月/年)降级到 📅 入口;一天的渲染从「按时间戳排一条流」改成「5 时段 + 闪念 chip」;原始闪念移出流。**
+> **⚠️ 范围更新（2026-06）**：本卡现在 = **日历侧**（流 / 月 / DayDetail 段视图 + 闪念移出流，大多**已落地**）。**「今日页」已重新定义**为首页 landing（Next Action + 气泡池），**实现卡见 [handoff-today-landing.md](handoff-today-landing.md)**；下文凡提"今日页 = 段视图"的均**作废**（段视图归日历，不归今日页）。
+>
+> 一句话（原）:日历的一天渲染从「按时间戳排一条流」改成「5 时段 + 闪念 chip」;原始闪念移出流 → `⚡N` pill。
 > 规则真值见 [§4.5.0 / 4.5.0a / 4.5.0b](04-frontend.md) · [§2 §3.6 assets.period/occurred_at](02-data-model.md) · [§1.3 时段抽取](01-agent-architecture.md) · [§14.6 晨报并入今日页](14-proactive-reka.md)。
 > **产品已拍板的决策**(2026-06):
 > ① 今日页做 tab0、日历收进 📅、底部仍 3 tab、Reka 留在浮球+我的岛(不挂今日页);

@@ -65,7 +65,7 @@
 
 > 既然每条记录都带了 domain,就该看得见。这是一个轻量、贯穿列表/详情的视觉增量。
 
-- **卡片 domain chip**:`SkillCard` / 事件卡 / timeline 条目的 meta 区,一个**小色点 + 2 字领域名**(空间紧时退化为纯色点)。`domain==null` → **不显示**(不占位)。
+- **卡片 domain chip**:`SkillCard` / 事件卡 / timeline 条目的 meta 区,一个**小色点 + 2 字领域名**(空间紧时退化为纯色点)。`domain==null` → **不显示**(不占位)。**(2026-06 颜色收敛:这颗域点 = 卡片唯一的颜色 —— 卡片 / 库容器本体单色 + emoji,per-skill `accent_color` 已退役,见 [§5.1](05-design-system.md)。)**
 - **详情 chip**:`AssetDetailDrawer` 的 hero 副标题旁一个 domain chip,**可点 → 进编辑改**领域。
 - **8 领域 · 起始配色 + 图标**(复用 [§5](05-design-system.md) 的 8 个 accent 槽;**终版图标走单独 design doc**,emoji 仅占位):
 
