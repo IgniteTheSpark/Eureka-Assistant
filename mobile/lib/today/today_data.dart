@@ -1,8 +1,11 @@
-/// Today-page data models + the pure chain splitter.
+import '../api/api_client.dart';
+import '../timeline/timeline.dart' show TimelineItem;
+
+/// Today-page data models + the pure chain splitter + the one network fetch.
 ///
-/// `loadToday()` (the network fetch: timeline chain + created-today asset pool +
-/// flash-session count) lands in Slice 2.2, where it can be verified end-to-end on
-/// device. The models + [splitChain] here are pure and unit-tested
+/// [loadToday] gathers all three sections in one shot — the timeline chain
+/// (by effective_at), the created-today asset pool (by created_at), and the
+/// flash-session count. The models + [splitChain] are pure and unit-tested
 /// (test/today_data_test.dart). Plan: spec/plan-today-page-landing.md.
 
 /// A forward-looking action in Part 1 (Next Action). `timed` = has a clock time
@@ -92,3 +95,158 @@ class TodayData {
   chain.sort((a, b) => a.at.compareTo(b.at));
   return (chain: chain, noTime: noTime);
 }
+
+// ── network fetch ────────────────────────────────────────────────────────────
+
+/// Beijing (+08:00) day-bound ISO string for [day] (the backend stores/compares
+/// in +08). `end` → 23:59:59 (inclusive upper bound), else 00:00:00.
+String _bound(DateTime day, {required bool end}) {
+  String two(int n) => n.toString().padLeft(2, '0');
+  final d = '${day.year}-${two(day.month)}-${two(day.day)}';
+  return end ? '${d}T23:59:59+08:00' : '${d}T00:00:00+08:00';
+}
+
+bool _todoDone(Map<String, dynamic> p) =>
+    p['status'] == 'done' || p['done'] == true;
+
+/// A human title for a pool bubble's summary preview (the detail sheet reuses
+/// showAssetDetail for full rendering). Mirrors the timeline's fallback chain
+/// minus render_spec.primary_field (which the asset list doesn't carry).
+String _poolTitle(Map<String, dynamic> p, String type) {
+  final cand = p['content'] ??
+      p['title'] ??
+      p['name'] ??
+      (p['amount'] != null ? '¥${p['amount']}' : null);
+  if (cand is String) {
+    final t = cand.trim();
+    if (t.isNotEmpty) return t;
+  } else if (cand != null) {
+    return cand.toString();
+  }
+  return type;
+}
+
+/// One fetch feeding all three of today's sections. Resilient: a failure in any
+/// one sub-fetch degrades that section to empty rather than blanking the whole
+/// landing. The three GETs run concurrently (started before the first await).
+Future<TodayData> loadToday(ApiClient api, {DateTime? nowOverride}) async {
+  final now = nowOverride ?? DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final from = _bound(today, end: false);
+  final to = _bound(today, end: true);
+
+  final chainF = _loadChain(api, from, to, now);
+  final poolF = _loadPool(api, from, to);
+  final flashF = _loadFlashCount(api, today);
+
+  final split = await chainF;
+  final poolRes = await poolF;
+  final flash = await flashF;
+
+  return TodayData(
+    chain: split.chain,
+    noTimeTodos: split.noTime,
+    pool: poolRes.pool,
+    poolTrueCount: poolRes.trueCount,
+    flashCount: flash,
+  );
+}
+
+/// GET /api/timeline?from&to → today's events + todos, mapped + split into the
+/// upcoming-timed chain and the no-clock todo list. Done todos drop out (the
+/// chain is forward-looking; overdue / records live in 日历 / 资产).
+Future<({List<ChainItem> chain, List<ChainItem> noTime})> _loadChain(
+    ApiClient api, String from, String to, DateTime now) async {
+  try {
+    final res = await api
+        .getJson('/api/timeline', query: {'from': from, 'to': to, 'limit': 500});
+    final items = (res is Map ? res['items'] : null) as List? ?? const [];
+    final candidates = <ChainItem>[];
+    for (final raw in items.whereType<Map>()) {
+      final it = TimelineItem.fromJson(raw.cast<String, dynamic>());
+      if (it.kind == 'event') {
+        candidates.add(ChainItem(
+          kind: 'event',
+          id: it.eventId ?? it.id,
+          title: it.title,
+          at: it.effectiveAt,
+          timed: true, // events always have a clock time
+          sub: (it.location?.isNotEmpty ?? false) ? it.location! : '事件',
+          domain: it.domain,
+          dur: it.endAt?.difference(it.effectiveAt),
+        ));
+      } else if (it.kind == 'asset' && it.skillName == 'todo') {
+        // A todo is "timed" (→ chain with a countdown) when its due_date carries
+        // a clock time (ISO with a `T…` part); a date-only due → no-time list.
+        // has_clock_time is occurred_at-based, which a not-yet-done todo lacks.
+        final due = it.payload['due_date'];
+        final dueTimed = due is String && due.contains('T');
+        candidates.add(ChainItem(
+          kind: 'todo',
+          id: it.id,
+          title: it.title,
+          at: it.effectiveAt,
+          timed: it.hasClockTime || dueTimed,
+          sub: it.subtitle,
+          domain: it.domain,
+          note: it.subtitle.isEmpty ? null : it.subtitle,
+          done: _todoDone(it.payload),
+        ));
+      }
+    }
+    final live =
+        candidates.where((c) => !(c.kind == 'todo' && c.done)).toList();
+    return splitChain(live, now);
+  } catch (_) {
+    return (chain: <ChainItem>[], noTime: <ChainItem>[]);
+  }
+}
+
+/// GET /api/assets?created_from&created_to → today's captures (by created_at).
+/// True count is the full list; the physics pool is capped at 50 bodies.
+Future<({List<PoolAsset> pool, int trueCount})> _loadPool(
+    ApiClient api, String from, String to) async {
+  try {
+    final res = await api.getJson('/api/assets',
+        query: {'created_from': from, 'created_to': to, 'limit': 500});
+    final list = (res is Map ? res['assets'] : null) as List? ?? const [];
+    final all = <PoolAsset>[];
+    for (final raw in list.whereType<Map>()) {
+      final m = raw.cast<String, dynamic>();
+      final payload =
+          (m['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
+      final type = m['user_skill_name'] as String? ?? '';
+      all.add(PoolAsset(
+        id: m['id'] as String? ?? '',
+        type: type,
+        domain: m['domain'] as String? ?? '',
+        title: _poolTitle(payload, type),
+        payload: payload,
+        createdAt: DateTime.tryParse(m['created_at'] as String? ?? '')?.toLocal() ??
+            now0(),
+      ));
+    }
+    return (pool: all.take(50).toList(), trueCount: all.length);
+  } catch (_) {
+    return (pool: <PoolAsset>[], trueCount: 0);
+  }
+}
+
+/// GET /api/sessions?session_type=flash&date=today → flash count (server filters
+/// by DBSession.date, so no client-side date math needed).
+Future<int> _loadFlashCount(ApiClient api, DateTime today) async {
+  try {
+    String two(int n) => n.toString().padLeft(2, '0');
+    final d = '${today.year}-${two(today.month)}-${two(today.day)}';
+    final res = await api
+        .getJson('/api/sessions', query: {'session_type': 'flash', 'date': d});
+    final list = (res is Map ? res['sessions'] : null) as List? ?? const [];
+    return list.length;
+  } catch (_) {
+    return 0;
+  }
+}
+
+/// Fallback timestamp when an asset's created_at fails to parse (rare). Isolated
+/// so the rest of the file stays free of direct clock reads.
+DateTime now0() => DateTime.now();
