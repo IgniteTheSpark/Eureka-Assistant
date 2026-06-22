@@ -80,7 +80,8 @@ class _NextActionPanelState extends State<NextActionPanel>
             setState(() {
               if (_pendingDelta != 0) {
                 final n = widget.chain.length;
-                if (n > 0) _index = (_index + _pendingDelta).clamp(0, n - 1);
+                // allow n = the end card (one past the last); 0 = first.
+                if (n > 0) _index = (_index + _pendingDelta).clamp(0, n);
               }
               _drag = Offset.zero;
               _pendingDelta = 0;
@@ -99,7 +100,8 @@ class _NextActionPanelState extends State<NextActionPanel>
   /// On release: past the threshold (or a flick), fly the focal off-screen then
   /// advance; otherwise spring it back to center.
   void _releaseDrag(List<ChainItem> chain, int idx, double vx) {
-    final goNext = (_drag.dx < -90 || vx < -700) && idx < chain.length - 1;
+    // allow reaching idx == chain.length (the 暂时没有了 end card); swipe back returns.
+    final goNext = (_drag.dx < -90 || vx < -700) && idx < chain.length;
     final goPrev = (_drag.dx > 90 || vx > 700) && idx > 0;
     _flyFrom = _drag;
     if (goNext || goPrev) {
@@ -142,7 +144,9 @@ class _NextActionPanelState extends State<NextActionPanel>
     _p = TodayPalette.of(context);
     final chain = widget.chain;
     final hasChain = chain.isNotEmpty;
-    final idx = hasChain ? _index.clamp(0, chain.length - 1) : 0;
+    // idx can reach chain.length = the "暂时没有了" end card (one past the last).
+    final idx = hasChain ? _index.clamp(0, chain.length) : 0;
+    final atEnd = idx >= chain.length;
 
     return Container(
       margin: const EdgeInsets.fromLTRB(14, 4, 14, 0),
@@ -154,7 +158,11 @@ class _NextActionPanelState extends State<NextActionPanel>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _header(hasChain ? chain[idx] : null, idx, chain.length),
+          _header(
+            atEnd ? null : (hasChain ? chain[idx] : null),
+            idx,
+            chain.length,
+          ),
           if (_open) ...[
             if (hasChain) _deck(eu, chain, idx) else _emptyDeck(),
             _counterRow(),
@@ -200,7 +208,7 @@ class _NextActionPanelState extends State<NextActionPanel>
               Padding(
                 padding: const EdgeInsets.only(right: 8),
                 child: Text(
-                  '${idx + 1} / $total',
+                  idx >= total ? '$total / $total' : '${idx + 1} / $total',
                   style: TextStyle(
                     color: _p.accent,
                     fontSize: 13,
@@ -247,7 +255,9 @@ class _NextActionPanelState extends State<NextActionPanel>
                   },
                   onPanEnd: (d) =>
                       _releaseDrag(chain, idx, d.velocity.pixelsPerSecond.dx),
-                  child: _focalCard(eu, chain[idx]),
+                  child: idx < chain.length
+                      ? _focalCard(eu, chain[idx])
+                      : _endCard(),
                 ),
               ),
             ),
@@ -360,6 +370,63 @@ class _NextActionPanelState extends State<NextActionPanel>
           ),
           const SizedBox(height: 10),
           if (isEvent) _eventBottom(it) else _todoBottom(it),
+        ],
+      ),
+    );
+  }
+
+  /// Past-the-last end state. Swipe right returns to the last card; the ↺ pill
+  /// restarts at the first.
+  Widget _endCard() {
+    return Container(
+      height: 154,
+      width: double.infinity,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [_p.cardTop, _p.cardBottom],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _p.cardBorder),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('🎉', style: TextStyle(fontSize: 28)),
+          const SizedBox(height: 8),
+          Text(
+            '暂时没有了',
+            style: TextStyle(
+              color: _p.title,
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 12),
+          GestureDetector(
+            onTap: () => setState(() {
+              _index = 0;
+              _drag = Offset.zero;
+            }),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+              decoration: BoxDecoration(
+                color: _p.accent.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: _p.accent.withValues(alpha: 0.42)),
+              ),
+              child: Text(
+                '↺ 回到开头',
+                style: TextStyle(
+                  color: _p.accent,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
