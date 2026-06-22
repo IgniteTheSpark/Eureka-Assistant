@@ -3,10 +3,10 @@
 > **横切章 · Layer A 已实现（2026-06）· Layer B（§8.4 日环/岛）待 §7。** `domain` = 8 个固定「生活领域」标签,横跨**数据 / agent / 展示 / 游戏化任务 / 总结查询**五层。
 >
 > **实现分两层:** **Layer A =「标注 + 展示 + 读」(自包含,已落地)** —— `backend/core/domains.py`(8 域常量 + `normalize_domain` + `prior_for_skill`)、迁移 `0009_domain`
-> (`assets.domain` / `user_skills.domain` / `global_skills.domain` + `idx_assets_domain`)、create 工具 `domain` 参 + 服务端回落(域→技能 prior→null)、`/api/assets?domain=` 与 `tool_query_*` 的 domain 过滤、
+> (`assets.domain` / `user_skills.domain` / `global_skills.domain` + `idx_assets_domain`)、create 工具 `domain` 参 + 服务端回落(域→技能 prior→基线 prior→「生活」兜底,**永不 null**,§8.2)、`/api/assets?domain=` 与 `tool_query_*` 的 domain 过滤、
 > Flutter `theme/domains.dart`(`DomainChip` + 8 色/图标)、卡片/详情 chip、详情与新建表单的 domain 选择器、report-dispatcher 抽 `domain?` + pipeline 按域过滤 + report-intake 技能/领域消歧。
 > **Layer B =「§8.4 每日任务日环 / 岛领域区 / completion_events」**,强依赖 §7 游戏化基建(daily_plans/completion_events/islands 都还没建),**随 §7 一起做**。
-> **自定义技能不打 skill 级 domain(产品决策,非后置):** design agent 不参与领域判定、AddSkillWizard 无域选择器 —— 自定义技能每条记录**只按内容**识别 domain(create 工具 `domain` 参),省略落 null;仅基线技能(记账/随记/名片)带固定 prior。
+> **自定义技能不打 skill 级 domain(产品决策,非后置):** design agent 不参与领域判定、AddSkillWizard 无域选择器 —— 自定义技能每条记录**只按内容**识别 domain(create 工具 `domain` 参);仅基线技能(记账/随记/名片)带固定 prior。**agent 没给也不会 null** —— 服务端「生活」兜底(每条 asset 永不 null,§8.2)。
 > **report 资产选择器「按领域」筛选面 = 已实现**(`report_asset_picker_page.dart`:类型 tab 下多一条领域 chip 条 + 行内 domain chip)。
 >
 > 因为它是 spec 里少数真正跨章的抽象、且属较新较重的改动,**本章作为 domain 的唯一真相收口**;
@@ -17,7 +17,7 @@
 
 ## 8.0 是什么 / 为什么单列
 
-- **8 个有界生活领域** ∈ `{工作, 学习, 健康, 运动, 社交, 娱乐, 生活, 灵感}`,或 `null`(= 不归域)。
+- **8 个有界生活领域** ∈ `{工作, 学习, 健康, 运动, 社交, 娱乐, 生活, 灵感}`(列可空,但**每条新 asset 必落其一、永不 null** —— §8.2;`null` 仅历史遗留)。
 - **一个横切标签,让「无限」收敛到「有界」**:用户自定义技能可无限,但
   - 岛只画 **8 个区**(美术成本有界,§7.4);
   - 总结/查询只多 **8 个过滤面**(维度有界,§8.5)。
@@ -31,7 +31,7 @@
 | 落点 | 列 / 字段 | 角色 |
 |---|---|---|
 | `user_skills.domain`（[§2 §3.2](02-data-model.md)） | String(20) nullable | **默认 prior**(只作种子,**不是固定值**)。**仅基线技能**有稳定值(记账→生活、随记→灵感、名片→社交,`core.domains.SKILL_DOMAIN_PRIOR`);**用户自定义技能 prior 恒 null** —— 不在建技能时打 domain,完全靠每条记录按内容识别(产品决策 2026-06)。 |
-| `assets.domain`（[§2 §3.6](02-data-model.md)） | String(20) nullable | **每条记录的唯一真相**。创建时 agent 按内容打、manual 可改。 |
+| `assets.domain`（[§2 §3.6](02-data-model.md)） | String(20)（列可空，**新写入永不 null**） | **每条记录的唯一真相**。创建时 agent 按内容打、服务端「生活」兜底(§8.2)、manual 可改。 |
 | `daily_plans` 任务项的 `domain`（[§7](07-gamemode.md) / §8.4） | 8 选 1 | 任务的领域(daily-gen 按内容 + 技能 prior 打)。 |
 | `completion_events.domain`（[§2 §3.17](02-data-model.md)） | 8 选 1 | **继承**:`source=task` 取任务 domain;`source=record` 取该 `assets.domain`;`source=opportunistic` 取 `assets.domain` 或固定值(contact=社交)。 |
 | `weekly_islands.snapshot`（[§7.9](07-gamemode.md)） | `domain → {count, tier 分布}` | 岛的领域聚合(周快照)。 |
@@ -44,15 +44,20 @@
 
 ## 8.2 怎么赋值
 
-- **agent 自动(主路径)**:落 asset 时按**内容**判定 domain(技能 `domain` prior 作默认;`contact` 固定社交;`随记` 默认灵感)→ 写 `assets.domain`。create 工具有**可选 `domain` 参**(省略则服务端回落技能 prior 或 null)。**两条实现路径(✅ 已实现)**:
+> **✅ 每条 asset 永不留空 domain(产品决策 2026-06,改了)。** `create_asset` 服务端按链解析、**最后一定落到一个域**:
+> **① `domain`(agent 按内容)→ ② `user_skills.domain`(技能 prior)→ ③ `prior_for_skill`(基线 prior:记账→生活 / 随记→灵感 / 名片→社交)→ ④ 「生活」兜底**(`mcp_server/tools.py`,`normalize_domain(domain) or normalize_domain(user_skill.domain) or prior_for_skill(name) or "生活"`)。
+> agent 提示三处(chat `assistant.py`、flash dispatcher `SKILL.md`、MCP 工具 docstring `server.py`)都已改成 **「每条都打 / REQUIRED / 拿不准落生活 / 绝不留空」**(原「模糊则省略」已废)。
+> 效果:**流 / 月的领域 tag 全程一致**,不再有「无领域」卡片。**例外**:`qa` / `task` 无 asset、不打;`event` 无 domain 列(§8.1);`contact` 恒社交。**历史(决策前)数据**的 `assets.domain` 仍可能 null。
+
+- **agent 自动(主路径)**:落 asset 时按**内容**判定 domain(技能 `domain` prior 作默认;`contact` 固定社交;`随记` 默认灵感)→ 写 `assets.domain`。create 工具有 **`domain` 参**(省略则服务端按上面链回落,**永不 null**)。**两条实现路径(✅ 已实现)**:
   - **chat(`assistant.py`)**:agent 每次 create 直接带 `domain=`(prompt §「领域」)。
   - **flash(`flash_pipeline.py`)**:**dispatcher 在 intent 上多产一个 `domain`**(按内容,8 选 1,SKILL.md「领域」节);pipeline 在 sub-skill 建好 asset 后用 `_apply_domain()` 把该 domain **覆盖**到 `assets.domain`(覆盖技能 prior)。即闪念路径的 domain 由 dispatcher 统一判、pipeline 落,而非每个 sub-skill 各判 —— 更稳、绕开 sub-skill tool-call 抖动。详见 [§1](01-agent-architecture.md) / [§7.10](07-gamemode.md)。
 - **manual 表单选择器**:asset-backed 的新建 / 编辑表单带 domain 选择器(8 选 1,预填 agent 猜测或技能 prior,可清空),见 [§4.4.3a](04-frontend.md)。
   **已实现**:新建表单 `create_asset.dart._domainSelector`(默认「按技能默认」)、详情 `asset_detail_sheet.dart._pickDomain`(chip 可点改 / 清除 → `PUT /api/assets/{id}`)。
 - **prior 的来源(产品决策 2026-06,改了)**:**只有基线技能**(记账/随记/名片)在代码里带固定 prior(`core.domains.SKILL_DOMAIN_PRIOR`)。
-  **用户自定义技能不打 skill 级 domain** —— design agent 不参与领域判定、AddSkillWizard 无域选择器;自定义技能的每条记录**完全靠 agent 按内容识别**(create 工具的 `domain` 参),省略则落 null。
+  **用户自定义技能不打 skill 级 domain** —— design agent 不参与领域判定、AddSkillWizard 无域选择器;自定义技能的每条记录**完全靠 agent 按内容识别**(create 工具的 `domain` 参)。注:这是说 **skill 级 prior 仍可 null**;但**每条 asset 的实际 domain 永不 null**(agent 没给 → 服务端「生活」兜底,见本节顶部)。
   理由:domain 本就「按内容/主题」打(§8.0),给自定义技能钉死一个 skill 级领域既易错又多余。
-- **`null` = 不归域、不长岛、卡片不显 chip。**
+- **agent / 服务端创建永不 null**(「生活」兜底,§8.2 顶)。`null` 仅来自两处:① **历史(2026-06 决策前)遗留**;② 用户在详情**手动清空**领域([§4.4.3a](04-frontend.md))。`null` = 不归域、不长岛、卡片不显 chip。
 
 ---
 
@@ -60,7 +65,7 @@
 
 > 既然每条记录都带了 domain,就该看得见。这是一个轻量、贯穿列表/详情的视觉增量。
 
-- **卡片 domain chip**:`SkillCard` / 事件卡 / timeline 条目的 meta 区,一个**小色点 + 2 字领域名**(空间紧时退化为纯色点)。`domain==null` → **不显示**(不占位)。
+- **卡片 domain chip**:`SkillCard` / 事件卡 / timeline 条目的 meta 区,一个**小色点 + 2 字领域名**(空间紧时退化为纯色点)。`domain==null` → **不显示**(不占位)。**(2026-06 颜色收敛:这颗域点 = 卡片唯一的颜色 —— 卡片 / 库容器本体单色 + emoji,per-skill `accent_color` 已退役,见 [§5.1](05-design-system.md)。)**
 - **详情 chip**:`AssetDetailDrawer` 的 hero 副标题旁一个 domain chip,**可点 → 进编辑改**领域。
 - **8 领域 · 起始配色 + 图标**(复用 [§5](05-design-system.md) 的 8 个 accent 槽;**终版图标走单独 design doc**,emoji 仅占位):
 

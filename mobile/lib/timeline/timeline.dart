@@ -41,6 +41,16 @@ class TimelineItem {
   /// For flash (input_turn) captures: {skill_name|"event"|"contact": count}.
   final Map<String, int> derived;
 
+  /// §4.5.0a 落段:user 只说了模糊时段时填(凌晨/上午/中午/下午/晚上),否则 ''。
+  final String period;
+
+  /// True when the user stated a clock time (asset.occurred_at set → effectiveAt
+  /// is that precise moment). Events with a start time count via `kind`.
+  final bool hasClockTime;
+
+  /// §8 生活领域(工作/学习/健康/运动/社交/娱乐/生活/灵感),否则 ''。流/月卡片的领域 tag。
+  final String domain;
+
   TimelineItem({
     required this.kind,
     required this.id,
@@ -56,6 +66,9 @@ class TimelineItem {
     this.eventId,
     this.contactId,
     this.payload = const {},
+    this.period = '',
+    this.hasClockTime = false,
+    this.domain = '',
   });
 
   factory TimelineItem.fromJson(Map<String, dynamic> j) {
@@ -80,12 +93,15 @@ class TimelineItem {
         for (final e in rawDerived.entries)
           if (e.value is num) e.key: (e.value as num).toInt(),
       },
+      period: j['period'] as String? ?? '',
+      hasClockTime: j['has_clock_time'] == true,
+      domain: j['domain'] as String? ?? '',
     );
   }
 }
 
 const _builtin = <String, SkillMeta>{
-  'todo': SkillMeta('✅', '待办', 'blue'),
+  'todo': SkillMeta('📋', '待办', 'blue'),
   'event': SkillMeta('📅', '日程', 'purple'),
   'contact': SkillMeta('👤', '名片', 'neutral'),
   'notes': SkillMeta('✍️', '随记', 'amber'),   // 随记 (idea/misc merged in)
@@ -95,11 +111,20 @@ const _builtin = <String, SkillMeta>{
   'external_ref': SkillMeta('🔗', '外部', 'purple'),
 };
 
+/// Built-in glyphs the client pins regardless of the server's render_spec — the
+/// seed mirrors these, but the client owns the canonical look. 待办 must read as
+/// "to-do" (📋), not "done" (✅). Custom user skills are unaffected.
+const _pinnedIcons = <String, String>{'todo': '📋'};
+
 /// Resolve a skill / derived key to its icon + label. Custom skills live only
 /// in the registry, so look there first (mirrors the web derivedMeta fix).
 SkillMeta resolveMeta(String key, Map<String, SkillMeta> registry) {
   if (key == 'event') return _builtin['event']!;
-  return registry[key] ?? _builtin[key] ?? SkillMeta('•', key);
+  final m = registry[key] ?? _builtin[key] ?? SkillMeta('•', key);
+  final pin = _pinnedIcons[key];
+  return pin == null
+      ? m
+      : SkillMeta(pin, m.label, m.accentColor, m.userSkillId, m.enabled);
 }
 
 Future<List<TimelineItem>> fetchTimeline(ApiClient api) async {
@@ -123,7 +148,9 @@ Future<Map<String, SkillMeta>> fetchSkills(ApiClient api) async {
     if (name == null) continue;
     final rs = (s['render_spec'] as Map?)?.cast<String, dynamic>();
     out[name] = SkillMeta(
-      rs?['icon'] as String? ?? '•',
+      // Pin built-in glyphs (待办 → 📋) even for surfaces that read the meta map
+      // directly (e.g. 资产库 container tiles), not just via resolveMeta.
+      _pinnedIcons[name] ?? (rs?['icon'] as String? ?? '•'),
       s['display_name'] as String? ?? name,
       rs?['accent_color'] as String? ?? 'gray',
       s['user_skill_id'] as String?,

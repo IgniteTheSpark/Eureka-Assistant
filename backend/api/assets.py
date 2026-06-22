@@ -44,11 +44,15 @@ class CreateAssetRequest(BaseModel):
     session_id: str = ""
     source_input_turn_id: str = ""
     domain: str = ""              # §8 life-domain; "" → service falls back to skill prior
+    # 「在这天记一笔」: 手动在某天创建 → 把 created_at 锚到那天(否则记录类资产
+    # effective_at=created_at 会落到今天)。ISO8601+08:00;"" → 用 now。
+    created_at: str = ""
 
 
 class UpdateAssetRequest(BaseModel):
     payload_patch: dict = {}
     domain: Optional[str] = None  # set to change domain; pass to clear (see model_fields_set)
+    period: Optional[str] = None  # §4.5.0a 段纠错; present → set/clear (clears occurred_at)
 
 
 # ── asset_fields resync helper ────────────────────────────────────────────────
@@ -113,6 +117,8 @@ def _serialize_asset(a: Asset, skill_name: str) -> dict:
         "user_skill_name":      skill_name,
         "payload":              a.payload,
         "domain":               a.domain,
+        "period":               a.period or "",
+        "occurred_at":          a.occurred_at.isoformat() if a.occurred_at else None,
         "session_id":           str(a.session_id) if a.session_id else None,
         "source_input_turn_id": str(a.source_input_turn_id) if a.source_input_turn_id else None,
         "created_at":           a.created_at.isoformat(),
@@ -246,6 +252,7 @@ async def manual_create_asset(
         source_input_turn_id=req.source_input_turn_id,
         domain=req.domain,
         user_id=user_id,
+        created_at=req.created_at,
     )
 
 
@@ -278,6 +285,12 @@ async def update_asset(
         # null) → set/clear; absent → leave unchanged.
         if "domain" in req.model_fields_set:
             asset.domain = normalize_domain(req.domain)
+        # §4.5.0a 段纠错:手动选时段 → 设 period + 清 occurred_at(改回模糊时段,
+        # 不再是精确钟点);不指定 → 两者都清(回到捕捉时刻兜底落段)。
+        if "period" in req.model_fields_set:
+            p = (req.period or "").strip()
+            asset.period = p if p in {"凌晨", "上午", "中午", "下午", "晚上"} else None
+            asset.occurred_at = None
         await db.commit()
         await db.refresh(asset)
 

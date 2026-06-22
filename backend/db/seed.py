@@ -61,7 +61,7 @@ USER_SKILL_CONFIGS = [
         ],
         "render_spec": {
             "card_layout":       "horizontal",
-            "icon":              "✅",
+            "icon":              "📋",
             "accent_color":      "blue",
             "primary_field":     "content",
             "secondary_field":   "due_date",

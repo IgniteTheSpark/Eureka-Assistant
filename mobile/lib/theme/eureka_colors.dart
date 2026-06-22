@@ -80,9 +80,10 @@ class EurekaColors {
   /// `.theme-light` — warm off-white day mode.
   static const light = EurekaColors(
     brightness: Brightness.light,
-    bg: Color(0xFFF4F2EC),
-    surface: Color(0xFFEFEDE6),
-    surfaceRaised: Color(0xFFFBFAF6),
+    // P2 表层深度:bg 比 surfaceRaised 暗一档(原 F4F2EC 几乎与 raised 同明度 → 卡片浮不起来)。
+    bg: Color(0xFFEFEBE1),
+    surface: Color(0xFFEAE7DE),
+    surfaceRaised: Color(0xFFFCFBF8),
     border: Color(0x1F141812), // rgba(20,18,12,0.12)
     rule: Color(0x14141812), // rgba(20,18,12,0.08)
     textHi: Color(0xFF1B1D22),

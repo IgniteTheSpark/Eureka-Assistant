@@ -122,10 +122,11 @@ Slate 用一个 **ink RGB 基色** + 透明度派生文字层级，这样切到 
 状态色：`--eu-success`、`--eu-warning`、`--eu-error`、`--eu-info`（语义同名，值见 tokens.css；
 组件多数走下方 accent 调色板而非这些）。
 
-### Accent 调色板 —— **render_spec 的颜色来源**
+### 8 色调色板 —— **领域(domain)的颜色来源**（2026-06 颜色收敛）
 
-`render_spec.accent_color` 取以下 key 之一，前端映射到「同名 accent 四元组」。这是
-SkillCard 通用渲染**唯一的颜色分支来源**（不存在 if-type-equals）。
+> **颜色收敛（产品定 2026-06）**：全 app **颜色只代表「生活领域」(8 域)** —— 这 8 个 slot = **领域调色板**（键 = `assets.domain`，映射见 [§8.3](08-domain-system.md)）。**`render_spec.accent_color`（per-skill 选色）退役**：不再作卡片底色；卡片 / 库容器**本体单色**（neutral surface + 软阴影），颜色**只以一颗小色点出现在记录上**（域点），技能身份靠 **emoji + 名字**。wizard 去掉 accent 7 色选色（[§4.8](04-frontend.md)）。`accent_color` 字段可留但渲染忽略（不迁移）。
+
+下面 8 个 slot 仍是底层色板（供领域映射），4 变量结构不变 —— 旧文「`render_spec.accent_color` → 唯一颜色分支」已被本次收敛取代（色分支改由 `domain` 驱动）。
 
 8 个 slot：`blue / amber / green / red / purple / gray / neutral / cyan`。
 每个 slot 4 个变量：

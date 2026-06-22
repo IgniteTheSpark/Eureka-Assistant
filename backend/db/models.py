@@ -342,6 +342,11 @@ class Asset(Base):
     source_input_turn_id = Column(GUID(), ForeignKey("input_turns.id"))   # nullable: manual session has no input_turn
     payload              = Column(JSON, nullable=False)
     domain               = Column(String(20))   # §8 life-domain label (nullable = 不归域)
+    # §4.5.0a 落段:user 只说了模糊时段 → period(凌晨/上午/中午/下午/晚上);
+    # user 说了钟点 → occurred_at(精确发生时刻,≠ created_at)。都只在 user 明说
+    # 时填,否则 null(前端按 created_at 兜底落段)。
+    period               = Column(String(8))
+    occurred_at          = Column(TIMESTAMPTZ)
     # §6.13 / §14 溯源: a todo created from a report action (or later a nudge)
     # points back at its origin — todo detail shows「来自报告《X》」, and the
     # report's native action bar dedupes against it ("已加 ✓").
