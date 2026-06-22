@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -37,8 +36,11 @@ const _muted40 = Color(0x66FFFFFF);
 /// no-clock todos. Both come from [loadToday]; completing/advancing calls
 /// [bumpData] so TodayPage re-fetches.
 class NextActionPanel extends StatefulWidget {
-  const NextActionPanel(
-      {super.key, required this.chain, required this.noTimeTodos});
+  const NextActionPanel({
+    super.key,
+    required this.chain,
+    required this.noTimeTodos,
+  });
 
   final List<ChainItem> chain;
   final List<ChainItem> noTimeTodos;
@@ -47,7 +49,8 @@ class NextActionPanel extends StatefulWidget {
   State<NextActionPanel> createState() => _NextActionPanelState();
 }
 
-class _NextActionPanelState extends State<NextActionPanel> {
+class _NextActionPanelState extends State<NextActionPanel>
+    with SingleTickerProviderStateMixin {
   final ApiClient _api = ApiClient();
   bool _open = true;
   bool _noTimeOpen = false;
@@ -56,6 +59,12 @@ class _NextActionPanelState extends State<NextActionPanel> {
   Timer? _tick;
   final Set<String> _completing = {}; // ids mid-PUT (avoid double-tap)
 
+  // Tinder-style swipe on the focal card.
+  Offset _drag = Offset.zero;
+  late final AnimationController _fly;
+  Offset _flyFrom = Offset.zero, _flyTo = Offset.zero;
+  int _pendingDelta = 0; // index change applied when a fly-off finishes
+
   @override
   void initState() {
     super.initState();
@@ -63,13 +72,52 @@ class _NextActionPanelState extends State<NextActionPanel> {
     _tick = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() => _now = DateTime.now());
     });
+    _fly =
+        AnimationController(
+            vsync: this,
+            duration: const Duration(milliseconds: 260),
+          )
+          ..addListener(() {
+            final t = Curves.easeOut.transform(_fly.value);
+            setState(() => _drag = Offset.lerp(_flyFrom, _flyTo, t)!);
+          })
+          ..addStatusListener((s) {
+            if (s != AnimationStatus.completed) return;
+            setState(() {
+              if (_pendingDelta != 0) {
+                final n = widget.chain.length;
+                if (n > 0) _index = (_index + _pendingDelta).clamp(0, n - 1);
+              }
+              _drag = Offset.zero;
+              _pendingDelta = 0;
+            });
+          });
   }
 
   @override
   void dispose() {
     _tick?.cancel();
+    _fly.dispose();
     _api.close();
     super.dispose();
+  }
+
+  /// On release: past the threshold (or a flick), fly the focal off-screen then
+  /// advance; otherwise spring it back to center.
+  void _releaseDrag(List<ChainItem> chain, int idx, double vx) {
+    final goNext = (_drag.dx < -90 || vx < -700) && idx < chain.length - 1;
+    final goPrev = (_drag.dx > 90 || vx > 700) && idx > 0;
+    _flyFrom = _drag;
+    if (goNext || goPrev) {
+      _pendingDelta = goNext ? 1 : -1;
+      _flyTo = Offset((goNext ? -1 : 1) * 460, _drag.dy + 40);
+      _fly.duration = const Duration(milliseconds: 220);
+    } else {
+      _pendingDelta = 0;
+      _flyTo = Offset.zero;
+      _fly.duration = const Duration(milliseconds: 280);
+    }
+    _fly.forward(from: 0);
   }
 
   Future<void> _setDone(String id, bool done) async {
@@ -86,10 +134,12 @@ class _NextActionPanelState extends State<NextActionPanel> {
   }
 
   void _openCalendar(ChainItem it) {
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) =>
-          DayDetailPage(day: DateTime(it.at.year, it.at.month, it.at.day)),
-    ));
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) =>
+            DayDetailPage(day: DateTime(it.at.year, it.at.month, it.at.day)),
+      ),
+    );
   }
 
   @override
@@ -111,10 +161,7 @@ class _NextActionPanelState extends State<NextActionPanel> {
         children: [
           _header(hasChain ? chain[idx] : null, idx, chain.length),
           if (_open) ...[
-            if (hasChain)
-              _deck(eu, chain, idx)
-            else
-              _emptyDeck(),
+            if (hasChain) _deck(eu, chain, idx) else _emptyDeck(),
             _counterRow(),
             if (_noTimeOpen) _noTimeList(eu),
           ],
@@ -134,84 +181,108 @@ class _NextActionPanelState extends State<NextActionPanel> {
           children: [
             Expanded(
               child: _open || focal == null
-                  ? const Text('接下来',
+                  ? const Text(
+                      '接下来',
                       style: TextStyle(
                         color: _muted40,
                         fontSize: 10,
                         letterSpacing: 1.6,
                         fontWeight: FontWeight.w600,
-                      ))
-                  : Text(focal.title,
+                      ),
+                    )
+                  : Text(
+                      focal.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                          color: _titleColor,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600)),
+                        color: _titleColor,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
             ),
             if (total > 0)
               Padding(
                 padding: const EdgeInsets.only(right: 8),
-                child: Text('${idx + 1} / $total',
-                    style: const TextStyle(
-                        color: _accent,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        fontFeatures: [FontFeature.tabularFigures()])),
+                child: Text(
+                  '${idx + 1} / $total',
+                  style: const TextStyle(
+                    color: _accent,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    fontFeatures: [FontFeature.tabularFigures()],
+                  ),
+                ),
               ),
-            Icon(_open ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
-                size: 20, color: _muted40),
+            Icon(
+              _open ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+              size: 20,
+              color: _muted40,
+            ),
           ],
         ),
       ),
     );
   }
 
-  // ── deck (C-fan) ────────────────────────────────────────────────────────────
+  // ── deck (Tinder-style card stack) ──────────────────────────────────────────
   Widget _deck(EurekaColors eu, List<ChainItem> chain, int idx) {
+    final progress = (_drag.dx.abs() / 130).clamp(0.0, 1.0);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 0, 14, 6),
+      padding: const EdgeInsets.fromLTRB(14, 2, 14, 8),
       child: SizedBox(
-        height: 162,
-        child: GestureDetector(
-          onHorizontalDragEnd: (d) {
-            final v = d.primaryVelocity ?? 0;
-            if (v < -120 && idx < chain.length - 1) {
-              setState(() => _index = idx + 1);
-            } else if (v > 120 && idx > 0) {
-              setState(() => _index = idx - 1);
-            }
-          },
-          child: Stack(
-            alignment: Alignment.topCenter,
-            children: [
-              if (chain.length > idx + 2) _peek(1.5, 0.86, 14),
-              if (chain.length > idx + 1) _peek(-2.2, 0.92, 8),
-              _focalCard(eu, chain[idx]),
-            ],
-          ),
+        height: 170,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            // the visible stack behind the focal; the next shell rises toward the
+            // focal as the focal is dragged away.
+            if (idx + 2 < chain.length) _stackShell(2, 0),
+            if (idx + 1 < chain.length) _stackShell(1, progress),
+            // focal — draggable: follows the finger, tilts, flies off on release.
+            Transform.translate(
+              offset: _drag,
+              child: Transform.rotate(
+                angle: _drag.dx / 1500,
+                alignment: Alignment.bottomCenter,
+                child: GestureDetector(
+                  onPanUpdate: (d) {
+                    if (_fly.isAnimating) return;
+                    setState(() => _drag += d.delta);
+                  },
+                  onPanEnd: (d) =>
+                      _releaseDrag(chain, idx, d.velocity.pixelsPerSecond.dx),
+                  child: _focalCard(eu, chain[idx]),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  /// A faint rotated card shell behind the focal one (depth illusion).
-  Widget _peek(double deg, double scale, double topInset) {
+  /// A card shell behind the focal (the visible stack). [t] (0→1) rises the
+  /// depth-1 shell toward the focal as the focal is dragged away.
+  Widget _stackShell(int depth, double t) {
+    final scale = (1 - depth * 0.05) + (depth == 1 ? t * 0.05 : 0);
+    final dy = depth * 12.0 - (depth == 1 ? t * 12.0 : 0);
     return Positioned(
-      top: topInset,
-      left: 18,
-      right: 18,
-      child: Transform.rotate(
-        angle: deg * math.pi / 180,
+      top: dy,
+      left: 0,
+      right: 0,
+      child: Transform.scale(
+        scale: scale,
+        alignment: Alignment.topCenter,
         child: Opacity(
-          opacity: 0.5,
+          opacity: 1 - depth * 0.16,
           child: Container(
-            height: 110,
+            height: 150,
             decoration: BoxDecoration(
               gradient: const LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                colors: [Color(0xF522304E), Color(0xF5162139)],
+                colors: [Color(0xF51E2C4A), Color(0xF5141E36)],
               ),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: const Color(0x14FFFFFF)),
@@ -225,74 +296,76 @@ class _NextActionPanelState extends State<NextActionPanel> {
   Widget _focalCard(EurekaColors eu, ChainItem it) {
     final isEvent = it.kind == 'event';
     final dot = domainColor(eu, it.domain);
-    return Positioned(
-      top: 0,
-      left: 0,
-      right: 0,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(16, 13, 16, 13),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xF522304E), Color(0xF5162139)],
+    return Container(
+      height: 154,
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 13, 16, 13),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xF522304E), Color(0xF5162139)],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0x26FFFFFF)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x80000000),
+            blurRadius: 30,
+            offset: Offset(0, 14),
           ),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0x26FFFFFF)),
-          boxShadow: const [
-            BoxShadow(
-                color: Color(0x80000000),
-                blurRadius: 30,
-                offset: Offset(0, 14)),
-          ],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 9,
-                  height: 9,
-                  decoration: BoxDecoration(
-                    color: dot,
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(color: dot.withValues(alpha: .6), blurRadius: 6),
-                    ],
-                  ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 9,
+                height: 9,
+                decoration: BoxDecoration(
+                  color: dot,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(color: dot.withValues(alpha: .6), blurRadius: 6),
+                  ],
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    isEvent
-                        ? (it.sub == '事件' ? '事件' : '事件 · ${it.sub}')
-                        : '待办',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: _muted, fontSize: 12),
-                  ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  isEvent ? (it.sub == '事件' ? '事件' : '事件 · ${it.sub}') : '待办',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: _muted, fontSize: 12),
                 ),
-                Text(_hm(it.at),
-                    style: const TextStyle(
-                        color: _muted,
-                        fontSize: 12,
-                        fontFeatures: [FontFeature.tabularFigures()])),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(it.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+              ),
+              Text(
+                _hm(it.at),
                 style: const TextStyle(
-                    color: _titleColor,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w600)),
-            const SizedBox(height: 10),
-            if (isEvent) _eventBottom(it) else _todoBottom(it),
-          ],
-        ),
+                  color: _muted,
+                  fontSize: 12,
+                  fontFeatures: [FontFeature.tabularFigures()],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            it.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: _titleColor,
+              fontSize: 20,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 10),
+          if (isEvent) _eventBottom(it) else _todoBottom(it),
+        ],
       ),
     );
   }
@@ -310,12 +383,15 @@ class _NextActionPanelState extends State<NextActionPanel> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label,
-            style: const TextStyle(
-                color: _accent,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                fontFeatures: [FontFeature.tabularFigures()])),
+        Text(
+          label,
+          style: const TextStyle(
+            color: _accent,
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            fontFeatures: [FontFeature.tabularFigures()],
+          ),
+        ),
         const SizedBox(height: 7),
         ClipRRect(
           borderRadius: BorderRadius.circular(3),
@@ -331,11 +407,14 @@ class _NextActionPanelState extends State<NextActionPanel> {
           alignment: Alignment.centerRight,
           child: GestureDetector(
             onTap: () => _openCalendar(it),
-            child: const Text('在日历看 ›',
-                style: TextStyle(
-                    color: _accent,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600)),
+            child: const Text(
+              '在日历看 ›',
+              style: TextStyle(
+                color: _accent,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
         ),
       ],
@@ -348,10 +427,12 @@ class _NextActionPanelState extends State<NextActionPanel> {
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         Expanded(
-          child: Text(it.note ?? '',
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: _muted, fontSize: 12)),
+          child: Text(
+            it.note ?? '',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: _muted, fontSize: 12),
+          ),
         ),
         const SizedBox(width: 10),
         GestureDetector(
@@ -368,12 +449,18 @@ class _NextActionPanelState extends State<NextActionPanel> {
                     width: 13,
                     height: 13,
                     child: CircularProgressIndicator(
-                        strokeWidth: 2, color: _accent))
-                : const Text('完成 ✓',
+                      strokeWidth: 2,
+                      color: _accent,
+                    ),
+                  )
+                : const Text(
+                    '完成 ✓',
                     style: TextStyle(
-                        color: _accent,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600)),
+                      color: _accent,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
           ),
         ),
       ],
@@ -393,14 +480,17 @@ class _NextActionPanelState extends State<NextActionPanel> {
               onTap: () => setState(() => _noTimeOpen = !_noTimeOpen),
               child: Row(
                 children: [
-                  Text('🕒 无时间待办 $n',
-                      style: const TextStyle(color: _muted, fontSize: 12)),
+                  Text(
+                    '🕒 无时间待办 $n',
+                    style: const TextStyle(color: _muted, fontSize: 12),
+                  ),
                   Icon(
-                      _noTimeOpen
-                          ? Icons.keyboard_arrow_up
-                          : Icons.keyboard_arrow_down,
-                      size: 18,
-                      color: _muted40),
+                    _noTimeOpen
+                        ? Icons.keyboard_arrow_up
+                        : Icons.keyboard_arrow_down,
+                    size: 18,
+                    color: _muted40,
+                  ),
                 ],
               ),
             ),
@@ -429,23 +519,26 @@ class _NextActionPanelState extends State<NextActionPanel> {
                     width: 8,
                     height: 8,
                     decoration: BoxDecoration(
-                        color: domainColor(eu, it.domain)
-                            .withValues(alpha: it.done ? .4 : 1),
-                        shape: BoxShape.circle),
+                      color: domainColor(
+                        eu,
+                        it.domain,
+                      ).withValues(alpha: it.done ? .4 : 1),
+                      shape: BoxShape.circle,
+                    ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: Text(it.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                            color:
-                                it.done ? _muted : const Color(0xD0FFFFFF),
-                            fontSize: 14,
-                            decoration: it.done
-                                ? TextDecoration.lineThrough
-                                : null,
-                            decorationColor: _muted)),
+                    child: Text(
+                      it.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: it.done ? _muted : const Color(0xD0FFFFFF),
+                        fontSize: 14,
+                        decoration: it.done ? TextDecoration.lineThrough : null,
+                        decorationColor: _muted,
+                      ),
+                    ),
                   ),
                   GestureDetector(
                     behavior: HitTestBehavior.opaque,
@@ -461,7 +554,10 @@ class _NextActionPanelState extends State<NextActionPanel> {
                                 width: 14,
                                 height: 14,
                                 child: CircularProgressIndicator(
-                                    strokeWidth: 1.5, color: _accent))
+                                  strokeWidth: 1.5,
+                                  color: _accent,
+                                ),
+                              )
                             : Container(
                                 width: 19,
                                 height: 19,
@@ -470,13 +566,17 @@ class _NextActionPanelState extends State<NextActionPanel> {
                                   shape: BoxShape.circle,
                                   color: it.done ? _accent : null,
                                   border: Border.all(
-                                      color: it.done
-                                          ? _accent
-                                          : const Color(0x66FFFFFF)),
+                                    color: it.done
+                                        ? _accent
+                                        : const Color(0x66FFFFFF),
+                                  ),
                                 ),
                                 child: it.done
-                                    ? const Icon(Icons.check,
-                                        size: 13, color: Color(0xFF0B1220))
+                                    ? const Icon(
+                                        Icons.check,
+                                        size: 13,
+                                        color: Color(0xFF0B1220),
+                                      )
                                     : null,
                               ),
                       ),
@@ -498,11 +598,14 @@ class _NextActionPanelState extends State<NextActionPanel> {
         children: [
           Text('🌤️', style: TextStyle(fontSize: 30)),
           SizedBox(height: 8),
-          Text('今天还没有日程或待办',
-              style: TextStyle(
-                  color: _titleColor,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600)),
+          Text(
+            '今天还没有日程或待办',
+            style: TextStyle(
+              color: _titleColor,
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ],
       ),
     );
