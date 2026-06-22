@@ -65,6 +65,7 @@ class TodayData {
     required this.pool,
     required this.poolTrueCount,
     required this.flashCount,
+    this.flashLatestId,
   });
 
   final List<ChainItem> chain;
@@ -72,6 +73,7 @@ class TodayData {
   final List<PoolAsset> pool; // capped (≤50) physics bodies
   final int poolTrueCount; // true count today (dashboard header)
   final int flashCount;
+  final String? flashLatestId; // newest flash session today (⚡ pill target)
 
   static const empty = TodayData(
       chain: [], noTimeTodos: [], pool: [], poolTrueCount: 0, flashCount: 0);
@@ -152,7 +154,8 @@ Future<TodayData> loadToday(ApiClient api, {DateTime? nowOverride}) async {
     noTimeTodos: split.noTime,
     pool: poolRes.pool,
     poolTrueCount: poolRes.trueCount,
-    flashCount: flash,
+    flashCount: flash.count,
+    flashLatestId: flash.latestId,
   );
 }
 
@@ -238,16 +241,21 @@ Future<({List<PoolAsset> pool, int trueCount})> _loadPool(
 
 /// GET /api/sessions?session_type=flash&date=today → flash count (server filters
 /// by DBSession.date, so no client-side date math needed).
-Future<int> _loadFlashCount(ApiClient api, DateTime today) async {
+Future<({int count, String? latestId})> _loadFlashCount(
+    ApiClient api, DateTime today) async {
   try {
     String two(int n) => n.toString().padLeft(2, '0');
     final d = '${today.year}-${two(today.month)}-${two(today.day)}';
     final res = await api
         .getJson('/api/sessions', query: {'session_type': 'flash', 'date': d});
     final list = (res is Map ? res['sessions'] : null) as List? ?? const [];
-    return list.length;
+    // sessions come ordered created_at desc → first is the newest.
+    final latest = list.isNotEmpty && list.first is Map
+        ? (list.first as Map)['id'] as String?
+        : null;
+    return (count: list.length, latestId: latest);
   } catch (_) {
-    return 0;
+    return (count: 0, latestId: null);
   }
 }
 

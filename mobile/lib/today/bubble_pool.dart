@@ -16,13 +16,18 @@ import 'today_data.dart';
 /// when every body sleeps and stops when the page is hidden/backgrounded
 /// (battery). Solver = bubble_physics.dart (unit-tested). Plan: Slice 4.
 class BubblePool extends StatefulWidget {
-  const BubblePool({super.key, required this.pool, this.active = true});
+  const BubblePool(
+      {super.key, required this.pool, this.active = true, this.filterKey = 'all'});
 
   final List<PoolAsset> pool;
 
-  /// Whether the today tab is the visible one. When false the ticker + (later)
-  /// the accelerometer are suspended even if bodies are still moving.
+  /// Whether the today tab is the visible one. When false the ticker + the
+  /// accelerometer are suspended even if bodies are still moving.
   final bool active;
+
+  /// Dashboard filter — bubbles whose type doesn't match are dimmed ('all' =
+  /// none dimmed).
+  final String filterKey;
 
   @override
   State<BubblePool> createState() => _BubblePoolState();
@@ -253,8 +258,10 @@ class _BubblePoolState extends State<BubblePool>
             painter: _BubblePainter(
               field: field,
               repaint: _repaint,
+              filterKey: widget.filterKey,
               colorOf: (id) => domainColor(eu, _byId[id]?.domain ?? ''),
-              glyphOf: (id) => _glyphFor(_byId[id]?.type ?? ''),
+              glyphOf: (id) => glyphForType(_byId[id]?.type ?? ''),
+              typeOf: (id) => _byId[id]?.type ?? '',
             ),
           ),
         );
@@ -335,7 +342,7 @@ class _BubblePoolState extends State<BubblePool>
                     shape: BoxShape.circle,
                   ),
                   alignment: Alignment.center,
-                  child: Text(_glyphFor(a.type),
+                  child: Text(glyphForType(a.type),
                       style: const TextStyle(fontSize: 26)),
                 ),
                 const SizedBox(width: 14),
@@ -362,7 +369,7 @@ class _BubblePoolState extends State<BubblePool>
             const SizedBox(height: 18),
             Row(
               children: [
-                _pill('${_glyphFor(a.type)} ${_typeName(a.type)}', col),
+                _pill('${glyphForType(a.type)} ${typeName(a.type)}', col),
                 if (a.domain.isNotEmpty) ...[
                   const SizedBox(width: 10),
                   _domainPill(a.domain, col),
@@ -410,7 +417,7 @@ class _BubblePoolState extends State<BubblePool>
 
 /// type (skill name) → glyph. Matches the app's canonical built-ins (todo 📋,
 /// notes ✍️) so a bubble reads the same as the item does elsewhere.
-String _glyphFor(String type) {
+String glyphForType(String type) {
   switch (type) {
     case 'todo':
       return '📋';
@@ -430,7 +437,7 @@ String _glyphFor(String type) {
 }
 
 /// type (skill name) → display name for the detail sheet's type pill.
-String _typeName(String type) {
+String typeName(String type) {
   switch (type) {
     case 'todo':
       return '待办';
@@ -454,18 +461,28 @@ class _BubblePainter extends CustomPainter {
     required this.field,
     required this.colorOf,
     required this.glyphOf,
+    required this.typeOf,
+    required this.filterKey,
     required Listenable repaint,
   }) : super(repaint: repaint);
 
   final BubbleField field;
   final Color Function(String id) colorOf;
   final String Function(String id) glyphOf;
+  final String Function(String id) typeOf;
+  final String filterKey;
 
   @override
   void paint(Canvas canvas, Size size) {
     for (final b in field.bubbles) {
       final c = Offset(b.x, b.y);
       final col = colorOf(b.id);
+      final dim = filterKey != 'all' && typeOf(b.id) != filterKey;
+      if (dim) {
+        // recede non-matching bubbles to a faint disc (no gloss/glyph).
+        canvas.drawCircle(c, b.r, Paint()..color = col.withValues(alpha: .14));
+        continue;
+      }
       // drop shadow
       canvas.drawCircle(
         c.translate(0, 3),
@@ -507,6 +524,8 @@ class _BubblePainter extends CustomPainter {
     }
   }
 
+  // Per-frame repaint is driven by the Listenable; repaint on a filter change
+  // (the painter instance changes but the Listenable hasn't ticked).
   @override
-  bool shouldRepaint(_BubblePainter old) => false; // repaint via Listenable
+  bool shouldRepaint(_BubblePainter old) => old.filterKey != filterKey;
 }
