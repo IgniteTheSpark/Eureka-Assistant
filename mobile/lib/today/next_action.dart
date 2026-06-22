@@ -1,10 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/api_client.dart';
 import '../data_revision.dart';
-import '../pages/calendar_page.dart' show DayDetailPage;
+import '../render/asset_detail_sheet.dart' show showAssetDetail;
+import '../render/render_spec.dart' show RenderSpec, buildCard, synthesizeSpec;
+import '../render/skill_card.dart' show SkillCard, renderSpecsProvider;
 import '../theme/app_theme.dart'; // context.eu
 import '../theme/domains.dart' show domainColor;
 import '../theme/eureka_colors.dart';
@@ -28,7 +31,7 @@ String fmtCountdown(Duration d) {
 /// panel"; logic = §4.5.0. [chain] is upcoming-timed (sorted), [noTimeTodos] the
 /// no-clock todos. Both come from [loadToday]; completing/advancing calls
 /// [bumpData] so TodayPage re-fetches.
-class NextActionPanel extends StatefulWidget {
+class NextActionPanel extends ConsumerStatefulWidget {
   const NextActionPanel({
     super.key,
     required this.chain,
@@ -39,17 +42,15 @@ class NextActionPanel extends StatefulWidget {
   final List<ChainItem> noTimeTodos;
 
   @override
-  State<NextActionPanel> createState() => _NextActionPanelState();
+  ConsumerState<NextActionPanel> createState() => _NextActionPanelState();
 }
 
-class _NextActionPanelState extends State<NextActionPanel>
+class _NextActionPanelState extends ConsumerState<NextActionPanel>
     with SingleTickerProviderStateMixin {
   final ApiClient _api = ApiClient();
   bool _open = true;
   bool _noTimeOpen = false;
   int _index = 0;
-  DateTime _now = DateTime.now();
-  Timer? _tick;
   final Set<String> _completing = {}; // ids mid-PUT (avoid double-tap)
 
   // Tinder-style swipe on the focal card.
@@ -62,10 +63,6 @@ class _NextActionPanelState extends State<NextActionPanel>
   @override
   void initState() {
     super.initState();
-    // 1s tick for the live countdown (cheap; cancelled in dispose).
-    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() => _now = DateTime.now());
-    });
     _fly =
         AnimationController(
             vsync: this,
@@ -91,7 +88,6 @@ class _NextActionPanelState extends State<NextActionPanel>
 
   @override
   void dispose() {
-    _tick?.cancel();
     _fly.dispose();
     _api.close();
     super.dispose();
@@ -129,15 +125,6 @@ class _NextActionPanelState extends State<NextActionPanel>
     }
   }
 
-  void _openCalendar(ChainItem it) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) =>
-            DayDetailPage(day: DateTime(it.at.year, it.at.month, it.at.day)),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final eu = context.eu;
@@ -164,7 +151,7 @@ class _NextActionPanelState extends State<NextActionPanel>
             chain.length,
           ),
           if (_open) ...[
-            if (hasChain) _deck(eu, chain, idx) else _emptyDeck(),
+            if (hasChain) _deck(chain, idx) else _emptyDeck(),
             _counterRow(),
             if (_noTimeOpen) _noTimeList(eu),
           ],
@@ -229,12 +216,12 @@ class _NextActionPanelState extends State<NextActionPanel>
   }
 
   // ── deck (Tinder-style card stack) ──────────────────────────────────────────
-  Widget _deck(EurekaColors eu, List<ChainItem> chain, int idx) {
+  Widget _deck(List<ChainItem> chain, int idx) {
     final progress = (_drag.dx.abs() / 130).clamp(0.0, 1.0);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 2, 14, 8),
+      padding: const EdgeInsets.fromLTRB(14, 4, 14, 10),
       child: SizedBox(
-        height: 170,
+        height: 108,
         child: Stack(
           clipBehavior: Clip.none,
           children: [
@@ -243,12 +230,17 @@ class _NextActionPanelState extends State<NextActionPanel>
             if (idx + 2 < chain.length) _stackShell(2, 0),
             if (idx + 1 < chain.length) _stackShell(1, progress),
             // focal — draggable: follows the finger, tilts, flies off on release.
+            // Tap → the global detail sheet; swipe → cycle.
             Transform.translate(
               offset: _drag,
               child: Transform.rotate(
                 angle: _drag.dx / 1500,
                 alignment: Alignment.bottomCenter,
                 child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: idx < chain.length
+                      ? () => _openDetail(chain[idx])
+                      : null,
                   onPanUpdate: (d) {
                     if (_fly.isAnimating) return;
                     setState(() => _drag += d.delta);
@@ -256,7 +248,7 @@ class _NextActionPanelState extends State<NextActionPanel>
                   onPanEnd: (d) =>
                       _releaseDrag(chain, idx, d.velocity.pixelsPerSecond.dx),
                   child: idx < chain.length
-                      ? _focalCard(eu, chain[idx])
+                      ? _focalCard(chain[idx])
                       : _endCard(),
                 ),
               ),
@@ -282,7 +274,7 @@ class _NextActionPanelState extends State<NextActionPanel>
         child: Opacity(
           opacity: 1 - depth * 0.16,
           child: Container(
-            height: 150,
+            height: 80,
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
@@ -298,80 +290,50 @@ class _NextActionPanelState extends State<NextActionPanel>
     );
   }
 
-  Widget _focalCard(EurekaColors eu, ChainItem it) {
-    final isEvent = it.kind == 'event';
-    final dot = domainColor(eu, it.domain);
-    return Container(
-      height: 154,
+  /// The focal card = the **same global unified card** as 资产库 / 日历
+  /// (SkillCard, 'horizontal'). Wrapped in IgnorePointer so its own tap /
+  /// checkbox / swipe-to-delete don't fight the deck's drag-to-cycle; the deck
+  /// owns tap (→ detail) + swipe itself.
+  Widget _focalCard(ChainItem it) {
+    return SizedBox(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(16, 13, 16, 13),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [_p.cardTop, _p.cardBottom],
-        ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _p.cardBorder),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: _p.dark ? 0.5 : 0.16),
-            blurRadius: 30,
-            offset: const Offset(0, 14),
-          ),
-        ],
+      child: IgnorePointer(
+        child: SkillCard(it.card, layoutOverride: 'horizontal'),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 9,
-                height: 9,
-                decoration: BoxDecoration(
-                  color: dot,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(color: dot.withValues(alpha: .6), blurRadius: 6),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  isEvent ? (it.sub == '事件' ? '事件' : '事件 · ${it.sub}') : '待办',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: _p.muted, fontSize: 12),
-                ),
-              ),
-              Text(
-                _hm(it.at),
-                style: TextStyle(
-                  color: _p.muted,
-                  fontSize: 12,
-                  fontFeatures: [FontFeature.tabularFigures()],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            it.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: _p.title,
-              fontSize: 20,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 10),
-          if (isEvent) _eventBottom(it) else _todoBottom(it),
-        ],
-      ),
+    );
+  }
+
+  /// Open the same detail sheet a SkillCard tap opens: resolve the skill spec
+  /// from the registry (entities use a synthesized spec), then showAssetDetail.
+  void _openDetail(ChainItem it) {
+    final specs =
+        ref.read(renderSpecsProvider).valueOrNull ??
+        const <String, RenderSpec>{};
+    final card = it.card;
+    final type = card['card_type'] as String?;
+    final isEntity = type == 'event' || type == 'contact' || type == 'task';
+    final payload = isEntity
+        ? card
+        : ((card['payload'] as Map?)?.cast<String, dynamic>() ?? const {});
+    final cardType = type ?? (card['user_skill_name'] as String?) ?? 'asset';
+    final skill = card['user_skill_name'] as String?;
+    final spec = skill != null ? specs[skill] : null;
+    var data = isEntity
+        ? buildCard(
+            payload: card,
+            spec: synthesizeSpec(type!),
+            displayName: type,
+          )
+        : buildCard(payload: payload, spec: spec, displayName: cardType);
+    data = data.copyWith(domain: card['domain'] as String?);
+    showAssetDetail(
+      context,
+      data: data,
+      payload: payload,
+      cardType: cardType,
+      assetId: (card['asset_id'] ?? card['id']) as String?,
+      sessionId: card['session_id'] as String?,
+      spec: spec,
     );
   }
 
@@ -429,103 +391,6 @@ class _NextActionPanelState extends State<NextActionPanel>
           ),
         ],
       ),
-    );
-  }
-
-  Widget _eventBottom(ChainItem it) {
-    final start = it.at;
-    final end = it.dur != null ? start.add(it.dur!) : start;
-    final started = !_now.isBefore(start);
-    final total = it.dur?.inSeconds ?? 0;
-    final elapsed = _now.difference(start).inSeconds.clamp(0, total);
-    final frac = total > 0 ? elapsed / total : 0.0;
-    final label = started
-        ? (total > 0 ? '进行中 · 还剩 ${fmtCountdown(end.difference(_now))}' : '进行中')
-        : '⏳ ${fmtCountdown(start.difference(_now))}后';
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            color: _p.accent,
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            fontFeatures: [FontFeature.tabularFigures()],
-          ),
-        ),
-        const SizedBox(height: 7),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(3),
-          child: LinearProgressIndicator(
-            value: started ? frac.toDouble() : 0,
-            minHeight: 5,
-            backgroundColor: _p.accent.withValues(alpha: 0.15),
-            valueColor: AlwaysStoppedAnimation(_p.accent),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Align(
-          alignment: Alignment.centerRight,
-          child: GestureDetector(
-            onTap: () => _openCalendar(it),
-            child: Text(
-              '在日历看 ›',
-              style: TextStyle(
-                color: _p.accent,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _todoBottom(ChainItem it) {
-    final busy = _completing.contains(it.id);
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        Expanded(
-          child: Text(
-            it.note ?? '',
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: _p.muted, fontSize: 12),
-          ),
-        ),
-        const SizedBox(width: 10),
-        GestureDetector(
-          onTap: busy ? null : () => _setDone(it.id, true),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-            decoration: BoxDecoration(
-              color: _p.accent.withValues(alpha: 0.14),
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: _p.accent.withValues(alpha: 0.42)),
-            ),
-            child: busy
-                ? SizedBox(
-                    width: 13,
-                    height: 13,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: _p.accent,
-                    ),
-                  )
-                : Text(
-                    '完成 ✓',
-                    style: TextStyle(
-                      color: _p.accent,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-          ),
-        ),
-      ],
     );
   }
 
@@ -670,7 +535,4 @@ class _NextActionPanelState extends State<NextActionPanel>
       ),
     );
   }
-
-  String _hm(DateTime d) =>
-      '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
 }

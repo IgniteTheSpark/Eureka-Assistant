@@ -23,6 +23,7 @@ class ChainItem {
     this.dur,
     this.note,
     this.done = false,
+    this.card = const {},
   });
 
   final String kind;
@@ -35,6 +36,11 @@ class ChainItem {
   final String? note;
   final bool done;
   final bool timed;
+
+  /// SkillCard-ready map so Next Action renders the *same* global unified card
+  /// as 资产库 / 日历 (event → card_type:'event'; todo → user_skill_name+payload),
+  /// instead of a bespoke focal card. Built in [_loadChain].
+  final Map<String, dynamic> card;
 }
 
 /// One captured asset = one bubble in Part 2's pool. `domain` drives the fill
@@ -76,7 +82,12 @@ class TodayData {
   final String? flashLatestId; // newest flash session today (⚡ pill target)
 
   static const empty = TodayData(
-      chain: [], noTimeTodos: [], pool: [], poolTrueCount: 0, flashCount: 0);
+    chain: [],
+    noTimeTodos: [],
+    pool: [],
+    poolTrueCount: 0,
+    flashCount: 0,
+  );
 }
 
 /// Split mapped action candidates into the **upcoming-timed** [chain] (sorted
@@ -84,7 +95,9 @@ class TodayData {
 /// dropped — Next Action is forward-looking; overdue / 记录 live in 日历 / 资产.
 /// Pure → unit-tested.
 ({List<ChainItem> chain, List<ChainItem> noTime}) splitChain(
-    List<ChainItem> all, DateTime now) {
+  List<ChainItem> all,
+  DateTime now,
+) {
   final chain = <ChainItem>[];
   final noTime = <ChainItem>[];
   for (final it in all) {
@@ -119,7 +132,8 @@ bool _todoDone(Map<String, dynamic> p) =>
 /// showAssetDetail for full rendering). Mirrors the timeline's fallback chain
 /// minus render_spec.primary_field (which the asset list doesn't carry).
 String _poolTitle(Map<String, dynamic> p, String type) {
-  final cand = p['content'] ??
+  final cand =
+      p['content'] ??
       p['title'] ??
       p['name'] ??
       (p['amount'] != null ? '¥${p['amount']}' : null);
@@ -163,42 +177,67 @@ Future<TodayData> loadToday(ApiClient api, {DateTime? nowOverride}) async {
 /// upcoming-timed chain and the no-clock todo list. Done todos drop out (the
 /// chain is forward-looking; overdue / records live in 日历 / 资产).
 Future<({List<ChainItem> chain, List<ChainItem> noTime})> _loadChain(
-    ApiClient api, String from, String to, DateTime now) async {
+  ApiClient api,
+  String from,
+  String to,
+  DateTime now,
+) async {
   try {
-    final res = await api
-        .getJson('/api/timeline', query: {'from': from, 'to': to, 'limit': 500});
+    final res = await api.getJson(
+      '/api/timeline',
+      query: {'from': from, 'to': to, 'limit': 500},
+    );
     final items = (res is Map ? res['items'] : null) as List? ?? const [];
     final candidates = <ChainItem>[];
     for (final raw in items.whereType<Map>()) {
       final it = TimelineItem.fromJson(raw.cast<String, dynamic>());
       if (it.kind == 'event') {
-        candidates.add(ChainItem(
-          kind: 'event',
-          id: it.eventId ?? it.id,
-          title: it.title,
-          at: it.effectiveAt,
-          timed: true, // events always have a clock time
-          sub: (it.location?.isNotEmpty ?? false) ? it.location! : '事件',
-          domain: it.domain,
-          dur: it.endAt?.difference(it.effectiveAt),
-        ));
+        candidates.add(
+          ChainItem(
+            kind: 'event',
+            id: it.eventId ?? it.id,
+            title: it.title,
+            at: it.effectiveAt,
+            timed: true, // events always have a clock time
+            sub: (it.location?.isNotEmpty ?? false) ? it.location! : '事件',
+            domain: it.domain,
+            dur: it.endAt?.difference(it.effectiveAt),
+            card: {
+              'card_type': 'event',
+              'title': it.title,
+              'start_at': it.effectiveAt.toIso8601String(),
+              'location': it.location ?? '',
+              'domain': it.domain,
+              'asset_id': it.eventId ?? it.id,
+            },
+          ),
+        );
       } else if (it.kind == 'asset' && it.skillName == 'todo') {
         // A todo is "timed" (→ chain with a countdown) when its due_date carries
         // a clock time (ISO with a `T…` part); a date-only due → no-time list.
         // has_clock_time is occurred_at-based, which a not-yet-done todo lacks.
         final due = it.payload['due_date'];
         final dueTimed = due is String && due.contains('T');
-        candidates.add(ChainItem(
-          kind: 'todo',
-          id: it.id,
-          title: it.title,
-          at: it.effectiveAt,
-          timed: it.hasClockTime || dueTimed,
-          sub: it.subtitle,
-          domain: it.domain,
-          note: it.subtitle.isEmpty ? null : it.subtitle,
-          done: _todoDone(it.payload),
-        ));
+        candidates.add(
+          ChainItem(
+            kind: 'todo',
+            id: it.id,
+            title: it.title,
+            at: it.effectiveAt,
+            timed: it.hasClockTime || dueTimed,
+            sub: it.subtitle,
+            domain: it.domain,
+            note: it.subtitle.isEmpty ? null : it.subtitle,
+            done: _todoDone(it.payload),
+            card: {
+              'user_skill_name': it.skillName,
+              'payload': it.payload,
+              'asset_id': it.id,
+              'session_id': it.sessionId,
+              'domain': it.domain,
+            },
+          ),
+        );
       }
     }
     // Keep done *no-time* todos — they stay in the 待安排 list struck-through
@@ -215,10 +254,15 @@ Future<({List<ChainItem> chain, List<ChainItem> noTime})> _loadChain(
 /// GET /api/assets?created_from&created_to → today's captures (by created_at).
 /// True count is the full list; the physics pool is capped at 50 bodies.
 Future<({List<PoolAsset> pool, int trueCount})> _loadPool(
-    ApiClient api, String from, String to) async {
+  ApiClient api,
+  String from,
+  String to,
+) async {
   try {
-    final res = await api.getJson('/api/assets',
-        query: {'created_from': from, 'created_to': to, 'limit': 500});
+    final res = await api.getJson(
+      '/api/assets',
+      query: {'created_from': from, 'created_to': to, 'limit': 500},
+    );
     final list = (res is Map ? res['assets'] : null) as List? ?? const [];
     final all = <PoolAsset>[];
     for (final raw in list.whereType<Map>()) {
@@ -226,15 +270,18 @@ Future<({List<PoolAsset> pool, int trueCount})> _loadPool(
       final payload =
           (m['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
       final type = m['user_skill_name'] as String? ?? '';
-      all.add(PoolAsset(
-        id: m['id'] as String? ?? '',
-        type: type,
-        domain: m['domain'] as String? ?? '',
-        title: _poolTitle(payload, type),
-        payload: payload,
-        createdAt: DateTime.tryParse(m['created_at'] as String? ?? '')?.toLocal() ??
-            now0(),
-      ));
+      all.add(
+        PoolAsset(
+          id: m['id'] as String? ?? '',
+          type: type,
+          domain: m['domain'] as String? ?? '',
+          title: _poolTitle(payload, type),
+          payload: payload,
+          createdAt:
+              DateTime.tryParse(m['created_at'] as String? ?? '')?.toLocal() ??
+              now0(),
+        ),
+      );
     }
     return (pool: all.take(50).toList(), trueCount: all.length);
   } catch (_) {
@@ -245,12 +292,16 @@ Future<({List<PoolAsset> pool, int trueCount})> _loadPool(
 /// GET /api/sessions?session_type=flash&date=today → flash count (server filters
 /// by DBSession.date, so no client-side date math needed).
 Future<({int count, String? latestId})> _loadFlashCount(
-    ApiClient api, DateTime today) async {
+  ApiClient api,
+  DateTime today,
+) async {
   try {
     String two(int n) => n.toString().padLeft(2, '0');
     final d = '${today.year}-${two(today.month)}-${two(today.day)}';
-    final res = await api
-        .getJson('/api/sessions', query: {'session_type': 'flash', 'date': d});
+    final res = await api.getJson(
+      '/api/sessions',
+      query: {'session_type': 'flash', 'date': d},
+    );
     final list = (res is Map ? res['sessions'] : null) as List? ?? const [];
     // sessions come ordered created_at desc → first is the newest.
     final latest = list.isNotEmpty && list.first is Map
