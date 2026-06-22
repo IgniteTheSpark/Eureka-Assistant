@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:sensors_plus/sensors_plus.dart';
 
 import '../theme/app_theme.dart'; // context.eu
 import '../theme/domains.dart' show domainColor;
@@ -34,6 +36,10 @@ class _BubblePoolState extends State<BubblePool>
   String _poolKey = '';
   final ValueNotifier<int> _repaint = ValueNotifier(0);
   final Map<String, PoolAsset> _byId = {};
+  Bubble? _held; // bubble currently dragged
+  Offset _lastDelta = Offset.zero; // recent finger delta → throw velocity
+  StreamSubscription<AccelerometerEvent>? _accel;
+  Offset _gravity = const Offset(0, 0.44); // current (tilt-driven) gravity
 
   @override
   void initState() {
@@ -57,6 +63,7 @@ class _BubblePoolState extends State<BubblePool>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _accel?.cancel();
     _ticker?.dispose();
     _repaint.dispose();
     super.dispose();
@@ -75,14 +82,16 @@ class _BubblePoolState extends State<BubblePool>
     }
   }
 
-  /// Run the ticker only while: the tab is active, the app is foregrounded, and
-  /// ≥1 body is awake. Otherwise stop it.
+  /// Gate the ticker + tilt sensor on tab-active + app-foreground. The ticker
+  /// additionally needs ≥1 awake body; the accelerometer stays subscribed while
+  /// live (to catch a fresh tilt) but only a meaningful tilt wakes the pool.
   void _syncRunning() {
     final foreground = WidgetsBinding.instance.lifecycleState ==
             AppLifecycleState.resumed ||
         WidgetsBinding.instance.lifecycleState == null;
-    final shouldRun =
-        widget.active && foreground && (_field?.anyAwake ?? false);
+    final live = widget.active && foreground;
+    _syncAccel(live);
+    final shouldRun = live && (_field?.anyAwake ?? false);
     if (shouldRun) {
       if (!(_ticker?.isActive ?? false)) _ticker?.start();
     } else {
@@ -90,7 +99,40 @@ class _BubblePoolState extends State<BubblePool>
     }
   }
 
+  void _syncAccel(bool on) {
+    if (on) {
+      _accel ??= accelerometerEventStream(
+        samplingPeriod: const Duration(milliseconds: 66),
+      ).listen(_onAccel);
+    } else {
+      _accel?.cancel();
+      _accel = null;
+    }
+  }
+
+  /// Map device tilt → screen-space gravity: constant magnitude (≈ the default
+  /// .44) pointing "downhill", so bodies roll as the phone tilts and rise when
+  /// it's flipped. Near-flat (on a desk) falls back to straight down so the pool
+  /// still settles at the bottom instead of floating off-screen. Micro-jitter is
+  /// ignored so a steady hold lets the pool sleep.
+  static const double _gMag = 0.44;
+  void _onAccel(AccelerometerEvent e) {
+    final mag = math.sqrt(e.x * e.x + e.y * e.y);
+    final g = mag < 1.2
+        ? const Offset(0, _gMag)
+        : Offset(-e.x / mag, e.y / mag) * _gMag;
+    if ((g - _gravity).distance < 0.04) return;
+    _gravity = g;
+    final f = _field;
+    if (f != null) {
+      f.gravity = g;
+      f.wakeAll();
+      _syncRunning();
+    }
+  }
+
   void _rebuildField(Size box) {
+    final reuse = _field != null && box == _box; // same field, pool just changed
     _box = box;
     _poolKey = _keyOf(widget.pool);
     _byId
@@ -100,12 +142,29 @@ class _BubblePoolState extends State<BubblePool>
       _field = null;
       return;
     }
+    final existing = reuse
+        ? {for (final b in _field!.bubbles) b.id: b}
+        : const <String, Bubble>{};
+    final spawned = _spawn(widget.pool, box);
+    final bubbles = <Bubble>[
+      for (var i = 0; i < widget.pool.length; i++)
+        existing[widget.pool[i].id] ??
+            // a new record drops in from above the ceiling (reuse), or joins the
+            // initial staggered layout (first build / resize).
+            (Bubble(
+              id: widget.pool[i].id,
+              x: spawned[i].x,
+              y: reuse ? -23.0 : spawned[i].y,
+              r: 23,
+            )..wake()),
+    ];
     _field = BubbleField(
       box: box,
-      bubbles: _spawn(widget.pool, box),
+      bubbles: bubbles,
       navAabb: _navAabb(box),
+      gravity: _gravity,
     );
-    _field!.wakeAll();
+    if (!reuse) _field!.wakeAll();
     _syncRunning();
   }
 
@@ -150,13 +209,53 @@ class _BubblePoolState extends State<BubblePool>
         }
         final field = _field;
         if (field == null) return const SizedBox.expand();
-        return CustomPaint(
-          size: box,
-          painter: _BubblePainter(
-            field: field,
-            repaint: _repaint,
-            colorOf: (id) => domainColor(eu, _byId[id]?.domain ?? ''),
-            glyphOf: (id) => _glyphFor(_byId[id]?.type ?? ''),
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapUp: (d) {
+            final b = _hit(field, d.localPosition);
+            if (b != null) _openDetail(_byId[b.id]!);
+          },
+          onPanStart: (d) {
+            final b = _hit(field, d.localPosition);
+            if (b != null) {
+              _held = b;
+              field.held = b;
+              b
+                ..wake()
+                ..vx = 0
+                ..vy = 0;
+              _syncRunning();
+            }
+          },
+          onPanUpdate: (d) {
+            final h = _held;
+            if (h == null) return;
+            h.x = d.localPosition.dx.clamp(h.r, box.width - h.r);
+            h.y = d.localPosition.dy.clamp(h.r, box.height - h.r);
+            _lastDelta = d.delta;
+            h.wake();
+            _syncRunning();
+            _repaint.value++;
+          },
+          onPanEnd: (_) {
+            final h = _held;
+            if (h == null) return;
+            const mx = BubbleField.maxSpeed;
+            h
+              ..vx = _lastDelta.dx.clamp(-mx, mx)
+              ..vy = _lastDelta.dy.clamp(-mx, mx);
+            field.held = null;
+            _held = null;
+            _syncRunning();
+          },
+          child: CustomPaint(
+            size: box,
+            painter: _BubblePainter(
+              field: field,
+              repaint: _repaint,
+              colorOf: (id) => domainColor(eu, _byId[id]?.domain ?? ''),
+              glyphOf: (id) => _glyphFor(_byId[id]?.type ?? ''),
+            ),
           ),
         );
       },
@@ -180,6 +279,133 @@ class _BubblePoolState extends State<BubblePool>
           ],
         ),
       );
+
+  /// Nearest bubble to [p] within its radius (+ slop), else null.
+  Bubble? _hit(BubbleField field, Offset p) {
+    Bubble? best;
+    var bestD = double.infinity;
+    for (final b in field.bubbles) {
+      final dx = b.x - p.dx, dy = b.y - p.dy;
+      final d = math.sqrt(dx * dx + dy * dy);
+      if (d <= b.r + 6 && d < bestD) {
+        best = b;
+        bestD = d;
+      }
+    }
+    return best;
+  }
+
+  /// Prototype "Record detail sheet": a dark read-only peek (glyph + title +
+  /// time + type/domain pills). Editing lives in 资产/日历 — the pool is a glance,
+  /// and a light showAssetDetail sheet would clash with the dark page.
+  void _openDetail(PoolAsset a) {
+    final col = domainColor(context.eu, a.domain);
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Container(
+        width: double.infinity,
+        decoration: const BoxDecoration(
+          color: Color(0xFF161B22),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 10, 20, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 18),
+                decoration: BoxDecoration(
+                  color: const Color(0x33FFFFFF),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Row(
+              children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    color: col.withValues(alpha: .22),
+                    shape: BoxShape.circle,
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(_glyphFor(a.type),
+                      style: const TextStyle(fontSize: 26)),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(a.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              color: Color(0xFFE6EDF3),
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 4),
+                      Text(_hm(a.createdAt),
+                          style: const TextStyle(
+                              color: Color(0x80FFFFFF), fontSize: 12)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                _pill('${_glyphFor(a.type)} ${_typeName(a.type)}', col),
+                if (a.domain.isNotEmpty) ...[
+                  const SizedBox(width: 10),
+                  _domainPill(a.domain, col),
+                ],
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _pill(String text, Color col) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: col.withValues(alpha: .16),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: col.withValues(alpha: .4)),
+        ),
+        child: Text(text,
+            style:
+                TextStyle(color: col, fontSize: 12, fontWeight: FontWeight.w600)),
+      );
+
+  Widget _domainPill(String domain, Color col) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: const Color(0x14FFFFFF),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(color: col, shape: BoxShape.circle)),
+          const SizedBox(width: 6),
+          Text(domain,
+              style: const TextStyle(color: Color(0xCCFFFFFF), fontSize: 12)),
+        ]),
+      );
+
+  String _hm(DateTime d) =>
+      '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
 }
 
 /// type (skill name) → glyph. Matches the app's canonical built-ins (todo 📋,
@@ -200,6 +426,26 @@ String _glyphFor(String type) {
       return '🎾';
     default:
       return '•';
+  }
+}
+
+/// type (skill name) → display name for the detail sheet's type pill.
+String _typeName(String type) {
+  switch (type) {
+    case 'todo':
+      return '待办';
+    case 'expense':
+      return '记账';
+    case 'contact':
+      return '名片';
+    case 'notes':
+    case 'idea':
+    case 'misc':
+      return '随记';
+    case 'running':
+      return '运动';
+    default:
+      return type;
   }
 }
 

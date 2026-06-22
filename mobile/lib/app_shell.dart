@@ -119,10 +119,11 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver, RouteA
               children: [
                 IndexedStack(
                   index: _index,
-                  children: const [
-                    TodayPage(),
-                    CalendarPage(),
-                    LibraryPage(),
+                  children: [
+                    // active gates the today page's bubble ticker + tilt sensor.
+                    TodayPage(active: _index == 0),
+                    const CalendarPage(),
+                    const LibraryPage(),
                   ],
                 ),
           // Ambient brand glow behind the dock — gives the glass capsule

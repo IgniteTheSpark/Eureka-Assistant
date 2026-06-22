@@ -15,7 +15,11 @@ import '../today/today_data.dart';
 /// fetch wired through a FutureBuilder (chain → Next Action, pool → bubble pool,
 /// pool+flash → Dashboard). The three sections themselves land in Slices 3–5.
 class TodayPage extends StatefulWidget {
-  const TodayPage({super.key});
+  const TodayPage({super.key, this.active = true});
+
+  /// Whether this is the visible tab (tab0). Gates the bubble pool's ticker +
+  /// tilt sensor so they idle when the user is on 日历/资产.
+  final bool active;
 
   @override
   State<TodayPage> createState() => _TodayPageState();
@@ -80,7 +84,7 @@ class _TodayPageState extends State<TodayPage> {
           ),
         ),
         // bubble pool (Slice 4) — above the atmosphere, behind the panels.
-        Positioned.fill(child: BubblePool(pool: data.pool)),
+        Positioned.fill(child: BubblePool(pool: data.pool, active: widget.active)),
         // ── Front: panels column (Slice 3 Next Action + Slice 5 Dashboard) ──
         Column(
           children: [

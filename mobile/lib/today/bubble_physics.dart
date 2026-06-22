@@ -42,6 +42,10 @@ class BubbleField {
   final List<Bubble> bubbles;
   Offset gravity;
 
+  /// The bubble currently held by a finger: it skips gravity/integration + never
+  /// sleeps (its position is driven directly by the drag). Null when not dragging.
+  Bubble? held;
+
   static const double restitution = 0.22;
   static const double damping = 0.97;
   static const double maxSpeed = 18.0;
@@ -60,7 +64,7 @@ class BubbleField {
   void step() {
     // 1) integrate awake bodies + walls + nav-pill ejection
     for (final b in bubbles) {
-      if (b.sleeping) continue;
+      if (b.sleeping || identical(b, held)) continue;
       b._px = b.x;
       b._py = b.y;
       b.vx = (b.vx + gravity.dx) * damping;
@@ -117,7 +121,7 @@ class BubbleField {
     }
     // 3) sleeping: freeze bodies that barely moved (net position delta) this step.
     for (final b in bubbles) {
-      if (b.sleeping) continue;
+      if (b.sleeping || identical(b, held)) continue;
       final mdx = b.x - b._px, mdy = b.y - b._py;
       if (math.sqrt(mdx * mdx + mdy * mdy) < moveEps) {
         if (++b._stillFrames >= sleepAfter) {
