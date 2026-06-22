@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../api/api_client.dart';
 import '../data_revision.dart';
+import '../today/bubble_pool.dart';
 import '../today/next_action.dart';
 import '../today/today_data.dart';
 
@@ -78,6 +79,8 @@ class _TodayPageState extends State<TodayPage> {
             ),
           ),
         ),
+        // bubble pool (Slice 4) — above the atmosphere, behind the panels.
+        Positioned.fill(child: BubblePool(pool: data.pool)),
         // ── Front: panels column (Slice 3 Next Action + Slice 5 Dashboard) ──
         Column(
           children: [
