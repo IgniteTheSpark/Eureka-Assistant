@@ -136,6 +136,8 @@ async def list_assets(
     value: Optional[str]           = Query(None, description="Filter value"),
     contains: Optional[str]        = Query(None, description="Keyword search in payload"),
     domain: Optional[str]          = Query(None, description="§8 life-domain filter (e.g. 工作)"),
+    created_from: Optional[str]    = Query(None, description="ISO8601 lower bound on created_at (今日页气泡池=今天录入)"),
+    created_to: Optional[str]      = Query(None, description="ISO8601 upper bound on created_at"),
     limit: int                     = Query(50, le=500),
     user_id: str                   = Depends(get_current_user_id),
 ):
@@ -177,6 +179,10 @@ async def list_assets(
             stmt = stmt.where(Asset.payload.cast(Text).ilike(f"%{contains}%"))
         if domain:
             stmt = stmt.where(Asset.domain == domain)
+        if created_from:
+            stmt = stmt.where(Asset.created_at >= datetime.fromisoformat(created_from.replace("Z", "+00:00")))
+        if created_to:
+            stmt = stmt.where(Asset.created_at <= datetime.fromisoformat(created_to.replace("Z", "+00:00")))
         stmt = stmt.order_by(Asset.created_at.desc()).limit(limit)
         rows = (await db.execute(stmt)).all()
 

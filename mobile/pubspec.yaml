@@ -83,6 +83,7 @@ dependencies:
   # ChipletRing BraveChip SDK Flutter plugin (vendored aar)
   chiplet_ring:
     path: packages/chiplet_ring
+  sensors_plus: ^7.0.0
 
 dev_dependencies:
   flutter_test:
