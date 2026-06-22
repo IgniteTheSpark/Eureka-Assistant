@@ -43,10 +43,17 @@ class FloatingDock extends StatelessWidget {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(28),
         boxShadow: [
+          // layered: a soft wide ambient lift + a tighter contact shadow, so the
+          // capsule reads as floating with depth rather than a flat plate.
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.28),
-            blurRadius: 22,
-            offset: const Offset(0, 8),
+            color: Colors.black.withValues(alpha: 0.22),
+            blurRadius: 34,
+            offset: const Offset(0, 16),
+          ),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.30),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -57,7 +64,15 @@ class FloatingDock extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
             decoration: BoxDecoration(
-              color: eu.surfaceRaised.withValues(alpha: 0.72),
+              // top-lit → bottom-shaded glass fill (dimensionality, both themes).
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  eu.surfaceRaised.withValues(alpha: 0.90),
+                  eu.surface.withValues(alpha: 0.70),
+                ],
+              ),
               borderRadius: BorderRadius.circular(28),
               border: Border.all(color: eu.border),
             ),
