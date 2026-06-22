@@ -25,6 +25,9 @@ class _TodayPageState extends State<TodayPage> {
       valueListenable: dataRevision,
       builder: (context, _, _) {
         return const Stack(
+          // expand to fill the tab area; otherwise the Stack sizes to its only
+          // non-positioned child (a width-less Column) and collapses to a sliver.
+          fit: StackFit.expand,
           children: [
             // ── Back: full-screen bubble field (Slice 4 fills this) ──
             Positioned.fill(
