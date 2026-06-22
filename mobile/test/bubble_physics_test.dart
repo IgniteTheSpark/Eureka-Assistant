@@ -36,6 +36,23 @@ void main() {
       expect(aabb.contains(Offset(b.x, b.y)), isFalse);
     });
 
+    test('a sleeping body is an immovable anchor in relaxation', () {
+      final anchor = Bubble(id: 'anchor', x: 150, y: 300)..sleeping = true;
+      final ax0 = anchor.x, ay0 = anchor.y;
+      final mover = Bubble(id: 'mover', x: 105, y: 300); // dist 45 < 46 (overlap ~1)
+      final f = BubbleField(
+          box: const Size(300, 600),
+          bubbles: [anchor, mover],
+          gravity: Offset.zero);
+      f.step();
+      // anchor stays put + asleep (gentle overlap < wakeImpact); mover pushed out.
+      expect(anchor.x, closeTo(ax0, 0.001));
+      expect(anchor.y, closeTo(ay0, 0.001));
+      expect(anchor.sleeping, isTrue);
+      final dist = sqrt(pow(mover.x - anchor.x, 2) + pow(mover.y - anchor.y, 2));
+      expect(dist, greaterThanOrEqualTo(anchor.r + mover.r - 0.5));
+    });
+
     test('a settled bubble sleeps; wake() revives it; anyAwake tracks it', () {
       final b = Bubble(id: 'a', x: 150, y: 50);
       final f = BubbleField(box: const Size(300, 500), bubbles: [b]);

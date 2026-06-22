@@ -193,12 +193,13 @@ class _BubblePoolState extends State<BubblePool>
     ];
   }
 
-  /// The floating dock pill, in pool coordinates (bottom-centered), as an AABB
-  /// collider so bodies slide past its sides instead of piling behind it.
+  /// The floating dock pill, in pool coordinates, as an AABB collider so bodies
+  /// slide past its sides instead of piling behind it. Matches FloatingDock:
+  /// bottom-centered, ~14 above the bottom, ~180×52 (the solver inflates by r).
   Rect _navAabb(Size box) => Rect.fromCenter(
-        center: Offset(box.width / 2, box.height - 54),
-        width: 220,
-        height: 66,
+        center: Offset(box.width / 2, box.height - 40),
+        width: 180,
+        height: 52,
       );
 
   @override

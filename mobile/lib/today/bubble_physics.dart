@@ -46,12 +46,13 @@ class BubbleField {
   /// sleeps (its position is driven directly by the drag). Null when not dragging.
   Bubble? held;
 
-  static const double restitution = 0.22;
-  static const double damping = 0.97;
+  static const double restitution = 0.06; // low bounce — settle, don't ring
+  static const double damping = 0.93;
   static const double maxSpeed = 18.0;
   static const int relaxIters = 14;
-  static const int sleepAfter = 16;
-  static const double moveEps = 0.35; // px/frame below which a body is "still"
+  static const int sleepAfter = 12;
+  static const double moveEps = 0.5; // px/frame net below which a body is "still"
+  static const double wakeImpact = 1.5; // overlap that wakes a sleeping neighbor
 
   bool get anyAwake => bubbles.any((b) => !b.sleeping);
 
@@ -100,6 +101,7 @@ class BubbleField {
       for (var i = 0; i < bubbles.length; i++) {
         for (var j = i + 1; j < bubbles.length; j++) {
           final a = bubbles[i], c = bubbles[j];
+          if (a.sleeping && c.sleeping) continue; // both anchored
           final dx = c.x - a.x, dy = c.y - a.y;
           final minD = a.r + c.r;
           var dist = math.sqrt(dx * dx + dy * dy);
@@ -107,12 +109,25 @@ class BubbleField {
           if (dist == 0) dist = 0.01;
           final overlap = minD - dist;
           final nx = dx / dist, ny = dy / dist;
-          final push = overlap / 2;
-          a.x -= nx * push;
-          a.y -= ny * push;
-          c.x += nx * push;
-          c.y += ny * push;
-          if (overlap > moveEps) {
+          // A sleeping body is an immovable anchor: the awake body takes the full
+          // correction; two awake bodies split it. This is what keeps a settled
+          // pile stable — gravity can't keep nudging it into endless jitter.
+          if (a.sleeping) {
+            c.x += nx * overlap;
+            c.y += ny * overlap;
+          } else if (c.sleeping) {
+            a.x -= nx * overlap;
+            a.y -= ny * overlap;
+          } else {
+            final push = overlap / 2;
+            a.x -= nx * push;
+            a.y -= ny * push;
+            c.x += nx * push;
+            c.y += ny * push;
+          }
+          // Only a real impact (a fresh drop) wakes a sleeping neighbor — not the
+          // hair-thin overlaps of a resting stack.
+          if (overlap > wakeImpact) {
             if (a.sleeping) a.wake();
             if (c.sleeping) c.wake();
           }
