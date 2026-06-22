@@ -3,8 +3,12 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 
+import '../render/asset_detail_sheet.dart' show showAssetDetail;
+import '../render/render_spec.dart' show RenderSpec, buildCard, synthesizeSpec;
+import '../render/skill_card.dart' show renderSpecsProvider;
 import '../theme/app_theme.dart'; // context.eu
 import '../theme/domains.dart' show domainColor;
 import 'bubble_physics.dart';
@@ -218,7 +222,7 @@ class _BubblePoolState extends State<BubblePool>
           behavior: HitTestBehavior.opaque,
           onTapUp: (d) {
             final b = _hit(field, d.localPosition);
-            if (b != null) _openDetail(_byId[b.id]!);
+            if (b != null) openAssetSheet(context, _byId[b.id]!);
           },
           onPanStart: (d) {
             final b = _hit(field, d.localPosition);
@@ -280,9 +284,6 @@ class _BubblePoolState extends State<BubblePool>
                     color: Color(0xD0FFFFFF),
                     fontSize: 15,
                     fontWeight: FontWeight.w600)),
-            SizedBox(height: 4),
-            Text('记一笔、拍张名片、说个念头，都会落到这里',
-                style: TextStyle(color: Color(0x80FFFFFF), fontSize: 12)),
           ],
         ),
       );
@@ -302,117 +303,6 @@ class _BubblePoolState extends State<BubblePool>
     return best;
   }
 
-  /// Prototype "Record detail sheet": a dark read-only peek (glyph + title +
-  /// time + type/domain pills). Editing lives in 资产/日历 — the pool is a glance,
-  /// and a light showAssetDetail sheet would clash with the dark page.
-  void _openDetail(PoolAsset a) {
-    final col = domainColor(context.eu, a.domain);
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (_) => Container(
-        width: double.infinity,
-        decoration: const BoxDecoration(
-          color: Color(0xFF161B22),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-        ),
-        padding: const EdgeInsets.fromLTRB(20, 10, 20, 28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 18),
-                decoration: BoxDecoration(
-                  color: const Color(0x33FFFFFF),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            Row(
-              children: [
-                Container(
-                  width: 56,
-                  height: 56,
-                  decoration: BoxDecoration(
-                    color: col.withValues(alpha: .22),
-                    shape: BoxShape.circle,
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(glyphForType(a.type),
-                      style: const TextStyle(fontSize: 26)),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(a.title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              color: Color(0xFFE6EDF3),
-                              fontSize: 18,
-                              fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 4),
-                      Text(_hm(a.createdAt),
-                          style: const TextStyle(
-                              color: Color(0x80FFFFFF), fontSize: 12)),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 18),
-            Row(
-              children: [
-                _pill('${glyphForType(a.type)} ${typeName(a.type)}', col),
-                if (a.domain.isNotEmpty) ...[
-                  const SizedBox(width: 10),
-                  _domainPill(a.domain, col),
-                ],
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _pill(String text, Color col) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-        decoration: BoxDecoration(
-          color: col.withValues(alpha: .16),
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: col.withValues(alpha: .4)),
-        ),
-        child: Text(text,
-            style:
-                TextStyle(color: col, fontSize: 12, fontWeight: FontWeight.w600)),
-      );
-
-  Widget _domainPill(String domain, Color col) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-        decoration: BoxDecoration(
-          color: const Color(0x14FFFFFF),
-          borderRadius: BorderRadius.circular(999),
-        ),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Container(
-              width: 8,
-              height: 8,
-              decoration: BoxDecoration(color: col, shape: BoxShape.circle)),
-          const SizedBox(width: 6),
-          Text(domain,
-              style: const TextStyle(color: Color(0xCCFFFFFF), fontSize: 12)),
-        ]),
-      );
-
-  String _hm(DateTime d) =>
-      '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
 }
 
 /// type (skill name) → glyph. Matches the app's canonical built-ins (todo 📋,
@@ -454,6 +344,28 @@ String typeName(String type) {
     default:
       return type;
   }
+}
+
+/// Open the SAME global asset-detail sheet the calendar/library use, from a pool
+/// bubble or the dashboard's latest row — builds CardData via buildCard so the
+/// sheet (hero + fields + actions, theme-aware) renders identically. No bespoke
+/// today-page sheet.
+void openAssetSheet(BuildContext context, PoolAsset a) {
+  final specs = ProviderScope.containerOf(context, listen: false)
+          .read(renderSpecsProvider)
+          .valueOrNull ??
+      const <String, RenderSpec>{};
+  final spec = specs[a.type] ?? synthesizeSpec(a.type);
+  final data = buildCard(payload: a.payload, spec: spec, displayName: a.type)
+      .copyWith(domain: a.domain.isEmpty ? null : a.domain);
+  showAssetDetail(
+    context,
+    data: data,
+    payload: a.payload,
+    cardType: a.type,
+    assetId: a.id,
+    spec: spec,
+  );
 }
 
 class _BubblePainter extends CustomPainter {

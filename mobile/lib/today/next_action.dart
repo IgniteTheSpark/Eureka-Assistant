@@ -72,14 +72,14 @@ class _NextActionPanelState extends State<NextActionPanel> {
     super.dispose();
   }
 
-  Future<void> _toggleDone(String id) async {
+  Future<void> _setDone(String id, bool done) async {
     if (_completing.contains(id)) return;
     setState(() => _completing.add(id));
     try {
       await _api.putJson('/api/assets/$id', {
-        'payload_patch': {'status': 'done'},
+        'payload_patch': {'status': done ? 'done' : 'pending'},
       });
-      bumpData(); // TodayPage re-fetches → completed todo drops out
+      bumpData(); // TodayPage re-fetches; timed todos advance, 待安排 stay (struck)
     } catch (_) {
       if (mounted) setState(() => _completing.remove(id));
     }
@@ -115,7 +115,7 @@ class _NextActionPanelState extends State<NextActionPanel> {
               _deck(eu, chain, idx)
             else
               _emptyDeck(),
-            _counterRow(eu, chain.length),
+            _counterRow(),
             if (_noTimeOpen) _noTimeList(eu),
           ],
         ],
@@ -327,20 +327,16 @@ class _NextActionPanelState extends State<NextActionPanel> {
           ),
         ),
         const SizedBox(height: 8),
-        Row(
-          children: [
-            const Text('🔔 到点提醒你',
-                style: TextStyle(color: _muted, fontSize: 11)),
-            const Spacer(),
-            GestureDetector(
-              onTap: () => _openCalendar(it),
-              child: const Text('在日历看 ›',
-                  style: TextStyle(
-                      color: _accent,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600)),
-            ),
-          ],
+        Align(
+          alignment: Alignment.centerRight,
+          child: GestureDetector(
+            onTap: () => _openCalendar(it),
+            child: const Text('在日历看 ›',
+                style: TextStyle(
+                    color: _accent,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600)),
+          ),
         ),
       ],
     );
@@ -359,7 +355,7 @@ class _NextActionPanelState extends State<NextActionPanel> {
         ),
         const SizedBox(width: 10),
         GestureDetector(
-          onTap: busy ? null : () => _toggleDone(it.id),
+          onTap: busy ? null : () => _setDone(it.id, true),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
             decoration: BoxDecoration(
@@ -385,15 +381,12 @@ class _NextActionPanelState extends State<NextActionPanel> {
   }
 
   // ── counter row + no-time list ──────────────────────────────────────────────
-  Widget _counterRow(EurekaColors eu, int chainLen) {
+  Widget _counterRow() {
     final n = widget.noTimeTodos.length;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 14, 12),
       child: Row(
         children: [
-          if (chainLen > 1)
-            const Text('左右滑切换',
-                style: TextStyle(color: _muted40, fontSize: 11)),
           const Spacer(),
           if (n > 0)
             GestureDetector(
@@ -436,7 +429,8 @@ class _NextActionPanelState extends State<NextActionPanel> {
                     width: 8,
                     height: 8,
                     decoration: BoxDecoration(
-                        color: domainColor(eu, it.domain),
+                        color: domainColor(eu, it.domain)
+                            .withValues(alpha: it.done ? .4 : 1),
                         shape: BoxShape.circle),
                   ),
                   const SizedBox(width: 10),
@@ -444,26 +438,48 @@ class _NextActionPanelState extends State<NextActionPanel> {
                     child: Text(it.title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            color: Color(0xD0FFFFFF), fontSize: 14)),
+                        style: TextStyle(
+                            color:
+                                it.done ? _muted : const Color(0xD0FFFFFF),
+                            fontSize: 14,
+                            decoration: it.done
+                                ? TextDecoration.lineThrough
+                                : null,
+                            decorationColor: _muted)),
                   ),
                   GestureDetector(
+                    behavior: HitTestBehavior.opaque,
                     onTap: _completing.contains(it.id)
                         ? null
-                        : () => _toggleDone(it.id),
-                    child: Container(
-                      width: 19,
-                      height: 19,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(color: const Color(0x66FFFFFF)),
+                        : () => _setDone(it.id, !it.done),
+                    child: SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: Center(
+                        child: _completing.contains(it.id)
+                            ? const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 1.5, color: _accent))
+                            : Container(
+                                width: 19,
+                                height: 19,
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: it.done ? _accent : null,
+                                  border: Border.all(
+                                      color: it.done
+                                          ? _accent
+                                          : const Color(0x66FFFFFF)),
+                                ),
+                                child: it.done
+                                    ? const Icon(Icons.check,
+                                        size: 13, color: Color(0xFF0B1220))
+                                    : null,
+                              ),
                       ),
-                      child: _completing.contains(it.id)
-                          ? const Padding(
-                              padding: EdgeInsets.all(3),
-                              child: CircularProgressIndicator(
-                                  strokeWidth: 1.5, color: _accent))
-                          : null,
                     ),
                   ),
                 ],
@@ -487,10 +503,6 @@ class _NextActionPanelState extends State<NextActionPanel> {
                   color: _titleColor,
                   fontSize: 15,
                   fontWeight: FontWeight.w600)),
-          SizedBox(height: 4),
-          Text('新的一天 —— 说一句话，Reka 就能帮你记下安排',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: _muted, fontSize: 12)),
         ],
       ),
     );

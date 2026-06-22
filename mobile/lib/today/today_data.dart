@@ -201,8 +201,11 @@ Future<({List<ChainItem> chain, List<ChainItem> noTime})> _loadChain(
         ));
       }
     }
-    final live =
-        candidates.where((c) => !(c.kind == 'todo' && c.done)).toList();
+    // Keep done *no-time* todos — they stay in the 待安排 list struck-through
+    // (R7). Only drop done *timed* todos from the forward-looking chain.
+    final live = candidates
+        .where((c) => !(c.timed && c.kind == 'todo' && c.done))
+        .toList();
     return splitChain(live, now);
   } catch (_) {
     return (chain: <ChainItem>[], noTime: <ChainItem>[]);
