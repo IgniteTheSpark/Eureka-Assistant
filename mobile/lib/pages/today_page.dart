@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../api/api_client.dart';
@@ -26,21 +28,28 @@ class TodayPage extends StatefulWidget {
   State<TodayPage> createState() => _TodayPageState();
 }
 
-/// Temporary on-device verification of the data fetch (counts parsed from the 3
-/// GETs). Committed `false`; flip locally to screenshot Slice 2.2. Replaced by
-/// the real panels in Slices 3–5.
-const bool _kDebugTodayCounts = false;
-
 class _TodayPageState extends State<TodayPage> {
   final ApiClient _api = ApiClient();
   final Map<int, Future<TodayData>> _cache = {};
   String _filterKey = 'all'; // dashboard chip → scopes summary/charts + dims pool
+  String? _highlightId; // a bubble lit up from the dashboard's latest-row tap
+  Timer? _hlTimer;
 
   Future<TodayData> _futureFor(int rev) =>
       _cache.putIfAbsent(rev, () => loadToday(_api));
 
+  /// Light up [id]'s bubble briefly (dashboard latest-row tap).
+  void _highlight(String id) {
+    setState(() => _highlightId = id);
+    _hlTimer?.cancel();
+    _hlTimer = Timer(const Duration(milliseconds: 5000), () {
+      if (mounted) setState(() => _highlightId = null);
+    });
+  }
+
   @override
   void dispose() {
+    _hlTimer?.cancel();
     _api.close();
     super.dispose();
   }
@@ -91,6 +100,7 @@ class _TodayPageState extends State<TodayPage> {
             pool: data.pool,
             active: widget.active,
             filterKey: _filterKey,
+            highlightId: _highlightId,
           ),
         ),
         // ── Front: panels column (Slice 3 Next Action + Slice 5 Dashboard) ──
@@ -110,6 +120,7 @@ class _TodayPageState extends State<TodayPage> {
                 filterKey: _filterKey,
                 onFilter: (k) =>
                     setState(() => _filterKey = k == _filterKey ? 'all' : k),
+                onHighlight: _highlight,
               ),
             // the bubble pool (Slice 4) shows through this transparent gap.
             const Expanded(child: SizedBox()),
@@ -117,16 +128,6 @@ class _TodayPageState extends State<TodayPage> {
             const SizedBox(height: 78),
           ],
         ),
-        if (_kDebugTodayCounts)
-          Positioned(
-            top: 12,
-            left: 14,
-            child: Text(
-              '链 ${data.chain.length} · 无时 ${data.noTimeTodos.length} · '
-              '池 ${data.pool.length}/${data.poolTrueCount} · ⚡${data.flashCount}',
-              style: const TextStyle(color: Color(0xFF8AB4FF), fontSize: 12),
-            ),
-          ),
       ],
     );
   }

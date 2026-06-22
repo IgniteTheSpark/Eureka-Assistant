@@ -117,38 +117,48 @@ class _RosePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     if (g.isEmpty) return;
-    final roseW = size.height; // square rose on the left, legend on the right
+    final roseW = size.height; // square rose region on the left
     final cx = roseW / 2, cy = size.height / 2;
     final maxR = size.height / 2 - 4;
-    final maxCount = g.map((e) => e.count).reduce(math.max);
-    final sweep = 2 * math.pi / g.length;
-    for (var i = 0; i < g.length; i++) {
-      final r = maxR * (0.32 + 0.68 * g[i].count / maxCount);
-      final start = -math.pi / 2 + i * sweep;
-      final path = Path()
-        ..moveTo(cx, cy)
-        ..arcTo(Rect.fromCircle(center: Offset(cx, cy), radius: r), start,
-            sweep, false)
-        ..close();
-      canvas.drawPath(path, Paint()..color = g[i].color);
-      canvas.drawPath(
-          path,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1
-            ..color = _stroke);
+    final stroke = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1
+      ..color = _stroke;
+    if (g.length == 1) {
+      // a single group is a full pie disc (a 360° wedge degenerates to nothing).
+      canvas.drawCircle(Offset(cx, cy), maxR, Paint()..color = g[0].color);
+      canvas.drawCircle(Offset(cx, cy), maxR, stroke);
+    } else {
+      final maxCount = g.map((e) => e.count).reduce(math.max);
+      final sweep = 2 * math.pi / g.length;
+      for (var i = 0; i < g.length; i++) {
+        final r = maxR * (0.32 + 0.68 * g[i].count / maxCount);
+        final start = -math.pi / 2 + i * sweep;
+        final path = Path()
+          ..moveTo(cx, cy)
+          ..arcTo(Rect.fromCircle(center: Offset(cx, cy), radius: r), start,
+              sweep, false)
+          ..close();
+        canvas.drawPath(path, Paint()..color = g[i].color);
+        canvas.drawPath(path, stroke);
+      }
     }
-    var ly = 6.0;
+    // Legend fills the right area: chip + label (left), count right-aligned to
+    // the panel edge — so there's no big dead gap between rose and text.
+    const rowH = 22.0;
+    final legendLeft = roseW + 14;
+    var ly = (size.height - g.length * rowH) / 2 + 3;
     for (final e in g) {
-      if (ly > size.height - 14) break;
       canvas.drawRRect(
         RRect.fromRectAndRadius(
-            Rect.fromLTWH(roseW + 10, ly + 1, 10, 10), const Radius.circular(2)),
+            Rect.fromLTWH(legendLeft, ly + 1, 11, 11), const Radius.circular(3)),
         Paint()..color = e.color,
       );
-      _text(canvas, '${e.label} ${e.count}', Offset(roseW + 26, ly),
-          color: _legendText, maxWidth: size.width - roseW - 34);
-      ly += 20;
+      _text(canvas, e.label, Offset(legendLeft + 18, ly),
+          color: _legendText, maxWidth: size.width - legendLeft - 52);
+      _text(canvas, '${e.count}', Offset(size.width, ly),
+          color: _legendText, weight: FontWeight.w700, rightX: true);
+      ly += rowH;
     }
   }
 
@@ -266,15 +276,26 @@ class _ChartViewState extends State<ChartView> {
           },
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: SizedBox(
-              height: 118,
-              width: double.infinity,
-              child: g.isEmpty
-                  ? const Center(
-                      child: Text('暂无可视化数据',
-                          style: TextStyle(
-                              color: Color(0x66FFFFFF), fontSize: 12)))
-                  : CustomPaint(painter: painter),
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 300),
+              switchInCurve: Curves.easeOutCubic,
+              transitionBuilder: (child, anim) => FadeTransition(
+                opacity: anim,
+                child: ScaleTransition(
+                    scale: Tween<double>(begin: 0.94, end: 1.0).animate(anim),
+                    child: child),
+              ),
+              child: SizedBox(
+                key: ValueKey(_type),
+                height: 118,
+                width: double.infinity,
+                child: g.isEmpty
+                    ? const Center(
+                        child: Text('暂无可视化数据',
+                            style: TextStyle(
+                                color: Color(0x66FFFFFF), fontSize: 12)))
+                    : CustomPaint(painter: painter),
+              ),
             ),
           ),
         ),

@@ -20,8 +20,13 @@ import 'today_data.dart';
 /// when every body sleeps and stops when the page is hidden/backgrounded
 /// (battery). Solver = bubble_physics.dart (unit-tested). Plan: Slice 4.
 class BubblePool extends StatefulWidget {
-  const BubblePool(
-      {super.key, required this.pool, this.active = true, this.filterKey = 'all'});
+  const BubblePool({
+    super.key,
+    required this.pool,
+    this.active = true,
+    this.filterKey = 'all',
+    this.highlightId,
+  });
 
   final List<PoolAsset> pool;
 
@@ -32,6 +37,9 @@ class BubblePool extends StatefulWidget {
   /// Dashboard filter — bubbles whose type doesn't match are dimmed ('all' =
   /// none dimmed).
   final String filterKey;
+
+  /// A bubble to light up (tapped from the dashboard's latest row); null = none.
+  final String? highlightId;
 
   @override
   State<BubblePool> createState() => _BubblePoolState();
@@ -264,6 +272,7 @@ class _BubblePoolState extends State<BubblePool>
               field: field,
               repaint: _repaint,
               filterKey: widget.filterKey,
+              highlightId: widget.highlightId,
               colorOf: (id) => domainColor(eu, _byId[id]?.domain ?? ''),
               glyphOf: (id) => glyphForType(_byId[id]?.type ?? ''),
               typeOf: (id) => _byId[id]?.type ?? '',
@@ -376,6 +385,7 @@ class _BubblePainter extends CustomPainter {
     required this.glyphOf,
     required this.typeOf,
     required this.filterKey,
+    required this.highlightId,
     required Listenable repaint,
   }) : super(repaint: repaint);
 
@@ -384,13 +394,18 @@ class _BubblePainter extends CustomPainter {
   final String Function(String id) glyphOf;
   final String Function(String id) typeOf;
   final String filterKey;
+  final String? highlightId;
 
   @override
   void paint(Canvas canvas, Size size) {
     for (final b in field.bubbles) {
       final c = Offset(b.x, b.y);
       final col = colorOf(b.id);
-      final dim = filterKey != 'all' && typeOf(b.id) != filterKey;
+      // When a bubble is highlighted (dashboard latest-row tap) recede every
+      // other bubble so it visibly lights up; otherwise honor the filter dim.
+      final dim = highlightId != null
+          ? b.id != highlightId
+          : (filterKey != 'all' && typeOf(b.id) != filterKey);
       if (dim) {
         // recede non-matching bubbles to a faint disc (no gloss/glyph).
         canvas.drawCircle(c, b.r, Paint()..color = col.withValues(alpha: .14));
@@ -435,10 +450,39 @@ class _BubblePainter extends CustomPainter {
       )..layout();
       tp.paint(canvas, c - Offset(tp.width / 2, tp.height / 2));
     }
+    // Highlight (dashboard latest-row tap): a glowing accent ring on top of the
+    // pile so the tapped record's bubble lights up.
+    if (highlightId != null) {
+      for (final b in field.bubbles) {
+        if (b.id != highlightId) continue;
+        final c = Offset(b.x, b.y);
+        // glowing ring (thick + blurred) — reads as "lit up" over the pile.
+        canvas.drawCircle(
+          c,
+          b.r + 8,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 6
+            ..color = const Color(0xFF8AB4FF)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 9),
+        );
+        // crisp bright ring hugging the bubble
+        canvas.drawCircle(
+          c,
+          b.r + 4,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 3
+            ..color = const Color(0xFFEAF2FF),
+        );
+        break;
+      }
+    }
   }
 
-  // Per-frame repaint is driven by the Listenable; repaint on a filter change
-  // (the painter instance changes but the Listenable hasn't ticked).
+  // Per-frame repaint is driven by the Listenable; repaint on a filter or
+  // highlight change (the painter instance changes without a Listenable tick).
   @override
-  bool shouldRepaint(_BubblePainter old) => old.filterKey != filterKey;
+  bool shouldRepaint(_BubblePainter old) =>
+      old.filterKey != filterKey || old.highlightId != highlightId;
 }

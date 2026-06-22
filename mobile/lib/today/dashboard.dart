@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../pages/session_detail_page.dart';
 import '../theme/app_theme.dart'; // context.eu
-import 'bubble_pool.dart' show glyphForType, typeName;
+import 'bubble_pool.dart' show glyphForType, typeName, openAssetSheet;
 import 'charts.dart';
 import 'today_data.dart';
 import 'today_summary.dart';
@@ -29,6 +29,7 @@ class Dashboard extends StatefulWidget {
     required this.flashCount,
     required this.filterKey,
     required this.onFilter,
+    required this.onHighlight,
     this.flashLatestId,
   });
 
@@ -38,6 +39,9 @@ class Dashboard extends StatefulWidget {
   final String? flashLatestId;
   final String filterKey;
   final void Function(String) onFilter;
+
+  /// Light up a bubble in the pool (when its summary row is tapped).
+  final void Function(String) onHighlight;
 
   @override
   State<Dashboard> createState() => _DashboardState();
@@ -55,6 +59,7 @@ class _DashboardState extends State<Dashboard> {
     final types = counts.keys.toList()
       ..sort((a, b) => counts[b]!.compareTo(counts[a]!));
     final summary = summaryFor(widget.filterKey, widget.pool);
+    final latest = _latestAsset();
     final groups = chartGroups(context.eu, widget.filterKey, widget.pool);
     final scopeLabel = widget.filterKey == 'all'
         ? '今日构成 · 按类型'
@@ -73,7 +78,7 @@ class _DashboardState extends State<Dashboard> {
           _header(),
           if (_open) ...[
             _chips(counts, types),
-            _summaryStrip(summary),
+            _summaryStrip(summary, latest),
             ChartView(groups: groups, scopeLabel: scopeLabel),
           ],
         ],
@@ -166,56 +171,76 @@ class _DashboardState extends State<Dashboard> {
     );
   }
 
-  Widget _summaryStrip(SummaryStrip s) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
-        child: Row(
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: _accent.withValues(alpha: .16),
-                borderRadius: BorderRadius.circular(10),
+  /// The most-recent asset in the current filter — the one the summary's
+  /// "latest" line refers to; tapping the strip opens + highlights it.
+  PoolAsset? _latestAsset() {
+    final items = widget.filterKey == 'all'
+        ? widget.pool
+        : widget.pool.where((a) => a.type == widget.filterKey).toList();
+    if (items.isEmpty) return null;
+    return items.reduce((a, b) => a.createdAt.isAfter(b.createdAt) ? a : b);
+  }
+
+  Widget _summaryStrip(SummaryStrip s, PoolAsset? latest) => GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: latest == null
+            ? null
+            : () {
+                openAssetSheet(context, latest);
+                widget.onHighlight(latest.id);
+              },
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: _accent.withValues(alpha: .16),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                    widget.filterKey == 'all'
+                        ? '📊'
+                        : glyphForType(widget.filterKey),
+                    style: const TextStyle(fontSize: 18)),
               ),
-              alignment: Alignment.center,
-              child: Text(
-                  widget.filterKey == 'all'
-                      ? '📊'
-                      : glyphForType(widget.filterKey),
-                  style: const TextStyle(fontSize: 18)),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(s.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          color: _title,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600)),
-                  if (s.sub.isNotEmpty) ...[
-                    const SizedBox(height: 2),
-                    Text(s.sub,
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(s.title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: _muted, fontSize: 12)),
+                        style: const TextStyle(
+                            color: _title,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600)),
+                    if (s.sub.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(s.sub,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: _muted, fontSize: 12)),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
-            if (s.metric.isNotEmpty) ...[
-              const SizedBox(width: 10),
-              Text(s.metric,
-                  style: const TextStyle(
-                      color: _accentLight,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700)),
+              if (s.metric.isNotEmpty) ...[
+                const SizedBox(width: 10),
+                Text(s.metric,
+                    style: const TextStyle(
+                        color: _accentLight,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700)),
+              ] else if (latest != null)
+                const Icon(Icons.chevron_right, size: 18, color: _muted40),
             ],
-          ],
+          ),
         ),
       );
 }
