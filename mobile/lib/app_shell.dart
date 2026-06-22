@@ -9,8 +9,7 @@ import 'pages/device_pairing_page.dart';
 import 'pages/library_page.dart';
 import 'pages/morning_briefing_page.dart' show maybeShowMorningBriefing;
 import 'pages/notifications_page.dart';
-import 'pages/pet_page.dart';
-import 'pet/floating_mascot.dart' show RekaFly;
+import 'pages/today_page.dart';
 import 'theme/app_theme.dart';
 import 'widgets/floating_dock.dart';
 import 'widgets/global_header.dart';
@@ -32,13 +31,11 @@ class AppShell extends StatefulWidget {
 final RouteObserver<PageRoute<dynamic>> shellRouteObserver = RouteObserver<PageRoute<dynamic>>();
 
 class _AppShellState extends State<AppShell> with WidgetsBindingObserver, RouteAware {
-  // §7.2 dock = 3 tabs: 0 = 日历, 1 = 资产库, 2 = 我的岛 (REKA's home). Chat /
-  // 快创 / 闪念 are no longer tabs — they're folded into the floating 球球 (§9.2).
+  // dock = 3 tabs: 0 = 今日 (TodayPage landing), 1 = 日历, 2 = 资产库. 我的岛 left the
+  // dock → opens from the floating REKA ball's radial menu (reka_radial 'island' →
+  // pushes PetPage). Chat / 快创 / 闪念 are folded into the floating 球球 too (§9.2).
   // START_TAB lets a build boot into a surface for screenshots.
   int _index = const int.fromEnvironment('START_TAB', defaultValue: 0).clamp(0, 2);
-  // §9.2 飞出相框: lets _go() measure the island hero's rect at tab-tap time so the
-  // floating ball can fly home from it when the user leaves 我的岛.
-  final GlobalKey<PetBoardState> _islandKey = GlobalKey<PetBoardState>();
 
   @override
   void initState() {
@@ -99,15 +96,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver, RouteA
   }
 
   void _go(int i) {
-    // Re-tap 今天 while already on the calendar → reset to 流 · 今天; switching TO
-    // the calendar from another tab keeps its last position (IndexedStack-kept).
-    if (i == 0 && _index == 0) calendarHome.value++;
-    // Leaving 我的岛 → fly the ball home from the hero frame (§9.2 飞出相框). Measure
-    // now, while the board is still laid out; the ball outlives the tab swap.
-    if (_index == 2 && i != 2) {
-      final r = _islandKey.currentState?.measureHeroRect();
-      if (r != null) RekaFly.instance.flyOut(r);
-    }
+    // Re-tap 日历 while already on it → reset to 流 · 今天 (calendar is now tab 1;
+    // its position is IndexedStack-kept when switching to it from another tab).
+    if (i == 1 && _index == 1) calendarHome.value++;
     setState(() => _index = i);
   }
 
@@ -128,15 +119,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver, RouteA
               children: [
                 IndexedStack(
                   index: _index,
-                  children: [
-                    const CalendarPage(),
-                    const LibraryPage(),
-                    // 我的岛 — REKA's home. Lazy: only build (mount its PetView
-                    // WebView) while the tab is active; a SizedBox otherwise so
-                    // the WebView isn't alive behind the other tabs (perf).
-                    _index == 2
-                        ? SafeArea(top: false, child: PetBoard(key: _islandKey, bottomInset: 130))
-                        : const SizedBox.shrink(),
+                  children: const [
+                    TodayPage(),
+                    CalendarPage(),
+                    LibraryPage(),
                   ],
                 ),
           // Ambient brand glow behind the dock — gives the glass capsule
@@ -170,20 +156,20 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver, RouteA
               child: FloatingDock(
                 items: [
                   DockItem(
-                    icon: Icons.calendar_today_outlined,
-                    label: '今天',
+                    icon: Icons.wb_sunny_outlined,
+                    label: '今日',
                     active: _index == 0,
                     onTap: () => _go(0),
                   ),
                   DockItem(
-                    icon: Icons.grid_view_outlined,
-                    label: '资产库',
+                    icon: Icons.calendar_today_outlined,
+                    label: '日历',
                     active: _index == 1,
                     onTap: () => _go(1),
                   ),
                   DockItem(
-                    icon: Icons.landscape_outlined,
-                    label: '我的岛',
+                    icon: Icons.grid_view_outlined,
+                    label: '资产',
                     active: _index == 2,
                     onTap: () => _go(2),
                   ),
