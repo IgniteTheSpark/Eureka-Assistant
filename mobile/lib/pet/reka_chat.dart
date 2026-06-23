@@ -8,7 +8,9 @@ import '../app_events.dart' show navigatorKey, openNotificationTarget;
 import '../assets/assets.dart';
 import '../data_revision.dart';
 import '../pages/chat_page.dart';
-import '../pages/create_asset.dart' show fetchSkillDefs, SkillDef, renderSpecForSkill, EventForm;
+import '../pages/create_asset.dart'
+    show fetchSkillDefs, SkillDef, renderSpecForSkill, EventForm;
+import '../pages/notifications_page.dart' show NotificationsPage;
 import '../pages/pet_page.dart';
 import '../pages/report_viewer_page.dart';
 import '../render/asset_detail_sheet.dart' show AssetEditPage;
@@ -41,14 +43,28 @@ class RekaChat extends StatefulWidget {
   /// and run generation immediately with this wish (傻瓜版:点了就开始).
   final String? prefillWish;
 
-  const RekaChat(
-      {super.key, required this.anchor, required this.onClose, this.intent, this.prefillWish});
+  const RekaChat({
+    super.key,
+    required this.anchor,
+    required this.onClose,
+    this.intent,
+    this.prefillWish,
+  });
 
   @override
   State<RekaChat> createState() => _RekaChatState();
 }
 
-enum _K { reka, user, chips, createGrid, synthEntry, status, receipt, notifPanel }
+enum _K {
+  reka,
+  user,
+  chips,
+  createGrid,
+  synthEntry,
+  status,
+  receipt,
+  notifPanel,
+}
 
 class _Opt {
   final String? icon;
@@ -75,19 +91,25 @@ class _Node {
   _Node(this.kind, {this.text, this.opts, this.types});
 }
 
-class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin {
+class _RekaChatState extends State<RekaChat>
+    with SingleTickerProviderStateMixin {
   final _api = ApiClient();
   final _pet = PetController.instance;
 
   // §9.2 v4 — REKA's aura tint, shared by this card + the asset-picker modal.
   Color get _tint {
     final p = _pet.pet;
-    return p != null ? rekaGlow(p.skin, p.equipped['aura'] ?? 'soft').first : const Color(0xFF6F9EFF);
+    return p != null
+        ? rekaGlow(p.skin, p.equipped['aura'] ?? 'soft').first
+        : const Color(0xFF6F9EFF);
   }
+
   final _scroll = ScrollController();
   final _input = TextEditingController();
-  late final AnimationController _in =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 280))..forward();
+  late final AnimationController _in = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 280),
+  )..forward();
 
   final List<_Node> _nodes = [];
   bool _busy = false;
@@ -148,7 +170,9 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
       if (mounted && r is Map) {
         setState(() => _nudgesEnabled = r['nudges_enabled'] != false);
       }
-    } catch (_) {/* switch row just stays hidden */}
+    } catch (_) {
+      /* switch row just stays hidden */
+    }
   }
 
   Future<void> _toggleNudges(bool v) async {
@@ -166,13 +190,21 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
       _assets = r[0] as List<AssetItem>;
       _skillDefs = r[1] as List<SkillDef>;
       // 快创 entered before skills loaded? swap the placeholder grid in now.
-      if (mounted && widget.intent == 'create' && _nodes.every((n) => n.kind != _K.createGrid)) {
+      if (mounted &&
+          widget.intent == 'create' &&
+          _nodes.every((n) => n.kind != _K.createGrid)) {
         setState(() {
-          _nodes.removeWhere((n) => n.kind == _K.reka && (n.text?.contains('加载中') ?? false));
-          _nodes.add(_Node(_K.createGrid, types: _createTypes(r[1] as List<SkillDef>)));
+          _nodes.removeWhere(
+            (n) => n.kind == _K.reka && (n.text?.contains('加载中') ?? false),
+          );
+          _nodes.add(
+            _Node(_K.createGrid, types: _createTypes(r[1] as List<SkillDef>)),
+          );
         });
       }
-    } catch (_) {/* features degrade gracefully */}
+    } catch (_) {
+      /* features degrade gracefully */
+    }
   }
 
   @override
@@ -192,8 +224,11 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
   void _scrollToEnd() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scroll.hasClients) {
-        _scroll.animateTo(_scroll.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 180), curve: Curves.easeOut);
+        _scroll.animateTo(
+          _scroll.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+        );
       }
     });
   }
@@ -202,7 +237,8 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
   /// _synthBase onward) with `ns`. Preserves any preceding root nodes.
   void _replaceSynth(List<_Node> ns) {
     setState(() {
-      if (_synthBase < _nodes.length) _nodes.removeRange(_synthBase, _nodes.length);
+      if (_synthBase < _nodes.length)
+        _nodes.removeRange(_synthBase, _nodes.length);
       _nodes.addAll(ns);
     });
     _scrollToEnd();
@@ -231,12 +267,17 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
   // ── steps ─────────────────────────────────────────────────────────────────
   void _root() {
     _add(_Node(_K.reka, text: '我在,想做点什么?'));
-    _add(_Node(_K.chips, opts: [
-      _Opt('✨', '新建对话', () => _push(const ChatPage(startBlank: true))),
-      _Opt('➕', '快创', _chooseCreate),
-      _Opt('✦', '洞察 · 升华', _chooseSummarize),
-      _Opt('🏝', '我的岛', () => _push(const PetPage())),
-    ]));
+    _add(
+      _Node(
+        _K.chips,
+        opts: [
+          _Opt('✨', '新建对话', () => _push(const ChatPage(startBlank: true))),
+          _Opt('➕', '快创', _chooseCreate),
+          _Opt('✦', '洞察 · 升华', _chooseSummarize),
+          _Opt('🏝', '我的岛', () => _push(const PetPage())),
+        ],
+      ),
+    );
   }
 
   void _chooseCreate() {
@@ -251,23 +292,34 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
 
   // 全部类型(事件 + 每个技能),带域色 → 点开**居中弹窗**编辑表单。
   List<_CreateType> _createTypes(List<SkillDef> defs) => [
-        _CreateType('📅', '事件', '约定时间', 'purple', () => const EventForm()),
-        for (final s in defs)
-          _CreateType(s.icon, s.displayName, _createSub(s.name), s.accentColor,
-              // same AssetEditPage as 编辑 — create = edit with empty data.
-              () => AssetEditPage(
-                    payload: const {},
-                    cardType: s.name,
-                    title: '',
-                    spec: renderSpecForSkill(s),
-                    displayName: s.displayName,
-                  )),
-      ];
+    _CreateType('📅', '事件', '约定时间', 'purple', () => const EventForm()),
+    for (final s in defs)
+      _CreateType(
+        s.icon,
+        s.displayName,
+        _createSub(s.name),
+        s.accentColor,
+        // same AssetEditPage as 编辑 — create = edit with empty data.
+        () => AssetEditPage(
+          payload: const {},
+          cardType: s.name,
+          title: '',
+          spec: renderSpecForSkill(s),
+          displayName: s.displayName,
+        ),
+      ),
+  ];
 
   String _createSub(String name) =>
       const {
-        'event': '约定时间', 'todo': '要做的事', 'note': '随手记一笔', '随记': '随手记一笔',
-        'contact': '一张名片', 'expense': '一笔花销', 'book_note': '读书笔记', 'idea': '一个念头',
+        'event': '约定时间',
+        'todo': '要做的事',
+        'note': '随手记一笔',
+        '随记': '随手记一笔',
+        'contact': '一张名片',
+        'expense': '一笔花销',
+        'book_note': '读书笔记',
+        'idea': '一个念头',
       }[name] ??
       '快速记录';
 
@@ -289,7 +341,10 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
             padding: EdgeInsets.fromLTRB(14, 24, 14, mq.viewInsets.bottom + 24),
             child: Center(
               child: ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: 440, maxHeight: mq.size.height * 0.86),
+                constraints: BoxConstraints(
+                  maxWidth: 440,
+                  maxHeight: mq.size.height * 0.86,
+                ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(22),
                   child: Material(color: eu.surface, child: form),
@@ -318,11 +373,18 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
   void _onCreated(Map<String, dynamic> res) {
     final name = (res['display_name'] as String?) ?? '记录';
     final icon = (res['icon'] as String?) ?? '✅';
-    final payload = (res['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final payload =
+        (res['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
     final detail = _receiptDetail(payload);
-    final receipt = detail.isEmpty ? '$name · 已闭环 ✓' : '$name · $detail · 已闭环 ✓';
+    final receipt = detail.isEmpty
+        ? '$name · 已闭环 ✓'
+        : '$name · $detail · 已闭环 ✓';
     _add(_Node(_K.receipt, text: receipt));
-    RekaNotifications.instance.add(icon: icon, title: '已记下 · $name', meta: detail.isEmpty ? null : detail);
+    RekaNotifications.instance.add(
+      icon: icon,
+      title: '已记下 · $name',
+      meta: detail.isEmpty ? null : detail,
+    );
   }
 
   String _receiptDetail(Map<String, dynamic> p) {
@@ -339,7 +401,8 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
 
   void _chooseSummarize() {
     if (_busy) return;
-    _synthBase = _nodes.length; // 洞察 sub-flow starts here (replace-in-place anchor)
+    _synthBase =
+        _nodes.length; // 洞察 sub-flow starts here (replace-in-place anchor)
     _add(_Node(_K.synthEntry));
   }
 
@@ -366,7 +429,7 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
     try {
       picked = await showDialog<List<AssetItem>>(
         context: ctx,
-        barrierDismissible: true,   // 点 scrim 即关(panel 顶部也有 ✕);返回 null
+        barrierDismissible: true, // 点 scrim 即关(panel 顶部也有 ✕);返回 null
         barrierColor: Colors.black.withValues(alpha: 0.62),
         builder: (dctx) {
           final mq = MediaQuery.of(dctx);
@@ -374,7 +437,10 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
             padding: EdgeInsets.fromLTRB(14, 24, 14, mq.viewInsets.bottom + 24),
             child: Center(
               child: ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: 440, maxHeight: mq.size.height * 0.86),
+                constraints: BoxConstraints(
+                  maxWidth: 440,
+                  maxHeight: mq.size.height * 0.86,
+                ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(22),
                   child: Material(
@@ -415,7 +481,11 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
     }
     return [
       for (final e in byType.entries)
-        {'type': e.key, 'count': e.value.length, 'sample_titles': e.value.take(3).map((a) => a.title).toList()},
+        {
+          'type': e.key,
+          'count': e.value.length,
+          'sample_titles': e.value.take(3).map((a) => a.title).toList(),
+        },
     ];
   }
 
@@ -430,7 +500,8 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
         : (_selectedIds.isNotEmpty ? '选中的 ${_selectedIds.length} 条' : '最近的记录');
     _replaceSynth([_Node(_K.status, text: '正在撰写《$label》…')]);
     // Buttons that return to a fresh entry so the user can try again (no stacking).
-    _Opt againChip(String label) => _Opt('↺', label, () => _showSynthEntry(prefill: _lastWish));
+    _Opt againChip(String label) =>
+        _Opt('↺', label, () => _showSynthEntry(prefill: _lastWish));
     try {
       final stream = postSse('/api/reports/generate', {
         'user_wish': (wish == null || wish.isEmpty) ? '用选中的资产生成一份报告' : wish,
@@ -455,19 +526,35 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
             setState(() => _busy = false);
             _replaceSynth([
               _Node(_K.reka, text: '洞察好啦 ✦ 《$title》'),
-              _Node(_K.chips, opts: [
-                _Opt('📄', '查看报告', () => _push(ReportViewerPage(title: title, html: html, reportId: rid))),
-                _Opt('✦', '再洞察一篇', _showSynthEntry),
-              ]),
+              _Node(
+                _K.chips,
+                opts: [
+                  _Opt(
+                    '📄',
+                    '查看报告',
+                    () => _push(
+                      ReportViewerPage(title: title, html: html, reportId: rid),
+                    ),
+                  ),
+                  _Opt('✦', '再洞察一篇', _showSynthEntry),
+                ],
+              ),
             ]);
             RekaNotifications.instance.add(
-                icon: '📄', title: '报告生成', meta: title,
-                type: 'report_done', link: rid ?? '');
+              icon: '📄',
+              title: '报告生成',
+              meta: title,
+              type: 'report_done',
+              link: rid ?? '',
+            );
             return;
           case 'insufficient':
             setState(() => _busy = false);
             _replaceSynth([
-              _Node(_K.reka, text: (ev.json['message'] as String?) ?? '数据有点少,先多记几条再来洞察吧。'),
+              _Node(
+                _K.reka,
+                text: (ev.json['message'] as String?) ?? '数据有点少,先多记几条再来洞察吧。',
+              ),
               _Node(_K.chips, opts: [againChip('换个范围')]),
             ]);
             return;
@@ -537,12 +624,17 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
         ),
         Positioned(
           left: alignRight ? null : a.left.clamp(10.0, sw - cardW - 10),
-          right: alignRight ? (sw - a.right).clamp(10.0, sw - cardW - 10) : null,
+          right: alignRight
+              ? (sw - a.right).clamp(10.0, sw - cardW - 10)
+              : null,
           top: top,
           bottom: bottom,
           width: cardW,
           child: ScaleTransition(
-            scale: Tween(begin: 0.85, end: 1.0).animate(CurvedAnimation(parent: _in, curve: Curves.easeOutBack)),
+            scale: Tween(
+              begin: 0.85,
+              end: 1.0,
+            ).animate(CurvedAnimation(parent: _in, curve: Curves.easeOutBack)),
             alignment: openAbove
                 ? (alignRight ? Alignment.bottomRight : Alignment.bottomLeft)
                 : (alignRight ? Alignment.topRight : Alignment.topLeft),
@@ -554,15 +646,33 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
                   clipBehavior: Clip.none,
                   children: [
                     Container(
-                      constraints: BoxConstraints(maxHeight: maxH.clamp(160.0, sh)),
+                      constraints: BoxConstraints(
+                        maxHeight: maxH.clamp(160.0, sh),
+                      ),
                       // §9.2 v4 统一色源 — the whole REKA surface tints to its aura glow.
                       decoration: BoxDecoration(
-                        color: Color.alphaBlend(_tint.withValues(alpha: 0.12), eu.surface),
+                        color: Color.alphaBlend(
+                          _tint.withValues(alpha: 0.12),
+                          eu.surface,
+                        ),
                         borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: Color.alphaBlend(_tint.withValues(alpha: 0.42), eu.border)),
+                        border: Border.all(
+                          color: Color.alphaBlend(
+                            _tint.withValues(alpha: 0.42),
+                            eu.border,
+                          ),
+                        ),
                         boxShadow: [
-                          BoxShadow(color: Colors.black.withValues(alpha: 0.30), blurRadius: 28, offset: const Offset(0, 12)),
-                          BoxShadow(color: _tint.withValues(alpha: 0.30), blurRadius: 26, spreadRadius: -8),
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.30),
+                            blurRadius: 28,
+                            offset: const Offset(0, 12),
+                          ),
+                          BoxShadow(
+                            color: _tint.withValues(alpha: 0.30),
+                            blurRadius: 26,
+                            spreadRadius: -8,
+                          ),
                         ],
                       ),
                       child: ClipRRect(
@@ -590,7 +700,12 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
                             color: eu.surfaceRaised,
                             shape: BoxShape.circle,
                             border: Border.all(color: eu.border),
-                            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.25), blurRadius: 8)],
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.25),
+                                blurRadius: 8,
+                              ),
+                            ],
                           ),
                           child: Icon(Icons.close, size: 14, color: eu.textMid),
                         ),
@@ -615,7 +730,11 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
       case _K.chips:
         return Padding(
           padding: const EdgeInsets.only(top: 4, bottom: 6),
-          child: Wrap(spacing: 8, runSpacing: 8, children: [for (final o in n.opts!) _chip(eu, o)]),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [for (final o in n.opts!) _chip(eu, o)],
+          ),
         );
       case _K.createGrid:
         return _createGridBubble(eu, n.types ?? const []);
@@ -632,10 +751,17 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
 
   // kicker line (mono, brand-hi) — reka-system.js .bub-title
   Widget _kicker(EurekaColors eu, String text) => Padding(
-        padding: const EdgeInsets.only(left: 2, bottom: 6),
-        child: Text(text.toUpperCase(),
-            style: TextStyle(color: eu.brandHi, fontSize: 9.5, fontWeight: FontWeight.w700, letterSpacing: 1.0)),
-      );
+    padding: const EdgeInsets.only(left: 2, bottom: 6),
+    child: Text(
+      text.toUpperCase(),
+      style: TextStyle(
+        color: eu.brandHi,
+        fontSize: 9.5,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 1.0,
+      ),
+    ),
+  );
 
   // ── 快创 tile grid (reka-system.js .ctgrid) ─────────────────────────────────
   Widget _createGridBubble(EurekaColors eu, List<_CreateType> types) {
@@ -651,8 +777,10 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _kicker(eu, '快创 · 选个类型'),
-          Text('想快速记点什么?选一个,我给你开张卡。',
-              style: TextStyle(color: eu.textHi, fontSize: 13.5, height: 1.4)),
+          Text(
+            '想快速记点什么?选一个,我给你开张卡。',
+            style: TextStyle(color: eu.textHi, fontSize: 13.5, height: 1.4),
+          ),
           const SizedBox(height: 10),
           GridView.count(
             crossAxisCount: 2,
@@ -698,14 +826,26 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(t.label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: eu.textHi, fontSize: 12.5, fontWeight: FontWeight.w700)),
-                  Text(t.sub,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: eu.textLo, fontSize: 10, height: 1.2)),
+                  Text(
+                    t.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: eu.textHi,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  Text(
+                    t.sub,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: eu.textLo,
+                      fontSize: 10,
+                      height: 1.2,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -730,11 +870,20 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
         children: [
           _kicker(eu, '洞察 · 升华一段'),
           RichText(
-            text: TextSpan(style: TextStyle(color: eu.textHi, fontSize: 13.5, height: 1.4), children: [
-              const TextSpan(text: '想洞察什么?'),
-              TextSpan(text: '说一句', style: TextStyle(color: eu.brandHi, fontWeight: FontWeight.w700)),
-              const TextSpan(text: '告诉我范围。'),
-            ]),
+            text: TextSpan(
+              style: TextStyle(color: eu.textHi, fontSize: 13.5, height: 1.4),
+              children: [
+                const TextSpan(text: '想洞察什么?'),
+                TextSpan(
+                  text: '说一句',
+                  style: TextStyle(
+                    color: eu.brandHi,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const TextSpan(text: '告诉我范围。'),
+              ],
+            ),
           ),
           const SizedBox(height: 10),
           // input row — submit moved to the bottom 「生成洞察」 button
@@ -773,7 +922,10 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
                 onTap: _pickAssets,
                 behavior: HitTestBehavior.opaque,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 11,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(999),
                     border: Border.all(color: eu.textLo),
@@ -783,7 +935,10 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
                     children: [
                       Icon(Icons.add, size: 13, color: eu.textMid),
                       const SizedBox(width: 3),
-                      Text('手动选择资产', style: TextStyle(color: eu.textMid, fontSize: 12)),
+                      Text(
+                        '手动选择资产',
+                        style: TextStyle(color: eu.textMid, fontSize: 12),
+                      ),
                     ],
                   ),
                 ),
@@ -794,7 +949,10 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
                   behavior: HitTestBehavior.opaque,
                   child: Container(
                     constraints: const BoxConstraints(maxWidth: 170),
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: _tint.withValues(alpha: 0.14),
                       borderRadius: BorderRadius.circular(999),
@@ -804,10 +962,12 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Flexible(
-                          child: Text(a.title.isEmpty ? '记录' : a.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(color: eu.textHi, fontSize: 12)),
+                          child: Text(
+                            a.title.isEmpty ? '记录' : a.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(color: eu.textHi, fontSize: 12),
+                          ),
                         ),
                         const SizedBox(width: 4),
                         Icon(Icons.close, size: 12, color: eu.textMid),
@@ -819,8 +979,10 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
           ),
           if (_selectedIds.isNotEmpty) ...[
             const SizedBox(height: 6),
-            Text('已选 ${_selectedIds.length} 条 · 会结合你上面的描述一起洞察',
-                style: TextStyle(color: eu.textLo, fontSize: 11)),
+            Text(
+              '已选 ${_selectedIds.length} 条 · 会结合你上面的描述一起洞察',
+              style: TextStyle(color: eu.textLo, fontSize: 11),
+            ),
           ],
           const SizedBox(height: 10),
           Wrap(
@@ -831,17 +993,25 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
                 GestureDetector(
                   onTap: () {
                     _input.text = p;
-                    _input.selection = TextSelection.collapsed(offset: p.length);
+                    _input.selection = TextSelection.collapsed(
+                      offset: p.length,
+                    );
                   },
                   behavior: HitTestBehavior.opaque,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 11,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: eu.surface,
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(color: eu.border),
                     ),
-                    child: Text(p, style: TextStyle(color: eu.textHi, fontSize: 12)),
+                    child: Text(
+                      p,
+                      style: TextStyle(color: eu.textHi, fontSize: 12),
+                    ),
                   ),
                 ),
             ],
@@ -865,8 +1035,14 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
                 children: [
                   Icon(Icons.auto_awesome, color: Colors.white, size: 16),
                   SizedBox(width: 6),
-                  Text('生成洞察',
-                      style: TextStyle(color: Colors.white, fontSize: 14.5, fontWeight: FontWeight.w700)),
+                  Text(
+                    '生成洞察',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -893,8 +1069,14 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
           const Text('🐾', style: TextStyle(fontSize: 14)),
           const SizedBox(width: 8),
           Expanded(
-            child: Text('Reka提醒',
-                style: TextStyle(color: eu.textHi, fontSize: 13, fontWeight: FontWeight.w600)),
+            child: Text(
+              'Reka提醒',
+              style: TextStyle(
+                color: eu.textHi,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
           Transform.scale(
             scale: 0.78,
@@ -914,6 +1096,7 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
       animation: RekaNotifications.instance,
       builder: (context, _) {
         final items = RekaNotifications.instance.items;
+        const max = 6; // 面板最多展示 max 条；更多走「查看全部」→ 独立通知页
         if (items.isEmpty) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -930,66 +1113,125 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
           children: [
             _nudgeSwitchRow(eu),
             Container(
-          margin: const EdgeInsets.symmetric(vertical: 4),
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: eu.surfaceRaised,
-            borderRadius: BorderRadius.circular(15),
-            border: Border.all(color: eu.border),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(4, 2, 4, 8),
-                child: Text('通知 · ${items.length}',
-                    style: TextStyle(color: eu.textMid, fontSize: 12, fontWeight: FontWeight.w700)),
+              margin: const EdgeInsets.symmetric(vertical: 4),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: eu.surfaceRaised,
+                borderRadius: BorderRadius.circular(15),
+                border: Border.all(color: eu.border),
               ),
-              for (final n in items.take(12))
-                GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  // Tap → open the target (report / 闪念 session / calendar) + mark
-                  // read + close the REKA menu. Non-tappable notes do nothing.
-                  onTap: n.tappable
-                      ? () {
-                          RekaNotifications.instance.markReadNote(n);
-                          _close();
-                          openNotificationTarget(n.type, n.link);
-                        }
-                      : null,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 5),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(n.icon, style: const TextStyle(fontSize: 15)),
-                        const SizedBox(width: 9),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(n.title,
-                                  style: TextStyle(color: eu.textHi, fontSize: 13.5, fontWeight: FontWeight.w600)),
-                              if (n.meta != null && n.meta!.isNotEmpty)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 1),
-                                  child: Text(n.meta!,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(color: eu.textMid, fontSize: 12)),
-                                ),
-                            ],
-                          ),
-                        ),
-                        if (n.tappable)
-                          Icon(Icons.chevron_right, size: 16, color: eu.textLo),
-                      ],
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(4, 2, 4, 8),
+                    child: Text(
+                      '通知 · ${items.length}',
+                      style: TextStyle(
+                        color: eu.textMid,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
-                ),
-            ],
-          ),
-        ),
+                  for (final n in items.take(max))
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      // Tap → open the target (report / 闪念 session / calendar) + mark
+                      // read + close the REKA menu. Non-tappable notes do nothing.
+                      onTap: n.tappable
+                          ? () {
+                              RekaNotifications.instance.markReadNote(n);
+                              _close();
+                              openNotificationTarget(n.type, n.link);
+                            }
+                          : null,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 5),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(n.icon, style: const TextStyle(fontSize: 15)),
+                            const SizedBox(width: 9),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    n.title,
+                                    style: TextStyle(
+                                      color: eu.textHi,
+                                      fontSize: 13.5,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  if (n.meta != null && n.meta!.isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 1),
+                                      child: Text(
+                                        n.meta!,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: eu.textMid,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            if (n.tappable)
+                              Icon(
+                                Icons.chevron_right,
+                                size: 16,
+                                color: eu.textLo,
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  if (items.length > max)
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () {
+                        _close();
+                        navigatorKey.currentState?.push(
+                          MaterialPageRoute(
+                            builder: (_) => const NotificationsPage(),
+                          ),
+                        );
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.only(
+                          top: 8,
+                          left: 4,
+                          right: 4,
+                          bottom: 2,
+                        ),
+                        child: Row(
+                          children: [
+                            Text(
+                              '查看全部 ${items.length} 条',
+                              style: TextStyle(
+                                color: eu.brand,
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const Spacer(),
+                            Icon(
+                              Icons.chevron_right,
+                              size: 16,
+                              color: eu.brand,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
           ],
         );
       },
@@ -1011,9 +1253,14 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
             bottomLeft: Radius.circular(user ? 15 : 5),
             bottomRight: Radius.circular(user ? 5 : 15),
           ),
-          border: Border.all(color: user ? eu.brand.withValues(alpha: 0.34) : eu.border),
+          border: Border.all(
+            color: user ? eu.brand.withValues(alpha: 0.34) : eu.border,
+          ),
         ),
-        child: Text(text, style: TextStyle(color: eu.textHi, fontSize: 14, height: 1.4)),
+        child: Text(
+          text,
+          style: TextStyle(color: eu.textHi, fontSize: 14, height: 1.4),
+        ),
       ),
     );
   }
@@ -1032,8 +1279,18 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (o.icon != null) ...[Text(o.icon!, style: const TextStyle(fontSize: 13)), const SizedBox(width: 6)],
-            Text(o.label, style: TextStyle(color: eu.textHi, fontSize: 13.5, fontWeight: FontWeight.w600)),
+            if (o.icon != null) ...[
+              Text(o.icon!, style: const TextStyle(fontSize: 13)),
+              const SizedBox(width: 6),
+            ],
+            Text(
+              o.label,
+              style: TextStyle(
+                color: eu.textHi,
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ],
         ),
       ),
@@ -1063,13 +1320,27 @@ class _RekaChatState extends State<RekaChat> with SingleTickerProviderStateMixin
                 height: 34,
                 // 'idle' (not 'celebrate') while working — celebrate's particles
                 // spill out of a small bubble; the typing dots carry the motion.
-                child: PetView(genome: p.genome, scale: 1.3, state: working ? 'idle' : 'celebrate'),
+                child: PetView(
+                  genome: p.genome,
+                  scale: 1.3,
+                  state: working ? 'idle' : 'celebrate',
+                ),
               )
             else
-              SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: eu.brand)),
+              SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: eu.brand,
+                ),
+              ),
             const SizedBox(width: 10),
             Flexible(
-              child: Text(text, style: TextStyle(color: eu.textHi, fontSize: 13.5, height: 1.3)),
+              child: Text(
+                text,
+                style: TextStyle(color: eu.textHi, fontSize: 13.5, height: 1.3),
+              ),
             ),
             if (working) ...[
               const SizedBox(width: 8),
@@ -1091,9 +1362,12 @@ class _TypingDots extends StatefulWidget {
   State<_TypingDots> createState() => _TypingDotsState();
 }
 
-class _TypingDotsState extends State<_TypingDots> with SingleTickerProviderStateMixin {
-  late final AnimationController _c =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 1000))..repeat();
+class _TypingDotsState extends State<_TypingDots>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1000),
+  )..repeat();
 
   @override
   void dispose() {
@@ -1111,11 +1385,20 @@ class _TypingDotsState extends State<_TypingDots> with SingleTickerProviderState
           for (var i = 0; i < 3; i++) ...[
             if (i > 0) const SizedBox(width: 3),
             Opacity(
-              opacity: (0.3 + 0.7 * ((math.sin(_c.value * 2 * math.pi - i * 0.9) + 1) / 2)).clamp(0.0, 1.0),
+              opacity:
+                  (0.3 +
+                          0.7 *
+                              ((math.sin(_c.value * 2 * math.pi - i * 0.9) +
+                                      1) /
+                                  2))
+                      .clamp(0.0, 1.0),
               child: Container(
                 width: 4.5,
                 height: 4.5,
-                decoration: BoxDecoration(color: widget.color, shape: BoxShape.circle),
+                decoration: BoxDecoration(
+                  color: widget.color,
+                  shape: BoxShape.circle,
+                ),
               ),
             ),
           ],
@@ -1124,4 +1407,3 @@ class _TypingDotsState extends State<_TypingDots> with SingleTickerProviderState
     );
   }
 }
-
