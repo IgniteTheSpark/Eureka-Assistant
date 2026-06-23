@@ -12,6 +12,7 @@ ever run multiple workers, swap `_publish` for a Postgres LISTEN/NOTIFY or
 Redis fan-out; the call sites won't change.
 """
 import asyncio
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import delete, select
@@ -19,9 +20,11 @@ from sqlalchemy import delete, select
 from db.database import AsyncSessionLocal
 from db.models import Notification
 
-# Keep only the newest N notifications per user (the UI lists ≤30 and has no
-# pagination, so older rows are never shown — pruning bounds table growth).
-_RETAIN_PER_USER = 100
+# Retention = a 14-day time window (was: newest-100 per user). The feed is now a
+# "what Reka suggested + what you did, last 14 days" history — dismiss keeps the
+# row (only flips read=1), so age, not count, is the right bound. nudge rows live
+# here too (type='nudge'). See handoff-reka-emote-notif.md §C / spec §2 §3.14.
+_RETAIN_DAYS = 14
 
 # user_id → set of subscriber queues (one per open SSE connection)
 _subscribers: dict[str, set["asyncio.Queue[dict]"]] = {}
@@ -108,24 +111,19 @@ async def create_notification(
 
 
 async def _prune(db, user_id: str) -> None:
-    """Drop this user's notifications beyond the newest `_RETAIN_PER_USER`.
-    Best-effort — a prune failure must never fail notification creation."""
+    """Drop this user's notifications older than `_RETAIN_DAYS`.
+    Best-effort — a prune failure must never fail notification creation.
+    Time-based (not count-based): dismiss keeps the row in the feed, so we bound
+    by age — a dismissed "该记账 / 整理灵感" stays visible to redo until the
+    14-day window passes."""
     try:
-        # created_at of the (_RETAIN_PER_USER + 1)-th newest row; older ones go.
-        cutoff = (await db.execute(
-            select(Notification.created_at)
-            .where(Notification.user_id == user_id)
-            .order_by(Notification.created_at.desc())
-            .offset(_RETAIN_PER_USER)
-            .limit(1)
-        )).scalar_one_or_none()
-        if cutoff is not None:
-            await db.execute(
-                delete(Notification).where(
-                    Notification.user_id == user_id,
-                    Notification.created_at <= cutoff,
-                )
+        cutoff = datetime.now(timezone.utc) - timedelta(days=_RETAIN_DAYS)
+        await db.execute(
+            delete(Notification).where(
+                Notification.user_id == user_id,
+                Notification.created_at < cutoff,
             )
-            await db.commit()
+        )
+        await db.commit()
     except Exception:
         pass

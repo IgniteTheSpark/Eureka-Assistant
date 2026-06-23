@@ -130,7 +130,8 @@ class AppEvents {
             RekaNudges.instance.refresh(peekId: n.id);
           }
           RekaNotifications.instance.add(
-            icon: '🐾',
+            id: j['id'] as String? ?? '',
+            icon: RekaNotifications.iconFor(type),
             title: j['title'] as String? ?? '提醒',
             meta: j['body'] as String?,
             type: type,
@@ -142,9 +143,8 @@ class AppEvents {
           _toast(j);
         }
         RekaNotifications.instance.add(
-          icon: type == 'flash_done'
-              ? '⚡'
-              : (type.startsWith('task') ? '⚙️' : '🔔'),
+          id: j['id'] as String? ?? '',
+          icon: RekaNotifications.iconFor(type),
           title: j['title'] as String? ?? '通知',
           meta: j['body'] as String?,
           type: type, // carry routing info so the

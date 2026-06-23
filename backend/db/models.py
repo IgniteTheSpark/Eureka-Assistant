@@ -558,7 +558,7 @@ class Notification(Base):
 
     id         = Column(GUID(), primary_key=True, default=uuid.uuid4)
     user_id    = Column(String(50), nullable=False, server_default="default")
-    type       = Column(String(20), nullable=False)   # flash_done | task_done | task_failed | reminder
+    type       = Column(String(20), nullable=False)   # flash_done | task_done | task_failed | reminder | nudge
     title      = Column(String(255), nullable=False)
     body       = Column(Text)
     link       = Column(String(255))                   # opaque deep-link target (asset/event id)

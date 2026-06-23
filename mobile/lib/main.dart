@@ -19,6 +19,7 @@ import 'pages/login_page.dart';
 import 'pages/pet_spawn_page.dart';
 import 'pet/floating_mascot.dart';
 import 'pet/pet_controller.dart';
+import 'pet/reka_notifications.dart';
 import 'pages/session_detail_page.dart';
 import 'render/sprite_factory.dart';
 import 'theme/app_theme.dart';
@@ -163,6 +164,9 @@ class _AuthGate extends StatelessWidget {
         if (!auth.isAuthed) return const LoginPage();
         // Authed: open the hardware/notifications SSE bridge (idempotent).
         AppEvents.instance.start();
+        // §C: restore the 14-day notification history so the REKA feed isn't
+        // empty on relaunch (server is the source of truth; SSE adds live ones).
+        unawaited(RekaNotifications.instance.loadFromServer());
         BleFlashManager.instance.start();
         unawaited(FlashFileWorkflow.instance.start(auth.userId!));
         // 戒指实时录音 → 闪念(里程碑2)。幂等;仅在戒指连接后双击才生效。
