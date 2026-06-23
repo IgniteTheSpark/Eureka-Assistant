@@ -187,7 +187,11 @@ machine_name）。一句话可拆成多个意图并行处理。
 = `qa`。
 
 **自定义 skill 注入**：当用户注册过自定义 skill，`make_dispatcher_agent` 把 `custom_skills_hint` 追加进
-dispatcher prompt，教它对关键名词命中时输出 `type=<machine_name>` 而不是倒进 misc。
+dispatcher prompt，教它对关键名词命中时输出 `type=<machine_name>` 而不是倒进 misc。**这个『优先』只压过
+`misc`/`notes`/`idea`，绝不压过 `todo`/`event`/`contact`/`expense`**：未来要做/要去的安排（有时间点 + 参加/去/
+开会/打球/约）按时段规则归 `todo`（单时点）或 `event`（完整时段），不是 skill 记录 —— 运动类 skill 记的是**已发生
+的锻炼数据**（「跑了 5km 配速 6」），不是「下午 4 点半有球赛参加」这种日程。`domain`（如 运动）只是条目标签，跟选哪个
+skill 无关，**别因为活动落在运动 domain 就把球赛塞进跑步 skill**（曾出现的 bug）。
 
 > **活跃集过滤（已实现，见 [§3 skills API](03-api-reference.md) / [§4.4.5](04-frontend.md)）**：`custom_skills_hint`
 > (`flash_pipeline._load_custom_skill_map`) 与 chat 的技能字典 (`session_service.load_user_skills_hint`) 都
