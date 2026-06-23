@@ -9,7 +9,9 @@
 >
 > **v2(Reka System 重梳,已采用):** 引擎扩到 **7 个外观槽**(加 `carrier` 承载 + `aura` 光环)、加 `partSprite`(单组件离屏渲染);收集系统加 **稀有度**(普通/稀有/史诗/传说)、**孵化保底掉落**、**里程碑门控解锁**(`check_unlocks`);换装格用 **sprite-factory** 出真实 sprite 预览(原 emoji 占位已替换)。
 >
-> **v4(Reka System 最新,已采用):** ① 短按菜单从径向扇形 → **毛玻璃面板**;② **统一 aura 染色**:菜单/气泡/弹窗都跟 Reka 光环色(引擎 `glowColors` ↔ Flutter `rekaGlow`);③ 我的岛 **真·跨 overlay 飞入相框**(`RekaFly` + 稳定 rect 轮询 + 900ms 兜底,永不卡死);④ 新通知 **脉冲环 + celebrate**;⑤ 时序对齐随包附的 `动画交互文档`(飞入 .62s 回弹等)。
+> **v4(Reka System 最新,已采用):** ① 短按菜单 → **Reka 气泡容器**(Kenney 对话气泡形,见 §9.2.0;取代旧"毛玻璃面板"的纯矩形);② **统一 aura 染色**:菜单/气泡/弹窗都跟 Reka 光环色(引擎 `glowColors` ↔ Flutter `rekaGlow`);③ 我的岛 **真·跨 overlay 飞入相框**(`RekaFly` + 稳定 rect 轮询 + 900ms 兜底,永不卡死);④ 新通知 **脉冲环 + celebrate**;⑤ 时序对齐随包附的 `动画交互文档`(飞入 .62s 回弹等)。
+
+> **v5(2026-06):Reka 气泡容器统一(见 §9.2.0)** —— Reka 说的话都装进一个**带尾巴、指向球球的 Kenney 对话气泡形**(菜单 / peek / 快创 / 洞察结果 / nudge **共用一种容器**)。**怎么做对**:形 = Kenney 气泡(**9-slice 或重画成可缩放 shape**,别拉伸 sprite);**皮色按日夜主题(+ 可选 aura)染色**(白图 `BlendMode.srcIn` 可染任意色 —— 深色主题染浅、浅色主题染深,两套主题对比都成立);**芯**保留毛玻璃;**小瞬时气泡**(peek / emote pop)用原像素 sprite、**大/多变容器**用可缩放 shape。emote 符号(§9.2 叠层)放气泡里。
 >
 > **v3(Reka System,已采用):** 「我的岛」换装板重做 —— ① **解剖式 callouts**:Reka 居中,各装备件在框边浮标签 + 虚线引线 + 锚点(替代下方 chip 行);② **徽记 = 颜色烘焙进件的命名组件**(金星/银十字/霓粉之心/天蓝水滴/赤焰闪电/蓝电闪电/青翠之叶/青环,**取消独立选色 colorbar**);③ **个人库存只展示已拥有**(去掉 locked/🔒 格,不剧透),选中格右上 **✓ 角标**;④ 引擎 +3 光环(炽火/翠绿/霜白)。
 
@@ -34,6 +36,20 @@
 
 ## 9.2 球球本体（L2）
 
+## 9.2.0 Reka 气泡容器（统一对话气泡 · v5 2026-06）
+
+**Reka 说的话都装进同一种容器 = 带尾巴、尾巴指向球球的「对话气泡」**（灵感 = Kenney emote 气泡）。**菜单 / peek / 快创 / 洞察结果 / nudge 全用它** —— 一眼「这是 Reka 在说话」。
+
+- **形**：Kenney 对话气泡的轮廓（圆角 + 尾巴）。**别拉伸 sprite** —— 大 / 多变容器**重画成可缩放 shape**（CustomPainter：圆角矩形 + 尾巴 path）或 **9-slice**（`Image.centerSlice`，角 / 尾固定、边中拉伸）；**小瞬时气泡**（peek / emote pop）可直接用原像素 sprite。
+- **皮色 = 按日夜主题（+ 可选 aura）染色**：Kenney 白图用 `BlendMode.srcIn` 可染任意色 —— **深色主题染浅、浅色主题染深 / surface 色**，两套主题对比都成立（白气泡别原样上浅色主题、会糊）。沿用 v4 的 aura 染色（跟 Reka 光环色 `rekaGlow`）。
+- **芯**：保留毛玻璃（`backdrop blur`）+ 主题 / aura 半透底。
+- **尾巴**：锚在靠近球球的一角、指向浮球（corner-aware：球在哪边尾巴朝哪边）。
+- **内容**：emote 符号（§9.2 叠层）放气泡里当图标 / Reka 头顶 pop。
+- **资产**：`mobile/assets/emotes/`（`pixel-balloon` 形参考 + `pixel-flat` 符号），CC0。
+- **护栏**：别因像素气泡把整屏拖成卡通玩具感 —— Reka 的气泡可萌，但**数据界面（今日页 / 日历 / 库）仍走高级**（§4.5.0 三铁律）。分层：**Reka 的"声音"暖，内容面 premium**。
+
+> **实施 handoff（Reka 表达层 · ✅ 可以开始）= [`handoff-reka-emote-notif.md`](handoff-reka-emote-notif.md)**：三块同属一套「Reka 的表达层」，一起做 —— **① emote 叠层**（球头顶 pop + 通知 / nudge 图标，按 state/event 映射，gentle-only 不摆臭脸；§9.2 叠层）· **② 统一气泡容器**（本节 §9.2.0：9-slice / `CustomPainter` 重画，**别拉伸 sprite**；`BlendMode.srcIn` 按日夜主题 + aura 染色；毛玻璃芯；corner-aware 尾）· **③ 通知持久化**（开 app 拉 `GET /api/notifications` 历史 + **dismiss ≠ 删**〔置 read / status〕+ **14 天**保留窗，修「重进就没了」；[§14.7](14-proactive-reka.md) / [§2 §3.14](02-data-model.md)）。资产已 vendor `mobile/assets/emotes/`（Kenney CC0：`pixel-balloon` 30 白气球 + `pixel-flat` 30 符号）。含前端 / 后端 / design 分工 + 验收；别做：负面脸 emote、拉伸气泡、白气泡原样上浅色主题、为像素气泡牺牲数据界面高级感。
+
 - **第一期只 1 只**；数据**按"可多只"留位**（后续可拥有多只 + 选一只展示），UI 先显 1。
 - **无 EXP / 等级 / 升级**（已弃用）。成长 = **横向收集换装**：**背包（inventory）= 装饰物**，换装改外形。
 - **装饰物来源 = ① 任务完成随机掉 + ② 里程碑解锁 + ③ 孵化保底掉**（见 §9.3），每件带**稀有度**(普通/稀有/史诗/传说)。护栏：只增不减、不付费抽、无 FOMO。
@@ -41,6 +57,7 @@
   - **追踪面 = `GET /api/pet/milestones`**(§3):列全部 40 条 + 该用户进度(每条带 `label`/`metric`/`threshold`/`reward_slot`/`reward_key`/`tier`/`exclusive`/`current`/`achieved`/`reward_owned`)+ `summary{achieved,total}`。这是「简单 backend 去 track 所有里程碑」。
   - **前端(✅ `pet_page.dart` + `PetController.milestones`)**:里程碑**收敛进换装页**(`_WardrobePage`)——板上只留一张**成就·里程碑 summary 卡**(🏆 + `N/40` + 进度条,点开 `showWardrobe(tab:_kMilestoneTab)`);换装页 slot tabs 末尾加 **🏆 里程碑 tab** → **5 列 compact grid**:每格**只画奖品 sprite + 进度环**(`SpritePreview`,达成绿环 + ✓ 角标),点格弹 **bottom sheet** 看**任务(`label`)+ 进度 + 奖品名 + 稀有度 + 专属**(详情挪进弹层,grid 极简)。读 `GET /api/pet/milestones`(40 条),数据随 `PetController.refresh()`(连同 `GET /api/pet`)一起拉,完成事件后 `dataRevision` 自动刷新。可编辑的 admin 网页(§10/§11)另议。
 - **状态动画**（闲逛 / 听〔长按〕/ 思考〔处理中〕/ 庆祝〔闭环〕/ 夜里睡）**保留为纯表现**，不挂等级。✅ 引擎(`mascot.js`)已支持 idle/listen/celebrate/sleep + 自动眨眼 + 庆祝彩带;v1 详情页用 idle + 轻点庆祝。
+- **情绪 emote 叠层（新，2026-06）**：球球上方冒一个 **Kenney emote 气泡**（CC0，已 vendor 进 `mobile/assets/emotes/` —— `pixel-balloon`〔白气球〕做球上方 pop、`pixel-flat`〔透明符号〕做 inline 图标；30 符号：idea/cash/?/!/Z/★/♥/♪/笑脸…；记得 pubspec 注册 assets + 可选 credit Kenney）。**按 state/event 触发、播一拍淡出**：idle→`sleep`Z、listen→`dots3`/`music`、celebrate/acted→`faceHappy`/`stars`/`hearts`、Type B 整理灵感→`idea`💡、记账→`cash`💰、到点提醒→`exclamation`❗。**gentle-only：永不用 `faceAngry`/`faceSad`/`heartBroken`/`anger`**（承 §9.0 / §14.8 不愧疚不命令，Reka 不摆臭脸）。同一套 emote 也用于通知 / nudge 图标（[§14.7](14-proactive-reka.md)）。具体气球外形（7 选 1）+ 触发时序交 design。
 - **球球详情(✅ 已实现 `pet_page.dart`)**:hero 渲染 + 改名 + 里程碑三连(接住数/连续天/领域 n/8)+ **换装背包**(按槽位分区,已解锁可选、未解锁灰显带锁、点锁提示"多记录就有机会")。**premium 装饰 = 干净付费面**(只卖外观,后置)。
 - **孵化接管(✅ 已实现 `pet_spawn_page.dart`)**:首次进入(`!spawned`)走一次全屏 蛋→轻点唤醒→孵化→起名→自我介绍 流程,完成后替换为详情页。
 - **掉落庆祝(✅ 已实现)**:任意写后 `dataRevision` 触发 `pet_controller` 重拉 `GET /api/pet`,与上次快照 diff 出新解锁的装饰 → 顶部 toast「🎁 球球带回了新装饰 · X」+ 通知 +1。**两档揭示**:日常随机掉走**非侵入 toast**(后台静默到货,不打断当前操作);**孵化保底掉**走**揭示弹窗**(用户主动点孵化,期待庆祝时刻 —— 见 §9.3 `reka_drop_reveal.dart`)。`showRekaDropReveal` 也可复用于任意掉落(`showDropRevealGlobal`),v1 仅孵化触发。
@@ -66,7 +83,7 @@
     - **外部入口汇流(✅ 闭环,修 2026-06)**:全局 `rekaFunctionRequest`(`ValueNotifier<String?>`,`floating_mascot.dart`)+ 便捷 `openRekaInsight()` —— 任意页面(如**报告列表的「✨ 洞察·升华」CTA**)可触发,挂根 overlay 的浮球**就地开同一个 `RekaChat(intent:'summarize')` 气泡**(锚定真·浮球;`_menuOpen`/`suppressed` 守卫)。**不再为洞察单开全屏页**(`ReportCreatePage` 废)——雷达菜单与报告 CTA 共用一条 REKA 流。
   - **通知(✅)** = 气泡**通知面板**(`_K.notifPanel`,列表 icon+标题+meta;打开即全部已读)。
   - **任务** = §7 待实现 → 「即将上线」toast 占位。
-  - **进/出我的岛 = 「飞入 / 飞出相框」(✅,对齐设计稿;我的岛现为 dock tab,非 push 路由)**:
+  - **进/出我的岛 = 「飞入 / 飞出相框」(✅,对齐设计稿)** —— 我的岛 = **经 REKA 雷达菜单 push 的 `PetPage` 路由**(2026-06 起、**不再是 dock tab**;下面「飞出」与「post-frame」子条里的 `IndexedStack tab` 表述是更早 dock-tab 期遗留〔pet_page.dart 注释同〕,待向路由路径收敛):
     - **飞入(✅ 真·跨 overlay,2026-06 修复)**:进板**不先隐藏浮球** —— 等路由动画结束(雷达推入 `PetPage` 时首帧 rect 带滑入偏移)→ 量 `_petKey`(未变换槽)的真实相框 rect → `RekaFly.flyInto`:**球从当前屏幕位置飞进相框**(620ms 回弹),**落地瞬间**才 `mascotSuppressed++`、hero 原地接管(`_heroCtl.value=1`,不二次滑入)+ celebrate;1.2s 兜底 `arrive(false)` 走 board-owned 降级(`_heroCtl.forward` 从框下升入),永不「球停半路 + 空相框」;快速进出由 dispose 的 `RekaFly.cancel()` 兜住。**历史教训:早期「真机不动画」的根因是顺序反了** —— 先 suppress 再飞,而浮球的飞行分支只在未隐藏时渲染,一帧都画不出;外加路由滑入期测到偏移 rect。修复 = 「先飞 → 落地 → 再藏」+ 等路由结束再测。**路由 pop 也飞出**:`PetPage` 包 `PopScope`,pop 时量 rect → `flyOut`(与 tab 路径对称)。
     - **飞出(overlay-resident 浮球,可靠)**:`AppShell._go` 检测到离开 tab 2 时,**趁 board 仍在布局**同步量出 hero 当前屏上 rect(`PetBoardState.measureHeroRect` 读 `_petKey`;滚出视口/未布局 → null 则跳过飞行,浮球直接回家),经 `RekaFly.flyOut(rect)` 通知**根 overlay 常驻的浮球**:浮球从该 rect **飞回 home 落点**并缩回球尺寸(`_fly` 620ms,`easeInOutCubic`,位置 lerp + scale `heroW/66→1`)。浮球**独立于 tab 生命周期**(IndexedStack 切走会 unmount board,但浮球在根 overlay 不受影响),且**飞出渲染无视 suppressed**(board hero 已 unmount,无双影)→ 退出也**永远有可见过渡**,而非瞬回。落定后 `outFrom=null`,浮球恢复常态。
     - 两端 rect 均在**点击 dock 当帧同步取得**(无 route 过渡,故无早期飞入那种测距时序坑)。
@@ -81,6 +98,7 @@
   - **overlay 层级(✅ 已修,设计稿 doctrine)**:雷达/气泡 = 非模态(轻 scrim、点别处关闭);**居中编辑/资产选择弹窗 = 模态,`barrierDismissible:false` 点 scrim 不关、只 X/取消** —— 期间**气泡卡 + 浮动球都隐藏**(`_modal` 守卫 + `mascotSuppressed++`),关闭后气泡复现(显示回执 / 已选资产)。绝不让 REKA 内容常驻在模态之上。
 
 - **通知收敛到 REKA(`pet/reka_notifications.dart`)**:单一通知 feed(`RekaNotifications` 单例,ChangeNotifier)。喂入:快创回执、掉装饰、报告生成、以及 `AppEvents` 的服务端通知(flash/task done、reminder)。REKA **角标显示未读数**(`floating_mascot` 上 AnimatedBuilder),雷达「通知」项打开面板;**已移除 header `NotificationsBell`**。无独立红点系统。
+- **持久化(2026-06,修"重进就没了")**:feed **开 app 从 `GET /api/notifications` 拉历史**(不只内存 + pending nudge),通知 / nudge **保留 14 天**、**dismiss ≠ 删除**(留 feed、置 read) → Reka 提过的「整理灵感 / 该记账」重进也找得到([§14.7](14-proactive-reka.md) / [§2 §3.14](02-data-model.md))。**通知 / nudge 图标 = §9.2 emote 叠层同款**(idea/cash/…,gentle-only)。
   - **可点击跳转**:`RekaNote` 带 `type` + `link`(`AppEvents._handle` / 报告生成处透传);通知面板每行 `tappable` → 标已读 + 关菜单 + `openNotificationTarget(type, link)` 路由:`report_done`→拉 `/api/reports/{id}` 开 `ReportViewerPage`;`flash_done`→`SessionDetailPage`;`reminder`(`reminder:evt|todo:<id>:<thr>`)→`CalendarPage`;未知类型 no-op。toast 与面板**共用**这个路由。可点的行带 `chevron_right`。
 
 - **引擎运行时注册(✅)**:`mascot.js` 已加 `Mascot.register(kind,id,def)` + `partKeys(kind)`(后期不改 core 加装饰),与设计稿对齐(整份 `mascot.js` 已与设计稿同步,含 "Reka" 命名)。
@@ -190,7 +208,7 @@
 
 ## 9.4 球球在「我的岛」板块的呈现
 
-「我的岛」tab（engagement 板块）的 shell 由 [§7.6](07-gamemode.md) 定义（它同时托管岛 / 任务 / 历史）；**本章填其中两块**：
+「我的岛」（engagement 板块，经 REKA 菜单进入）的 shell 由 [§7.6](07-gamemode.md) 定义（它同时托管岛 / 任务 / 历史）；**本章填其中两块**：
 
 ```
 我的岛（engagement 板块，shell 见 §7.6）
