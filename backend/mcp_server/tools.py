@@ -710,10 +710,14 @@ async def query_event(
     status: str = "",
     limit: int = 50,
     user_id: str = "default",
+    created_from: str = "",
+    created_to: str = "",
 ) -> dict:
     """
     Query events by date range, status, and/or keyword in title/location/description.
-    Returns newest start_at first. Includes attendees and file refs inline.
+    `from_date`/`to_date` bound start_at (calendar views); `created_from`/`created_to`
+    bound created_at (the today-page pool: events *recorded* today, regardless of
+    when they're scheduled). Returns newest start_at first; attendees + file refs inline.
     """
     from datetime import datetime
     async with AsyncSessionLocal() as db:
@@ -730,6 +734,16 @@ async def query_event(
                 stmt = stmt.where(Event.start_at <= datetime.fromisoformat(to_date.replace("Z", "+00:00")))
             except ValueError:
                 return _err(f"invalid to_date: {to_date}")
+        if created_from:
+            try:
+                stmt = stmt.where(Event.created_at >= datetime.fromisoformat(created_from.replace("Z", "+00:00")))
+            except ValueError:
+                return _err(f"invalid created_from: {created_from}")
+        if created_to:
+            try:
+                stmt = stmt.where(Event.created_at <= datetime.fromisoformat(created_to.replace("Z", "+00:00")))
+            except ValueError:
+                return _err(f"invalid created_to: {created_to}")
         if contains:
             kw = f"%{contains}%"
             from sqlalchemy import or_

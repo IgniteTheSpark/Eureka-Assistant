@@ -134,6 +134,12 @@ def _fallback_result_from_tool_events(tool_events: list) -> Optional[dict]:
         if data.get("event_id"):   out["event_id"]   = data["event_id"]
         if data.get("contact_id"): out["contact_id"] = data["contact_id"]
         if data.get("payload"):    out["payload"]    = data["payload"]
+        # create_contact returns its display fields flat (MCP tool: name=…) OR
+        # nested under "contact" (HTTP API: {ok, contact:{name,…}, contact_id}).
+        # Lift the nested shape up so the name survives either way.
+        if isinstance(data.get("contact"), dict):
+            for k in ("name", "company", "phone", "email"):
+                data.setdefault(k, data["contact"].get(k))
         # Some tools flatten display fields to the top level:
         #   create_event   → title / start_at / end_at
         #   create_contact → name / company / phone / email (NOT in payload)

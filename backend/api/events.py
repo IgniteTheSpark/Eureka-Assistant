@@ -75,11 +75,16 @@ async def list_events(
     contains:  str = Query("", description="keyword in title/location/description"),
     from_date: str = Query("", description="ISO8601 lower bound on start_at"),
     to_date:   str = Query("", description="ISO8601 upper bound on start_at"),
+    created_from: str = Query("", description="ISO8601 lower bound on created_at (今日页球池:今天记录的事件)"),
+    created_to:   str = Query("", description="ISO8601 upper bound on created_at"),
     status:    str = Query("", description="scheduled | cancelled | done"),
     limit:     int = Query(50, ge=1, le=500),
     user_id:   str = Depends(get_current_user_id),
 ):
-    result = await query_event(contains, from_date, to_date, status, limit, user_id)
+    result = await query_event(
+        contains, from_date, to_date, status, limit, user_id,
+        created_from=created_from, created_to=created_to,
+    )
     if not result.get("ok"):
         raise HTTPException(status_code=400, detail=result.get("error", "query failed"))
     return result

@@ -251,20 +251,33 @@ Future<({List<ChainItem> chain, List<ChainItem> noTime})> _loadChain(
   }
 }
 
-/// GET /api/assets?created_from&created_to → today's captures (by created_at).
-/// True count is the full list; the physics pool is capped at 50 bodies.
+/// Today's pool = everything **captured today**: assets (by created_at) + events
+/// (recorded today) + 名片/contacts (created today). All three fall as bubbles AND
+/// count in 今天 N 颗 + the rose chart. Events have no domain → '' (neutral /
+/// 未分类 in 按领域); contacts have no domain field → default 社交. The three GETs
+/// run concurrently and each degrades to empty on its own failure. True count =
+/// the merged list; the physics pool is capped at 50 bodies.
 Future<({List<PoolAsset> pool, int trueCount})> _loadPool(
   ApiClient api,
   String from,
   String to,
 ) async {
+  final assetsF = api.getJson(
+    '/api/assets',
+    query: {'created_from': from, 'created_to': to, 'limit': 500},
+  );
+  final eventsF = api.getJson(
+    '/api/events',
+    query: {'created_from': from, 'created_to': to, 'limit': 200},
+  );
+  final contactsF = api.getJson('/api/contacts', query: {'limit': 200});
+
+  final all = <PoolAsset>[];
+
+  // assets (skill-typed; carry their own §8 domain)
   try {
-    final res = await api.getJson(
-      '/api/assets',
-      query: {'created_from': from, 'created_to': to, 'limit': 500},
-    );
+    final res = await assetsF;
     final list = (res is Map ? res['assets'] : null) as List? ?? const [];
-    final all = <PoolAsset>[];
     for (final raw in list.whereType<Map>()) {
       final m = raw.cast<String, dynamic>();
       final payload =
@@ -283,10 +296,59 @@ Future<({List<PoolAsset> pool, int trueCount})> _loadPool(
         ),
       );
     }
-    return (pool: all.take(50).toList(), trueCount: all.length);
-  } catch (_) {
-    return (pool: <PoolAsset>[], trueCount: 0);
-  }
+  } catch (_) {}
+
+  // events recorded today — no domain → '' (neutral bubble / 未分类 in 按领域)
+  try {
+    final res = await eventsF;
+    final list = (res is Map ? res['events'] : null) as List? ?? const [];
+    for (final raw in list.whereType<Map>()) {
+      final m = raw.cast<String, dynamic>();
+      final t = (m['title'] as String?)?.trim();
+      all.add(
+        PoolAsset(
+          id: (m['id'] ?? m['event_id']) as String? ?? '',
+          type: 'event',
+          domain: '',
+          title: (t != null && t.isNotEmpty) ? t : '事件',
+          payload: m,
+          createdAt:
+              DateTime.tryParse(m['created_at'] as String? ?? '')?.toLocal() ??
+              now0(),
+        ),
+      );
+    }
+  } catch (_) {}
+
+  // 名片/contacts created today — no domain field → default 社交. The contacts
+  // API has no created filter, so client-filter created_at into [from, to].
+  try {
+    final res = await contactsF;
+    final list = (res is Map ? res['contacts'] : null) as List? ?? const [];
+    final fromDt = DateTime.tryParse(from), toDt = DateTime.tryParse(to);
+    for (final raw in list.whereType<Map>()) {
+      final m = raw.cast<String, dynamic>();
+      final c = DateTime.tryParse(m['created_at'] as String? ?? '');
+      if (c == null) continue;
+      if (fromDt != null && c.isBefore(fromDt)) continue;
+      if (toDt != null && c.isAfter(toDt)) continue;
+      final nm = (m['name'] as String?)?.trim();
+      all.add(
+        PoolAsset(
+          id: m['id'] as String? ?? '',
+          type: 'contact',
+          domain: '社交',
+          title: (nm != null && nm.isNotEmpty) ? nm : '名片',
+          payload: m,
+          createdAt: c.toLocal(),
+        ),
+      );
+    }
+  } catch (_) {}
+
+  // newest first → the dashboard's "最新" row + the freshest 50 as bubbles.
+  all.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  return (pool: all.take(50).toList(), trueCount: all.length);
 }
 
 /// GET /api/sessions?session_type=flash&date=today → flash count (server filters

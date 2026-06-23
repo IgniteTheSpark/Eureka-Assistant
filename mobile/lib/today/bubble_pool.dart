@@ -291,6 +291,8 @@ String glyphForType(String type) {
       return '📋';
     case 'expense':
       return '💰';
+    case 'event':
+      return '📅';
     case 'contact':
       return '👤';
     case 'notes':
@@ -311,6 +313,8 @@ String typeName(String type) {
       return '待办';
     case 'expense':
       return '记账';
+    case 'event':
+      return '事件';
     case 'contact':
       return '名片';
     case 'notes':
