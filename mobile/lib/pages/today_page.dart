@@ -101,6 +101,7 @@ class _TodayPageState extends State<TodayPage> {
         Positioned.fill(
           child: BubblePool(
             pool: data.pool,
+            skills: data.skills,
             active: widget.active,
             filterKey: _filterKey,
             highlightId: _highlightId,
@@ -114,6 +115,7 @@ class _TodayPageState extends State<TodayPage> {
             if (data.pool.isNotEmpty)
               Dashboard(
                 pool: data.pool,
+                skills: data.skills,
                 trueCount: data.poolTrueCount,
                 flashCount: data.flashCount,
                 flashLatestId: data.flashLatestId,

@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../theme/domains.dart' show domainColor;
 import '../theme/eureka_colors.dart';
-import 'bubble_pool.dart' show typeName;
+import '../timeline/timeline.dart' show SkillMeta, resolveMeta;
 import 'today_data.dart';
 import 'today_palette.dart';
 
@@ -76,6 +76,7 @@ List<ChartGroup> chartGroups(
   EurekaColors eu,
   String filterKey,
   List<PoolAsset> pool,
+  Map<String, SkillMeta> skills,
 ) {
   final counts = <String, int>{};
   if (filterKey == 'all') {
@@ -87,7 +88,7 @@ List<ChartGroup> chartGroups(
     return [
       for (var i = 0; i < entries.length; i++)
         ChartGroup(
-          typeName(entries[i].key),
+          resolveMeta(entries[i].key, skills).label,
           entries[i].value,
           _palette[i % _palette.length],
         ),

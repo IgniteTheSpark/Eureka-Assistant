@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../pages/session_detail_page.dart';
 import '../theme/app_theme.dart'; // context.eu
-import 'bubble_pool.dart' show glyphForType, typeName, openAssetSheet;
+import '../timeline/timeline.dart' show SkillMeta, resolveMeta;
+import 'bubble_pool.dart' show openAssetSheet;
 import 'charts.dart';
 import 'today_data.dart';
 import 'today_palette.dart';
@@ -23,9 +24,14 @@ class Dashboard extends StatefulWidget {
     required this.onFilter,
     required this.onHighlight,
     this.flashLatestId,
+    this.skills = const {},
   });
 
   final List<PoolAsset> pool;
+
+  /// skill_name → {icon, label}; chips / legend / chart header resolve through
+  /// this (resolveMeta) so custom skills show their real icon + name.
+  final Map<String, SkillMeta> skills;
   final int trueCount;
   final int flashCount;
   final String? flashLatestId;
@@ -54,10 +60,15 @@ class _DashboardState extends State<Dashboard> {
       ..sort((a, b) => counts[b]!.compareTo(counts[a]!));
     final summary = summaryFor(widget.filterKey, widget.pool);
     final latest = _latestAsset();
-    final groups = chartGroups(context.eu, widget.filterKey, widget.pool);
+    final groups = chartGroups(
+      context.eu,
+      widget.filterKey,
+      widget.pool,
+      widget.skills,
+    );
     final scopeLabel = widget.filterKey == 'all'
         ? '今日构成 · 按类型'
-        : '${typeName(widget.filterKey)} · 按领域';
+        : '${resolveMeta(widget.filterKey, widget.skills).label} · 按领域';
 
     return Container(
       margin: const EdgeInsets.fromLTRB(14, 8, 14, 0),
@@ -174,7 +185,10 @@ class _DashboardState extends State<Dashboard> {
         children: [
           chip('all', '全部 ${widget.pool.length}'),
           for (final t in types)
-            chip(t, '${glyphForType(t)} ${typeName(t)} ${counts[t]}'),
+            chip(
+              t,
+              '${resolveMeta(t, widget.skills).icon} ${resolveMeta(t, widget.skills).label} ${counts[t]}',
+            ),
         ],
       ),
     );
@@ -211,7 +225,9 @@ class _DashboardState extends State<Dashboard> {
             ),
             alignment: Alignment.center,
             child: Text(
-              widget.filterKey == 'all' ? '📊' : glyphForType(widget.filterKey),
+              widget.filterKey == 'all'
+                  ? '📊'
+                  : resolveMeta(widget.filterKey, widget.skills).icon,
               style: TextStyle(fontSize: 18),
             ),
           ),

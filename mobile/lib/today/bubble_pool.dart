@@ -11,6 +11,7 @@ import '../render/render_spec.dart' show RenderSpec, buildCard, synthesizeSpec;
 import '../render/skill_card.dart' show renderSpecsProvider;
 import '../theme/app_theme.dart'; // context.eu
 import '../theme/domains.dart' show domainColor;
+import '../timeline/timeline.dart' show SkillMeta, resolveMeta;
 import 'bubble_physics.dart';
 import 'today_data.dart';
 import 'today_palette.dart';
@@ -24,12 +25,17 @@ class BubblePool extends StatefulWidget {
   const BubblePool({
     super.key,
     required this.pool,
+    this.skills = const {},
     this.active = true,
     this.filterKey = 'all',
     this.highlightId,
   });
 
   final List<PoolAsset> pool;
+
+  /// skill_name → {icon, label}; the bubble glyph resolves through this so a
+  /// custom skill shows ITS icon, not a hardcoded guess (resolveMeta fallback).
+  final Map<String, SkillMeta> skills;
 
   /// Whether the today tab is the visible one. When false the ticker + the
   /// accelerometer are suspended even if bodies are still moving.
@@ -255,7 +261,8 @@ class _BubblePoolState extends State<BubblePool>
               filterKey: widget.filterKey,
               highlightId: widget.highlightId,
               colorOf: (id) => domainColor(eu, _byId[id]?.domain ?? ''),
-              glyphOf: (id) => glyphForType(_byId[id]?.type ?? ''),
+              glyphOf: (id) =>
+                  resolveMeta(_byId[id]?.type ?? '', widget.skills).icon,
               typeOf: (id) => _byId[id]?.type ?? '',
             ),
           ),
@@ -283,50 +290,10 @@ class _BubblePoolState extends State<BubblePool>
   );
 }
 
-/// type (skill name) → glyph. Matches the app's canonical built-ins (todo 📋,
-/// notes ✍️) so a bubble reads the same as the item does elsewhere.
-String glyphForType(String type) {
-  switch (type) {
-    case 'todo':
-      return '📋';
-    case 'expense':
-      return '💰';
-    case 'event':
-      return '📅';
-    case 'contact':
-      return '👤';
-    case 'notes':
-    case 'idea':
-    case 'misc':
-      return '✍️';
-    case 'running':
-      return '🎾';
-    default:
-      return '•';
-  }
-}
-
-/// type (skill name) → display name for the detail sheet's type pill.
-String typeName(String type) {
-  switch (type) {
-    case 'todo':
-      return '待办';
-    case 'expense':
-      return '记账';
-    case 'event':
-      return '事件';
-    case 'contact':
-      return '名片';
-    case 'notes':
-    case 'idea':
-    case 'misc':
-      return '随记';
-    case 'running':
-      return '运动';
-    default:
-      return type;
-  }
-}
+// NB: the pool bubble glyph + the dashboard category icon/name now resolve a
+// skill's real render_spec.icon + display_name via resolveMeta(type, skills)
+// (timeline.dart) — so a CUSTOM skill (e.g. 'running') shows ITS icon/name, not
+// a hardcoded guess. The old glyphForType/typeName maps lived here.
 
 /// Open the SAME global asset-detail sheet the calendar/library use, from a pool
 /// bubble or the dashboard's latest row — builds CardData via buildCard so the

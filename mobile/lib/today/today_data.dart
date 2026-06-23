@@ -1,5 +1,5 @@
 import '../api/api_client.dart';
-import '../timeline/timeline.dart' show TimelineItem;
+import '../timeline/timeline.dart' show TimelineItem, SkillMeta, fetchSkills;
 
 /// Today-page data models + the pure chain splitter + the one network fetch.
 ///
@@ -72,6 +72,7 @@ class TodayData {
     required this.poolTrueCount,
     required this.flashCount,
     this.flashLatestId,
+    this.skills = const {},
   });
 
   final List<ChainItem> chain;
@@ -80,6 +81,11 @@ class TodayData {
   final int poolTrueCount; // true count today (dashboard header)
   final int flashCount;
   final String? flashLatestId; // newest flash session today (⚡ pill target)
+
+  /// skill_name → {icon, label} from /api/skills (render_spec.icon + display_name).
+  /// The pool bubble glyph + dashboard category name resolve through this (via
+  /// resolveMeta) so a **custom** skill shows ITS icon/name, not a hardcoded guess.
+  final Map<String, SkillMeta> skills;
 
   static const empty = TodayData(
     chain: [],
@@ -158,10 +164,15 @@ Future<TodayData> loadToday(ApiClient api, {DateTime? nowOverride}) async {
   final chainF = _loadChain(api, from, to, now);
   final poolF = _loadPool(api, from, to);
   final flashF = _loadFlashCount(api, today);
+  // skill registry (icon + label per skill) — drives the bubble glyph + the
+  // dashboard category name so custom skills render correctly. Resilient: an
+  // empty map just falls back to resolveMeta's built-in defaults.
+  final skillsF = fetchSkills(api).catchError((_) => <String, SkillMeta>{});
 
   final split = await chainF;
   final poolRes = await poolF;
   final flash = await flashF;
+  final skills = await skillsF;
 
   return TodayData(
     chain: split.chain,
@@ -170,6 +181,7 @@ Future<TodayData> loadToday(ApiClient api, {DateTime? nowOverride}) async {
     poolTrueCount: poolRes.trueCount,
     flashCount: flash.count,
     flashLatestId: flash.latestId,
+    skills: skills,
   );
 }
 
