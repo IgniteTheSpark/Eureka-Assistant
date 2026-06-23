@@ -37,17 +37,20 @@ class _Item {
   const _Item(this.key, this.icon, this.label, {this.accent = false});
 }
 
-// 我的岛 is a dock tab — the floating menu doesn't need it (per design review).
+// 我的岛 left the dock (dock = 今日/日历/资产) → its entry lives HERE in REKA's
+// menu (key 'island' → PetPage, handled in floating_mascot._onPick). The earlier
+// "it's a dock tab" note was stale — it isn't, so the entry went missing.
 // 任务 temporarily removed — it returns with the 岛屿任务 (§7) spec
 // (restore: _Item('tasks', Icons.checklist_rounded, '任务')).
 const _items = <_Item>[
   _Item('create', Icons.add, '快创', accent: true),
   _Item('summarize', Icons.auto_awesome_outlined, '洞察'), // was 总结 (too dry); ✦ matches the 升华 flow
   _Item('notifications', Icons.notifications_none, '通知'),
+  _Item('island', Icons.cottage_outlined, '我的岛'),
 ];
 
 class _RekaRadialState extends State<RekaRadial> with SingleTickerProviderStateMixin {
-  static const double _panelW = 224;
+  static const double _panelW = 160; // 2×2 grid for the 4 items
   // v4 timing: panel container .2s; items 28ms stagger.
   late final AnimationController _c =
       AnimationController(vsync: this, duration: const Duration(milliseconds: 280))..forward();
