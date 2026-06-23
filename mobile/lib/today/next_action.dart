@@ -225,17 +225,23 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
   Widget _deck(List<ChainItem> chain, int idx) {
     final progress = (_drag.dx.abs() / 130).clamp(0.0, 1.0);
     final stacked = idx + 1 < chain.length; // ≥1 card behind the focal
+    // The global SkillCard is a fixed 3-row card; an **event** fills all three
+    // (title + start_at + location) so it's taller than a (usually 2-row) todo.
+    // Size the focal/deck/shells per the focal's kind so the event card doesn't
+    // overflow the box.
+    final cardH =
+        (idx < chain.length && chain[idx].kind == 'event') ? 150.0 : 128.0;
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 4, 14, 10),
       child: SizedBox(
-        height: stacked ? 148 : 128,
+        height: stacked ? cardH + 20 : cardH,
         child: Stack(
           clipBehavior: Clip.none,
           children: [
             // the visible stack behind the focal; the next shell rises toward the
             // focal as the focal is dragged away.
-            if (idx + 2 < chain.length) _stackShell(2, 0),
-            if (idx + 1 < chain.length) _stackShell(1, progress),
+            if (idx + 2 < chain.length) _stackShell(2, 0, cardH),
+            if (idx + 1 < chain.length) _stackShell(1, progress, cardH),
             // focal — draggable: follows the finger, tilts, flies off on release.
             // Tap → the global detail sheet; swipe → cycle.
             Transform.translate(
@@ -255,7 +261,7 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
                   onPanEnd: (d) =>
                       _releaseDrag(chain, idx, d.velocity.pixelsPerSecond.dx),
                   child: idx < chain.length
-                      ? _focalCard(chain[idx])
+                      ? _focalCard(chain[idx], cardH)
                       : _endCard(),
                 ),
               ),
@@ -268,7 +274,7 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
 
   /// A card shell behind the focal (the visible stack). [t] (0→1) rises the
   /// depth-1 shell toward the focal as the focal is dragged away.
-  Widget _stackShell(int depth, double t) {
+  Widget _stackShell(int depth, double t, double cardH) {
     final scale = (1 - depth * 0.05) + (depth == 1 ? t * 0.05 : 0);
     final dy = depth * 12.0 - (depth == 1 ? t * 12.0 : 0);
     return Positioned(
@@ -283,7 +289,7 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
           // translucent placeholder; just a touch dimmer per depth.
           opacity: 1 - depth * 0.07,
           child: Container(
-            height: 128,
+            height: cardH,
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
@@ -311,9 +317,9 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
   /// card look, bring the timing back). Opaque (cardTop/cardBottom) so the stack
   /// behind doesn't bleed through. The SkillCard is IgnorePointer'd so its own
   /// tap/checkbox/swipe-delete don't fight the deck; the deck owns tap + swipe.
-  Widget _focalCard(ChainItem it) {
+  Widget _focalCard(ChainItem it, double height) {
     return Container(
-      height: 128,
+      height: height,
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
       decoration: BoxDecoration(
