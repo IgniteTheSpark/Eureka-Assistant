@@ -1,0 +1,230 @@
+import 'package:flutter/material.dart';
+
+import 'next_action.dart' show NextActionPanel;
+import 'today_data.dart' show ChainItem;
+import 'today_palette.dart';
+
+/// 首页 B「潮汐」前景 (spec/handoff-today-home-design.md · design bundle
+/// spec/design-today-home/ B1 frame)。暖顶(早安 + 天气 + 今日一览 chips) +
+/// 段控(今日安排 ⇄ Reka Offer,下划线指示) + 屏区(两屏切换)。气泡池在它后面
+/// (today_page Stack 下层)从底部透出。
+///
+/// S1 = 脚手架:屏切走**段控点选**(整屏左右 swipe 留到 S2,先避开和气泡拖拽的
+/// 手势冲突);今日安排暂复用 [NextActionPanel] 那套卡叠(S2 重做成 B1 浮动叠卡 +
+/// 全局动作 icon + 双按钮);Reka Offer 暂占位(S3 接 §14.5a offer)。天气是占位
+/// (QWeather 后端 = S5)。
+class HomeForeground extends StatefulWidget {
+  const HomeForeground({
+    super.key,
+    required this.chain,
+    required this.noTimeTodos,
+    required this.flashCount,
+  });
+
+  final List<ChainItem> chain;
+  final List<ChainItem> noTimeTodos;
+  final int flashCount;
+
+  @override
+  State<HomeForeground> createState() => _HomeForegroundState();
+}
+
+class _HomeForegroundState extends State<HomeForeground> {
+  int _screen = 0; // 0 = 今日安排, 1 = Reka Offer
+
+  void _go(int i) {
+    if (_screen == i) return;
+    setState(() => _screen = i);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = TodayPalette.of(context);
+    final events = widget.chain.where((c) => c.kind == 'event').length;
+    final todos =
+        widget.chain.where((c) => c.kind == 'todo').length +
+        widget.noTimeTodos.length;
+    return Column(
+      children: [
+        _warmTop(p, events, todos),
+        _segment(p),
+        // The two foreground screens. AnimatedSwitcher = a 280ms horizontal
+        // glide on segment tap (full-screen swipe lands in S2). Natural height
+        // so the bubble pool shows + stays tappable in the Expanded gap below.
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 280),
+          switchInCurve: Curves.easeOut,
+          switchOutCurve: Curves.easeIn,
+          transitionBuilder: (child, anim) {
+            final incoming = child.key == ValueKey(_screen);
+            final dx = incoming ? 0.06 : -0.06;
+            return FadeTransition(
+              opacity: anim,
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: Offset(dx, 0),
+                  end: Offset.zero,
+                ).animate(anim),
+                child: child,
+              ),
+            );
+          },
+          layoutBuilder: (cur, prev) => Stack(
+            alignment: Alignment.topCenter,
+            children: [...prev, ?cur],
+          ),
+          child: _screen == 0
+              ? KeyedSubtree(
+                  key: const ValueKey(0),
+                  child: NextActionPanel(
+                    chain: widget.chain,
+                    noTimeTodos: widget.noTimeTodos,
+                  ),
+                )
+              : KeyedSubtree(
+                  key: const ValueKey(1),
+                  child: _offerPlaceholder(p),
+                ),
+        ),
+        // pool shows through here (today_page paints it behind this column)
+        const Expanded(child: SizedBox()),
+        // reserved gap so the bottom-most content clears the floating dock
+        const SizedBox(height: 78),
+      ],
+    );
+  }
+
+  // ── 暖顶 (吸收晨报): 早安 + 天气(占位) + 今日一览 chips ───────────────────────
+  Widget _warmTop(TodayPalette p, int events, int todos) {
+    final (greet, icon) = _greeting();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 8, 18, 0),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(icon, style: const TextStyle(fontSize: 16)),
+              const SizedBox(width: 6),
+              // TODO(S5): real weather (QWeather + IP) → ☀️ 26° 晴
+              Text(
+                greet,
+                style: TextStyle(color: p.body, fontSize: 12.5, height: 1),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 7,
+            alignment: WrapAlignment.center,
+            children: [
+              _ovChip(p, '$events 日程', accent: false),
+              _ovChip(p, '$todos 待办', accent: false),
+              _ovChip(p, '⚡ ${widget.flashCount} 闪念 ›', accent: true),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  (String, String) _greeting() {
+    final h = DateTime.now().hour;
+    if (h < 12) return ('早安', '☀️');
+    if (h < 18) return ('下午好', '🌤️');
+    return ('晚上好', '🌙');
+  }
+
+  Widget _ovChip(TodayPalette p, String label, {required bool accent}) =>
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
+        decoration: BoxDecoration(
+          color: accent
+              ? p.accent.withValues(alpha: 0.2)
+              : p.panelBg.withValues(alpha: p.dark ? 0.5 : 0.82),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: accent ? p.accent.withValues(alpha: 0.42) : p.panelBorder,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: accent ? p.accentSoft : p.body,
+            fontSize: 11.5,
+            fontWeight: accent ? FontWeight.w600 : FontWeight.w400,
+          ),
+        ),
+      );
+
+  // ── 段控: 今日安排 | Reka Offer (下划线指示 = 当前屏) ─────────────────────────
+  Widget _segment(TodayPalette p) => Padding(
+    padding: const EdgeInsets.only(top: 12, bottom: 2),
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _segTab(p, '今日安排', 0),
+        const SizedBox(width: 22),
+        _segTab(p, 'Reka Offer', 1),
+      ],
+    ),
+  );
+
+  Widget _segTab(TodayPalette p, String label, int i) {
+    final active = _screen == i;
+    return GestureDetector(
+      onTap: () => _go(i),
+      behavior: HitTestBehavior.opaque,
+      child: IntrinsicWidth(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                color: active ? p.title : p.faint,
+                fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+              ),
+            ),
+            const SizedBox(height: 5),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 220),
+              height: 2,
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: active ? p.accent : Colors.transparent,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Reka Offer 占位 (S3 接 §14.5a offer + 逾期 + 无时间习惯) ──────────────────
+  Widget _offerPlaceholder(TodayPalette p) => Padding(
+    padding: const EdgeInsets.only(top: 40),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text('💡', style: TextStyle(fontSize: 30)),
+        const SizedBox(height: 8),
+        Text(
+          'Reka 能帮你',
+          style: TextStyle(
+            color: p.title,
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          '整理随记 · 消费总结 · 习惯提醒（即将上线）',
+          style: TextStyle(color: p.muted, fontSize: 12),
+        ),
+      ],
+    ),
+  );
+}

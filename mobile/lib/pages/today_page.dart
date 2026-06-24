@@ -1,12 +1,9 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 
 import '../api/api_client.dart';
 import '../data_revision.dart';
 import '../today/bubble_pool.dart';
-import '../today/dashboard.dart';
-import '../today/next_action.dart';
+import '../today/home_foreground.dart';
 import '../today/today_data.dart';
 import '../today/today_palette.dart';
 
@@ -32,26 +29,12 @@ class TodayPage extends StatefulWidget {
 class _TodayPageState extends State<TodayPage> {
   final ApiClient _api = ApiClient();
   final Map<int, Future<TodayData>> _cache = {};
-  String _filterKey =
-      'all'; // dashboard chip → scopes summary/charts + dims pool
-  String? _highlightId; // a bubble lit up from the dashboard's latest-row tap
-  Timer? _hlTimer;
 
   Future<TodayData> _futureFor(int rev) =>
       _cache.putIfAbsent(rev, () => loadToday(_api));
 
-  /// Light up [id]'s bubble briefly (dashboard latest-row tap).
-  void _highlight(String id) {
-    setState(() => _highlightId = id);
-    _hlTimer?.cancel();
-    _hlTimer = Timer(const Duration(milliseconds: 5000), () {
-      if (mounted) setState(() => _highlightId = null);
-    });
-  }
-
   @override
   void dispose() {
-    _hlTimer?.cancel();
     _api.close();
     super.dispose();
   }
@@ -103,32 +86,16 @@ class _TodayPageState extends State<TodayPage> {
             pool: data.pool,
             skills: data.skills,
             active: widget.active,
-            filterKey: _filterKey,
-            highlightId: _highlightId,
           ),
         ),
-        // ── Front: panels column (Slice 3 Next Action + Slice 5 Dashboard) ──
-        Column(
-          children: [
-            NextActionPanel(chain: data.chain, noTimeTodos: data.noTimeTodos),
-            // Dashboard hidden entirely when there are no records today.
-            if (data.pool.isNotEmpty)
-              Dashboard(
-                pool: data.pool,
-                skills: data.skills,
-                trueCount: data.poolTrueCount,
-                flashCount: data.flashCount,
-                flashLatestId: data.flashLatestId,
-                filterKey: _filterKey,
-                onFilter: (k) =>
-                    setState(() => _filterKey = k == _filterKey ? 'all' : k),
-                onHighlight: _highlight,
-              ),
-            // the bubble pool (Slice 4) shows through this transparent gap.
-            const Expanded(child: SizedBox()),
-            // reserved gap so the bottom-most panel clears the floating dock.
-            const SizedBox(height: 78),
-          ],
+        // ── Front: B「潮汐」foreground — 暖顶 + 段控(今日安排 ⇄ Reka Offer) + 屏区.
+        // Floats above the pool; the pool shows through the Expanded gap inside
+        // HomeForeground. (Replaces the old Next Action panel + 3-chart dashboard,
+        // both 废 per spec/handoff-today-home-design.md.)
+        HomeForeground(
+          chain: data.chain,
+          noTimeTodos: data.noTimeTodos,
+          flashCount: data.flashCount,
         ),
       ],
     );
