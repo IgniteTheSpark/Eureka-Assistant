@@ -9,10 +9,10 @@ import 'today_palette.dart';
 /// 段控(今日安排 ⇄ Reka Offer,下划线指示) + 屏区(两屏切换)。气泡池在它后面
 /// (today_page Stack 下层)从底部透出。
 ///
-/// S1 = 脚手架:屏切走**段控点选**(整屏左右 swipe 留到 S2,先避开和气泡拖拽的
-/// 手势冲突);今日安排暂复用 [NextActionPanel] 那套卡叠(S2 重做成 B1 浮动叠卡 +
-/// 全局动作 icon + 双按钮);Reka Offer 暂占位(S3 接 §14.5a offer)。天气是占位
-/// (QWeather 后端 = S5)。
+/// S1 = 脚手架(2 屏壳 + 段控 + 暖顶)。S2 = 今日安排重做成 B1 浮动 Tinder 叠卡
+/// ([NextActionPanel]:event/todo 按类型卡 + 拖拽全局动作 icon + 底部双按钮 + 空态;
+/// 延后 popover = S2b、整屏 swipe 切屏 + 气泡手势仲裁 = S2d 待做)。屏切暂走**段控
+/// 点选**;Reka Offer 暂占位(S3 接 §14.5a offer);天气占位(QWeather 后端 = S5)。
 class HomeForeground extends StatefulWidget {
   const HomeForeground({
     super.key,

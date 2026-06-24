@@ -13,20 +13,19 @@ const _domainIcon = {
   '社交': '🤝', '娱乐': '🎮', '生活': '🏠', '灵感': '💡',
 };
 
-/// Domain → accent color (reuses the §5.1 8-slot accent palette).
-Color domainColor(EurekaColors eu, String domain) {
-  switch (domain) {
-    case '工作': return eu.accentBlue;
-    case '学习': return eu.accentPurple;
-    case '健康': return eu.accentGreen;
-    case '运动': return eu.accentCyan;
-    case '社交': return eu.accentAmber;
-    case '娱乐': return eu.accentRed;
-    case '生活': return eu.accentNeutral;
-    case '灵感': return eu.accentGray;
-    default:    return eu.textLo;
-  }
-}
+/// §8 域色 = 身份色,B「潮汐」低饱和 8 色板(2026-06 锁定;源 = 今日页重设计稿)。
+/// **与 §5.1 功能 accent 槽解耦** —— `accentRed/Green/Amber` 还要当 错误/成功/警告,
+/// 不能被域色染,故域色独立写死在此。日历 dot + 今日页气泡/卡 共用本函数 → 自动对齐。
+/// theme-independent(域色 = 身份,不随日夜变);[eu] 仅保签名 + 未知域兜底。
+const _domainColor = {
+  '工作': Color(0xFF8AB4FF), '学习': Color(0xFFB89CF0),
+  '健康': Color(0xFF84C9A0), '运动': Color(0xFF6FD0D8),
+  '社交': Color(0xFFF5C977), '娱乐': Color(0xFFF08A8A),
+  '生活': Color(0xFF9FB0C9), '灵感': Color(0xFFC3BCD0),
+};
+
+Color domainColor(EurekaColors eu, String domain) =>
+    _domainColor[domain] ?? eu.textLo;
 
 String domainIcon(String domain) => _domainIcon[domain] ?? '🏷';
 

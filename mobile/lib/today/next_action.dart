@@ -7,7 +7,7 @@ import '../api/api_client.dart';
 import '../data_revision.dart';
 import '../render/asset_detail_sheet.dart' show showAssetDetail;
 import '../render/render_spec.dart' show RenderSpec, buildCard, synthesizeSpec;
-import '../render/skill_card.dart' show SkillCard, renderSpecsProvider;
+import '../render/skill_card.dart' show renderSpecsProvider;
 import '../theme/app_theme.dart'; // context.eu
 import '../theme/domains.dart' show domainColor;
 import '../theme/eureka_colors.dart';
@@ -26,11 +26,13 @@ String fmtCountdown(Duration d) {
   return h > 0 ? '$h 时 ${two(m)} 分' : '${two(m)} 分 ${two(s)} 秒';
 }
 
-/// Part 1 — the swipeable stack of upcoming timed actions + the no-time todo
-/// list. Floats (frosted) over the bubble pool. Tokens = prototype "Next Action
-/// panel"; logic = §4.5.0. [chain] is upcoming-timed (sorted), [noTimeTodos] the
-/// no-clock todos. Both come from [loadToday]; completing/advancing calls
-/// [bumpData] so TodayPage re-fetches.
+/// 今日安排 — the B1「潮汐」floating Tinder deck (spec/design-today-home/ B1).
+/// Per-type cards (event = countdown + auto-reminder line; todo = ⏰延后 + ✓完成)
+/// float over the bubble pool; left/right swipe **browses only** (‹上一个 /
+/// 下一个›, never consumes) with a mid-drag global action icon + bottom twin
+/// buttons; finish → ↻ 回到当前. [chain] is upcoming-timed (sorted), [noTimeTodos]
+/// the no-clock todos (appended live). Both come from [loadToday];
+/// completing/advancing calls [bumpData] so TodayPage re-fetches. logic = §4.5.0.
 class NextActionPanel extends ConsumerStatefulWidget {
   const NextActionPanel({
     super.key,
@@ -48,9 +50,8 @@ class NextActionPanel extends ConsumerStatefulWidget {
 class _NextActionPanelState extends ConsumerState<NextActionPanel>
     with SingleTickerProviderStateMixin {
   final ApiClient _api = ApiClient();
-  bool _open = true;
-  bool _noTimeOpen = false;
   int _index = 0;
+  int _itemCount = 0; // live deck length: timed chain + live no-time todos
   DateTime _now = DateTime.now();
   Timer? _tick; // 1s tick for the focal card's live countdown
   final Set<String> _completing = {}; // ids mid-PUT (avoid double-tap)
@@ -81,7 +82,7 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
             if (s != AnimationStatus.completed) return;
             setState(() {
               if (_pendingDelta != 0) {
-                final n = widget.chain.length;
+                final n = _itemCount;
                 // allow n = the end card (one past the last); 0 = first.
                 if (n > 0) _index = (_index + _pendingDelta).clamp(0, n);
               }
@@ -133,106 +134,138 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
 
   @override
   Widget build(BuildContext context) {
-    final eu = context.eu;
     _p = TodayPalette.of(context);
-    final chain = widget.chain;
-    final hasChain = chain.isNotEmpty;
-    // idx can reach chain.length = the "暂时没有了" end card (one past the last).
-    final idx = hasChain ? _index.clamp(0, chain.length) : 0;
-    final atEnd = idx >= chain.length;
+    // B1 deck = the timed chain + today's live no-time todos (so nothing is lost
+    // now that the old 无时间待办 list is gone); done no-time todos drop out.
+    final items = <ChainItem>[
+      ...widget.chain,
+      ...widget.noTimeTodos.where((t) => !t.done),
+    ];
+    _itemCount = items.length;
+    if (items.isEmpty) return _emptyState();
+    final idx = _index.clamp(0, items.length); // == length → the end card
 
-    return Container(
-      margin: const EdgeInsets.fromLTRB(14, 4, 14, 0),
-      decoration: BoxDecoration(
-        color: _p.panelBg,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: _p.panelBorder),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _header(
-            atEnd ? null : (hasChain ? chain[idx] : null),
-            idx,
-            chain.length,
-          ),
-          if (_open) ...[
-            if (hasChain) _deck(chain, idx) else _emptyDeck(),
-            _counterRow(),
-            if (_noTimeOpen) _noTimeList(eu),
-          ],
-        ],
-      ),
+    // Transparent (no panel): the cards float over the pool, framed by the
+    // segment above + the dock below. Stack + twin buttons + browse hint = B1.
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _deck(items, idx),
+        const SizedBox(height: 16),
+        _twinButtons(idx),
+        const SizedBox(height: 9),
+        Text(
+          '左右滑浏览（不消耗）· 滑完 ↻ 回到当前',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 10.5, color: _p.faint),
+        ),
+      ],
     );
   }
 
-  // ── header ────────────────────────────────────────────────────────────────
-  Widget _header(ChainItem? focal, int idx, int total) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(18),
-      onTap: () => setState(() => _open = !_open),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 13, 14, 13),
-        child: Row(
-          children: [
-            Expanded(
-              child: _open || focal == null
-                  ? Text(
-                      '接下来',
-                      style: TextStyle(
-                        color: _p.faint,
-                        fontSize: 10,
-                        letterSpacing: 1.6,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    )
-                  : Text(
-                      focal.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: _p.title,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+  // ── twin buttons + mid-drag action icon (Tinder feel) ───────────────────────
+  /// Bottom ‹ / › twin buttons mirror the browse swipe (tap when you'd rather not
+  /// drag). Prev disabled at the head, next disabled on the end card.
+  Widget _twinButtons(int idx) => Row(
+    mainAxisAlignment: MainAxisAlignment.center,
+    children: [
+      _twinBtn(next: false, enabled: idx > 0),
+      const SizedBox(width: 30),
+      _twinBtn(next: true, enabled: idx < _itemCount),
+    ],
+  );
+
+  Widget _twinBtn({required bool next, required bool enabled}) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: enabled ? () => _animateTo(next ? 1 : -1) : null,
+      child: Opacity(
+        opacity: enabled ? 1 : 0.32,
+        child: Container(
+          width: 50,
+          height: 50,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: next
+                ? _p.accent.withValues(alpha: 0.22)
+                : _p.panelBg.withValues(alpha: _p.dark ? 0.5 : 0.82),
+            border: Border.all(
+              color: next ? _p.accent : _p.panelBorder,
+              width: 1.5,
             ),
-            if (total > 0)
-              Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: Text(
-                  idx >= total ? '$total / $total' : '${idx + 1} / $total',
-                  style: TextStyle(
-                    color: _p.accent,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    fontFeatures: [FontFeature.tabularFigures()],
-                  ),
-                ),
-              ),
-            Icon(
-              _open ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
-              size: 20,
-              color: _p.faint,
+          ),
+          child: Text(
+            next ? '›' : '‹',
+            style: TextStyle(
+              fontSize: 21,
+              height: 1,
+              color: next ? _p.accentSoft : _p.muted,
             ),
-          ],
+          ),
         ),
       ),
     );
   }
 
-  // ── deck (Tinder-style card stack) ──────────────────────────────────────────
-  Widget _deck(List<ChainItem> chain, int idx) {
+  /// The big centered icon that fades in over the stack mid-drag — tells you the
+  /// pending action (browse-only here: ‹ 上一个 / 下一个 ›, blue).
+  Widget _actionIcon(bool next) => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Container(
+        width: 82,
+        height: 82,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: _p.accent.withValues(alpha: 0.22),
+          border: Border.all(color: _p.accent, width: 4),
+        ),
+        child: Text(
+          next ? '›' : '‹',
+          style: TextStyle(fontSize: 42, height: 1, color: _p.accentSoft),
+        ),
+      ),
+      const SizedBox(height: 6),
+      Text(
+        next ? '下一个' : '上一个',
+        style: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 1,
+          color: _p.accentSoft,
+        ),
+      ),
+    ],
+  );
+
+  /// Programmatic advance (twin-button tap): fly the focal off then step [dir]
+  /// (+1 next / -1 prev), reusing the swipe-release animation.
+  void _animateTo(int dir) {
+    if (_fly.isAnimating) return;
+    final cur = _index.clamp(0, _itemCount);
+    if (dir > 0 ? cur >= _itemCount : cur <= 0) return;
+    _flyFrom = _drag;
+    _flyTo = Offset((dir > 0 ? -1 : 1) * 460, 40);
+    _pendingDelta = dir;
+    _fly.duration = const Duration(milliseconds: 220);
+    _fly.forward(from: 0);
+  }
+
+  // ── deck: stacked cards + draggable focal + mid-drag action icon ────────────
+  Widget _deck(List<ChainItem> items, int idx) {
     final progress = (_drag.dx.abs() / 130).clamp(0.0, 1.0);
-    final stacked = idx + 1 < chain.length; // ≥1 card behind the focal
-    // The global SkillCard is a fixed 3-row card; an **event** fills all three
-    // (title + start_at + location) so it's taller than a (usually 2-row) todo.
-    // Size the focal/deck/shells per the focal's kind so the event card doesn't
-    // overflow the box.
-    final cardH =
-        (idx < chain.length && chain[idx].kind == 'event') ? 150.0 : 128.0;
+    final stacked = idx + 1 < items.length; // ≥1 card behind the focal
+    // B1 cards are bespoke (not the nested SkillCard) now; both kinds share one
+    // height so the event bar + todo buttons both have room without overflow.
+    const cardH = 156.0;
+    // which way the drag heads, and whether that move is allowed (head/end caps).
+    final dir = _drag.dx < -4 ? 1 : (_drag.dx > 4 ? -1 : 0); // 1=next, -1=prev
+    final canGo = dir == 1 ? idx < items.length : (dir == -1 && idx > 0);
+    final iconProg = canGo ? (_drag.dx.abs() / 120).clamp(0.0, 1.0) : 0.0;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 4, 14, 10),
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
       child: SizedBox(
         height: stacked ? cardH + 20 : cardH,
         child: Stack(
@@ -240,10 +273,10 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
           children: [
             // the visible stack behind the focal; the next shell rises toward the
             // focal as the focal is dragged away.
-            if (idx + 2 < chain.length) _stackShell(2, 0, cardH),
-            if (idx + 1 < chain.length) _stackShell(1, progress, cardH),
+            if (idx + 2 < items.length) _stackShell(2, 0, cardH),
+            if (idx + 1 < items.length) _stackShell(1, progress, cardH),
             // focal — draggable: follows the finger, tilts, flies off on release.
-            // Tap → the global detail sheet; swipe → cycle.
+            // Tap → the global detail sheet; swipe → browse (never consumes).
             Transform.translate(
               offset: _drag,
               child: Transform.rotate(
@@ -251,21 +284,33 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
                 alignment: Alignment.bottomCenter,
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: idx < chain.length
-                      ? () => _openDetail(chain[idx])
+                  onTap: idx < items.length
+                      ? () => _openDetail(items[idx])
                       : null,
                   onPanUpdate: (d) {
                     if (_fly.isAnimating) return;
                     setState(() => _drag += d.delta);
                   },
                   onPanEnd: (d) =>
-                      _releaseDrag(chain, idx, d.velocity.pixelsPerSecond.dx),
-                  child: idx < chain.length
-                      ? _focalCard(chain[idx], cardH)
+                      _releaseDrag(items, idx, d.velocity.pixelsPerSecond.dx),
+                  child: idx < items.length
+                      ? _focalCard(items[idx], cardH)
                       : _endCard(),
                 ),
               ),
             ),
+            // Tinder global action icon, fading in over the stack mid-drag.
+            if (iconProg > 0.04)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: Center(
+                    child: Opacity(
+                      opacity: iconProg,
+                      child: _actionIcon(dir == 1),
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
@@ -312,16 +357,27 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
     );
   }
 
-  /// Focal = a "big card" that **nests the global SkillCard** ('horizontal',
-  /// same as 资产库/日历) + a live countdown footer (per review: keep the global
-  /// card look, bring the timing back). Opaque (cardTop/cardBottom) so the stack
-  /// behind doesn't bleed through. The SkillCard is IgnorePointer'd so its own
-  /// tap/checkbox/swipe-delete don't fight the deck; the deck owns tap + swipe.
+  // ── per-type focal card (B1) ────────────────────────────────────────────────
+  /// Focal = a bespoke card rendered by kind, single-color body + one §8 domain
+  /// dot. Opaque (cardTop/cardBottom) so the stack behind doesn't bleed through.
+  /// The deck owns tap + swipe; the todo's 延后/完成 buttons catch their own taps
+  /// (a drag starting on a button still falls through to the deck). event =
+  /// countdown + imminence/elapsed bar + passive auto-reminder line (no buttons);
+  /// todo = ⏰延后 + ✓完成 (延后 popover lands in S2b).
   Widget _focalCard(ChainItem it, double height) {
+    final eu = context.eu;
+    return it.kind == 'event'
+        ? _eventCard(it, height, eu)
+        : _todoCard(it, height, eu);
+  }
+
+  /// The shared frosted card body (gradient + border + lift); [child] = per-type
+  /// content.
+  Widget _cardShell(double height, Widget child) {
     return Container(
       height: height,
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+      padding: const EdgeInsets.fromLTRB(15, 13, 15, 13),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
@@ -338,56 +394,232 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
           ),
         ],
       ),
-      child: Column(
+      child: child,
+    );
+  }
+
+  /// §8 domain identity dot — the card's only color (per the locked rule).
+  Widget _dot(Color c, {double size = 8}) => Container(
+    width: size,
+    height: size,
+    decoration: BoxDecoration(
+      color: c,
+      shape: BoxShape.circle,
+      boxShadow: [BoxShadow(color: c.withValues(alpha: 0.6), blurRadius: 7)],
+    ),
+  );
+
+  String _hm(DateTime t) =>
+      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+  /// kind · meta row: domain dot + "事件 · 地点" / "待办 · 截止" + optional trailing
+  /// (the event's start clock).
+  Widget _kindRow(Color dom, String meta, {String? trailing}) => Row(
+    children: [
+      _dot(dom),
+      const SizedBox(width: 7),
+      Expanded(
+        child: Text(
+          meta,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(fontSize: 11.5, color: _p.muted, height: 1),
+        ),
+      ),
+      if (trailing != null)
+        Text(
+          trailing,
+          style: TextStyle(
+            fontSize: 11.5,
+            color: _p.muted,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+        ),
+    ],
+  );
+
+  Widget _cardTitle(String t) => Text(
+    t,
+    maxLines: 2,
+    overflow: TextOverflow.ellipsis,
+    style: TextStyle(
+      color: _p.title,
+      fontSize: 18,
+      fontWeight: FontWeight.w600,
+      height: 1.2,
+    ),
+  );
+
+  // event: countdown text + imminence/elapsed bar + passive 「🔔 到点自动提醒」.
+  Widget _eventCard(ChainItem it, double height, EurekaColors eu) {
+    final dom = domainColor(eu, it.domain);
+    final meta = it.sub == '事件' ? '事件' : '事件 · ${it.sub}';
+    final (label, frac) = _eventProgress(it);
+    return _cardShell(
+      height,
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: IgnorePointer(
-              child: SkillCard(it.card, layoutOverride: 'horizontal'),
+          _kindRow(dom, meta, trailing: _hm(it.at)),
+          const SizedBox(height: 9),
+          _cardTitle(it.title),
+          const Spacer(),
+          Text(
+            label,
+            style: TextStyle(
+              color: _p.accent,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+              fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),
-          const SizedBox(height: 4),
-          _countdownRow(it),
+          const SizedBox(height: 7),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(99),
+            child: LinearProgressIndicator(
+              value: frac,
+              minHeight: 5,
+              backgroundColor: _p.accent.withValues(alpha: 0.14),
+              valueColor: AlwaysStoppedAnimation(_p.accent),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text('🔔 到点自动提醒', style: TextStyle(fontSize: 11, color: _p.faint)),
         ],
       ),
     );
   }
 
-  /// Live countdown footer on the focal card. Event: 还剩/进行中/X 后开始;
-  /// timed todo: X 后到期 / 已到期. Drives the 1s [_tick].
-  Widget _countdownRow(ChainItem it) {
-    final start = it.at;
-    final started = !_now.isBefore(start);
-    final String label;
-    if (it.kind == 'event') {
-      if (!started) {
-        label = '⏳ ${fmtCountdown(start.difference(_now))} 后开始';
-      } else if (it.dur != null) {
-        final end = start.add(it.dur!);
-        label = _now.isBefore(end)
-            ? '进行中 · 还剩 ${fmtCountdown(end.difference(_now))}'
-            : '已结束';
-      } else {
-        label = '进行中';
-      }
-    } else {
-      label = started ? '已到期' : '⏳ ${fmtCountdown(start.difference(_now))} 后到期';
+  /// (label, 0..1 bar) for an event: imminence over the last hour before start,
+  /// then elapsed fraction once 进行中. Drives the 1s [_tick].
+  (String, double) _eventProgress(ChainItem it) {
+    final started = !_now.isBefore(it.at);
+    if (!started) {
+      final d = it.at.difference(_now);
+      return (
+        '⏳ ${fmtCountdown(d)} 后开始',
+        (1 - d.inSeconds / 3600).clamp(0.0, 1.0).toDouble(),
+      );
     }
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 5),
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: _p.accent.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(10),
+    final dur = it.dur;
+    if (dur != null && dur.inSeconds > 0) {
+      final end = it.at.add(dur);
+      if (_now.isBefore(end)) {
+        return (
+          '进行中 · 还剩 ${fmtCountdown(end.difference(_now))}',
+          (1 - end.difference(_now).inSeconds / dur.inSeconds)
+              .clamp(0.0, 1.0)
+              .toDouble(),
+        );
+      }
+      return ('已结束', 1.0);
+    }
+    return ('进行中', 1.0);
+  }
+
+  // todo: due line + ⏰延后 / ✓完成 buttons (延后 = on-card, never a swipe).
+  Widget _todoCard(ChainItem it, double height, EurekaColors eu) {
+    final dom = domainColor(eu, it.domain);
+    final meta = it.timed ? '待办 · ${_hm(it.at)} 截止' : '待办';
+    final started = !_now.isBefore(it.at);
+    final due = it.timed
+        ? (started ? '已到期' : '⏳ ${fmtCountdown(it.at.difference(_now))} 后到期')
+        : '无截止时间';
+    return _cardShell(
+      height,
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _kindRow(dom, meta),
+          const SizedBox(height: 9),
+          _cardTitle(it.title),
+          const Spacer(),
+          Text(
+            due,
+            style: TextStyle(
+              color: _p.muted,
+              fontSize: 12,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+          const SizedBox(height: 9),
+          Row(
+            children: [
+              _snoozeButton(it),
+              const SizedBox(width: 8),
+              Expanded(child: _doneButton(it)),
+            ],
+          ),
+        ],
       ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: _p.accent,
-          fontSize: 12.5,
-          fontWeight: FontWeight.w600,
-          fontFeatures: const [FontFeature.tabularFigures()],
+    );
+  }
+
+  /// ⏰ 延后 — amber on-card button. S2b wires the quick-reschedule popover; for
+  /// now it's inert (the swipe stays browse-only, never snoozes).
+  Widget _snoozeButton(ChainItem it) {
+    const amber = Color(0xFFF5C977);
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {}, // TODO(S2b): quick-reschedule popover (1小时/明天/后天/自定义)
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+        decoration: BoxDecoration(
+          color: amber.withValues(alpha: 0.16),
+          borderRadius: BorderRadius.circular(9),
+          border: Border.all(color: amber.withValues(alpha: 0.42)),
         ),
+        child: const Text(
+          '⏰ 延后',
+          style: TextStyle(
+            color: Color(0xFFF5D99A),
+            fontSize: 12.5,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// ✓ 完成 — accent-filled; completing a timed todo drops it from the chain
+  /// (loadToday filters done timed todos) so the deck advances on bumpData.
+  Widget _doneButton(ChainItem it) {
+    final busy = _completing.contains(it.id);
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: busy ? null : () => _setDone(it.id, true),
+      child: Container(
+        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(vertical: 9),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              _p.accent.withValues(alpha: 0.3),
+              _p.accent.withValues(alpha: 0.15),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(9),
+          border: Border.all(color: _p.accent.withValues(alpha: 0.45)),
+        ),
+        child: busy
+            ? SizedBox(
+                width: 15,
+                height: 15,
+                child: CircularProgressIndicator(
+                  strokeWidth: 1.6,
+                  color: _p.accentSoft,
+                ),
+              )
+            : Text(
+                '✓ 完成',
+                style: TextStyle(
+                  color: _p.accentSoft,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
       ),
     );
   }
@@ -426,8 +658,8 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
     );
   }
 
-  /// Past-the-last end state. Swipe right returns to the last card; the ↺ pill
-  /// restarts at the first.
+  /// Past-the-last end state. Swipe right returns to the last card; the ↻ pill
+  /// returns to the current (nearest) action.
   Widget _endCard() {
     return Container(
       height: 128,
@@ -469,7 +701,7 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
                 border: Border.all(color: _p.accent.withValues(alpha: 0.42)),
               ),
               child: Text(
-                '↺ 回到开头',
+                '↻ 回到当前',
                 style: TextStyle(
                   color: _p.accent,
                   fontSize: 13,
@@ -483,142 +715,28 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
     );
   }
 
-  // ── counter row + no-time list ──────────────────────────────────────────────
-  Widget _counterRow() {
-    final n = widget.noTimeTodos.length;
+  // ── empty (S2e · 今日安排空) ─────────────────────────────────────────────────
+  Widget _emptyState() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 14, 12),
-      child: Row(
-        children: [
-          const Spacer(),
-          if (n > 0)
-            GestureDetector(
-              onTap: () => setState(() => _noTimeOpen = !_noTimeOpen),
-              child: Row(
-                children: [
-                  Text(
-                    '🕒 无时间待办 $n',
-                    style: TextStyle(color: _p.muted, fontSize: 12),
-                  ),
-                  Icon(
-                    _noTimeOpen
-                        ? Icons.keyboard_arrow_up
-                        : Icons.keyboard_arrow_down,
-                    size: 18,
-                    color: _p.faint,
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _noTimeList(EurekaColors eu) {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(14, 0, 14, 12),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: _p.inset,
-        borderRadius: BorderRadius.circular(13),
-        border: Border.all(color: _p.panelBorder),
-      ),
+      padding: const EdgeInsets.fromLTRB(28, 34, 28, 22),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          for (final it in widget.noTimeTodos)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 7),
-              child: Row(
-                children: [
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: domainColor(
-                        eu,
-                        it.domain,
-                      ).withValues(alpha: it.done ? .4 : 1),
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      it.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: it.done ? _p.muted : _p.body,
-                        fontSize: 14,
-                        decoration: it.done ? TextDecoration.lineThrough : null,
-                        decorationColor: _p.muted,
-                      ),
-                    ),
-                  ),
-                  GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: _completing.contains(it.id)
-                        ? null
-                        : () => _setDone(it.id, !it.done),
-                    child: SizedBox(
-                      width: 24,
-                      height: 24,
-                      child: Center(
-                        child: _completing.contains(it.id)
-                            ? SizedBox(
-                                width: 14,
-                                height: 14,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 1.5,
-                                  color: _p.accent,
-                                ),
-                              )
-                            : Container(
-                                width: 19,
-                                height: 19,
-                                alignment: Alignment.center,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: it.done ? _p.accent : null,
-                                  border: Border.all(
-                                    color: it.done ? _p.accent : _p.faint,
-                                  ),
-                                ),
-                                child: it.done
-                                    ? Icon(
-                                        Icons.check,
-                                        size: 13,
-                                        color: _p.onAccent,
-                                      )
-                                    : null,
-                              ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  // ── empty ───────────────────────────────────────────────────────────────────
-  Widget _emptyDeck() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 6, 16, 18),
-      child: Column(
-        children: [
-          const Text('🌤️', style: TextStyle(fontSize: 30)),
-          SizedBox(height: 8),
+          const Text('🌤️', style: TextStyle(fontSize: 32)),
+          const SizedBox(height: 10),
           Text(
-            '今天还没有日程或待办',
+            '今日安排空',
             style: TextStyle(
               color: _p.title,
               fontSize: 15,
               fontWeight: FontWeight.w600,
             ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            '今天没安排，随便记 —— 说一句 Reka 帮你记下',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: _p.muted, fontSize: 12, height: 1.4),
           ),
         ],
       ),
