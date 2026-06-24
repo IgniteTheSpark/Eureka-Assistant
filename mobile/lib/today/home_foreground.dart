@@ -10,33 +10,32 @@ import 'today_palette.dart';
 /// (today_page Stack 下层)从底部透出。
 ///
 /// S1 = 脚手架(2 屏壳 + 段控 + 暖顶)。S2 = 今日安排重做成 B1 浮动 Tinder 叠卡
-/// ([NextActionPanel]:event/todo 按类型卡 + 拖拽全局动作 icon + 底部双按钮 + 空态;
-/// 延后 popover = S2b、整屏 swipe 切屏 + 气泡手势仲裁 = S2d 待做)。屏切暂走**段控
-/// 点选**;Reka Offer 暂占位(S3 接 §14.5a offer);天气占位(QWeather 后端 = S5)。
+/// ([NextActionPanel]:event/todo 按类型卡 + 拖拽全局动作 icon + 底部双按钮 + 延后
+/// popover + 空态)。屏切 = 段控点选 **或整屏 swipe**([screen] notifier 由 TodayPage
+/// 持有,气泡池在空白区仲裁 swipe vs 气泡拖拽 = S2d)。Reka Offer 暂占位(S3 接
+/// §14.5a offer);天气占位(QWeather 后端 = S5)。
 class HomeForeground extends StatefulWidget {
   const HomeForeground({
     super.key,
     required this.chain,
     required this.noTimeTodos,
     required this.flashCount,
+    required this.screen,
   });
 
   final List<ChainItem> chain;
   final List<ChainItem> noTimeTodos;
   final int flashCount;
 
+  /// Foreground screen (0 = 今日安排, 1 = Reka Offer), owned by TodayPage so the
+  /// bubble pool's background swipe (S2d) + the segment tap share one source.
+  final ValueNotifier<int> screen;
+
   @override
   State<HomeForeground> createState() => _HomeForegroundState();
 }
 
 class _HomeForegroundState extends State<HomeForeground> {
-  int _screen = 0; // 0 = 今日安排, 1 = Reka Offer
-
-  void _go(int i) {
-    if (_screen == i) return;
-    setState(() => _screen = i);
-  }
-
   @override
   Widget build(BuildContext context) {
     final p = TodayPalette.of(context);
@@ -44,53 +43,56 @@ class _HomeForegroundState extends State<HomeForeground> {
     final todos =
         widget.chain.where((c) => c.kind == 'todo').length +
         widget.noTimeTodos.length;
-    return Column(
-      children: [
-        _warmTop(p, events, todos),
-        _segment(p),
-        // The two foreground screens. AnimatedSwitcher = a 280ms horizontal
-        // glide on segment tap (full-screen swipe lands in S2). Natural height
-        // so the bubble pool shows + stays tappable in the Expanded gap below.
-        AnimatedSwitcher(
-          duration: const Duration(milliseconds: 280),
-          switchInCurve: Curves.easeOut,
-          switchOutCurve: Curves.easeIn,
-          transitionBuilder: (child, anim) {
-            final incoming = child.key == ValueKey(_screen);
-            final dx = incoming ? 0.06 : -0.06;
-            return FadeTransition(
-              opacity: anim,
-              child: SlideTransition(
-                position: Tween<Offset>(
-                  begin: Offset(dx, 0),
-                  end: Offset.zero,
-                ).animate(anim),
-                child: child,
-              ),
-            );
-          },
-          layoutBuilder: (cur, prev) => Stack(
-            alignment: Alignment.topCenter,
-            children: [...prev, ?cur],
-          ),
-          child: _screen == 0
-              ? KeyedSubtree(
-                  key: const ValueKey(0),
-                  child: NextActionPanel(
-                    chain: widget.chain,
-                    noTimeTodos: widget.noTimeTodos,
-                  ),
-                )
-              : KeyedSubtree(
-                  key: const ValueKey(1),
-                  child: _offerPlaceholder(p),
+    return ValueListenableBuilder<int>(
+      valueListenable: widget.screen,
+      builder: (context, screen, _) => Column(
+        children: [
+          _warmTop(p, events, todos),
+          _segment(p, screen),
+          // The two foreground screens. AnimatedSwitcher = a 280ms horizontal
+          // glide on segment tap OR the pool's background swipe (S2d). Natural
+          // height so the pool shows + stays tappable in the Expanded gap below.
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 280),
+            switchInCurve: Curves.easeOut,
+            switchOutCurve: Curves.easeIn,
+            transitionBuilder: (child, anim) {
+              final incoming = child.key == ValueKey(screen);
+              final dx = incoming ? 0.06 : -0.06;
+              return FadeTransition(
+                opacity: anim,
+                child: SlideTransition(
+                  position: Tween<Offset>(
+                    begin: Offset(dx, 0),
+                    end: Offset.zero,
+                  ).animate(anim),
+                  child: child,
                 ),
-        ),
-        // pool shows through here (today_page paints it behind this column)
-        const Expanded(child: SizedBox()),
-        // reserved gap so the bottom-most content clears the floating dock
-        const SizedBox(height: 78),
-      ],
+              );
+            },
+            layoutBuilder: (cur, prev) => Stack(
+              alignment: Alignment.topCenter,
+              children: [...prev, ?cur],
+            ),
+            child: screen == 0
+                ? KeyedSubtree(
+                    key: const ValueKey(0),
+                    child: NextActionPanel(
+                      chain: widget.chain,
+                      noTimeTodos: widget.noTimeTodos,
+                    ),
+                  )
+                : KeyedSubtree(
+                    key: const ValueKey(1),
+                    child: _offerPlaceholder(p),
+                  ),
+          ),
+          // pool shows through here (today_page paints it behind this column)
+          const Expanded(child: SizedBox()),
+          // reserved gap so the bottom-most content clears the floating dock
+          const SizedBox(height: 78),
+        ],
+      ),
     );
   }
 
@@ -158,22 +160,22 @@ class _HomeForegroundState extends State<HomeForeground> {
       );
 
   // ── 段控: 今日安排 | Reka Offer (下划线指示 = 当前屏) ─────────────────────────
-  Widget _segment(TodayPalette p) => Padding(
+  Widget _segment(TodayPalette p, int screen) => Padding(
     padding: const EdgeInsets.only(top: 12, bottom: 2),
     child: Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        _segTab(p, '今日安排', 0),
+        _segTab(p, '今日安排', 0, screen),
         const SizedBox(width: 22),
-        _segTab(p, 'Reka Offer', 1),
+        _segTab(p, 'Reka Offer', 1, screen),
       ],
     ),
   );
 
-  Widget _segTab(TodayPalette p, String label, int i) {
-    final active = _screen == i;
+  Widget _segTab(TodayPalette p, String label, int i, int screen) {
+    final active = screen == i;
     return GestureDetector(
-      onTap: () => _go(i),
+      onTap: () => widget.screen.value = i,
       behavior: HitTestBehavior.opaque,
       child: IntrinsicWidth(
         child: Column(

@@ -29,12 +29,16 @@ class TodayPage extends StatefulWidget {
 class _TodayPageState extends State<TodayPage> {
   final ApiClient _api = ApiClient();
   final Map<int, Future<TodayData>> _cache = {};
+  // foreground screen (0 = 今日安排, 1 = Reka Offer), shared so the bubble pool's
+  // background swipe (S2d) and HomeForeground's segment both drive one source.
+  final ValueNotifier<int> _screen = ValueNotifier(0);
 
   Future<TodayData> _futureFor(int rev) =>
       _cache.putIfAbsent(rev, () => loadToday(_api));
 
   @override
   void dispose() {
+    _screen.dispose();
     _api.close();
     super.dispose();
   }
@@ -86,6 +90,10 @@ class _TodayPageState extends State<TodayPage> {
             pool: data.pool,
             skills: data.skills,
             active: widget.active,
+            // S2d: a horizontal swipe on the empty pool (off any bubble) flips
+            // the foreground screen; the pool arbitrates this vs bubble-drag.
+            onSwipe: (dir) =>
+                _screen.value = (_screen.value + dir).clamp(0, 1),
           ),
         ),
         // ── Front: B「潮汐」foreground — 暖顶 + 段控(今日安排 ⇄ Reka Offer) + 屏区.
@@ -96,6 +104,7 @@ class _TodayPageState extends State<TodayPage> {
           chain: data.chain,
           noTimeTodos: data.noTimeTodos,
           flashCount: data.flashCount,
+          screen: _screen,
         ),
       ],
     );

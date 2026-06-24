@@ -29,6 +29,7 @@ class BubblePool extends StatefulWidget {
     this.active = true,
     this.filterKey = 'all',
     this.highlightId,
+    this.onSwipe,
   });
 
   final List<PoolAsset> pool;
@@ -48,6 +49,11 @@ class BubblePool extends StatefulWidget {
   /// A bubble to light up (tapped from the dashboard's latest row); null = none.
   final String? highlightId;
 
+  /// Background horizontal swipe (a pan that does NOT start on a bubble) → switch
+  /// the foreground screen (dir -1 = 今日安排 / +1 = Reka Offer). The pool owns the
+  /// background gesture, so it arbitrates bubble-drag vs screen-swipe here (S2d).
+  final void Function(int dir)? onSwipe;
+
   @override
   State<BubblePool> createState() => _BubblePoolState();
 }
@@ -65,6 +71,11 @@ class _BubblePoolState extends State<BubblePool>
     0,
     20,
   ); // current (tilt-driven) gravity (world)
+
+  // background-swipe arbitration: a pan starting off any bubble = a screen swipe
+  // (→ widget.onSwipe), not a bubble drag.
+  bool _swiping = false;
+  Offset _swipeDelta = Offset.zero;
 
   @override
   void initState() {
@@ -244,15 +255,37 @@ class _BubblePoolState extends State<BubblePool>
           onPanStart: (d) {
             final b = field.hit(d.localPosition);
             if (b != null) {
+              _swiping = false;
               field.grab(b);
               _syncRunning();
+            } else {
+              // off any bubble → a screen swipe, arbitrated against bubble-drag.
+              _swiping = widget.onSwipe != null;
+              _swipeDelta = Offset.zero;
             }
           },
           onPanUpdate: (d) {
+            if (_swiping) {
+              _swipeDelta += d.delta;
+              return;
+            }
             field.dragTo(d.localPosition);
             _syncRunning();
           },
-          onPanEnd: (_) => field.release(),
+          onPanEnd: (dets) {
+            if (_swiping) {
+              _swiping = false;
+              final dx = _swipeDelta.dx;
+              final vx = dets.velocity.pixelsPerSecond.dx;
+              // horizontal-dominant past a distance or fling threshold → switch.
+              if (dx.abs() > _swipeDelta.dy.abs() &&
+                  (dx.abs() > 64 || vx.abs() > 600)) {
+                widget.onSwipe!(dx < 0 ? 1 : -1);
+              }
+              return;
+            }
+            field.release();
+          },
           child: CustomPaint(
             size: box,
             painter: _BubblePainter(
