@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:#0b1220;height:100%}
+  ::-webkit-scrollbar{width:0;height:0}
+  @keyframes rekaFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+  .bub{position:absolute;top:0;left:0;will-change:transform;cursor:grab;touch-action:none}
+  .bub:active{cursor:grabbing}
+</style>
+</helmet>
+
+<div style="min-height:100vh;background:#070b14;display:flex;align-items:center;justify-content:center;gap:26px;flex-wrap:wrap;padding:24px;box-sizing:border-box;font-family:'Manrope',-apple-system,system-ui,sans-serif">
+
+<div ref="{{ rootRef }}" style="position:relative;width:430px;max-width:100%;height:min(880px, calc(100vh - 48px));overflow:hidden;border-radius:40px;border:1px solid rgba(255,255,255,.08);box-shadow:0 30px 80px rgba(0,0,0,.6);background:radial-gradient(130% 60% at 50% -5%,#13203a,#0b1220 60%);color:rgba(255,255,255,.82);font-family:'Manrope',-apple-system,system-ui,sans-serif">
+
+  <!-- ===== BACK LAYER · full-screen ball field ===== -->
+  <div ref="{{ jarRef }}" style="position:absolute;inset:0;z-index:1"></div>
+  <div style="position:absolute;inset:0;z-index:2;pointer-events:none;background:radial-gradient(120% 80% at 50% 45%,transparent 55%,rgba(7,11,20,.5))"></div>
+
+  <!-- ===== FRONT LAYER ===== -->
+  <div style="position:absolute;inset:0;z-index:10;display:flex;flex-direction:column;pointer-events:none">
+
+    <!-- GLOBAL HEADER (always present) -->
+    <div style="pointer-events:auto;display:flex;align-items:center;justify-content:space-between;padding:16px 18px 10px;background:linear-gradient(180deg,rgba(11,18,30,.9),rgba(11,18,30,0))">
+      <div style="display:flex;align-items:center;gap:9px">
+        <div style="width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#6f9eff,#3b63c4);display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(111,158,255,.35)"><span style="font-size:15px">☁</span></div>
+        <span style="font-size:19px;font-weight:700;color:#e6edf3;letter-spacing:.01em">UReka</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:14px;color:rgba(255,255,255,.5);font-size:16px">
+        <span style="cursor:pointer">🌙</span><span style="cursor:pointer">👤</span><span style="cursor:pointer">🖥</span>
+      </div>
+    </div>
+
+    <!-- TOP STACK: next action + dashboard, each independently collapsible -->
+    <div ref="{{ stackRef }}" style="pointer-events:auto;padding:0 0 4px">
+
+      <!-- NEXT ACTION panel -->
+      <div style="margin:4px 14px 0;background:rgba(15,23,40,.66);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.09);border-radius:18px;overflow:hidden">
+        <div onClick="{{ onToggleNA }}" style="display:flex;align-items:center;gap:9px;padding:11px 15px;cursor:pointer">
+          <span style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.16em;color:rgba(255,255,255,.4)">接下来</span>
+          <span style="font-size:12px;color:rgba(255,255,255,.55)">{{ naSummary }}</span>
+          <span style="flex:1"></span>
+          <span style="font-size:13px;color:#8ab4ff;font-family:'JetBrains Mono',monospace;font-weight:600;white-space:nowrap">{{ chainPos }}</span>
+          <span style="font-size:12px;color:rgba(255,255,255,.4);width:14px;text-align:center">{{ naCaret }}</span>
+        </div>
+
+        <sc-if value="{{ naOpen }}" hint-placeholder-val="{{ true }}">
+          <div style="padding:0 12px 13px">
+            <sc-if value="{{ hasActions }}" hint-placeholder-val="{{ true }}">
+            <div ref="{{ deckRef }}" style="position:relative;height:152px;margin:0 2px">
+              <div style="position:absolute;top:0;left:26px;right:26px;height:124px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.07);border-radius:16px;transform:rotate(-2.2deg)"></div>
+              <div style="position:absolute;top:6px;left:15px;right:15px;height:126px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.09);border-radius:16px;transform:rotate(1.5deg)"></div>
+              <div style="position:absolute;top:14px;left:0;right:0;height:124px;display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(34,48,78,.96),rgba(22,33,57,.96));border:1px solid rgba(255,255,255,.15);border-radius:16px;box-shadow:0 14px 30px rgba(0,0,0,.5);padding:13px 16px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">
+                  <span style="width:9px;height:9px;border-radius:50%;background:{{ focalColor }};box-shadow:0 0 8px {{ focalColor }}"></span>
+                  <span style="font-size:12px;color:rgba(255,255,255,.5)">{{ focal.sub }}</span>
+                  <span style="flex:1"></span>
+                  <span style="font-size:12px;color:rgba(255,255,255,.5);font-family:'JetBrains Mono',monospace">{{ focal.timeLabel }}</span>
+                </div>
+                <div style="font-size:20px;font-weight:600;color:#e6edf3">{{ focal.title }}</div>
+                <span style="flex:1"></span>
+                <sc-if value="{{ focal.isEvent }}" hint-placeholder-val="{{ true }}">
+                  <div style="display:flex;align-items:center;gap:9px;margin-bottom:9px">
+                    <span style="font-size:13px;color:#8ab4ff;font-family:'JetBrains Mono',monospace;white-space:nowrap">⏳ {{ countText }}</span>
+                    <span style="flex:1;height:5px;background:rgba(255,255,255,.1);border-radius:99px;overflow:hidden"><span style="display:block;height:100%;background:linear-gradient(90deg,#6f9eff,#8ab4ff);border-radius:99px;width:{{ progressPct }}%"></span></span>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:8px"><span style="font-size:12px;color:rgba(255,255,255,.45);white-space:nowrap">🔔 到点提醒你</span><span style="flex:1"></span><span style="font-size:11px;color:rgba(255,255,255,.35)">在日历看 ›</span></div>
+                </sc-if>
+                <sc-if value="{{ focal.isTodo }}" hint-placeholder-val="{{ false }}">
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <span style="font-size:12px;color:rgba(255,255,255,.45);flex:1">{{ focal.note }}</span>
+                    <button onClick="{{ onComplete }}" style="display:flex;align-items:center;gap:6px;border:1px solid rgba(111,158,255,.4);background:rgba(111,158,255,.14);color:#8ab4ff;font-family:inherit;font-size:12px;border-radius:999px;padding:6px 13px;cursor:pointer">完成 ✓</button>
+                  </div>
+                </sc-if>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:11px 4px 0">
+              <span style="font-size:11px;color:rgba(255,255,255,.3)">左右滑切换</span>
+              <span style="flex:1"></span>
+              <span onClick="{{ onToggleNoTime }}" style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:rgba(255,255,255,.62);background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:999px;padding:4px 11px;cursor:pointer;white-space:nowrap">🕒 无时间待办 {{ noTimeCount }} {{ noTimeCaret }}</span>
+            </div>
+            <sc-if value="{{ noTimeOpen }}" hint-placeholder-val="{{ false }}">
+              <div style="margin:10px 2px 0;background:rgba(8,14,26,.7);border:1px dashed rgba(255,255,255,.14);border-radius:13px;padding:9px 12px">
+                <sc-for list="{{ noTimeTodos }}" as="t" hint-placeholder-count="2">
+                  <div style="display:flex;align-items:center;gap:9px;padding:5px 0"><span style="width:7px;height:7px;border-radius:50%;background:{{ t.color }}"></span><span style="flex:1;font-size:14px;color:rgba(255,255,255,.82)">{{ t.title }}</span><span onClick="{{ t.onDone }}" style="width:19px;height:19px;border-radius:50%;border:1.5px solid rgba(255,255,255,.3);cursor:pointer"></span></div>
+                </sc-for>
+              </div>
+            </sc-if>
+            </sc-if>
+            <sc-if value="{{ naEmpty }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-direction:column;align-items:center;text-align:center;gap:7px;padding:20px 14px 12px">
+                <div style="font-size:30px">🌤️</div>
+                <div style="font-size:15px;font-weight:600;color:#e6edf3">今天还没有日程或待办</div>
+                <div style="font-size:12px;color:rgba(255,255,255,.5);line-height:1.5">新的一天 —— 说一句话，Reka 就能帮你记下安排</div>
+              </div>
+            </sc-if>
+          </div>
+        </sc-if>
+      </div>
+
+      <!-- DASHBOARD panel (directly under next action) — 无记录时整块隐藏 -->
+      <sc-if value="{{ hasRecords }}" hint-placeholder-val="{{ true }}">
+      <div style="margin:8px 14px 0;background:rgba(15,23,40,.66);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.09);border-radius:18px;overflow:hidden">
+        <div onClick="{{ onToggleDash }}" style="display:flex;align-items:center;gap:9px;padding:11px 15px;cursor:pointer">
+          <span style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.16em;color:rgba(255,255,255,.4)">今天 {{ recordCount }} 颗</span>
+          <span style="flex:1"></span>
+          <span onClick="{{ onFlash }}" style="display:inline-flex;align-items:center;gap:5px;background:linear-gradient(180deg,rgba(111,158,255,.22),rgba(111,158,255,.1));border:1px solid rgba(111,158,255,.4);border-radius:999px;padding:4px 10px;cursor:pointer"><span style="font-size:12px">⚡</span><span style="font-size:11px;color:#cfe0ff;font-weight:600">{{ flashCount }}</span></span>
+          <span style="font-size:12px;color:rgba(255,255,255,.4);width:14px;text-align:center">{{ dashCaret }}</span>
+        </div>
+        <sc-if value="{{ dashOpen }}" hint-placeholder-val="{{ true }}">
+          <div style="padding:0 14px 13px">
+            <sc-if value="{{ hasRecords }}" hint-placeholder-val="{{ true }}">
+            <!-- filter chips (also drive the summary + chart highlight) -->
+            <div style="display:flex;gap:7px;overflow-x:auto;padding-bottom:11px">
+              <sc-for list="{{ chips }}" as="c" hint-placeholder-count="6">
+                <span onClick="{{ c.onClick }}" style="display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 12px;border-radius:999px;font-size:12px;white-space:nowrap;cursor:pointer;border:1px solid {{ c.edge }};background:{{ c.bg }};color:{{ c.fg }}"><span>{{ c.glyph }}</span><span>{{ c.label }}</span><span style="font-family:'JetBrains Mono',monospace;opacity:.7">{{ c.count }}</span></span>
+              </sc-for>
+            </div>
+
+            <!-- summary strip (reacts to selected type) -->
+            <div style="display:flex;align-items:center;gap:10px;background:rgba(8,14,26,.6);border:1px solid rgba(255,255,255,.08);border-radius:13px;padding:10px 13px;margin-bottom:11px">
+              <div style="width:34px;height:34px;flex:none;border-radius:10px;background:{{ summary.tint }};display:flex;align-items:center;justify-content:center;font-size:16px">{{ summary.glyph }}</div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:14px;font-weight:600;color:#e6edf3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ summary.title }}</div>
+                <div style="font-size:11.5px;color:rgba(255,255,255,.55);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ summary.sub }}</div>
+              </div>
+              <div style="text-align:right;flex:none">
+                <div style="font-size:18px;font-weight:700;color:{{ summary.big }};font-family:'JetBrains Mono',monospace;line-height:1">{{ summary.metric }}</div>
+                <div style="font-size:10px;color:rgba(255,255,255,.4)">{{ summary.metricLabel }}</div>
+              </div>
+            </div>
+
+            <!-- chart viz (左右滑切换类型) -->
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">
+              <span style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;color:rgba(255,255,255,.34)">{{ chartScope }}</span>
+            </div>
+            <div ref="{{ chartRef }}" style="height:118px;display:flex;align-items:center;gap:14px;touch-action:pan-y">
+              <!-- NIGHTINGALE (rose) -->
+              <sc-if value="{{ isPie }}" hint-placeholder-val="{{ true }}">
+                <div style="width:118px;height:118px;flex:none">
+                  <svg viewBox="0 0 120 120" style="width:118px;height:118px">
+                    <sc-for list="{{ rosePaths }}" as="p" hint-placeholder-count="6">
+                      <path d="{{ p.d }}" fill="{{ p.color }}" stroke="#0e1626" stroke-width="1"></path>
+                    </sc-for>
+                  </svg>
+                </div>
+                <div style="flex:1;display:flex;flex-direction:column;gap:5px">
+                  <sc-for list="{{ legend }}" as="l" hint-placeholder-count="4">
+                    <div style="display:flex;align-items:center;gap:7px"><span style="width:9px;height:9px;border-radius:3px;background:{{ l.color }};flex:none"></span><span style="font-size:11.5px;color:rgba(255,255,255,.7);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ l.label }}</span><span style="font-size:11px;color:rgba(255,255,255,.45);font-family:'JetBrains Mono',monospace">{{ l.count }}</span></div>
+                  </sc-for>
+                </div>
+              </sc-if>
+              <!-- BAR -->
+              <sc-if value="{{ isBar }}" hint-placeholder-val="{{ false }}">
+                <div style="flex:1;height:100%;display:flex;align-items:flex-end;gap:10px;padding:0 4px">
+                  <sc-for list="{{ barGroups }}" as="s" hint-placeholder-count="6">
+                    <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;height:100%;justify-content:flex-end">
+                      <span style="font-size:10px;color:rgba(255,255,255,.5);font-family:'JetBrains Mono',monospace">{{ s.count }}</span>
+                      <div style="width:100%;max-width:26px;height:{{ s.barH }}px;border-radius:6px 6px 3px 3px;background:linear-gradient(180deg,{{ s.color }},{{ s.color2 }})"></div>
+                      <span style="font-size:9.5px;color:rgba(255,255,255,.6);white-space:nowrap">{{ s.label }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-if>
+              <!-- TREEMAP (groups) -->
+              <sc-if value="{{ isHeat }}" hint-placeholder-val="{{ false }}">
+                <div style="flex:1;position:relative;height:104px">
+                  <sc-for list="{{ treeRects }}" as="d" hint-placeholder-count="6">
+                    <div style="position:absolute;left:{{ d.x }}%;top:{{ d.y }}%;width:{{ d.w }}%;height:{{ d.h }}%;padding:5px 7px;box-sizing:border-box;background:{{ d.cell }};border:1px solid {{ d.edge }};border-radius:6px;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between">
+                      <span style="font-size:10px;color:rgba(255,255,255,.9);white-space:nowrap">{{ d.label }}</span>
+                      <span style="font-size:13px;font-weight:700;color:#fff;font-family:'JetBrains Mono',monospace;align-self:flex-end">{{ d.count }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-if>
+            </div>
+            <!-- type selector BELOW chart + swipe -->
+            <div style="text-align:center;font-size:9px;color:rgba(255,255,255,.3);margin:9px 0 6px;letter-spacing:.05em">← 左右滑 / 点选 切换图表 →</div>
+            <div style="display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap">
+              <sc-for list="{{ chartTabs }}" as="t" hint-placeholder-count="4">
+                <span onClick="{{ t.onClick }}" style="display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 12px;border-radius:999px;font-size:12px;cursor:pointer;border:1px solid {{ t.edge }};background:{{ t.bg }};color:{{ t.fg }}"><span>{{ t.icon }}</span><span>{{ t.label }}</span></span>
+              </sc-for>
+            </div>
+            </sc-if>
+            <sc-if value="{{ noRecords }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;gap:11px;padding:10px 2px 4px">
+                <div style="font-size:24px">🫧</div>
+                <div style="font-size:12.5px;color:rgba(255,255,255,.55);line-height:1.5">今天还没有记录 —— 点右侧 ＋记一条，气泡池会慢慢充实起来</div>
+              </div>
+            </sc-if>
+          </div>
+        </sc-if>
+      </div>
+      </sc-if>
+    </div>
+
+    <!-- BALL WINDOW (pointer passes through to drag/tap balls) -->
+    <div style="flex:1;pointer-events:none;position:relative">
+      <div ref="{{ hintRef }}" style="position:absolute;left:0;right:0;top:14px;text-align:center;font-size:12px;color:rgba(255,255,255,.26)">球落在面板与导航之间 · 点一颗看记录</div>
+      <sc-if value="{{ noRecords }}" hint-placeholder-val="{{ false }}">
+        <div style="position:absolute;left:0;right:0;top:34px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;padding:0 28px">
+          <div style="font-size:34px;opacity:.9">🫧</div>
+          <div style="font-size:15px;font-weight:600;color:#e6edf3">今天还没有记录</div>
+          <div style="font-size:12px;color:rgba(255,255,255,.48);line-height:1.55">你记下的每一条（记账 / 待办 / 名片 / 闪念…）都会变成一颗气泡掉进这里。</div>
+        </div>
+      </sc-if>
+    </div>
+
+    <!-- reserve space so nothing else sits under the floating nav -->
+    <div style="height:78px;flex:none;pointer-events:none"></div>
+  </div>
+
+  <!-- ===== FLOATING BOTTOM NAV (always visible, balls never go under it) ===== -->
+  <div ref="{{ navRef }}" style="position:absolute;left:0;right:0;bottom:20px;z-index:25;display:flex;justify-content:center;pointer-events:none">
+    <div style="pointer-events:auto;display:flex;align-items:center;gap:6px;background:rgba(18,26,44,.82);backdrop-filter:blur(18px);border:1px solid rgba(255,255,255,.12);border-radius:999px;padding:7px 9px;box-shadow:0 12px 30px rgba(0,0,0,.45)">
+      <div style="display:flex;align-items:center;gap:7px;background:rgba(111,158,255,.22);border:1px solid rgba(111,158,255,.4);border-radius:999px;padding:8px 16px;cursor:pointer"><span style="font-size:15px">📅</span><span style="font-size:13px;color:#cfe0ff;font-weight:600">今日</span></div>
+      <div style="display:flex;align-items:center;gap:7px;border-radius:999px;padding:8px 16px;cursor:pointer;color:rgba(255,255,255,.55)"><span style="font-size:15px">🗓</span><span style="font-size:13px">日历</span></div>
+      <div style="display:flex;align-items:center;gap:7px;border-radius:999px;padding:8px 16px;cursor:pointer;color:rgba(255,255,255,.55)"><span style="font-size:15px">🗂</span><span style="font-size:13px">资产</span></div>
+    </div>
+  </div>
+
+  <!-- ===== DRAGGABLE REKA (top layer) ===== -->
+  <div ref="{{ rekaRef }}" title="Reka · 可拖动" style="position:absolute;left:16px;top:74px;width:52px;height:52px;border-radius:50%;background:radial-gradient(circle at 35% 28%,#9fc1ff,#3b63c4 75%);box-shadow:0 8px 22px rgba(59,99,196,.6),inset 0 2px 5px rgba(255,255,255,.55);display:flex;align-items:center;justify-content:center;animation:rekaFloat 3.4s ease-in-out infinite;cursor:grab;z-index:45;touch-action:none"><div style="position:absolute;top:18px;display:flex;gap:9px"><span style="width:5px;height:8px;border-radius:50%;background:#0b1220"></span><span style="width:5px;height:8px;border-radius:50%;background:#0b1220"></span></div><span style="position:absolute;bottom:12px;width:11px;height:11px;border-radius:50%;background:radial-gradient(circle at 40% 35%,#fff5c2,#f5c977);box-shadow:0 0 9px #f5c977"></span></div>
+
+  <!-- record sheet -->
+  <sc-if value="{{ sheetOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ onCloseSheet }}" style="position:absolute;inset:0;background:rgba(5,9,18,.6);backdrop-filter:blur(3px);z-index:60;display:flex;align-items:flex-end;justify-content:center">
+      <div style="width:100%;background:#161b22;border-top:1px solid rgba(255,255,255,.1);border-radius:22px 22px 0 0;padding:20px 20px 30px;box-shadow:0 -10px 40px rgba(0,0,0,.5)">
+        <div style="width:40px;height:4px;border-radius:9px;background:rgba(255,255,255,.18);margin:0 auto 18px"></div>
+        <div style="display:flex;gap:13px;align-items:center;margin-bottom:16px">
+          <div style="width:50px;height:50px;flex:none;border-radius:50%;background:radial-gradient(circle at 34% 30%,#ffffff22,{{ sheet.color }} 80%);display:flex;align-items:center;justify-content:center;font-size:22px;box-shadow:0 4px 12px rgba(0,0,0,.4)">{{ sheet.glyph }}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:18px;font-weight:600;color:#e6edf3">{{ sheet.title }}</div>
+            <div style="font-size:12px;color:rgba(255,255,255,.5);margin-top:3px">{{ sheet.meta }}</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:{{ sheet.color }};background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:999px;padding:4px 11px">{{ sheet.glyph }} {{ sheet.typeName }}</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:rgba(255,255,255,.6);background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:999px;padding:4px 11px"><span style="width:8px;height:8px;border-radius:50%;background:{{ sheet.color }}"></span>{{ sheet.domain }}</span>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  </div>
+
+  <!-- ===== EXTERNAL AUXILIARY CONTROLS (demo · outside the phone) ===== -->
+  <aside style="display:flex;flex-direction:column;gap:13px;width:176px;color:rgba(255,255,255,.7)">
+    <div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.16em;color:rgba(255,255,255,.4)">辅助操作 · DEMO</div>
+    <div style="background:rgba(15,23,40,.6);border:1px solid rgba(255,255,255,.1);border-radius:14px;padding:12px">
+      <div style="font-size:11px;color:rgba(255,255,255,.45);margin-bottom:9px">今日状态（含空状态演示）</div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <sc-for list="{{ scenarioBtns }}" as="s" hint-placeholder-count="4">
+          <span onClick="{{ s.onClick }}" style="display:block;text-align:center;font-size:12px;padding:7px 0;border-radius:9px;cursor:pointer;border:1px solid {{ s.edge }};background:{{ s.bg }};color:{{ s.fg }}">{{ s.label }}</span>
+        </sc-for>
+      </div>
+    </div>
+    <div style="background:rgba(15,23,40,.6);border:1px solid rgba(255,255,255,.1);border-radius:14px;padding:12px">
+      <div style="font-size:11px;color:rgba(255,255,255,.45);margin-bottom:9px">姿态 / 重力（模拟转动手机）</div>
+      <div style="display:flex;gap:5px">
+        <sc-for list="{{ gravBtns }}" as="g" hint-placeholder-count="4">
+          <span onClick="{{ g.onClick }}" title="{{ g.title }}" style="flex:1;display:inline-flex;flex-direction:column;align-items:center;gap:3px;padding:7px 0;border-radius:10px;cursor:pointer;border:1px solid rgba(255,255,255,.08);background:{{ g.bg }};color:{{ g.fg }}"><span style="font-size:14px">{{ g.icon }}</span><span style="font-size:9px">{{ g.title }}</span></span>
+        </sc-for>
+      </div>
+    </div>
+    <button onClick="{{ onShake }}" style="border:1px solid rgba(255,255,255,.14);background:rgba(15,23,40,.6);color:rgba(255,255,255,.75);font-family:inherit;font-size:13px;border-radius:12px;padding:11px;cursor:pointer">🤲 晃一晃</button>
+    <button onClick="{{ onDropIn }}" style="border:1px solid rgba(111,158,255,.45);background:linear-gradient(180deg,rgba(111,158,255,.3),rgba(111,158,255,.15));color:#dce8ff;font-family:inherit;font-size:13px;font-weight:600;border-radius:12px;padding:12px;cursor:pointer;box-shadow:0 6px 16px rgba(111,158,255,.22)">＋ 记一条</button>
+    <div style="font-size:10.5px;color:rgba(255,255,255,.34);line-height:1.5">这些是演示用的辅助操作，不属于产品主界面。真机上「转动手机」由重力感应驱动。</div>
+  </aside>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:430,&quot;height&quot;:880}}">
+class Component extends DCLogic {
+  constructor(props){
+    super(props);
+    this.rootRef = React.createRef();
+    this.jarRef = React.createRef();
+    this.deckRef = React.createRef();
+    this.stackRef = React.createRef();
+    this.navRef = React.createRef();
+    this.rekaRef = React.createRef();
+    this.hintRef = React.createRef();
+    this.chartRef = React.createRef();
+    this.bubbles = [];
+    this.filter = 'all';
+    const now = Date.now();
+    this.DOMAIN = { 财务:'#f5c977', 工作:'#8ab4ff', 健康:'#f08a8a', 学习:'#b89cf0', 生活:'#84c9a0', 社交:'#6fd0d8' };
+    this.TYPE = {
+      todo:{glyph:'📌',name:'待办'}, money:{glyph:'💰',name:'记账'}, card:{glyph:'👤',name:'名片'},
+      flash:{glyph:'⚡',name:'闪念'}, note:{glyph:'📝',name:'笔记'}, sport:{glyph:'🎾',name:'运动'}
+    };
+    this.records = [
+      {type:'money',domain:'财务',title:'早餐 ¥18',meta:'今 08:12 · 现金'},
+      {type:'todo',domain:'工作',title:'回复李总邮件',meta:'今 09:30 创建'},
+      {type:'flash',domain:'生活',title:'周末带娃去公园',meta:'今 09:48 捕捉'},
+      {type:'card',domain:'工作',title:'张伟 · 设计总监',meta:'今 10:40 · 名片'},
+      {type:'money',domain:'财务',title:'打车 ¥32',meta:'今 11:02 · 微信'},
+      {type:'sport',domain:'健康',title:'网球 1h',meta:'今 12:20 · 朝阳'},
+      {type:'note',domain:'学习',title:'《置身事内》30页',meta:'今 13:05 · 笔记'},
+      {type:'todo',domain:'生活',title:'交物业费',meta:'今 13:30 创建'},
+      {type:'flash',domain:'工作',title:'优化首页加载',meta:'今 14:01 捕捉'},
+      {type:'money',domain:'财务',title:'午饭 ¥45',meta:'今 12:50 · 微信'},
+      {type:'todo',domain:'健康',title:'订宝宝疫苗',meta:'今 14:18 创建'},
+      {type:'card',domain:'社交',title:'李娜 · 投资人',meta:'今 15:10 · 名片'},
+      {type:'flash',domain:'学习',title:'学一下 SwiftUI',meta:'今 15:22 捕捉'},
+      {type:'money',domain:'财务',title:'咖啡 ¥28',meta:'今 15:40 · 微信'}
+    ];
+    this.chain = [
+      {kind:'event',title:'产品评审会',sub:'事件 · 评审会议室',domain:'工作',at:now+23*60*1000,dur:30*60*1000},
+      {kind:'event',title:'接孩子放学',sub:'事件 · 幼儿园',domain:'生活',at:now+95*60*1000,dur:30*60*1000},
+      {kind:'todo',title:'提交季度报销',sub:'待办 · 今天截止',domain:'财务',note:'拖了 2 天了',at:now+150*60*1000}
+    ];
+    this.noTime = [ {type:'todo',title:'交物业费',domain:'生活'}, {type:'todo',title:'回复李总邮件',domain:'工作'} ];
+    this.allRecords=this.records; this.allChain=this.chain; this.allNoTime=this.noTime;
+    this.TYPECOLOR = { todo:'#8ab4ff', money:'#f5c977', card:'#6fd0d8', flash:'#b89cf0', note:'#84c9a0', sport:'#f08a8a' };
+    this.state = { cur:0, now, sheet:null, filterKey:'all', recordCount:this.records.length, noTimeOpen:false, naOpen:true, dashOpen:true, chartType:'pie', gravMode:'down', scenario:'full' };
+  }
+
+  parseAmt(t){ const m=(t||'').match(/¥(\d+)/); return m? +m[1] : 0; }
+  parseHour(meta){ const m=(meta||'').match(/(\d{1,2}):(\d{2})/); return m? +m[1] : 12; }
+
+  typeStatList(){
+    const order=['todo','money','card','flash','note','sport'];
+    const dark=(hex)=>hex; // could darken; keep
+    return order.map(k=>{
+      const rs=this.records.filter(r=>r.type===k);
+      return { key:k, glyph:this.TYPE[k].glyph, label:this.TYPE[k].name, count:rs.length, color:this.TYPECOLOR[k] };
+    }).filter(s=>s.count>0);
+  }
+  domainStatList(){
+    const order=['财务','工作','健康','学习','生活','社交'];
+    return order.map(d=>({ key:d, label:d, count:this.records.filter(r=>r.domain===d).length, color:this.DOMAIN[d] }))
+      .filter(s=>s.count>0);
+  }
+  buildSummary(){
+    const k=this.state.filterKey;
+    const tint=(c)=>'rgba('+[parseInt(c.slice(1,3),16),parseInt(c.slice(3,5),16),parseInt(c.slice(5,7),16)].join(',')+',.18)';
+    if(k==='all'){
+      const ts=this.typeStatList().slice().sort((a,b)=>b.count-a.count);
+      return { glyph:'📊', tint:'rgba(111,158,255,.18)', title:'今日概览', sub: ts.slice(0,3).map(s=>s.label+s.count).join(' · '), metric:this.records.length, metricLabel:'条记录', big:'#cfe0ff' };
+    }
+    const rs=this.records.filter(r=>r.type===k);
+    const col=this.TYPECOLOR[k]; const tn=tint(col); const g=this.TYPE[k].glyph;
+    if(k==='money'){ const sum=rs.reduce((a,r)=>a+this.parseAmt(r.title),0); const mx=rs.slice().sort((a,b)=>this.parseAmt(b.title)-this.parseAmt(a.title))[0];
+      return { glyph:g, tint:tn, title:'今日记账汇总', sub:(mx?'最大：'+mx.title:'')+' · 共 '+rs.length+' 笔', metric:'¥'+sum, metricLabel:'今日支出', big:col }; }
+    if(k==='todo'){ const done=1; return { glyph:g, tint:tn, title:'待办进度', sub:rs.map(r=>r.title).slice(0,2).join('、'), metric:done+'/'+rs.length, metricLabel:'已完成', big:col }; }
+    if(k==='card'){ return { glyph:g, tint:tn, title:'今日名片', sub:rs.map(r=>r.title).join(' / '), metric:rs.length, metricLabel:'张', big:col }; }
+    if(k==='flash'){ return { glyph:g, tint:tn, title:'闪念待整理', sub:rs.map(r=>r.title).slice(0,2).join('、')+(rs.length>2?' …':''), metric:rs.length, metricLabel:'条', big:col }; }
+    if(k==='note'){ return { glyph:g, tint:tn, title:'今日笔记', sub:rs.map(r=>r.title).join('、'), metric:rs.length, metricLabel:'条', big:col }; }
+    if(k==='sport'){ return { glyph:g, tint:tn, title:'今日运动', sub:rs.map(r=>r.title).join('、'), metric:rs.length, metricLabel:'次', big:col }; }
+    return { glyph:g, tint:tn, title:this.TYPE[k].name, sub:'', metric:rs.length, metricLabel:'条', big:col };
+  }
+
+  componentDidMount(){
+    this.clock = setInterval(()=>this.setState({now:Date.now()}), 1000);
+    this.initPhysics();
+    this.tiltHandler = (e)=>{
+      if(e.gamma==null && e.beta==null) return;
+      const g=this.g||0.5;
+      const gx = Math.max(-1,Math.min(1,(e.gamma||0)/45));
+      const flip = (e.beta!=null && Math.abs(e.beta)>90) ? -1 : 1;
+      this.gvec = { x: gx*g, y: flip*g*Math.max(0.2, 1-Math.abs(gx)*0.7) };
+    };
+    window.addEventListener('deviceorientation', this.tiltHandler);
+  }
+  componentWillUnmount(){
+    clearInterval(this.clock);
+    cancelAnimationFrame(this.raf);
+    window.removeEventListener('deviceorientation', this.tiltHandler);
+    window.removeEventListener('pointermove', this._move);
+    window.removeEventListener('pointerup', this._up);
+  }
+
+  initPhysics(){
+    const jar = this.jarRef.current; if(!jar) return;
+    this.W = jar.clientWidth || 400;
+    this.H = jar.clientHeight || 760;
+    this.g = 0.44; this.rest = 0.22; this.gvec = {x:0, y:this.g};
+    this.ceilY = this.measureCeil(); this.floorY = this.measureFloor();
+    this.bubbles = [];
+    this.records.forEach((r)=>this.spawn(r, true));
+    jar.style.touchAction='none';
+    jar.onpointerdown = (e)=>this.onDown(e);
+    this._move=(e)=>this.onMove(e); this._up=(e)=>this.onUp(e);
+    window.addEventListener('pointermove', this._move); window.addEventListener('pointerup', this._up);
+    const loop=()=>{ this.step(); this.raf=requestAnimationFrame(loop); };
+    this.raf = requestAnimationFrame(loop);
+    // deck swipe
+    const deck=this.deckRef.current;
+    if(deck){
+      deck.style.touchAction='pan-y';
+      deck.onpointerdown=(e)=>{ this.swX=e.clientX; this.swDown=true; };
+      deck.onpointerup=(e)=>{ if(!this.swDown) return; this.swDown=false; const dx=e.clientX-this.swX;
+        if(dx<-40) this.setState({cur:Math.min(this.chain.length-1,this.state.cur+1)});
+        else if(dx>40) this.setState({cur:Math.max(0,this.state.cur-1)}); };
+    }
+    // chart swipe → cycle chart type
+    const chart=this.chartRef.current;
+    if(chart){
+      chart.onpointerdown=(e)=>{ this.cX=e.clientX; this.cDown=true; };
+      chart.onpointerup=(e)=>{ if(!this.cDown) return; this.cDown=false; const dx=e.clientX-this.cX;
+        if(dx<-40) this.cycleChart(1); else if(dx>40) this.cycleChart(-1); };
+    }
+    // Reka drag
+    const reka=this.rekaRef.current, root=this.rootRef.current;
+    if(reka && root){
+      reka.onpointerdown=(e)=>{ const rr=reka.getBoundingClientRect(); const RR=root.getBoundingClientRect(); const sx=root.clientWidth/RR.width||1, sy=root.clientHeight/RR.height||1; this.rekaDrag={dx:(e.clientX-rr.left)*sx, dy:(e.clientY-rr.top)*sy, sx, sy}; reka.style.animation='none'; reka.style.cursor='grabbing'; if(reka.setPointerCapture)reka.setPointerCapture(e.pointerId); e.stopPropagation(); };
+    }
+  }
+
+  measureFloor(){
+    const jar=this.jarRef.current; if(!jar) return (this.H||760)-8;
+    return (this.H||760) - 8; // 地板 = 容器真正底部；导航是居中胶囊，球可从两侧滑下去
+  }
+  measureNav(){
+    const jar=this.jarRef.current, navWrap=this.navRef.current; if(!jar||!navWrap) return null;
+    const pill=navWrap.firstElementChild||navWrap;
+    const jr=jar.getBoundingClientRect(), pr=pill.getBoundingClientRect();
+    return {x0:pr.left-jr.left, y0:pr.top-jr.top, x1:pr.right-jr.left, y1:pr.bottom-jr.top};
+  }
+  setGravity(mode){
+    const g=this.g||0.5;
+    const map={ down:{x:0,y:g}, up:{x:0,y:-g}, left:{x:-g,y:g*0.32}, right:{x:g,y:g*0.32} };    this.gvec = map[mode]||map.down;
+    this.wakeAll();
+    for(const b of this.bubbles){ if(!b.hidden){ b.vx+=(Math.random()-.5)*4; b.vy+=(Math.random()-.5)*4; } }
+    this.setState({gravMode:mode});
+  }
+  cycleChart(dir){ const order=['pie','bar','heat']; let i=order.indexOf(this.state.chartType); if(i<0)i=0; i=(i+dir+order.length)%order.length; this.setState({chartType:order[i]}); }
+  setScenario(s){
+    const hasRec = (s==='full'||s==='noAct'); const hasAct = (s==='full'||s==='noRec');
+    this.records = hasRec ? this.allRecords : [];
+    this.chain = hasAct ? this.allChain : [];
+    this.noTime = hasAct ? this.allNoTime : [];
+    // rebuild ball field
+    const jar=this.jarRef.current; if(jar){ for(const b of this.bubbles){ if(b.el&&b.el.parentNode) b.el.parentNode.removeChild(b.el); } }
+    this.bubbles=[];
+    this.records.forEach((r)=>this.spawn(r,true));
+    this.setState({ scenario:s, cur:0, filterKey:'all', recordCount:this.records.length, noTimeOpen:false });
+  }
+  measureCeil(){
+    // 面板（next action / 仪表盘）是最上层浮层 —— 球不与它们碰撞，只受顼部顶界限制（球可在面板后面）
+    return 6;
+  }
+
+  spawn(r, initial){
+    const jar = this.jarRef.current; if(!jar) return;
+    const R = 23;
+    const color = this.DOMAIN[r.domain] || '#9aa3b2';
+    const t = this.TYPE[r.type];
+    const el = document.createElement('div');
+    el.className='bub';
+    el.style.width=el.style.height=(R*2)+'px';
+    el.style.borderRadius='50%';
+    el.style.background='radial-gradient(circle at 34% 30%, #ffffffcc, '+color+' 78%)';
+    el.style.boxShadow='0 3px 8px rgba(0,0,0,.4), inset 0 -3px 6px rgba(0,0,0,.18), inset 0 3px 5px rgba(255,255,255,.55)';
+    el.style.display='flex';el.style.alignItems='center';el.style.justifyContent='center';
+    el.style.fontSize='15px';
+    el.innerHTML='<span style="filter:saturate(.85)">'+t.glyph+'</span>';
+    jar.appendChild(el);
+    const floor=this.floorY||(this.H-110), ceil=this.ceilY||80;
+    const b = { el, r:R, type:r.type, domain:r.domain, color, data:r,
+      x: this.W/2 + (Math.random()-.5)*this.W*0.6,
+      y: initial ? (ceil + 20 + Math.random()*Math.max(40,(floor-ceil-40))) : (ceil+10),
+      vx:(Math.random()-.5)*2, vy:0, hidden:false };
+    this.bubbles.push(b);
+  }
+
+  step(){
+    const jar=this.jarRef.current; if(jar){ this.W=jar.clientWidth; this.H=jar.clientHeight; }
+    const W=this.W, R=23;
+    const bs=this.bubbles; if(!bs.length) return;
+    this.floorY=this.measureFloor(); this.ceilY=this.measureCeil();
+    const floorY=this.floorY, ceilY=this.ceilY; const nav=this.measureNav();
+    const gv=this.gvec||{x:0,y:this.g}; const maxV=20;
+    const navHit=(b,withVel)=>{ if(!nav) return; const cx=Math.max(nav.x0,Math.min(b.x,nav.x1)); const cy=Math.max(nav.y0,Math.min(b.y,nav.y1)); let ddx=b.x-cx, ddy=b.y-cy, dd=Math.hypot(ddx,ddy); if(dd<R){ if(dd<0.01){ const toT=b.y-nav.y0, toB=nav.y1-b.y; if(toT<toB){b.y=nav.y0-R; if(withVel)b.vy=-Math.abs(b.vy)*this.rest;} else {b.y=nav.y1+R; if(withVel)b.vy=Math.abs(b.vy)*this.rest;} } else { const nx=ddx/dd, ny=ddy/dd; b.x=cx+nx*R; b.y=cy+ny*R; if(withVel){ const vn=b.vx*nx+b.vy*ny; if(vn<0){b.vx-=nx*vn*(1+this.rest);b.vy-=ny*vn*(1+this.rest);} } } } };
+    const clamp=(b,withVel)=>{ if(b.x<R){b.x=R; if(withVel)b.vx=-b.vx*this.rest;} if(b.x>W-R){b.x=W-R; if(withVel)b.vx=-b.vx*this.rest;} if(b.y>floorY-R){b.y=floorY-R; if(withVel){b.vy=-b.vy*this.rest; b.vx*=0.8;}} if(b.y<ceilY+R){b.y=ceilY+R; if(withVel)b.vy=Math.abs(b.vy)*this.rest;} navHit(b,withVel); };
+    // integrate (asleep balls skip gravity → 静止后不再抖动)
+    for(const b of bs){
+      if(b.hidden||b.asleep) continue;
+      b.vy += gv.y; b.vx += gv.x;
+      b.vx*=0.97; b.vy*=0.97;
+      if(b.vx>maxV)b.vx=maxV; else if(b.vx<-maxV)b.vx=-maxV;
+      if(b.vy>maxV)b.vy=maxV; else if(b.vy<-maxV)b.vy=-maxV;
+      b.x+=b.vx; b.y+=b.vy;
+      clamp(b,true);
+    }
+    // relax overlaps — positional passes → 紧密不重叠
+    for(let it=0; it<14; it++){
+      for(let i=0;i<bs.length;i++){ const a=bs[i]; if(a.hidden) continue; for(let j=i+1;j<bs.length;j++){
+        const c=bs[j]; if(c.hidden) continue;
+        let dx=c.x-a.x, dy=c.y-a.y; let d=Math.hypot(dx,dy); const min=a.r+c.r;
+        if(d<min){
+          if(d<0.0001){ dx=(Math.random()-.5); dy=(Math.random()-.5); d=Math.hypot(dx,dy)||1; }
+          const nx=dx/d, ny=dy/d; const push=(min-d)*0.5;
+          a.x-=nx*push; a.y-=ny*push; c.x+=nx*push; c.y+=ny*push;
+          if(push>0.4){ a.asleep=false; c.asleep=false; a.sleepT=0; c.sleepT=0; }
+          if(it===0){ const dvx=c.vx-a.vx, dvy=c.vy-a.vy; const p=dvx*nx+dvy*ny; if(p<0){ const imp=p*this.rest; a.vx+=nx*imp; a.vy+=ny*imp; c.vx-=nx*imp; c.vy-=ny*imp; } }
+        }
+      }}
+      for(const b of bs){ if(!b.hidden) clamp(b,false); }
+    }
+    // sleep detection — 连续几帧几乎不动则冻结，消除残余抖动
+    for(const b of bs){ if(b.hidden) continue;
+      const mv=Math.hypot(b.x-(b._px==null?b.x:b._px), b.y-(b._py==null?b.y:b._py)); b._px=b.x; b._py=b.y;
+      if(!b.asleep){ if(mv<0.18){ b.sleepT=(b.sleepT||0)+1; if(b.sleepT>16){ b.asleep=true; b.vx=0; b.vy=0; } } else b.sleepT=0; }
+    }
+    for(const b of bs){ if(!b.hidden) b.el.style.transform='translate('+(b.x-R)+'px,'+(b.y-R)+'px)'; }
+  }
+
+  wakeAll(){ for(const b of this.bubbles){ b.asleep=false; b.sleepT=0; } }
+
+  pointAt(e){ const jar=this.jarRef.current; const rc=jar.getBoundingClientRect(); const sx=jar.clientWidth/rc.width||1, sy=jar.clientHeight/rc.height||1; return {x:(e.clientX-rc.left)*sx, y:(e.clientY-rc.top)*sy}; }
+  onDown(e){
+    const p=this.pointAt(e); let hit=null,hz=1e9;
+    for(const b of this.bubbles){ if(b.hidden) continue; const d=Math.hypot(b.x-p.x,b.y-p.y); if(d<b.r+4 && d<hz){hz=d;hit=b;} }
+    if(hit){ this.drag=hit; this.dragMoved=0; this.lastP=p; if(e.preventDefault) e.preventDefault(); }
+  }
+  onMove(e){
+    if(this.rekaDrag){ const root=this.rootRef.current, reka=this.rekaRef.current; const rr=root.getBoundingClientRect(); const sx=this.rekaDrag.sx||1, sy=this.rekaDrag.sy||1;
+      let nx=(e.clientX-rr.left)*sx-this.rekaDrag.dx, ny=(e.clientY-rr.top)*sy-this.rekaDrag.dy;
+      nx=Math.max(4,Math.min(root.clientWidth-56,nx)); ny=Math.max(4,Math.min(root.clientHeight-56,ny));
+      reka.style.left=nx+'px'; reka.style.top=ny+'px'; return; }
+    if(!this.drag) return; const p=this.pointAt(e); this.dragMoved+=Math.hypot(p.x-this.lastP.x,p.y-this.lastP.y); this.drag.vx=p.x-this.lastP.x; this.drag.vy=p.y-this.lastP.y; this.drag.x=p.x; this.drag.y=p.y; this.lastP=p;
+  }
+  onUp(e){
+    if(this.rekaDrag){ this.rekaDrag=null; const reka=this.rekaRef.current; if(reka){ reka.style.cursor='grab'; reka.style.animation='rekaFloat 3.4s ease-in-out infinite'; } return; }
+    if(!this.drag) return; const b=this.drag; this.drag=null; if(this.dragMoved<6){ this.openSheet(b); }
+  }
+
+  openSheet(b){ const t=this.TYPE[b.type]; this.setState({ sheet:{ title:b.data.title, meta:b.data.meta, glyph:t.glyph, typeName:t.name, domain:b.domain, color:b.color } }); }
+
+  applyFilter(key){
+    this.filter=key;
+    const floor=this.floorY||(this.H-110), ceil=this.ceilY||80;
+    for(const b of this.bubbles){
+      const match = key==='all' || b.type===key;
+      b.el.style.transition='opacity .35s';
+      if(match){
+        b.hidden=false; b.el.style.opacity='1';
+        b.x = this.W/2 + (Math.random()-.5)*this.W*0.6;
+        b.y = ceil + 16 + Math.random()*Math.max(36,(floor-ceil-40));
+        b.vx = (Math.random()-.5)*1.4; b.vy = 0; b.asleep=false; b.sleepT=0;
+      } else { b.hidden=true; b.el.style.opacity='0'; }
+    }
+    if(this.hintRef.current) this.hintRef.current.style.opacity='0';
+    this.setState({filterKey:key});
+  }
+
+  chartVals(){
+    const ct=this.state.chartType, fk=this.state.filterKey;
+    // 全部 → 按类型；选中某类 → 该类内 按领域
+    let groups, scope;
+    if(fk==='all'){
+      groups=this.typeStatList().map(s=>({label:s.label,count:s.count,color:s.color}));
+      scope='今日构成 · 按类型';
+    } else {
+      const recs=this.records.filter(r=>r.type===fk);
+      const order=['财务','工作','健康','学习','生活','社交'];
+      groups=order.map(d=>({label:d,count:recs.filter(r=>r.domain===d).length,color:this.DOMAIN[d]})).filter(g=>g.count>0);
+      scope=(this.TYPE[fk]?this.TYPE[fk].name:'')+' · 按领域';
+    }
+    const N=groups.length||1, maxC=Math.max(1,...groups.map(g=>g.count));
+    const cx=60,cy=60,rmin=12,rmax=52;
+    const rosePaths=groups.map((g,i)=>{
+      const a0=(i/N)*2*Math.PI-Math.PI/2, a1=((i+1)/N)*2*Math.PI-Math.PI/2;
+      const r=rmin+(g.count/maxC)*(rmax-rmin);
+      const x0=cx+r*Math.cos(a0),y0=cy+r*Math.sin(a0),x1=cx+r*Math.cos(a1),y1=cy+r*Math.sin(a1);
+      const large=(a1-a0)>Math.PI?1:0;
+      return { d:'M'+cx+','+cy+' L'+x0.toFixed(1)+','+y0.toFixed(1)+' A'+r.toFixed(1)+','+r.toFixed(1)+' 0 '+large+' 1 '+x1.toFixed(1)+','+y1.toFixed(1)+' Z', color:g.color };
+    });
+    const legend=groups.map(g=>({ color:g.color, label:g.label, count:g.count }));
+    const barGroups=groups.map(g=>({ label:g.label, count:g.count, color:g.color, color2:this.shade(g.color,-22), barH:Math.round(18+(g.count/maxC)*64) }));
+    const items=groups.map(g=>({ value:g.count, label:g.label, count:g.count, color:g.color })).sort((a,b)=>b.value-a.value);
+    const tmOut=[];
+    const tm=(arr,x,y,w,h)=>{ if(!arr.length) return; if(arr.length===1){ tmOut.push({...arr[0],x,y,w,h}); return; }
+      const tot=arr.reduce((a,b)=>a+b.value,0)||1; let accv=0,idx=0; for(idx=0;idx<arr.length-1;idx++){ accv+=arr[idx].value; if(accv*2>=tot) break; }
+      idx=Math.min(idx, arr.length-2);
+      const g1=arr.slice(0,idx+1), g2=arr.slice(idx+1); const f=g1.reduce((a,b)=>a+b.value,0)/tot;
+      if(w>=h){ tm(g1,x,y,w*f,h); tm(g2,x+w*f,y,w*(1-f),h); } else { tm(g1,x,y,w,h*f); tm(g2,x,y+h*f,w,h*(1-f)); } };
+    tm(items,0,0,100,100);
+    const treeRects=tmOut.map(r=>({ label:r.label, count:r.count, x:r.x, y:r.y, w:r.w, h:r.h, cell:this.rgba(r.color,0.82), edge:this.rgba(r.color,1) }));
+
+    const tabDefs=[['pie','✿','玫瑰'],['bar','▥','柱状'],['heat','◳','树图']];
+    const chartTabs=tabDefs.map(([k,icon,label])=>({ icon, label, onClick:()=>this.setState({chartType:k}),
+      edge: ct===k?'rgba(111,158,255,.5)':'rgba(255,255,255,.1)',
+      bg: ct===k?'rgba(111,158,255,.2)':'rgba(255,255,255,.04)',
+      fg: ct===k?'#cfe0ff':'rgba(255,255,255,.55)' }));
+    return { chartTabs, isPie:ct==='pie', isBar:ct==='bar', isHeat:ct==='heat', chartScope:scope, chartEmpty:groups.length===0,
+      rosePaths, legend, barGroups, treeRects, summary:this.buildSummary() };
+  }
+  rgba(hex,a){ return 'rgba('+parseInt(hex.slice(1,3),16)+','+parseInt(hex.slice(3,5),16)+','+parseInt(hex.slice(5,7),16)+','+a.toFixed(2)+')'; }
+  shade(hex,d){ const c=[1,3,5].map(i=>Math.max(0,Math.min(255,parseInt(hex.slice(i,i+2),16)+d))); return '#'+c.map(x=>x.toString(16).padStart(2,'0')).join(''); }
+
+  fmtCountdown(ms){ const m=Math.floor(ms/60000), s=Math.floor((ms%60000)/1000); if(m>=60){const h=Math.floor(m/60);return h+'小时'+(m%60)+'分后';} if(m>0) return m+' 分钟 '+(s<10?'0':'')+s+' 秒后'; return s+' 秒后'; }
+
+  renderVals(){
+    const hasActions=this.chain.length>0, hasRecords=this.records.length>0;
+    const cur=Math.min(this.state.cur, Math.max(0,this.chain.length-1)); const c=this.chain[cur] || {kind:'',title:'',sub:'',domain:'工作',at:this.state.now,note:''};
+    const ms = (c.at||0) - this.state.now; const total=30*60*1000;
+    const prog = c.kind==='event' ? Math.max(0,Math.min(100, 100-(ms/total*100))) : 0;
+    const colorOf=(dom)=>this.DOMAIN[dom]||'#9aa3b2';
+    const chipDefs=[ ['all','▦','全部'],['todo','📌','待办'],['money','💰','记账'],['card','👤','名片'],['flash','⚡','闪念'],['note','📝','笔记'],['sport','🎾','运动'] ];
+    const fk=this.state.filterKey;
+    const chips = chipDefs.map(([key,glyph,label])=>{
+      const count = key==='all'? this.records.length : this.records.filter(r=>r.type===key).length;
+      const active = fk===key;
+      return { glyph, label, count, onClick:()=>this.applyFilter(key),
+        edge: active?'rgba(111,158,255,.5)':'rgba(255,255,255,.1)',
+        bg: active?'rgba(111,158,255,.2)':'rgba(255,255,255,.04)',
+        fg: active?'#cfe0ff':'rgba(255,255,255,.6)' };
+    }).filter(ch=> ch.count>0 || ch.label==='全部');
+
+    return {
+      rootRef:this.rootRef, jarRef:this.jarRef, deckRef:this.deckRef, stackRef:this.stackRef, navRef:this.navRef, rekaRef:this.rekaRef, hintRef:this.hintRef, chartRef:this.chartRef,
+      gravBtns: [['down','↓','正常'],['up','↑','倒置'],['left','←','左横'],['right','→','右横']].map(([k,icon,title])=>({ icon, title, onClick:()=>this.setGravity(k),
+        bg: this.state.gravMode===k?'rgba(111,158,255,.4)':'transparent', fg: this.state.gravMode===k?'#fff':'rgba(255,255,255,.5)' })),
+      naOpen:this.state.naOpen, dashOpen:this.state.dashOpen,
+      naCaret:this.state.naOpen?'▴':'▾', dashCaret:this.state.dashOpen?'▴':'▾',
+      naSummary: this.state.naOpen? '' : (c.title),
+      onToggleNA:()=>this.setState({naOpen:!this.state.naOpen}),
+      onToggleDash:()=>this.setState({dashOpen:!this.state.dashOpen}),
+      flashCount:this.records.filter(r=>r.type==='flash').length,
+      hasActions, hasRecords, naEmpty:!hasActions, noRecords:!hasRecords,
+      scenario:this.state.scenario,
+      scenarioBtns:[['full','完整一天'],['noRec','只有日程·无记录'],['noAct','只有记录·无日程'],['empty','全空·清晨']].map(([k,label])=>({ label, onClick:()=>this.setScenario(k),
+        edge:this.state.scenario===k?'rgba(111,158,255,.5)':'rgba(255,255,255,.1)', bg:this.state.scenario===k?'rgba(111,158,255,.22)':'rgba(255,255,255,.03)', fg:this.state.scenario===k?'#cfe0ff':'rgba(255,255,255,.6)' })),
+      recordCount:this.state.recordCount,
+      ...this.chartVals(),
+      noTimeOpen:this.state.noTimeOpen,
+      noTimeCount:this.noTime.length,
+      noTimeCaret:this.state.noTimeOpen?'▴':'▾',
+      onToggleNoTime:()=>this.setState({noTimeOpen:!this.state.noTimeOpen}),
+      onFlash:()=>{},
+      focal:{ title:c.title, sub:c.sub, timeLabel:c.kind==='event'? (new Date(c.at).getHours()+':'+String(new Date(c.at).getMinutes()).padStart(2,'0')) : '今天截止',
+        isEvent:c.kind==='event', isTodo:c.kind==='todo', note:c.note||'' },
+      focalColor: colorOf(c.domain),
+      countText: this.fmtCountdown(ms),
+      progressPct: prog,
+      chainPos: hasActions? ((cur+1)+' / '+this.chain.length) : '',
+      onComplete:()=>this.setState({cur:Math.min(this.chain.length-1,cur+1)}),
+      noTimeTodos: this.noTime.map((t)=>({ title:t.title, color:colorOf(t.domain), onDone:()=>{} })),
+      chips,
+      onDropIn:()=>{ const pick=this.records[Math.floor(Math.random()*this.records.length)]; const nr={...pick, meta:'刚刚 · 新记录'}; this.spawn(nr,false); const b=this.bubbles[this.bubbles.length-1]; b.x=this.W/2; b.y=(this.ceilY||80)+10; b.vy=2; this.setState({recordCount:this.state.recordCount+1}); if(this.hintRef.current) this.hintRef.current.style.opacity='0'; },
+      onShake:()=>{ this.wakeAll(); for(const b of this.bubbles){ if(b.hidden) continue; b.vx+=(Math.random()-.5)*18; b.vy-=Math.random()*12; } },
+      sheetOpen: !!this.state.sheet,
+      sheet: this.state.sheet || {title:'',meta:'',glyph:'',typeName:'',domain:'',color:'#888'},
+      onCloseSheet:()=>this.setState({sheet:null})
+    };
+  }
+}
+</script>
+</body>
+</html>
