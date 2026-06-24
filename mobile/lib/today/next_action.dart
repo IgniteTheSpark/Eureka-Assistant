@@ -26,6 +26,14 @@ String fmtCountdown(Duration d) {
   return h > 0 ? '$h 时 ${two(m)} 分' : '${two(m)} 分 ${two(s)} 秒';
 }
 
+/// Serialize [d] as Beijing +08:00 — mirror of `isoBeijing` (pages/create_asset
+/// .dart) = the backend tz convention; avoids the local-toIso off-by-one day.
+String _isoBeijing(DateTime d) {
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${d.year}-${two(d.month)}-${two(d.day)}'
+      'T${two(d.hour)}:${two(d.minute)}:00+08:00';
+}
+
 /// 今日安排 — the B1「潮汐」floating Tinder deck (spec/design-today-home/ B1).
 /// Per-type cards (event = countdown + auto-reminder line; todo = ⏰延后 + ✓完成)
 /// float over the bubble pool; left/right swipe **browses only** (‹上一个 /
@@ -55,6 +63,8 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
   DateTime _now = DateTime.now();
   Timer? _tick; // 1s tick for the focal card's live countdown
   final Set<String> _completing = {}; // ids mid-PUT (avoid double-tap)
+  final GlobalKey _snoozeKey = GlobalKey(); // anchors the 延后 popover
+  OverlayEntry? _snoozeOverlay;
 
   // Tinder-style swipe on the focal card.
   Offset _drag = Offset.zero;
@@ -96,6 +106,7 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
   void dispose() {
     _tick?.cancel();
     _fly.dispose();
+    _snoozeOverlay?.remove();
     _api.close();
     super.dispose();
   }
@@ -555,14 +566,17 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
     );
   }
 
-  /// ⏰ 延后 — amber on-card button. S2b wires the quick-reschedule popover; for
-  /// now it's inert (the swipe stays browse-only, never snoozes).
+  // ── S2b · 延后 = on-card quick reschedule (never a swipe) ────────────────────
+  /// ⏰ 延后 — amber on-card button. Tap → quick-reschedule popover above it
+  /// (1小时 / 明天 / 后天 / 自定义…); long-press → straight to the precise picker.
   Widget _snoozeButton(ChainItem it) {
     const amber = Color(0xFFF5C977);
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: () {}, // TODO(S2b): quick-reschedule popover (1小时/明天/后天/自定义)
+      onTap: () => _showSnoozePopover(it),
+      onLongPress: () => _pickCustom(it),
       child: Container(
+        key: _snoozeKey,
         padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
         decoration: BoxDecoration(
           color: amber.withValues(alpha: 0.16),
@@ -579,6 +593,158 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
         ),
       ),
     );
+  }
+
+  /// Pop the quick-reschedule card just above the 延后 button (its [_snoozeKey]
+  /// render box); a full-screen barrier dismisses on any outside tap.
+  void _showSnoozePopover(ChainItem it) {
+    _dismissSnooze();
+    final ctx = _snoozeKey.currentContext;
+    if (ctx == null) return;
+    final box = ctx.findRenderObject() as RenderBox;
+    final pos = box.localToGlobal(Offset.zero);
+    final screenH = MediaQuery.of(context).size.height;
+    _snoozeOverlay = OverlayEntry(
+      builder: (_) => Stack(
+        children: [
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _dismissSnooze,
+            ),
+          ),
+          Positioned(
+            left: pos.dx,
+            bottom: screenH - pos.dy + 8, // sit 8px above the button
+            child: _snoozeCard(it),
+          ),
+        ],
+      ),
+    );
+    Overlay.of(context).insert(_snoozeOverlay!);
+  }
+
+  void _dismissSnooze() {
+    _snoozeOverlay?.remove();
+    _snoozeOverlay = null;
+  }
+
+  Widget _snoozeCard(ChainItem it) {
+    const amber = Color(0xFFF5C977);
+    return Material(
+      type: MaterialType.transparency,
+      child: Container(
+        width: 200,
+        padding: const EdgeInsets.fromLTRB(12, 11, 12, 12),
+        decoration: BoxDecoration(
+          color: _p.cardTop,
+          borderRadius: BorderRadius.circular(13),
+          border: Border.all(color: amber.withValues(alpha: 0.34)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: _p.dark ? 0.6 : 0.18),
+              blurRadius: 24,
+              offset: const Offset(0, 12),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('改到什么时候？', style: TextStyle(fontSize: 10.5, color: _p.muted)),
+            const SizedBox(height: 9),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                _snoozeChip(
+                  '1 小时',
+                  () => _rescheduleBy(it, const Duration(hours: 1)),
+                ),
+                _snoozeChip('明天', () => _rescheduleByDays(it, 1)),
+                _snoozeChip('后天', () => _rescheduleByDays(it, 2)),
+                _snoozeChip('自定义…', () => _pickCustom(it)),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _snoozeChip(String label, VoidCallback onTap) => GestureDetector(
+    behavior: HitTestBehavior.opaque,
+    onTap: onTap,
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
+      decoration: BoxDecoration(
+        color: _p.panelBg.withValues(alpha: _p.dark ? 0.6 : 0.9),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: _p.panelBorder),
+      ),
+      child: Text(label, style: TextStyle(fontSize: 11.5, color: _p.body)),
+    ),
+  );
+
+  void _rescheduleBy(ChainItem it, Duration d) {
+    _dismissSnooze();
+    _reschedule(it, _now.add(d));
+  }
+
+  /// Push [days] forward, keeping the original due's time-of-day (a no-time todo
+  /// defaults to 09:00). 延到哪天就去哪天 → it leaves today's chain on re-fetch.
+  void _rescheduleByDays(ChainItem it, int days) {
+    _dismissSnooze();
+    final tod = it.timed ? it.at : DateTime(_now.year, _now.month, _now.day, 9);
+    final day = DateTime(
+      _now.year,
+      _now.month,
+      _now.day,
+    ).add(Duration(days: days));
+    _reschedule(it, DateTime(day.year, day.month, day.day, tod.hour, tod.minute));
+  }
+
+  Future<void> _pickCustom(ChainItem it) async {
+    _dismissSnooze();
+    final base = it.timed ? it.at : _now;
+    final day = await showDatePicker(
+      context: context,
+      initialDate: base.isBefore(_now) ? _now : base,
+      firstDate: DateTime(_now.year, _now.month, _now.day),
+      lastDate: DateTime(_now.year + 2),
+    );
+    if (day == null || !mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(base),
+    );
+    if (!mounted) return;
+    _reschedule(
+      it,
+      DateTime(
+        day.year,
+        day.month,
+        day.day,
+        time?.hour ?? base.hour,
+        time?.minute ?? base.minute,
+      ),
+    );
+  }
+
+  /// PUT the new due_date (Beijing ISO) → bumpData re-fetches; if it moved off
+  /// today, the deck drops it. Guarded by [_completing] like 完成.
+  Future<void> _reschedule(ChainItem it, DateTime newDue) async {
+    if (_completing.contains(it.id)) return;
+    setState(() => _completing.add(it.id));
+    try {
+      await _api.putJson('/api/assets/${it.id}', {
+        'payload_patch': {'due_date': _isoBeijing(newDue)},
+      });
+      bumpData();
+    } catch (_) {
+      if (mounted) setState(() => _completing.remove(it.id));
+    }
   }
 
   /// ✓ 完成 — accent-filled; completing a timed todo drops it from the chain
