@@ -45,6 +45,13 @@ final ValueNotifier<String?> rekaFunctionRequest = ValueNotifier<String?>(null);
 /// Convenience: open REKA's 洞察 (summarize) bubble from any page.
 void openRekaInsight() => rekaFunctionRequest.value = 'summarize';
 
+/// §14.5a — the Reka Offer screen's 右滑 ✓ 执行 asks the mascot to act on a nudge
+/// through its OWN anchored flow (outcome acted + 记一笔/出报告 with prefillWish), so
+/// PULL execute reuses the EXACT path as the peek's action buttons (one loop).
+final ValueNotifier<RekaNudge?> rekaNudgeActRequest = ValueNotifier<RekaNudge?>(
+  null,
+);
+
 /// §9.2 v4 「飞入相框」coordinator. The board measures its hero's resting global
 /// rect (transform-independent) and asks the floating ball to fly there; the ball
 /// (overlay-resident, its controller always ticks) animates position+scale into
@@ -175,6 +182,7 @@ class _FloatingMascotState extends State<FloatingMascot>
     _lastUnread = RekaNotifications.instance.unread;
     RekaNotifications.instance.addListener(_onNotif);
     rekaFunctionRequest.addListener(_onFunctionRequest);
+    rekaNudgeActRequest.addListener(_onNudgeActRequest);
     _lastBob = _nudges.bobSignal;
     _nudges.addListener(_onNudges);
   }
@@ -281,10 +289,25 @@ class _FloatingMascotState extends State<FloatingMascot>
     if (anchor != null) _openFunction(intent, anchor);
   }
 
+  // §14.5a: the Reka Offer screen (右滑 ✓ 执行) asked to act on a nudge — run it
+  // through the same anchored act/synthesize path as the peek's action buttons.
+  void _onNudgeActRequest() {
+    final n = rekaNudgeActRequest.value;
+    if (n == null) return;
+    rekaNudgeActRequest.value = null; // consume
+    if (!_auth.isAuthed || mascotSuppressed.value > 0) return;
+    if (n.cta == 'synthesize') {
+      _nudgeSynthesize(n);
+    } else {
+      _nudgeAct(n);
+    }
+  }
+
   @override
   void dispose() {
     _auth.removeListener(_onAuth);
     rekaFunctionRequest.removeListener(_onFunctionRequest);
+    rekaNudgeActRequest.removeListener(_onNudgeActRequest);
     RekaFly.instance.target.removeListener(_onFlyTarget);
     RekaFly.instance.outFrom.removeListener(_onFlyOut);
     RekaNotifications.instance.removeListener(_onNotif);

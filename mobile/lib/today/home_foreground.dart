@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'next_action.dart' show NextActionPanel;
+import 'reka_offer.dart' show RekaOfferScreen;
 import 'today_data.dart' show ChainItem;
 import 'today_palette.dart';
 
@@ -82,9 +83,9 @@ class _HomeForegroundState extends State<HomeForeground> {
                       noTimeTodos: widget.noTimeTodos,
                     ),
                   )
-                : KeyedSubtree(
-                    key: const ValueKey(1),
-                    child: _offerPlaceholder(p),
+                : const KeyedSubtree(
+                    key: ValueKey(1),
+                    child: RekaOfferScreen(),
                   ),
           ),
           // pool shows through here (today_page paints it behind this column)
@@ -205,28 +206,4 @@ class _HomeForegroundState extends State<HomeForeground> {
     );
   }
 
-  // ── Reka Offer 占位 (S3 接 §14.5a offer + 逾期 + 无时间习惯) ──────────────────
-  Widget _offerPlaceholder(TodayPalette p) => Padding(
-    padding: const EdgeInsets.only(top: 40),
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Text('💡', style: TextStyle(fontSize: 30)),
-        const SizedBox(height: 8),
-        Text(
-          'Reka 能帮你',
-          style: TextStyle(
-            color: p.title,
-            fontSize: 15,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          '整理随记 · 消费总结 · 习惯提醒（即将上线）',
-          style: TextStyle(color: p.muted, fontSize: 12),
-        ),
-      ],
-    ),
-  );
 }

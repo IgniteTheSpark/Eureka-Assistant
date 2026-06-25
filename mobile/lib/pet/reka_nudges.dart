@@ -9,7 +9,8 @@ class RekaNudge {
   final String text; // peek 一句话 (「🐾 该记早餐了?」)
   final String body; // expanded copy in the action bubble
   final String ref; // skill machine_name (cta=log) / entity id
-  final String cta; // 'log' | …
+  final String cta; // 'log' | 'synthesize' | 'research' | 'view'
+  final String kind; // offer|consumption_summary|quiz|briefing|overdue|habit_reminder|…
   final String status;
   const RekaNudge({
     required this.id,
@@ -17,6 +18,7 @@ class RekaNudge {
     this.body = '',
     this.ref = '',
     this.cta = '',
+    this.kind = '',
     this.status = 'delivered',
   });
 
@@ -30,6 +32,7 @@ class RekaNudge {
       body: j['body'] as String? ?? '',
       ref: j['ref'] as String? ?? '',
       cta: j['cta'] as String? ?? '',
+      kind: j['kind'] as String? ?? '',
       status: j['status'] as String? ?? 'delivered',
     );
   }
