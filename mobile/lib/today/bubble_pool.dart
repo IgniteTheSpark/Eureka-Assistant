@@ -14,7 +14,6 @@ import '../theme/domains.dart' show domainColor;
 import '../timeline/timeline.dart' show SkillMeta, resolveMeta;
 import 'bubble_physics.dart';
 import 'today_data.dart';
-import 'today_palette.dart';
 
 /// Part 2 (back layer) — the physics bubble pool. Each of today's captured assets
 /// is a falling/colliding/settling bubble behind the frosted panels. Domain =
@@ -232,7 +231,10 @@ class _BubblePoolState extends State<BubblePool>
   @override
   Widget build(BuildContext context) {
     final eu = context.eu;
-    if (widget.pool.isEmpty) return _empty();
+    // Empty pool = silent: the foreground screen's empty state (今日安排空 /
+    // Reka Offer 空, with its own guidance) owns the messaging, so we don't stack
+    // a second 「今天还没有记录」 prompt behind it on a blank day.
+    if (widget.pool.isEmpty) return const SizedBox.expand();
     return LayoutBuilder(
       builder: (context, constraints) {
         final box = constraints.biggest;
@@ -304,23 +306,6 @@ class _BubblePoolState extends State<BubblePool>
     );
   }
 
-  Widget _empty() => Center(
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Text('🫧', style: TextStyle(fontSize: 34)),
-        const SizedBox(height: 10),
-        Text(
-          '今天还没有记录',
-          style: TextStyle(
-            color: TodayPalette.of(context).body,
-            fontSize: 15,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
-    ),
-  );
 }
 
 // NB: the pool bubble glyph + the dashboard category icon/name now resolve a
