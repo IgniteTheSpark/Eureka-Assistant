@@ -5,7 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../app_events.dart' show navigatorKey;
+import '../app_events.dart' show navigatorKey, openNotificationTarget;
 import '../auth/auth_controller.dart';
 import '../ble_flash/flash_file_status_controller.dart';
 import '../chat/recent_session.dart';
@@ -290,17 +290,41 @@ class _FloatingMascotState extends State<FloatingMascot>
   }
 
   // §14.5a: the Reka Offer screen (右滑 ✓ 执行) asked to act on a nudge — run it
-  // through the same anchored act/synthesize path as the peek's action buttons.
+  // through the cta-appropriate flow (the EXACT paths the peek's action buttons
+  // use), branching on cta so offers don't all funnel into 快记:
+  //   synthesize / research → 报告管线 (research = §14.9 briefing genre, web-search
+  //                           step; both go through summarize, NOT 快记)
+  //   view                  → open the referenced entity (asset/event/todo card)
+  //   log / else            → 快记 (习惯一键记 + 普通提醒)
   void _onNudgeActRequest() {
     final n = rekaNudgeActRequest.value;
     if (n == null) return;
     rekaNudgeActRequest.value = null; // consume
     if (!_auth.isAuthed || mascotSuppressed.value > 0) return;
-    if (n.cta == 'synthesize') {
-      _nudgeSynthesize(n);
-    } else {
-      _nudgeAct(n);
+    switch (n.cta) {
+      case 'synthesize':
+      case 'research':
+        _nudgeSynthesize(n);
+      case 'view':
+        _nudgeView(n);
+      default:
+        _nudgeAct(n);
     }
+  }
+
+  // cta=='view' (提醒/逾期待办指向的实体) — mark acted, then open that entity through
+  // the shared notification-target router (fetches the event/todo by id → detail
+  // sheet). ref carries either a structured `reminder:evt|todo:<id>[:thr]` link or
+  // a bare entity id (treated as a todo — the dominant「你还没做的实体」per §3.2 逾期).
+  // NOTE: the backend doesn't emit cta='view' yet (reserved); this wires it up so
+  // the swipe opens the entity instead of mis-routing to 快记 the day it ships.
+  void _nudgeView(RekaNudge n) {
+    _nudges.outcome(n.id, 'acted');
+    setState(() => _nudgeExpanded = false);
+    final ref = n.ref;
+    if (ref.isEmpty) return;
+    final link = ref.startsWith('reminder:') ? ref : 'reminder:todo:$ref';
+    unawaited(openNotificationTarget('reminder', link));
   }
 
   @override

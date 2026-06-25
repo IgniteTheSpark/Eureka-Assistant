@@ -60,8 +60,11 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
   final ApiClient _api = ApiClient();
   int _index = 0;
   int _itemCount = 0; // live deck length: timed chain + live no-time todos
-  DateTime _now = DateTime.now();
-  Timer? _tick; // 1s tick for the focal card's live countdown
+  // The 1s clock drives ONLY the focal event's countdown text + bar (via a
+  // ValueListenableBuilder), never a whole-panel setState. It runs only while
+  // the focal item is a not-yet-ended event (see _syncTicker).
+  final ValueNotifier<DateTime> _clock = ValueNotifier(DateTime.now());
+  Timer? _tick;
   final Set<String> _completing = {}; // ids mid-PUT (avoid double-tap)
   final GlobalKey _snoozeKey = GlobalKey(); // anchors the 延后 popover
   OverlayEntry? _snoozeOverlay;
@@ -76,9 +79,8 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
   @override
   void initState() {
     super.initState();
-    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() => _now = DateTime.now());
-    });
+    // Ticker is started/stopped by _syncTicker (called from build) so it only
+    // runs when the focal item is a live event — no idle 1s rebuilds on 待办.
     _fly =
         AnimationController(
             vsync: this,
@@ -105,10 +107,40 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
   @override
   void dispose() {
     _tick?.cancel();
+    _clock.dispose();
     _fly.dispose();
     _snoozeOverlay?.remove();
     _api.close();
     super.dispose();
+  }
+
+  /// Run the 1s clock only while the focal item is a not-yet-ended event (the
+  /// only thing with a live countdown). Called from build after the focal is
+  /// known, so swiping onto / off an event flips the ticker on / off. Bumps the
+  /// clock once on start so the freshly-shown countdown is current immediately.
+  void _syncTicker(bool wantTick) {
+    if (wantTick == (_tick != null)) return; // already in the desired state
+    if (wantTick) {
+      _clock.value = DateTime.now();
+      _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+        _clock.value = DateTime.now(); // notifies only the countdown listener
+      });
+    } else {
+      _tick?.cancel();
+      _tick = null;
+    }
+  }
+
+  /// True when [it] is the focal item and an event that has not yet ended — i.e.
+  /// it still has a counting-down or 进行中 timer. Mirrors _eventProgress's
+  /// 已结束 cut-off so a finished event stops the ticker.
+  bool _isLiveEvent(ChainItem it) {
+    if (it.kind != 'event') return false;
+    final now = DateTime.now();
+    if (now.isBefore(it.at)) return true; // ⏳ 后开始
+    final dur = it.dur;
+    if (dur == null || dur.inSeconds <= 0) return false; // no duration → no end ticking
+    return now.isBefore(it.at.add(dur)); // 进行中 until end; 已结束 stops it
   }
 
   /// On release: past the threshold (or a flick), fly the focal off-screen then
@@ -138,6 +170,9 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
         'payload_patch': {'status': done ? 'done' : 'pending'},
       });
       bumpData(); // TodayPage re-fetches; timed todos advance, 待安排 stay (struck)
+      // Success-path clear: a 待安排 todo re-renders in place (struck, not gone),
+      // so without this its id would stay in _completing → 完成 dead forever.
+      if (mounted) setState(() => _completing.remove(id));
     } catch (_) {
       if (mounted) setState(() => _completing.remove(id));
     }
@@ -153,8 +188,14 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
       ...widget.noTimeTodos.where((t) => !t.done),
     ];
     _itemCount = items.length;
-    if (items.isEmpty) return _emptyState();
+    if (items.isEmpty) {
+      _syncTicker(false); // nothing focal → no countdown to tick
+      return _emptyState();
+    }
     final idx = _index.clamp(0, items.length); // == length → the end card
+    // Tick only when the focal card is a live (not-yet-ended) event; the end
+    // card (idx == length) and any todo focal need no per-second rebuild.
+    _syncTicker(idx < items.length && _isLiveEvent(items[idx]));
 
     // Transparent (no panel): the cards float over the pool, framed by the
     // segment above + the dock below. Stack + twin buttons + browse hint = B1.
@@ -462,10 +503,12 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
   );
 
   // event: countdown text + imminence/elapsed bar + passive 「🔔 到点自动提醒」.
+  // Only the countdown text + bar tick (per-second) — they live in a
+  // ValueListenableBuilder on [_clock] so the 1s update rebuilds just those two
+  // widgets, not the whole panel. Everything else (meta/title/提醒) is static.
   Widget _eventCard(ChainItem it, double height, EurekaColors eu) {
     final dom = domainColor(eu, it.domain);
     final meta = it.sub == '事件' ? '事件' : '事件 · ${it.sub}';
-    final (label, frac) = _eventProgress(it);
     return _cardShell(
       height,
       Column(
@@ -475,24 +518,36 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
           const SizedBox(height: 9),
           _cardTitle(it.title),
           const Spacer(),
-          Text(
-            label,
-            style: TextStyle(
-              color: _p.accent,
-              fontSize: 12.5,
-              fontWeight: FontWeight.w600,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            ),
-          ),
-          const SizedBox(height: 7),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(99),
-            child: LinearProgressIndicator(
-              value: frac,
-              minHeight: 5,
-              backgroundColor: _p.accent.withValues(alpha: 0.14),
-              valueColor: AlwaysStoppedAnimation(_p.accent),
-            ),
+          ValueListenableBuilder<DateTime>(
+            valueListenable: _clock,
+            builder: (_, now, _) {
+              final (label, frac) = _eventProgress(it, now);
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: _p.accent,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                  const SizedBox(height: 7),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(99),
+                    child: LinearProgressIndicator(
+                      value: frac,
+                      minHeight: 5,
+                      backgroundColor: _p.accent.withValues(alpha: 0.14),
+                      valueColor: AlwaysStoppedAnimation(_p.accent),
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
           const SizedBox(height: 8),
           Text('🔔 到点自动提醒', style: TextStyle(fontSize: 11, color: _p.faint)),
@@ -501,12 +556,13 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
     );
   }
 
-  /// (label, 0..1 bar) for an event: imminence over the last hour before start,
-  /// then elapsed fraction once 进行中. Drives the 1s [_tick].
-  (String, double) _eventProgress(ChainItem it) {
-    final started = !_now.isBefore(it.at);
+  /// (label, 0..1 bar) for an event at [now]: imminence over the last hour
+  /// before start, then elapsed fraction once 进行中. Re-evaluated each 1s tick
+  /// via [_clock] (see _eventCard); _isLiveEvent mirrors the 已结束 cut-off.
+  (String, double) _eventProgress(ChainItem it, DateTime now) {
+    final started = !now.isBefore(it.at);
     if (!started) {
-      final d = it.at.difference(_now);
+      final d = it.at.difference(now);
       return (
         '⏳ ${fmtCountdown(d)} 后开始',
         (1 - d.inSeconds / 3600).clamp(0.0, 1.0).toDouble(),
@@ -515,10 +571,10 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
     final dur = it.dur;
     if (dur != null && dur.inSeconds > 0) {
       final end = it.at.add(dur);
-      if (_now.isBefore(end)) {
+      if (now.isBefore(end)) {
         return (
-          '进行中 · 还剩 ${fmtCountdown(end.difference(_now))}',
-          (1 - end.difference(_now).inSeconds / dur.inSeconds)
+          '进行中 · 还剩 ${fmtCountdown(end.difference(now))}',
+          (1 - end.difference(now).inSeconds / dur.inSeconds)
               .clamp(0.0, 1.0)
               .toDouble(),
         );
@@ -532,9 +588,13 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
   Widget _todoCard(ChainItem it, double height, EurekaColors eu) {
     final dom = domainColor(eu, it.domain);
     final meta = it.timed ? '待办 · ${_hm(it.at)} 截止' : '待办';
-    final started = !_now.isBefore(it.at);
+    // Todos have no live countdown (coarse "X 后到期"), so they read the clock at
+    // build time only — no per-second tick. Re-evaluates on any rebuild (swipe /
+    // action / data bump), flipping to 已到期 after the due moment.
+    final now = DateTime.now();
+    final started = !now.isBefore(it.at);
     final due = it.timed
-        ? (started ? '已到期' : '⏳ ${fmtCountdown(it.at.difference(_now))} 后到期')
+        ? (started ? '已到期' : '⏳ ${fmtCountdown(it.at.difference(now))} 后到期')
         : '无截止时间';
     return _cardShell(
       height,
@@ -689,30 +749,32 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
 
   void _rescheduleBy(ChainItem it, Duration d) {
     _dismissSnooze();
-    _reschedule(it, _now.add(d));
+    _reschedule(it, DateTime.now().add(d));
   }
 
   /// Push [days] forward, keeping the original due's time-of-day (a no-time todo
   /// defaults to 09:00). 延到哪天就去哪天 → it leaves today's chain on re-fetch.
   void _rescheduleByDays(ChainItem it, int days) {
     _dismissSnooze();
-    final tod = it.timed ? it.at : DateTime(_now.year, _now.month, _now.day, 9);
+    final now = DateTime.now(); // action-time read (no cached _now anymore)
+    final tod = it.timed ? it.at : DateTime(now.year, now.month, now.day, 9);
     final day = DateTime(
-      _now.year,
-      _now.month,
-      _now.day,
+      now.year,
+      now.month,
+      now.day,
     ).add(Duration(days: days));
     _reschedule(it, DateTime(day.year, day.month, day.day, tod.hour, tod.minute));
   }
 
   Future<void> _pickCustom(ChainItem it) async {
     _dismissSnooze();
-    final base = it.timed ? it.at : _now;
+    final now = DateTime.now(); // action-time read (no cached _now anymore)
+    final base = it.timed ? it.at : now;
     final day = await showDatePicker(
       context: context,
-      initialDate: base.isBefore(_now) ? _now : base,
-      firstDate: DateTime(_now.year, _now.month, _now.day),
-      lastDate: DateTime(_now.year + 2),
+      initialDate: base.isBefore(now) ? now : base,
+      firstDate: DateTime(now.year, now.month, now.day),
+      lastDate: DateTime(now.year + 2),
     );
     if (day == null || !mounted) return;
     final time = await showTimePicker(
@@ -742,6 +804,10 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
         'payload_patch': {'due_date': _isoBeijing(newDue)},
       });
       bumpData();
+      // Success-path clear: a same-day reschedule (延后 to later TODAY) keeps the
+      // todo in today's chain, so it re-renders with its id still in _completing
+      // → 完成 dead forever. Clear it; off-today reschedules just drop out anyway.
+      if (mounted) setState(() => _completing.remove(it.id));
     } catch (_) {
       if (mounted) setState(() => _completing.remove(it.id));
     }

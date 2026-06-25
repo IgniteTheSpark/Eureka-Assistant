@@ -37,6 +37,26 @@ class HomeForeground extends StatefulWidget {
 }
 
 class _HomeForegroundState extends State<HomeForeground> {
+  // Live horizontal travel while dragging the always-non-card top zone (暖顶 +
+  // 段控); released in [_onTopSwipeEnd] to decide a switch. Reset per drag.
+  double _topSwipeDx = 0;
+
+  /// The single internal switch path: segment tap, the top-zone swipe, the
+  /// pool's background swipe (via TodayPage.onSwipe), and Reka Offer's 「切回安排」
+  /// all route here so the [AnimatedSwitcher] (keyed on [widget.screen]) glides.
+  void _go(int i) => widget.screen.value = i.clamp(0, 1);
+
+  /// Release of a top-zone horizontal drag → step the screen if the gesture is
+  /// horizontal-dominant past a distance/fling threshold (mirrors the pool's
+  /// background-swipe arbitration). dx<0 (drag left) → next screen, dx>0 → prev.
+  void _onTopSwipeEnd(DragEndDetails dets, int screen) {
+    final dx = _topSwipeDx;
+    final vx = dets.primaryVelocity ?? 0;
+    if (dx.abs() > 40 || vx.abs() > 320) {
+      _go(screen + (dx < 0 ? 1 : -1));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = TodayPalette.of(context);
@@ -48,8 +68,22 @@ class _HomeForegroundState extends State<HomeForeground> {
       valueListenable: widget.screen,
       builder: (context, screen, _) => Column(
         children: [
-          _warmTop(p, events, todos),
-          _segment(p, screen),
+          // 暖顶 + 段控 = the always-non-card top zone. A horizontal drag here
+          // switches screens (§3.3 整屏 swipe), routed through [_go] so it shares
+          // the segment-tap path + the AnimatedSwitcher animates. NB: we do NOT
+          // wrap the screen content (card) below — the Tinder deck owns horizontal
+          // pans there as its 'browse' gesture, so a full-card-area switch-swipe
+          // would conflict with the deck. Net: swipe the top/empty space = switch
+          // screens; swipe the card = browse the deck.
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onHorizontalDragStart: (_) => _topSwipeDx = 0,
+            onHorizontalDragUpdate: (d) => _topSwipeDx += d.delta.dx,
+            onHorizontalDragEnd: (dets) => _onTopSwipeEnd(dets, screen),
+            child: Column(
+              children: [_warmTop(p, events, todos), _segment(p, screen)],
+            ),
+          ),
           // The two foreground screens. AnimatedSwitcher = a 280ms horizontal
           // glide on segment tap OR the pool's background swipe (S2d). Natural
           // height so the pool shows + stays tappable in the Expanded gap below.
@@ -83,9 +117,11 @@ class _HomeForegroundState extends State<HomeForeground> {
                       noTimeTodos: widget.noTimeTodos,
                     ),
                   )
-                : const KeyedSubtree(
-                    key: ValueKey(1),
-                    child: RekaOfferScreen(),
+                : KeyedSubtree(
+                    key: const ValueKey(1),
+                    // §3.4: Reka Offer 空态「切回安排」→ screen 0 (don't strand the
+                    // user on a blank board). Same internal switch path as above.
+                    child: RekaOfferScreen(onBackToSchedule: () => _go(0)),
                   ),
           ),
           // pool shows through here (today_page paints it behind this column)
@@ -176,7 +212,7 @@ class _HomeForegroundState extends State<HomeForeground> {
   Widget _segTab(TodayPalette p, String label, int i, int screen) {
     final active = screen == i;
     return GestureDetector(
-      onTap: () => widget.screen.value = i,
+      onTap: () => _go(i),
       behavior: HitTestBehavior.opaque,
       child: IntrinsicWidth(
         child: Column(

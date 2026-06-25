@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../pet/floating_mascot.dart' show rekaNudgeActRequest;
 import '../pet/reka_nudges.dart';
+import '../theme/app_theme.dart'; // context.eu
+import '../theme/domains.dart' show domainColor, isDomain;
 import 'today_palette.dart';
 
 /// Reka Offer — the B「潮汐」second screen (spec §14.5a · design bundle B2/B3).
@@ -13,7 +15,12 @@ import 'today_palette.dart';
 /// Bottom ✕/✓ twin buttons mirror the swipe; a mid-drag global icon (green
 /// execute / red dismiss) tells the action. Empty deck → 「Reka Offer 空」.
 class RekaOfferScreen extends StatefulWidget {
-  const RekaOfferScreen({super.key});
+  /// Jump the global foreground back to【今日安排】(handoff §6 — the empty state
+  /// must offer 一键切回 so users never land on a blank board). Wired at the call
+  /// site (home_foreground); null = no-op (pill hidden).
+  final VoidCallback? onBackToSchedule;
+
+  const RekaOfferScreen({super.key, this.onBackToSchedule});
 
   @override
   State<RekaOfferScreen> createState() => _RekaOfferScreenState();
@@ -41,6 +48,12 @@ class _RekaOfferScreenState extends State<RekaOfferScreen>
     super.initState();
     _deck.addAll(_store.pending);
     _store.addListener(_onStore);
+    // FIX 1a (§14.5a PULL): re-pull on entry so the deck isn't stale-from-launch
+    // (only app boot called loadPending once). NOTE: this still hits the PUSH feed
+    // /api/nudges/pending — the PROPER 现算 comprehensive recompute (ignore push
+    // ≤2/day backoff + UNION 逾期待办/无时间习惯) needs a backend PULL endpoint that
+    // does not exist yet; scoped + reported (see _onStore for the merge).
+    _store.refresh();
     _fly =
         AnimationController(
             vsync: this,
@@ -165,7 +178,7 @@ class _RekaOfferScreenState extends State<RekaOfferScreen>
 
   // ── deck stack ──────────────────────────────────────────────────────────────
   Widget _deckStack() {
-    const cardH = 168.0;
+    const cardH = 176.0;
     final stacked = _deck.length > 1;
     final dir = _drag.dx > 4 ? 1 : (_drag.dx < -4 ? -1 : 0); // 1 exec / -1 skip
     final iconProg = (_drag.dx.abs() / 120).clamp(0.0, 1.0);
@@ -237,9 +250,19 @@ class _RekaOfferScreenState extends State<RekaOfferScreen>
     ),
   );
 
-  // ── offer card (kind icon/label + nudge text + cta hint) ─────────────────────
+  // ── offer card (域点 + kind icon/label + nudge text + 填充 CTA 药丸) ───────────
+  // 别做 (handoff §8): 绿/红 只给 swipe ACTION 揭示 + 全局图标,NOT 卡 chrome —— 卡的
+  // resting border 用中性/域色;域只用一个色点表达(单色 + 域点,不堆底色)。
   Widget _offerCard(RekaNudge n, double height) {
     final (icon, label) = _kindMeta(n.kind);
+    final eu = context.eu;
+    final domain = _domainOf(n);
+    final dot = domain != null ? domainColor(eu, domain) : null;
+    // resting border = neutral panel border, faintly tinted toward the 域色 when
+    // known (never green — green is reserved for the execute reveal).
+    final border = dot != null
+        ? Color.alphaBlend(dot.withValues(alpha: 0.30), _p.cardBorder)
+        : _p.cardBorder;
     return Container(
       height: height,
       width: double.infinity,
@@ -251,9 +274,7 @@ class _RekaOfferScreenState extends State<RekaOfferScreen>
           colors: [_p.cardTop, _p.cardBottom],
         ),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: _execGreen.withValues(alpha: _p.dark ? 0.3 : 0.4),
-        ),
+        border: Border.all(color: border),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: _p.dark ? 0.5 : 0.16),
@@ -273,12 +294,20 @@ class _RekaOfferScreenState extends State<RekaOfferScreen>
                 'Reka 帮你 · $label',
                 style: TextStyle(fontSize: 11.5, color: _p.muted),
               ),
+              const Spacer(),
+              // 域色点 (右上角,呼应 B2/B3 mockup) — 单色表达领域,不占底色。
+              if (dot != null)
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
+                ),
             ],
           ),
           const SizedBox(height: 11),
           Text(
             n.text,
-            maxLines: 2,
+            maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: _p.title,
@@ -297,23 +326,60 @@ class _RekaOfferScreenState extends State<RekaOfferScreen>
             ),
           ],
           const Spacer(),
-          Row(
-            children: [
-              Icon(Icons.arrow_forward_rounded, size: 14, color: _execGreen),
-              const SizedBox(width: 5),
-              Text(
-                '右滑 ${_ctaLabel(n.cta)}',
-                style: TextStyle(
-                  color: _execGreen,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
+          _ctaPill(n.cta),
         ],
       ),
     );
+  }
+
+  // B2 填充 CTA 药丸「给我看看 ✨」(bg linear-gradient(rgba(111,158,255,.3)→.15),
+  // border rgba(111,158,255,.45), radius 10). Action-blue token, 与主题解耦
+  // (这是「执行」动作色,不是卡 chrome / 域色)。
+  static const _ctaBlue = Color(0xFF6F9EFF);
+  Widget _ctaPill(String cta) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.symmetric(vertical: 9),
+    alignment: Alignment.center,
+    decoration: BoxDecoration(
+      gradient: LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          _ctaBlue.withValues(alpha: 0.30),
+          _ctaBlue.withValues(alpha: 0.15),
+        ],
+      ),
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: _ctaBlue.withValues(alpha: 0.45)),
+    ),
+    child: Text(
+      '${_ctaLabel(cta)} ✨',
+      style: TextStyle(
+        color: _p.dark ? const Color(0xFFDCE8FF) : const Color(0xFF2C4C8C),
+        fontSize: 13,
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+  );
+
+  /// Derive the offer's 领域 for the color dot. RekaNudge carries no domain field,
+  /// so read it off `ref` (`domain:工作`) else map by `kind` (灵感/学习/消费 genres).
+  /// Returns null when unknown → no dot (don't fake a domain).
+  String? _domainOf(RekaNudge n) {
+    if (n.ref.startsWith('domain:')) {
+      final d = n.ref.substring(7);
+      return isDomain(d) ? d : null;
+    }
+    switch (n.kind) {
+      case 'idea_synthesis':
+        return '灵感';
+      case 'quiz':
+        return '学习';
+      case 'consumption_summary':
+        return '生活'; // 记账归生活域(域色 §8.3)
+      default:
+        return null;
+    }
   }
 
   /// kind → (emoji, 中文标签). kind is the nudge's offer genre (§14.3); falls back
@@ -343,11 +409,12 @@ class _RekaOfferScreenState extends State<RekaOfferScreen>
     }
   }
 
+  // CTA 药丸文案 (与「✨」连读 · B2「给我看看 ✨」/ B3「帮我查 ✨」)。
   String _ctaLabel(String cta) => switch (cta) {
-    'synthesize' => '帮我理一理',
+    'synthesize' => '给我看看',
     'log' => '记一笔',
-    'research' => '去调研',
-    'view' => '查看',
+    'research' => '帮我查',
+    'view' => '去看看',
     _ => '执行',
   };
 
@@ -429,10 +496,14 @@ class _RekaOfferScreenState extends State<RekaOfferScreen>
     sub: '把刚跳过的再过一遍',
   );
 
+  // handoff §6 暖空态:「今天没有新建议,记点啥都行」+ 一键切回安排(别让用户切过去
+  // 看到白板)。pill 仅在 onBackToSchedule 接好时出现。
   Widget _emptyState() => _centered(
     '💡',
     'Reka Offer 空',
     sub: '今天没有新建议，记点啥都行',
+    pill: widget.onBackToSchedule != null ? '← 切回今日安排' : null,
+    onPill: widget.onBackToSchedule,
   );
 
   Widget _centered(

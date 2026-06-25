@@ -28,8 +28,6 @@ class BubblePool extends StatefulWidget {
     required this.pool,
     this.skills = const {},
     this.active = true,
-    this.filterKey = 'all',
-    this.highlightId,
     this.onSwipe,
   });
 
@@ -42,13 +40,6 @@ class BubblePool extends StatefulWidget {
   /// Whether the today tab is the visible one. When false the ticker + the
   /// accelerometer are suspended even if bodies are still moving.
   final bool active;
-
-  /// Dashboard filter — bubbles whose type doesn't match are dimmed ('all' =
-  /// none dimmed).
-  final String filterKey;
-
-  /// A bubble to light up (tapped from the dashboard's latest row); null = none.
-  final String? highlightId;
 
   /// Background horizontal swipe (a pan that does NOT start on a bubble) → switch
   /// the foreground screen (dir -1 = 今日安排 / +1 = Reka Offer). The pool owns the
@@ -306,9 +297,12 @@ class _BubblePoolState extends State<BubblePool>
             if (_swiping) {
               _swiping = false;
               final dx = _swipeDelta.dx;
+              final dy = _swipeDelta.dy;
               final vx = dets.velocity.pixelsPerSecond.dx;
-              // horizontal-dominant past a distance or fling threshold → switch.
-              if (dx.abs() > _swipeDelta.dy.abs() &&
+              // Switch only when dx CLEARLY dominates dy (1.5×), so a diagonal
+              // drag reads as a vertical flick (pool toss) instead of mis-firing
+              // a switch; still requires a distance OR fling threshold.
+              if (dx.abs() > dy.abs() * 1.5 &&
                   (dx.abs() > 64 || vx.abs() > 600)) {
                 widget.onSwipe!(dx < 0 ? 1 : -1);
               }
@@ -321,8 +315,10 @@ class _BubblePoolState extends State<BubblePool>
             painter: _BubblePainter(
               field: field,
               repaint: _repaint,
-              filterKey: _focusType ?? widget.filterKey,
-              highlightId: widget.highlightId,
+              // S4 long-press is now the SOLE dim/ring driver (null = nothing
+              // focused → every bubble painted full). Dashboard filter/highlight
+              // props are gone.
+              focusType: _focusType,
               colorOf: (id) => domainColor(eu, _byId[id]?.domain ?? ''),
               glyphOf: (id) =>
                   resolveMeta(_byId[id]?.type ?? '', widget.skills).icon,
@@ -374,8 +370,7 @@ class _BubblePainter extends CustomPainter {
     required this.colorOf,
     required this.glyphOf,
     required this.typeOf,
-    required this.filterKey,
-    required this.highlightId,
+    required this.focusType,
     required Listenable repaint,
   }) : super(repaint: repaint);
 
@@ -383,19 +378,19 @@ class _BubblePainter extends CustomPainter {
   final Color Function(String id) colorOf;
   final String Function(String id) glyphOf;
   final String Function(String id) typeOf;
-  final String filterKey;
-  final String? highlightId;
+
+  /// S4: the long-pressed bubble's type (others dim + matches ringed), or null
+  /// when nothing is focused → every bubble painted at full.
+  final String? focusType;
 
   @override
   void paint(Canvas canvas, Size size) {
     for (final b in field.bubbles) {
       final c = Offset(b.x, b.y);
       final col = colorOf(b.id);
-      // When a bubble is highlighted (dashboard latest-row tap) recede every
-      // other bubble so it visibly lights up; otherwise honor the filter dim.
-      final dim = highlightId != null
-          ? b.id != highlightId
-          : (filterKey != 'all' && typeOf(b.id) != filterKey);
+      // S4: a type is focused (long-press) → recede every other type to a faint
+      // disc so 同类球 read as highlighted; nothing focused = no dim.
+      final dim = focusType != null && typeOf(b.id) != focusType;
       if (dim) {
         // recede non-matching bubbles to a faint disc (no gloss/glyph).
         canvas.drawCircle(c, b.r, Paint()..color = col.withValues(alpha: .14));
@@ -434,7 +429,7 @@ class _BubblePainter extends CustomPainter {
       );
       // S4: a type is focused → ring the matching (non-dimmed) bubbles so 同类球
       // read as highlighted (the rest already receded to faint discs above).
-      if (filterKey != 'all') {
+      if (focusType != null) {
         canvas.drawCircle(
           c,
           b.r + 1.5,
@@ -454,41 +449,12 @@ class _BubblePainter extends CustomPainter {
       )..layout();
       tp.paint(canvas, c - Offset(tp.width / 2, tp.height / 2));
     }
-    // Highlight (dashboard latest-row tap): a glowing accent ring on top of the
-    // pile so the tapped record's bubble lights up.
-    if (highlightId != null) {
-      for (final b in field.bubbles) {
-        if (b.id != highlightId) continue;
-        final c = Offset(b.x, b.y);
-        // glowing ring (thick + blurred) — reads as "lit up" over the pile.
-        canvas.drawCircle(
-          c,
-          b.r + 8,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 6
-            ..color = const Color(0xFF8AB4FF)
-            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 9),
-        );
-        // crisp bright ring hugging the bubble
-        canvas.drawCircle(
-          c,
-          b.r + 4,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 3
-            ..color = const Color(0xFFEAF2FF),
-        );
-        break;
-      }
-    }
   }
 
-  // Per-frame repaint is driven by the Listenable; repaint on a filter or
-  // highlight change (the painter instance changes without a Listenable tick).
+  // Per-frame repaint is driven by the Listenable; also repaint when the focused
+  // type flips (the painter instance changes without a Listenable tick).
   @override
-  bool shouldRepaint(_BubblePainter old) =>
-      old.filterKey != filterKey || old.highlightId != highlightId;
+  bool shouldRepaint(_BubblePainter old) => old.focusType != focusType;
 }
 
 /// §B4 长按球 → 同类毛玻璃浮层. Rises from the bottom listing every record of one
