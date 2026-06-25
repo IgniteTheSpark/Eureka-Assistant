@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -14,6 +15,7 @@ import '../theme/domains.dart' show domainColor;
 import '../timeline/timeline.dart' show SkillMeta, resolveMeta;
 import 'bubble_physics.dart';
 import 'today_data.dart';
+import 'today_palette.dart';
 
 /// Part 2 (back layer) — the physics bubble pool. Each of today's captured assets
 /// is a falling/colliding/settling bubble behind the frosted panels. Domain =
@@ -76,6 +78,10 @@ class _BubblePoolState extends State<BubblePool>
   bool _swiping = false;
   Offset _swipeDelta = Offset.zero;
 
+  // S4: long-press a bubble → focus its type (dim others + ring matches) while a
+  // frosted overlay lists that type's records today.
+  String? _focusType;
+
   @override
   void initState() {
     super.initState();
@@ -105,6 +111,24 @@ class _BubblePoolState extends State<BubblePool>
   }
 
   String _keyOf(List<PoolAsset> p) => p.map((a) => a.id).join(',');
+
+  /// §B4 long-press a bubble → frosted overlay of that [type]'s records captured
+  /// today; the pool dims all but that type (ringed) until the sheet closes.
+  Future<void> _openTypeSheet(String type) async {
+    final items = widget.pool.where((a) => a.type == type).toList()
+      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    if (items.isEmpty) return;
+    setState(() => _focusType = type); // dim others + ring matches in the pool
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: const Color(0x80070B14), // §B4 dim over the highlighted pool
+      builder: (_) =>
+          _TypeSheet(type: type, items: items, skills: widget.skills),
+    );
+    if (mounted) setState(() => _focusType = null);
+  }
 
   void _onTick(Duration _) {
     final f = _field;
@@ -254,6 +278,10 @@ class _BubblePoolState extends State<BubblePool>
             final b = field.hit(d.localPosition);
             if (b != null) openAssetSheet(context, _byId[b.id]!);
           },
+          onLongPressStart: (d) {
+            final b = field.hit(d.localPosition);
+            if (b != null) _openTypeSheet(_byId[b.id]!.type);
+          },
           onPanStart: (d) {
             final b = field.hit(d.localPosition);
             if (b != null) {
@@ -293,7 +321,7 @@ class _BubblePoolState extends State<BubblePool>
             painter: _BubblePainter(
               field: field,
               repaint: _repaint,
-              filterKey: widget.filterKey,
+              filterKey: _focusType ?? widget.filterKey,
               highlightId: widget.highlightId,
               colorOf: (id) => domainColor(eu, _byId[id]?.domain ?? ''),
               glyphOf: (id) =>
@@ -404,6 +432,18 @@ class _BubblePainter extends CustomPainter {
           ..color = const Color(0x88FFFFFF)
           ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2),
       );
+      // S4: a type is focused → ring the matching (non-dimmed) bubbles so 同类球
+      // read as highlighted (the rest already receded to faint discs above).
+      if (filterKey != 'all') {
+        canvas.drawCircle(
+          c,
+          b.r + 1.5,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2.5
+            ..color = const Color(0xCC6F9EFF),
+        );
+      }
       // type glyph
       final tp = TextPainter(
         text: TextSpan(
@@ -449,4 +489,156 @@ class _BubblePainter extends CustomPainter {
   @override
   bool shouldRepaint(_BubblePainter old) =>
       old.filterKey != filterKey || old.highlightId != highlightId;
+}
+
+/// §B4 长按球 → 同类毛玻璃浮层. Rises from the bottom listing every record of one
+/// [type] captured today; the pool behind dims all but that type (ring on the
+/// matches). Tapping a row opens the same global detail sheet.
+class _TypeSheet extends StatelessWidget {
+  const _TypeSheet({
+    required this.type,
+    required this.items,
+    required this.skills,
+  });
+
+  final String type;
+  final List<PoolAsset> items;
+  final Map<String, SkillMeta> skills;
+
+  String _hm(DateTime t) =>
+      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+  @override
+  Widget build(BuildContext context) {
+    final p = TodayPalette.of(context);
+    final eu = context.eu;
+    final meta = resolveMeta(type, skills);
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+        child: Container(
+          decoration: BoxDecoration(
+            color: p.panelBg,
+            border: Border(top: BorderSide(color: p.panelBorder)),
+          ),
+          padding: EdgeInsets.fromLTRB(
+            16,
+            12,
+            16,
+            16 + MediaQuery.of(context).padding.bottom,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: p.faint,
+                    borderRadius: BorderRadius.circular(9),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Container(
+                    width: 34,
+                    height: 34,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: p.accent.withValues(alpha: 0.18),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(meta.icon, style: const TextStyle(fontSize: 16)),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${meta.label} · 今天 ${items.length} 条',
+                          style: TextStyle(
+                            color: p.title,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '同类球已在池里高亮',
+                          style: TextStyle(color: p.muted, fontSize: 11),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 13),
+              Flexible(
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: items.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 8),
+                  itemBuilder: (_, i) {
+                    final a = items[i];
+                    return GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => openAssetSheet(context, a),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 11,
+                        ),
+                        decoration: BoxDecoration(
+                          color: p.inset,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: p.panelBorder),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 7,
+                              height: 7,
+                              decoration: BoxDecoration(
+                                color: domainColor(eu, a.domain),
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                a.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(color: p.body, fontSize: 13),
+                              ),
+                            ),
+                            Text(
+                              _hm(a.createdAt),
+                              style: TextStyle(
+                                color: p.muted,
+                                fontSize: 11,
+                                fontFeatures: const [
+                                  FontFeature.tabularFigures(),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
