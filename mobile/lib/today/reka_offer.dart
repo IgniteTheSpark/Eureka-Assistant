@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../api/api_client.dart';
+import '../app_events.dart' show openNotificationTarget;
+import '../data_revision.dart';
 import '../pet/floating_mascot.dart' show rekaNudgeActRequest;
 import '../pet/reka_nudges.dart';
 import '../theme/app_theme.dart'; // context.eu
@@ -50,6 +53,9 @@ class _RekaOfferScreenState extends State<RekaOfferScreen>
     // §14.5a PULL: seed from the COMPREHENSIVE offer set (现算), not the push feed.
     _deck.addAll(_store.offers);
     _store.addListener(_onStore);
+    // 完成 a todo from the detail sheet (opened via 去看看) bumps dataRevision →
+    // recompute the offer set so the completed todo's card drops out here too.
+    dataRevision.addListener(_onDataRev);
     // Recompute on entry → the on-demand comprehensive set (accumulation offers
     // UNION 逾期待办 / 无时间习惯, ignoring the push ≤2/day throttle) via the new
     // GET /api/offers/today. Each card is a real upserted Nudge with an id, so the
@@ -72,8 +78,13 @@ class _RekaOfferScreenState extends State<RekaOfferScreen>
   @override
   void dispose() {
     _store.removeListener(_onStore);
+    dataRevision.removeListener(_onDataRev);
     _fly.dispose();
     super.dispose();
+  }
+
+  void _onDataRev() {
+    if (mounted) _store.loadOffers();
   }
 
   /// Keep the deck loosely in sync with the shared store's §14.5a PULL set: drop
@@ -137,9 +148,15 @@ class _RekaOfferScreenState extends State<RekaOfferScreen>
     }
     setState(() => _deck.removeWhere((x) => x.id == n.id));
     if (status == 'acted') {
-      // delegate to the mascot's anchored flow (outcome acted + 记一笔/出报告 with
-      // prefillWish) — the exact path the peek action buttons use.
-      rekaNudgeActRequest.value = n;
+      if (n.cta == 'view') {
+        // 右滑 on a 逾期/提醒 offer = 完成 its todo (the user is done with it) →
+        // the recomputed offer set drops it.
+        _completeOffer(n);
+      } else {
+        // offer (给我看看 / 记一笔) → the mascot's anchored flow (outcome acted +
+        // 出报告/快记 with prefillWish) — the same path the peek action buttons use.
+        rekaNudgeActRequest.value = n;
+      }
     } else {
       _skipped.add(n);
       _store.outcome(n.id, 'dismissed'); // 压一天 (+ stays in the feed)
@@ -157,6 +174,39 @@ class _RekaOfferScreenState extends State<RekaOfferScreen>
     });
   }
 
+  // §3.2 逾期/提醒 offer「去看看」(cta=view) → open the entity's detail sheet WITHOUT
+  // consuming the card (look first; the sheet's 完成 / a right-swipe consumes it).
+  void _openDetail(RekaNudge n) {
+    if (n.ref.isEmpty) return;
+    openNotificationTarget('reminder', _viewLink(n.ref));
+  }
+
+  // ref → a valid `reminder:<kind>:<id>` for the router (mirrors floating_mascot's
+  // _nudgeView; must not double the `todo:` prefix).
+  String _viewLink(String ref) => ref.startsWith('reminder:')
+      ? ref
+      : (ref.startsWith('todo:') || ref.startsWith('evt:'))
+      ? 'reminder:$ref'
+      : 'reminder:todo:$ref';
+
+  // 完成 a 逾期 offer's todo (right-swipe; mirrors the detail sheet's 完成 / 资产库
+  // card): PUT status=done + mark the offer acted; bumpData → _onDataRev reloads
+  // the offer set, which then omits the now-completed todo.
+  Future<void> _completeOffer(RekaNudge n) async {
+    final id = n.ref.startsWith('todo:') ? n.ref.substring(5) : n.ref;
+    _store.outcome(n.id, 'acted');
+    final api = ApiClient();
+    try {
+      await api.putJson('/api/assets/$id', {
+        'payload_patch': {'status': 'done'},
+      });
+    } catch (_) {
+    } finally {
+      api.close();
+    }
+    bumpData();
+  }
+
   @override
   Widget build(BuildContext context) {
     _p = TodayPalette.of(context);
@@ -165,17 +215,7 @@ class _RekaOfferScreenState extends State<RekaOfferScreen>
     }
     return Column(
       mainAxisSize: MainAxisSize.min,
-      children: [
-        _deckStack(),
-        const SizedBox(height: 16),
-        _twinButtons(),
-        const SizedBox(height: 9),
-        Text(
-          '右滑 ✓ 执行 · 左滑 ✕ 跳过',
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 10.5, color: _p.faint),
-        ),
-      ],
+      children: [_deckStack(), const SizedBox(height: 16), _twinButtons()],
     );
   }
 
@@ -333,7 +373,10 @@ class _RekaOfferScreenState extends State<RekaOfferScreen>
           // B2「给我看看」/逾期「去看看」is the primary affordance, not decoration.
           GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: () => _consume(true),
+            // 去看看 (cta=view, 逾期/提醒) = open the entity detail ONLY, NON-consuming
+            // — the card stays; 完成 in that sheet (or a right-swipe) is what consumes
+            // it. Other CTAs (给我看看 / 记一笔) = execute, same as right-swipe.
+            onTap: () => n.cta == 'view' ? _openDetail(n) : _consume(true),
             child: _ctaPill(n.cta),
           ),
         ],
