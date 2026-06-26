@@ -144,29 +144,50 @@ class _HomeForegroundState extends State<HomeForeground> {
   Widget _warmTop(TodayPalette p, int events, int todos) {
     final (greet, icon) = _greeting();
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 8, 18, 0),
+      padding: const EdgeInsets.fromLTRB(18, 6, 18, 0),
       child: Column(
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text(icon, style: const TextStyle(fontSize: 16)),
+              Text(icon, style: const TextStyle(fontSize: 17)),
               const SizedBox(width: 6),
               // TODO(S5): real weather (QWeather + IP) → ☀️ 26° 晴
               Text(
                 greet,
-                style: TextStyle(color: p.body, fontSize: 12.5, height: 1),
+                style: TextStyle(
+                  color: p.title,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  height: 1,
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
+          // 今日一览: bigger, per-type pills matching the card design language —
+          // type emoji + bold count + label, tinted by the type's color.
           Wrap(
-            spacing: 7,
+            spacing: 8,
+            runSpacing: 8,
             alignment: WrapAlignment.center,
             children: [
-              _ovChip(p, '$events 日程', accent: false),
-              _ovChip(p, '$todos 待办', accent: false),
-              _ovChip(p, '⚡ ${widget.flashCount} 闪念 ›', accent: true),
+              _ovChip(p,
+                  emoji: '📅',
+                  count: events,
+                  label: '日程',
+                  color: const Color(0xFF5B8DEF)),
+              _ovChip(p,
+                  emoji: '📋',
+                  count: todos,
+                  label: '待办',
+                  color: const Color(0xFF34B79A)),
+              _ovChip(p,
+                  emoji: '⚡',
+                  count: widget.flashCount,
+                  label: '闪念',
+                  color: p.accent,
+                  showChevron: true),
             ],
           ),
         ],
@@ -181,25 +202,47 @@ class _HomeForegroundState extends State<HomeForeground> {
     return ('晚上好', '🌙');
   }
 
-  Widget _ovChip(TodayPalette p, String label, {required bool accent}) =>
+  /// One 今日一览 pill: type emoji + bold count + label, tinted by [color].
+  /// 闪念 passes [showChevron] = true to keep its tappable affordance.
+  Widget _ovChip(
+    TodayPalette p, {
+    required String emoji,
+    required int count,
+    required String label,
+    required Color color,
+    bool showChevron = false,
+  }) =>
       Container(
-        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
+        padding: const EdgeInsets.fromLTRB(12, 7, 14, 7),
         decoration: BoxDecoration(
-          color: accent
-              ? p.accent.withValues(alpha: 0.2)
-              : p.panelBg.withValues(alpha: p.dark ? 0.5 : 0.82),
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(
-            color: accent ? p.accent.withValues(alpha: 0.42) : p.panelBorder,
-          ),
+          color: color.withValues(alpha: p.dark ? 0.20 : 0.14),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: color.withValues(alpha: 0.34)),
         ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: accent ? p.accentSoft : p.body,
-            fontSize: 11.5,
-            fontWeight: accent ? FontWeight.w600 : FontWeight.w400,
-          ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(emoji, style: const TextStyle(fontSize: 17)),
+            const SizedBox(width: 6),
+            Text(
+              '$count',
+              style: TextStyle(
+                color: p.title,
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                height: 1,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(color: p.body, fontSize: 12.5, height: 1),
+            ),
+            if (showChevron) ...[
+              const SizedBox(width: 2),
+              Icon(Icons.chevron_right, size: 17, color: p.body),
+            ],
+          ],
         ),
       );
 

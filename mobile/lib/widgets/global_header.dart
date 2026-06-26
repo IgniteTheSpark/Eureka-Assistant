@@ -22,11 +22,16 @@ import 'toast.dart';
 /// Per-page headers keep only their page-specific content (segmented / title /
 /// refresh).
 class GlobalHeaderBar extends StatelessWidget {
-  const GlobalHeaderBar({super.key, this.onDark = false});
+  const GlobalHeaderBar({super.key, this.onDark = false, this.bg});
 
   /// Render against the today page's dark "atmosphere" (tab0): the bar blends
   /// into #0B1220 with light controls instead of the light calendar/library bg.
   final bool onDark;
+
+  /// Optional override for the bar's background. On the today tab we pass the
+  /// page's `atmosphereTop` so the header melts into the glow right below it
+  /// (and we drop the bottom rule) — killing the seam 色差. Null = default bg.
+  final Color? bg;
 
   @override
   Widget build(BuildContext context) {
@@ -34,10 +39,12 @@ class GlobalHeaderBar extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(18, 2, 4, 2),
       decoration: BoxDecoration(
-        color: onDark ? const Color(0xFF0B1220) : eu.bg,
+        color: bg ?? (onDark ? const Color(0xFF0B1220) : eu.bg),
         border: Border(
             bottom: BorderSide(
-                color: onDark ? const Color(0x14FFFFFF) : eu.rule)),
+                color: bg != null
+                    ? Colors.transparent
+                    : (onDark ? const Color(0x14FFFFFF) : eu.rule))),
       ),
       child: Row(
         children: [
