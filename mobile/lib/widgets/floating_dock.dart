@@ -65,12 +65,15 @@ class FloatingDock extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
             decoration: BoxDecoration(
               // top-lit → bottom-shaded glass fill (dimensionality, both themes).
+              // Lower alphas let the backdrop blur pull the page tint through, so
+              // the dock reads as the same material as the cream page rather than
+              // the near-white surfaceRaised standing out (the 色差 feedback).
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  eu.surfaceRaised.withValues(alpha: 0.90),
-                  eu.surface.withValues(alpha: 0.70),
+                  eu.surfaceRaised.withValues(alpha: 0.62),
+                  eu.surface.withValues(alpha: 0.46),
                 ],
               ),
               borderRadius: BorderRadius.circular(28),
@@ -94,11 +97,11 @@ class FloatingDock extends StatelessWidget {
   }
 
   Widget _divider(EurekaColors eu) => Container(
-        width: 1,
-        height: 22,
-        color: eu.border,
-        margin: const EdgeInsets.symmetric(horizontal: 5),
-      );
+    width: 1,
+    height: 22,
+    color: eu.border,
+    margin: const EdgeInsets.symmetric(horizontal: 5),
+  );
 
   Widget _button(BuildContext context, DockItem it) {
     final eu = context.eu;
@@ -123,8 +126,13 @@ class FloatingDock extends StatelessWidget {
             children: [
               Icon(it.icon, size: 18, color: Colors.white),
               const SizedBox(width: 6),
-              Text(it.label,
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+              Text(
+                it.label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ],
           ),
         ),

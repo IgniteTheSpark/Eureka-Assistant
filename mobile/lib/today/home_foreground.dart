@@ -85,47 +85,51 @@ class _HomeForegroundState extends State<HomeForeground> {
             ),
           ),
           // The two foreground screens. AnimatedSwitcher = a 280ms horizontal
-          // glide on segment tap OR the pool's background swipe (S2d). Natural
-          // height so the pool shows + stays tappable in the Expanded gap below.
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 280),
-            switchInCurve: Curves.easeOut,
-            switchOutCurve: Curves.easeIn,
-            transitionBuilder: (child, anim) {
-              final incoming = child.key == ValueKey(screen);
-              final dx = incoming ? 0.06 : -0.06;
-              return FadeTransition(
-                opacity: anim,
-                child: SlideTransition(
-                  position: Tween<Offset>(
-                    begin: Offset(dx, 0),
-                    end: Offset.zero,
-                  ).animate(anim),
-                  child: child,
-                ),
-              );
-            },
-            layoutBuilder: (cur, prev) => Stack(
-              alignment: Alignment.topCenter,
-              children: [...prev, ?cur],
-            ),
-            child: screen == 0
-                ? KeyedSubtree(
-                    key: const ValueKey(0),
-                    child: NextActionPanel(
-                      chain: widget.chain,
-                      noTimeTodos: widget.noTimeTodos,
+          // glide on segment tap OR the pool's background swipe (S2d). Wrapped in
+          // Expanded(Center(…)) so the card centers vertically between the segment
+          // and the dock; the bubble pool still shows behind it (today_page paints
+          // the pool below this column).
+          Expanded(
+            child: Center(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 280),
+                switchInCurve: Curves.easeOut,
+                switchOutCurve: Curves.easeIn,
+                transitionBuilder: (child, anim) {
+                  final incoming = child.key == ValueKey(screen);
+                  final dx = incoming ? 0.06 : -0.06;
+                  return FadeTransition(
+                    opacity: anim,
+                    child: SlideTransition(
+                      position: Tween<Offset>(
+                        begin: Offset(dx, 0),
+                        end: Offset.zero,
+                      ).animate(anim),
+                      child: child,
                     ),
-                  )
-                : KeyedSubtree(
-                    key: const ValueKey(1),
-                    // §3.4: Reka Offer 空态「切回安排」→ screen 0 (don't strand the
-                    // user on a blank board). Same internal switch path as above.
-                    child: RekaOfferScreen(onBackToSchedule: () => _go(0)),
-                  ),
+                  );
+                },
+                layoutBuilder: (cur, prev) => Stack(
+                  alignment: Alignment.topCenter,
+                  children: [...prev, ?cur],
+                ),
+                child: screen == 0
+                    ? KeyedSubtree(
+                        key: const ValueKey(0),
+                        child: NextActionPanel(
+                          chain: widget.chain,
+                          noTimeTodos: widget.noTimeTodos,
+                        ),
+                      )
+                    : KeyedSubtree(
+                        key: const ValueKey(1),
+                        // §3.4: Reka Offer 空态「切回安排」→ screen 0 (don't strand
+                        // the user on a blank board). Same internal switch path.
+                        child: RekaOfferScreen(onBackToSchedule: () => _go(0)),
+                      ),
+              ),
+            ),
           ),
-          // pool shows through here (today_page paints it behind this column)
-          const Expanded(child: SizedBox()),
           // reserved gap so the bottom-most content clears the floating dock
           const SizedBox(height: 78),
         ],
@@ -241,5 +245,4 @@ class _HomeForegroundState extends State<HomeForeground> {
       ),
     );
   }
-
 }

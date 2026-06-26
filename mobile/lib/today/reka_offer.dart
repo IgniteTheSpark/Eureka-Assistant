@@ -213,15 +213,19 @@ class _RekaOfferScreenState extends State<RekaOfferScreen>
     if (_deck.isEmpty) {
       return _skipped.isEmpty ? _emptyState() : _regenState();
     }
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [_deckStack(), const SizedBox(height: 16), _twinButtons()],
-    );
+    // The ✕/✓ actions now live INSIDE the focal card (see _offerCard), so the
+    // deck branch is just the stack — it reads as one integrated card, not a
+    // top component with buttons floating below.
+    return _deckStack();
   }
 
   // ── deck stack ──────────────────────────────────────────────────────────────
   Widget _deckStack() {
-    const cardH = 176.0;
+    // Taller so the in-card ✕/✓ action row fits without a RenderFlex overflow:
+    // padding 15+15, header ~20, gaps, 1-line title, up-to-2-line body, the CTA
+    // pill ~34, the +12 gap and the ~52 action-button row — ~220 fixed, 252
+    // leaves the Spacer comfortable headroom.
+    const cardH = 252.0;
     final stacked = _deck.length > 1;
     final dir = _drag.dx > 4 ? 1 : (_drag.dx < -4 ? -1 : 0); // 1 exec / -1 skip
     final iconProg = (_drag.dx.abs() / 120).clamp(0.0, 1.0);
@@ -379,6 +383,19 @@ class _RekaOfferScreenState extends State<RekaOfferScreen>
             onTap: () => n.cta == 'view' ? _openDetail(n) : _consume(true),
             child: _ctaPill(n.cta),
           ),
+          const SizedBox(height: 12),
+          // ✕/✓ twin actions, now INSIDE the focal card (same buttons _twinButtons
+          // used). They act on _deck.first via _consume — correct, since they only
+          // render on the focal card. A tap fires onTap; a drag still pans the card
+          // (these are children of the card's pan GestureDetector).
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _actionBtn(false),
+              const SizedBox(width: 30),
+              _actionBtn(true),
+            ],
+          ),
         ],
       ),
     );
@@ -505,17 +522,8 @@ class _RekaOfferScreenState extends State<RekaOfferScreen>
     );
   }
 
-  // ── twin buttons (✕ skip / ✓ execute) ───────────────────────────────────────
-  Widget _twinButtons() => Row(
-    mainAxisAlignment: MainAxisAlignment.center,
-    children: [
-      _twinBtn(exec: false),
-      const SizedBox(width: 30),
-      _twinBtn(exec: true),
-    ],
-  );
-
-  Widget _twinBtn({required bool exec}) {
+  // ── ✕ skip / ✓ execute action button (rendered inside the focal card) ────────
+  Widget _actionBtn(bool exec) {
     final c = exec ? _execGreen : _skipRed;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
