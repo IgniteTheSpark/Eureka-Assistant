@@ -329,7 +329,13 @@ class _RekaOfferScreenState extends State<RekaOfferScreen>
             ),
           ],
           const Spacer(),
-          _ctaPill(n.cta),
+          // Tapping the CTA pill = execute (same as right-swipe / the ✓ button).
+          // B2「给我看看」/逾期「去看看」is the primary affordance, not decoration.
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => _consume(true),
+            child: _ctaPill(n.cta),
+          ),
         ],
       ),
     );
@@ -545,7 +551,10 @@ class _RekaOfferScreenState extends State<RekaOfferScreen>
             GestureDetector(
               onTap: onPill,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 7,
+                ),
                 decoration: BoxDecoration(
                   color: (pillColor ?? _p.accent).withValues(alpha: 0.14),
                   borderRadius: BorderRadius.circular(999),

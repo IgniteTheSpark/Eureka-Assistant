@@ -323,7 +323,15 @@ class _FloatingMascotState extends State<FloatingMascot>
     setState(() => _nudgeExpanded = false);
     final ref = n.ref;
     if (ref.isEmpty) return;
-    final link = ref.startsWith('reminder:') ? ref : 'reminder:todo:$ref';
+    // ref may be a full `reminder:…` link, a kind-prefixed `todo:<id>` / `evt:<id>`
+    // (the #1b 逾期待办 offer form), or a bare id (assume todo). Build a valid
+    // `reminder:<kind>:<id>` for the router — must NOT double the `todo:` prefix
+    // (`reminder:todo:todo:<id>` → router parses id="todo" → 404 → bare calendar).
+    final link = ref.startsWith('reminder:')
+        ? ref
+        : (ref.startsWith('todo:') || ref.startsWith('evt:'))
+        ? 'reminder:$ref'
+        : 'reminder:todo:$ref';
     unawaited(openNotificationTarget('reminder', link));
   }
 
