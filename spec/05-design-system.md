@@ -122,11 +122,13 @@ Slate 用一个 **ink RGB 基色** + 透明度派生文字层级，这样切到 
 状态色：`--eu-success`、`--eu-warning`、`--eu-error`、`--eu-info`（语义同名，值见 tokens.css；
 组件多数走下方 accent 调色板而非这些）。
 
-### 8 色调色板 —— **领域(domain)的颜色来源**（2026-06 颜色收敛）
+### 8 色调色板（功能 accent）+ 领域色板（2026-06 颜色收敛 / 解耦）
 
-> **颜色收敛（产品定 2026-06）**：全 app **颜色只代表「生活领域」(8 域)** —— 这 8 个 slot = **领域调色板**（键 = `assets.domain`，映射见 [§8.3](08-domain-system.md)）。**`render_spec.accent_color`（per-skill 选色）退役**：不再作卡片底色；卡片 / 库容器**本体单色**（neutral surface + 软阴影），颜色**只以一颗小色点出现在记录上**（域点），技能身份靠 **emoji + 名字**。wizard 去掉 accent 7 色选色（[§4.8](04-frontend.md)）。`accent_color` 字段可留但渲染忽略（不迁移）。
+> **颜色收敛（产品定 2026-06）**：全 app **承载语义的颜色只代表「生活领域」(8 域)** —— 颜色**只以一颗小色点出现在记录上**（域点），卡片 / 库容器**本体单色**（neutral surface + 软阴影），技能身份靠 **emoji + 名字**。**`render_spec.accent_color`（per-skill 选色）退役**：不再作卡片底色。wizard 去掉 accent 7 色选色（[§4.8](04-frontend.md)）。`accent_color` 字段可留但渲染忽略（不迁移）。
 
-下面 8 个 slot 仍是底层色板（供领域映射），4 变量结构不变 —— 旧文「`render_spec.accent_color` → 唯一颜色分支」已被本次收敛取代（色分支改由 `domain` 驱动）。
+> **⚠️ 域色已与功能 accent 槽解耦（2026-06 锁定）**：下面 8 个 accent slot = **功能色**（`accentRed`=错误/删除、`accentGreen`=成功/已同步、`accentAmber`=警告、`accentBlue`=信息/同步中，见 `markdown_text.dart`/`skill_card.dart` 状态色），**继续服务功能 UI、不动**。**领域色另起一套** = **B「潮汐」低饱和 8 色板**（终值见 [§8.3](08-domain-system.md) 表 + `theme/domains.dart` `domainColor()`，日历 dot 与今日页气泡/卡共用此函数）。两者不再同源 —— 早先「域 = accent 槽」已废，避免把低饱和域色染到错误红/成功绿上。
+
+下面 8 个 slot 是**功能** accent 底层色板，4 变量结构不变 —— 旧文「`render_spec.accent_color` → 唯一颜色分支」已被本次收敛取代（语义色分支改由 `domain` 驱动，且走独立域色板）。
 
 8 个 slot：`blue / amber / green / red / purple / gray / neutral / cyan`。
 每个 slot 4 个变量：

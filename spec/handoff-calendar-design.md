@@ -14,6 +14,7 @@
 ## 0. 产品 · 受众 · 品牌（设计前必读）
 
 - **产品**：UReka —— 面向**普通人**（宝妈 / 保姆 / 老人 / 学生）的 AI 记录伙伴。陪伴宠物叫 **Reka**（蓝色果冻身 + 头顶金色宝石徽记，渲染器见 `mobile/assets/js/mascot.js`）。
+- **Reka 的"声音" = 统一对话气泡 + emote（[§9.2.0](09-pet.md) / [§9.2](09-pet.md)）**：菜单 / peek / nudge / chat 都用**带尾巴指向球球的气泡**（Kenney 形，9-slice 或重画 + **按日夜主题 / aura 染色** + 毛玻璃芯）；Reka 头顶 / 通知图标用 **Kenney emote**（idea/cash/?/!/Z/★…，CC0，`mobile/assets/emotes/`，**gentle-only：不摆怒 / 哭 / 碎心脸**）。**Reka 的声音可萌，数据界面仍高级**（分层）。
 - **基调铁律**：**温暖、简单、不像填表 / 不像表格。** 这群人最怕"工具感"。一条天的内容要读起来像**一条温柔的时间线**，不是 Excel。
 - **真实调色板**（深色为主，源 `mobile/lib/theme/eureka_colors.dart`，**务必沿用**）：
   - bg `#0B1220` · surface `#0E1422` · raised `#121A2B`
@@ -252,6 +253,8 @@
 ---
 
 ## §E · 今日页 = 首页 landing（hifi prototype 已出 · 最该出彩的一屏）
+
+> **⚠️ 已被重设计取代(2026-06):首页 home 的最新设计真值 = [`handoff-today-home-design.md`](handoff-today-home-design.md)**(气泡池 + 双屏【今日安排⇄Reka Offer】各墙/Tinder + 长按球同类浮层;**3 图表 dashboard / swipe 卡流 / 独立晨报 已废**)。下文 §E 描述的是更早一版,**仅供溯源**,以新 handoff 为准。
 
 > **hifi 视觉真值 = 用户 prototype（`design_handoff_today_page` README，含完整 tokens / 动效 / 物理参数）**；本节 = 结构 + 我们的几处对齐。逻辑真值 [§4.5.0](04-frontend.md)。**不是今天的段视图**（回看 = §2.5 / §2.6）。两块面板浮在**全屏物理气泡场**之上，Reka 浮球在最上层。**nav 改**：底栏 = 今日 / 日历 / 资产；我的岛 → Reka 浮球菜单。
 

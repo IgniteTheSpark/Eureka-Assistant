@@ -321,9 +321,10 @@ default `attendee`（`organizer/attendee/optional`）· `created_at`。
 
 ### 3.14 `notifications`
 `id` GUID PK · `user_id` · `type` String(20) not null
-（`flash_done/task_done/task_failed/reminder`）· `title` String(255) not null · `body` Text ·
-`link` String(255)（不透明 deep-link 目标，通常 asset/event id）· `read` int(0/1) default 0 ·
+（`flash_done/task_done/task_failed/reminder/nudge`）· `title` String(255) not null · `body` Text ·
+`link` String(255)（不透明 deep-link 目标，通常 asset/event id；nudge 为 `nudge:<id>:<ref>`）· `read` int(0/1) default 0 ·
 `created_at`。索引 `(user_id, created_at)`。
+> **持久化 / 保留窗口（2026-06）**：通知（含 `type=nudge`）**保留 14 天**再 prune（取代旧的"仅留 100 条"；nudge 偏短期，但 14 天够"dismiss 了明天再做"）。**dismiss ≠ 删除** —— 用户「知道了」只置 `read=1`（nudge 另置 `nudges.status`），通知行**留在 feed**（灰一点）直到过窗。客户端 feed **开 app 从 `GET /api/notifications` 拉历史**（不只 `/api/nudges/pending`），重进不丢、看得到 Reka 提过的事。**emote 图标**由 `(type, nudges.kind, ref 域)` 客户端映射，不另存列（[§14.7](14-proactive-reka.md) / [§9.2](09-pet.md)）。
 
 ### 3.15 `reports`（**已实现** —— 合成/报告引擎，见 [§6](06-synthesis-report.md)）
 

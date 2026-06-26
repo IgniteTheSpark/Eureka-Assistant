@@ -67,18 +67,20 @@
 
 - **卡片 domain chip**:`SkillCard` / 事件卡 / timeline 条目的 meta 区,一个**小色点 + 2 字领域名**(空间紧时退化为纯色点)。`domain==null` → **不显示**(不占位)。**(2026-06 颜色收敛:这颗域点 = 卡片唯一的颜色 —— 卡片 / 库容器本体单色 + emoji,per-skill `accent_color` 已退役,见 [§5.1](05-design-system.md)。)**
 - **详情 chip**:`AssetDetailDrawer` 的 hero 副标题旁一个 domain chip,**可点 → 进编辑改**领域。
-- **8 领域 · 起始配色 + 图标**(复用 [§5](05-design-system.md) 的 8 个 accent 槽;**终版图标走单独 design doc**,emoji 仅占位):
+- **8 领域 · 终版配色(B「潮汐」低饱和板,2026-06 锁定)+ 占位图标**(**终版图标走单独 design doc**,emoji 仅占位):
 
-  | 领域 | accent 槽 | 占位图标 |
+  | 领域 | hex | 占位图标 |
   |---|---|---|
-  | 工作 | blue | 💼 |
-  | 学习 | purple | 📚 |
-  | 健康 | green | 🩺 |
-  | 运动 | cyan | 🏃 |
-  | 社交 | amber | 🤝 |
-  | 娱乐 | red | 🎮 |
-  | 生活 | neutral | 🏠 |
-  | 灵感 | gray | 💡 |
+  | 工作 | `#8AB4FF` | 💼 |
+  | 学习 | `#B89CF0` | 📚 |
+  | 健康 | `#84C9A0` | 🩺 |
+  | 运动 | `#6FD0D8` | 🏃 |
+  | 社交 | `#F5C977` | 🤝 |
+  | 娱乐 | `#F08A8A` | 🎮 |
+  | 生活 | `#9FB0C9` | 🏠 |
+  | 灵感 | `#C3BCD0` | 💡 |
+
+  > **真源 = `theme/domains.dart` 的 `domainColor()`**(日历 dot + 今日页气泡/卡 共用此函数 → 自动对齐)。**域色已与 §5.1 功能 accent 槽解耦** —— `accentRed/Green/Amber` 还要当 错误/成功/警告,不能被低饱和域色染,故域色独立写死。**域色 = 身份色,theme-independent**(不随日夜变)。亮色档对比度(浅色域点在白底)留 design 后置微调。
 
 - **按领域浏览(后置)**:资产库 /「最近」可加一条 **domain 过滤条**(8 chip),或在「我的岛」按领域聚合看。**v1 至少把 chip 显示出来**;过滤条 P2。
 - **视觉权重**:副标题级,不抢主字段焦点;复用 §5 chip / 单选样式。
