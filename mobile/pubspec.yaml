@@ -118,6 +118,10 @@ flutter:
     - assets/js/
     # §9 球球 pet render template (inlines pixel.js + mascot.js + genome → WebView).
     - assets/pet_render.html
+    # Kenney pixel-balloon / pixel-flat emote sprites — per-type 小图 on the Reka
+    # Offer card (the speech-balloon emote fits the "Reka 帮你 递给你" framing).
+    - assets/emotes/pixel-balloon/
+    - assets/emotes/pixel-flat/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

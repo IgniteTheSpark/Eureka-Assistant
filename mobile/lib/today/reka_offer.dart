@@ -221,11 +221,11 @@ class _RekaOfferScreenState extends State<RekaOfferScreen>
 
   // ── deck stack ──────────────────────────────────────────────────────────────
   Widget _deckStack() {
-    // Taller so the in-card ✕/✓ action row fits without a RenderFlex overflow:
-    // padding 15+15, header ~20, gaps, 1-line title, up-to-2-line body, the CTA
-    // pill ~34, the +12 gap and the ~52 action-button row — ~220 fixed, 252
-    // leaves the Spacer comfortable headroom.
-    const cardH = 252.0;
+    // Taller (centered card) so the per-type 小图 + in-card ✕/✓ action row fit
+    // without a RenderFlex overflow: padding 15+15, image 60+8, header ~18+11,
+    // 1-line title ~21+6, up-to-2-line body ~34, the CTA pill ~34, the +12 gap
+    // and the ~52 action-button row — ~286 fixed, 330 leaves the Spacer headroom.
+    const cardH = 330.0;
     final stacked = _deck.length > 1;
     final dir = _drag.dx > 4 ? 1 : (_drag.dx < -4 ? -1 : 0); // 1 exec / -1 skip
     final iconProg = (_drag.dx.abs() / 120).clamp(0.0, 1.0);
@@ -301,7 +301,7 @@ class _RekaOfferScreenState extends State<RekaOfferScreen>
   // 别做 (handoff §8): 绿/红 只给 swipe ACTION 揭示 + 全局图标,NOT 卡 chrome —— 卡的
   // resting border 用中性/域色;域只用一个色点表达(单色 + 域点,不堆底色)。
   Widget _offerCard(RekaNudge n, double height) {
-    final (icon, label) = _kindMeta(n.kind);
+    final (_, label) = _kindMeta(n.kind);
     final eu = context.eu;
     final domain = _domainOf(n);
     final dot = domain != null ? domainColor(eu, domain) : null;
@@ -333,10 +333,20 @@ class _RekaOfferScreenState extends State<RekaOfferScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Per-type 小图 (Kenney pixel-balloon emote) — carries the offer's type
+          // visual now that the header emoji is gone. filterQuality.none keeps the
+          // pixel art crisp at this upscale.
+          Center(
+            child: Image.asset(
+              _emoteFor(n.kind),
+              width: 60,
+              height: 60,
+              filterQuality: FilterQuality.none,
+            ),
+          ),
+          const SizedBox(height: 8),
           Row(
             children: [
-              Text(icon, style: const TextStyle(fontSize: 16)),
-              const SizedBox(width: 8),
               Text(
                 'Reka 帮你 · $label',
                 style: TextStyle(fontSize: 11.5, color: _p.muted),
@@ -449,6 +459,25 @@ class _RekaOfferScreenState extends State<RekaOfferScreen>
       default:
         return null;
     }
+  }
+
+  /// kind → per-type 小图 (vendored Kenney pixel-balloon emote sprite). The
+  /// speech-balloon emote fits the「Reka 帮你 · 递给你」framing; falls back to the
+  /// idea balloon when the server omits / sends an unknown kind.
+  String _emoteFor(String kind) {
+    final x = switch (kind) {
+      'consumption_summary' => 'cash',
+      'idea_synthesis' => 'idea',
+      'offer' => 'idea',
+      'quiz' => 'question',
+      'briefing' => 'bars',
+      'habit_reminder' => 'star',
+      'overdue' => 'alert',
+      'rhythm_gap' => 'dots1',
+      'reminder' => 'exclamation',
+      _ => 'idea',
+    };
+    return 'assets/emotes/pixel-balloon/emote_$x.png';
   }
 
   /// kind → (emoji, 中文标签). kind is the nudge's offer genre (§14.3); falls back
