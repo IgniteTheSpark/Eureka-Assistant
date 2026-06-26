@@ -86,11 +86,14 @@ class _HomeForegroundState extends State<HomeForeground> {
           ),
           // The two foreground screens. AnimatedSwitcher = a 280ms horizontal
           // glide on segment tap OR the pool's background swipe (S2d). Wrapped in
-          // Expanded(Center(…)) so the card centers vertically between the segment
-          // and the dock; the bubble pool still shows behind it (today_page paints
-          // the pool below this column).
+          // Expanded(Align(-0.25)) so the (now taller) self-contained card sits in
+          // the UPPER portion — tightening the blank between the 暖顶 and the card —
+          // while the bubble pool fills the space below (today_page paints the pool
+          // below this column). -0.25 (not -0.45) so the equal-height cards
+          // (kCardHeight + a constant peek slot) don't clip at the top.
           Expanded(
-            child: Center(
+            child: Align(
+              alignment: const Alignment(0, -0.25),
               child: AnimatedSwitcher(
                 duration: const Duration(milliseconds: 280),
                 switchInCurve: Curves.easeOut,

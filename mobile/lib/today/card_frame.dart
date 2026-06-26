@@ -1,5 +1,12 @@
 import 'package:flutter/material.dart';
 
+/// Shared height for both Tinder decks. Kept identical so the home
+/// AnimatedSwitcher never resizes when switching 今日安排 ⇄ Reka Offer — unequal
+/// deck heights made the Align reposition mid-transition (the card 抖动). Each deck
+/// always reserves kCardHeight + 20 (the peek slot) so the height is constant even
+/// with a single card. 392 fits the tallest card (offer: header + body + CTA + ✕/✓).
+const double kCardHeight = 392.0;
+
 /// Per-type visual identity for the B「潮汐」Tinder cards (今日安排 + Reka Offer).
 /// kind → (platform emoji, base color). The base color is the source for the
 /// header tint + the tag pill; the emoji is the big centered glyph rendered via

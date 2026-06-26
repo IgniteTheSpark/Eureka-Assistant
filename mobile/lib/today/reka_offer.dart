@@ -226,14 +226,13 @@ class _RekaOfferScreenState extends State<RekaOfferScreen>
     // body (Reka 帮你 line · title · up-to-2-line body · 去看看 CTA pill) + the
     // in-card ✕/✓ action row (~72 with the 2-line hint). 392 leaves the body's
     // Spacer headroom without a RenderFlex overflow.
-    const cardH = 392.0;
-    final stacked = _deck.length > 1;
+    const cardH = kCardHeight;
     final dir = _drag.dx > 4 ? 1 : (_drag.dx < -4 ? -1 : 0); // 1 exec / -1 skip
     final iconProg = (_drag.dx.abs() / 120).clamp(0.0, 1.0);
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
       child: SizedBox(
-        height: stacked ? cardH + 20 : cardH,
+        height: cardH + 20,
         child: Stack(
           clipBehavior: Clip.none,
           children: [

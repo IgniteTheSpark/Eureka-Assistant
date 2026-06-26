@@ -244,12 +244,11 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
   // ── deck: stacked cards + draggable focal + mid-drag action icon ────────────
   Widget _deck(List<ChainItem> items, int idx) {
     final progress = (_drag.dx.abs() / 130).clamp(0.0, 1.0);
-    final stacked = idx + 1 < items.length; // ≥1 card behind the focal
     // B1 cards are the shared 3-zone CardFrame now; both kinds share one height
     // so the event bar + todo buttons both fit under the 118 header without a
     // RenderFlex overflow, mirroring the Reka Offer card so both screens read as
     // the same card presentation. header 118 + body + the ~60 action row.
-    const cardH = 360.0;
+    const cardH = kCardHeight;
     // which way the drag heads, and whether that move is allowed (head/end caps).
     // 右滑 (dx>0) = next, 左滑 (dx<0) = prev (matches _releaseDrag + the ‹/› row).
     final dir = _drag.dx > 4 ? 1 : (_drag.dx < -4 ? -1 : 0); // 1=next, -1=prev
@@ -258,7 +257,7 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
       child: SizedBox(
-        height: stacked ? cardH + 20 : cardH,
+        height: cardH + 20,
         child: Stack(
           clipBehavior: Clip.none,
           children: [
