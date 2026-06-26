@@ -103,6 +103,11 @@ async def nudge_outcome(
             n.status = status
             if status == "acted":
                 n.acted_at = datetime.now(timezone.utc)
+            elif status == "dismissed":
+                # §14.5a: stamp the dismissal so GET /api/offers/today can exclude
+                # offers the user skipped TODAY (Beijing) — 左滑跳过 sticks for the
+                # day, while the row stays findable in the feed.
+                n.dismissed_at = datetime.now(timezone.utc)
             await db.commit()
             await db.refresh(n)
         payload = _ser(n)

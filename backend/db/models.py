@@ -638,6 +638,9 @@ class Nudge(Base):
     created_at   = Column(TIMESTAMPTZ, default=_utcnow)
     delivered_at = Column(TIMESTAMPTZ)
     acted_at     = Column(TIMESTAMPTZ)
+    # set when status → dismissed (§14.7). §14.5a PULL excludes offers dismissed
+    # TODAY (Beijing) so 左滑跳过 sticks for the day yet the row stays in the feed.
+    dismissed_at = Column(TIMESTAMPTZ)
     expires_at   = Column(TIMESTAMPTZ)
 
     __table_args__ = (

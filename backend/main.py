@@ -61,6 +61,7 @@ from api.sessions import router as sessions_router
 from api.contacts import router as contacts_router
 from api.cards import router as cards_router
 from api.nudges import router as nudges_router
+from api.offers import router as offers_router       # §14.5a PULL comprehensive offer set
 from api.events import router as events_router       # v1.4
 from api.timeline import router as timeline_router    # v1.4.x
 from api.tasks import router as tasks_router          # v1.4.x — async MCP tasks
@@ -147,6 +148,7 @@ app.include_router(export_router,       prefix="/api", tags=["export"])         
 app.include_router(connected_apps_router, prefix="/api", tags=["connected-apps"])  # §1.7.1 Connected Apps
 app.include_router(pet_router,            prefix="/api", tags=["pet"])             # §9 球球 Pet
 app.include_router(nudges_router,         prefix="/api", tags=["nudges"])          # §14 主动 REKA (Phase 2)
+app.include_router(offers_router,         prefix="/api", tags=["offers"])          # §14.5a PULL comprehensive offer set
 
 
 @app.get("/health")

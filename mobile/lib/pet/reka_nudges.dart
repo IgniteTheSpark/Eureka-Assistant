@@ -50,6 +50,12 @@ class RekaNudges extends ChangeNotifier {
   List<RekaNudge> get pending => List.unmodifiable(_pending);
   bool get hasPending => _pending.isNotEmpty;
 
+  // §14.5a PULL — the COMPREHENSIVE on-demand offer set (现算; NOT the push
+  // ≤2/day feed). Backs the Reka Offer screen; kept separate from `_pending` so
+  // the floating-ball peek state (push) and the offer deck (pull) don't bleed.
+  final List<RekaNudge> _offers = [];
+  List<RekaNudge> get offers => List.unmodifiable(_offers);
+
   /// The nudge currently peeking next to the ball (null = quiet state).
   RekaNudge? peek;
 
@@ -62,9 +68,36 @@ class RekaNudges extends ChangeNotifier {
   /// don't leak onto the next user's REKA (peek chip / pending feed).
   void reset() {
     _pending.clear();
+    _offers.clear();
     peek = null;
     _loaded = false;
     notifyListeners();
+  }
+
+  /// §14.5a PULL — fetch the COMPREHENSIVE current-state offer set from
+  /// `GET /api/offers/today` (现算: accumulation offers UNION 逾期待办 + 无时间习惯,
+  /// ignoring the push ≤2/day throttle). Each returned offer is a real upserted
+  /// Nudge with a stable id, so the deck's 执行(acted)/跳过(dismissed) still go
+  /// through [outcome] by id. Replaces the offer deck on every call (idempotent
+  /// server-side; excludes anything dismissed today).
+  Future<void> loadOffers() async {
+    final api = ApiClient();
+    try {
+      final res = await api.getJson('/api/offers/today');
+      final list = (res is Map ? res['nudges'] : null) as List?;
+      if (list == null) return;
+      _offers
+        ..clear()
+        ..addAll(list
+            .whereType<Map>()
+            .map(RekaNudge.fromJson)
+            .whereType<RekaNudge>());
+      notifyListeners();
+    } catch (_) {
+      // best-effort — the offer screen degrades to its empty state on failure.
+    } finally {
+      api.close();
+    }
   }
 
   /// App start: restore today's un-acted nudges → quiet「...」chip, NO bob
@@ -132,6 +165,7 @@ class RekaNudges extends ChangeNotifier {
   Future<void> outcome(String id, String status) async {
     if (status == 'acted' || status == 'dismissed') {
       _pending.removeWhere((x) => x.id == id);
+      _offers.removeWhere((x) => x.id == id); // keep the PULL deck in sync too
       if (peek?.id == id) peek = null;
       notifyListeners();
     }

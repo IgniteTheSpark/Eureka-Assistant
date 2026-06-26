@@ -7,8 +7,9 @@ import '../theme/domains.dart' show domainColor, isDomain;
 import 'today_palette.dart';
 
 /// Reka Offer — the B「潮汐」second screen (spec §14.5a · design bundle B2/B3).
-/// A PULL view of today's proactive offers ([RekaNudges.instance] `pending`,
-/// shared with the floating-ball peek so one offer = two faces). A **consuming**
+/// A PULL view of today's proactive offers: the COMPREHENSIVE 现算 set from
+/// [RekaNudges.instance] `offers` (GET /api/offers/today — accumulation offers
+/// UNION 逾期待办 / 无时间习惯, ignoring the push ≤2/day throttle). A **consuming**
 /// Tinder deck: 右滑 ✓ 执行 (Reka does it now → the mascot's anchored 记一笔/出报告
 /// flow via [rekaNudgeActRequest]) / 左滑 ✕ 跳过 (软「今天不想做」+ 压一天 → outcome
 /// dismissed, stays in the feed). Finish → ↻ 重新生成 (re-show this session's skips).
@@ -46,14 +47,14 @@ class _RekaOfferScreenState extends State<RekaOfferScreen>
   @override
   void initState() {
     super.initState();
-    _deck.addAll(_store.pending);
+    // §14.5a PULL: seed from the COMPREHENSIVE offer set (现算), not the push feed.
+    _deck.addAll(_store.offers);
     _store.addListener(_onStore);
-    // FIX 1a (§14.5a PULL): re-pull on entry so the deck isn't stale-from-launch
-    // (only app boot called loadPending once). NOTE: this still hits the PUSH feed
-    // /api/nudges/pending — the PROPER 现算 comprehensive recompute (ignore push
-    // ≤2/day backoff + UNION 逾期待办/无时间习惯) needs a backend PULL endpoint that
-    // does not exist yet; scoped + reported (see _onStore for the merge).
-    _store.refresh();
+    // Recompute on entry → the on-demand comprehensive set (accumulation offers
+    // UNION 逾期待办 / 无时间习惯, ignoring the push ≤2/day throttle) via the new
+    // GET /api/offers/today. Each card is a real upserted Nudge with an id, so the
+    // 执行/跳过 paths below (outcome by id) keep working unchanged.
+    _store.loadOffers();
     _fly =
         AnimationController(
             vsync: this,
@@ -75,18 +76,20 @@ class _RekaOfferScreenState extends State<RekaOfferScreen>
     super.dispose();
   }
 
-  /// Keep the deck loosely in sync with the shared store: drop cards acted /
-  /// dismissed elsewhere (e.g. from the ball peek), add fresh arrivals. The card
-  /// currently flying off is exempt (it's removed on fly-complete).
+  /// Keep the deck loosely in sync with the shared store's §14.5a PULL set: drop
+  /// cards acted / dismissed elsewhere (e.g. from the ball peek), add freshly
+  /// computed offers (e.g. when loadOffers resolves). The card currently flying
+  /// off is exempt (removed on fly-complete); this-session skips aren't re-added
+  /// (they live in _skipped for ↻ 重新生成).
   void _onStore() {
     if (!mounted) return;
-    final pendingIds = _store.pending.map((n) => n.id).toSet();
+    final offerIds = _store.offers.map((n) => n.id).toSet();
     final known = {..._deck.map((n) => n.id), ..._skipped.map((n) => n.id)};
     setState(() {
       _deck.removeWhere(
-        (n) => !pendingIds.contains(n.id) && n.id != _pendingNudge?.id,
+        (n) => !offerIds.contains(n.id) && n.id != _pendingNudge?.id,
       );
-      for (final n in _store.pending) {
+      for (final n in _store.offers) {
         if (!known.contains(n.id)) _deck.add(n);
       }
     });

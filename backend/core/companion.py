@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select, update
@@ -55,6 +57,43 @@ _ACCUM_RULES = (
 OFFER_TTL_HOURS = 72       # an offer stays actionable for 3 days, then expires
 OFFER_DEDUPE_DAYS = 7      # at most one offer per habit per week (offers are rare)
 
+# §14.5a PULL-only candidate sources (NEVER pushed — they have no rhythm/throttle
+# path; they exist so the on-demand comprehensive set is complete).
+OVERDUE_MAX = 5            # surface at most the N most-overdue todos (bounded)
+OVERDUE_MAX_DAYS = 30      # …and only items overdue within a month (older = noise)
+HABIT_REMINDER_MAX = 3     # at most N untimed-habit nudges per pull (bounded)
+HABIT_LOOKBACK_DAYS = 14   # "a habit they normally log" = logged on ≥N distinct days…
+HABIT_MIN_DAYS = 3         # …within the lookback window
+# non-knowledge / action skills never become an untimed-habit "log it" reminder
+# (a todo/event/contact isn't a daily journal you'd be nudged to keep up). Mirrors
+# scan_once's _non_knowledge set + adds notes-like capture skills back in below.
+_HABIT_EXCLUDE_SKILLS = ("todo", "event", "expense", "contact", "external_ref", "qa")
+
+
+@dataclass
+class OfferCandidate:
+    """One §14.5a offer candidate — a PURE value (no DB row yet). The PULL
+    endpoint UPSERTs each into a Nudge (find-or-create by user_id+natural_key) to
+    mint a stable id; scan_once's PUSH path consumes only the `pushable` accumulation
+    offers and applies its own §14.8 guardrails. `natural_key` reuses scan_once's
+    existing 防重 identity ((kind, ref)) so re-PULL never duplicates."""
+    kind: str                       # offer | overdue | habit_reminder
+    ref: str                        # skill machine_name / domain:<d> / todo:<id> / habit:<skill>
+    text: str                       # peek 一句话 (template, zero LLM)
+    body: str = ""                  # expanded copy for the action bubble
+    cta: str = ""                   # synthesize | view | log
+    type: str = "B"                 # A 提醒 | B offer (Nudge.type)
+    domain: str | None = None       # §8 life-domain (for the card's 域色点); None = unknown
+    ttl_hours: int | None = None    # offer lifetime → Nudge.expires_at; None = end-of-day
+    pushable: bool = False          # may scan_once push it? (only accumulation offers)
+    # extra context the PUSH guardrail (_try_offer) needs; ignored by PULL upsert.
+    push: dict = field(default_factory=dict)
+
+    @property
+    def natural_key(self) -> str:
+        """Stable dedupe identity == scan_once's (kind, ref) 防重 key, flattened."""
+        return f"{self.kind}:{self.ref}"
+
 
 def _bj_day_bounds(now_utc: datetime) -> tuple[datetime, datetime]:
     """(start, end) of the current Beijing day, in UTC (created_at is UTC)."""
@@ -68,6 +107,177 @@ def _nudges_enabled(user: User | None) -> bool:
         return True
     prefs = user.prefs or {}
     return prefs.get("nudges_enabled") is not False  # absent = ON (§14.8 默认开)
+
+
+def _parse_due(v) -> datetime | None:
+    """Parse a todo payload `due_date` → aware UTC datetime (mirrors
+    morning_briefing._parse_due: bare date = end of that Beijing day; naive
+    datetime = Beijing wall-clock)."""
+    if not isinstance(v, str) or not v:
+        return None
+    try:
+        s = v.strip()
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
+            return datetime.fromisoformat(s + "T23:59:59+08:00")
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        return dt if dt.tzinfo else dt.replace(tzinfo=_BEIJING)
+    except ValueError:
+        return None
+
+
+async def compute_offer_candidates(db, user_id: str, now: datetime) -> list[OfferCandidate]:
+    """§14.5a PULL — the COMPREHENSIVE current-state offer set for ONE user, as
+    PURE candidates (no §14.8 throttle, no db.add, no SSE). Deterministic + cheap
+    (a few indexed queries; ZERO LLM, §14.1).
+
+    Five sources, each carrying scan_once's existing 防重 key as `natural_key`:
+      1+2. 积累 → synthesize offers (dedicated 灵感/记账 skill; §8 domain rules) —
+           `pushable=True` so scan_once's heartbeat may also push them (throttled);
+      3.   逾期待办 — unfinished todos past due (reuse morning_briefing's overdue
+           logic) → kind=overdue, PULL-only;
+      4.   无时间习惯 — capture skills the user normally logs but hasn't today AND
+           that have NO rhythm push path (no typical-hour nudge) → kind=habit_reminder,
+           PULL-only (a timed habit is already covered by scan_once's rhythm_gap push).
+
+    The PULL endpoint UPSERTs each candidate into a Nudge to mint an id; scan_once
+    consumes only `pushable` ones. (Rhythm-gap reminders themselves stay PUSH-only:
+    they are narrowly time-windowed + backoff-managed inside scan_once.)"""
+    day_start_utc, _ = _bj_day_bounds(now)
+    week_ago = now - timedelta(days=7)
+    bj = now.astimezone(_BEIJING)
+    out: list[OfferCandidate] = []
+
+    # ── 1 积累 → synthesize offer · dedicated skills (real 灵感/记账 skill) ────────
+    acc_rows = (await db.execute(
+        select(GlobalSkill.name, UserSkill.display_name, func.count(Asset.id))
+        .join(UserSkill, Asset.user_skill_id == UserSkill.id)
+        .join(GlobalSkill, UserSkill.skill_id == GlobalSkill.id)
+        .where(Asset.user_id == user_id, Asset.created_at >= week_ago)
+        .group_by(GlobalSkill.name, UserSkill.display_name)
+    )).all()
+    acc: dict[str, list] = {}                       # (machine) → [disp, cnt]
+    for machine, disp, cnt in acc_rows:
+        cur = acc.setdefault(machine, [disp, 0])
+        cur[0] = cur[0] or disp
+        cur[1] += int(cnt or 0)
+    offered_idea = False                            # dedupe idea-synthesis across passes
+    for machine, (disp, cnt) in acc.items():
+        rule = next((r for r in _ACCUM_RULES if r[0](machine, disp) and cnt >= r[1]), None)
+        if rule is None:
+            continue
+        _, thr, genre, label = rule
+        out.append(OfferCandidate(
+            kind="offer", ref=machine, type="B", cta="synthesize", domain=None,
+            text=f"✨ 这周记了 {cnt} 条{label},要我帮你理一理?",
+            body="点「帮我理一理」,Reka 把它们聚合成一份报告——共性、张力和下一步。不需要就划走,不打扰。",
+            ttl_hours=OFFER_TTL_HOURS, pushable=True,
+            push={"cnt": cnt, "thr": thr, "genre": genre, "label": label,
+                  "machine": machine, "domain": None},
+        ))
+        if genre == "idea-synthesis":
+            offered_idea = True
+
+    # ── 2 积累 → synthesize offer · §8 DOMAIN rules (generic 随记 tagged by domain) ─
+    domain_rules = (
+        ("灵感", 5, "idea-synthesis", "灵感",
+         "✨ 这周记了 {n} 条灵感,要我帮你理一理?",
+         "点「帮我理一理」,Reka 把它们聚合成一份报告——共性、张力和下一步。不需要就划走,不打扰。"),
+        ("学习", 8, "quiz", "学习内容",
+         "📝 这周记了 {n} 条学习内容,要不要考考你?",
+         "点「考考我」,Reka 用你记过的内容出一份小测——只考你记的,不考没学的。不想考就划走。"),
+    )
+    for domain, thr, genre, label, text_fmt, body in domain_rules:
+        cnt = (await db.execute(
+            select(func.count(Asset.id))
+            .join(UserSkill, Asset.user_skill_id == UserSkill.id)
+            .join(GlobalSkill, UserSkill.skill_id == GlobalSkill.id)
+            .where(Asset.user_id == user_id, Asset.created_at >= week_ago,
+                   Asset.domain == domain, ~GlobalSkill.name.in_(_HABIT_EXCLUDE_SKILLS))
+        )).scalar() or 0
+        cnt = int(cnt)
+        if cnt < thr:
+            continue
+        if genre == "idea-synthesis" and offered_idea:
+            continue  # already offered idea-synthesis via the dedicated-skill pass
+        out.append(OfferCandidate(
+            kind="offer", ref=f"domain:{domain}", type="B", cta="synthesize",
+            domain=domain,
+            text=text_fmt.format(n=cnt), body=body,
+            ttl_hours=OFFER_TTL_HOURS, pushable=True,
+            push={"cnt": cnt, "thr": thr, "genre": genre, "label": label,
+                  "machine": None, "domain": domain},
+        ))
+
+    # ── 3 逾期待办 (PULL-only) — unfinished todos past due ────────────────────────
+    #     reuse morning_briefing's overdue heuristic: not done, 0 < over ≤ 30d.
+    todo_rows = (await db.execute(
+        select(Asset)
+        .join(UserSkill, Asset.user_skill_id == UserSkill.id)
+        .join(GlobalSkill, UserSkill.skill_id == GlobalSkill.id)
+        .where(Asset.user_id == user_id, GlobalSkill.name == "todo")
+        .order_by(Asset.created_at.desc()).limit(200)
+    )).scalars().all()
+    overdue: list[tuple[int, Asset, str]] = []
+    for a in todo_rows:
+        p = a.payload or {}
+        done = p.get("status") == "done" or p.get("done") is True
+        if done:
+            continue
+        due = _parse_due(p.get("due_date"))
+        if due is None:
+            continue
+        over_days = (bj.date() - due.astimezone(_BEIJING).date()).days
+        if 0 < over_days <= OVERDUE_MAX_DAYS:
+            label = str(p.get("content") or p.get("title") or "待办")[:60]
+            overdue.append((over_days, a, label))
+    overdue.sort(key=lambda x: -x[0])               # most-overdue first
+    for over_days, a, label in overdue[:OVERDUE_MAX]:
+        out.append(OfferCandidate(
+            kind="overdue", ref=f"todo:{a.id}", type="A", cta="view",
+            domain=a.domain,
+            text=f"⏰ 「{label}」拖了 {over_days} 天",
+            body="这件事过了截止还没完成——不用愧疚,今天把它轻轻了结,后面都会顺。点一下去看看。",
+        ))
+
+    # ── 4 无时间习惯 (PULL-only) — capture skills normally logged, none today,
+    #     and WITHOUT a rhythm push path (no typical-hour nudge) ──────────────────
+    timed_skills = set((await db.execute(
+        select(RhythmProfile.skill).where(
+            RhythmProfile.user_id == user_id,
+            RhythmProfile.confidence >= CONFIDENCE_GATE)
+    )).scalars().all())                             # skills scan_once already pushes
+    habit_rows = (await db.execute(
+        select(GlobalSkill.name, UserSkill.display_name,
+               func.count(func.distinct(func.date(Asset.created_at))).label("days"),
+               func.max(Asset.created_at).label("last_at"))
+        .join(UserSkill, Asset.user_skill_id == UserSkill.id)
+        .join(GlobalSkill, UserSkill.skill_id == GlobalSkill.id)
+        .where(Asset.user_id == user_id,
+               Asset.created_at >= now - timedelta(days=HABIT_LOOKBACK_DAYS),
+               ~GlobalSkill.name.in_(_HABIT_EXCLUDE_SKILLS))
+        .group_by(GlobalSkill.name, UserSkill.display_name)
+    )).all()
+    habit_cands: list[OfferCandidate] = []
+    for machine, disp, days, last_at in habit_rows:
+        if machine in timed_skills:
+            continue                                # rhythm_gap push already covers it
+        if int(days or 0) < HABIT_MIN_DAYS:
+            continue                                # not really a habit yet
+        if last_at is not None:
+            if last_at.tzinfo is None:
+                last_at = last_at.replace(tzinfo=timezone.utc)
+            if last_at >= day_start_utc:
+                continue                            # already logged today → no gap
+        name = (disp or machine)[:8]
+        habit_cands.append(OfferCandidate(
+            kind="habit_reminder", ref=f"habit:{machine}", type="A", cta="log",
+            domain=None,
+            text=f"🔥 今天还没记{name}",
+            body=f"你最近常记{name},今天还空着。要记就点一下,不记也没关系——别断了节奏就好。",
+        ))
+    out.extend(habit_cands[:HABIT_REMINDER_MAX])
+
+    return out
 
 
 async def expire_stale() -> int:
@@ -171,69 +381,25 @@ async def scan_once() -> int:
             )
             return True
 
-        # pass 1 — dedicated skills (a real 灵感/记账 skill)
-        acc_rows = (await db.execute(
-            select(Asset.user_id, GlobalSkill.name, UserSkill.display_name,
-                   func.count(Asset.id))
-            .join(UserSkill, Asset.user_skill_id == UserSkill.id)
-            .join(GlobalSkill, UserSkill.skill_id == GlobalSkill.id)
-            .where(Asset.created_at >= week_ago)
-            .group_by(Asset.user_id, GlobalSkill.name, UserSkill.display_name)
-        )).all()
-        # a user may carry dup user_skill rows → aggregate by (user, machine)
-        acc: dict[tuple[str, str], list] = {}
-        offered_idea: set[str] = set()  # users already offered an idea synthesis
-        for uid, machine, disp, cnt in acc_rows:
-            cur = acc.setdefault((uid, machine), [disp, 0])
-            cur[0] = cur[0] or disp
-            cur[1] += int(cnt or 0)
-        for (uid, machine), (disp, cnt) in acc.items():
-            rule = next((r for r in _ACCUM_RULES if r[0](machine, disp) and cnt >= r[1]), None)
-            if rule is None:
-                continue
-            _, thr, genre, label = rule
-            if await _try_offer(
-                uid, ref=machine, cnt=cnt, thr=thr, genre=genre, label=label,
-                text=f"✨ 这周记了 {cnt} 条{label},要我帮你理一理?",
-                body="点「帮我理一理」,Reka 把它们聚合成一份报告——共性、张力和下一步。不需要就划走,不打扰。",
-                machine=machine, domain=None):
-                fired += 1
-                if genre == "idea-synthesis":
-                    offered_idea.add(uid)
-
-        # pass 2 — DOMAIN rules (§8): most users' synthesizable content lives in
-        # generic skills tagged by domain (随记+灵感域;学习笔记+学习域),not in a
-        # dedicated skill. Counts EXCLUDE non-knowledge skills (§6.14: a todo
-        # tagged 学习,如「复习数学」,is an action — never quiz material).
-        domain_rules = (
-            # (domain, thr, genre, label, text_fmt, body)
-            ("灵感", 5, "idea-synthesis", "灵感",
-             "✨ 这周记了 {n} 条灵感,要我帮你理一理?",
-             "点「帮我理一理」,Reka 把它们聚合成一份报告——共性、张力和下一步。不需要就划走,不打扰。"),
-            ("学习", 8, "quiz", "学习内容",
-             "📝 这周记了 {n} 条学习内容,要不要考考你?",
-             "点「考考我」,Reka 用你记过的内容出一份小测——只考你记的,不考没学的。不想考就划走。"),
-        )
-        _non_knowledge = ("todo", "event", "expense", "contact", "external_ref", "qa")
-        for domain, thr, genre, label, text_fmt, body in domain_rules:
-            dom_rows = (await db.execute(
-                select(Asset.user_id, func.count(Asset.id))
-                .join(UserSkill, Asset.user_skill_id == UserSkill.id)
-                .join(GlobalSkill, UserSkill.skill_id == GlobalSkill.id)
-                .where(Asset.created_at >= week_ago, Asset.domain == domain,
-                       ~GlobalSkill.name.in_(_non_knowledge))
-                .group_by(Asset.user_id)
-            )).all()
-            for uid, cnt in dom_rows:
-                cnt = int(cnt or 0)
-                if cnt < thr:
-                    continue
-                if genre == "idea-synthesis" and uid in offered_idea:
-                    continue
-                if await _try_offer(uid, ref=f"domain:{domain}", cnt=cnt, thr=thr,
-                                    genre=genre, label=label,
-                                    text=text_fmt.format(n=cnt), body=body,
-                                    machine=None, domain=domain):
+        # §14.3 积累 → Type B offer — candidate compute now lives in the shared
+        # pure `compute_offer_candidates` (also serving §14.5a PULL). scan_once
+        # consumes only its `pushable` accumulation offers + applies the SAME
+        # §14.8 guardrails via `_try_offer` (PULL-only kinds — 逾期待办/无时间习惯 —
+        # are skipped here: they have no throttle/backoff push path). Candidate
+        # order is preserved (dedicated-skill offers, then §8 domain offers), so
+        # the push cadence is unchanged.
+        cand_uids = (await db.execute(
+            select(Asset.user_id).where(Asset.created_at >= week_ago).distinct()
+        )).scalars().all()
+        for uid in cand_uids:
+            for c in await compute_offer_candidates(db, uid, now):
+                if not c.pushable:
+                    continue  # 逾期待办 / 无时间习惯 are PULL-only (no push throttle)
+                p = c.push
+                if await _try_offer(
+                    uid, ref=c.ref, cnt=p["cnt"], thr=p["thr"], genre=p["genre"],
+                    label=p["label"], text=c.text, body=c.body,
+                    machine=p["machine"], domain=p["domain"]):
                     fired += 1
 
         # ── §14.3 缺口 → Type A 提醒 ────────────────────────────────────────
