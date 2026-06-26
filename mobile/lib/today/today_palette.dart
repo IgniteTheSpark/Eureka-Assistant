@@ -46,7 +46,7 @@ class TodayPalette {
     // Warm light set — derived from the app's eu light tokens.
     return TodayPalette(
       dark: false,
-      atmosphereTop: eu.surfaceRaised,
+      atmosphereTop: eu.bg,
       atmosphereBottom: eu.bg,
       panelBg: eu.surfaceRaised.withValues(alpha: 0.82),
       panelBorder: eu.border,

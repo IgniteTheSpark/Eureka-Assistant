@@ -104,6 +104,8 @@ class _TodayPageState extends State<TodayPage> {
           chain: data.chain,
           noTimeTodos: data.noTimeTodos,
           flashCount: data.flashCount,
+          todoDone: data.todoDone,
+          todoTotal: data.todoTotal,
           screen: _screen,
         ),
       ],

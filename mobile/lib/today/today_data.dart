@@ -71,6 +71,8 @@ class TodayData {
     required this.pool,
     required this.poolTrueCount,
     required this.flashCount,
+    this.todoDone = 0,
+    this.todoTotal = 0,
     this.flashLatestId,
     this.skills = const {},
   });
@@ -80,6 +82,8 @@ class TodayData {
   final List<PoolAsset> pool; // capped (≤50) physics bodies
   final int poolTrueCount; // true count today (dashboard header)
   final int flashCount;
+  final int todoDone; // today's done todos (暖顶 completion ring numerator)
+  final int todoTotal; // today's total todos (ring denominator)
   final String? flashLatestId; // newest flash session today (⚡ pill target)
 
   /// skill_name → {icon, label} from /api/skills (render_spec.icon + display_name).
@@ -180,6 +184,8 @@ Future<TodayData> loadToday(ApiClient api, {DateTime? nowOverride}) async {
     pool: poolRes.pool,
     poolTrueCount: poolRes.trueCount,
     flashCount: flash.count,
+    todoDone: split.todoDone,
+    todoTotal: split.todoTotal,
     flashLatestId: flash.latestId,
     skills: skills,
   );
@@ -188,7 +194,15 @@ Future<TodayData> loadToday(ApiClient api, {DateTime? nowOverride}) async {
 /// GET /api/timeline?from&to → today's events + todos, mapped + split into the
 /// upcoming-timed chain and the no-clock todo list. Done todos drop out (the
 /// chain is forward-looking; overdue / records live in 日历 / 资产).
-Future<({List<ChainItem> chain, List<ChainItem> noTime})> _loadChain(
+Future<
+  ({
+    List<ChainItem> chain,
+    List<ChainItem> noTime,
+    int todoTotal,
+    int todoDone,
+  })
+>
+_loadChain(
   ApiClient api,
   String from,
   String to,
@@ -201,8 +215,16 @@ Future<({List<ChainItem> chain, List<ChainItem> noTime})> _loadChain(
     );
     final items = (res is Map ? res['items'] : null) as List? ?? const [];
     final candidates = <ChainItem>[];
+    // Count ALL of today's todos (done + open) for the 暖顶 completion ring —
+    // independent of the chain's forward-only filtering / done-drop below.
+    var todoTotal = 0;
+    var todoDone = 0;
     for (final raw in items.whereType<Map>()) {
       final it = TimelineItem.fromJson(raw.cast<String, dynamic>());
+      if (it.kind == 'asset' && it.skillName == 'todo') {
+        todoTotal++;
+        if (_todoDone(it.payload)) todoDone++;
+      }
       if (it.kind == 'event') {
         candidates.add(
           ChainItem(
@@ -257,9 +279,20 @@ Future<({List<ChainItem> chain, List<ChainItem> noTime})> _loadChain(
     final live = candidates
         .where((c) => !(c.timed && c.kind == 'todo' && c.done))
         .toList();
-    return splitChain(live, now);
+    final split = splitChain(live, now);
+    return (
+      chain: split.chain,
+      noTime: split.noTime,
+      todoTotal: todoTotal,
+      todoDone: todoDone,
+    );
   } catch (_) {
-    return (chain: <ChainItem>[], noTime: <ChainItem>[]);
+    return (
+      chain: <ChainItem>[],
+      noTime: <ChainItem>[],
+      todoTotal: 0,
+      todoDone: 0,
+    );
   }
 }
 

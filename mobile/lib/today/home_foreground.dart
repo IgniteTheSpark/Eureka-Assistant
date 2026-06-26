@@ -21,12 +21,19 @@ class HomeForeground extends StatefulWidget {
     required this.chain,
     required this.noTimeTodos,
     required this.flashCount,
+    required this.todoDone,
+    required this.todoTotal,
     required this.screen,
   });
 
   final List<ChainItem> chain;
   final List<ChainItem> noTimeTodos;
   final int flashCount;
+
+  /// Today's done / total todos → the 暖顶 completion ring (N/M). Counted across
+  /// all today's todos in [loadToday] (independent of the chain's done-drop).
+  final int todoDone;
+  final int todoTotal;
 
   /// Foreground screen (0 = 今日安排, 1 = Reka Offer), owned by TodayPage so the
   /// bubble pool's background swipe (S2d) + the segment tap share one source.
@@ -60,10 +67,6 @@ class _HomeForegroundState extends State<HomeForeground> {
   @override
   Widget build(BuildContext context) {
     final p = TodayPalette.of(context);
-    final events = widget.chain.where((c) => c.kind == 'event').length;
-    final todos =
-        widget.chain.where((c) => c.kind == 'todo').length +
-        widget.noTimeTodos.length;
     return ValueListenableBuilder<int>(
       valueListenable: widget.screen,
       builder: (context, screen, _) => Column(
@@ -81,7 +84,7 @@ class _HomeForegroundState extends State<HomeForeground> {
             onHorizontalDragUpdate: (d) => _topSwipeDx += d.delta.dx,
             onHorizontalDragEnd: (dets) => _onTopSwipeEnd(dets, screen),
             child: Column(
-              children: [_warmTop(p, events, todos), _segment(p, screen)],
+              children: [_warmTop(p), _segment(p, screen)],
             ),
           ),
           // The two foreground screens. AnimatedSwitcher = a 280ms horizontal
@@ -140,111 +143,97 @@ class _HomeForegroundState extends State<HomeForeground> {
     );
   }
 
-  // ── 暖顶 (吸收晨报): 早安 + 天气(占位) + 今日一览 chips ───────────────────────
-  Widget _warmTop(TodayPalette p, int events, int todos) {
-    final (greet, icon) = _greeting();
+  // ── 暖顶: greeting + 👋 + date (left) · 今日完成环 N/M (right) ──────────────────
+  Widget _warmTop(TodayPalette p) {
+    final greet = _greeting();
+    final now = DateTime.now();
+    final weekday = const ['周一', '周二', '周三', '周四', '周五', '周六', '周日'][now.weekday - 1];
+    final date = '$weekday · ${now.month}月${now.day}日';
+    final done = widget.todoDone;
+    final total = widget.todoTotal;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 6, 18, 0),
-      child: Column(
+      padding: const EdgeInsets.fromLTRB(20, 6, 20, 2),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          // LEFT — time-of-day greeting + waving hand, over the muted date.
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Text(icon, style: const TextStyle(fontSize: 17)),
-              const SizedBox(width: 6),
-              // TODO(S5): real weather (QWeather + IP) → ☀️ 26° 晴
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    greet,
+                    style: TextStyle(
+                      color: p.title,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                      height: 1,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  const Text('👋', style: TextStyle(fontSize: 18)),
+                ],
+              ),
+              const SizedBox(height: 2),
               Text(
-                greet,
-                style: TextStyle(
-                  color: p.title,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  height: 1,
-                ),
+                date,
+                style: TextStyle(color: p.muted, fontSize: 12.5, height: 1),
               ),
             ],
           ),
-          const SizedBox(height: 10),
-          // 今日一览: bigger, per-type pills matching the card design language —
-          // type emoji + bold count + label, tinted by the type's color.
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            alignment: WrapAlignment.center,
-            children: [
-              _ovChip(p,
-                  emoji: '📅',
-                  count: events,
-                  label: '日程',
-                  color: const Color(0xFF5B8DEF)),
-              _ovChip(p,
-                  emoji: '📋',
-                  count: todos,
-                  label: '待办',
-                  color: const Color(0xFF34B79A)),
-              _ovChip(p,
-                  emoji: '⚡',
-                  count: widget.flashCount,
-                  label: '闪念',
-                  color: p.accent,
-                  showChevron: true),
-            ],
+          // RIGHT — today's todo completion ring: arc = done/total, N/M + 今日.
+          SizedBox(
+            width: 52,
+            height: 52,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                SizedBox(
+                  width: 52,
+                  height: 52,
+                  child: CircularProgressIndicator(
+                    value: total == 0 ? 0 : done / total,
+                    strokeWidth: 5,
+                    backgroundColor: p.panelBorder,
+                    valueColor: AlwaysStoppedAnimation<Color>(p.accent),
+                  ),
+                ),
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '$done/$total',
+                      style: TextStyle(
+                        color: p.title,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        height: 1,
+                      ),
+                    ),
+                    Text(
+                      '今日',
+                      style: TextStyle(color: p.muted, fontSize: 9, height: 1),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 
-  (String, String) _greeting() {
+  String _greeting() {
     final h = DateTime.now().hour;
-    if (h < 12) return ('早安', '☀️');
-    if (h < 18) return ('下午好', '🌤️');
-    return ('晚上好', '🌙');
+    if (h < 12) return '早安';
+    if (h < 18) return '下午好';
+    return '晚上好';
   }
-
-  /// One 今日一览 pill: type emoji + bold count + label, tinted by [color].
-  /// 闪念 passes [showChevron] = true to keep its tappable affordance.
-  Widget _ovChip(
-    TodayPalette p, {
-    required String emoji,
-    required int count,
-    required String label,
-    required Color color,
-    bool showChevron = false,
-  }) =>
-      Container(
-        padding: const EdgeInsets.fromLTRB(12, 7, 14, 7),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: p.dark ? 0.20 : 0.14),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: color.withValues(alpha: 0.34)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(emoji, style: const TextStyle(fontSize: 17)),
-            const SizedBox(width: 6),
-            Text(
-              '$count',
-              style: TextStyle(
-                color: p.title,
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                height: 1,
-              ),
-            ),
-            const SizedBox(width: 4),
-            Text(
-              label,
-              style: TextStyle(color: p.body, fontSize: 12.5, height: 1),
-            ),
-            if (showChevron) ...[
-              const SizedBox(width: 2),
-              Icon(Icons.chevron_right, size: 17, color: p.body),
-            ],
-          ],
-        ),
-      );
 
   // ── 段控: 今日安排 | Reka Offer (下划线指示 = 当前屏) ─────────────────────────
   Widget _segment(TodayPalette p, int screen) => Padding(

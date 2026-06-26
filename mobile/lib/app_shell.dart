@@ -11,7 +11,6 @@ import 'pages/morning_briefing_page.dart' show maybeShowMorningBriefing;
 import 'pages/notifications_page.dart';
 import 'pages/today_page.dart';
 import 'theme/app_theme.dart';
-import 'today/today_palette.dart';
 import 'widgets/floating_dock.dart';
 import 'widgets/global_header.dart';
 
@@ -135,10 +134,6 @@ class _AppShellState extends State<AppShell>
             // today page is itself light (warm), so the normal light header fits.
             GlobalHeaderBar(
               onDark: _index == 0 && eu.brightness == Brightness.dark,
-              // today tab: paint the header with the page's atmosphereTop (and
-              // drop the rule, handled inside) so it melts into the glow below —
-              // killing the seam 色差. Non-today tabs → null = default bg + rule.
-              bg: _index == 0 ? TodayPalette.of(context).atmosphereTop : null,
             ),
             Expanded(
               child: Stack(
