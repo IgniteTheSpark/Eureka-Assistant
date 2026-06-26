@@ -7,6 +7,7 @@ import '../pet/floating_mascot.dart' show rekaNudgeActRequest;
 import '../pet/reka_nudges.dart';
 import '../theme/app_theme.dart'; // context.eu
 import '../theme/domains.dart' show domainColor, isDomain;
+import 'card_frame.dart';
 import 'today_palette.dart';
 
 /// Reka Offer — the B「潮汐」second screen (spec §14.5a · design bundle B2/B3).
@@ -221,11 +222,11 @@ class _RekaOfferScreenState extends State<RekaOfferScreen>
 
   // ── deck stack ──────────────────────────────────────────────────────────────
   Widget _deckStack() {
-    // Taller (centered card) so the per-type 小图 + in-card ✕/✓ action row fit
-    // without a RenderFlex overflow: padding 15+15, image 60+8, header ~18+11,
-    // 1-line title ~21+6, up-to-2-line body ~34, the CTA pill ~34, the +12 gap
-    // and the ~52 action-button row — ~286 fixed, 330 leaves the Spacer headroom.
-    const cardH = 330.0;
+    // 3-zone CardFrame (mockup): header 118 (tint + big ⏰ emoji + tag pill) +
+    // body (Reka 帮你 line · title · up-to-2-line body · 去看看 CTA pill) + the
+    // in-card ✕/✓ action row (~72 with the 2-line hint). 392 leaves the body's
+    // Spacer headroom without a RenderFlex overflow.
+    const cardH = 392.0;
     final stacked = _deck.length > 1;
     final dir = _drag.dx > 4 ? 1 : (_drag.dx < -4 ? -1 : 0); // 1 exec / -1 skip
     final iconProg = (_drag.dx.abs() / 120).clamp(0.0, 1.0);
@@ -297,11 +298,14 @@ class _RekaOfferScreenState extends State<RekaOfferScreen>
     ),
   );
 
-  // ── offer card (域点 + kind icon/label + nudge text + 填充 CTA 药丸) ───────────
+  // ── offer card = the shared 3-zone CardFrame ─────────────────────────────────
+  // [A] header tint + big per-type emoji + tag pill (kind label) · [B] body =
+  // Reka 帮你 line + title + body + 去看看/CTA pill · [C] action row = ✕/hint/✓.
   // 别做 (handoff §8): 绿/红 只给 swipe ACTION 揭示 + 全局图标,NOT 卡 chrome —— 卡的
   // resting border 用中性/域色;域只用一个色点表达(单色 + 域点,不堆底色)。
   Widget _offerCard(RekaNudge n, double height) {
     final (_, label) = _kindMeta(n.kind);
+    final (emoji, base) = cardKindMeta(n.kind);
     final eu = context.eu;
     final domain = _domainOf(n);
     final dot = domain != null ? domainColor(eu, domain) : null;
@@ -310,41 +314,18 @@ class _RekaOfferScreenState extends State<RekaOfferScreen>
     final border = dot != null
         ? Color.alphaBlend(dot.withValues(alpha: 0.30), _p.cardBorder)
         : _p.cardBorder;
-    return Container(
+    return CardFrame(
+      emoji: emoji,
+      base: base,
+      tagLabel: label,
       height: height,
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(16, 15, 16, 15),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [_p.cardTop, _p.cardBottom],
-        ),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: border),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: _p.dark ? 0.5 : 0.16),
-            blurRadius: 30,
-            offset: const Offset(0, 14),
-          ),
-        ],
-      ),
-      child: Column(
+      dark: _p.dark,
+      surfaceTop: _p.cardTop,
+      surfaceBottom: _p.cardBottom,
+      border: border,
+      body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Per-type 小图 (Kenney pixel-balloon emote) — carries the offer's type
-          // visual now that the header emoji is gone. filterQuality.none keeps the
-          // pixel art crisp at this upscale.
-          Center(
-            child: Image.asset(
-              _emoteFor(n.kind),
-              width: 60,
-              height: 60,
-              filterQuality: FilterQuality.none,
-            ),
-          ),
-          const SizedBox(height: 8),
           Row(
             children: [
               Text(
@@ -361,15 +342,15 @@ class _RekaOfferScreenState extends State<RekaOfferScreen>
                 ),
             ],
           ),
-          const SizedBox(height: 11),
+          const SizedBox(height: 9),
           Text(
             n.text,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: _p.title,
-              fontSize: 17,
-              fontWeight: FontWeight.w600,
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
               height: 1.25,
             ),
           ),
@@ -393,23 +374,40 @@ class _RekaOfferScreenState extends State<RekaOfferScreen>
             onTap: () => n.cta == 'view' ? _openDetail(n) : _consume(true),
             child: _ctaPill(n.cta),
           ),
-          const SizedBox(height: 12),
-          // ✕/✓ twin actions, now INSIDE the focal card (same buttons _twinButtons
-          // used). They act on _deck.first via _consume — correct, since they only
-          // render on the focal card. A tap fires onTap; a drag still pans the card
-          // (these are children of the card's pan GestureDetector).
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _actionBtn(false),
-              const SizedBox(width: 30),
-              _actionBtn(true),
-            ],
-          ),
         ],
       ),
+      actionRow: _actionRow(),
     );
   }
+
+  // [C] in-card action row: ✕ (left, red → 跳过) · centered 2-line hint · ✓
+  // (right, green → 执行). They act on _deck.first via _consume — correct, since
+  // they only render on the focal card. A tap fires onTap; a drag still pans the
+  // card (these are children of the card's pan GestureDetector).
+  Widget _actionRow() => Padding(
+    padding: const EdgeInsets.fromLTRB(18, 4, 18, 14),
+    child: Row(
+      children: [
+        CardActionButton(
+          icon: Icons.close_rounded,
+          tint: _skipRed,
+          onTap: () => _consume(false),
+        ),
+        Expanded(
+          child: Text(
+            '左滑跳过\n右滑执行',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 11, height: 1.35, color: _p.faint),
+          ),
+        ),
+        CardActionButton(
+          icon: Icons.check_rounded,
+          tint: _execGreen,
+          onTap: () => _consume(true),
+        ),
+      ],
+    ),
+  );
 
   // B2 填充 CTA 药丸「给我看看 ✨」(bg linear-gradient(rgba(111,158,255,.3)→.15),
   // border rgba(111,158,255,.45), radius 10). Action-blue token, 与主题解耦
@@ -459,25 +457,6 @@ class _RekaOfferScreenState extends State<RekaOfferScreen>
       default:
         return null;
     }
-  }
-
-  /// kind → per-type 小图 (vendored Kenney pixel-balloon emote sprite). The
-  /// speech-balloon emote fits the「Reka 帮你 · 递给你」framing; falls back to the
-  /// idea balloon when the server omits / sends an unknown kind.
-  String _emoteFor(String kind) {
-    final x = switch (kind) {
-      'consumption_summary' => 'cash',
-      'idea_synthesis' => 'idea',
-      'offer' => 'idea',
-      'quiz' => 'question',
-      'briefing' => 'bars',
-      'habit_reminder' => 'star',
-      'overdue' => 'alert',
-      'rhythm_gap' => 'dots1',
-      'reminder' => 'exclamation',
-      _ => 'idea',
-    };
-    return 'assets/emotes/pixel-balloon/emote_$x.png';
   }
 
   /// kind → (emoji, 中文标签). kind is the nudge's offer genre (§14.3); falls back
@@ -548,30 +527,6 @@ class _RekaOfferScreenState extends State<RekaOfferScreen>
           ),
         ),
       ],
-    );
-  }
-
-  // ── ✕ skip / ✓ execute action button (rendered inside the focal card) ────────
-  Widget _actionBtn(bool exec) {
-    final c = exec ? _execGreen : _skipRed;
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () => _consume(exec),
-      child: Container(
-        width: 52,
-        height: 52,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: c.withValues(alpha: 0.2),
-          border: Border.all(color: c, width: 1.5),
-        ),
-        child: Icon(
-          exec ? Icons.check_rounded : Icons.close_rounded,
-          size: 24,
-          color: c,
-        ),
-      ),
     );
   }
 

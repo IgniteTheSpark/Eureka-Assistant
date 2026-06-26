@@ -11,6 +11,7 @@ import '../render/skill_card.dart' show renderSpecsProvider;
 import '../theme/app_theme.dart'; // context.eu
 import '../theme/domains.dart' show domainColor;
 import '../theme/eureka_colors.dart';
+import 'card_frame.dart';
 import 'today_data.dart';
 import 'today_palette.dart';
 
@@ -144,15 +145,18 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
   }
 
   /// On release: past the threshold (or a flick), fly the focal off-screen then
-  /// advance; otherwise spring it back to center.
+  /// browse (non-consuming); otherwise spring it back to center. Direction (per
+  /// the mockup's ‹/› action row): 右滑 (dx>0 / fling right) → NEXT item, 左滑
+  /// (dx<0 / fling left) → PREVIOUS item. The card flies off in the drag's own
+  /// direction. idx == chain.length is the 暂时没有了 end card (one past the last).
   void _releaseDrag(List<ChainItem> chain, int idx, double vx) {
-    // allow reaching idx == chain.length (the 暂时没有了 end card); swipe back returns.
-    final goNext = (_drag.dx < -90 || vx < -700) && idx < chain.length;
-    final goPrev = (_drag.dx > 90 || vx > 700) && idx > 0;
+    final goNext = (_drag.dx > 90 || vx > 700) && idx < chain.length;
+    final goPrev = (_drag.dx < -90 || vx < -700) && idx > 0;
     _flyFrom = _drag;
     if (goNext || goPrev) {
       _pendingDelta = goNext ? 1 : -1;
-      _flyTo = Offset((goNext ? -1 : 1) * 460, _drag.dy + 40);
+      // fly off in the drag's direction: 右滑→next exits right, 左滑→prev exits left.
+      _flyTo = Offset((goNext ? 1 : -1) * 460, _drag.dy + 40);
       _fly.duration = const Duration(milliseconds: 220);
     } else {
       _pendingDelta = 0;
@@ -198,68 +202,13 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
     _syncTicker(idx < items.length && _isLiveEvent(items[idx]));
 
     // Transparent (no panel): the cards float over the pool, framed by the
-    // segment above + the dock below. Stack + twin buttons + browse hint = B1.
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _deck(items, idx),
-        const SizedBox(height: 16),
-        _twinButtons(idx),
-        const SizedBox(height: 9),
-        Text(
-          '左右滑浏览（不消耗）· 滑完 ↻ 回到当前',
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 10.5, color: _p.faint),
-        ),
-      ],
-    );
+    // segment above + the dock below. Self-contained card like the Reka Offer
+    // screen — the in-card action row (‹ 上一个 / 左右滑浏览 / 下一个 ›) carries the
+    // browse affordance, so the old standalone hint line below the deck is gone.
+    return _deck(items, idx);
   }
 
-  // ── twin buttons + mid-drag action icon (Tinder feel) ───────────────────────
-  /// Bottom ‹ / › twin buttons mirror the browse swipe (tap when you'd rather not
-  /// drag). Prev disabled at the head, next disabled on the end card.
-  Widget _twinButtons(int idx) => Row(
-    mainAxisAlignment: MainAxisAlignment.center,
-    children: [
-      _twinBtn(next: false, enabled: idx > 0),
-      const SizedBox(width: 30),
-      _twinBtn(next: true, enabled: idx < _itemCount),
-    ],
-  );
-
-  Widget _twinBtn({required bool next, required bool enabled}) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: enabled ? () => _animateTo(next ? 1 : -1) : null,
-      child: Opacity(
-        opacity: enabled ? 1 : 0.32,
-        child: Container(
-          width: 50,
-          height: 50,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: next
-                ? _p.accent.withValues(alpha: 0.22)
-                : _p.panelBg.withValues(alpha: _p.dark ? 0.5 : 0.82),
-            border: Border.all(
-              color: next ? _p.accent : _p.panelBorder,
-              width: 1.5,
-            ),
-          ),
-          child: Text(
-            next ? '›' : '‹',
-            style: TextStyle(
-              fontSize: 21,
-              height: 1,
-              color: next ? _p.accentSoft : _p.muted,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
+  // ── mid-drag action icon (Tinder feel) ──────────────────────────────────────
   /// The big centered icon that fades in over the stack mid-drag — tells you the
   /// pending action (browse-only here: ‹ 上一个 / 下一个 ›, blue).
   Widget _actionIcon(bool next) => Column(
@@ -292,28 +241,18 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
     ],
   );
 
-  /// Programmatic advance (twin-button tap): fly the focal off then step [dir]
-  /// (+1 next / -1 prev), reusing the swipe-release animation.
-  void _animateTo(int dir) {
-    if (_fly.isAnimating) return;
-    final cur = _index.clamp(0, _itemCount);
-    if (dir > 0 ? cur >= _itemCount : cur <= 0) return;
-    _flyFrom = _drag;
-    _flyTo = Offset((dir > 0 ? -1 : 1) * 460, 40);
-    _pendingDelta = dir;
-    _fly.duration = const Duration(milliseconds: 220);
-    _fly.forward(from: 0);
-  }
-
   // ── deck: stacked cards + draggable focal + mid-drag action icon ────────────
   Widget _deck(List<ChainItem> items, int idx) {
     final progress = (_drag.dx.abs() / 130).clamp(0.0, 1.0);
     final stacked = idx + 1 < items.length; // ≥1 card behind the focal
-    // B1 cards are bespoke (not the nested SkillCard) now; both kinds share one
-    // height so the event bar + todo buttons both have room without overflow.
-    const cardH = 156.0;
+    // B1 cards are the shared 3-zone CardFrame now; both kinds share one height
+    // so the event bar + todo buttons both fit under the 118 header without a
+    // RenderFlex overflow, mirroring the Reka Offer card so both screens read as
+    // the same card presentation. header 118 + body + the ~60 action row.
+    const cardH = 360.0;
     // which way the drag heads, and whether that move is allowed (head/end caps).
-    final dir = _drag.dx < -4 ? 1 : (_drag.dx > 4 ? -1 : 0); // 1=next, -1=prev
+    // 右滑 (dx>0) = next, 左滑 (dx<0) = prev (matches _releaseDrag + the ‹/› row).
+    final dir = _drag.dx > 4 ? 1 : (_drag.dx < -4 ? -1 : 0); // 1=next, -1=prev
     final canGo = dir == 1 ? idx < items.length : (dir == -1 && idx > 0);
     final iconProg = canGo ? (_drag.dx.abs() / 120).clamp(0.0, 1.0) : 0.0;
     return Padding(
@@ -414,8 +353,8 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
   /// dot. Opaque (cardTop/cardBottom) so the stack behind doesn't bleed through.
   /// The deck owns tap + swipe; the todo's 延后/完成 buttons catch their own taps
   /// (a drag starting on a button still falls through to the deck). event =
-  /// countdown + imminence/elapsed bar + passive auto-reminder line (no buttons);
-  /// todo = ⏰延后 + ✓完成 (延后 popover lands in S2b).
+  /// per-type 小图 + countdown + imminence/elapsed bar + passive auto-reminder
+  /// line (no buttons); todo = 小图 + ⏰延后 + ✓完成 (延后 popover lands in S2b).
   Widget _focalCard(ChainItem it, double height) {
     final eu = context.eu;
     return it.kind == 'event'
@@ -423,31 +362,66 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
         : _todoCard(it, height, eu);
   }
 
-  /// The shared frosted card body (gradient + border + lift); [child] = per-type
-  /// content.
-  Widget _cardShell(double height, Widget child) {
-    return Container(
+  /// The shared 3-zone [CardFrame] for a focal item: [A] header tint + big
+  /// per-type emoji + tag pill ("日程"/"待办"); [B] the per-type [body]; [C] the
+  /// shared browse action row (‹ 上一个 / 左右滑浏览 / 下一个 ›). [kind] picks the
+  /// emoji + base color + tag label.
+  Widget _frame(String kind, double height, Widget body) {
+    final (emoji, base) = cardKindMeta(kind);
+    return CardFrame(
+      emoji: emoji,
+      base: base,
+      tagLabel: kind == 'event' ? '日程' : '待办',
       height: height,
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(15, 13, 15, 13),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [_p.cardTop, _p.cardBottom],
-        ),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: _p.cardBorder),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: _p.dark ? 0.5 : 0.16),
-            blurRadius: 30,
-            offset: const Offset(0, 14),
-          ),
-        ],
-      ),
-      child: child,
+      dark: _p.dark,
+      surfaceTop: _p.cardTop,
+      surfaceBottom: _p.cardBottom,
+      border: _p.cardBorder,
+      body: body,
+      actionRow: _browseActionRow(),
     );
+  }
+
+  /// [C] in-card browse row (BOTH event + todo): circular ‹ (left → previous,
+  /// neutral) · centered "左右滑浏览" hint · circular › (right → next, accent like
+  /// the mockup). Non-consuming — these just step the deck via [_step].
+  Widget _browseActionRow() => Padding(
+    padding: const EdgeInsets.fromLTRB(18, 4, 18, 14),
+    child: Row(
+      children: [
+        CardActionButton(
+          icon: Icons.chevron_left_rounded,
+          tint: _p.muted,
+          onTap: () => _step(-1),
+        ),
+        Expanded(
+          child: Text(
+            '左右滑浏览',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 11.5, color: _p.faint),
+          ),
+        ),
+        CardActionButton(
+          icon: Icons.chevron_right_rounded,
+          tint: _p.accent,
+          onTap: () => _step(1),
+        ),
+      ],
+    ),
+  );
+
+  /// Step the deck by [delta] (‹ = -1 previous, › = +1 next) via the same
+  /// fly-off the swipe uses — non-consuming. Clamped to [0, _itemCount] (the end
+  /// card is one past the last); a no-op at the caps.
+  void _step(int delta) {
+    if (_fly.isAnimating) return;
+    final next = (_index + delta).clamp(0, _itemCount);
+    if (next == _index) return; // at a cap → nothing to do
+    _flyFrom = _drag;
+    _pendingDelta = delta;
+    _flyTo = Offset(delta.sign * 460, 40); // fly off in the step's direction
+    _fly.duration = const Duration(milliseconds: 220);
+    _fly.forward(from: 0);
   }
 
   /// §8 domain identity dot — the card's only color (per the locked rule).
@@ -509,7 +483,8 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
   Widget _eventCard(ChainItem it, double height, EurekaColors eu) {
     final dom = domainColor(eu, it.domain);
     final meta = it.sub == '事件' ? '事件' : '事件 · ${it.sub}';
-    return _cardShell(
+    return _frame(
+      it.kind,
       height,
       Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -596,7 +571,8 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
     final due = it.timed
         ? (started ? '已到期' : '⏳ ${fmtCountdown(it.at.difference(now))} 后到期')
         : '无截止时间';
-    return _cardShell(
+    return _frame(
+      it.kind,
       height,
       Column(
         crossAxisAlignment: CrossAxisAlignment.start,
