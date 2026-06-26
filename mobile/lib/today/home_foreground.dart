@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'card_frame.dart' show kCardHeight;
 import 'next_action.dart' show NextActionPanel;
 import 'reka_offer.dart' show RekaOfferScreen;
 import 'today_data.dart' show ChainItem;
@@ -83,9 +84,7 @@ class _HomeForegroundState extends State<HomeForeground> {
             onHorizontalDragStart: (_) => _topSwipeDx = 0,
             onHorizontalDragUpdate: (d) => _topSwipeDx += d.delta.dx,
             onHorizontalDragEnd: (dets) => _onTopSwipeEnd(dets, screen),
-            child: Column(
-              children: [_warmTop(p), _segment(p, screen)],
-            ),
+            child: Column(children: [_warmTop(p), _segment(p, screen)]),
           ),
           // The two foreground screens. AnimatedSwitcher = a 280ms horizontal
           // glide on segment tap OR the pool's background swipe (S2d). Wrapped in
@@ -97,42 +96,52 @@ class _HomeForegroundState extends State<HomeForeground> {
           Expanded(
             child: Align(
               alignment: const Alignment(0, -0.25),
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 280),
-                switchInCurve: Curves.easeOut,
-                switchOutCurve: Curves.easeIn,
-                transitionBuilder: (child, anim) {
-                  final incoming = child.key == ValueKey(screen);
-                  final dx = incoming ? 0.06 : -0.06;
-                  return FadeTransition(
-                    opacity: anim,
-                    child: SlideTransition(
-                      position: Tween<Offset>(
-                        begin: Offset(dx, 0),
-                        end: Offset.zero,
-                      ).animate(anim),
-                      child: child,
-                    ),
-                  );
-                },
-                layoutBuilder: (cur, prev) => Stack(
-                  alignment: Alignment.topCenter,
-                  children: [...prev, ?cur],
-                ),
-                child: screen == 0
-                    ? KeyedSubtree(
-                        key: const ValueKey(0),
-                        child: NextActionPanel(
-                          chain: widget.chain,
-                          noTimeTodos: widget.noTimeTodos,
-                        ),
-                      )
-                    : KeyedSubtree(
-                        key: const ValueKey(1),
-                        // §3.4: Reka Offer 空态「切回安排」→ screen 0 (don't strand
-                        // the user on a blank board). Same internal switch path.
-                        child: RekaOfferScreen(onBackToSchedule: () => _go(0)),
+              // Constant height so the AnimatedSwitcher never resizes when the
+              // segment switches 今日安排 ⇄ Reka Offer and one side is a full
+              // card while the other is a short empty-state → no card jump. The
+              // deck screens are already kCardHeight + 20; the shorter empty
+              // states top-align in the box (layoutBuilder = topCenter).
+              child: SizedBox(
+                height: kCardHeight + 20,
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 280),
+                  switchInCurve: Curves.easeOut,
+                  switchOutCurve: Curves.easeIn,
+                  transitionBuilder: (child, anim) {
+                    final incoming = child.key == ValueKey(screen);
+                    final dx = incoming ? 0.06 : -0.06;
+                    return FadeTransition(
+                      opacity: anim,
+                      child: SlideTransition(
+                        position: Tween<Offset>(
+                          begin: Offset(dx, 0),
+                          end: Offset.zero,
+                        ).animate(anim),
+                        child: child,
                       ),
+                    );
+                  },
+                  layoutBuilder: (cur, prev) => Stack(
+                    alignment: Alignment.topCenter,
+                    children: [...prev, ?cur],
+                  ),
+                  child: screen == 0
+                      ? KeyedSubtree(
+                          key: const ValueKey(0),
+                          child: NextActionPanel(
+                            chain: widget.chain,
+                            noTimeTodos: widget.noTimeTodos,
+                          ),
+                        )
+                      : KeyedSubtree(
+                          key: const ValueKey(1),
+                          // §3.4: Reka Offer 空态「切回安排」→ screen 0 (don't strand
+                          // the user on a blank board). Same internal switch path.
+                          child: RekaOfferScreen(
+                            onBackToSchedule: () => _go(0),
+                          ),
+                        ),
+                ),
               ),
             ),
           ),
@@ -147,12 +156,33 @@ class _HomeForegroundState extends State<HomeForeground> {
   Widget _warmTop(TodayPalette p) {
     final greet = _greeting();
     final now = DateTime.now();
-    final weekday = const ['周一', '周二', '周三', '周四', '周五', '周六', '周日'][now.weekday - 1];
+    final weekday = const [
+      '周一',
+      '周二',
+      '周三',
+      '周四',
+      '周五',
+      '周六',
+      '周日',
+    ][now.weekday - 1];
     final date = '$weekday · ${now.month}月${now.day}日';
     final done = widget.todoDone;
     final total = widget.todoTotal;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 6, 20, 2),
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 6, 16, 2),
+      padding: const EdgeInsets.fromLTRB(18, 13, 16, 13),
+      decoration: BoxDecoration(
+        color: p.cardTop,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: p.cardBorder),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: p.dark ? 0.28 : 0.06),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         crossAxisAlignment: CrossAxisAlignment.center,

@@ -68,17 +68,20 @@ class _TodayPageState extends State<TodayPage> {
       children: [
         // ── Back: atmosphere (dark navy / warm light, per theme) ──
         Positioned.fill(child: ColoredBox(color: p.atmosphereBottom)),
-        // Radial atmosphere overlay (prototype token:
-        // radial-gradient(130% 60% at 50% -5%, top, bottom 60%)).
+        // Radial atmosphere overlay — a soft glow sitting mid-screen BEHIND the
+        // cards. center y=-0.1 + radius 0.9 means the top edge (y=-1) is 0.9 out
+        // = exactly atmosphereBottom, so the page's top edge equals the nav
+        // color (= the bg) in both light and dark → no nav-bar seam; the glow
+        // (atmosphereTop) only blooms in the card area.
         Positioned.fill(
           child: IgnorePointer(
             child: DecoratedBox(
               decoration: BoxDecoration(
                 gradient: RadialGradient(
-                  center: const Alignment(0, -1.05),
-                  radius: 1.3,
+                  center: const Alignment(0, -0.1),
+                  radius: 0.9,
                   colors: [p.atmosphereTop, p.atmosphereBottom],
-                  stops: const [0.0, 0.6],
+                  stops: const [0.0, 1.0],
                 ),
               ),
             ),
@@ -92,8 +95,7 @@ class _TodayPageState extends State<TodayPage> {
             active: widget.active,
             // S2d: a horizontal swipe on the empty pool (off any bubble) flips
             // the foreground screen; the pool arbitrates this vs bubble-drag.
-            onSwipe: (dir) =>
-                _screen.value = (_screen.value + dir).clamp(0, 1),
+            onSwipe: (dir) => _screen.value = (_screen.value + dir).clamp(0, 1),
           ),
         ),
         // ── Front: B「潮汐」foreground — 暖顶 + 段控(今日安排 ⇄ Reka Offer) + 屏区.

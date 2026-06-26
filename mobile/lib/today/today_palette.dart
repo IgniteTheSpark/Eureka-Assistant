@@ -46,7 +46,10 @@ class TodayPalette {
     // Warm light set — derived from the app's eu light tokens.
     return TodayPalette(
       dark: false,
-      atmosphereTop: eu.bg,
+      // A soft warm glow, lifted from eu.bg (#EFEBE1) so it reads as warmth (not
+      // a white strip); the page radial keeps it mid-screen behind the cards so
+      // the top edge (nav seam) still fades to atmosphereBottom = eu.bg.
+      atmosphereTop: const Color(0xFFF6F2EA),
       atmosphereBottom: eu.bg,
       panelBg: eu.surfaceRaised.withValues(alpha: 0.82),
       panelBorder: eu.border,
