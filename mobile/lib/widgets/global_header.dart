@@ -1,10 +1,10 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../auth/auth_controller.dart';
+import '../config.dart';
 import '../device/device_controller.dart';
 import '../pages/connected_apps_page.dart';
 import '../pages/device_pairing_page.dart';
@@ -36,8 +36,8 @@ class GlobalHeaderBar extends StatelessWidget {
       decoration: BoxDecoration(
         color: onDark ? const Color(0xFF0B1220) : eu.bg,
         border: Border(
-            bottom: BorderSide(
-                color: onDark ? const Color(0x14FFFFFF) : eu.rule)),
+          bottom: BorderSide(color: onDark ? const Color(0x14FFFFFF) : eu.rule),
+        ),
       ),
       child: Row(
         children: [
@@ -58,9 +58,10 @@ class GlobalHeaderBar extends StatelessWidget {
             onTap: () => _openProfile(context),
           ),
           AnimatedBuilder(
-            animation: Listenable.merge(
-              [DeviceController.instance, RingConnection.instance],
-            ),
+            animation: Listenable.merge([
+              DeviceController.instance,
+              RingConnection.instance,
+            ]),
             builder: (context, _) {
               final dev = DeviceController.instance;
               final cardConnected =
@@ -215,7 +216,7 @@ void _openProfile(BuildContext context) {
                 ),
               ),
             ),
-            if (kDebugMode) ...[
+            if (AppConfig.showRingDebug) ...[
               const SizedBox(height: 10),
               GestureDetector(
                 onTap: () {
@@ -238,7 +239,11 @@ void _openProfile(BuildContext context) {
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.bluetooth_audio_outlined, size: 19, color: eu.textMid),
+                      Icon(
+                        Icons.bluetooth_audio_outlined,
+                        size: 19,
+                        color: eu.textMid,
+                      ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
@@ -299,9 +304,9 @@ Future<void> _openDeviceResolved(BuildContext context) async {
     // No card device bound but a ring is connected → show the ring detail page.
     if (target != DeviceEntryTarget.myDevice &&
         RingConnection.instance.isConnected) {
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const MyRingPage()),
-      );
+      Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => const MyRingPage()));
       return;
     }
     Navigator.of(context).push(

@@ -1,8 +1,8 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../auth/auth_controller.dart';
+import '../config.dart';
 import 'ring_debug_page.dart';
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
@@ -17,7 +17,10 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  static const bool _showBaizhiLogin = bool.fromEnvironment('SHOW_BAIZHI_LOGIN', defaultValue: false);
+  static const bool _showBaizhiLogin = bool.fromEnvironment(
+    'SHOW_BAIZHI_LOGIN',
+    defaultValue: false,
+  );
 
   final _email = TextEditingController();
   final _password = TextEditingController();
@@ -46,7 +49,9 @@ class _LoginPageState extends State<LoginPage> {
       _error = null;
     });
     final auth = AuthController.instance;
-    final err = _register ? await auth.register(email, pw) : await auth.login(email, pw);
+    final err = _register
+        ? await auth.register(email, pw)
+        : await auth.login(email, pw);
     if (!mounted) return;
     setState(() {
       _busy = false;
@@ -93,17 +98,28 @@ class _LoginPageState extends State<LoginPage> {
                   height: 92,
                 ),
                 const SizedBox(height: 10),
-                Text(_register ? '创建账号' : '登录你的账号',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: eu.textMid, fontSize: 15)),
+                Text(
+                  _register ? '创建账号' : '登录你的账号',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: eu.textMid, fontSize: 15),
+                ),
                 const SizedBox(height: 28),
                 _field(eu, _email, '邮箱', TextInputType.emailAddress, false),
                 const SizedBox(height: 12),
-                _field(eu, _password, '密码', TextInputType.visiblePassword, true,
-                    onSubmit: (_) => _submit()),
+                _field(
+                  eu,
+                  _password,
+                  '密码',
+                  TextInputType.visiblePassword,
+                  true,
+                  onSubmit: (_) => _submit(),
+                ),
                 if (_error != null) ...[
                   const SizedBox(height: 12),
-                  Text(_error!, style: TextStyle(color: eu.accentRed, fontSize: 13)),
+                  Text(
+                    _error!,
+                    style: TextStyle(color: eu.accentRed, fontSize: 13),
+                  ),
                 ],
                 const SizedBox(height: 20),
                 GestureDetector(
@@ -113,38 +129,55 @@ class _LoginPageState extends State<LoginPage> {
                     height: 50,
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
-                      gradient: LinearGradient(colors: [eu.brand, eu.accentPurple]),
+                      gradient: LinearGradient(
+                        colors: [eu.brand, eu.accentPurple],
+                      ),
                       borderRadius: BorderRadius.circular(14),
                       boxShadow: _busy
                           ? null
                           : [
                               BoxShadow(
-                                  color: eu.brand.withValues(alpha: 0.4),
-                                  blurRadius: 16,
-                                  offset: const Offset(0, 6))
+                                color: eu.brand.withValues(alpha: 0.4),
+                                blurRadius: 16,
+                                offset: const Offset(0, 6),
+                              ),
                             ],
                     ),
                     child: _busy
                         ? const SizedBox(
                             width: 20,
                             height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                        : Text(_register ? '注册并进入' : '登录',
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : Text(
+                            _register ? '注册并进入' : '登录',
                             style: const TextStyle(
-                                color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700)),
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
                   ),
                 ),
                 if (_showBaizhiLogin) ...[
                   const SizedBox(height: 18),
                   // 「或」divider.
-                  Row(children: [
-                    Expanded(child: Divider(color: eu.border, height: 1)),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: Text('或', style: TextStyle(color: eu.textLo, fontSize: 12)),
-                    ),
-                    Expanded(child: Divider(color: eu.border, height: 1)),
-                  ]),
+                  Row(
+                    children: [
+                      Expanded(child: Divider(color: eu.border, height: 1)),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: Text(
+                          '或',
+                          style: TextStyle(color: eu.textLo, fontSize: 12),
+                        ),
+                      ),
+                      Expanded(child: Divider(color: eu.border, height: 1)),
+                    ],
+                  ),
                   const SizedBox(height: 18),
                   // §13.1 用百智登录 (OAuth) — 持卡用户已有百智账号。
                   GestureDetector(
@@ -162,14 +195,30 @@ class _LoginPageState extends State<LoginPage> {
                           ? SizedBox(
                               width: 20,
                               height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: eu.brand))
-                          : Row(mainAxisSize: MainAxisSize.min, children: [
-                              Icon(Icons.badge_outlined, size: 18, color: eu.textHi),
-                              const SizedBox(width: 8),
-                              Text('用百智登录',
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: eu.brand,
+                              ),
+                            )
+                          : Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.badge_outlined,
+                                  size: 18,
+                                  color: eu.textHi,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  '用百智登录',
                                   style: TextStyle(
-                                      color: eu.textHi, fontSize: 15, fontWeight: FontWeight.w600)),
-                            ]),
+                                    color: eu.textHi,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
                     ),
                   ),
                 ],
@@ -178,24 +227,31 @@ class _LoginPageState extends State<LoginPage> {
                   onTap: _busy
                       ? null
                       : () => setState(() {
-                            _register = !_register;
-                            _error = null;
-                          }),
+                          _register = !_register;
+                          _error = null;
+                        }),
                   behavior: HitTestBehavior.opaque,
                   child: Text.rich(
-                    TextSpan(children: [
-                      TextSpan(
+                    TextSpan(
+                      children: [
+                        TextSpan(
                           text: _register ? '已有账号？' : '还没有账号？',
-                          style: TextStyle(color: eu.textMid, fontSize: 13)),
-                      TextSpan(
+                          style: TextStyle(color: eu.textMid, fontSize: 13),
+                        ),
+                        TextSpan(
                           text: _register ? '去登录' : '去注册',
                           style: TextStyle(
-                              color: eu.brand, fontSize: 13, fontWeight: FontWeight.w700)),
-                    ]),
+                            color: eu.brand,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
                     textAlign: TextAlign.center,
                   ),
                 ),
-                if (kDebugMode) ...[
+                if (AppConfig.showRingDebug) ...[
                   const SizedBox(height: 12),
                   TextButton.icon(
                     onPressed: () => Navigator.of(context).push(
@@ -213,9 +269,14 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  Widget _field(EurekaColors eu, TextEditingController c, String hint,
-      TextInputType type, bool obscure,
-      {ValueChanged<String>? onSubmit}) {
+  Widget _field(
+    EurekaColors eu,
+    TextEditingController c,
+    String hint,
+    TextInputType type,
+    bool obscure, {
+    ValueChanged<String>? onSubmit,
+  }) {
     return TextField(
       controller: c,
       keyboardType: type,
@@ -230,13 +291,22 @@ class _LoginPageState extends State<LoginPage> {
         hintStyle: TextStyle(color: eu.textLo),
         filled: true,
         fillColor: eu.surfaceRaised,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
+        ),
         border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: eu.border)),
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: eu.border),
+        ),
         enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: eu.border)),
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: eu.border),
+        ),
         focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: eu.brand)),
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: eu.brand),
+        ),
       ),
     );
   }

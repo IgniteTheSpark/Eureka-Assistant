@@ -14,4 +14,12 @@ class AppConfig {
     'TENCENT_ASR_BASE',
     defaultValue: 'https://pre.card.biz',
   );
+
+  /// Hidden by default so end-user debug/demo builds don't expose ring internals.
+  /// Enable only when actively debugging ring hardware:
+  ///   --dart-define=SHOW_RING_DEBUG=true
+  static const showRingDebug = bool.fromEnvironment(
+    'SHOW_RING_DEBUG',
+    defaultValue: false,
+  );
 }
