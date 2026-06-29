@@ -237,8 +237,9 @@ class _RekaChatState extends State<RekaChat>
   /// _synthBase onward) with `ns`. Preserves any preceding root nodes.
   void _replaceSynth(List<_Node> ns) {
     setState(() {
-      if (_synthBase < _nodes.length)
+      if (_synthBase < _nodes.length) {
         _nodes.removeRange(_synthBase, _nodes.length);
+      }
       _nodes.addAll(ns);
     });
     _scrollToEnd();
