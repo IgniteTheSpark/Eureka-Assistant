@@ -286,7 +286,9 @@ class _FlashSheetState extends State<_FlashSheet> {
                     ? t.result!.summary
                     : (t.result!.reply.isNotEmpty
                           ? t.result!.reply
-                          : '已记录 ${t.result!.cards.length} 项内容。'),
+                          : (t.result!.cards.length == 1
+                                ? '我帮你记好了。'
+                                : '这些我都帮你记好了。')),
                 style: TextStyle(color: eu.textHi, fontSize: 14),
               ),
             ),

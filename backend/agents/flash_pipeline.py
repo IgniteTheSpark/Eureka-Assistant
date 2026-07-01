@@ -33,6 +33,7 @@ from agents.skill_factory import (
     make_dispatcher_agent, make_skill_agent, make_custom_skill_agent,
     SKILL_FOLDER_MAP,
 )
+from agents.flash_reply import generate_flash_summary
 from core.agent_runner import run_agent
 from core.event_mapper import event_tool_call, event_tool_result
 from sqlalchemy import delete, select
@@ -950,11 +951,8 @@ def _build_reply(qa_results: list) -> str:
     return "\n\n".join(p for p in parts if p)
 
 
-def _build_summary(asset_results: list, has_reply: bool) -> str:
-    """
-    Terse status line about asset creation. QA answers live in `reply`,
-    not summary — so summary is purely about what got recorded.
-    """
+def _fallback_flash_summary(asset_results: list, cards: list, has_reply: bool) -> str:
+    """Warm non-mechanical fallback when the Flash Reply Agent is unavailable."""
     ok_count = sum(
         1 for r in asset_results
         if r.get("ok") and r.get("status") != "pending_confirmation"
@@ -969,10 +967,10 @@ def _build_summary(asset_results: list, has_reply: bool) -> str:
         # itself is the response). Otherwise tell the user nothing matched.
         return "" if has_reply else "本次闪念未识别到可保存的内容。"
 
-    summary = f"已记录 {ok_count} 项内容。" if ok_count > 0 else ""
+    summary = "我帮你记好了。" if ok_count == 1 else "这些我都帮你记好了。"
     if pending_names:
-        joiner = "" if not summary else "…"
-        summary += f"{joiner}联系人「{'、'.join(pending_names)}」需要确认。"
+        joiner = "" if not summary else " "
+        summary += f"{joiner}联系人「{'、'.join(pending_names)}」我不太确定是哪一位，等你确认一下。"
     # Fallback skill suggestion: a misc/notes capture that looks like a fixed
     # record type → nudge the user to create a skill (the misc sub-skill sets
     # `suggest_skill` to the recognized 中文类型 when applicable).
@@ -982,8 +980,13 @@ def _build_summary(asset_results: list, has_reply: bool) -> str:
         None,
     )
     if suggest:
-        summary += f" 想长期、结构化地记录「{suggest}」的话,可以去资产库创建一个对应技能。"
+        summary += f" 如果你以后常记「{suggest}」，可以把它建成一个专门的记录本。"
     return summary
+
+
+def _build_summary(asset_results: list, has_reply: bool) -> str:
+    """Backward-compatible wrapper for older callers/tests."""
+    return _fallback_flash_summary(asset_results, [], has_reply)
 
 
 async def _load_user_render_specs(user_id: str) -> dict:
@@ -1014,25 +1017,50 @@ async def _load_user_render_specs(user_id: str) -> dict:
     return out
 
 
-def _aggregate(results: list, session_id: str, input_turn_id: str, render_specs: dict) -> dict:
+async def _aggregate(
+    results: list,
+    session_id: str,
+    input_turn_id: str,
+    render_specs: dict,
+    source_text: str,
+    user_id: str,
+) -> dict:
     qa_results, asset_results = _split_qa_and_assets(results)
     reply = _build_reply(qa_results)
     cards = [_make_card(r, render_specs) for r in asset_results]
+    derived_assets = [
+        {"asset_id": c["asset_id"], "card": c}
+        for c in cards if c.get("asset_id")
+    ]
+    derived_events = [
+        {"event_id": c["event_id"], "card": c}
+        for c in cards if c.get("event_id")
+    ]
+    pending = [r for r in asset_results if r.get("status") == "pending_confirmation"]
+    suggest = next(
+        (r.get("suggest_skill") for r in asset_results
+         if r.get("ok") and r.get("suggest_skill")),
+        None,
+    )
+    summary = await generate_flash_summary(
+        source_text=source_text,
+        cards=cards,
+        derived_assets=derived_assets,
+        pending=pending,
+        suggest_skill=suggest,
+        user_id=user_id,
+    )
+    if not summary:
+        summary = _fallback_flash_summary(asset_results, cards, has_reply=bool(reply))
     return {
         "ok":              True,
         "session_id":      session_id,
         "input_turn_id":   input_turn_id,
         "reply":           reply,
-        "summary":         _build_summary(asset_results, has_reply=bool(reply)),
+        "summary":         summary,
         "cards":           cards,
-        "derived_assets":  [
-            {"asset_id": c["asset_id"], "card": c}
-            for c in cards if c.get("asset_id")
-        ],
-        "derived_events":  [   # v1.4: events are not assets — separate list
-            {"event_id": c["event_id"], "card": c}
-            for c in cards if c.get("event_id")
-        ],
+        "derived_assets":  derived_assets,
+        "derived_events":  derived_events,   # v1.4: events are not assets
         "has_pending":     any(r.get("status") == "pending_confirmation" for r in asset_results),
     }
 
@@ -1146,4 +1174,4 @@ async def run_flash_pipeline(
     # Bug fix: drop orphan duplicates (sub-agent double create_asset/create_contact)
     # before the user sees the library — keep only the ids surfaced as cards.
     await _reconcile_turn_orphans(user_id, input_turn_id, results)
-    return _aggregate(results, session_id, input_turn_id, render_specs)
+    return await _aggregate(results, session_id, input_turn_id, render_specs, user_text, user_id)
