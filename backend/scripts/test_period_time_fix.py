@@ -123,6 +123,11 @@ def _assert_custom_skill_agent_period_rules() -> None:
     pipeline = _module("agents/flash_pipeline.py")
     fallback = _async_fn(pipeline, "_force_create_custom_asset")
     assert "today_str" in _arg_names(fallback), "_force_create_custom_asset must receive today_str"
+    assert _async_fn(pipeline, "_apply_custom_time_hints")
+    assert any(
+        isinstance(node, ast.FunctionDef) and node.name == "_custom_anchor_value"
+        for node in pipeline.body
+    ), "custom skills must derive a payload timeline anchor from time hints"
     calls = _calls(fallback, "mcp_create_asset")
     assert calls, "_force_create_custom_asset must delegate to mcp_create_asset"
     keyword_names = {kw.arg for kw in calls[-1].keywords}
@@ -140,8 +145,15 @@ def _assert_custom_skill_agent_period_rules() -> None:
 
     apply_hints = _async_fn(pipeline, "_apply_custom_time_hints")
     assert "today_str" in _arg_names(apply_hints), "_apply_custom_time_hints must receive today_str"
+    assert "meta" in _arg_names(apply_hints), "_apply_custom_time_hints must receive custom skill meta"
     calls = _calls(run_intent, "_apply_custom_time_hints")
     assert calls, "_run_intent must apply custom time hints after successful create"
+    assert any(
+        isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Name)
+        and n.func.id == "index_asset_fields"
+        for n in ast.walk(apply_hints)
+    ), "payload anchor correction must rebuild asset_fields"
 
 
 if __name__ == "__main__":

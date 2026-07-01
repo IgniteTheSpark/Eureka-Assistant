@@ -35,7 +35,7 @@ from agents.skill_factory import (
 )
 from core.agent_runner import run_agent
 from core.event_mapper import event_tool_call, event_tool_result
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from db.database import AsyncSessionLocal
 from db.models import GlobalSkill, UserSkill
 
@@ -112,6 +112,8 @@ def _asset_time_hints(source_text: str, today_str: str) -> dict[str, str]:
             break
 
     occurred_at = ""
+    if any(k in text for k in ("刚刚", "刚才", "现在", "这会儿")):
+        occurred_at = now.isoformat(timespec="seconds")
     clock = re.search(r"(凌晨|早上|上午|中午|下午|晚上|今晚)?\s*(\d{1,2})(?:[:：点时])(\d{1,2})?分?", text)
     if clock:
         hour = int(clock.group(2))
@@ -136,6 +138,7 @@ def _asset_time_hints(source_text: str, today_str: str) -> dict[str, str]:
         "period": period,
         "occurred_at": occurred_at,
         "created_at": created_at,
+        "anchor_date": day.isoformat() if date_mentioned or period or occurred_at else "",
     }
 
 
@@ -306,6 +309,32 @@ def _first_string_field(schema: dict) -> Optional[str]:
     return None
 
 
+def _custom_anchor_field(meta: dict) -> Optional[str]:
+    schema = meta.get("payload_schema") or {}
+    rspec = meta.get("render_spec") or {}
+    anchor = rspec.get("timeline_anchor")
+    if isinstance(anchor, str) and anchor and anchor in schema:
+        return anchor
+    for candidate in ("date", "played_at", "occurred_at", "happened_at"):
+        if candidate in schema:
+            return candidate
+    return None
+
+
+def _custom_anchor_value(meta: dict, hints: dict[str, str]) -> tuple[Optional[str], Optional[str]]:
+    field = _custom_anchor_field(meta)
+    if not field:
+        return None, None
+    schema = meta.get("payload_schema") or {}
+    fmeta = schema.get(field) if isinstance(schema.get(field), dict) else {}
+    ftype = fmeta.get("type", "")
+    if hints.get("occurred_at") and ftype == "datetime":
+        return field, hints["occurred_at"]
+    if hints.get("anchor_date"):
+        return field, hints["anchor_date"]
+    return None, None
+
+
 async def _force_create_custom_asset(
     skill_name: str, meta: dict, source_text: str,
     session_id: str, source_input_turn_id: str, user_id: str, today_str: str,
@@ -319,6 +348,9 @@ async def _force_create_custom_asset(
     field = rspec.get("primary_field") or _first_string_field(schema) or "content"
     payload = {field: source_text}
     time_hints = _asset_time_hints(source_text, today_str)
+    anchor_field, anchor_value = _custom_anchor_value(meta, time_hints)
+    if anchor_field and anchor_field not in payload:
+        payload[anchor_field] = anchor_value
     try:
         created = await mcp_create_asset(
             user_skill_name=skill_name,
@@ -339,18 +371,20 @@ async def _force_create_custom_asset(
 
 
 async def _apply_custom_time_hints(asset_id: Optional[str], source_text: str,
-                                   today_str: str, user_id: str) -> None:
+                                   today_str: str, user_id: str, meta: Optional[dict] = None) -> None:
     """Backstop dynamic custom skills that created an asset but omitted time args."""
     if not asset_id:
         return
     hints = _asset_time_hints(source_text, today_str)
     if not any(hints.values()):
         return
+    anchor_field, anchor_value = _custom_anchor_value(meta or {}, hints)
     try:
         aid = uuid.UUID(str(asset_id))
     except (ValueError, TypeError):
         return
-    from db.models import Asset
+    from db.models import Asset, AssetField
+    from db.queries import index_asset_fields
     try:
         async with AsyncSessionLocal() as db:
             a = (await db.execute(
@@ -370,6 +404,15 @@ async def _apply_custom_time_hints(asset_id: Optional[str], source_text: str,
                 parsed = datetime.fromisoformat(hints["created_at"])
                 if a.created_at.date() != parsed.date():
                     a.created_at = parsed
+                    changed = True
+            if anchor_field and anchor_value:
+                payload = dict(a.payload or {})
+                current = str(payload.get(anchor_field) or "")
+                if current[:10] != anchor_value[:10]:
+                    payload[anchor_field] = anchor_value
+                    a.payload = payload
+                    await db.execute(delete(AssetField).where(AssetField.asset_id == a.id))
+                    await index_asset_fields(db, a.id, user_id, a.user_skill_id, payload)
                     changed = True
             if changed:
                 await db.commit()
@@ -515,7 +558,7 @@ async def _run_intent(
             result = await _force_create_custom_asset(
                 itype, meta, source, session_id, source_input_turn_id, user_id, today_str
             )
-        await _apply_custom_time_hints(result.get("asset_id"), source, today_str, user_id)
+        await _apply_custom_time_hints(result.get("asset_id"), source, today_str, user_id, meta)
         result["skill"] = f"{itype}-skill"
         result["source_text"] = source
         return result
