@@ -175,14 +175,31 @@ async def create_todo(
     source_input_turn_id: str = "",
     domain: str = "",
     user_id: str = "default",
+    period: str = "",
+    occurred_at: str = "",
 ) -> dict:
-    """Create a 待办 (todo) asset. due_date: ISO8601+08:00 (with time) or
-    'YYYY-MM-DD' (date only) or '' (none). domain (§8): tag by content
-    ("交报告"→工作, "买菜"→生活); omit if unsure (todo has no stable prior)."""
+    """Create a 待办 (todo) asset.
+
+    due_date: concrete deadline only — ISO8601+08:00 (with time), 'YYYY-MM-DD'
+    (date only), or '' (none). Do not turn fuzzy periods like "下午" into a fake
+    due_date time.
+    period / occurred_at (§4.5.0a): "下午" without a clock → period="下午",
+    occurred_at=""; "下午3点" → occurred_at=<ISO8601+08:00> (+ period).
+    domain (§8): tag by content ("交报告"→工作, "买菜"→生活); omit if unsure.
+    """
     payload: dict = {"content": content, "status": "pending"}
     if due_date and due_date.strip():
         payload["due_date"] = due_date.strip()
-    return await create_asset("todo", payload, session_id, source_input_turn_id, domain, user_id)
+    return await create_asset(
+        user_skill_name="todo",
+        payload=payload,
+        session_id=session_id,
+        source_input_turn_id=source_input_turn_id,
+        domain=domain,
+        user_id=user_id,
+        period=period,
+        occurred_at=occurred_at,
+    )
 
 
 async def create_note(

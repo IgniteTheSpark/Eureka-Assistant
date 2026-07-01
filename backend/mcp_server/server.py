@@ -84,19 +84,37 @@ async def tool_create_todo(
     source_input_turn_id: str = "",
     domain: str = "",
     user_id: str = "default",
+    period: str = "",
+    occurred_at: str = "",
 ) -> str:
     """
     Create a 待办 (todo). Typed — no JSON payload to assemble.
 
     content: the task, faithful to the user's words.
-    due_date: ISO8601 + +08:00 when a time is given (e.g. 2026-06-05T15:00:00+08:00);
-              'YYYY-MM-DD' when only a date is given (don't invent a time);
-              '' when no time reference.
+    due_date: deadline only:
+              · ISO8601 + +08:00 when a concrete due time is given
+                (e.g. 2026-06-05T15:00:00+08:00);
+              · 'YYYY-MM-DD' when only a due date is given (don't invent a time);
+              · '' when no due date/deadline.
+              Do NOT turn fuzzy periods like "下午" into due_date=...T15:00.
+    period: fuzzy calendar section when the user says only "早上/下午/晚上"
+            without a clock: "上午"/"下午"/"晚上"; otherwise "".
+    occurred_at: only when the user said a concrete clock time, ISO8601+08:00;
+                 otherwise "".
     domain: §8 life-domain by content — REQUIRED (工作/学习/健康/运动/社交/娱乐/生活/灵感),
             e.g. "交报告"→工作, "买菜"→生活, "陪家人"→生活. Default 生活 when unclear; never empty.
     Storage is the unified assets table (user_skill_name='todo').
     """
-    return _jsonify(await create_todo(content, due_date, session_id, source_input_turn_id, domain, user_id))
+    return _jsonify(await create_todo(
+        content=content,
+        due_date=due_date,
+        session_id=session_id,
+        source_input_turn_id=source_input_turn_id,
+        domain=domain,
+        user_id=user_id,
+        period=period,
+        occurred_at=occurred_at,
+    ))
 
 
 @mcp.tool()

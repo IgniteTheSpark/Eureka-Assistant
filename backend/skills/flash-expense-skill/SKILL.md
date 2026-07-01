@@ -71,24 +71,30 @@ Relative resolution: the message gives「现在是 <ISO 时刻>(周X)」— the 
 clock time and weekday. Use the date part for「今天/昨天」; use the clock time for
 「刚刚/现在/几分钟前」.
 
-**at** (v1.4.x, optional) — 完整时间戳,**当用户提到时段或具体时刻时填**。用于 timeline 上把多次同日消费按时刻排序,不再全堆在午夜。
+**time placement** — use `period` / `occurred_at` tool arguments, NOT payload `at`.
 
-| 用户的话 | at 取值(假设 now=2026-05-25T14:30+08:00,timezone +08:00) |
+| 用户的话 | tool 参数 |
 |---|---|
-| 「刚刚/现在花了 80」 | `2026-05-25T14:30:00+08:00`(**当前时刻**,不是 00:00) |
-| 「早上 8 点 80 块星巴克」 | `2026-05-25T08:00:00+08:00`(具体时刻) |
-| 「早上喝星巴克 80」 | `2026-05-25T08:00:00+08:00`(早上 canonical → 8:00) |
-| 「中午午饭 60」 | `2026-05-25T12:00:00+08:00`(中午 → 12:00) |
-| 「下午奶茶 25」 | `2026-05-25T15:00:00+08:00`(下午 → 15:00) |
-| 「晚上吃饭 200」 | `2026-05-25T19:00:00+08:00`(晚上 → 19:00) |
-| 「深夜烧烤 80」 | `2026-05-25T23:00:00+08:00`(深夜 → 23:00) |
-| 没提时段或时刻 | **省略 at 字段**(让 timeline 用 date 兜底) |
+| 「刚刚/现在花了 80」 | `occurred_at="<now ISO8601+08:00>"`, `period=""` |
+| 「早上 8 点 80 块星巴克」 | `occurred_at="<today>T08:00:00+08:00"`, `period="上午"` |
+| 「早上喝星巴克 80」 | `period="上午"`, `occurred_at=""` |
+| 「中午午饭 60」 | `period="中午"`, `occurred_at=""` |
+| 「下午奶茶 25」 | `period="下午"`, `occurred_at=""` |
+| 「晚上吃饭 200」 | `period="晚上"`, `occurred_at=""` |
+| 「深夜烧烤 80」 | `period="凌晨"` 或 `"晚上"`(按语义), `occurred_at=""` |
+| 没提时段或时刻 | `period=""`, `occurred_at=""` |
+
+严禁把「早上」默认成 08:00；严禁把「下午」默认成 15:00。
+只有「早上8点 / 下午3点 / 刚刚 / 现在 / 几分钟前」这类具体时刻才写 `occurred_at`。
+payload 不再写 `at`；旧 `at` 仅历史兼容。
 
 **description** — brief note from `source_text`. Keep it short. Don't invent details.
 
 Call `tool_create_asset`:
 - `user_skill_name`: `"expense"`
 - `payload`: `{"amount": <number>, "currency": "CNY", "category": "...", "merchant": "...", "date": "YYYY-MM-DD", "description": "..."}`
+- `period`: 仅用户只说模糊时段时填 `"上午"/"中午"/"下午"/"晚上"/"凌晨"`；否则 `""`
+- `occurred_at`: 仅用户说了具体钟点/刚刚/现在/几分钟前时填 ISO8601+08:00；否则 `""`
 - `session_id`, `source_input_turn_id`: pass through
 
 ---

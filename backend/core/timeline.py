@@ -101,8 +101,9 @@ def effective_at_for_asset(asset: Asset, skill_name: str,
     if skill_name == "todo":
         return _parse_iso(payload.get("due_date")) or asset.created_at
     if skill_name == "expense":
-        # v1.4.x: prefer `at` (具体时间戳 / 早午晚 canonical 时间) over `date`
-        # (just date). Lets multiple same-day expenses sort by time of day.
+        # Legacy compatibility: older expense prompts wrote payload.at, including
+        # fuzzy period canonical clocks. New writes use Asset.occurred_at/period
+        # instead; keep reading `at` only so historical rows keep their order.
         return (_parse_iso(payload.get("at"))
                 or _parse_iso(payload.get("date"))
                 or asset.created_at)

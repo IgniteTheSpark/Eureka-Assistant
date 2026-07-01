@@ -49,17 +49,32 @@ Extract:
 
 **due_date** — when the task is due:
 - Specific date + time → ISO8601 with +08:00 timezone
-- Date mentioned but no explicit time (e.g. "明天", "下周五", "今晚", "饭局") → store the date only as `"YYYY-MM-DD"`, no time component. Do **not** guess a time of day.
-- No time reference → `null`
+- Date mentioned but no explicit clock (e.g. "明天", "下周五", "明天下午") → store the date only as `"YYYY-MM-DD"`, no time component. Do **not** guess a time of day.
+- Only a fuzzy period today (e.g. "下午要开一个会") → `""`
+- No time reference → `""`
+
+**period** — calendar section placement:
+- User says only a fuzzy period without a clock ("早上/上午/中午/下午/晚上") → `"上午"/"中午"/"下午"/"晚上"`
+- Otherwise → `""`
+
+**occurred_at** — precise calendar clock placement:
+- User says a concrete clock ("下午3点", "早上8点") → ISO8601 with +08:00 timezone
+- Otherwise → `""`
 
 Relative-time resolution: the message gives「现在是 <ISO 时刻>(周X)」— the current
 date, clock time, and weekday. Use the date part for「今天/明天/下周X」. If the user
 ties the task to a moment that just happened (rare for a todo, e.g.「现在/刚刚」), use
 the given clock time, never 00:00.
 
+Do not manufacture default clocks: "早上" is not 08:00, "下午" is not 15:00.
+Single-point meeting/to-do remains a todo; only complete ranges (start+end,
+start+duration, all-day) should become events upstream.
+
 Call **`tool_create_todo`**(待办专属 typed 工具,无需手拼 JSON payload):
 - `content`: 任务原文(忠于原话)
 - `due_date`: 有时刻 → ISO8601 + +08:00;只有日期 → `"YYYY-MM-DD"`;没有 → 留空 `""`
+- `period`: 只说「早上/下午/晚上」但没说钟点 → `"上午"/"下午"/"晚上"`;否则 `""`
+- `occurred_at`: 说了具体钟点 → ISO8601+08:00;否则 `""`
 - `session_id`, `source_input_turn_id`: 透传
 （状态默认 pending,工具内部处理;不要再用通用的 tool_create_asset 建待办）
 
@@ -113,7 +128,31 @@ For **delete**, the result should look like:
 ```
 source_text: "下午三点前提交季度报告"
 ```
-→ tool_create_todo(content="提交季度报告", due_date="<today>T15:00:00+08:00")
+→ tool_create_todo(content="提交季度报告", due_date="<today>T15:00:00+08:00", period="下午", occurred_at="<today>T15:00:00+08:00")
+
+---
+
+**CREATE — fuzzy period today, no clock**
+```
+source_text: "下午要开一个会"
+```
+→ tool_create_todo(content="开一个会", due_date="", period="下午", occurred_at="")
+
+---
+
+**CREATE — tomorrow + fuzzy period, no clock**
+```
+source_text: "明天下午要开一个会"
+```
+→ tool_create_todo(content="开一个会", due_date="<tomorrow YYYY-MM-DD>", period="下午", occurred_at="")
+
+---
+
+**CREATE — tomorrow + specific clock**
+```
+source_text: "明天下午3点要开会"
+```
+→ tool_create_todo(content="开会", due_date="<tomorrow>T15:00:00+08:00", period="下午", occurred_at="<tomorrow>T15:00:00+08:00")
 
 ---
 
@@ -121,7 +160,7 @@ source_text: "下午三点前提交季度报告"
 ```
 source_text: "提醒我明天给刘洋发合同"
 ```
-→ tool_create_todo(content="给刘洋发合同", due_date="2026-05-22")
+→ tool_create_todo(content="给刘洋发合同", due_date="2026-05-22", period="", occurred_at="")
 
 ---
 
@@ -129,7 +168,7 @@ source_text: "提醒我明天给刘洋发合同"
 ```
 source_text: "记得跟进Kevin的报价"
 ```
-→ tool_create_todo(content="跟进Kevin的报价", due_date="")
+→ tool_create_todo(content="跟进Kevin的报价", due_date="", period="", occurred_at="")
 
 ---
 
