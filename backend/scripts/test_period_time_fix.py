@@ -112,8 +112,41 @@ def _assert_skill_prompts_period_rules() -> None:
     assert "Do not manufacture default clocks" in todo
 
 
+def _assert_custom_skill_agent_period_rules() -> None:
+    factory_src = (ROOT / "agents/skill_factory.py").read_text()
+    assert "asset 级落段参数也必须抽取" in factory_src
+    assert "上午/中午/下午/晚上" in factory_src
+    assert "YYYY-MM-DDTHH:mm:ss+08:00" in factory_src
+    assert "那天T00:00:00+08:00" in factory_src
+    assert "严禁" in factory_src and "下午" in factory_src and "15:00" in factory_src
+
+    pipeline = _module("agents/flash_pipeline.py")
+    fallback = _async_fn(pipeline, "_force_create_custom_asset")
+    assert "today_str" in _arg_names(fallback), "_force_create_custom_asset must receive today_str"
+    calls = _calls(fallback, "mcp_create_asset")
+    assert calls, "_force_create_custom_asset must delegate to mcp_create_asset"
+    keyword_names = {kw.arg for kw in calls[-1].keywords}
+    assert "period" in keyword_names, "custom fallback must pass period"
+    assert "occurred_at" in keyword_names, "custom fallback must pass occurred_at"
+    assert "created_at" in keyword_names, "custom fallback must pass created_at"
+
+    run_intent = _async_fn(pipeline, "_run_intent")
+    calls = _calls(run_intent, "_force_create_custom_asset")
+    assert calls, "_run_intent must call custom fallback"
+    keyword_names = {kw.arg for kw in calls[-1].keywords}
+    assert "today_str" in keyword_names or len(calls[-1].args) >= 7, (
+        "_run_intent must pass today_str into custom fallback"
+    )
+
+    apply_hints = _async_fn(pipeline, "_apply_custom_time_hints")
+    assert "today_str" in _arg_names(apply_hints), "_apply_custom_time_hints must receive today_str"
+    calls = _calls(run_intent, "_apply_custom_time_hints")
+    assert calls, "_run_intent must apply custom time hints after successful create"
+
+
 if __name__ == "__main__":
     _assert_todo_signature_and_delegation()
     _assert_mcp_tool_signature_and_delegation()
     _assert_manual_asset_create_period_passthrough()
     _assert_skill_prompts_period_rules()
+    _assert_custom_skill_agent_period_rules()

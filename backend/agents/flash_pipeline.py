@@ -19,6 +19,7 @@ This is a rewrite of the previous flash_pipeline.py, with these changes:
 - Cleaner _aggregate output for API consumption (derived_assets list)
 """
 import asyncio
+from datetime import datetime, timedelta, timezone
 import json
 import re
 import uuid
@@ -41,6 +42,7 @@ from db.models import GlobalSkill, UserSkill
 
 _session_service = InMemorySessionService()
 APP_NAME = "eureka-flash-pipeline"
+_BEIJING = timezone(timedelta(hours=8))
 
 
 # ── Utilities ──────────────────────────────────────────────────────────────────
@@ -63,6 +65,78 @@ def _parse_json(text: str) -> Optional[dict]:
         except (json.JSONDecodeError, ValueError):
             continue
     return None
+
+
+_PERIOD_KEYWORDS: tuple[tuple[str, str], ...] = (
+    ("凌晨", "凌晨"),
+    ("早上", "上午"),
+    ("上午", "上午"),
+    ("中午", "中午"),
+    ("下午", "下午"),
+    ("晚上", "晚上"),
+    ("今晚", "晚上"),
+    ("夜里", "晚上"),
+)
+
+
+def _parse_today(today_str: str) -> datetime:
+    raw = (today_str or "").split("(", 1)[0].strip()
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone(_BEIJING)
+    except (ValueError, TypeError):
+        return datetime.now(_BEIJING)
+
+
+def _asset_time_hints(source_text: str, today_str: str) -> dict[str, str]:
+    """Best-effort fallback for custom skills when the LLM misses tool args.
+
+    Main extraction still lives in the custom-skill prompt. This only prevents
+    the deterministic fallback from storing explicit relative dates like
+    "昨天下午跑了5km" under today's capture timestamp.
+    """
+    text = source_text or ""
+    now = _parse_today(today_str)
+    day = now.date()
+    date_mentioned = False
+    for key, delta in (("前天", -2), ("昨天", -1), ("昨日", -1),
+                       ("今天", 0), ("明天", 1), ("后天", 2)):
+        if key in text:
+            day = (now + timedelta(days=delta)).date()
+            date_mentioned = True
+            break
+
+    period = ""
+    for key, value in _PERIOD_KEYWORDS:
+        if key in text:
+            period = value
+            break
+
+    occurred_at = ""
+    clock = re.search(r"(凌晨|早上|上午|中午|下午|晚上|今晚)?\s*(\d{1,2})(?:[:：点时])(\d{1,2})?分?", text)
+    if clock:
+        hour = int(clock.group(2))
+        minute = int(clock.group(3) or 0)
+        marker = clock.group(1) or ""
+        if marker in {"下午", "晚上", "今晚"} and 1 <= hour <= 11:
+            hour += 12
+        if marker == "中午" and hour == 12:
+            hour = 12
+        if marker in {"凌晨"} and hour == 12:
+            hour = 0
+        if 0 <= hour <= 23 and 0 <= minute <= 59:
+            occurred_at = datetime(
+                day.year, day.month, day.day, hour, minute, tzinfo=_BEIJING,
+            ).isoformat(timespec="seconds")
+
+    created_at = ""
+    if date_mentioned and not occurred_at:
+        created_at = datetime(day.year, day.month, day.day, tzinfo=_BEIJING).isoformat(timespec="seconds")
+
+    return {
+        "period": period,
+        "occurred_at": occurred_at,
+        "created_at": created_at,
+    }
 
 
 async def _run_agent(agent, message: str, user_id: str) -> Tuple[str, list]:
@@ -234,7 +308,7 @@ def _first_string_field(schema: dict) -> Optional[str]:
 
 async def _force_create_custom_asset(
     skill_name: str, meta: dict, source_text: str,
-    session_id: str, source_input_turn_id: str, user_id: str,
+    session_id: str, source_input_turn_id: str, user_id: str, today_str: str,
 ) -> dict:
     """Deterministic fallback when the LLM sub-skill agent fails to create the
     asset: store source_text in the skill's primary (or first string) field, so
@@ -244,6 +318,7 @@ async def _force_create_custom_asset(
     rspec = meta.get("render_spec") or {}
     field = rspec.get("primary_field") or _first_string_field(schema) or "content"
     payload = {field: source_text}
+    time_hints = _asset_time_hints(source_text, today_str)
     try:
         created = await mcp_create_asset(
             user_skill_name=skill_name,
@@ -251,6 +326,9 @@ async def _force_create_custom_asset(
             session_id=session_id,
             source_input_turn_id=source_input_turn_id,
             user_id=user_id,
+            period=time_hints["period"],
+            occurred_at=time_hints["occurred_at"],
+            created_at=time_hints["created_at"],
         )
     except Exception as e:
         return {"ok": False, "error": f"custom fallback failed: {e}"}
@@ -258,6 +336,45 @@ async def _force_create_custom_asset(
     if aid:
         return {"ok": True, "asset_id": aid, "user_skill_name": skill_name, "payload": payload}
     return created if isinstance(created, dict) else {"ok": False}
+
+
+async def _apply_custom_time_hints(asset_id: Optional[str], source_text: str,
+                                   today_str: str, user_id: str) -> None:
+    """Backstop dynamic custom skills that created an asset but omitted time args."""
+    if not asset_id:
+        return
+    hints = _asset_time_hints(source_text, today_str)
+    if not any(hints.values()):
+        return
+    try:
+        aid = uuid.UUID(str(asset_id))
+    except (ValueError, TypeError):
+        return
+    from db.models import Asset
+    try:
+        async with AsyncSessionLocal() as db:
+            a = (await db.execute(
+                select(Asset).where(Asset.id == aid, Asset.user_id == user_id)
+            )).scalar_one_or_none()
+            if a is None:
+                return
+            changed = False
+            if hints["period"] and not a.period:
+                a.period = hints["period"]
+                changed = True
+            if hints["occurred_at"] and not a.occurred_at:
+                parsed = datetime.fromisoformat(hints["occurred_at"])
+                a.occurred_at = parsed
+                changed = True
+            if hints["created_at"] and not a.occurred_at:
+                parsed = datetime.fromisoformat(hints["created_at"])
+                if a.created_at.date() != parsed.date():
+                    a.created_at = parsed
+                    changed = True
+            if changed:
+                await db.commit()
+    except Exception:  # noqa: BLE001 — time placement is best-effort; capture must survive.
+        pass
 
 
 async def _apply_domain(asset_id: Optional[str], domain: Optional[str], user_id: str) -> None:
@@ -396,8 +513,9 @@ async def _run_intent(
         # never silently fail to an error card.
         if not result or not result.get("asset_id"):
             result = await _force_create_custom_asset(
-                itype, meta, source, session_id, source_input_turn_id, user_id
+                itype, meta, source, session_id, source_input_turn_id, user_id, today_str
             )
+        await _apply_custom_time_hints(result.get("asset_id"), source, today_str, user_id)
         result["skill"] = f"{itype}-skill"
         result["source_text"] = source
         return result
