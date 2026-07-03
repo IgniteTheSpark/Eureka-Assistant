@@ -48,7 +48,7 @@
 - **资产**：`mobile/assets/emotes/`（`pixel-balloon` 形参考 + `pixel-flat` 符号），CC0。
 - **护栏**：别因像素气泡把整屏拖成卡通玩具感 —— Reka 的气泡可萌，但**数据界面（今日页 / 日历 / 库）仍走高级**（§4.5.0 三铁律）。分层：**Reka 的"声音"暖，内容面 premium**。
 
-> **实施 handoff（Reka 表达层 · ✅ 可以开始）= [`handoff-reka-emote-notif.md`](handoff-reka-emote-notif.md)**：三块同属一套「Reka 的表达层」，一起做 —— **① emote 叠层**（球头顶 pop + 通知 / nudge 图标，按 state/event 映射，gentle-only 不摆臭脸；§9.2 叠层）· **② 统一气泡容器**（本节 §9.2.0：9-slice / `CustomPainter` 重画，**别拉伸 sprite**；`BlendMode.srcIn` 按日夜主题 + aura 染色；毛玻璃芯；corner-aware 尾）· **③ 通知持久化**（开 app 拉 `GET /api/notifications` 历史 + **dismiss ≠ 删**〔置 read / status〕+ **14 天**保留窗，修「重进就没了」；[§14.7](14-proactive-reka.md) / [§2 §3.14](02-data-model.md)）。资产已 vendor `mobile/assets/emotes/`（Kenney CC0：`pixel-balloon` 30 白气球 + `pixel-flat` 30 符号）。含前端 / 后端 / design 分工 + 验收；别做：负面脸 emote、拉伸气泡、白气泡原样上浅色主题、为像素气泡牺牲数据界面高级感。
+> **实施 handoff（Reka 表达层 · ✅ 可以开始）= [`handoff-reka-emote-notif.md`](handoffs/handoff-reka-emote-notif.md)**：三块同属一套「Reka 的表达层」，一起做 —— **① emote 叠层**（球头顶 pop + 通知 / nudge 图标，按 state/event 映射，gentle-only 不摆臭脸；§9.2 叠层）· **② 统一气泡容器**（本节 §9.2.0：9-slice / `CustomPainter` 重画，**别拉伸 sprite**；`BlendMode.srcIn` 按日夜主题 + aura 染色；毛玻璃芯；corner-aware 尾）· **③ 通知持久化**（开 app 拉 `GET /api/notifications` 历史 + **dismiss ≠ 删**〔置 read / status〕+ **14 天**保留窗，修「重进就没了」；[§14.7](14-proactive-reka.md) / [§2 §3.14](02-data-model.md)）。资产已 vendor `mobile/assets/emotes/`（Kenney CC0：`pixel-balloon` 30 白气球 + `pixel-flat` 30 符号）。含前端 / 后端 / design 分工 + 验收；别做：负面脸 emote、拉伸气泡、白气泡原样上浅色主题、为像素气泡牺牲数据界面高级感。
 
 - **第一期只 1 只**；数据**按"可多只"留位**（后续可拥有多只 + 选一只展示），UI 先显 1。
 - **无 EXP / 等级 / 升级**（已弃用）。成长 = **横向收集换装**：**背包（inventory）= 装饰物**，换装改外形。
@@ -186,7 +186,7 @@
 
 **关键依赖**:魔法时刻要求 **design-agent 在捕捉路径上即时建技能**([§1.8](01-agent-architecture.md))—— 首捕命中新类型 → 当场建技能并展示。**标为 v1 onboarding 的前置依赖**(可优雅降级)。
 
-> **实施 handoff = [`handoff-onboarding.md`](handoff-onboarding.md)**:前端(渐进破壳 + 抑制首孵揭示 + 引导首捕 + 魔法时刻 + 首屏三级 gating)· 后端/agent(即时建技能 + 优雅降级)· design(破壳动画 + 现身呈现)。
+> **实施 handoff = [`handoff-onboarding.md`](handoffs/handoff-onboarding.md)**:前端(渐进破壳 + 抑制首孵揭示 + 引导首捕 + 魔法时刻 + 首屏三级 gating)· 后端/agent(即时建技能 + 优雅降级)· design(破壳动画 + 现身呈现)。
 
 ---
 

@@ -1,6 +1,6 @@
 # Handoff · 报告升级 prompt 成稿（batch 1 + batch 4 的 prompt 半）
 
-> 给 coding agent 的**即用 prompt 成稿**。规则依据见 [§6.3.1](06-synthesis-report.md)(内容质量七条 + #8 落地于方向)、[§6.2](06-synthesis-report.md)(genre/gate)、[§6.6.2](06-synthesis-report.md)(配图)。
+> 给 coding agent 的**即用 prompt 成稿**。规则依据见 [§6.3.1](../06-synthesis-report.md)(内容质量七条 + #8 落地于方向)、[§6.2](../06-synthesis-report.md)(genre/gate)、[§6.6.2](../06-synthesis-report.md)(配图)。
 > **应用方式**:① / ② 整文件**替换** `backend/skills/report-{idea-synthesis,data-report}/SKILL.md`;③ **插入** `backend/skills/report-dispatcher/SKILL.md`;④ 落成一个 house-style 常量 + content skill frontmatter 约定 + pipeline 契约。
 > coding agent **照接,不自拟文案**(prompt 质量 = 本功能本体)。下面的 SKILL.md 用 4 反引号包裹,内部的 ` ```chart ` / YAML 是文件真实内容。
 
@@ -258,7 +258,7 @@ title: 近期读书进展
 
 ## ④ 配图：house-style 常量 + content skill frontmatter 约定 + pipeline 契约（§6.6.2）
 
-> **落地**:模式 A 全链路接线 —— `a) HOUSE_STYLE` 常量在 `backend/agents/report_image.py`(英文版逐字采用本节);`b) image_prompt` frontmatter 在 `report-idea-synthesis/SKILL.md`;`c) pipeline 契约` 在 `report_pipeline._maybe_fill_image`(读 `image_prompt`→拼 `prompt + "\n" + HOUSE_STYLE`→provider→落 `files`(`source_tag=report_img`)→`asset://` 回写正文 + 异步 `create_task` 不挡报告 + 每用户/月配额[30]+ 每篇 ≤1)。出图 provider 状态见 [§6.6.2](06-synthesis-report.md)。Mode B `backdrop_prompt`、(c) 的 OCR 粗检、前端「正在配图…→pop in」轮询未实现。
+> **落地**:模式 A 全链路接线 —— `a) HOUSE_STYLE` 常量在 `backend/agents/report_image.py`(英文版逐字采用本节);`b) image_prompt` frontmatter 在 `report-idea-synthesis/SKILL.md`;`c) pipeline 契约` 在 `report_pipeline._maybe_fill_image`(读 `image_prompt`→拼 `prompt + "\n" + HOUSE_STYLE`→provider→落 `files`(`source_tag=report_img`)→`asset://` 回写正文 + 异步 `create_task` 不挡报告 + 每用户/月配额[30]+ 每篇 ≤1)。出图 provider 状态见 [§6.6.2](../06-synthesis-report.md)。Mode B `backdrop_prompt`、(c) 的 OCR 粗检、前端「正在配图…→pop in」轮询未实现。
 
 **a) house-style 常量**(后端一处常量,**追加到每个图 prompt 之后**;Mode A/B 共用):
 

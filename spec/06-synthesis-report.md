@@ -513,7 +513,7 @@ API 见 [§3](03-api-reference.md) 的 `/api/reports`。核心字段:
 
 **不在本轮**:Free/Pro 付费墙与计费([§12](12-business-model.md);批 4 只做配额计数 + 硬上限,不接 billing)、模式 B 场景 backdrop、[§10](10-game-config.md)/[§11](11-admin.md) admin·game-config、§6.11 卡片微点评。
 
-**prompt 成稿**:idea-synthesis / data-report / dispatcher / house-style 的成稿在 [`handoff-report-prompts-v2.md`](handoff-report-prompts-v2.md);[§99 prompts](99-prompts-appendix.md) 为 spec 交付物。
+**prompt 成稿**:idea-synthesis / data-report / dispatcher / house-style 的成稿在 [`handoff-report-prompts-v2.md`](handoffs/handoff-report-prompts-v2.md);[§99 prompts](99-prompts-appendix.md) 为 spec 交付物。
 - **基建 / 渲染 / 集成 = coding agent**(用量日志、GSAP 动效、署名带 render+注入+gene 管线、Nano Banana 集成、`files`/异步/配额/导出 plumbing)。
 
 ---
@@ -590,4 +590,4 @@ API 见 [§3](03-api-reference.md) 的 `/api/reports`。核心字段:
 - **v1**:`flashcard`(自评)+ 简单 MC `quiz`;**接地于用户内容**;手动(「考考我」)+ §14 周测 offer;落报告容器。
 - **后置(大)**:**间隔重复 SRS**(记错题、按遗忘曲线让「上次没记住的再过一遍」,天然接 §14 主动 —— REKA 周期性复盘)、外部增强(标准释义/用法,接 [§14.9 web-search](14-proactive-reka.md) + 接地墙)、成绩追踪。
 
-> **落点(✅ 全部已落,2026-06)**:`report-quiz` / `report-flashcard` content skill + dispatcher 学习类 gate + `report_render` 的 `:::quiz`/`:::flashcards` 交互模板(JS)+ genre 落 `reports` + §14 阈值型 quiz offer。**handoff(已 ✅)见 [`handoff-quiz.md`](handoff-quiz.md)。**
+> **落点(✅ 全部已落,2026-06)**:`report-quiz` / `report-flashcard` content skill + dispatcher 学习类 gate + `report_render` 的 `:::quiz`/`:::flashcards` 交互模板(JS)+ genre 落 `reports` + §14 阈值型 quiz offer。**handoff(已 ✅)见 [`handoff-quiz.md`](handoffs/handoff-quiz.md)。**

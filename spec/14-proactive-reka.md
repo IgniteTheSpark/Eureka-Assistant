@@ -87,7 +87,7 @@ profile + 当前状态 → 喂一个触发引擎,两族规则(**正是 [§7.3](0
 - **增量 ①:task-skill 完成通知(✅ 早已存在)**:`agents/task_skill.py` 完成/失败均走 `create_notification`
   (M6 反应式族)—— 盘点后确认无缺口,无需新建。
 - **增量 ②:节律缺口提醒(✅ 2026-06)**:由 §14.2 profile + §14.3 缺口规则驱动,「你一般这点记 X,还没记」→ [记一笔]。**有置信门槛**,不确定就不发。落地:nudge 落 `nudges` 表 + 走 `create_notification(type=nudge, link=nudge:<id>:<skill>)` 进 feed/SSE;移动端把 type=nudge 渲染成 REKA peek 气泡(不是普通 toast)。
-- **文案**:模板为主(零 LLM);动作 = [记一笔](一键开快创对应技能)/[知道了]/[改时间]。
+- **文案**:模板为主(零 LLM);动作 = 「记一笔」(一键开快创对应技能)/「知道了」/「改时间」。
 - **展示与回溯**:走既有通知 feed(§14.7)。
 
 ---
@@ -260,4 +260,4 @@ profile + 当前状态 → 喂一个触发引擎,两族规则(**正是 [§7.3](0
   (`source_report_id` 已落,offer 生成的报告回链 nudge 待加)。
 - **后置**:天气(晨间简报 v1.5)、LLM 富化文案/冷启动先验、跨技能相关性节律、傍晚 wrap-up、caregiver 护理日志视图。
 
-> **实施 handoff(与 [§6.13](06-synthesis-report.md) 报告→待办合一,因同一闭环)= [`handoff-reka-companion.md`](handoff-reka-companion.md)**:Phase 1 报告→待办 · Phase 2 主动核心(提醒+引擎+展示+护栏)· Phase 3 晨间简报(design 主理皮)· Phase 4 Type B+web-search。含后端/前端/design 分工 + 验收 + 顺序。
+> **实施 handoff(与 [§6.13](06-synthesis-report.md) 报告→待办合一,因同一闭环)= [`handoff-reka-companion.md`](handoffs/handoff-reka-companion.md)**:Phase 1 报告→待办 · Phase 2 主动核心(提醒+引擎+展示+护栏)· Phase 3 晨间简报(design 主理皮)· Phase 4 Type B+web-search。含后端/前端/design 分工 + 验收 + 顺序。

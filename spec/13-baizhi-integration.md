@@ -118,7 +118,7 @@
 
 | 批 | 内容 | 落点 |
 |---|---|---|
-| **B1 · OAuth 登录 ✅ 已实现** | bridge(nonce/sign)+ 回调 + token exchange + 映射→Eureka user + 签发 Eureka JWT + 存百智 token(加密) | 后端 `api/auth_baizhi.py`(+`main.py` 挂载、`config.py` `baizhi_*`、`User.baizhi_user_id` 迁移 `0017`)· Flutter `auth_controller.loginWithBaizhi` + 登录页「用百智登录」(`flutter_web_auth_2`)· 成稿卡 [`handoff-baizhi-oauth.md`](handoff-baizhi-oauth.md) |
+| **B1 · OAuth 登录 ✅ 已实现** | bridge(nonce/sign)+ 回调 + token exchange + 映射→Eureka user + 签发 Eureka JWT + 存百智 token(加密) | 后端 `api/auth_baizhi.py`(+`main.py` 挂载、`config.py` `baizhi_*`、`User.baizhi_user_id` 迁移 `0017`)· Flutter `auth_controller.loginWithBaizhi` + 登录页「用百智登录」(`flutter_web_auth_2`)· 成稿卡 [`handoff-baizhi-oauth.md`](handoffs/handoff-baizhi-oauth.md) |
 | **B2 · MCP 连接器** | `baizhi_meeting`/`baizhi_calendar` 进 `MCP_SERVER_CATALOG`;Bearer 注入 | [§1.7](01-agent-architecture.md) `mcp_config.py` |
 | **B3 · 录音卡 Flutter 插件** | Swift `BluetoothDeviceManager` → iOS platform channel;绑定/BLE+WiFi 同步/闪念事件 → 剥 MARK → flash 管线 | mobile 插件 · §3.2 |
 | **B3.1 · 离线捕捉 · 存储转发(§13.3.1)** | 手机队列(永不丢/幂等)→ 传音频+`captured_at` 给服务端 → 服务端 **`qwen3-asr-flash` base64**(无 OSS、音频不存)→ transcript 进 `POST /api/flash`(带 `captured_at` 定 session)→ 通知。ASR 步可插拔 | 后端 ASR 接口 + flash `captured_at` 覆盖(§3.2)· mobile 上传队列 |

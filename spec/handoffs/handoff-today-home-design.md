@@ -2,8 +2,8 @@
 
 > **给设计 agent（`/design-shotgun` → `/design-html`）。** 这是首页 home 的**重设计 brief**。这屏交互重、是 app 的脸,**值得先出真容再开发**。
 > **⚠️ 这版取代旧原型的首页**：旧原型的 **3 图表 dashboard / swipe 卡流 / 独立晨报** 全部**作废**;**气泡池保留并增强**。
-> 真值/上下文：[§4.5.0 今日页](04-frontend.md)(逻辑真值)· **[redesign-home-B.md](redesign-home-B.md)(用户出的 hifi 设计真值,逐字)** · tokens/物理参考 [prototype-today-page.md](prototype-today-page.md) · **域色 [§8.3](08-domain-system.md)(B 板已锁 + 解耦)** · **offer 逻辑 [§14.5a](14-proactive-reka.md)** · Reka [§9.2 / §9.2.0](09-pet.md)。
-> **🎨 设计产出已入库 [`spec/design-today-home/`](design-today-home/)**（claude design 出的 B「潮汐」hifi）：`README-home-redesign-B.md`（B 设计真值，= 本文引的 redesign-home-B）· `今日页方向板.dc.html`（B board mockup，67KB，含 B1–B4 + 附录，需同目录 `support.js` 渲染）· `今日页.dc.html`（旧页交互参考，只取池物理 + tokens）· `README.md`（旧页组件/token 全规格）。**实现入口 = 本文 + 此 bundle；`support.js` runtime 勿移植，照着重画。**
+> 真值/上下文：[§4.5.0 今日页](../04-frontend.md)(逻辑真值)· **[redesign-home-B.md](../design/redesign-home-B.md)(用户出的 hifi 设计真值,逐字)** · tokens/物理参考 [prototype-today-page.md](../archive/prototype-today-page.md) · **域色 [§8.3](../08-domain-system.md)(B 板已锁 + 解耦)** · **offer 逻辑 [§14.5a](../14-proactive-reka.md)** · Reka [§9.2 / §9.2.0](../09-pet.md)。
+> **🎨 设计产出已入库 [`spec/design/today-home/`](../design/today-home/)**（claude design 出的 B「潮汐」hifi）：`README-home-redesign-B.md`（B 设计真值，= 本文引的 redesign-home-B）· `今日页方向板.dc.html`（B board mockup，67KB，含 B1–B4 + 附录，需同目录 `support.js` 渲染）· `今日页.dc.html`（旧页交互参考，只取池物理 + tokens）· `README.md`（旧页组件/token 全规格）。**实现入口 = 本文 + 此 bundle；`support.js` runtime 勿移植，照着重画。**
 
 ---
 
@@ -55,7 +55,7 @@
 - **⚡ Tinder 模式** = **左滑 ✕ 跳过 / 右滑 ✓ execute**;滑完 → **↻ 重新生成**(重发刚跳过的):
   - **offer → 右滑 = Reka 当场做**(一键出报告,**这是最爽的魔法一拍**)。
   - **习惯 → 右滑 = 开这条技能的快记**(你去记;喝水这种可一键记一杯)。
-  - **左滑跳过 = 软「今天不想做」**:进通知 feed(留 14 天可翻回做)+ **压一天**(当天不再 offer,第二天条件仍在则重新 offer)。**不是「14 天不唠叨」**(那只挡 push peek)。详见 [§14.5a](14-proactive-reka.md)。
+  - **左滑跳过 = 软「今天不想做」**:进通知 feed(留 14 天可翻回做)+ **压一天**(当天不再 offer,第二天条件仍在则重新 offer)。**不是「14 天不唠叨」**(那只挡 push peek)。详见 [§14.5a](../14-proactive-reka.md)。
 - **Tinder 拖拽时屏幕中央淡入大动作图标 + 标签**(Tinder 式):**蓝 = 浏览 / 绿 = 执行 / 红 = 跳过 / 琥珀 = 延后**;底部双按钮镜像。
 
 ### 3.3 切换
@@ -85,7 +85,7 @@
 ## 5. Reka（全局浮球 · 不当主角）
 
 - Reka = 浮球(已存在),角落微反应;**不居中、不做仪表盘**。
-- **Reka 的"声音" = 统一对话气泡**(Kenney 形,见 [§9.2.0](09-pet.md)):菜单/peek/nudge/chat 都用**带尾巴指向球球的气泡**(9-slice 或重画 + **按日夜主题/aura 染色** + 毛玻璃芯)。
+- **Reka 的"声音" = 统一对话气泡**(Kenney 形,见 [§9.2.0](../09-pet.md)):菜单/peek/nudge/chat 都用**带尾巴指向球球的气泡**(9-slice 或重画 + **按日夜主题/aura 染色** + 毛玻璃芯)。
 - **emote**(Kenney CC0,`mobile/assets/emotes/`):头顶 pop + 通知/offer 图标(idea/cash/?/!/Z/★…);**gentle-only:不摆怒/哭/碎心脸**。
 
 ## 6. 状态（必须齐）
@@ -107,8 +107,8 @@
 **✅ 已定**：
 - **默认进 = 今日安排 · Tinder**（打开就知道下一步,老人一眼懂)。
 - **chips 砍掉** —— **不做类型 chips**;"看同类今天记了啥"**统一走「长按球 → 同类毛玻璃浮层」**(§3.4)。
-- **域色 = B「潮汐」低饱和 8 板,已锁 + 解耦**(真源 `domainColor()`,[§8.3](08-domain-system.md);别硬编 hex,调函数)。
-- **offer dismiss = 软「今天不想做」+ 压一天**(非 14 天不唠叨);**↻ 重新生成 = 重发刚跳过的**;**增量水位线**只总结新批([§14.5a](14-proactive-reka.md))。
+- **域色 = B「潮汐」低饱和 8 板,已锁 + 解耦**(真源 `domainColor()`,[§8.3](../08-domain-system.md);别硬编 hex,调函数)。
+- **offer dismiss = 软「今天不想做」+ 压一天**(非 14 天不唠叨);**↻ 重新生成 = 重发刚跳过的**;**增量水位线**只总结新批([§14.5a](../14-proactive-reka.md))。
 - **⚡闪念 = 打开当日闪念 session**(非开 chat)。
 - **天气 = 和风 QWeather + IP 城市**(server-side key,不弹定位权限)。
 - **待办延后 = 卡上按钮(1h/明天/后天/自定义)**;**事件无提醒按钮(自动)**。

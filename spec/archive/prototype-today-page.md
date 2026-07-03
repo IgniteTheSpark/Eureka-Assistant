@@ -1,4 +1,4 @@
-> **⚠️ 这是用户做的 hifi 原型 README（逐字保留，给 coding agent / design 当视觉参考）。** 逻辑真值以 [§4.5.0](04-frontend.md) + [handoff-calendar-design §E](handoff-calendar-design.md) 为准。
+> **Historical / Prototype.** 这是旧今日页 hifi 原型 README（逐字保留，只作视觉/物理参考）。当前首页重设计以 [handoff-today-home-design.md](../handoffs/handoff-today-home-design.md) + [redesign-home-B.md](../design/redesign-home-B.md) + [§4.5.0](../04-frontend.md) 为准；日历/DayDetail 段视图以 [handoff-today-page.md](../handoffs/handoff-today-page.md) 为准。
 > **与本原型的几处对齐（按 spec、别照原型 demo）**：① 域色 = §8 **八**色（本文的 6 色 /「财务」是 demo 样本，忽略；记账→生活域）；② **闪念 = pill、不进池、不是记录类型**（本文把 flash 当记录类型，按 spec 去掉）；③ **早报 merge 进 Next Action**；④ Reka = 全局浮球、不当主角；⑤ 右侧 **DEMO 面板**（重力 / 晃一晃 / 记一条 / 场景切换）= 调试架，**不做**；⑥ nav = 今日 / 日历 / 资产、我的岛进 Reka 菜单。
 
 ---
