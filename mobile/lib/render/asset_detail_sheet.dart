@@ -4,7 +4,8 @@ import '../api/api_client.dart';
 import '../chat/markdown_text.dart';
 import '../data_revision.dart';
 import '../pages/chat_page.dart';
-import '../pages/create_asset.dart' show EventForm, ContactForm, kSocialPlatforms;
+import '../pages/create_asset.dart'
+    show EventForm, ContactForm, kSocialPlatforms;
 import '../pages/report_viewer_page.dart';
 import '../pages/session_detail_page.dart';
 import '../theme/app_theme.dart';
@@ -56,8 +57,11 @@ void showAssetDetail(
           sessionId: sessionId,
           spec: spec,
           scrollController: scrollController,
-          onExpand: () => controller.animateTo(0.95,
-              duration: const Duration(milliseconds: 280), curve: Curves.easeOutCubic),
+          onExpand: () => controller.animateTo(
+            0.95,
+            duration: const Duration(milliseconds: 280),
+            curve: Curves.easeOutCubic,
+          ),
         ),
       ),
     ),
@@ -98,7 +102,9 @@ class _AssetViewState extends State<_AssetView> {
   // caller passed, then refreshed from the server in initState so EVERY surface
   // that opens this sheet — 资产库 / 会话内卡片 / 聊天 / 通知 — renders the SAME
   // full content, and 编辑 prefills from the complete payload. See _hydrate.
-  late Map<String, dynamic> _payload = Map<String, dynamic>.from(widget.payload);
+  late Map<String, dynamic> _payload = Map<String, dynamic>.from(
+    widget.payload,
+  );
   late CardData _data = widget.data;
 
   CardData get data => _data;
@@ -112,7 +118,10 @@ class _AssetViewState extends State<_AssetView> {
   bool get _checkable => data.checkDone != null && widget.assetId != null;
   bool get _done => _doneOverride ?? (data.checkDone == true);
   bool get _domainEditable =>
-      widget.assetId != null && cardType != 'event' && cardType != 'contact' && cardType != 'task';
+      widget.assetId != null &&
+      cardType != 'event' &&
+      cardType != 'contact' &&
+      cardType != 'task';
 
   @override
   void initState() {
@@ -127,10 +136,40 @@ class _AssetViewState extends State<_AssetView> {
   Future<void> _hydrate() async {
     final id = widget.assetId;
     if (id == null) return;
-    // event/contact/task are 真身 entities with their own forms; their cards
-    // already carry the full flat entity, so only asset-backed cards re-fetch.
-    if (cardType == 'event' || cardType == 'contact' || cardType == 'task') return;
     try {
+      if (cardType == 'event') {
+        final res = await _api.getJson('/api/events/$id');
+        final event = (res is Map ? (res['event'] ?? res) : null) as Map?;
+        final full = event?.cast<String, dynamic>();
+        if (full == null || !mounted) return;
+        setState(() {
+          _payload = {'card_type': 'event', ...full};
+          _data = buildCard(
+            payload: _payload,
+            spec: synthesizeSpec('event'),
+            displayName: 'event',
+          );
+        });
+        return;
+      }
+      if (cardType == 'contact') {
+        final res = await _api.getJson('/api/contacts/$id');
+        final contact = (res is Map ? (res['contact'] ?? res) : null) as Map?;
+        final full = contact?.cast<String, dynamic>();
+        if (full == null || !mounted) return;
+        setState(() {
+          _payload = {'card_type': 'contact', ...full};
+          _data = buildCard(
+            payload: _payload,
+            spec: synthesizeSpec('contact'),
+            displayName: 'contact',
+          );
+        });
+        return;
+      }
+      // Asset-backed cards may be partial session snapshots. Re-fetch so detail
+      // and edit always use the complete canonical payload.
+      if (cardType == 'task') return;
       final res = await _api.getJson('/api/assets/$id');
       final asset = (res is Map ? res['asset'] : null) as Map?;
       final full = (asset?['payload'] as Map?)?.cast<String, dynamic>();
@@ -139,10 +178,12 @@ class _AssetViewState extends State<_AssetView> {
         _payload = full;
         final dm = asset?['domain'] as String?;
         if (dm != null) _domain = dm;
-        if (widget.spec != null) {
-          _data = buildCard(payload: full, spec: widget.spec, displayName: widget.data.title)
-              .copyWith(domain: _domain);
-        }
+        final spec = widget.spec ?? synthesizeSpec(cardType);
+        _data = buildCard(
+          payload: full,
+          spec: spec,
+          displayName: widget.data.title,
+        ).copyWith(domain: _domain);
       });
     } catch (_) {
       // keep widget.payload — no-op
@@ -176,9 +217,15 @@ class _AssetViewState extends State<_AssetView> {
       builder: (ctx) => AlertDialog(
         backgroundColor: eu.surfaceRaised,
         title: Text('删除', style: TextStyle(color: eu.textHi, fontSize: 17)),
-        content: Text('删除后不可恢复，确定删除这条记录吗？', style: TextStyle(color: eu.textMid, fontSize: 14)),
+        content: Text(
+          '删除后不可恢复，确定删除这条记录吗？',
+          style: TextStyle(color: eu.textMid, fontSize: 14),
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: Text('删除', style: TextStyle(color: eu.accentRed)),
@@ -206,9 +253,11 @@ class _AssetViewState extends State<_AssetView> {
     if (sid == null || sid.isEmpty) return;
     final nav = Navigator.of(context);
     nav.maybePop();
-    nav.push(MaterialPageRoute(
-      builder: (_) => SessionDetailPage(sessionId: sid, title: '来源会话'),
-    ));
+    nav.push(
+      MaterialPageRoute(
+        builder: (_) => SessionDetailPage(sessionId: sid, title: '来源会话'),
+      ),
+    );
   }
 
   /// §6.13 溯源 — a todo created from a report's「✦ 接下来」opens its origin report.
@@ -222,29 +271,40 @@ class _AssetViewState extends State<_AssetView> {
       if (html == null || html.isEmpty || !mounted) return;
       final nav = Navigator.of(context);
       nav.maybePop();
-      nav.push(MaterialPageRoute(
-        builder: (_) => ReportViewerPage(
-            title: (r?['title'] as String?) ?? '报告', html: html, reportId: id),
-      ));
+      nav.push(
+        MaterialPageRoute(
+          builder: (_) => ReportViewerPage(
+            title: (r?['title'] as String?) ?? '报告',
+            html: html,
+            reportId: id,
+          ),
+        ),
+      );
     } catch (_) {
       // report may have been deleted — the quiet line just does nothing
     }
   }
 
   String _subjectType() => switch (cardType) {
-        'event' => 'event',
-        'contact' => 'contact',
-        _ => 'asset',
-      };
+    'event' => 'event',
+    'contact' => 'contact',
+    _ => 'asset',
+  };
 
   void _discuss() {
     final id = widget.assetId;
     if (id == null) return;
     final nav = Navigator.of(context);
     nav.maybePop();
-    nav.push(MaterialPageRoute(
-      builder: (_) => ChatPage(subjectType: _subjectType(), subjectId: id, subjectLabel: data.title),
-    ));
+    nav.push(
+      MaterialPageRoute(
+        builder: (_) => ChatPage(
+          subjectType: _subjectType(),
+          subjectId: id,
+          subjectLabel: data.title,
+        ),
+      ),
+    );
   }
 
   // 完成 / 撤销完成 — same PUT status path the 资产库 card uses; optimistic.
@@ -274,15 +334,17 @@ class _AssetViewState extends State<_AssetView> {
       'event' => EventForm(eventId: widget.assetId, existing: payload),
       'contact' => ContactForm(contactId: widget.assetId, existing: payload),
       _ => AssetEditPage(
-          assetId: widget.assetId!,
-          payload: payload,
-          cardType: cardType,
-          spec: widget.spec,
-          title: data.title,
-          initialDomain: data.domain,
-        ),
+        assetId: widget.assetId!,
+        payload: payload,
+        cardType: cardType,
+        spec: widget.spec,
+        title: data.title,
+        initialDomain: data.domain,
+      ),
     };
-    final changed = await nav.push<bool>(MaterialPageRoute(builder: (_) => editor));
+    final changed = await nav.push<bool>(
+      MaterialPageRoute(builder: (_) => editor),
+    );
     if (changed == true && mounted) {
       bumpData();
       nav.maybePop(); // close the sheet → back to the refreshed list
@@ -295,7 +357,8 @@ class _AssetViewState extends State<_AssetView> {
       context: context,
       backgroundColor: eu.surface,
       shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (ctx) => SafeArea(
         top: false,
         child: Padding(
@@ -304,7 +367,14 @@ class _AssetViewState extends State<_AssetView> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('选择领域', style: TextStyle(color: eu.textHi, fontSize: 16, fontWeight: FontWeight.w700)),
+              Text(
+                '选择领域',
+                style: TextStyle(
+                  color: eu.textHi,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
               const SizedBox(height: 14),
               Wrap(
                 spacing: 8,
@@ -314,15 +384,31 @@ class _AssetViewState extends State<_AssetView> {
                     GestureDetector(
                       onTap: () => Navigator.pop(ctx, d),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 9,
+                        ),
                         decoration: BoxDecoration(
-                          color: domainColor(eu, d).withValues(alpha: _domain == d ? 0.24 : 0.10),
+                          color: domainColor(
+                            eu,
+                            d,
+                          ).withValues(alpha: _domain == d ? 0.24 : 0.10),
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
-                              color: domainColor(eu, d).withValues(alpha: _domain == d ? 0.6 : 0.26)),
+                            color: domainColor(
+                              eu,
+                              d,
+                            ).withValues(alpha: _domain == d ? 0.6 : 0.26),
+                          ),
                         ),
-                        child: Text('${domainIcon(d)} $d',
-                            style: TextStyle(color: domainColor(eu, d), fontSize: 13, fontWeight: FontWeight.w600)),
+                        child: Text(
+                          '${domainIcon(d)} $d',
+                          style: TextStyle(
+                            color: domainColor(eu, d),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       ),
                     ),
                 ],
@@ -331,7 +417,10 @@ class _AssetViewState extends State<_AssetView> {
               if (_domain != null)
                 GestureDetector(
                   onTap: () => Navigator.pop(ctx, '__clear__'),
-                  child: Text('清除领域', style: TextStyle(color: eu.accentRed, fontSize: 13)),
+                  child: Text(
+                    '清除领域',
+                    style: TextStyle(color: eu.accentRed, fontSize: 13),
+                  ),
                 ),
             ],
           ),
@@ -343,9 +432,13 @@ class _AssetViewState extends State<_AssetView> {
     if (newDomain == _domain) return;
     setState(() => _domain = newDomain);
     try {
-      await _api.putJson('/api/assets/${widget.assetId}', {'domain': newDomain});
+      await _api.putJson('/api/assets/${widget.assetId}', {
+        'domain': newDomain,
+      });
       bumpData();
-    } catch (_) {/* keep optimistic value; revision refresh will reconcile */}
+    } catch (_) {
+      /* keep optimistic value; revision refresh will reconcile */
+    }
   }
 
   /* ── build ───────────────────────────────────────────────────────────────── */
@@ -359,54 +452,76 @@ class _AssetViewState extends State<_AssetView> {
       children: [
         Positioned.fill(
           child: SingleChildScrollView(
-          controller: widget.scrollController,
-          padding: EdgeInsets.only(bottom: hasActions ? 96 + bottomInset : 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(height: 8),
-              Center(
-                child: Container(
-                  width: 38,
-                  height: 4,
-                  decoration: BoxDecoration(color: eu.border, borderRadius: BorderRadius.circular(99)),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Row(
-                  children: [
-                    Text(cardType.toUpperCase(),
-                        style: euMono(fontSize: 10.5, letterSpacing: 1.6, color: eu.textLo)),
-                    const Spacer(),
-                    GestureDetector(
-                      onTap: () => Navigator.of(context).maybePop(),
-                      behavior: HitTestBehavior.opaque,
-                      child: Icon(Icons.close, size: 19, color: eu.textMid),
+            controller: widget.scrollController,
+            padding: EdgeInsets.only(
+              bottom: hasActions ? 96 + bottomInset : 24,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 8),
+                Center(
+                  child: Container(
+                    width: 38,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: eu.border,
+                      borderRadius: BorderRadius.circular(99),
                     ),
-                  ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              Padding(padding: const EdgeInsets.symmetric(horizontal: 20), child: _hero(eu)),
-              const SizedBox(height: 16),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Container(height: 1, color: eu.rule),
-              ),
-              const SizedBox(height: 16),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: _bodyParts(eu)),
-              ),
-              _sourceLine(eu),
-            ],
-          ),
+                const SizedBox(height: 12),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Row(
+                    children: [
+                      Text(
+                        cardType.toUpperCase(),
+                        style: euMono(
+                          fontSize: 10.5,
+                          letterSpacing: 1.6,
+                          color: eu.textLo,
+                        ),
+                      ),
+                      const Spacer(),
+                      GestureDetector(
+                        onTap: () => Navigator.of(context).maybePop(),
+                        behavior: HitTestBehavior.opaque,
+                        child: Icon(Icons.close, size: 19, color: eu.textMid),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: _hero(eu),
+                ),
+                const SizedBox(height: 16),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Container(height: 1, color: eu.rule),
+                ),
+                const SizedBox(height: 16),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: _bodyParts(eu),
+                  ),
+                ),
+                _sourceLine(eu),
+              ],
+            ),
           ),
         ),
         if (hasActions)
-          Positioned(left: 0, right: 0, bottom: 0, child: _stickyActions(eu, bottomInset)),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: _stickyActions(eu, bottomInset),
+          ),
       ],
     );
   }
@@ -415,8 +530,9 @@ class _AssetViewState extends State<_AssetView> {
   // P3 联系人头像:首字母 monogram + 名字 hash 派生色环,替掉灰色 👤 蛋。
   Widget _monogramAvatar(EurekaColors eu, String name) {
     final t = name.trim();
-    final initial =
-        t.runes.isEmpty ? '?' : String.fromCharCode(t.runes.first).toUpperCase();
+    final initial = t.runes.isEmpty
+        ? '?'
+        : String.fromCharCode(t.runes.first).toUpperCase();
     final palette = [
       eu.accentBlue,
       eu.accentPurple,
@@ -435,15 +551,18 @@ class _AssetViewState extends State<_AssetView> {
         color: c.withValues(alpha: 0.16),
         border: Border.all(color: c.withValues(alpha: 0.5), width: 1.5),
       ),
-      child: Text(initial,
-          style:
-              TextStyle(color: c, fontSize: 20, fontWeight: FontWeight.w700)),
+      child: Text(
+        initial,
+        style: TextStyle(color: c, fontSize: 20, fontWeight: FontWeight.w700),
+      ),
     );
   }
 
   Widget _hero(EurekaColors eu) {
     final a = accentOf(data.accentColor, eu);
-    final bigTitle = widget.spec?.primaryFormat == 'currency' || data.title.runes.length <= 4;
+    final bigTitle =
+        widget.spec?.primaryFormat == 'currency' ||
+        data.title.runes.length <= 4;
     final iconTile = widget.cardType == 'contact'
         ? _monogramAvatar(eu, data.title)
         : Container(
@@ -486,7 +605,11 @@ class _AssetViewState extends State<_AssetView> {
                         border: Border.all(color: eu.accentGreen, width: 2),
                       ),
                       child: _done
-                          ? const Icon(Icons.check, size: 14, color: Colors.white)
+                          ? const Icon(
+                              Icons.check,
+                              size: 14,
+                              color: Colors.white,
+                            )
                           : null,
                     ),
                   ),
@@ -507,17 +630,23 @@ class _AssetViewState extends State<_AssetView> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(data.title,
-                      style: TextStyle(
-                          color: _done ? eu.textMid : eu.textHi,
-                          fontSize: bigTitle ? 30 : 22,
-                          height: 1.18,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -0.3,
-                          decoration: _done ? TextDecoration.lineThrough : null)),
+                  Text(
+                    data.title,
+                    style: TextStyle(
+                      color: _done ? eu.textMid : eu.textHi,
+                      fontSize: bigTitle ? 30 : 22,
+                      height: 1.18,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.3,
+                      decoration: _done ? TextDecoration.lineThrough : null,
+                    ),
+                  ),
                   if (data.subtitle.isNotEmpty && !_secondaryIsBody) ...[
                     const SizedBox(height: 3),
-                    Text(data.subtitle, style: TextStyle(color: eu.textMid, fontSize: 14)),
+                    Text(
+                      data.subtitle,
+                      style: TextStyle(color: eu.textMid, fontSize: 14),
+                    ),
                   ],
                 ],
               ),
@@ -537,11 +666,14 @@ class _AssetViewState extends State<_AssetView> {
                   onTap: _busy ? null : _pickDomain,
                   behavior: HitTestBehavior.opaque,
                   child: isDomain(_domain)
-                      ? Row(mainAxisSize: MainAxisSize.min, children: [
-                          DomainChip(_domain),
-                          const SizedBox(width: 6),
-                          Icon(Icons.edit, size: 12, color: eu.textLo),
-                        ])
+                      ? Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            DomainChip(_domain),
+                            const SizedBox(width: 6),
+                            Icon(Icons.edit, size: 12, color: eu.textLo),
+                          ],
+                        )
                       : _addChip(eu, '＋ 领域'),
                 )
               else if (isDomain(_domain))
@@ -554,13 +686,13 @@ class _AssetViewState extends State<_AssetView> {
   }
 
   Widget _addChip(EurekaColors eu, String label) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: eu.border),
-        ),
-        child: Text(label, style: TextStyle(color: eu.textLo, fontSize: 11.5)),
-      );
+    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(6),
+      border: Border.all(color: eu.border),
+    ),
+    child: Text(label, style: TextStyle(color: eu.textLo, fontSize: 11.5)),
+  );
 
   // Sticky bottom action bar (讨论 / 编辑 / 删除). A short fade strip lets the
   // scrolling content dissolve INTO the bar, then a SOLID bar sits behind the
@@ -600,18 +732,39 @@ class _AssetViewState extends State<_AssetView> {
                 ),
                 const SizedBox(width: 9),
               ],
-              Expanded(flex: 10, child: _barBtn(eu, Icons.auto_awesome, '讨论', eu.brand, false, _busy ? null : _discuss)),
+              Expanded(
+                flex: 10,
+                child: _barBtn(
+                  eu,
+                  Icons.auto_awesome,
+                  '讨论',
+                  eu.brand,
+                  false,
+                  _busy ? null : _discuss,
+                ),
+              ),
               if (_editable) ...[
                 const SizedBox(width: 9),
                 Expanded(
                   flex: 11,
-                  child: _barBtn(eu, Icons.edit_outlined, '编辑',
-                      _checkable ? eu.textHi : Colors.white, !_checkable, _busy ? null : _edit),
+                  child: _barBtn(
+                    eu,
+                    Icons.edit_outlined,
+                    '编辑',
+                    _checkable ? eu.textHi : Colors.white,
+                    !_checkable,
+                    _busy ? null : _edit,
+                  ),
                 ),
               ],
               if (_deletable) ...[
                 const SizedBox(width: 9),
-                _barIcon(eu, Icons.delete_outline, eu.accentRed, _busy ? null : _confirmDelete),
+                _barIcon(
+                  eu,
+                  Icons.delete_outline,
+                  eu.accentRed,
+                  _busy ? null : _confirmDelete,
+                ),
               ],
             ],
           ),
@@ -620,7 +773,14 @@ class _AssetViewState extends State<_AssetView> {
     );
   }
 
-  Widget _barBtn(EurekaColors eu, IconData icon, String label, Color fg, bool filled, VoidCallback? onTap) {
+  Widget _barBtn(
+    EurekaColors eu,
+    IconData icon,
+    String label,
+    Color fg,
+    bool filled,
+    VoidCallback? onTap,
+  ) {
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
@@ -639,14 +799,26 @@ class _AssetViewState extends State<_AssetView> {
           children: [
             Icon(icon, size: 15, color: fg),
             const SizedBox(width: 6),
-            Text(label, style: TextStyle(color: fg, fontSize: 14, fontWeight: FontWeight.w600)),
+            Text(
+              label,
+              style: TextStyle(
+                color: fg,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _barIcon(EurekaColors eu, IconData icon, Color color, VoidCallback? onTap) {
+  Widget _barIcon(
+    EurekaColors eu,
+    IconData icon,
+    Color color,
+    VoidCallback? onTap,
+  ) {
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
@@ -698,7 +870,10 @@ class _AssetViewState extends State<_AssetView> {
 
     payload.forEach((key, value) {
       if (_skip(key, value)) return;
-      if (cardType == 'contact' && (key == 'name' || key == 'company' || key == 'title')) return;
+      if (cardType == 'contact' &&
+          (key == 'name' || key == 'company' || key == 'title')) {
+        return;
+      }
       final label = widget.spec?.fieldLabels[key] ?? _label(key, cardType);
 
       // 名片 socials → emoji + 平台 + handle rows (fixed supported set).
@@ -708,7 +883,10 @@ class _AssetViewState extends State<_AssetView> {
         return;
       }
       // 名片 notes → markdown doc (在哪相遇 / 怎么认识…), not chips.
-      if (cardType == 'contact' && key == 'notes' && value is List && value.isNotEmpty) {
+      if (cardType == 'contact' &&
+          key == 'notes' &&
+          value is List &&
+          value.isNotEmpty) {
         final md = value.map((l) => '- $l').join('\n');
         docs.add(_DocBlock(label: label, text: md, onExpand: widget.onExpand));
         return;
@@ -724,7 +902,9 @@ class _AssetViewState extends State<_AssetView> {
           value.trim().isNotEmpty &&
           key != primaryKey &&
           (_isLongText(value) || _isBodyField(key))) {
-        docs.add(_DocBlock(label: label, text: value, onExpand: widget.onExpand));
+        docs.add(
+          _DocBlock(label: label, text: value, onExpand: widget.onExpand),
+        );
         return;
       }
       // 主 / 副 already live in the hero — don't duplicate them in the 信息 list.
@@ -735,7 +915,10 @@ class _AssetViewState extends State<_AssetView> {
       final text = shown.isEmpty ? '$value' : shown;
       stats.add((
         label: label,
-        value: Text(text, style: TextStyle(color: eu.textHi, fontSize: 15, height: 1.4)),
+        value: Text(
+          text,
+          style: TextStyle(color: eu.textHi, fontSize: 15, height: 1.4),
+        ),
       ));
     });
 
@@ -759,7 +942,14 @@ class _AssetViewState extends State<_AssetView> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(r.label, style: TextStyle(color: eu.textLo, fontSize: 11, fontWeight: FontWeight.w600)),
+                Text(
+                  r.label,
+                  style: TextStyle(
+                    color: eu.textLo,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
                 const SizedBox(height: 3),
                 r.value,
               ],
@@ -782,7 +972,10 @@ class _AssetViewState extends State<_AssetView> {
               borderRadius: BorderRadius.circular(8),
               border: Border.all(color: eu.border),
             ),
-            child: Text(_listEntry(it), style: TextStyle(color: eu.text, fontSize: 14)),
+            child: Text(
+              _listEntry(it),
+              style: TextStyle(color: eu.text, fontSize: 14),
+            ),
           ),
       ],
     );
@@ -795,24 +988,31 @@ class _AssetViewState extends State<_AssetView> {
     for (final p in kSocialPlatforms) {
       final h = socials[p.key];
       if (h == null || '$h'.trim().isEmpty) continue;
-      rows.add(Padding(
-        padding: const EdgeInsets.only(bottom: 7),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(p.emoji, style: const TextStyle(fontSize: 15)),
-            const SizedBox(width: 8),
-            SizedBox(
-              width: 64,
-              child: Text(p.label, style: TextStyle(color: eu.textLo, fontSize: 13, height: 1.4)),
-            ),
-            Expanded(
-              child: SelectableText('$h'.trim(),
-                  style: TextStyle(color: eu.textHi, fontSize: 15, height: 1.4)),
-            ),
-          ],
+      rows.add(
+        Padding(
+          padding: const EdgeInsets.only(bottom: 7),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(p.emoji, style: const TextStyle(fontSize: 15)),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 64,
+                child: Text(
+                  p.label,
+                  style: TextStyle(color: eu.textLo, fontSize: 13, height: 1.4),
+                ),
+              ),
+              Expanded(
+                child: SelectableText(
+                  '$h'.trim(),
+                  style: TextStyle(color: eu.textHi, fontSize: 15, height: 1.4),
+                ),
+              ),
+            ],
+          ),
         ),
-      ));
+      );
     }
     if (rows.isEmpty) return null;
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: rows);
@@ -847,9 +1047,14 @@ class _AssetViewState extends State<_AssetView> {
                     ),
                   ),
                   const SizedBox(width: 6),
-                  Text('查看报告',
-                      style: TextStyle(
-                          color: eu.brand, fontSize: 12, fontWeight: FontWeight.w600)),
+                  Text(
+                    '查看报告',
+                    style: TextStyle(
+                      color: eu.brand,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                   Icon(Icons.chevron_right, size: 15, color: eu.brand),
                 ],
               ),
@@ -872,11 +1077,24 @@ class _AssetViewState extends State<_AssetView> {
             behavior: HitTestBehavior.opaque,
             child: Row(
               children: [
-                Text('⚡', style: TextStyle(color: eu.accentAmber, fontSize: 13)),
+                Text(
+                  '⚡',
+                  style: TextStyle(color: eu.accentAmber, fontSize: 13),
+                ),
                 const SizedBox(width: 8),
-                Text('由「闪念 / 对话」整理 ·', style: TextStyle(color: eu.textLo, fontSize: 12)),
+                Text(
+                  '由「闪念 / 对话」整理 ·',
+                  style: TextStyle(color: eu.textLo, fontSize: 12),
+                ),
                 const SizedBox(width: 6),
-                Text('查看原始记录', style: TextStyle(color: eu.brand, fontSize: 12, fontWeight: FontWeight.w600)),
+                Text(
+                  '查看原始记录',
+                  style: TextStyle(
+                    color: eu.brand,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
                 Icon(Icons.chevron_right, size: 15, color: eu.brand),
               ],
             ),
@@ -935,7 +1153,14 @@ class _DocBlockState extends State<_DocBlock> {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(widget.label, style: TextStyle(color: eu.textLo, fontSize: 11, fontWeight: FontWeight.w600)),
+          Text(
+            widget.label,
+            style: TextStyle(
+              color: eu.textLo,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
           const SizedBox(height: 8),
           md,
         ],
@@ -944,7 +1169,14 @@ class _DocBlockState extends State<_DocBlock> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(widget.label, style: TextStyle(color: eu.textLo, fontSize: 11, fontWeight: FontWeight.w600)),
+        Text(
+          widget.label,
+          style: TextStyle(
+            color: eu.textLo,
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
         const SizedBox(height: 8),
         if (_expanded)
           md
@@ -984,10 +1216,20 @@ class _DocBlockState extends State<_DocBlock> {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(_expanded ? '收起' : '展开全文',
-                      style: TextStyle(color: eu.textMid, fontSize: 12, fontWeight: FontWeight.w600)),
+                  Text(
+                    _expanded ? '收起' : '展开全文',
+                    style: TextStyle(
+                      color: eu.textMid,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                   const SizedBox(width: 4),
-                  Icon(_expanded ? Icons.expand_less : Icons.expand_more, size: 14, color: eu.textMid),
+                  Icon(
+                    _expanded ? Icons.expand_less : Icons.expand_more,
+                    size: 14,
+                    color: eu.textMid,
+                  ),
                 ],
               ),
             ),
@@ -1064,14 +1306,17 @@ class _AssetEditPageState extends State<AssetEditPage> {
               ? DateTime.tryParse(v.replaceAll('Z', '+00:00'))?.toLocal()
               : null;
           // empty-day create presets the date/time fields to that day.
-          if (d == null && widget.isCreate && widget.presetDate != null) d = widget.presetDate;
+          if (d == null && widget.isCreate && widget.presetDate != null) {
+            d = widget.presetDate;
+          }
           _dates[k] = d;
         case 'boolean':
           _bools[k] = v == true || v == 1 || v == '1' || v == 'true';
         case 'array':
           _lists[k] = v is List ? v.map((e) => '$e').toList() : <String>[];
         default:
-          _ctrls[k] = TextEditingController(text: v == null ? '' : '$v')..addListener(_rebuild);
+          _ctrls[k] = TextEditingController(text: v == null ? '' : '$v')
+            ..addListener(_rebuild);
       }
     }
   }
@@ -1088,6 +1333,7 @@ class _AssetEditPageState extends State<AssetEditPage> {
       if (!fromSchema && _skip(k, v)) return; // orphans: skip empty/plumbing
       out.add(k);
     }
+
     for (final k in widget.spec?.schemaFields ?? const <String>[]) {
       add(k, fromSchema: true);
     }
@@ -1103,8 +1349,13 @@ class _AssetEditPageState extends State<AssetEditPage> {
     if (t != null && t != 'uuid') return t;
     if (v is bool) return 'boolean';
     if (v is List) return 'array';
-    if (key == 'all_day' || key == 'done' || key == 'completed') return 'boolean';
-    if (key.endsWith('_at') || key.endsWith('_date') || key == 'date' || key == 'due') {
+    if (key == 'all_day' || key == 'done' || key == 'completed') {
+      return 'boolean';
+    }
+    if (key.endsWith('_at') ||
+        key.endsWith('_date') ||
+        key == 'date' ||
+        key == 'due') {
       return 'datetime';
     }
     if (v is String && _isoDt.hasMatch(v)) return 'datetime';
@@ -1122,7 +1373,10 @@ class _AssetEditPageState extends State<AssetEditPage> {
   Map<String, dynamic> _currentPayload() {
     final p = Map<String, dynamic>.from(widget.payload);
     _ctrls.forEach((k, c) => p[k] = c.text);
-    _dates.forEach((k, d) => p[k] = d == null ? '' : _isoBeijing(d, dateOnly: _isDateOnly(k)));
+    _dates.forEach(
+      (k, d) =>
+          p[k] = d == null ? '' : _isoBeijing(d, dateOnly: _isDateOnly(k)),
+    );
     _bools.forEach((k, b) => p[k] = b);
     _lists.forEach((k, l) => p[k] = l);
     return p;
@@ -1138,7 +1392,9 @@ class _AssetEditPageState extends State<AssetEditPage> {
 
   Map<String, dynamic> _previewCard() {
     final p = _currentPayload();
-    if (widget.cardType == 'event' || widget.cardType == 'contact' || widget.cardType == 'task') {
+    if (widget.cardType == 'event' ||
+        widget.cardType == 'contact' ||
+        widget.cardType == 'task') {
       return {'card_type': widget.cardType, ...p};
     }
     return {'user_skill_name': widget.cardType, 'payload': p};
@@ -1149,7 +1405,10 @@ class _AssetEditPageState extends State<AssetEditPage> {
   // / currency primary (e.g. expense's ¥amount).
   String? get _titleKey {
     final p = widget.spec?.primaryField;
-    if (p != null && _ctrls.containsKey(p) && !_isDocKey(p) && widget.spec?.primaryFormat != 'currency') {
+    if (p != null &&
+        _ctrls.containsKey(p) &&
+        !_isDocKey(p) &&
+        widget.spec?.primaryFormat != 'currency') {
       final v = _ctrls[p]!.text;
       if (!_isLongText(v) && double.tryParse(v.trim()) == null) return p;
     }
@@ -1181,7 +1440,10 @@ class _AssetEditPageState extends State<AssetEditPage> {
   Future<void> _create() async {
     for (final k in (widget.spec?.requiredFields ?? const <String>{})) {
       if (_fieldEmpty(k)) {
-        setState(() => _error = '请填写「${widget.spec?.fieldLabels[k] ?? _label(k, widget.cardType)}」');
+        setState(
+          () => _error =
+              '请填写「${widget.spec?.fieldLabels[k] ?? _label(k, widget.cardType)}」',
+        );
         return;
       }
     }
@@ -1215,7 +1477,8 @@ class _AssetEditPageState extends State<AssetEditPage> {
       if (pd != null) {
         final now = DateTime.now();
         body['created_at'] = _isoBeijing(
-            DateTime(pd.year, pd.month, pd.day, now.hour, now.minute, now.second));
+          DateTime(pd.year, pd.month, pd.day, now.hour, now.minute, now.second),
+        );
       }
       await _api.postJson('/api/assets', body);
       bumpData();
@@ -1246,11 +1509,15 @@ class _AssetEditPageState extends State<AssetEditPage> {
       final inPayload = widget.payload.containsKey(k);
       final orig = inPayload ? '${widget.payload[k]}' : '';
       if (c.text == orig) return;
-      if (!inPayload && c.text.trim().isEmpty) return; // don't add a blank new field
+      if (!inPayload && c.text.trim().isEmpty) {
+        return; // don't add a blank new field
+      }
       patch[k] = c.text;
     });
     _dates.forEach((k, d) {
-      final newVal = d == null ? null : _isoBeijing(d, dateOnly: _isDateOnly(k));
+      final newVal = d == null
+          ? null
+          : _isoBeijing(d, dateOnly: _isDateOnly(k));
       if ('${widget.payload[k] ?? ''}' == (newVal ?? '')) return;
       if (newVal != null) patch[k] = newVal;
     });
@@ -1262,7 +1529,8 @@ class _AssetEditPageState extends State<AssetEditPage> {
     });
     _lists.forEach((k, l) {
       final orig = widget.payload[k];
-      final same = orig is List && orig.map((e) => '$e').join('') == l.join('');
+      final same =
+          orig is List && orig.map((e) => '$e').join('') == l.join('');
       if (same) return;
       if (l.isEmpty && !widget.payload.containsKey(k)) return;
       patch[k] = l;
@@ -1274,7 +1542,9 @@ class _AssetEditPageState extends State<AssetEditPage> {
         // branches are a safety net (flat PUT, all_day as 0/1).
         switch (widget.cardType) {
           case 'event':
-            if (patch['all_day'] is bool) patch['all_day'] = patch['all_day'] == true ? 1 : 0;
+            if (patch['all_day'] is bool) {
+              patch['all_day'] = patch['all_day'] == true ? 1 : 0;
+            }
             await _api.putJson('/api/events/${widget.assetId}', patch);
           case 'contact':
             await _api.putJson('/api/contacts/${widget.assetId}', patch);
@@ -1307,16 +1577,29 @@ class _AssetEditPageState extends State<AssetEditPage> {
         ),
         leadingWidth: 64,
         centerTitle: true,
-        title: Text(widget.cardType.toUpperCase(),
-            style: euMono(fontSize: 11, letterSpacing: 1.6, color: eu.textLo)),
+        title: Text(
+          widget.cardType.toUpperCase(),
+          style: euMono(fontSize: 11, letterSpacing: 1.6, color: eu.textLo),
+        ),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: TextButton(
               onPressed: _busy ? null : _save,
               child: _busy
-                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                  : Text('保存', style: TextStyle(color: eu.brand, fontSize: 15, fontWeight: FontWeight.w700)),
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Text(
+                      '保存',
+                      style: TextStyle(
+                        color: eu.brand,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
             ),
           ),
         ],
@@ -1329,19 +1612,46 @@ class _AssetEditPageState extends State<AssetEditPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // §2 live card preview — re-renders as you edit the fields below.
-              Text('预览', style: euMono(fontSize: 10, letterSpacing: 1.4, color: eu.textLo)),
+              Text(
+                '预览',
+                style: euMono(
+                  fontSize: 10,
+                  letterSpacing: 1.4,
+                  color: eu.textLo,
+                ),
+              ),
               const SizedBox(height: 8),
-              IgnorePointer(child: SkillCard(_previewCard(), layoutOverride: 'horizontal')),
+              IgnorePointer(
+                child: SkillCard(_previewCard(), layoutOverride: 'horizontal'),
+              ),
               const SizedBox(height: 18),
               Container(height: 1, color: eu.rule),
               const SizedBox(height: 18),
               if (titleKey != null) ...[
+                Text(
+                  '${widget.spec?.fieldLabels[titleKey] ?? _label(titleKey, widget.cardType)} · $titleKey',
+                  style: TextStyle(
+                    color: eu.textLo,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 7),
                 TextField(
                   controller: _ctrls[titleKey],
                   style: TextStyle(
-                      color: eu.textHi, fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: -0.3),
-                  decoration: const InputDecoration(
-                      isCollapsed: true, border: InputBorder.none, hintText: '标题'),
+                    color: eu.textHi,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.3,
+                  ),
+                  decoration: InputDecoration(
+                    isCollapsed: true,
+                    border: InputBorder.none,
+                    hintText:
+                        widget.spec?.fieldLabels[titleKey] ??
+                        _label(titleKey, widget.cardType),
+                  ),
                 ),
                 const SizedBox(height: 14),
                 Container(height: 1, color: eu.rule),
@@ -1354,10 +1664,14 @@ class _AssetEditPageState extends State<AssetEditPage> {
                 ],
               // 领域 selector — same control in create & edit (event/contact define
               // their own domain, so this only shows for asset skills).
-              if (widget.cardType != 'event' && widget.cardType != 'contact') _domainField(eu),
+              if (widget.cardType != 'event' && widget.cardType != 'contact')
+                _domainField(eu),
               if (_error != null) ...[
                 const SizedBox(height: 4),
-                Text(_error!, style: TextStyle(color: eu.accentRed, fontSize: 13)),
+                Text(
+                  _error!,
+                  style: TextStyle(color: eu.accentRed, fontSize: 13),
+                ),
               ],
             ],
           ),
@@ -1378,10 +1692,18 @@ class _AssetEditPageState extends State<AssetEditPage> {
           decoration: BoxDecoration(
             color: c.withValues(alpha: selected ? 0.22 : 0.08),
             borderRadius: BorderRadius.circular(9),
-            border: Border.all(color: c.withValues(alpha: selected ? 0.6 : 0.22)),
+            border: Border.all(
+              color: c.withValues(alpha: selected ? 0.6 : 0.22),
+            ),
           ),
-          child: Text(d == null ? '默认' : '${domainIcon(d)} $d',
-              style: TextStyle(color: c, fontSize: 12.5, fontWeight: FontWeight.w600)),
+          child: Text(
+            d == null ? '默认' : '${domainIcon(d)} $d',
+            style: TextStyle(
+              color: c,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ),
       );
     }
@@ -1389,9 +1711,20 @@ class _AssetEditPageState extends State<AssetEditPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('领域', style: TextStyle(color: eu.textLo, fontSize: 11, fontWeight: FontWeight.w600)),
+        Text(
+          '领域',
+          style: TextStyle(
+            color: eu.textLo,
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
         const SizedBox(height: 8),
-        Wrap(spacing: 8, runSpacing: 8, children: [chip(null), for (final d in kDomains) chip(d)]),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [chip(null), for (final d in kDomains) chip(d)],
+        ),
       ],
     );
   }
@@ -1399,7 +1732,9 @@ class _AssetEditPageState extends State<AssetEditPage> {
   // Pick the right control for a field by its resolved kind.
   Widget _fieldWidget(EurekaColors eu, String k) {
     final base = widget.spec?.fieldLabels[k] ?? _label(k, widget.cardType);
-    final label = (widget.spec?.requiredFields.contains(k) ?? false) ? '$base *' : base;
+    final label = (widget.spec?.requiredFields.contains(k) ?? false)
+        ? '$base *'
+        : base;
     switch (_types[k]) {
       case 'datetime':
       case 'date':
@@ -1423,34 +1758,59 @@ class _AssetEditPageState extends State<AssetEditPage> {
         );
       default:
         final c = _ctrls[k]!;
-        if ((widget.spec?.longFields.contains(k) ?? false) || _isDocKey(k) || _isLongText(c.text)) {
+        if ((widget.spec?.longFields.contains(k) ?? false) ||
+            _isDocKey(k) ||
+            _isLongText(c.text)) {
           return MdEditor(label: label, controller: c);
         }
         return _shortField(eu, label, c, numeric: _types[k] == 'number');
     }
   }
 
-  Widget _shortField(EurekaColors eu, String label, TextEditingController c, {bool numeric = false}) {
+  Widget _shortField(
+    EurekaColors eu,
+    String label,
+    TextEditingController c, {
+    bool numeric = false,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: TextStyle(color: eu.textLo, fontSize: 11, fontWeight: FontWeight.w600)),
+        Text(
+          label,
+          style: TextStyle(
+            color: eu.textLo,
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
         const SizedBox(height: 6),
         TextField(
           controller: c,
-          keyboardType: numeric ? const TextInputType.numberWithOptions(decimal: true) : null,
+          keyboardType: numeric
+              ? const TextInputType.numberWithOptions(decimal: true)
+              : null,
           style: TextStyle(color: eu.textHi, fontSize: 15),
           decoration: InputDecoration(
             isDense: true,
             filled: true,
             fillColor: eu.surface,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 13,
+              vertical: 11,
+            ),
             border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(11), borderSide: BorderSide(color: eu.border)),
+              borderRadius: BorderRadius.circular(11),
+              borderSide: BorderSide(color: eu.border),
+            ),
             enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(11), borderSide: BorderSide(color: eu.border)),
+              borderRadius: BorderRadius.circular(11),
+              borderSide: BorderSide(color: eu.border),
+            ),
             focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(11), borderSide: BorderSide(color: eu.brand)),
+              borderRadius: BorderRadius.circular(11),
+              borderSide: BorderSide(color: eu.brand),
+            ),
           ),
         ),
       ],
@@ -1465,7 +1825,12 @@ class _DateField extends StatelessWidget {
   final DateTime? value;
   final bool dateOnly;
   final ValueChanged<DateTime?> onChanged;
-  const _DateField({required this.label, required this.value, required this.dateOnly, required this.onChanged});
+  const _DateField({
+    required this.label,
+    required this.value,
+    required this.dateOnly,
+    required this.onChanged,
+  });
 
   String _fmt(DateTime d) {
     String two(int n) => n.toString().padLeft(2, '0');
@@ -1486,8 +1851,19 @@ class _DateField extends StatelessWidget {
       onChanged(DateTime(d.year, d.month, d.day));
       return;
     }
-    final t = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(base));
-    onChanged(DateTime(d.year, d.month, d.day, t?.hour ?? base.hour, t?.minute ?? base.minute));
+    final t = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(base),
+    );
+    onChanged(
+      DateTime(
+        d.year,
+        d.month,
+        d.day,
+        t?.hour ?? base.hour,
+        t?.minute ?? base.minute,
+      ),
+    );
   }
 
   @override
@@ -1496,7 +1872,14 @@ class _DateField extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: TextStyle(color: eu.textLo, fontSize: 11, fontWeight: FontWeight.w600)),
+        Text(
+          label,
+          style: TextStyle(
+            color: eu.textLo,
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
         const SizedBox(height: 6),
         GestureDetector(
           onTap: () => _pick(context),
@@ -1510,11 +1893,24 @@ class _DateField extends StatelessWidget {
             ),
             child: Row(
               children: [
-                Icon(dateOnly ? Icons.calendar_today_outlined : Icons.event_outlined, size: 16, color: eu.textMid),
+                Icon(
+                  dateOnly
+                      ? Icons.calendar_today_outlined
+                      : Icons.event_outlined,
+                  size: 16,
+                  color: eu.textMid,
+                ),
                 const SizedBox(width: 9),
                 Expanded(
-                  child: Text(value == null ? '选择${dateOnly ? '日期' : '时间'}' : _fmt(value!),
-                      style: TextStyle(color: value == null ? eu.textLo : eu.textHi, fontSize: 15)),
+                  child: Text(
+                    value == null
+                        ? '选择${dateOnly ? '日期' : '时间'}'
+                        : _fmt(value!),
+                    style: TextStyle(
+                      color: value == null ? eu.textLo : eu.textHi,
+                      fontSize: 15,
+                    ),
+                  ),
                 ),
                 if (value != null)
                   GestureDetector(
@@ -1536,7 +1932,11 @@ class _BoolField extends StatelessWidget {
   final String label;
   final bool value;
   final ValueChanged<bool> onChanged;
-  const _BoolField({required this.label, required this.value, required this.onChanged});
+  const _BoolField({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1550,8 +1950,17 @@ class _BoolField extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Expanded(child: Text(label, style: TextStyle(color: eu.textHi, fontSize: 15))),
-          Switch(value: value, activeThumbColor: eu.brand, onChanged: onChanged),
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(color: eu.textHi, fontSize: 15),
+            ),
+          ),
+          Switch(
+            value: value,
+            activeThumbColor: eu.brand,
+            onChanged: onChanged,
+          ),
         ],
       ),
     );
@@ -1563,7 +1972,11 @@ class _ChipsField extends StatefulWidget {
   final String label;
   final List<String> values;
   final ValueChanged<List<String>> onChanged;
-  const _ChipsField({required this.label, required this.values, required this.onChanged});
+  const _ChipsField({
+    required this.label,
+    required this.values,
+    required this.onChanged,
+  });
 
   @override
   State<_ChipsField> createState() => _ChipsFieldState();
@@ -1594,7 +2007,14 @@ class _ChipsFieldState extends State<_ChipsField> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(widget.label, style: TextStyle(color: eu.textLo, fontSize: 11, fontWeight: FontWeight.w600)),
+        Text(
+          widget.label,
+          style: TextStyle(
+            color: eu.textLo,
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
         const SizedBox(height: 6),
         Wrap(
           spacing: 6,
@@ -1615,7 +2035,8 @@ class _ChipsFieldState extends State<_ChipsField> {
                     Text(v, style: TextStyle(color: eu.text, fontSize: 13)),
                     const SizedBox(width: 3),
                     GestureDetector(
-                      onTap: () => widget.onChanged([...widget.values]..remove(v)),
+                      onTap: () =>
+                          widget.onChanged([...widget.values]..remove(v)),
                       behavior: HitTestBehavior.opaque,
                       child: Icon(Icons.close, size: 14, color: eu.textLo),
                     ),
@@ -1633,13 +2054,22 @@ class _ChipsFieldState extends State<_ChipsField> {
                   isDense: true,
                   hintText: '+ 添加',
                   hintStyle: TextStyle(color: eu.textLo, fontSize: 13),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 9,
+                    vertical: 7,
+                  ),
                   border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: eu.border)),
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: eu.border),
+                  ),
                   enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: eu.border)),
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: eu.border),
+                  ),
                   focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: eu.brand)),
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: eu.brand),
+                  ),
                 ),
               ),
             ),
@@ -1676,10 +2106,21 @@ class _MdEditorState extends State<MdEditor> {
         Row(
           children: [
             Expanded(
-              child: Text('${widget.label} · Markdown',
-                  style: TextStyle(color: eu.textLo, fontSize: 11, fontWeight: FontWeight.w600)),
+              child: Text(
+                '${widget.label} · Markdown',
+                style: TextStyle(
+                  color: eu.textLo,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
-            _toggle(eu, '编辑', !_preview, () => setState(() => _preview = false)),
+            _toggle(
+              eu,
+              '编辑',
+              !_preview,
+              () => setState(() => _preview = false),
+            ),
             const SizedBox(width: 4),
             _toggle(eu, '预览', _preview, () => setState(() => _preview = true)),
           ],
@@ -1696,15 +2137,28 @@ class _MdEditorState extends State<MdEditor> {
           padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
           child: _preview
               ? (widget.controller.text.trim().isEmpty
-                  ? Text('（无内容）', style: TextStyle(color: eu.textLo, fontSize: 14))
-                  : MarkdownText(widget.controller.text,
-                      baseStyle: TextStyle(color: eu.text, fontSize: 15, height: 1.62)))
+                    ? Text(
+                        '（无内容）',
+                        style: TextStyle(color: eu.textLo, fontSize: 14),
+                      )
+                    : MarkdownText(
+                        widget.controller.text,
+                        baseStyle: TextStyle(
+                          color: eu.text,
+                          fontSize: 15,
+                          height: 1.62,
+                        ),
+                      ))
               : TextField(
                   controller: widget.controller,
                   minLines: 9,
                   maxLines: null,
                   keyboardType: TextInputType.multiline,
-                  style: TextStyle(color: eu.textHi, fontSize: 15, height: 1.55),
+                  style: TextStyle(
+                    color: eu.textHi,
+                    fontSize: 15,
+                    height: 1.55,
+                  ),
                   decoration: const InputDecoration(
                     isCollapsed: true,
                     border: InputBorder.none,
@@ -1725,11 +2179,18 @@ class _MdEditorState extends State<MdEditor> {
         decoration: BoxDecoration(
           color: sel ? eu.brand.withValues(alpha: 0.14) : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: sel ? eu.brand.withValues(alpha: 0.4) : eu.border),
+          border: Border.all(
+            color: sel ? eu.brand.withValues(alpha: 0.4) : eu.border,
+          ),
         ),
-        child: Text(label,
-            style: TextStyle(
-                color: sel ? eu.brand : eu.textMid, fontSize: 12, fontWeight: FontWeight.w600)),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: sel ? eu.brand : eu.textMid,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
       ),
     );
   }
@@ -1740,14 +2201,26 @@ class _MdEditorState extends State<MdEditor> {
 const _fieldLabels = <String, String>{
   'title': '标题', 'subtitle': '摘要', 'content': '内容', 'note': '备注', 'notes': '备注',
   'description': '描述', 'summary': '摘要', 'body': '正文', 'markdown': '正文',
-  'due_date': '截止时间', 'date': '日期', 'time': '时间', 'start_at': '开始', 'end_at': '结束',
+  'due_date': '截止时间',
+  'date': '日期',
+  'time': '时间',
+  'start_at': '开始',
+  'end_at': '结束',
   'amount': '金额', 'price': '价格', 'currency': '币种', 'category': '分类',
-  'location': '地点', 'distance': '距离', 'duration': '时长', 'pace': '配速', 'mood': '心情',
+  'location': '地点',
+  'distance': '距离',
+  'duration': '时长',
+  'pace': '配速',
+  'mood': '心情',
   'name': '名称', 'company': '公司', 'phone': '电话', 'email': '邮箱',
   'reps': '次数', 'weight': '重量', 'pages_read': '阅读页数',
   // common custom-skill fields (agent sometimes omits a label → fall back here)
   'book_title': '书名', 'author': '作者', 'key_insights': '要点', 'time_spent': '用时',
-  'rating': '评分', 'progress': '进度', 'merchant': '商家', 'place': '地点', 'teacher': '老师',
+  'rating': '评分',
+  'progress': '进度',
+  'merchant': '商家',
+  'place': '地点',
+  'teacher': '老师',
 };
 
 String _label(String key, String cardType) {
@@ -1759,9 +2232,23 @@ String _label(String key, String cardType) {
 /// Keys whose value should ALWAYS get the big markdown editor when editing, even
 /// if currently short/empty (so the user can write a long document there).
 const _docKeys = <String>{
-  'content', 'note', 'notes', 'description', 'body', 'markdown', 'summary', 'detail', 'remark',
+  'content',
+  'note',
+  'notes',
+  'description',
+  'body',
+  'markdown',
+  'summary',
+  'detail',
+  'remark',
   // fallback for skills created before the schema's `long` flag (e.g. reading_notes)
-  'key_insights', 'insights', 'takeaways', 'review', 'reflection', 'comment', 'thoughts',
+  'key_insights',
+  'insights',
+  'takeaways',
+  'review',
+  'reflection',
+  'comment',
+  'thoughts',
 };
 bool _isDocKey(String key) => _docKeys.contains(key.toLowerCase());
 
@@ -1772,7 +2259,8 @@ const _skipKeys = <String>{
   'id', 'contact_id', 'file_id', 'source_input_turn_id', 'session_id',
   'sync_source', 'sync_external_id', 'recurrence_rule', 'updated_at',
   'user_skill_id', 'logId', 'trace_id',
-  'source_report_id', 'source_report_title', // §6.13 溯源 — shown via _sourceLine, not as fields
+  'source_report_id',
+  'source_report_title', // §6.13 溯源 — shown via _sourceLine, not as fields
   'icon', 'accent_color', 'accentColor', 'actions', 'card_layout', 'layout',
   'cardType', 'checkDone', 'primary_field', 'primary_format', 'secondary_field',
   'secondary_format', 'meta_fields', 'metaFields', 'timeline_position',

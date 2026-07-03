@@ -727,7 +727,13 @@ const _toolLabels = {
   'tool_query_digest': '汇总数据',
   'tool_delete_asset': '删除资产',
   'tool_query_event': '查询事件',
+  'tool_get_event': '查询事件',
+  'query_event': '查询事件',
+  'get_event': '查询事件',
   'tool_query_contact': '查询联系人',
+  'tool_get_contact': '查询联系人',
+  'query_contact': '查询联系人',
+  'get_contact': '查询联系人',
   'tool_create_task': '触发外部任务',
 };
 

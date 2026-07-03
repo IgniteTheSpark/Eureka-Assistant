@@ -339,8 +339,7 @@ Return only the JSON result from the final MCP call. No explanation, no markdown
 ### A.2.3 flash-expense-skill（关键独有字段）
 
 - `amount`(必填, 缺则报错)、`currency`(默认 CNY)、`category`(餐饮/交通/购物/娱乐/住宿/医疗/办公/其他, 不确定→其他)、`merchant`、`date`("YYYY-MM-DD" 日期粒度)、`description`。
-- **`at`（v1.4.x, optional）** 完整时间戳，用户提到时段/时刻时填，用于 timeline 同日多笔按时刻排序：
-  早上→08:00 / 中午→12:00 / 下午→15:00 / 晚上→19:00 / 深夜→23:00；没提则**省略 at**（timeline 用 date 兜底）。
+- **时段字段（2026-07 修正）**：新写入不再生成 payload `at`。说了具体钟点（「早上8点」）→ 通过 `tool_create_asset(..., occurred_at="YYYY-MM-DDT08:00:00+08:00")` 写 asset 级精确时刻；只说模糊时段（「早上/下午/晚上」）→ 通过 `period="上午/下午/晚上"` 写 asset 级时段、`occurred_at` 留空；没说时间 → `period`/`occurred_at` 都留空。**严禁**把「早上」canonical 成 08:00、把「下午」canonical 成 15:00。
 - 报错：无金额 `{"ok": false, "status": "error", "message": "无法识别消费金额"}`；删除无匹配 `{"ok": false, "message": "未找到匹配的消费记录"}`。
 
 ### A.2.4 flash-contact-skill（关键独有逻辑）
@@ -559,8 +558,16 @@ tool_create_asset 把这条记录写进数据库。
 
 ## 同步到外部系统(钉钉 / Notion / Google 日历 → tool_create_task)
 
-用户说「同步到钉钉文档 / 存到 Notion / 发到钉钉 / 加到 Google 日历」这类**对外部
-系统的动作** → 调 `tool_create_task`(不是本地 create_asset)。
+用户说「同步到钉钉文档 / 存到 Notion / 发到钉钉 / 加到 Google 日历 / 把 Eureka 的待办
+同步到钉钉待办 / 把小型讨论会的日程和饭局放进钉钉」这类**把 Eureka 内容或当前
+session 对象导出到外部系统的动作** → 调 `tool_create_task`(不是本地 create_asset,
+也不是 `use_connected_app`)。原因:`tool_create_task` 会生成 `external_ref`,资产库「外部」
+才有可追踪记录；`use_connected_app` 只返回当回合文字结果,不会进「外部」section。
+
+判定口诀:
+- 读/查/改/删外部已有对象 → `use_connected_app`。
+- 把 Eureka 已有对象 / 本 session 刚记录的对象 / 上一条回答内容同步、放进、放到、加到、
+  存到、发到、记到外部系统 → `tool_create_task`。
 
 ⚠️ **最容易翻车的点:写文档 / 笔记类任务,正文必须由你传进去。**
 执行任务的子 agent **看不到这段对话历史** —— 它只拿到你调用时给的参数。所以:
@@ -594,6 +601,7 @@ tool_create_asset 把这条记录写进数据库。
   - 单条:「好的,『跟客户开会』帮你记下了」「改好啦,挪到了 4 点」「那条想法存好了」
   - 多条:**点出每样东西,别只报数字**。例如「都记好啦 —— 早饭、咖啡、午饭三笔账,外加下午 3 点半去工厂的待办」,而**不要**冷冰冰的「已记录 3 项内容」
   - 偶尔一个轻量语气词(啦 / 好嘞)或单个 emoji 没问题,但别堆砌、别卖萌、别连用感叹号
+- **Flash summary 同样遵守这条**：`summary` 是用户完成一次闪念后马上看到的一句话，不是内部状态码。要基于本次输入和 cards 点出具体内容，如「包子这笔 8 块我帮你记好了，放在今天上午」「下午的会我先帮你记着了，还没具体到几点」；不要再返回统一模板「已记录 N 项内容」。
 - QUERY 结果由 UI 渲染卡片列表(但卡片**不进历史**,回看只剩你这句话),所以一句话总览里要**点名查到了啥**(如「两条随记:《水浒传》读后感、一条身体记录」),让人不看卡片也心里有数;但**别**用 markdown 列表把每条的标题/时间/字段逐个铺开 —— 那是卡片的活,文字只点到为止
 - CHAT-ANSWER 直接给完整有内容的回答(几百字 ok),不要敷衍也不要前置说明
 - 引用资产时用「待办『跟客户开会』」这种自然语言,不要 ID

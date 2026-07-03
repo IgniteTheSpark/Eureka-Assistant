@@ -18,9 +18,40 @@ Cross-turn "刚刚那个" reference mechanism:
 """
 from google.adk.agents import LlmAgent
 from google.adk.tools import FunctionTool
+import re
 
 from agents.mcp_toolset import get_mcp_toolset, make_user_id_injector
 from core.llm import ASSISTANT_MODEL
+
+
+_EXTERNAL_APP_RE = re.compile(
+    r"(钉钉|dingtalk|notion|飞书|lark|google\s*calendar|google\s*日历|外部应用)",
+    re.I,
+)
+_TRACKED_EXTERNAL_WRITE_RE = re.compile(
+    r"(同步|放进|放到|存到|发到|发送到|推到|写到|记到|加到|创建到|建到)",
+)
+_EXTERNAL_IMMEDIATE_OP_RE = re.compile(
+    r"(查|看|看看|列出|有哪些|改到|改成|调整|删除|删掉|取消|有空|闲忙)",
+)
+
+
+def _requires_tracked_external_task(request: str) -> bool:
+    """True when an external write should leave an external_ref/task record.
+
+    The key distinction is not read vs write in the third-party app. It is
+    whether Eureka is exporting/syncing an object or content into that app. Those
+    flows must use tool_create_task so the asset library's 外部 section has a
+    traceable external_ref.
+    """
+    text = request or ""
+    if not (_EXTERNAL_APP_RE.search(text) and _TRACKED_EXTERNAL_WRITE_RE.search(text)):
+        return False
+    if _EXTERNAL_IMMEDIATE_OP_RE.search(text) and not any(
+        marker in text for marker in ("同步", "放进", "放到", "存到", "发到", "写到", "记到", "加到")
+    ):
+        return False
+    return True
 
 
 # §13.2 / Connected Apps — SYNCHRONOUS, GENERAL access to the user's connected
@@ -34,6 +65,15 @@ async def use_connected_app(request: str, user_id: str = "default") -> dict:
     任意操作:查日程/待办、看某天的安排、创建/修改/删除日程、查参与人、查闲忙等。
     把用户的**完整自然语言意图**(含时间范围、标题、地点等细节)原样放进 `request`。
     返回 {ok, answer}:answer 就是给用户的中文结果,直接用它来答复用户。"""
+    if _requires_tracked_external_task(request):
+        return {
+            "ok": False,
+            "error": (
+                "这是把 Eureka 内容同步/写入外部系统的可追踪任务。"
+                "不要用 use_connected_app；请改用 tool_create_task，并带上 session_id "
+                "和 source_input_turn_id，让它生成 external_ref。"
+            ),
+        }
     from agents.task_skill import run_connected_app_sync
     return await run_connected_app_sync(user_id, request)
 
@@ -256,10 +296,23 @@ ASSISTANT_INSTRUCTION_BASE = """
 (列出日程 / 确认操作),**不要**再开异步任务,**不要**说「在排队/待处理」。
 绝不要凭空说某个应用「只能写不能读」—— 它读写都行,交给 `use_connected_app` 即可。
 
+⚠️ 但下面这种**不是** A,即使外部系统能同步创建成功也不能走 `use_connected_app`:
+用户说「把 Eureka 里的/本 session 里的/刚刚记录的/这个/那条/小型讨论会/饭局/待办/日程
+**同步到 / 放进 / 放到 / 加到 / 记到 / 存到 / 发到** 钉钉/Notion/Google Calendar」。
+这表示把 **Eureka 已有对象或上下文内容导出到外部系统**,必须走 B 的 `tool_create_task`,
+因为产品需要留下 `external_ref` 和可追踪状态。**不要**只用 `use_connected_app` 创建外部对象,
+否则资产库「外部」不会出现记录。
+
 ### B. 把内容同步「写到」外部并**留可追踪记录** → `tool_create_task`(异步卡片)
-用户说「**同步到**钉钉文档 / **存到** Notion / **发到**钉钉 / 把这条**记到**钉钉日历」
+用户说「**同步到**钉钉文档 / **存到** Notion / **发到**钉钉 / 把这条**记到**钉钉日历 /
+把 Eureka 的待办**同步到**钉钉待办 / 把小型讨论会的日程和饭局**放进**钉钉」
 这类**把(常常是大段)内容沉淀到外部**的动作 → 调 `tool_create_task`(不是本地
 create_asset),生成一张可追踪的「外部引用」卡片。
+
+**判断口诀**:
+- 读/查/改/删**外部已有对象**,结果只要当场答复 → `use_connected_app`。
+- 把 **Eureka 里的对象 / 本 session 刚记录的对象 / 上一条回答内容** 写入外部,
+  并且用户用了「同步/放进/放到/加到/存到/发到/记到」这类导出动词 → `tool_create_task`。
 
 ⚠️ **最容易翻车的点:写文档 / 笔记类任务,正文必须由你传进去。**
 执行任务的子 agent **看不到这段对话历史** —— 它只拿到你调用时给的参数。所以:

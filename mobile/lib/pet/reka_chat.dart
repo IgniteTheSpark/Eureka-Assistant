@@ -643,76 +643,86 @@ class _RekaChatState extends State<RekaChat>
               opacity: _in,
               child: Material(
                 color: Colors.transparent,
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    Container(
-                      constraints: BoxConstraints(
-                        maxHeight: maxH.clamp(160.0, sh),
-                      ),
-                      // §9.2 v4 统一色源 — the whole REKA surface tints to its aura glow.
-                      decoration: BoxDecoration(
-                        color: Color.alphaBlend(
-                          _tint.withValues(alpha: 0.12),
-                          eu.surface,
+                child: DefaultTextStyle(
+                  style: TextStyle(
+                    color: eu.textHi,
+                    decoration: TextDecoration.none,
+                  ),
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Container(
+                        constraints: BoxConstraints(
+                          maxHeight: maxH.clamp(160.0, sh),
                         ),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
+                        // §9.2 v4 统一色源 — the whole REKA surface tints to its aura glow.
+                        decoration: BoxDecoration(
                           color: Color.alphaBlend(
-                            _tint.withValues(alpha: 0.42),
-                            eu.border,
+                            _tint.withValues(alpha: 0.12),
+                            eu.surface,
+                          ),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: Color.alphaBlend(
+                              _tint.withValues(alpha: 0.42),
+                              eu.border,
+                            ),
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.30),
+                              blurRadius: 28,
+                              offset: const Offset(0, 12),
+                            ),
+                            BoxShadow(
+                              color: _tint.withValues(alpha: 0.30),
+                              blurRadius: 26,
+                              spreadRadius: -8,
+                            ),
+                          ],
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(20),
+                          child: ListView(
+                            controller: _scroll,
+                            shrinkWrap: true,
+                            padding: const EdgeInsets.fromLTRB(13, 14, 13, 13),
+                            children: [for (final n in _nodes) _node(eu, n)],
                           ),
                         ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.30),
-                            blurRadius: 28,
-                            offset: const Offset(0, 12),
-                          ),
-                          BoxShadow(
-                            color: _tint.withValues(alpha: 0.30),
-                            blurRadius: 26,
-                            spreadRadius: -8,
-                          ),
-                        ],
                       ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(20),
-                        child: ListView(
-                          controller: _scroll,
-                          shrinkWrap: true,
-                          padding: const EdgeInsets.fromLTRB(13, 14, 13, 13),
-                          children: [for (final n in _nodes) _node(eu, n)],
+                      // close X (reka-system.js .bub-close)
+                      Positioned(
+                        top: -8,
+                        right: -8,
+                        child: GestureDetector(
+                          onTap: _close,
+                          behavior: HitTestBehavior.opaque,
+                          child: Container(
+                            width: 24,
+                            height: 24,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: eu.surfaceRaised,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: eu.border),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.25),
+                                  blurRadius: 8,
+                                ),
+                              ],
+                            ),
+                            child: Icon(
+                              Icons.close,
+                              size: 14,
+                              color: eu.textMid,
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                    // close X (reka-system.js .bub-close)
-                    Positioned(
-                      top: -8,
-                      right: -8,
-                      child: GestureDetector(
-                        onTap: _close,
-                        behavior: HitTestBehavior.opaque,
-                        child: Container(
-                          width: 24,
-                          height: 24,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: eu.surfaceRaised,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: eu.border),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.25),
-                                blurRadius: 8,
-                              ),
-                            ],
-                          ),
-                          child: Icon(Icons.close, size: 14, color: eu.textMid),
-                        ),
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),

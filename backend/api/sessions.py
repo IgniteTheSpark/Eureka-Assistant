@@ -32,6 +32,75 @@ from db.models import (
 router = APIRouter()
 
 
+def _hydrate_task_card(card: dict, task: dict | None, asset_payload: dict | None) -> dict:
+    """Overlay a persisted task-card snapshot with latest task/external_ref state."""
+    if not isinstance(card, dict) or not card.get("task_id"):
+        return card
+    payload = dict(card.get("payload") or {})
+    latest = dict(asset_payload or {})
+    if latest:
+        payload.update(latest)
+    if task:
+        status = task.get("status")
+        if status:
+            payload["status"] = status
+            card = {**card, "status": status}
+        target = task.get("mcp_target")
+        if target and not payload.get("external_system"):
+            payload["external_system"] = target
+    if payload:
+        card = {**card, "payload": payload}
+    return card
+
+
+async def _hydrate_message_cards(db, messages: list[Message], user_id: str) -> dict[str, list]:
+    """Return latest cards per message id, hydrating async task snapshots.
+
+    Message.cards is a creation-time snapshot. Async task cards are born pending,
+    then the task worker updates Task + the linked external_ref Asset. Replay must
+    read that authoritative state so returning to a chat session shows done/failed.
+    """
+    task_ids: set[uuid.UUID] = set()
+    for m in messages:
+        for c in (m.cards or []):
+            if isinstance(c, dict) and c.get("task_id"):
+                try:
+                    task_ids.add(uuid.UUID(str(c["task_id"])))
+                except (ValueError, TypeError):
+                    pass
+    if not task_ids:
+        return {str(m.id): (m.cards or []) for m in messages}
+
+    tasks = (await db.execute(
+        select(Task).where(Task.user_id == user_id, Task.id.in_(task_ids))
+    )).scalars().all()
+    task_by_id = {str(t.id): t for t in tasks}
+    asset_ids = [t.result_asset_id for t in tasks if t.result_asset_id]
+    asset_by_id = {}
+    if asset_ids:
+        assets = (await db.execute(
+            select(Asset).where(Asset.user_id == user_id, Asset.id.in_(asset_ids))
+        )).scalars().all()
+        asset_by_id = {str(a.id): a for a in assets}
+
+    out: dict[str, list] = {}
+    for m in messages:
+        cards = []
+        for raw in (m.cards or []):
+            if not isinstance(raw, dict) or not raw.get("task_id"):
+                cards.append(raw)
+                continue
+            t = task_by_id.get(str(raw["task_id"]))
+            a = asset_by_id.get(str(t.result_asset_id)) if t and t.result_asset_id else None
+            task_dict = {
+                "status": t.status,
+                "mcp_target": t.mcp_target,
+            } if t else None
+            cards.append(_hydrate_task_card(raw, task_dict, a.payload if a else None))
+        out[str(m.id)] = cards
+    return out
+
+
 class CreateSessionRequest(BaseModel):
     """Unified session-create payload (M3.5).
 
@@ -426,6 +495,7 @@ async def get_session_messages(
             .where(Message.session_id == sid, Message.user_id == user_id)
             .order_by(Message.created_at.asc(), role_rank.asc())
         )).scalars().all()
+        cards_by_message = await _hydrate_message_cards(db, messages, user_id)
 
     return {
         "ok": True,
@@ -436,7 +506,7 @@ async def get_session_messages(
                 "text":        m.text,
                 "tool_call":   m.tool_call,
                 "tool_result": m.tool_result,
-                "cards":       m.cards or [],
+                "cards":       cards_by_message.get(str(m.id), m.cards or []),
                 "elapsed_ms":  m.elapsed_ms,
                 "status":      m.status or "done",   # §1.5.1.3: running → 「分析中…」 + poll
                 "created_at":  m.created_at.isoformat(),

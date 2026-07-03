@@ -19,6 +19,7 @@ The "刚刚那个" cross-turn CRUD reference (Phase B v1.3) works because:
 """
 import asyncio
 import json
+import re as _re
 import time
 import uuid
 from datetime import datetime, timezone, timedelta
@@ -113,6 +114,12 @@ def _format_history(messages: list[Message]) -> str:
 _QUERY_TOOLS = {
     "tool_query_asset", "tool_query_event", "tool_query_contact",
     "tool_query_input_turn", "tool_query_digest",
+    "tool_get_event", "tool_get_asset", "tool_get_contact", "tool_get_input_turn",
+    # Defensive aliases: ADK/MCP wrappers have changed tool names across
+    # versions. Read-only query results must remain transient even if the
+    # prefix is stripped from the emitted tool name.
+    "query_asset", "query_event", "query_contact", "query_input_turn",
+    "query_digest", "get_event", "get_asset", "get_contact", "get_input_turn",
 }
 
 
@@ -174,8 +181,6 @@ def _cards_from_tool_result(name: str, response) -> list[dict]:
 # (no LLM) and route to the Flash pipeline (dispatcher → PARALLEL sub-skills), then
 # report the TRUE count. Conservative: only fires on clearly-bulk input so normal
 # conversational turns ("帮我记一笔午餐 38 元") stay on the chat path.
-import re as _re
-
 _DATE_RE = _re.compile(r"(?:\d{4}\s*[-/年.]\s*\d{1,2}|\d{1,2}\s*[-/月.]\s*\d{1,2})")
 _AMOUNT_RE = _re.compile(
     r"(?:[¥$￥]\s?\d+(?:\.\d+)?)|(?:\d+(?:\.\d+)?\s*(?:元|块|刀|usd|rmb|卡|kcal|页|km|公里|分钟|小时))",

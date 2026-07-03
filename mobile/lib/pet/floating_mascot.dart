@@ -879,31 +879,34 @@ class _FloatingMascotState extends State<FloatingMascot>
           top: (ballTop - 8).clamp(4.0, maxH - 28),
           child: Material(
             type: MaterialType.transparency,
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () {
-                final p = _nudges.pending;
-                if (p.isNotEmpty) _nudges.reopen(p.first.id);
-              },
-              child: Container(
-                width: 24,
-                height: 24,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: eu.surfaceRaised,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: eu.brand.withValues(alpha: 0.55)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: eu.brand.withValues(alpha: 0.45),
-                      blurRadius: 9,
-                      spreadRadius: 1,
-                    ),
-                  ],
-                ),
-                child: const Text(
-                  '💡',
-                  style: TextStyle(fontSize: 12, height: 1),
+            child: DefaultTextStyle(
+              style: const TextStyle(decoration: TextDecoration.none),
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () {
+                  final p = _nudges.pending;
+                  if (p.isNotEmpty) _nudges.reopen(p.first.id);
+                },
+                child: Container(
+                  width: 24,
+                  height: 24,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: eu.surfaceRaised,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: eu.brand.withValues(alpha: 0.55)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: eu.brand.withValues(alpha: 0.45),
+                        blurRadius: 9,
+                        spreadRadius: 1,
+                      ),
+                    ],
+                  ),
+                  child: const Text(
+                    '💡',
+                    style: TextStyle(fontSize: 12, height: 1),
+                  ),
                 ),
               ),
             ),
@@ -928,34 +931,40 @@ class _FloatingMascotState extends State<FloatingMascot>
           width: w,
           child: Material(
             type: MaterialType.transparency,
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: _expandNudge,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 10,
-                ),
-                decoration: BoxDecoration(
-                  color: eu.surfaceRaised,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: eu.border),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.25),
-                      blurRadius: 14,
-                      offset: const Offset(0, 5),
+            child: DefaultTextStyle(
+              style: TextStyle(
+                color: eu.textHi,
+                decoration: TextDecoration.none,
+              ),
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _expandNudge,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: eu.surfaceRaised,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: eu.border),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.25),
+                        blurRadius: 14,
+                        offset: const Offset(0, 5),
+                      ),
+                    ],
+                  ),
+                  child: Text(
+                    n.text,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: eu.textHi,
+                      fontSize: 13.5,
+                      height: 1.35,
                     ),
-                  ],
-                ),
-                child: Text(
-                  n.text,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: eu.textHi,
-                    fontSize: 13.5,
-                    height: 1.35,
                   ),
                 ),
               ),
@@ -981,88 +990,93 @@ class _FloatingMascotState extends State<FloatingMascot>
         width: w,
         child: Material(
           type: MaterialType.transparency,
-          child: Container(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
-            decoration: BoxDecoration(
-              color: eu.surfaceRaised,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: eu.border),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.3),
-                  blurRadius: 18,
-                  offset: const Offset(0, 6),
-                ),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  n.text,
-                  style: TextStyle(
-                    color: eu.textHi,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    height: 1.35,
+          child: DefaultTextStyle(
+            style: TextStyle(color: eu.textHi, decoration: TextDecoration.none),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+              decoration: BoxDecoration(
+                color: eu.surfaceRaised,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: eu.border),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.3),
+                    blurRadius: 18,
+                    offset: const Offset(0, 6),
                   ),
-                ),
-                if (n.body.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 5),
-                    child: Text(
-                      n.body,
-                      style: TextStyle(
-                        color: eu.textMid,
-                        fontSize: 12.5,
-                        height: 1.4,
-                      ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    n.text,
+                    style: TextStyle(
+                      color: eu.textHi,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      height: 1.35,
                     ),
                   ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    if (n.cta == 'log' || n.cta == 'synthesize')
+                  if (n.body.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 5),
+                      child: Text(
+                        n.body,
+                        style: TextStyle(
+                          color: eu.textMid,
+                          fontSize: 12.5,
+                          height: 1.4,
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      if (n.cta == 'log' || n.cta == 'synthesize')
+                        Expanded(
+                          child: SizedBox(
+                            height: 32,
+                            child: FilledButton(
+                              onPressed: () => n.cta == 'synthesize'
+                                  ? _nudgeSynthesize(n)
+                                  : _nudgeAct(n),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: eu.brand,
+                                padding: EdgeInsets.zero,
+                                textStyle: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              child: Text(
+                                n.cta == 'synthesize' ? '✨ 帮我理一理' : '记一笔',
+                              ),
+                            ),
+                          ),
+                        ),
+                      if (n.cta == 'log' || n.cta == 'synthesize')
+                        const SizedBox(width: 8),
                       Expanded(
                         child: SizedBox(
                           height: 32,
-                          child: FilledButton(
-                            onPressed: () => n.cta == 'synthesize'
-                                ? _nudgeSynthesize(n)
-                                : _nudgeAct(n),
-                            style: FilledButton.styleFrom(
-                              backgroundColor: eu.brand,
+                          child: TextButton(
+                            onPressed: () => _nudgeDismiss(n),
+                            style: TextButton.styleFrom(
                               padding: EdgeInsets.zero,
-                              textStyle: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
-                              ),
                             ),
                             child: Text(
-                              n.cta == 'synthesize' ? '✨ 帮我理一理' : '记一笔',
+                              '知道了',
+                              style: TextStyle(color: eu.textMid, fontSize: 13),
                             ),
                           ),
                         ),
                       ),
-                    if (n.cta == 'log' || n.cta == 'synthesize')
-                      const SizedBox(width: 8),
-                    Expanded(
-                      child: SizedBox(
-                        height: 32,
-                        child: TextButton(
-                          onPressed: () => _nudgeDismiss(n),
-                          style: TextButton.styleFrom(padding: EdgeInsets.zero),
-                          child: Text(
-                            '知道了',
-                            style: TextStyle(color: eu.textMid, fontSize: 13),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -1171,6 +1185,7 @@ class _FloatingMascotState extends State<FloatingMascot>
                     color: Colors.white,
                     fontSize: 10,
                     fontWeight: FontWeight.w700,
+                    decoration: TextDecoration.none,
                   ),
                 ),
               );

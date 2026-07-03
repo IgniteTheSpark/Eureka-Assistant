@@ -33,6 +33,7 @@ from agents.skill_factory import (
     make_dispatcher_agent, make_skill_agent, make_custom_skill_agent,
     SKILL_FOLDER_MAP,
 )
+from agents.intent_normalizer import normalize_intents
 from agents.flash_reply import generate_flash_summary
 from core.agent_runner import run_agent
 from core.event_mapper import event_tool_call, event_tool_result
@@ -1122,6 +1123,76 @@ async def _reconcile_turn_orphans(user_id: str, input_turn_id: str, results: lis
         pass
 
 
+async def _drop_unprovenanced_session_assets(
+    user_id: str,
+    session_id: str,
+    input_turn_id: str,
+    results: list,
+) -> list:
+    """Remove surfaced asset results created in this session without this turn FK.
+
+    The skill agents receive provenance as prompt text today. If an LLM copies
+    source_input_turn_id with a one-character UUID typo, the tool can fail and a
+    fallback path may create a same-session asset with source_input_turn_id=NULL.
+    That row is not a valid child of the current flash turn, so do not surface it
+    as a session card. We only delete same-session Asset rows; events/contacts may
+    be updates to existing records and need a narrower provenance model first.
+    """
+    if not session_id or not input_turn_id:
+        return results
+    try:
+        sid = uuid.UUID(str(session_id))
+        tid = uuid.UUID(str(input_turn_id))
+    except (ValueError, TypeError):
+        return results
+
+    from sqlalchemy import delete as _sa_delete
+    from db.models import Asset
+
+    filtered: list = []
+    delete_ids: list[uuid.UUID] = []
+    try:
+        async with AsyncSessionLocal() as db:
+            for r in results:
+                if not isinstance(r, dict) or not r.get("asset_id"):
+                    filtered.append(r)
+                    continue
+                try:
+                    aid = uuid.UUID(str(r["asset_id"]))
+                except (ValueError, TypeError):
+                    filtered.append(r)
+                    continue
+                asset = (await db.execute(
+                    select(Asset).where(Asset.id == aid, Asset.user_id == user_id)
+                )).scalar_one_or_none()
+                if (
+                    asset is not None
+                    and asset.session_id == sid
+                    and asset.source_input_turn_id is None
+                ):
+                    delete_ids.append(aid)
+                    filtered.append({
+                        "ok": False,
+                        "skill": "qa-skill",
+                        "source_text": r.get("source_text", ""),
+                    })
+                    continue
+                if asset is None or asset.source_input_turn_id in (None, tid):
+                    filtered.append(r)
+                else:
+                    filtered.append({
+                        "ok": False,
+                        "skill": "qa-skill",
+                        "source_text": r.get("source_text", ""),
+                    })
+            if delete_ids:
+                await db.execute(_sa_delete(Asset).where(Asset.id.in_(delete_ids)))
+                await db.commit()
+        return filtered
+    except Exception:
+        return results
+
+
 async def run_flash_pipeline(
     user_text: str,
     session_id: str,
@@ -1157,6 +1228,7 @@ async def run_flash_pipeline(
     custom_skills_hint = _format_custom_skills_hint(custom_skill_map)
 
     intents = await _dispatch(user_text, today_str, user_id, custom_skills_hint)
+    intents = normalize_intents(intents, custom_skill_map)
     results = list(
         await asyncio.gather(*[
             _run_intent(
@@ -1165,6 +1237,9 @@ async def run_flash_pipeline(
             )
             for i in intents
         ])
+    )
+    results = await _drop_unprovenanced_session_assets(
+        user_id, session_id, input_turn_id, results
     )
     # §8: apply the dispatcher's per-intent content-domain to each created asset
     # (overrides the skill prior). Skipped for events/contacts/tasks (no asset_id).

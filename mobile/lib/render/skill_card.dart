@@ -32,7 +32,9 @@ final _revisionProvider = StreamProvider<int>((ref) {
 /// freshly-created skill's cards render with its real spec — not the generic
 /// fallback — without an app restart. Riverpod keeps the prior value during the
 /// refetch, so there's no loading flash.
-final renderSpecsProvider = FutureProvider<Map<String, RenderSpec>>((ref) async {
+final renderSpecsProvider = FutureProvider<Map<String, RenderSpec>>((
+  ref,
+) async {
   ref.watch(_revisionProvider);
   final api = ApiClient();
   try {
@@ -68,7 +70,15 @@ class _SkillCardState extends ConsumerState<SkillCard> {
   Map<String, dynamic>? _replacedCard;
 
   Map<String, dynamic> get card => _replacedCard ?? widget.card;
-  String? get _assetId => (card['asset_id'] ?? card['id']) as String?;
+  String? get _assetId {
+    final type = card['card_type'] as String?;
+    final id = switch (type) {
+      'event' => card['event_id'] ?? card['id'] ?? card['asset_id'],
+      'contact' => card['contact_id'] ?? card['asset_id'] ?? card['id'],
+      _ => card['asset_id'] ?? card['id'],
+    };
+    return id as String?;
+  }
 
   @override
   void dispose() {
@@ -100,9 +110,11 @@ class _SkillCardState extends ConsumerState<SkillCard> {
     final eu = context.eu;
     final specs = ref.watch(renderSpecsProvider).valueOrNull ?? const {};
     var data = _resolve(specs);
-    if (widget.layoutOverride != null) data = data.copyWith(layout: widget.layoutOverride);
+    if (widget.layoutOverride != null) {
+      data = data.copyWith(layout: widget.layoutOverride);
+    }
     if (_doneOverride != null) data = data.copyWith(checkDone: _doneOverride);
-    data = data.copyWith(domain: card['domain'] as String?);   // §8 domain chip
+    data = data.copyWith(domain: card['domain'] as String?); // §8 domain chip
 
     final type = card['card_type'] as String?;
     final isEntity = type == 'event' || type == 'contact' || type == 'task';
@@ -183,15 +195,23 @@ class _SkillCardState extends ConsumerState<SkillCard> {
               children: [
                 if (_promoting)
                   SizedBox(
-                    width: 12, height: 12,
-                    child: CircularProgressIndicator(strokeWidth: 1.8, color: eu.brand),
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 1.8,
+                      color: eu.brand,
+                    ),
                   )
                 else
                   Text('✨', style: TextStyle(fontSize: 12, color: eu.brand)),
                 const SizedBox(width: 6),
                 Text(
                   _promoting ? '正在建「$suggest」本子…' : '长期记成「$suggest」本子?',
-                  style: TextStyle(color: eu.brand, fontSize: 12.5, fontWeight: FontWeight.w600),
+                  style: TextStyle(
+                    color: eu.brand,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ],
             ),
@@ -230,7 +250,8 @@ class _SkillCardState extends ConsumerState<SkillCard> {
 
   Future<bool> _confirmAndDelete(String path) async {
     final eu = context.eu;
-    final ok = await showDialog<bool>(
+    final ok =
+        await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
             backgroundColor: eu.surfaceRaised,
@@ -243,8 +264,13 @@ class _SkillCardState extends ConsumerState<SkillCard> {
               ),
               TextButton(
                 onPressed: () => Navigator.pop(ctx, true),
-                child: Text('删除',
-                    style: TextStyle(color: eu.accentRed, fontWeight: FontWeight.w600)),
+                child: Text(
+                  '删除',
+                  style: TextStyle(
+                    color: eu.accentRed,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
             ],
           ),
@@ -285,10 +311,15 @@ class _SkillCardState extends ConsumerState<SkillCard> {
     }
     final type = card['card_type'] as String?;
     if (type == 'event' || type == 'contact' || type == 'task') {
-      return buildCard(payload: card, spec: synthesizeSpec(type!), displayName: type);
+      return buildCard(
+        payload: card,
+        spec: synthesizeSpec(type!),
+        displayName: type,
+      );
     }
     final skill = card['user_skill_name'] as String?;
-    final payload = (card['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final payload =
+        (card['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
     final spec = skill != null ? specs[skill] : null;
     return buildCard(
       payload: payload,
@@ -299,18 +330,22 @@ class _SkillCardState extends ConsumerState<SkillCard> {
 
   CardData _prebuilt() {
     final meta = <({String value, String? format})>[];
-    for (final m in ((card['meta_fields'] as List?) ?? const []).whereType<Map>()) {
+    for (final m
+        in ((card['meta_fields'] as List?) ?? const []).whereType<Map>()) {
       final v = m['value']?.toString() ?? '';
       if (v.isNotEmpty) meta.add((value: v, format: m['format'] as String?));
     }
     // Checkable cards (todo) expose a "check" action → always carry a bool
     // checkDone so the corner checkbox renders and can be toggled. Non-check
     // cards keep checkDone null (emoji icon, no checkbox).
-    final actions = ((card['actions'] as List?) ?? const []).whereType<String>().toSet();
+    final actions = ((card['actions'] as List?) ?? const [])
+        .whereType<String>()
+        .toSet();
     final done = card['status'] == 'done' || card['done'] == true;
     final checkable = actions.contains('check');
     return CardData(
-      layout: (card['card_layout'] ?? card['layout']) as String? ?? 'horizontal',
+      layout:
+          (card['card_layout'] ?? card['layout']) as String? ?? 'horizontal',
       icon: card['icon'] as String? ?? '•',
       accentColor: card['accent_color'] as String? ?? 'gray',
       title: card['title'] as String? ?? '资产',
@@ -356,7 +391,12 @@ CardAccent accentOf(String name, EurekaColors eu) {
     'neutral' => eu.accentNeutral,
     _ => eu.accentNeutral,
   };
-  return CardAccent(fg, fg.withValues(alpha: 0.12), fg.withValues(alpha: 0.30), fg);
+  return CardAccent(
+    fg,
+    fg.withValues(alpha: 0.12),
+    fg.withValues(alpha: 0.30),
+    fg,
+  );
 }
 
 class _CardBody extends StatelessWidget {
@@ -377,7 +417,8 @@ class _CardBody extends StatelessWidget {
     }
   }
 
-  Widget _shell(EurekaColors eu, CardAccent a, {required Widget child}) => Container(
+  Widget _shell(EurekaColors eu, CardAccent a, {required Widget child}) =>
+      Container(
         margin: const EdgeInsets.only(top: 6),
         // minHeight keeps every horizontal card the same size whether or not it
         // has a subtitle/meta line (the user flagged ragged card heights).
@@ -423,7 +464,9 @@ class _CardBody extends StatelessWidget {
           color: done ? a.fg : eu.bg,
           border: Border.all(color: a.fg, width: 1.5),
         ),
-        child: done ? const Icon(Icons.check, size: 10, color: Colors.white) : null,
+        child: done
+            ? const Icon(Icons.check, size: 10, color: Colors.white)
+            : null,
       ),
     );
     return SizedBox(
@@ -468,10 +511,12 @@ class _CardBody extends StatelessWidget {
         if (sub.isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(top: 3),
-            child: Text(sub,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: eu.textMid, fontSize: 12)),
+            child: Text(
+              sub,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: eu.textMid, fontSize: 12),
+            ),
           ),
         if (meta.isNotEmpty)
           Padding(
@@ -505,13 +550,21 @@ class _CardBody extends StatelessWidget {
     );
   }
 
-  Widget _metaPill(({String value, String? format}) m, CardAccent a, EurekaColors eu) {
+  Widget _metaPill(
+    ({String value, String? format}) m,
+    CardAccent a,
+    EurekaColors eu,
+  ) {
     if (m.format == 'badge') {
       // Async-task lifecycle (§4.7.3): map the raw status token to its Chinese
       // label + status accent, and pulse while in-flight (pending/running).
       final life = _lifecycle(m.value, eu);
       if (life != null) {
-        return _LifecyclePill(label: life.label, color: life.color, pulse: life.pulse);
+        return _LifecyclePill(
+          label: life.label,
+          color: life.color,
+          pulse: life.pulse,
+        );
       }
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -520,15 +573,25 @@ class _CardBody extends StatelessWidget {
           borderRadius: BorderRadius.circular(6),
           border: Border.all(color: a.edge),
         ),
-        child: Text(m.value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: a.fg, fontSize: 11, fontWeight: FontWeight.w600)),
+        child: Text(
+          m.value,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: a.fg,
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
       );
     }
     // Plain meta: a mono "· value" chip — 1 line, ellipsized.
-    return Text('· ${m.value}',
-        maxLines: 1, overflow: TextOverflow.ellipsis, style: euMono(fontSize: 11, color: eu.textMid));
+    return Text(
+      '· ${m.value}',
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: euMono(fontSize: 11, color: eu.textMid),
+    );
   }
 
   Widget _horizontal(BuildContext context) {
@@ -574,13 +637,17 @@ class _CardBody extends StatelessWidget {
               Expanded(child: _titleRow(eu)),
             ],
           ),
-          if (data.subtitle.isNotEmpty || data.metaFields.isNotEmpty) _subAndMeta(eu, a),
+          if (data.subtitle.isNotEmpty || data.metaFields.isNotEmpty)
+            _subAndMeta(eu, a),
         ],
       ),
     );
   }
 
-  ({String label, Color color, bool pulse})? _lifecycle(String raw, EurekaColors eu) {
+  ({String label, Color color, bool pulse})? _lifecycle(
+    String raw,
+    EurekaColors eu,
+  ) {
     switch (raw) {
       case 'pending':
         return (label: '待处理', color: eu.accentAmber, pulse: true);
@@ -611,10 +678,12 @@ class _CardBody extends StatelessWidget {
           Text(data.icon, style: const TextStyle(fontSize: 14)),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(data.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: eu.textHi, fontSize: 13)),
+            child: Text(
+              data.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: eu.textHi, fontSize: 13),
+            ),
           ),
         ],
       ),
@@ -628,21 +697,28 @@ class _LifecyclePill extends StatefulWidget {
   final String label;
   final Color color;
   final bool pulse;
-  const _LifecyclePill({required this.label, required this.color, required this.pulse});
+  const _LifecyclePill({
+    required this.label,
+    required this.color,
+    required this.pulse,
+  });
 
   @override
   State<_LifecyclePill> createState() => _LifecyclePillState();
 }
 
-class _LifecyclePillState extends State<_LifecyclePill> with SingleTickerProviderStateMixin {
+class _LifecyclePillState extends State<_LifecyclePill>
+    with SingleTickerProviderStateMixin {
   AnimationController? _c;
 
   @override
   void initState() {
     super.initState();
     if (widget.pulse) {
-      _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 900))
-        ..repeat(reverse: true);
+      _c = AnimationController(
+        vsync: this,
+        duration: const Duration(milliseconds: 900),
+      )..repeat(reverse: true);
     }
   }
 
@@ -676,8 +752,14 @@ class _LifecyclePillState extends State<_LifecyclePill> with SingleTickerProvide
                   child: dot,
                 ),
           const SizedBox(width: 5),
-          Text(widget.label,
-              style: TextStyle(color: widget.color, fontSize: 11, fontWeight: FontWeight.w600)),
+          Text(
+            widget.label,
+            style: TextStyle(
+              color: widget.color,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ],
       ),
     );

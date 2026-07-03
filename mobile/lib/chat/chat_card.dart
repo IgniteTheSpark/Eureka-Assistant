@@ -9,6 +9,19 @@ const _queryTools = {
   'tool_query_contact',
   'tool_query_input_turn',
   'tool_query_digest',
+  'tool_get_event',
+  'tool_get_asset',
+  'tool_get_contact',
+  'tool_get_input_turn',
+  'query_asset',
+  'query_event',
+  'query_contact',
+  'query_input_turn',
+  'query_digest',
+  'get_event',
+  'get_asset',
+  'get_contact',
+  'get_input_turn',
 };
 
 /// True for tools whose result is not a renderable *created* card (queries).
@@ -54,7 +67,11 @@ List<Map<String, dynamic>> extractCards(Map<String, dynamic> response) {
 Map<String, dynamic>? _tag(Map<String, dynamic> d) {
   if (d['task_id'] != null) return {...d, 'card_type': 'task'};
   if (d['asset_id'] != null && d['payload'] != null) return d;
-  if (d['event_id'] != null && d['title'] != null) return {...d, 'card_type': 'event'};
-  if (d['contact_id'] != null && d['name'] != null) return {...d, 'card_type': 'contact'};
+  if (d['event_id'] != null && d['title'] != null) {
+    return {...d, 'card_type': 'event'};
+  }
+  if (d['contact_id'] != null && d['name'] != null) {
+    return {...d, 'card_type': 'contact'};
+  }
   return null;
 }

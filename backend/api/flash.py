@@ -650,10 +650,13 @@ async def tencent_asr_sync_results(
                 existing.asr_error = terminal_message if asr_failed else None
                 existing.error_message = terminal_message or None
                 existing.tencent_error_message = terminal_message or None
-                existing.process_status = "asr_done" if text and not asr_failed else "done"
-                existing.result_summary = "" if existing.process_status == "done" else existing.result_summary
-                existing.result_cards = [] if existing.process_status == "done" else existing.result_cards
-                existing.processed_at = _now() if existing.process_status == "done" else existing.processed_at
+                existing.process_status = (
+                    "failed" if asr_failed else ("asr_done" if text else "done")
+                )
+                if existing.process_status in {"done", "failed"}:
+                    existing.result_summary = ""
+                    existing.result_cards = []
+                    existing.processed_at = _now()
                 existing.updated_at = _now()
                 if file:
                     file.asr_status = "failed" if asr_failed else "completed"
@@ -713,7 +716,9 @@ async def tencent_asr_sync_results(
                 tencent_task_response=raw_response,
                 tencent_result_response=raw_response,
                 upload_status="uploaded",
-                process_status="asr_done" if text and not asr_failed else "done",
+                process_status=(
+                    "failed" if asr_failed else ("asr_done" if text else "done")
+                ),
                 asr_provider=asr_provider,
                 asr_text=text,
                 asr_segments=segments,
@@ -751,7 +756,10 @@ async def tencent_asr_sync_results(
             asr_status,
             terminal_message,
         )
-        publish_flash_file_status(recording, "done", terminal_message or "识别失败已记录")
+        if recording.process_status == "failed":
+            publish_flash_file_status(recording, "failed", terminal_message or "识别失败已记录")
+        else:
+            publish_flash_file_status(recording, "done", terminal_message or "文件没内容")
     logger.info(
         "%s client sync ASR response recording=%s file_id=%s duplicate=%s process_status=%s asr_status=%s text_len=%s message=%s",
         LOG_TAG,
