@@ -2,7 +2,7 @@
 
 > 给 **coding agent + design** 的实施范围。两块合一,因为它们是**同一个闭环**:
 > **§14 Type B 给你一份报告 → §6.13 把报告里的下一步变成待办 → §14 Type A 在该做时提醒你。** REKA 把「洞察 → 行动 → 跟进」串起来。
-> 规则真值见 [§6.13](06-synthesis-report.md) · [§14](14-proactive-reka.md)。**按 Phase 顺序做,前 Phase 不依赖后 Phase、可独立上线。**
+> 规则真值见 [§6.13](../06-synthesis-report.md) · [§14](../14-proactive-reka.md)。**按 Phase 顺序做,前 Phase 不依赖后 Phase、可独立上线。**
 > `:::actions` 的 prompt 成稿已在 [`handoff-report-prompts-v2.md`](handoff-report-prompts-v2.md)(idea-synthesis/data-report 已含,proposal 同理待加)。
 
 ---
@@ -18,7 +18,7 @@
 | **前端(✅)** | `report_viewer_page` **WebView 下方**原生「✦ 接下来」行动条:每条 `+ 待办` + 顶部 `全部加到待办`(走 `/api/reports/{id}/actions`,服务端建 todo+溯源)+ **防重**(已建转「已加 ✓」);`asset_detail_sheet` 待办详情显「来自报告《X》· 查看报告」(点开原报告) | 点 `+ 待办` 一键建 + toast;待办详情显来源、可点回报告;重复点不重复建 ✅ |
 
 **v1**:todo 单类型、一键直建。**后置**:`+ 日程`(time-bound→event)、点 `+` 先开预填编辑表单、其它技能类型。
-（= [§6.12](06-synthesis-report.md) 的「批 5」,**别重复建**;此处把它并进 REKA 闭环统一交付。）
+（= [§6.12](../06-synthesis-report.md) 的「批 5」,**别重复建**;此处把它并进 REKA 闭环统一交付。）
 
 ---
 
@@ -74,13 +74,13 @@ Phase 2(主动核心)─ Phase 3(晨间简报)─ Phase 4(Type B + search)
 
 ## Out of scope（别做）
 
-- Free/Pro 付费墙与计费([§12](12-business-model.md) pending;Phase 4 只做配额计数+硬上限,**不接 billing**)。
-- [§10](10-game-config.md)/[§11](11-admin.md) admin·game-config、§6.11 卡片微点评(已 pending)、[§1.5.1.1/.2/.3](01-agent-architecture.md) chat 健壮性(另一条线)。
+- Free/Pro 付费墙与计费([§12](../12-business-model.md) pending;Phase 4 只做配额计数+硬上限,**不接 billing**)。
+- [§10](../10-game-config.md)/[§11](../11-admin.md) admin·game-config、§6.11 卡片微点评(已 pending)、[§1.5.1.1/.2/.3](../01-agent-architecture.md) chat 健壮性(另一条线)。
 - 把 nudge 决策做成 per-tick LLM(成本铁律:确定性 + 统计 + 模板)。
 
 ## 读这些
 
-§6.13 · §14(全)· §6.2/§6.3(报告管线)· §7.3(缺口型/阈值型触发,§14 复用)· §3+§9(通知 feed)· §1.6(task-skill)· §1.5.1(锚定 session)· 成本 [§12](12-business-model.md)。
+§6.13 · §14(全)· §6.2/§6.3(报告管线)· §7.3(缺口型/阈值型触发,§14 复用)· §3+§9(通知 feed)· §1.6(task-skill)· §1.5.1(锚定 session)· 成本 [§12](../12-business-model.md)。
 
 ## 分工(prompt / 基建 / design)
 

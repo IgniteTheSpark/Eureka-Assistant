@@ -3,7 +3,7 @@
 > **⚠️ 范围更新（2026-06）**：本卡现在 = **日历侧**（流 / 月 / DayDetail 段视图 + 闪念移出流，大多**已落地**）。**「今日页」已重新定义**为首页 landing（Next Action + 气泡池），**实现卡见 [handoff-today-landing.md](handoff-today-landing.md)**；下文凡提"今日页 = 段视图"的均**作废**（段视图归日历，不归今日页）。
 >
 > 一句话（原）:日历的一天渲染从「按时间戳排一条流」改成「5 时段 + 闪念 chip」;原始闪念移出流 → `⚡N` pill。
-> 规则真值见 [§4.5.0 / 4.5.0a / 4.5.0b](04-frontend.md) · [§2 §3.6 assets.period/occurred_at](02-data-model.md) · [§1.3 时段抽取](01-agent-architecture.md) · [§14.6 晨报并入今日页](14-proactive-reka.md)。
+> 规则真值见 [§4.5.0 / 4.5.0a / 4.5.0b](../04-frontend.md) · [§2 §3.6 assets.period/occurred_at](../02-data-model.md) · [§1.3 时段抽取](../01-agent-architecture.md) · [§14.6 晨报并入今日页](../14-proactive-reka.md)。
 > **产品已拍板的决策**(2026-06):
 > ① 今日页做 tab0、日历收进 📅、底部仍 3 tab、Reka 留在浮球+我的岛(不挂今日页);
 > ② **没说时间 → 用捕捉(闪念)时刻落段**(默认即捕捉时刻);**`period` 只为"用户说了模糊时段"兜底**、`occurred_at` 只为"说了钟点"精确排序;**没有"无时间"大桶**;
@@ -13,8 +13,8 @@
 
 ---
 
-> ### 实施状态(✅ 2026-06,真值见 [§4.5 落地块](04-frontend.md))
-> **已落地**:数据列 `period`/`occurred_at`([§2](02-data-model.md))+ agent 时段抽取([§1.3](01-agent-architecture.md));段视图(DayDetail 非日程 = `DayRender`、流/月 = stream-safe `_BandView`,同段逻辑);今日页骨架;闪念移出流 + pill;日历降级到 📅;月**单网格** + 选中日 footer;晨报并入今日页 hero([§14.6](14-proactive-reka.md))。
+> ### 实施状态(✅ 2026-06,真值见 [§4.5 落地块](../04-frontend.md))
+> **已落地**:数据列 `period`/`occurred_at`([§2](../02-data-model.md))+ agent 时段抽取([§1.3](../01-agent-architecture.md));段视图(DayDetail 非日程 = `DayRender`、流/月 = stream-safe `_BandView`,同段逻辑);今日页骨架;闪念移出流 + pill;日历降级到 📅;月**单网格** + 选中日 footer;晨报并入今日页 hero([§14.6](../14-proactive-reka.md))。
 > **本轮设计迭代(覆盖本卡下面的旧描述):** 流改 **左日期/右内容 两栏**(左列 日期 + `⚡N` pill sticky 一起滚、右内容各时段 block 装进一个「day 容器」、**无固定 content header**);**闪念 pill = 「⚡N」(去「闪念」字),点 → 直接进「X月X日 闪念」session**(**去掉 `DayFlashView` 当日列表过渡页**);**没说时间** = 底部「**没有时间**」兜底段 +（说了时段没说钟点的）沉该段段尾、虚线、不显时刻;**月 footer = sticky 日头**(日期·周几 + `⚡N` 最右,**无时段、无「更多」**);**空日 = 更宽的斜纹空块 + 两段式引导语**(点空块露引导语、再点才弹 sheet);**领域 tag 进流/月卡片**(timeline item 加 `domain`)。
 > **❌ 砍掉**:本卡「前端 · 纠错(时段选择器)」—— 经用户确认多余,asset 详情/编辑的时段 picker **已移除**(`asset_detail_sheet.dart` 不再有 `_pickPeriod`)。
 > **⏳ 下一步(Part B,未做)**:DayDetail「日程」24h 网格放**待办**(有时刻小块 / 撞长事件 = 带标题瘦 chip / 同点 N 个 = 计数 chip 点开 / 无时刻 = 顶部「待安排」条)+ **重叠分列规则** + 结果记录收进顶部「记录·按类型」定高容器。设计见 [`handoff-calendar-design.md`](handoff-calendar-design.md) §B + 线框 `日历改版线框.dc.html`。
@@ -77,7 +77,7 @@
 
 ## 读这些
 
-[§4.5.0 今日页](04-frontend.md) · [§4.5.0a 一天渲染](04-frontend.md) · [§4.5.0b 当日闪念](04-frontend.md) · [§2 §3.6 assets](02-data-model.md) · [§1.3 时段抽取](01-agent-architecture.md) · [§14.6 晨报](14-proactive-reka.md) · §8 领域(段内卡的领域 chip)。
+[§4.5.0 今日页](../04-frontend.md) · [§4.5.0a 一天渲染](../04-frontend.md) · [§4.5.0b 当日闪念](../04-frontend.md) · [§2 §3.6 assets](../02-data-model.md) · [§1.3 时段抽取](../01-agent-architecture.md) · [§14.6 晨报](../14-proactive-reka.md) · §8 领域(段内卡的领域 chip)。
 
 ## 分工
 

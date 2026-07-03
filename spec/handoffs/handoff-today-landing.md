@@ -1,21 +1,23 @@
 # Handoff（工程）· 今日页 landing 实现 — 给 coding agent
 
+> **Historical / Superseded.** 本卡记录 2026-06-22 已落地的旧首页 landing（Next Action + Dashboard + 气泡池）。当前首页重设计以 [handoff-today-home-design.md](handoff-today-home-design.md) + [redesign-home-B.md](../design/redesign-home-B.md) + [04-frontend.md](../04-frontend.md) 为准；不要按本卡新开实现。
+
 > **今日页 = 首页 tab0 landing**，两块：**① Next Action** + **② Recorded（Dashboard + 气泡池）**，浮在一个全屏物理气泡场之上，Reka 浮球在最上层。
-> **三份真值**：逻辑 / 数据 / 决策 = [§4.5.0](04-frontend.md)；**hifi 视觉 / 动效 / 物理参数 = [prototype-today-page.md](prototype-today-page.md)**（用户原型 README，逐字）；设计意图 = [handoff-calendar-design §E](handoff-calendar-design.md)。
+> **三份真值**：逻辑 / 数据 / 决策 = [§4.5.0](../04-frontend.md)；**hifi 视觉 / 动效 / 物理参数 = [prototype-today-page.md](../archive/prototype-today-page.md)**（用户原型 README，逐字）；设计意图 = [handoff-calendar-design §E](handoff-calendar-design.md)。
 > 本卡 = **实施范围 + 对齐 + 复用 + 别做 + 顺序**。
 >
-> **✅ 已落地 2026-06-22**（branch `feat/today-page-landing`）—— nav + Part 1 + Part 2（池 + dashboard + 三图）+ 记录详情 + 4 边态全部真机验过；**决策 / 与原型的偏差**见 [04-frontend §4.5.0「已落地」块](04-frontend.md)。本卡留作实施记录。
+> **✅ 已落地 2026-06-22**（branch `feat/today-page-landing`）—— nav + Part 1 + Part 2（池 + dashboard + 三图）+ 记录详情 + 4 边态全部真机验过；**决策 / 与原型的偏差**见 [04-frontend §4.5.0「已落地」块](../04-frontend.md)。本卡留作实施记录。
 
 ---
 
 ## 0. 对齐（按 spec、别照原型 demo 的这几处）
 
-- **域色 = §8 八色**（工作/学习/健康/运动/社交/娱乐/生活/灵感）—— 原型写的 6 色 /「财务」是 demo 样本，忽略；记账记录的域 = 生活（[§5.1](05-design-system.md) / §8）。
+- **域色 = §8 八色**（工作/学习/健康/运动/社交/娱乐/生活/灵感）—— 原型写的 6 色 /「财务」是 demo 样本，忽略；记账记录的域 = 生活（[§5.1](../05-design-system.md) / §8）。
 - **闪念 = `⚡N` pill → 当日 flash session，不进池、不是记录类型**（原型把 flash 当一种记录类型，去掉它的池气泡 + 类型 chip）。
-- **早报 merge 进 Next Action**（不再独立晨报页，[§14.6](14-proactive-reka.md)）。
+- **早报 merge 进 Next Action**（不再独立晨报页，[§14.6](../14-proactive-reka.md)）。
 - **Reka = 全局悬浮球**（已存在，§9.2），不当首页主角、不做仪表盘。
 - **不 port `support.js`**（原型运行时引擎）；**不建原型右侧 DEMO 面板**（重力按钮 / 晃一晃 / 记一条 / 场景切换 = 调试架）。
-- **nav = 今日 / 日历 / 资产**（日历回底栏 tab）；**我的岛 → Reka 浮球雷达菜单**（[§4.1](04-frontend.md)）。
+- **nav = 今日 / 日历 / 资产**（日历回底栏 tab）；**我的岛 → Reka 浮球雷达菜单**（[§4.1](../04-frontend.md)）。
 
 ## 1. 实施范围
 
@@ -56,7 +58,7 @@
 
 - 不 port `support.js`、不建 DEMO 调试面板。
 - 不照 demo 的 6 域色 / 不把闪念当记录类型。
-- **不把"段视图"放今日页** —— 段视图（5 时段）是**日历 流 / DayDetail** 的（[§4.5.0a](04-frontend.md) / §4.5.4），不是今日页。
+- **不把"段视图"放今日页** —— 段视图（5 时段）是**日历 流 / DayDetail** 的（[§4.5.0a](../04-frontend.md) / §4.5.4），不是今日页。
 - 物理别过度（休眠去抖是关键，避免常驻 RAF 烧电）。
 
 ## 6. 建议顺序
@@ -74,4 +76,4 @@
 
 ## 读这些
 
-[§4.5.0 今日页](04-frontend.md)（逻辑真值）· [prototype-today-page.md](prototype-today-page.md)（hifi 视觉/动效/物理，逐字）· [handoff-calendar-design §E](handoff-calendar-design.md)（设计意图）· [§4.1 dock](04-frontend.md) · [§8 领域 + §5.1 颜色](08-domain-system.md) · [§14.6 早报](14-proactive-reka.md)。
+[§4.5.0 今日页](../04-frontend.md)（逻辑真值）· [prototype-today-page.md](../archive/prototype-today-page.md)（hifi 视觉/动效/物理，逐字）· [handoff-calendar-design §E](handoff-calendar-design.md)（设计意图）· [§4.1 dock](../04-frontend.md) · [§8 领域 + §5.1 颜色](../08-domain-system.md) · [§14.6 早报](../14-proactive-reka.md)。

@@ -1,8 +1,10 @@
 # 今日页 (Today Page landing) Implementation Plan
 
-> **✅ 已落地 2026-06-22** (branch `feat/today-page-landing`) — Slice 0–7 全部完成、4 边态真机验过；落地决策 / 与原型的偏差见 [04-frontend §4.5.0「已落地」块](04-frontend.md)。下文留作实施记录。
+> **Historical / Superseded.** 本计划记录旧首页 landing 的实施路径，已落地并被新首页模型取代。当前首页重设计以 [handoff-today-home-design.md](../handoffs/handoff-today-home-design.md) + [redesign-home-B.md](../design/redesign-home-B.md) + [04-frontend.md](../04-frontend.md) 为准。
 
-> **For agentic workers:** implement task-by-task; steps use `- [ ]`. This is a **Flutter mobile UI feature** — the TDD default is adapted (see "Verification model"). Truth sources, read first: [handoff-today-landing.md](handoff-today-landing.md) (scope/order), [prototype-today-page.md](prototype-today-page.md) (verbatim hifi tokens/motion/physics constants), [04-frontend §4.5.0](04-frontend.md) (logic/data). The prototype README is the **verbatim visual spec** — this plan references its exact tokens rather than re-typing them; "see README §X" means copy those literal values.
+> **✅ 已落地 2026-06-22** (branch `feat/today-page-landing`) — Slice 0–7 全部完成、4 边态真机验过；落地决策 / 与原型的偏差见 [04-frontend §4.5.0「已落地」块](../04-frontend.md)。下文留作实施记录。
+
+> **For agentic workers:** implement task-by-task; steps use `- [ ]`. This is a **Flutter mobile UI feature** — the TDD default is adapted (see "Verification model"). Truth sources, read first: [handoff-today-landing.md](../handoffs/handoff-today-landing.md) (scope/order), [prototype-today-page.md](prototype-today-page.md) (verbatim hifi tokens/motion/physics constants), [04-frontend §4.5.0](../04-frontend.md) (logic/data). The prototype README is the **verbatim visual spec** — this plan references its exact tokens rather than re-typing them; "see README §X" means copy those literal values.
 
 **Goal:** Replace tab0 with a new `TodayPage` home: two frosted panels (① Next Action card-fan, ② Dashboard) floating over a ③ full-screen physics bubble pool of today's captured assets, with Reka on top.
 
@@ -95,7 +97,7 @@ Reuse (do not rebuild): `EurekaColors` (`theme/eureka_colors.dart`), `domainColo
 **Files:** Create `mobile/lib/today/today_data.dart`
 - [ ] Define `ChainItem` ({String kind /*event|todo*/, String id, String title, String sub, String domain, DateTime at, Duration? dur, String? note, bool done}) and `PoolAsset` ({String id, String type /*skill name*/, String domain, String title, Map payload, DateTime createdAt}) and `TodayData` ({List<ChainItem> chain, List<ChainItem> noTimeTodos, List<PoolAsset> pool, int poolTrueCount, int flashCount}).
 - [ ] `Future<TodayData> loadToday(ApiClient api)`:
-  - **chain**: `GET /api/timeline?from=<todayStart ISO+08>&to=<todayEnd ISO+08>`; keep items where `kind=='event'` (→ ChainItem at=start_at, dur from end_at) or (`kind=='asset' && skill_name=='todo'`); split: items with a clock time (`has_clock_time` true or event) and `at >= now` → `chain` (sort `at` asc); todos without a clock time → `noTimeTodos`. (Timeline item fields per [§3.8](03-api-reference.md): `effective_at`, `has_clock_time`, `domain`, `payload`, `kind`, `skill_name`, `end_at`.)
+  - **chain**: `GET /api/timeline?from=<todayStart ISO+08>&to=<todayEnd ISO+08>`; keep items where `kind=='event'` (→ ChainItem at=start_at, dur from end_at) or (`kind=='asset' && skill_name=='todo'`); split: items with a clock time (`has_clock_time` true or event) and `at >= now` → `chain` (sort `at` asc); todos without a clock time → `noTimeTodos`. (Timeline item fields per [§3.8](../03-api-reference.md): `effective_at`, `has_clock_time`, `domain`, `payload`, `kind`, `skill_name`, `end_at`.)
   - **pool**: `GET /api/assets?created_from=<todayStart>&created_to=<todayEnd>&limit=500`; map to `PoolAsset` (domain, skill_name→type, payload, created_at); `poolTrueCount = list.length`; cap `pool = list.take(50)`.
   - **flashCount**: `GET /api/sessions?session_type=flash` → count those whose `created_at`/`date` is today (reuse the date helper).
   - Beijing day bounds: `_todayBounds()` → today 00:00:00 / 23:59:59 at +08:00 (mirror `_isoBeijing`).
@@ -215,7 +217,7 @@ Reuse (do not rebuild): `EurekaColors` (`theme/eureka_colors.dart`), `domainColo
 - [ ] Commit each fix.
 
 ### Task 7.2: spec sync
-- [ ] Update [04-frontend §4.5.0](04-frontend.md) + [handoff-today-landing.md](handoff-today-landing.md) status → ✅ landed (commit refs), note the resolved decisions (engine=self-written, cap=50, battery gating).
+- [ ] Update [04-frontend §4.5.0](../04-frontend.md) + [handoff-today-landing.md](../handoffs/handoff-today-landing.md) status → ✅ landed (commit refs), note the resolved decisions (engine=self-written, cap=50, battery gating).
 - [ ] Commit `docs(spec): Today page landed`
 
 ---

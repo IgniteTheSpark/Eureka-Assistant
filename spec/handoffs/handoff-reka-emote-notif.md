@@ -1,7 +1,7 @@
 # Handoff · Reka emote + 对话气泡容器 + 通知持久化 — 给 coding + design
 
 > 三块一起,因为是同一套「Reka 的表达层」:**① emote 表情**(头顶 pop + 通知图标)· **② 统一对话气泡容器**(菜单/peek/chat/nudge 共用)· **③ 通知持久化**(dismiss 后还找得到)。
-> **真值**：[§9.2 emote 叠层](09-pet.md) · [§9.2.0 Reka 气泡容器](09-pet.md) · [§14.7 nudge 展示+持久化](14-proactive-reka.md) · [§2 §3.14 notifications](02-data-model.md) · [§9.2 通知收敛](09-pet.md)。
+> **真值**：[§9.2 emote 叠层](../09-pet.md) · [§9.2.0 Reka 气泡容器](../09-pet.md) · [§14.7 nudge 展示+持久化](../14-proactive-reka.md) · [§2 §3.14 notifications](../02-data-model.md) · [§9.2 通知收敛](../09-pet.md)。
 > **资产已 vendor**：`mobile/assets/emotes/`（`pixel-balloon/` 30 白气球 + `pixel-flat/` 30 透明符号 + `KENNEY-LICENSE.txt`，**CC0 商用免费**，credit Kenney 可选）。
 
 ---
@@ -75,4 +75,4 @@
 - 不为了像素气泡牺牲数据界面的高级感（分层）。
 
 ## 读这些
-[§9.2 emote + 通知收敛](09-pet.md) · [§9.2.0 气泡容器](09-pet.md) · [§14.7 nudge 展示 + 持久化](14-proactive-reka.md) · [§14.4 Type A](14-proactive-reka.md) · [§2 §3.14 notifications](02-data-model.md) · [§14.8 护栏](14-proactive-reka.md)。
+[§9.2 emote + 通知收敛](../09-pet.md) · [§9.2.0 气泡容器](../09-pet.md) · [§14.7 nudge 展示 + 持久化](../14-proactive-reka.md) · [§14.4 Type A](../14-proactive-reka.md) · [§2 §3.14 notifications](../02-data-model.md) · [§14.8 护栏](../14-proactive-reka.md)。

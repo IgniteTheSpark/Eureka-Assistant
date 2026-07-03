@@ -1,12 +1,12 @@
 # Handoff（设计专用）· 日历 / 今日页 改版
 
 > **给设计 agent（claude design / `/design-shotgun` → `/design-html`）。** 这是一份**设计 brief**，不是工程任务卡 —— 讲清要设计哪些屏、每屏的结构 / 状态 / 边角、必须打中什么、以及哪些是你来定的。
-> **规则真值（数据 / 落位逻辑，别在这里重新推）**：[§4.5.0 今日页](04-frontend.md) · [§4.5.0a 段视图 DayRender](04-frontend.md) · [§4.5.0b 当日闪念](04-frontend.md) · [§4.5.4 日程/非日程 + DayDetail](04-frontend.md) · 工程实施卡 [`handoff-today-page.md`](handoff-today-page.md)。
+> **规则真值（数据 / 落位逻辑，别在这里重新推）**：[§4.5.0 今日页](../04-frontend.md) · [§4.5.0a 段视图 DayRender](../04-frontend.md) · [§4.5.0b 当日闪念](../04-frontend.md) · [§4.5.4 日程/非日程 + DayDetail](../04-frontend.md) · 工程实施卡 [`handoff-today-page.md`](handoff-today-page.md)。
 
 ---
 
 > ### ✅ 实施状态(2026-06)
-> **流 / 月 已落地**：本文 §2.1 / §2.5 / §2.6 的设计意图大多落地,但**最终形态经多轮真机迭代**,以 [`04-frontend.md` §4.5 落地块](04-frontend.md) 为准 —— 概括:流 = **左日期 / 右内容两栏**(日期 + `⚡N` sticky 左列、右内容各时段 block 装进一个「day 容器」、**无 content header**、**卡 = 悬浮卡(去边框 + 暖软阴影)+ 领域右对齐小色点**(taste-pass,见 §B)、色温段色);闪念 pill = **「⚡N」点直接进「X月X日 闪念」session**(**无 DayFlashView 过渡页**);没说时间 → 底部「**没有时间**」兜底段(说了时段没钟点的沉段尾、淡填充);月 footer = **sticky 日头**(`⚡N` 最右、**无时段 / 无「更多」**);空日 = **斜纹空块 + 两段式引导语**。
+> **流 / 月 已落地**：本文 §2.1 / §2.5 / §2.6 的设计意图大多落地,但**最终形态经多轮真机迭代**,以 [`04-frontend.md` §4.5 落地块](../04-frontend.md) 为准 —— 概括:流 = **左日期 / 右内容两栏**(日期 + `⚡N` sticky 左列、右内容各时段 block 装进一个「day 容器」、**无 content header**、**卡 = 悬浮卡(去边框 + 暖软阴影)+ 领域右对齐小色点**(taste-pass,见 §B)、色温段色);闪念 pill = **「⚡N」点直接进「X月X日 闪念」session**(**无 DayFlashView 过渡页**);没说时间 → 底部「**没有时间**」兜底段(说了时段没钟点的沉段尾、淡填充);月 footer = **sticky 日头**(`⚡N` 最右、**无时段 / 无「更多」**);空日 = **斜纹空块 + 两段式引导语**。
 > **DayDetail「日程」24h 网格放待办 = ✅ 已落地(Part B,2026-06)** —— 设计 + 落地状态见下方 **§B**(桶分 / 计数 chip / ○ 勾选 / 待安排条已实现;点状待办撞长事件的"左半瘦 chip"形态待下轮 polish)。
 
 ---
@@ -14,7 +14,7 @@
 ## 0. 产品 · 受众 · 品牌（设计前必读）
 
 - **产品**：UReka —— 面向**普通人**（宝妈 / 保姆 / 老人 / 学生）的 AI 记录伙伴。陪伴宠物叫 **Reka**（蓝色果冻身 + 头顶金色宝石徽记，渲染器见 `mobile/assets/js/mascot.js`）。
-- **Reka 的"声音" = 统一对话气泡 + emote（[§9.2.0](09-pet.md) / [§9.2](09-pet.md)）**：菜单 / peek / nudge / chat 都用**带尾巴指向球球的气泡**（Kenney 形，9-slice 或重画 + **按日夜主题 / aura 染色** + 毛玻璃芯）；Reka 头顶 / 通知图标用 **Kenney emote**（idea/cash/?/!/Z/★…，CC0，`mobile/assets/emotes/`，**gentle-only：不摆怒 / 哭 / 碎心脸**）。**Reka 的声音可萌，数据界面仍高级**（分层）。
+- **Reka 的"声音" = 统一对话气泡 + emote（[§9.2.0](../09-pet.md) / [§9.2](../09-pet.md)）**：菜单 / peek / nudge / chat 都用**带尾巴指向球球的气泡**（Kenney 形，9-slice 或重画 + **按日夜主题 / aura 染色** + 毛玻璃芯）；Reka 头顶 / 通知图标用 **Kenney emote**（idea/cash/?/!/Z/★…，CC0，`mobile/assets/emotes/`，**gentle-only：不摆怒 / 哭 / 碎心脸**）。**Reka 的声音可萌，数据界面仍高级**（分层）。
 - **基调铁律**：**温暖、简单、不像填表 / 不像表格。** 这群人最怕"工具感"。一条天的内容要读起来像**一条温柔的时间线**，不是 Excel。
 - **真实调色板**（深色为主，源 `mobile/lib/theme/eureka_colors.dart`，**务必沿用**）：
   - bg `#0B1220` · surface `#0E1422` · raised `#121A2B`
@@ -214,7 +214,7 @@
 
 ## §C · item 展示 = 标题①② + wizard 双预览 / regenerate（2026-06 讨论定 · 新需求）
 
-> 起因:截图里流/月的 item 是「一个模子 `[时间][emoji][文字]`」,不 intuitive —— 测试随记和真会议长一样、内容太薄(如「💰 125」)。真值:[§4.5.0a](04-frontend.md)(流行内容)+ [§4.8](04-frontend.md)(wizard)。
+> 起因:截图里流/月的 item 是「一个模子 `[时间][emoji][文字]`」,不 intuitive —— 测试随记和真会议长一样、内容太薄(如「💰 125」)。真值:[§4.5.0a](../04-frontend.md)(流行内容)+ [§4.8](../04-frontend.md)(wizard)。
 
 ### C.1 流 / 月 每条 item = 「标题行」
 
@@ -241,7 +241,7 @@
 
 ## §D · 颜色逻辑收敛（2026-06 定）
 
-> 起因:流按「领域」上小色点、库按「per-skill accent」给容器染底 —— **两套含义、颜色太多**。**收敛成一条**。真值:[§5.1](05-design-system.md) + [§8.3](08-domain-system.md)。
+> 起因:流按「领域」上小色点、库按「per-skill accent」给容器染底 —— **两套含义、颜色太多**。**收敛成一条**。真值:[§5.1](../05-design-system.md) + [§8.3](../08-domain-system.md)。
 
 - **颜色 = 「生活领域」单一轴**(8 域:工作/学习/健康/运动/社交/娱乐/生活/灵感),一套 8 色板。
 - **退役 per-skill accent 选色**:卡片 / 库容器**本体单色**(neutral surface + 软阴影),**不再按技能 accent 染底**;wizard 去掉 7 色选色。
@@ -256,7 +256,7 @@
 
 > **⚠️ 已被重设计取代(2026-06):首页 home 的最新设计真值 = [`handoff-today-home-design.md`](handoff-today-home-design.md)**(气泡池 + 双屏【今日安排⇄Reka Offer】各墙/Tinder + 长按球同类浮层;**3 图表 dashboard / swipe 卡流 / 独立晨报 已废**)。下文 §E 描述的是更早一版,**仅供溯源**,以新 handoff 为准。
 
-> **hifi 视觉真值 = 用户 prototype（`design_handoff_today_page` README，含完整 tokens / 动效 / 物理参数）**；本节 = 结构 + 我们的几处对齐。逻辑真值 [§4.5.0](04-frontend.md)。**不是今天的段视图**（回看 = §2.5 / §2.6）。两块面板浮在**全屏物理气泡场**之上，Reka 浮球在最上层。**nav 改**：底栏 = 今日 / 日历 / 资产；我的岛 → Reka 浮球菜单。
+> **hifi 视觉真值 = 用户 prototype（`design_handoff_today_page` README，含完整 tokens / 动效 / 物理参数）**；本节 = 结构 + 我们的几处对齐。逻辑真值 [§4.5.0](../04-frontend.md)。**不是今天的段视图**（回看 = §2.5 / §2.6）。两块面板浮在**全屏物理气泡场**之上，Reka 浮球在最上层。**nav 改**：底栏 = 今日 / 日历 / 资产；我的岛 → Reka 浮球菜单。
 
 **Part 1 · Next Action（接下来）**
 - **扇形卡叠（C-fan）**：2 张虚化偏转 peek 卡 + 焦点卡（**固定高**，事件 / 待办不变形）；**左右滑**切换、到点 / 完成前移；头部可折叠（`接下来` + `1/3` + caret）。

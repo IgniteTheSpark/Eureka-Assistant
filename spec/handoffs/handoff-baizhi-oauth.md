@@ -2,7 +2,7 @@
 
 > **✅ 已实现(2026-06-09)。** 后端 `api/auth_baizhi.py`(挂载 `main.py`,配置 `config.py` `baizhi_*`,模型 `User.baizhi_user_id` + email/password 改 nullable,迁移 `0017_baizhi_user_id`,百智 token 入 `connected_apps` provider=`baizhi` 加密)+ Flutter `auth_controller.loginWithBaizhi()`(`flutter_web_auth_2`)+ 登录页「用百智登录」。已验证:签名/桥 URL、JWT 取 id、用户映射 + 基线技能 + token 加解密 + Eureka JWT 签发(in-container 跑通,唯独真实百智网络换取需真凭据)。**剩余=开发者手动**:`.env` 填凭据 + 百智控制台建应用、iOS `pod install`、向百智确认 me 端点(见 §8)。
 
-> 给**实现 session**的成稿契约。依据 [§13.1](13-baizhi-integration.md) + 百智快速接入文档。
+> 给**实现 session**的成稿契约。依据 [§13.1](../13-baizhi-integration.md) + 百智快速接入文档。
 > **本卡只描述 WHAT/契约 + 参考片段;实际代码由 coding agent 写在 `backend/` + `mobile/`(spec session 不碰这两个目录)。**
 > 关键纠偏(对比快速接入文档):① 文档是 **web** 示例(Next.js/Cookie/回调页),Eureka 是 **Flutter + FastAPI** → `redirectUrl` = **后端端点 + 深链回 app**,不是 web 回调页;② 换取端点认 **`/api/applications/token/exchange`**(文档第 7 节的 `/api/baizhi/oauth/exchange` 是笔误)。
 
