@@ -81,6 +81,7 @@
 |---|---|---|
 | [handoff-period-time-fix.md](handoffs/handoff-period-time-fix.md) | Active Brief | 模糊时段不造假钟点；todo/custom skill 承接 `period/occurred_at` |
 | [handoff-flash-warm-reply.md](handoffs/handoff-flash-warm-reply.md) | Active Brief | Flash Reply Agent：替换「已记录 N 项内容」 |
+| [handoff-uiux-design-system-revamp.md](handoffs/handoff-uiux-design-system-revamp.md) | Active Brief | Quiet Warm Minimalism UIUX revamp：tokens、surface、Library tile、Dynamic Edit、Agent/Skill patterns |
 | [handoff-reka-emote-notif.md](handoffs/handoff-reka-emote-notif.md) | Active Brief | Reka emote、统一气泡容器、通知持久化 |
 | [handoff-reka-companion.md](handoffs/handoff-reka-companion.md) | Reference | 主动 REKA / report→todo / companion 层实现卡 |
 | [handoff-report-prompts-v2.md](handoffs/handoff-report-prompts-v2.md) | Reference | 报告 prompt 升级成稿 |

@@ -187,7 +187,7 @@ async def create_todo(
     occurred_at=""; "下午3点" → occurred_at=<ISO8601+08:00> (+ period).
     domain (§8): tag by content ("交报告"→工作, "买菜"→生活); omit if unsure.
     """
-    payload: dict = {"content": content, "status": "pending"}
+    payload: dict = {"title": content, "content": content, "status": "pending"}
     if due_date and due_date.strip():
         payload["due_date"] = due_date.strip()
     return await create_asset(

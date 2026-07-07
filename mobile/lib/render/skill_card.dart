@@ -404,6 +404,8 @@ class _CardBody extends StatelessWidget {
   final ValueChanged<bool>? onToggleCheck;
   const _CardBody(this.data, {this.onToggleCheck});
 
+  static const double _horizontalH = 82;
+
   @override
   Widget build(BuildContext context) {
     switch (data.layout) {
@@ -420,8 +422,6 @@ class _CardBody extends StatelessWidget {
   Widget _shell(EurekaColors eu, CardAccent a, {required Widget child}) =>
       Container(
         margin: const EdgeInsets.only(top: 6),
-        // minHeight keeps every horizontal card the same size whether or not it
-        // has a subtitle/meta line (the user flagged ragged card heights).
         constraints: const BoxConstraints(minHeight: 60),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
@@ -502,36 +502,45 @@ class _CardBody extends StatelessWidget {
   // Fixed 3-row card DNA: title (with the 领域 tag at its top-right) → a ONE-LINE
   // subtitle preview → a single 信息 row of at most TWO meta values, split
   // proportionally + ellipsized. Never wraps, so every card is the same height.
-  Widget _subAndMeta(EurekaColors eu, CardAccent a) {
+  Widget _subAndMeta(EurekaColors eu, CardAccent a, {bool reserve = false}) {
     final sub = data.subtitle.replaceAll(RegExp(r'\s*\n\s*'), ' ').trim();
     final meta = data.metaFields.take(2).toList(); // 最多展示 2 个信息
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (sub.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 3),
-            child: Text(
-              sub,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: eu.textMid, fontSize: 12),
-            ),
+        Padding(
+          padding: const EdgeInsets.only(top: 3),
+          child: SizedBox(
+            height: 16,
+            child: sub.isEmpty
+                ? null
+                : Text(
+                    sub,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: eu.textMid, fontSize: 12),
+                  ),
           ),
-        if (meta.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 4),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: SizedBox(
+            height: 16,
             // single row, the 2 values split the width proportionally (Flexible)
             // and ellipsize if they don't fit — never wraps to a second line.
-            child: Row(
-              children: [
-                for (var i = 0; i < meta.length; i++) ...[
-                  if (i > 0) const SizedBox(width: 10),
-                  Flexible(child: _metaPill(meta[i], a, eu)),
-                ],
-              ],
-            ),
+            child: meta.isEmpty
+                ? null
+                : Row(
+                    children: [
+                      for (var i = 0; i < meta.length; i++) ...[
+                        if (i > 0) const SizedBox(width: 10),
+                        Flexible(child: _metaPill(meta[i], a, eu)),
+                      ],
+                    ],
+                  ),
           ),
+        ),
+        if (!reserve && sub.isEmpty && meta.isEmpty) const SizedBox.shrink(),
       ],
     );
   }
@@ -597,26 +606,25 @@ class _CardBody extends StatelessWidget {
   Widget _horizontal(BuildContext context) {
     final eu = context.eu;
     final a = accentOf(data.accentColor, eu);
-    return _shell(
-      eu,
-      a,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          _iconTile(a, eu),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _titleRow(eu),
-                if (data.subtitle.isNotEmpty || data.metaFields.isNotEmpty)
-                  _subAndMeta(eu, a),
-              ],
+    return SizedBox(
+      height: _horizontalH,
+      child: _shell(
+        eu,
+        a,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            _iconTile(a, eu),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [_titleRow(eu), _subAndMeta(eu, a, reserve: true)],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

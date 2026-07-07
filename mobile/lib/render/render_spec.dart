@@ -55,6 +55,38 @@ class RenderSpec {
     this.requiredFields = const {},
   });
 
+  RenderSpec copyWith({
+    String? cardLayout,
+    String? icon,
+    String? accentColor,
+    String? primaryField,
+    String? primaryFormat,
+    String? secondaryField,
+    String? secondaryFormat,
+    List<MetaFieldSpec>? metaFields,
+    List<String>? actions,
+    Map<String, String>? fieldLabels,
+    List<String>? schemaFields,
+    Set<String>? longFields,
+    Map<String, String>? fieldTypes,
+    Set<String>? requiredFields,
+  }) => RenderSpec(
+    cardLayout: cardLayout ?? this.cardLayout,
+    icon: icon ?? this.icon,
+    accentColor: accentColor ?? this.accentColor,
+    primaryField: primaryField ?? this.primaryField,
+    primaryFormat: primaryFormat ?? this.primaryFormat,
+    secondaryField: secondaryField ?? this.secondaryField,
+    secondaryFormat: secondaryFormat ?? this.secondaryFormat,
+    metaFields: metaFields ?? this.metaFields,
+    actions: actions ?? this.actions,
+    fieldLabels: fieldLabels ?? this.fieldLabels,
+    schemaFields: schemaFields ?? this.schemaFields,
+    longFields: longFields ?? this.longFields,
+    fieldTypes: fieldTypes ?? this.fieldTypes,
+    requiredFields: requiredFields ?? this.requiredFields,
+  );
+
   /// The format this skill declares for [field] (primary / secondary / meta), or
   /// null. This is the *authoritative* format source — e.g. expense declares
   /// `amount` as `currency` here, so no field-name money-guessing is needed.
@@ -108,21 +140,24 @@ class RenderSpec {
   }
 
   factory RenderSpec.fromJson(Map<String, dynamic> j) => RenderSpec(
-        cardLayout: j['card_layout'] as String? ?? 'horizontal',
-        icon: j['icon'] as String? ?? '•',
-        accentColor: j['accent_color'] as String? ?? 'gray',
-        primaryField: j['primary_field'] as String?,
-        primaryFormat: j['primary_format'] as String?,
-        secondaryField: j['secondary_field'] as String?,
-        secondaryFormat: j['secondary_format'] as String?,
-        metaFields: ((j['meta_fields'] as List?) ?? const [])
-            .whereType<Map>()
-            .map((m) => MetaFieldSpec(
-                m['field'] as String? ?? '', m['format'] as String?))
-            .toList(),
-        actions:
-            ((j['actions'] as List?) ?? const []).whereType<String>().toList(),
-      );
+    cardLayout: j['card_layout'] as String? ?? 'horizontal',
+    icon: j['icon'] as String? ?? '•',
+    accentColor: j['accent_color'] as String? ?? 'gray',
+    primaryField: j['primary_field'] as String?,
+    primaryFormat: j['primary_format'] as String?,
+    secondaryField: j['secondary_field'] as String?,
+    secondaryFormat: j['secondary_format'] as String?,
+    metaFields: ((j['meta_fields'] as List?) ?? const [])
+        .whereType<Map>()
+        .map(
+          (m) => MetaFieldSpec(
+            m['field'] as String? ?? '',
+            m['format'] as String?,
+          ),
+        )
+        .toList(),
+    actions: ((j['actions'] as List?) ?? const []).whereType<String>().toList(),
+  );
 }
 
 class MetaFieldSpec {
@@ -140,7 +175,7 @@ class CardData {
   final String subtitle;
   final List<({String value, String? format})> metaFields;
   final bool? checkDone;
-  final String? domain;   // §8 life-domain label (null = 不归域, no chip)
+  final String? domain; // §8 life-domain label (null = 不归域, no chip)
 
   const CardData({
     required this.layout,
@@ -153,7 +188,8 @@ class CardData {
     this.domain,
   });
 
-  CardData copyWith({String? layout, bool? checkDone, String? domain}) => CardData(
+  CardData copyWith({String? layout, bool? checkDone, String? domain}) =>
+      CardData(
         layout: layout ?? this.layout,
         icon: icon,
         accentColor: accentColor,
@@ -181,8 +217,15 @@ CardData buildCard({
       metaFields: const [],
     );
   }
-  final primary =
-      spec.primaryField != null ? applyFormat(payload[spec.primaryField], spec.primaryFormat) : '';
+  var primary = spec.primaryField != null
+      ? applyFormat(payload[spec.primaryField], spec.primaryFormat)
+      : '';
+  if (displayName == 'todo' && primary.isEmpty) {
+    // Back-compat: historical todos only have `content`. The current UI treats
+    // todo as title + content, so old rows use content as the compact title
+    // while still rendering content as the body in the detail sheet.
+    primary = applyFormat(payload['content'], null);
+  }
   final secondary = spec.secondaryField != null
       ? applyFormat(payload[spec.secondaryField], spec.secondaryFormat)
       : '';
@@ -215,6 +258,16 @@ CardData buildCard({
 /// UserSkill render_spec.
 RenderSpec synthesizeSpec(String cardType) {
   switch (cardType) {
+    case 'todo':
+      return normalizeTodoSpec(
+        const RenderSpec(
+          cardLayout: 'horizontal',
+          icon: '📋',
+          accentColor: 'blue',
+          primaryField: 'title',
+          actions: ['check', 'edit'],
+        ),
+      );
     case 'event':
       return const RenderSpec(
         cardLayout: 'horizontal',
@@ -232,7 +285,10 @@ RenderSpec synthesizeSpec(String cardType) {
         accentColor: 'neutral',
         primaryField: 'name',
         secondaryField: 'company',
-        metaFields: [MetaFieldSpec('title', 'text'), MetaFieldSpec('phone', 'text')],
+        metaFields: [
+          MetaFieldSpec('title', 'text'),
+          MetaFieldSpec('phone', 'text'),
+        ],
       );
     case 'task':
       return const RenderSpec(
@@ -245,7 +301,11 @@ RenderSpec synthesizeSpec(String cardType) {
       );
     default:
       return const RenderSpec(
-          cardLayout: 'horizontal', icon: '🗂', accentColor: 'gray', primaryField: 'content');
+        cardLayout: 'horizontal',
+        icon: '🗂',
+        accentColor: 'gray',
+        primaryField: 'content',
+      );
   }
 }
 
@@ -257,10 +317,43 @@ Future<Map<String, RenderSpec>> fetchRenderSpecs(ApiClient api) async {
     final name = s['name'] as String?;
     final rs = s['render_spec'];
     if (name != null && rs is Map) {
-      out[name] = RenderSpec.fromJson(rs.cast<String, dynamic>()).withSchema(s['payload_schema']);
+      var spec = RenderSpec.fromJson(
+        rs.cast<String, dynamic>(),
+      ).withSchema(s['payload_schema']);
+      if (name == 'todo') spec = normalizeTodoSpec(spec);
+      out[name] = spec;
     }
   }
   return out;
+}
+
+RenderSpec normalizeTodoSpec(RenderSpec spec) {
+  final labels = <String, String>{
+    ...spec.fieldLabels,
+    'title': spec.fieldLabels['title'] ?? '标题',
+    'content': spec.fieldLabels['content'] ?? '内容',
+    'due_date': spec.fieldLabels['due_date'] ?? '截止时间',
+    'status': spec.fieldLabels['status'] ?? '状态',
+  };
+  final fields = <String>[
+    'title',
+    'content',
+    'due_date',
+    'status',
+    for (final f in spec.schemaFields)
+      if (!{'title', 'content', 'due_date', 'status'}.contains(f)) f,
+  ];
+  return spec.copyWith(
+    primaryField: 'title',
+    secondaryField: '',
+    secondaryFormat: '',
+    metaFields: const [MetaFieldSpec('due_date', 'relative_date')],
+    fieldLabels: labels,
+    schemaFields: fields,
+    longFields: {...spec.longFields, 'content'},
+    fieldTypes: {...spec.fieldTypes, 'title': 'string', 'content': 'string'},
+    requiredFields: {...spec.requiredFields, 'content'},
+  );
 }
 
 /// A readable one-line title for an asset payload — the **general** rule used
@@ -271,7 +364,11 @@ Future<Map<String, RenderSpec>> fetchRenderSpecs(ApiClient api) async {
 ///   2. common text fields (content/title/name/…);
 ///   3. the first non-empty string field in the payload;
 ///   4. `fallback` (pass the skill **display_name**, never the machine_name).
-String readableTitle(Map<String, dynamic> payload, RenderSpec? spec, {String fallback = '资产'}) {
+String readableTitle(
+  Map<String, dynamic> payload,
+  RenderSpec? spec, {
+  String fallback = '资产',
+}) {
   String? pick(String? key) {
     if (key == null) return null;
     final v = payload[key];
@@ -283,7 +380,14 @@ String readableTitle(Map<String, dynamic> payload, RenderSpec? spec, {String fal
   final byField = pick(spec?.primaryField) ?? pick(spec?.secondaryField);
   if (byField != null) return byField;
   for (final k in const [
-    'content', 'title', 'name', 'book', 'text', 'summary', 'description', 'note'
+    'content',
+    'title',
+    'name',
+    'book',
+    'text',
+    'summary',
+    'description',
+    'note',
   ]) {
     final v = pick(k);
     if (v != null) return v;
