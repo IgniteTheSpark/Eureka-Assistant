@@ -12,7 +12,7 @@ import '../theme/app_theme.dart';
 import '../theme/domains.dart';
 import '../theme/eureka_colors.dart';
 import 'render_spec.dart';
-import 'skill_card.dart' show accentOf, SkillCard;
+import 'skill_card.dart' show SkillCard;
 
 /// Asset detail — opened by tapping any [SkillCard]. A general scheme for ANY
 /// skill (an asset is a bag of fields; long content is just one possible field):
@@ -559,7 +559,6 @@ class _AssetViewState extends State<_AssetView> {
   }
 
   Widget _hero(EurekaColors eu) {
-    final a = accentOf(data.accentColor, eu);
     final bigTitle =
         widget.spec?.primaryFormat == 'currency' ||
         data.title.runes.length <= 4;
@@ -570,9 +569,9 @@ class _AssetViewState extends State<_AssetView> {
             height: 46,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              gradient: LinearGradient(colors: [a.bg, Colors.transparent]),
+              color: eu.surface,
               borderRadius: BorderRadius.circular(13),
-              border: Border.all(color: a.edge),
+              border: Border.all(color: eu.border),
             ),
             child: Opacity(
               opacity: _done ? 0.4 : 1.0,
@@ -894,6 +893,12 @@ class _AssetViewState extends State<_AssetView> {
 
       if (value is List) {
         stats.add((label: label, value: _chips(eu, value)));
+        return;
+      }
+      if (cardType == 'todo' &&
+          key == 'content' &&
+          value is String &&
+          value.trim() == data.title.trim()) {
         return;
       }
       // body text (or just-long text) → full 内容 block — but never the primary,
@@ -1611,7 +1616,6 @@ class _AssetEditPageState extends State<AssetEditPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // §2 live card preview — re-renders as you edit the fields below.
               Text(
                 '预览',
                 style: euMono(
@@ -1690,16 +1694,18 @@ class _AssetEditPageState extends State<AssetEditPage> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
           decoration: BoxDecoration(
-            color: c.withValues(alpha: selected ? 0.22 : 0.08),
+            color: selected
+                ? eu.surfaceRaised
+                : eu.surface.withValues(alpha: 0.72),
             borderRadius: BorderRadius.circular(9),
             border: Border.all(
-              color: c.withValues(alpha: selected ? 0.6 : 0.22),
+              color: selected ? c.withValues(alpha: 0.48) : eu.border,
             ),
           ),
           child: Text(
             d == null ? '默认' : '${domainIcon(d)} $d',
             style: TextStyle(
-              color: c,
+              color: selected ? c : eu.textMid,
               fontSize: 12.5,
               fontWeight: FontWeight.w600,
             ),

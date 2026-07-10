@@ -8,6 +8,7 @@ import '../data_revision.dart';
 import '../theme/app_theme.dart';
 import '../theme/domains.dart';
 import '../theme/eureka_colors.dart';
+import '../theme/ureka_tokens.dart';
 import '../widgets/toast.dart';
 import 'asset_detail_sheet.dart';
 import 'render_spec.dart';
@@ -404,7 +405,7 @@ class _CardBody extends StatelessWidget {
   final ValueChanged<bool>? onToggleCheck;
   const _CardBody(this.data, {this.onToggleCheck});
 
-  static const double _horizontalH = 82;
+  static const double _horizontalH = 88;
 
   @override
   Widget build(BuildContext context) {
@@ -419,18 +420,73 @@ class _CardBody extends StatelessWidget {
     }
   }
 
-  Widget _shell(EurekaColors eu, CardAccent a, {required Widget child}) =>
-      Container(
+  Widget _shell(EurekaColors eu, CardAccent a, {required Widget child}) {
+    const radius = 11.0;
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: UDurations.normal,
+      curve: Curves.easeOutCubic,
+      builder: (context, t, animatedChild) => Opacity(
+        opacity: t,
+        child: Transform.translate(
+          offset: Offset(0, (1 - t) * 4),
+          child: animatedChild,
+        ),
+      ),
+      child: Container(
         margin: const EdgeInsets.only(top: 6),
         constraints: const BoxConstraints(minHeight: 60),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          color: a.bg,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: a.edge),
+          color: _sheetColor(eu),
+          borderRadius: BorderRadius.circular(radius),
+          border: Border.all(color: _sheetEdge(eu)),
         ),
-        child: child,
-      );
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(radius),
+          child: Stack(
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+                child: child,
+              ),
+              Positioned(
+                right: 0,
+                top: 0,
+                child: CustomPaint(
+                  size: const Size(13, 13),
+                  painter: _PaperCornerPainter(
+                    edge: _sheetEdge(eu),
+                    fill: _cornerFill(eu),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  static Color _sheetColor(EurekaColors eu) {
+    return eu.brightness == Brightness.light
+        ? const Color(0xFFFFFEFB)
+        : const Color(0xFF14181E);
+  }
+
+  static Color _sheetEdge(EurekaColors eu) {
+    return eu.brightness == Brightness.light
+        ? const Color(0x14211F19)
+        : const Color(0x1AFFFFFF);
+  }
+
+  static Color _cornerFill(EurekaColors eu) {
+    return eu.brightness == Brightness.light
+        ? const Color(0xFFFAF7F0)
+        : const Color(0xFF1B2028);
+  }
 
   /// Identity tile: always the skill's emoji glyph (so a todo still looks like a
   /// todo). When the skill has a "check" action, a small checkbox overlays the
@@ -441,9 +497,9 @@ class _CardBody extends StatelessWidget {
       height: 34,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        gradient: LinearGradient(colors: [a.bg, Colors.transparent]),
+        color: eu.surfaceRaised,
         borderRadius: BorderRadius.circular(9),
-        border: Border.all(color: a.edge),
+        border: Border.all(color: eu.border),
       ),
       child: Opacity(
         opacity: data.checkDone == true ? 0.5 : 1.0,
@@ -499,49 +555,30 @@ class _CardBody extends StatelessWidget {
     );
   }
 
-  // Fixed 3-row card DNA: title (with the 领域 tag at its top-right) → a ONE-LINE
-  // subtitle preview → a single 信息 row of at most TWO meta values, split
-  // proportionally + ellipsized. Never wraps, so every card is the same height.
-  Widget _subAndMeta(EurekaColors eu, CardAccent a, {bool reserve = false}) {
+  // Fixed 2-row list card: title/domain row → one plain auxiliary text row.
+  // Format hints can affect text elsewhere, but list cards do not render extra
+  // chips/badges; the only chip-like signal kept here is the domain tag.
+  Widget _subAndMeta(EurekaColors eu, {bool reserve = false}) {
     final sub = data.subtitle.replaceAll(RegExp(r'\s*\n\s*'), ' ').trim();
     final meta = data.metaFields.take(2).toList(); // 最多展示 2 个信息
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(top: 3),
-          child: SizedBox(
-            height: 16,
-            child: sub.isEmpty
-                ? null
-                : Text(
-                    sub,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: eu.textMid, fontSize: 12),
-                  ),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.only(top: 4),
-          child: SizedBox(
-            height: 16,
-            // single row, the 2 values split the width proportionally (Flexible)
-            // and ellipsize if they don't fit — never wraps to a second line.
-            child: meta.isEmpty
-                ? null
-                : Row(
-                    children: [
-                      for (var i = 0; i < meta.length; i++) ...[
-                        if (i > 0) const SizedBox(width: 10),
-                        Flexible(child: _metaPill(meta[i], a, eu)),
-                      ],
-                    ],
-                  ),
-          ),
-        ),
-        if (!reserve && sub.isEmpty && meta.isEmpty) const SizedBox.shrink(),
-      ],
+    final aux = [
+      if (sub.isNotEmpty) sub,
+      for (final m in meta)
+        if (m.value.trim().isNotEmpty) m.value.trim(),
+    ].join(' · ');
+    return Padding(
+      padding: const EdgeInsets.only(top: 5),
+      child: SizedBox(
+        height: 18,
+        child: aux.isEmpty && !reserve
+            ? null
+            : Text(
+                aux,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: eu.textMid, fontSize: 12.5),
+              ),
+      ),
     );
   }
 
@@ -556,50 +593,6 @@ class _CardBody extends StatelessWidget {
           DomainChip(data.domain), // §8: nothing rendered when null/unknown
         ],
       ],
-    );
-  }
-
-  Widget _metaPill(
-    ({String value, String? format}) m,
-    CardAccent a,
-    EurekaColors eu,
-  ) {
-    if (m.format == 'badge') {
-      // Async-task lifecycle (§4.7.3): map the raw status token to its Chinese
-      // label + status accent, and pulse while in-flight (pending/running).
-      final life = _lifecycle(m.value, eu);
-      if (life != null) {
-        return _LifecyclePill(
-          label: life.label,
-          color: life.color,
-          pulse: life.pulse,
-        );
-      }
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-        decoration: BoxDecoration(
-          color: a.bg,
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: a.edge),
-        ),
-        child: Text(
-          m.value,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: a.fg,
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      );
-    }
-    // Plain meta: a mono "· value" chip — 1 line, ellipsized.
-    return Text(
-      '· ${m.value}',
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: euMono(fontSize: 11, color: eu.textMid),
     );
   }
 
@@ -620,7 +613,7 @@ class _CardBody extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: [_titleRow(eu), _subAndMeta(eu, a, reserve: true)],
+                children: [_titleRow(eu), _subAndMeta(eu, reserve: true)],
               ),
             ),
           ],
@@ -646,40 +639,21 @@ class _CardBody extends StatelessWidget {
             ],
           ),
           if (data.subtitle.isNotEmpty || data.metaFields.isNotEmpty)
-            _subAndMeta(eu, a),
+            _subAndMeta(eu),
         ],
       ),
     );
   }
 
-  ({String label, Color color, bool pulse})? _lifecycle(
-    String raw,
-    EurekaColors eu,
-  ) {
-    switch (raw) {
-      case 'pending':
-        return (label: '待处理', color: eu.accentAmber, pulse: true);
-      case 'running':
-        return (label: '同步中', color: eu.accentBlue, pulse: true);
-      case 'done':
-        return (label: '已同步', color: eu.accentGreen, pulse: false);
-      case 'failed':
-        return (label: '失败', color: eu.accentRed, pulse: false);
-      default:
-        return null;
-    }
-  }
-
   Widget _inline(BuildContext context) {
     final eu = context.eu;
-    final a = accentOf(data.accentColor, eu);
     return Container(
       margin: const EdgeInsets.only(top: 6),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: a.bg,
+        color: eu.surface,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: a.edge),
+        border: Border.all(color: eu.border),
       ),
       child: Row(
         children: [
@@ -699,77 +673,31 @@ class _CardBody extends StatelessWidget {
   }
 }
 
-/// Async-task lifecycle badge (§4.7.3). A leading dot + label; pending/running
-/// pulse the dot so an in-flight 钉钉/MCP task reads as "still working".
-class _LifecyclePill extends StatefulWidget {
-  final String label;
-  final Color color;
-  final bool pulse;
-  const _LifecyclePill({
-    required this.label,
-    required this.color,
-    required this.pulse,
-  });
+class _PaperCornerPainter extends CustomPainter {
+  final Color edge;
+  final Color fill;
+
+  const _PaperCornerPainter({required this.edge, required this.fill});
 
   @override
-  State<_LifecyclePill> createState() => _LifecyclePillState();
-}
-
-class _LifecyclePillState extends State<_LifecyclePill>
-    with SingleTickerProviderStateMixin {
-  AnimationController? _c;
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.pulse) {
-      _c = AnimationController(
-        vsync: this,
-        duration: const Duration(milliseconds: 900),
-      )..repeat(reverse: true);
-    }
+  void paint(Canvas canvas, Size size) {
+    final path = Path()
+      ..moveTo(size.width, 0)
+      ..lineTo(size.width, size.height)
+      ..lineTo(0, 0)
+      ..close();
+    canvas.drawPath(path, Paint()..color = fill);
+    canvas.drawLine(
+      Offset(0, 0),
+      Offset(size.width, size.height),
+      Paint()
+        ..color = edge
+        ..strokeWidth = 1,
+    );
   }
 
   @override
-  void dispose() {
-    _c?.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final dot = Container(
-      width: 6,
-      height: 6,
-      decoration: BoxDecoration(shape: BoxShape.circle, color: widget.color),
-    );
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-      decoration: BoxDecoration(
-        color: widget.color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: widget.color.withValues(alpha: 0.30)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _c == null
-              ? dot
-              : FadeTransition(
-                  opacity: Tween(begin: 0.35, end: 1.0).animate(_c!),
-                  child: dot,
-                ),
-          const SizedBox(width: 5),
-          Text(
-            widget.label,
-            style: TextStyle(
-              color: widget.color,
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-    );
+  bool shouldRepaint(covariant _PaperCornerPainter oldDelegate) {
+    return oldDelegate.edge != edge || oldDelegate.fill != fill;
   }
 }

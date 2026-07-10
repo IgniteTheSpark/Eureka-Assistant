@@ -49,7 +49,7 @@ class _AddSkillSheetState extends State<_AddSkillSheet> {
   // feeding a live SkillCard preview and the render_spec sent on confirm.
   final _pIcon = TextEditingController();
   final _pName = TextEditingController();
-  String _pAccent = 'blue';
+  String _pAccent = 'neutral';
   String _pLayout = 'horizontal';
   String? _pPrimary;
   String? _pSecondary;
@@ -57,10 +57,6 @@ class _AddSkillSheetState extends State<_AddSkillSheet> {
   final Map<String, String?> _pFormats = {};
   List<String> _pFields = [];
   Map<String, dynamic> _pSample = {};
-
-  static const _accentOptions = [
-    'blue', 'purple', 'amber', 'green', 'red', 'gray', 'neutral'
-  ];
 
   @override
   void dispose() {
@@ -98,11 +94,15 @@ class _AddSkillSheetState extends State<_AddSkillSheet> {
         });
         return;
       }
-      final qs = (m['questions'] as List?)?.whereType<Map>().toList() ?? const [];
+      final qs =
+          (m['questions'] as List?)?.whereType<Map>().toList() ?? const [];
       if (qs.isNotEmpty) {
         _questions = qs.map((e) => e.cast<String, dynamic>()).toList();
         for (final q in _questions) {
-          _answers.putIfAbsent(q['key'] as String? ?? '', () => TextEditingController());
+          _answers.putIfAbsent(
+            q['key'] as String? ?? '',
+            () => TextEditingController(),
+          );
         }
         setState(() {
           _stage = 'questions';
@@ -134,8 +134,9 @@ class _AddSkillSheetState extends State<_AddSkillSheet> {
     try {
       await _api.postJson('/api/skills/confirm', {
         'name': d['name'],
-        'display_name':
-            _pName.text.trim().isEmpty ? d['display_name'] : _pName.text.trim(),
+        'display_name': _pName.text.trim().isEmpty
+            ? d['display_name']
+            : _pName.text.trim(),
         'payload_schema': d['payload_schema'],
         'render_spec': _composeRenderSpec(),
         // §1.5.1 L0 — design agent 随 draft 产出的起聊文案,透传落库
@@ -160,16 +161,19 @@ class _AddSkillSheetState extends State<_AddSkillSheet> {
       top: false,
       child: AnimatedPadding(
         duration: const Duration(milliseconds: 150),
-        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
         child: ConstrainedBox(
-          constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.85),
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.85,
+          ),
           child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Header: ✨ tile + 新技能 · AI 设计 + close
                 Row(
                   children: [
                     Container(
@@ -177,11 +181,9 @@ class _AddSkillSheetState extends State<_AddSkillSheet> {
                       height: 38,
                       alignment: Alignment.center,
                       decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [eu.brand.withValues(alpha: 0.22), eu.accentPurple.withValues(alpha: 0.10)],
-                        ),
+                        color: eu.surface,
                         borderRadius: BorderRadius.circular(11),
-                        border: Border.all(color: eu.brand.withValues(alpha: 0.32)),
+                        border: Border.all(color: eu.border),
                       ),
                       child: const Text('✨', style: TextStyle(fontSize: 18)),
                     ),
@@ -190,11 +192,22 @@ class _AddSkillSheetState extends State<_AddSkillSheet> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('新技能 · AI 设计',
-                              style: euMono(fontSize: 10, letterSpacing: 1, color: eu.textLo)),
-                          Text(_stageTitle(),
-                              style: TextStyle(
-                                  color: eu.textHi, fontSize: 18, fontWeight: FontWeight.w700)),
+                          Text(
+                            '新技能 · AI 设计',
+                            style: euMono(
+                              fontSize: 10,
+                              letterSpacing: 1,
+                              color: eu.textLo,
+                            ),
+                          ),
+                          Text(
+                            _stageTitle(),
+                            style: TextStyle(
+                              color: eu.textHi,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -211,7 +224,10 @@ class _AddSkillSheetState extends State<_AddSkillSheet> {
                 if (_stage == 'preview') ..._preview(eu),
                 if (_error != null) ...[
                   const SizedBox(height: 12),
-                  Text(_error!, style: TextStyle(color: eu.accentRed, fontSize: 13)),
+                  Text(
+                    _error!,
+                    style: TextStyle(color: eu.accentRed, fontSize: 13),
+                  ),
                 ],
               ],
             ),
@@ -222,138 +238,184 @@ class _AddSkillSheetState extends State<_AddSkillSheet> {
   }
 
   String _stageTitle() => switch (_stage) {
-        'questions' => '再补充几点',
-        'preview' => '确认技能',
-        _ => '想记录点什么？',
-      };
+    'questions' => '再补充几点',
+    'preview' => '确认技能',
+    _ => '想记录点什么？',
+  };
 
   List<Widget> _describe(EurekaColors eu) => [
-        TextField(
-          controller: _desc,
-          minLines: 2,
-          maxLines: 4,
-          autofocus: true,
-          style: TextStyle(color: eu.textHi, fontSize: 14, height: 1.4),
-          decoration: _dec(eu, '用一句话描述你想记录的东西，例如「记录每次跑步的距离、配速和感受」…'),
+    TextField(
+      controller: _desc,
+      minLines: 2,
+      maxLines: 4,
+      autofocus: true,
+      style: TextStyle(color: eu.textHi, fontSize: 14, height: 1.4),
+      decoration: _dec(eu, '用一句话描述你想记录的东西，例如「记录每次跑步的距离、配速和感受」…'),
+    ),
+    const SizedBox(height: 12),
+    Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final s in _suggestions)
+          GestureDetector(
+            onTap: () => setState(() => _desc.text = s),
+            behavior: HitTestBehavior.opaque,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              decoration: BoxDecoration(
+                color: eu.surface,
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: eu.border),
+              ),
+              child: Text(s, style: TextStyle(color: eu.textMid, fontSize: 13)),
+            ),
+          ),
+      ],
+    ),
+    const SizedBox(height: 12),
+    Text(
+      'AI 会自动设计字段、图标和卡片结构',
+      style: TextStyle(color: eu.textLo, fontSize: 12),
+    ),
+    const SizedBox(height: 16),
+    Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        TextButton(
+          onPressed: _busy ? null : () => Navigator.of(context).maybePop(),
+          child: Text('取消', style: TextStyle(color: eu.textMid)),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(width: 8),
+        _gradientBtn(
+          eu,
+          _busy ? '设计中…' : '✨ AI 生成',
+          _busy ? null : () => _draftRequest(null),
+        ),
+      ],
+    ),
+  ];
+
+  List<Widget> _questionsStage(EurekaColors eu) => [
+    for (final q in _questions) ...[
+      Text(
+        q['prompt'] as String? ?? '',
+        style: TextStyle(color: eu.textHi, fontSize: 14),
+      ),
+      const SizedBox(height: 6),
+      if ((q['options'] as List?)?.isNotEmpty ?? false)
         Wrap(
           spacing: 8,
           runSpacing: 8,
           children: [
-            for (final s in _suggestions)
+            for (final o in (q['options'] as List).whereType<String>())
               GestureDetector(
-                onTap: () => setState(() => _desc.text = s),
+                onTap: () => setState(
+                  () => _answers[q['key'] as String? ?? '']?.text = o,
+                ),
                 behavior: HitTestBehavior.opaque,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                  decoration: BoxDecoration(
-                    color: eu.surface,
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: eu.border),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 7,
                   ),
-                  child: Text(s, style: TextStyle(color: eu.textMid, fontSize: 13)),
+                  decoration: BoxDecoration(
+                    color: _answers[q['key']]?.text == o
+                        ? eu.brand.withValues(alpha: 0.16)
+                        : eu.surface,
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: _answers[q['key']]?.text == o
+                          ? eu.brand
+                          : eu.border,
+                    ),
+                  ),
+                  child: Text(
+                    o,
+                    style: TextStyle(
+                      color: _answers[q['key']]?.text == o
+                          ? eu.textHi
+                          : eu.textMid,
+                      fontSize: 13,
+                    ),
+                  ),
                 ),
               ),
           ],
+        )
+      else
+        TextField(
+          controller: _answers[q['key'] as String? ?? ''],
+          style: TextStyle(color: eu.textHi, fontSize: 14),
+          decoration: _dec(eu, q['placeholder'] as String? ?? '可留空'),
         ),
-        const SizedBox(height: 12),
-        Text('AI 会自动设计字段、图标和卡片样式',
-            style: TextStyle(color: eu.textLo, fontSize: 12)),
-        const SizedBox(height: 16),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            TextButton(
-              onPressed: _busy ? null : () => Navigator.of(context).maybePop(),
-              child: Text('取消', style: TextStyle(color: eu.textMid)),
-            ),
-            const SizedBox(width: 8),
-            _gradientBtn(eu, _busy ? '设计中…' : '✨ AI 生成', _busy ? null : () => _draftRequest(null)),
-          ],
+      const SizedBox(height: 14),
+    ],
+    Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        _gradientBtn(
+          eu,
+          _busy ? '设计中…' : '✨ 生成技能',
+          _busy
+              ? null
+              : () {
+                  final answers = _answers.entries
+                      .map((e) => {'key': e.key, 'value': e.value.text.trim()})
+                      .toList();
+                  _draftRequest(answers);
+                },
         ),
-      ];
-
-  List<Widget> _questionsStage(EurekaColors eu) => [
-        for (final q in _questions) ...[
-          Text(q['prompt'] as String? ?? '', style: TextStyle(color: eu.textHi, fontSize: 14)),
-          const SizedBox(height: 6),
-          if ((q['options'] as List?)?.isNotEmpty ?? false)
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final o in (q['options'] as List).whereType<String>())
-                  GestureDetector(
-                    onTap: () => setState(
-                        () => _answers[q['key'] as String? ?? '']?.text = o),
-                    behavior: HitTestBehavior.opaque,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                      decoration: BoxDecoration(
-                        color: _answers[q['key']]?.text == o
-                            ? eu.brand.withValues(alpha: 0.16)
-                            : eu.surface,
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(
-                            color: _answers[q['key']]?.text == o ? eu.brand : eu.border),
-                      ),
-                      child: Text(o,
-                          style: TextStyle(
-                              color: _answers[q['key']]?.text == o ? eu.textHi : eu.textMid,
-                              fontSize: 13)),
-                    ),
-                  ),
-              ],
-            )
-          else
-            TextField(
-              controller: _answers[q['key'] as String? ?? ''],
-              style: TextStyle(color: eu.textHi, fontSize: 14),
-              decoration: _dec(eu, q['placeholder'] as String? ?? '可留空'),
-            ),
-          const SizedBox(height: 14),
-        ],
-        Row(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            _gradientBtn(eu, _busy ? '设计中…' : '✨ 生成技能', _busy ? null : () {
-              final answers = _answers.entries
-                  .map((e) => {'key': e.key, 'value': e.value.text.trim()})
-                  .toList();
-              _draftRequest(answers);
-            }),
-          ],
-        ),
-      ];
+      ],
+    ),
+  ];
 
   /// Seed the slot model from the draft render_spec + payload_schema.
   void _initPreview(Map<String, dynamic> draft) {
-    final rs = (draft['render_spec'] as Map?)?.cast<String, dynamic>() ?? const {};
-    final schema = (draft['payload_schema'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final rs =
+        (draft['render_spec'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final schema =
+        (draft['payload_schema'] as Map?)?.cast<String, dynamic>() ?? const {};
     _pLayout = rs['card_layout'] as String? ?? 'horizontal';
     _pIcon.text = rs['icon'] as String? ?? '•';
-    _pName.text = draft['display_name'] as String? ?? draft['name'] as String? ?? '新技能';
-    _pAccent = rs['accent_color'] as String? ?? 'blue';
+    _pName.text =
+        draft['display_name'] as String? ?? draft['name'] as String? ?? '新技能';
+    _pAccent = 'neutral';
     _pPrimary = rs['primary_field'] as String?;
     _pSecondary = rs['secondary_field'] as String?;
-    final metas = ((rs['meta_fields'] as List?) ?? const []).whereType<Map>().toList();
+    final metas = ((rs['meta_fields'] as List?) ?? const [])
+        .whereType<Map>()
+        .toList();
     _pInfo
       ..clear()
-      ..addAll(metas.map((m) => m['field'] as String? ?? '').where((s) => s.isNotEmpty));
+      ..addAll(
+        metas
+            .map((m) => m['field'] as String? ?? '')
+            .where((s) => s.isNotEmpty),
+      );
     _pFormats.clear();
-    if (_pPrimary != null) _pFormats[_pPrimary!] = rs['primary_format'] as String?;
-    if (_pSecondary != null) _pFormats[_pSecondary!] = rs['secondary_format'] as String?;
+    if (_pPrimary != null) {
+      _pFormats[_pPrimary!] = rs['primary_format'] as String?;
+    }
+    if (_pSecondary != null) {
+      _pFormats[_pSecondary!] = rs['secondary_format'] as String?;
+    }
     for (final m in metas) {
       final f = m['field'] as String?;
       if (f != null) _pFormats[f] = m['format'] as String?;
     }
-    _pFields = schema.keys.where((k) => (schema[k] as Map?)?['type'] != 'uuid').toList();
+    _pFields = schema.keys
+        .where((k) => (schema[k] as Map?)?['type'] != 'uuid')
+        .toList();
     final sp = (draft['sample_payload'] as Map?)?.cast<String, dynamic>();
-    _pSample = sp ??
+    _pSample =
+        sp ??
         {
           for (final f in _pFields)
-            f: _sampleFor(f, (schema[f] as Map?)?.cast<String, dynamic>() ?? const {}),
+            f: _sampleFor(
+              f,
+              (schema[f] as Map?)?.cast<String, dynamic>() ?? const {},
+            ),
         };
   }
 
@@ -412,25 +474,28 @@ class _AddSkillSheetState extends State<_AddSkillSheet> {
   }
 
   Map<String, dynamic> _composeRenderSpec() => {
-        'card_layout': _pLayout,
-        'icon': _pIcon.text.isEmpty ? '•' : _pIcon.text,
-        'accent_color': _pAccent,
-        if (_pPrimary != null) 'primary_field': _pPrimary,
-        if (_pPrimary != null && _pFormats[_pPrimary] != null)
-          'primary_format': _pFormats[_pPrimary],
-        if (_pSecondary != null) 'secondary_field': _pSecondary,
-        if (_pSecondary != null && _pFormats[_pSecondary] != null)
-          'secondary_format': _pFormats[_pSecondary],
-        'meta_fields': [
-          for (final f in _pInfo)
-            {'field': f, if (_pFormats[f] != null) 'format': _pFormats[f]},
-        ],
-      };
+    'card_layout': _pLayout,
+    'icon': _pIcon.text.isEmpty ? '•' : _pIcon.text,
+    'accent_color': _pAccent,
+    if (_pPrimary != null) 'primary_field': _pPrimary,
+    if (_pPrimary != null && _pFormats[_pPrimary] != null)
+      'primary_format': _pFormats[_pPrimary],
+    if (_pSecondary != null) 'secondary_field': _pSecondary,
+    if (_pSecondary != null && _pFormats[_pSecondary] != null)
+      'secondary_format': _pFormats[_pSecondary],
+    'meta_fields': [
+      for (final f in _pInfo)
+        {'field': f, if (_pFormats[f] != null) 'format': _pFormats[f]},
+    ],
+  };
 
   List<Widget> _preview(EurekaColors eu) {
     return [
       // Live card preview — rebuilt from the slot model on every edit.
-      Text('预览', style: euMono(fontSize: 10, letterSpacing: 1.2, color: eu.textLo)),
+      Text(
+        '预览',
+        style: euMono(fontSize: 10, letterSpacing: 1.2, color: eu.textLo),
+      ),
       const SizedBox(height: 6),
       CardPreview(_previewCard()),
       const SizedBox(height: 16),
@@ -454,22 +519,21 @@ class _AddSkillSheetState extends State<_AddSkillSheet> {
             child: TextField(
               controller: _pName,
               onChanged: (_) => setState(() {}),
-              style: TextStyle(color: eu.textHi, fontSize: 15, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                color: eu.textHi,
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+              ),
               decoration: _dec(eu, '技能名称'),
             ),
           ),
         ],
       ),
-      const SizedBox(height: 14),
-      Text('颜色', style: euMono(fontSize: 10, letterSpacing: 1.2, color: eu.textLo)),
-      const SizedBox(height: 8),
-      Row(
-        children: [
-          for (final c in _accentOptions) _accentDot(eu, c),
-        ],
-      ),
       const SizedBox(height: 16),
-      Text('字段', style: euMono(fontSize: 10, letterSpacing: 1.2, color: eu.textLo)),
+      Text(
+        '字段',
+        style: euMono(fontSize: 10, letterSpacing: 1.2, color: eu.textLo),
+      ),
       const SizedBox(height: 8),
       for (final f in _pFields) _fieldRow(eu, f),
       const SizedBox(height: 20),
@@ -485,32 +549,6 @@ class _AddSkillSheetState extends State<_AddSkillSheet> {
         ],
       ),
     ];
-  }
-
-  Widget _accentDot(EurekaColors eu, String name) {
-    final color = accentOf(name, eu).fg;
-    final sel = _pAccent == name;
-    return GestureDetector(
-      onTap: () => setState(() => _pAccent = name),
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        width: 30,
-        height: 30,
-        margin: const EdgeInsets.only(right: 8),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.18),
-          shape: BoxShape.circle,
-          border: Border.all(color: sel ? color : eu.border, width: sel ? 2 : 1),
-        ),
-        child: Center(
-          child: Container(
-            width: 12,
-            height: 12,
-            decoration: BoxDecoration(shape: BoxShape.circle, color: color),
-          ),
-        ),
-      ),
-    );
   }
 
   /// The agent-supplied Chinese display label for a field (`payload_schema[f].label`),
@@ -543,16 +581,29 @@ class _AddSkillSheetState extends State<_AddSkillSheet> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(label ?? f,
+                Text(
+                  label ?? f,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: eu.text,
+                    fontSize: 13,
+                    fontWeight: label != null
+                        ? FontWeight.w600
+                        : FontWeight.w400,
+                  ),
+                ),
+                if (label != null)
+                  Text(
+                    f,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                        color: eu.text, fontSize: 13, fontWeight: label != null ? FontWeight.w600 : FontWeight.w400)),
-                if (label != null)
-                  Text(f,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: eu.textLo, fontSize: 10.5, letterSpacing: 0.2)),
+                      color: eu.textLo,
+                      fontSize: 10.5,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
               ],
             ),
           ),
@@ -573,48 +624,66 @@ class _AddSkillSheetState extends State<_AddSkillSheet> {
         margin: const EdgeInsets.only(left: 5),
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
         decoration: BoxDecoration(
-          color: sel ? eu.brand.withValues(alpha: 0.16) : eu.surface,
+          color: sel ? eu.brand.withValues(alpha: 0.10) : eu.surface,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: sel ? eu.brand : eu.border),
+          border: Border.all(
+            color: sel ? eu.brand.withValues(alpha: 0.45) : eu.border,
+          ),
         ),
-        child: Text(slot,
-            style: TextStyle(
-                color: disabled
-                    ? eu.textLo.withValues(alpha: 0.4)
-                    : sel
-                        ? eu.textHi
-                        : eu.textMid,
-                fontSize: 12,
-                fontWeight: sel ? FontWeight.w600 : FontWeight.w400)),
+        child: Text(
+          slot,
+          style: TextStyle(
+            color: disabled
+                ? eu.textLo.withValues(alpha: 0.4)
+                : sel
+                ? eu.textHi
+                : eu.textMid,
+            fontSize: 12,
+            fontWeight: sel ? FontWeight.w600 : FontWeight.w400,
+          ),
+        ),
       ),
     );
   }
 
   InputDecoration _dec(EurekaColors eu, String hint) => InputDecoration(
-        hintText: hint,
-        hintStyle: TextStyle(color: eu.textLo, height: 1.4),
-        filled: true,
-        fillColor: eu.surface,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: eu.border)),
-        enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: eu.border)),
-        focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: eu.brand)),
-      );
+    hintText: hint,
+    hintStyle: TextStyle(color: eu.textLo, height: 1.4),
+    filled: true,
+    fillColor: eu.surface,
+    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: BorderSide(color: eu.border),
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: BorderSide(color: eu.border),
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: BorderSide(color: eu.brand),
+    ),
+  );
 
-  Widget _gradientBtn(EurekaColors eu, String label, VoidCallback? onTap) => GestureDetector(
+  Widget _gradientBtn(EurekaColors eu, String label, VoidCallback? onTap) =>
+      GestureDetector(
         onTap: onTap,
         behavior: HitTestBehavior.opaque,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
           decoration: BoxDecoration(
-            gradient: LinearGradient(colors: [eu.brand, eu.accentPurple]),
+            color: eu.brand,
             borderRadius: BorderRadius.circular(12),
             boxShadow: onTap == null
                 ? null
-                : [BoxShadow(color: eu.brand.withValues(alpha: 0.4), blurRadius: 14, offset: const Offset(0, 4))],
+                : [
+                    BoxShadow(
+                      color: eu.brand.withValues(alpha: 0.16),
+                      blurRadius: 10,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
           ),
           child: Opacity(
             opacity: onTap == null ? 0.6 : 1,
@@ -622,10 +691,19 @@ class _AddSkillSheetState extends State<_AddSkillSheet> {
                 ? const SizedBox(
                     width: 16,
                     height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                : Text(label,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : Text(
+                    label,
                     style: const TextStyle(
-                        color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
           ),
         ),
       );
