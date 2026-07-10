@@ -1,7 +1,7 @@
 # Handoff · 测验 / 记忆卡（quiz / flashcard genre · §6.14）
 
 > 给 **coding agent + design** 的实施范围。把**学习类记录**(单词/读书/学习笔记)变成**可交互的测验/记忆卡** —— 补上「记得住」。
-> 规则真值见 [§6.14](06-synthesis-report.md)。**它是 §6 的新 genre + 第一个交互式渲染**;复用 §6 管线([§6.1](06-synthesis-report.md))+ §6.6 的 WebView JS + §14 的 offer 流 —— **新肌肉只有「交互渲染」一处**,其余是组合。
+> 规则真值见 [§6.14](../06-synthesis-report.md)。**它是 §6 的新 genre + 第一个交互式渲染**;复用 §6 管线([§6.1](../06-synthesis-report.md))+ §6.6 的 WebView JS + §14 的 offer 流 —— **新肌肉只有「交互渲染」一处**,其余是组合。
 > **可独立于其它 handoff 上线。**
 
 ---
@@ -26,7 +26,7 @@
 > 把「测过一次」升级成「真学会」—— 这才是最大上行,但是更重的活,**单独一轮**。
 
 - 记每张卡/每题的**对错历史**;按遗忘曲线**重现没记住的**(Anki 式)。
-- 天然接 [§14 主动 REKA](14-proactive-reka.md):REKA 周期性「上次没记牢的 5 个,再过一遍?」(阈值/节律触发)。
+- 天然接 [§14 主动 REKA](../14-proactive-reka.md):REKA 周期性「上次没记牢的 5 个,再过一遍?」(阈值/节律触发)。
 - 需:per-card 成绩表 + 调度算法 + §14 复习 offer。**v1 不做。**
 
 ---
@@ -39,12 +39,12 @@
 ## Out of scope（别做）
 
 - **SRS / 成绩追踪**(Phase 2)。
-- **外部增强**(标准释义/用法 → 接 [§14.9 web-search](14-proactive-reka.md) + 接地墙)= 后置;v1 只测用户**自己记的**内容。
+- **外部增强**(标准释义/用法 → 接 [§14.9 web-search](../14-proactive-reka.md) + 接地墙)= 后置;v1 只测用户**自己记的**内容。
 - 付费墙/计费(§12 pending)。
 
 ## 读这些
 
-[§6.14](06-synthesis-report.md)(genre 真值)· §6.1/§6.2/§6.3(报告管线 + 接地)· §6.6(WebView JS 渲染运行时,交互靠它)· [§14.3/§14.5](14-proactive-reka.md)(阈值型 → Type B offer,周测复用)· §9(REKA 主持,可选)。
+[§6.14](../06-synthesis-report.md)(genre 真值)· §6.1/§6.2/§6.3(报告管线 + 接地)· §6.6(WebView JS 渲染运行时,交互靠它)· [§14.3/§14.5](../14-proactive-reka.md)(阈值型 → Type B offer,周测复用)· §9(REKA 主持,可选)。
 
 ## 分工(prompt / 基建 / design)
 

@@ -1,15 +1,15 @@
 # 今日页 = 首页 重设计 · 方向 B「潮汐」(UReka) — 设计真值（收录）
 
 > **来源 = 用户做的 hifi 设计 README（`Calendar page redesign (1).zip` / `README-home-redesign-B.md`），逐字收录为设计真值。**
-> 逻辑/数据/决策真值 = [§4.5.0](04-frontend.md);本卡 = hifi 视觉/交互真值。给 design agent 的 brief = [handoff-today-home-design.md](handoff-today-home-design.md)。
+> 逻辑/数据/决策真值 = [§4.5.0](../04-frontend.md);本卡 = hifi 视觉/交互真值。给 design agent 的 brief = [handoff-today-home-design.md](../handoffs/handoff-today-home-design.md)。
 
 ## ⚠️ 与 spec 的对齐补丁（2026-06，读本卡先看这几条）
 - **域色 = §8.3 B「潮汐」低饱和 8 色板，已锁定并解耦**（真源 = `theme/domains.dart` `domainColor()`，日历 dot + 首页共用）。本卡正文给的 hex 即终值，但**以 `domainColor()` 为准**、别硬编。
-- **dismiss（左滑跳过）= 软「今天不想做」+ 压一天**：当天不再 offer、第二天条件仍在则重新 offer；进通知 feed 可翻回做。**不要「14 天不打扰」抑制**（那只挡 push peek，不挡首页 PULL）。详见 [§14.5a](14-proactive-reka.md)。
+- **dismiss（左滑跳过）= 软「今天不想做」+ 压一天**：当天不再 offer、第二天条件仍在则重新 offer；进通知 feed 可翻回做。**不要「14 天不打扰」抑制**（那只挡 push peek，不挡首页 PULL）。详见 [§14.5a](../14-proactive-reka.md)。
 - **⚡闪念 entry = 打开「当日闪念 session」**（复用 `SessionDetailPage`），不是开 chat。
 - **天气 = 和风天气 QWeather**（server-side key）+ **IP 粗定位到城市**（不弹定位权限）。
 - **默认落点 = 今日安排 · Tinder；类型 chips 砍掉**（看同类走「长按球 → 同类毛玻璃浮层」）。
-- offer 重新生成（↻）= 重发**用户刚跳过的**；offer 增量 = 水位线只总结新批（[§14.5a](14-proactive-reka.md) / §14.3）。
+- offer 重新生成（↻）= 重发**用户刚跳过的**；offer 增量 = 水位线只总结新批（[§14.5a](../14-proactive-reka.md) / §14.3）。
 
 ---
 

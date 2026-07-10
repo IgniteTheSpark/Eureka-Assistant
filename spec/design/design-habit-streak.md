@@ -58,8 +58,8 @@
 2. 从当前用户**最高频的捕捉类型**里挑 **1 个**(很可能是记账或随记),做 capture-fed streak 的**最小试点**,看留存是否动。**证据先行,再全量。**
 
 ## 10. 接入点(spec)
-- **今日页**:[§4.5.0](04-frontend.md)(习惯卡带 streak/进度;Reka Offer 的习惯促成)。
-- **节律促成**:[§14.2 / §14.3](14-proactive-reka.md)(rhythm → 「设成习惯?」)。
-- **游戏层**:[§7](07-gamemode.md) `completion_event` / 周岛、[§9](09-pet.md) 里程碑 + 奖励经济。
-- **技能创建**:[§4.8](04-frontend.md) wizard 之后的「设为习惯」入口。
-- **数据**:[§2](02-data-model.md) 新增 habit 实体(待落表)。
+- **今日页**:[§4.5.0](../04-frontend.md)(习惯卡带 streak/进度;Reka Offer 的习惯促成)。
+- **节律促成**:[§14.2 / §14.3](../14-proactive-reka.md)(rhythm → 「设成习惯?」)。
+- **游戏层**:[§7](../07-gamemode.md) `completion_event` / 周岛、[§9](../09-pet.md) 里程碑 + 奖励经济。
+- **技能创建**:[§4.8](../04-frontend.md) wizard 之后的「设为习惯」入口。
+- **数据**:[§2](../02-data-model.md) 新增 habit 实体(待落表)。

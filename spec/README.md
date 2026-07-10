@@ -1,100 +1,239 @@
-# Eureka Assistant — 产品与工程 Spec（交付版）
+# UReka Spec Library
 
-> 版本：1.1 · 2026-06-04
-> 状态：**Authoritative**。
-> **真值源（2026-06 起翻转）：产品 = Flutter app `mobile/` + `backend/`；web `frontend/` 降为历史来源（出处参考）。**
-> 当 spec 里的 web 行为描述与 Flutter 实现冲突，**以 `mobile/` 为准**。
->
-> **本 spec 的分层与状态（读前必看）：**
-> - **§1-3（agent / 数据 / API，后端）** —— 权威，基本与实现同步（后端未被重写）。
-> - **§4（前端）** —— 正从「web demo 行为 + Flutter 注脚」**逐区 re-baseline 到 Flutter 规范**；
->   章内「Flutter 增量 / 实现注意」即规范。优化分支稳定后再做集中逆向。
-> - **§6（合成·报告引擎）+ Connected Apps（§1.7.1 / §3.14 / §4.0.6）** —— **design-ahead 设计规格，
->   标注「待实现」**，不代表已构建。
->
-> 与 `rebuild/` 的关系：`rebuild/` 是历史「分阶段重建」的规划文档（Phase A/B/D + 里程碑），
-> 含大量 amendments / drift 标注，且部分内容已与代码脱节（见下方「与旧文档的偏差」）。
-> **当二者冲突，以本 `spec/` 为准。**
+> **入口文件 / 文档地图。**
+> 本目录同时存放长期产品真值、设计 brief、coding handoff、历史原型与实现计划。读文档前先看本页，避免拿过期 handoff 当长期 spec。
 
 ---
 
-## 阅读顺序
+## 0. 阅读原则
 
-| # | 文档 | 内容 | 谁必读 |
+### 0.1 真值优先级
+
+当文档之间冲突时，按以下顺序判断：
+
+1. **当前代码实现**：`mobile/` + `backend/`
+2. **分章长期 spec**：`00-14` + `99`
+3. **当前 handoff / design brief**：`handoffs/` / `design/`
+4. **历史计划 / 原型记录**：`archive/` / old prototype docs
+5. **`SPEC.md`**：历史整合快照，只作全文检索参考，**不是当前真值**
+
+### 0.2 文件状态标签
+
+| 状态 | 含义 |
+|---|---|
+| **Canonical** | 长期真值，应该被持续维护 |
+| **Active Brief** | 当前要交给 design/coding agent 的设计或实现卡 |
+| **Reference** | 有参考价值，但不是最终真值 |
+| **Historical** | 历史快照 / 旧方案 / 已被新文档取代 |
+| **Debug-only** | 工程调试或实验文档，不进入产品规范 |
+
+### 0.3 不要再做的事
+
+- 不要把新的需求直接塞进 `SPEC.md`。
+- 不要在根层继续堆 handoff、design brief、临时原型 README。
+- 不要让同一个主题同时有 3 份“看起来都像真值”的文档。
+- 新需求若是长期规则，进 `00-14`；若是给 agent 执行，写 `handoffs/handoff-*`；若是设计方向，写 `design/design-*`。
+
+---
+
+## 1. Canonical · 长期真值章节
+
+这些是 UReka 当前产品和工程的主规格。
+
+| # | 文档 | 状态 | 内容 |
 |---|---|---|---|
-| 0 | [00-product-overview.md](00-product-overview.md) | 产品定义、人群、核心概念、术语表、demo 边界 | 全员 |
-| 1 | [01-agent-architecture.md](01-agent-architecture.md) | Agent 编排、Flash/Chat/Task 三条管线、MCP 边界、LLM 配置 | 后端 / AI |
-| 2 | [02-data-model.md](02-data-model.md) | 数据库 17 张表、provenance 模型、render_spec / payload 契约、seed 数据 | 后端 / 全栈 |
-| 3 | [03-api-reference.md](03-api-reference.md) | 每个 endpoint 的 method/path/请求/响应 JSON、SSE 事件格式 | 前端 / 后端 |
-| 4 | [04-frontend.md](04-frontend.md) | 4 个主屏、交互/sheet/动画、render-spec 渲染、客户端数据流。**正逐区 re-baseline 到 Flutter 规范**（冲突以 `mobile/` 为准） | 前端 / Flutter |
-| 5 | [05-design-system.md](05-design-system.md) | 精确 design tokens、7 个 accent 槽、字体、动效、组件视觉规范 | 前端 / 设计 |
-| 6 | [06-synthesis-report.md](06-synthesis-report.md) | **合成·报告引擎**：总结/升华/提案 dispatcher + 内容 skill + md→HTML 渲染 + GSAP/WebView + reports 实体 · §6.13 报告→待办 · **§6.14 测验/记忆卡 genre(quiz/flashcard,交互式,✅ v1 已实现)** · §6.11 微点评(已 pending→§1.5.1 hint) | 全栈 / AI / 前端 |
-| 7 | [07-gamemode.md](07-gamemode.md) | **任务 & 周岛**（设计中 · 游戏化层之一）：dock 壳改动 · 任务体系(L1, daily-gen) · 周岛(成果物) · 统一 completion_event · 「我的岛」shell | 全栈 / AI / 前端 / 设计 |
-| 8 | [08-domain-system.md](08-domain-system.md) | **领域(domain)系统**（设计中 · 横切章）：8 生活领域 · 存储真相链 · agent 赋值 · 卡片展示 · per-domain 任务日环 · 按领域总结/查询 + 技能名消歧 | 全栈 / AI / 前端 / 设计 |
-| 9 | [09-pet.md](09-pet.md) | **宠物（球球）**（v1 已实现 · 游戏化层之二）：球球本体(无 exp) · 换装/背包 · 掉装饰 + 里程碑(奖励经济) · 浮动球球 · 只读消费 completion_event | 全栈 / AI / 前端 / 设计 |
-| 10 | [10-game-config.md](10-game-config.md) | **游戏配置与 Live-Ops**（横切 §7+§9）：装饰目录/掉落池/里程碑/岛经济/调参旋钮的配置层 · 代码拥画法-配置拥经济 · 校验器 · Stage1 仓库内 config / Stage2 后台 admin | 后端 / 全栈 |
-| 11 | [11-admin.md](11-admin.md) | **管理后台 / Live-Ops Console**（设计中 · 待讨论）：任务配置(规则+校验+奖励) · 组件库(增删/稀有度/概率) · 全用户总览(奖励发放可见) · 依赖 §10 Stage1 + §7 | 后端 / 全栈 |
-| 12 | [12-business-model.md](12-business-model.md) | **商业模式**（pending · 先不做）：LLM 成本账(每请求/每用户) · Free+单 Pro 定价提案(捕捉 30/天·chat 300/月·报告/洞察) · 护栏 · **token 用量日志(唯一现在该做)** | 商业 / 后端 |
-| 13 | [13-baizhi-integration.md](13-baizhi-integration.md) | **百智平台集成**（硬件供应商 + 未来收购方）：**B1 OAuth 登录 ✅ 已实现**(百智作 IdP)· B2 会议/日历 MCP 连接器 · B3 录音卡 SDK → Flutter 插件(手机直连) · B4 资产单向同步百智 KB（B2–B4 设计中）| 全栈 / 后端 / 移动 |
-| 14 | [14-proactive-reka.md](14-proactive-reka.md) | **主动 REKA（陪伴层）**（**✅ 基本实现**,仅剩会前调研型 offer 组装）：零配置主动提醒/帮做 · Type A=通知(+节律缺口 ✅) · Type B=主动报告(积累 offer ✅ +web-search ✅) · 晨间简报(沉浸式 ✅) · cron/heartbeat + 统计节律 profile ✅ · 傻瓜护栏 ✅ | 全栈 / AI / 前端 / 设计 |
-| A | [99-prompts-appendix.md](99-prompts-appendix.md) | **逐字** LLM prompts（agent 行为的载体，必须 byte-for-byte 复刻） | AI / 后端 |
-
-> 单一大文档版本：[`SPEC.md`](SPEC.md)（以上所有章节拼接，便于整体交付与检索）。
+| 00 | [00-product-overview.md](00-product-overview.md) | Canonical | 产品定义、人群、核心概念、术语 |
+| 01 | [01-agent-architecture.md](01-agent-architecture.md) | Canonical | Agent 编排、Flash/Chat/Task、MCP、LLM、prompt 约束 |
+| 02 | [02-data-model.md](02-data-model.md) | Canonical | 数据模型、assets、skills、events、notifications、pet 等 |
+| 03 | [03-api-reference.md](03-api-reference.md) | Canonical | API 请求/响应、FlashResponse、timeline、reports、pet 等 |
+| 04 | [04-frontend.md](04-frontend.md) | Canonical | Flutter 前端架构、主页面、交互、DayRender、今日页等 |
+| 05 | [05-design-system.md](05-design-system.md) | Canonical | 现有 design tokens、颜色、字体、组件视觉契约 |
+| 06 | [06-synthesis-report.md](06-synthesis-report.md) | Canonical | 报告/合成引擎、report genre、AI imagery、report actions |
+| 07 | [07-gamemode.md](07-gamemode.md) | Canonical | 任务 & 周岛，游戏化任务层 |
+| 08 | [08-domain-system.md](08-domain-system.md) | Canonical | 8 个生活领域、domain 存储、展示、总结、任务环 |
+| 09 | [09-pet.md](09-pet.md) | Canonical | Reka 宠物、换装、掉落、里程碑、浮动球 |
+| 10 | [10-game-config.md](10-game-config.md) | Canonical | 游戏配置、Live-Ops、装饰/掉落/里程碑配置边界 |
+| 11 | [11-admin.md](11-admin.md) | Canonical | 管理后台 / Live-Ops console |
+| 12 | [12-business-model.md](12-business-model.md) | Canonical | 商业模式、token 成本、Free/Pro、用量日志 |
+| 13 | [13-baizhi-integration.md](13-baizhi-integration.md) | Canonical | 百智 OAuth、硬件、录音卡 SDK、ASR 集成 |
+| 14 | [14-proactive-reka.md](14-proactive-reka.md) | Canonical | 主动 REKA、Type A/B、offer、通知、晨报、节律 |
+| 99 | [99-prompts-appendix.md](99-prompts-appendix.md) | Canonical | Prompt / seed / agent 行为附录 |
 
 ---
 
-## 30 秒理解 Eureka
+## 2. Active Briefs · 当前可交付给 Agent 的文档
 
-Eureka 是一个**个人 AI 助手**。用户用**语音（硬件/麦克风）或文字**记录闪念、待办、
-开销、想法、联系人、日程；一个 **AI agent** 把这些非结构化输入归类成**带类型的卡片**
-（typed cards），能**对你自己的全部数据问答**、生成 **HTML 图文报告**，并能把条目
-**同步到第三方工具**（钉钉 / Notion / Google Calendar，经 MCP）。
+这些文档是当前比较新的设计 / 实现任务卡。它们不替代长期 spec，但可以直接给 design/coding agent。
 
-```
-语音/文字  →  Flash Pipeline（分类→并行 skill）  →  typed 卡片（todo/event/idea/...）
-                              ↓
-统一 Chat 助手  ←→  你的全部资产（CRUD + 问答 + 报告 + 外部同步）
-```
+### 2.1 Design Briefs
 
-两类入口、一个共享 agent 栈：
-- **Flash**（`POST /api/flash`，**同步 JSON**）：捕捉。一句话可拆成多意图，并行处理后合并返回卡片。
-- **Chat**（`POST /api/chat`，**SSE 流**）：对话。意图明确直接 CRUD，模糊则对答；可出报告、可外部同步。
-
----
-
-## 技术栈（实际实现，非规划）
-
-| 层 | 技术 | 备注 |
+| 文档 | 状态 | 用途 |
 |---|---|---|
-| 前端（产品） | **Flutter 3 / Dart**（`mobile/`，iOS-first） | **当前交付端，真值以此为准**；§4 正逐区对齐到它 |
-| 前端（来源） | Vite 5 + React 18 + TS + Tailwind 3 + SWR（`frontend/`） | web demo，**历史来源 / 出处参考**，非交付端 |
-| 后端 | FastAPI（Python，async） | title `Eureka API`，version `1.4.0`；**未被重写，§1-3 权威** |
-| Agent | **Google ADK** + LiteLLM → **DeepSeek 直连**（`api.deepseek.com`，国内托管） | 见 §1 |
-| 模型 | **`deepseek/deepseek-chat`**（所有角色；没 deepseek key 的 dev 回退 OpenRouter） | 国内 inbound 稳；见 §1.1 |
-| 内部工具 | **FastMCP** server（stdio 子进程） | CRUD 工具 |
-| 外部工具 | MCPToolset（stdio / streamable_http / sse） | 钉钉 / Notion / Google Cal |
-| 数据库 | **MySQL**（aiomysql / pymysql） | ⚠️ **不是 Postgres，无 pgvector** |
-| Dev runtime | Docker Compose（db + backend） | |
+| [design-system-revamp.md](design/design-system-revamp.md) | Active Brief | 下一轮全 app design system revamp 总 brief。先做 Global Shell + Asset Surface System，再做 Today/Calendar/Library |
+| [design-habit-streak.md](design/design-habit-streak.md) | Active Brief | 习惯 / streak 系统设计讨论稿 |
+| [handoff-today-home-design.md](handoffs/handoff-today-home-design.md) | Active Brief | 今日页作为 app home 的设计 handoff |
+| [redesign-home-B.md](design/redesign-home-B.md) | Reference / Hifi Truth | 今日首页 B「潮汐」hifi 视觉/交互真值收录；由 `handoff-today-home-design.md` 引用 |
+| [handoff-calendar-design.md](handoffs/handoff-calendar-design.md) | Reference | 日历 / 今日页早期设计 brief；部分已被今日 home 新模型取代 |
+
+### 2.2 Coding Handoffs
+
+| 文档 | 状态 | 用途 |
+|---|---|---|
+| [handoff-period-time-fix.md](handoffs/handoff-period-time-fix.md) | Active Brief | 模糊时段不造假钟点；todo/custom skill 承接 `period/occurred_at` |
+| [handoff-flash-warm-reply.md](handoffs/handoff-flash-warm-reply.md) | Active Brief | Flash Reply Agent：替换「已记录 N 项内容」 |
+| [handoff-uiux-design-system-revamp.md](handoffs/handoff-uiux-design-system-revamp.md) | Active Brief | Quiet Warm Minimalism UIUX revamp：tokens、surface、Library tile、Dynamic Edit、Agent/Skill patterns |
+| [handoff-reka-emote-notif.md](handoffs/handoff-reka-emote-notif.md) | Active Brief | Reka emote、统一气泡容器、通知持久化 |
+| [handoff-reka-companion.md](handoffs/handoff-reka-companion.md) | Reference | 主动 REKA / report→todo / companion 层实现卡 |
+| [handoff-report-prompts-v2.md](handoffs/handoff-report-prompts-v2.md) | Reference | 报告 prompt 升级成稿 |
+| [handoff-quiz.md](handoffs/handoff-quiz.md) | Reference | quiz / flashcard genre 实现卡 |
+| [handoff-onboarding.md](handoffs/handoff-onboarding.md) | Reference | 首次登录孵化 onboarding |
+| [handoff-baizhi-oauth.md](handoffs/handoff-baizhi-oauth.md) | Reference | 百智 OAuth 登录接入 |
+| [handoff-today-page.md](handoffs/handoff-today-page.md) | Historical / Reference | 日历流/月/DayDetail 时段分组 + 闪念移出流；today-page 部分已被新 home brief 取代 |
 
 ---
 
-## ⚠️ 与旧文档（README / rebuild/）的关键偏差（移植者必看）
+## 3. Historical / Prototype · 历史与原型资料
 
-复刻时若沿用旧 `rebuild/` 或根 `README.md`，会踩到以下已确认的脱节点：
+这些文件可能仍有参考价值，但不要把它们当最终真值。
 
-1. **数据库是 MySQL，不是 PostgreSQL + pgvector。** 全库无任何 vector / embedding 列
-   （`db/database.py` 里只有一句「将来才加」的注释）。`UUID` 存为 `CHAR(36)`，应用层生成；
-   布尔存为 `Integer` 0/1。
-2. **`POST /api/flash` 是同步 JSON，不是 SSE。** 只有 `/api/chat` 和 `/api/notifications/stream` 是 SSE。
-3. **LLM 模型是 `deepseek/deepseek-chat`**，经 **DeepSeek 直连 API**（`api.deepseek.com`，国内托管 →
-   inbound 稳）。没配 `DEEPSEEK_API_KEY` 的 dev 机回退 `openrouter/deepseek/deepseek-chat`；prod compose
-   硬要求 deepseek key（`core/llm.py`）。
-4. **17 张表。** 原 14 + `users` / `reports` / `connected_apps`（后加；`models.py` 的 `__tablename__` 为准）。
-5. **资产类型已是：** `todo / notes(随记) / expense / contact / qa / external_ref` + 自定义（`idea`/`misc` 已并入 `notes`/随记，迁移 0008），
-   外加一级实体 `event`、`contact`。`event` 是**一级表、无 render_spec**；`contact` 真身在 `contacts` 表。
-6. **前端导航是悬浮 dock（5 元素 capsule），不是底部 TabBar+FAB。** `/chat` 例外（不渲染 dock）。
-7. **已知残留 bug（复刻时别照抄）：** `api/skills.py` 的级联删除用了 Postgres 专有 SQL
-   （`array_remove` / `CAST(... AS uuid)`），在 MySQL 上跑不通；`db/queries.py` 的
-   `query_assets_structured` 引用了已不存在的 `source_transcript_id` 列。详见 §2 / §3。
+| 文档 | 状态 | 说明 |
+|---|---|---|
+| [SPEC.md](SPEC.md) | Historical | 2026-06-04 整合快照，已显著落后；只作全文检索 |
+| [prototype-today-page.md](archive/prototype-today-page.md) | Historical | 用户今日页 hifi 原型 README 逐字保存 |
+| [plan-today-page-landing.md](archive/plan-today-page-landing.md) | Historical | 今日页 landing 旧实现计划 |
+| [handoff-today-landing.md](handoffs/handoff-today-landing.md) | Historical | 今日页旧 landing 实现 handoff |
+| [eurekamind-phase0-embedded-thought-mode.md](archive/eurekamind-phase0-embedded-thought-mode.md) | Historical / External | EurekaMind embedded thought-mode/PA-mode 相关接入方案；不属于 UReka 主 spec |
 
-> 这些偏差正是 Flutter 移植「丢细节」的根因：旧 spec 描述的是*规划意图*，本 spec 描述的是*已构建事实*。
+---
+
+## 4. Subfolders
+
+| 目录 | 状态 | 说明 |
+|---|---|---|
+| [handoffs/](handoffs/) | Active / Reference / Historical | 所有给 coding/design agent 的执行卡，按 README 状态判断是否当前可用 |
+| [design/](design/) | Active / Reference | design system brief、视觉方向、设计真值收录 |
+| [design/today-home/](design/today-home/) | Historical / Reference | 今日页 HTML 原型、support.js、方向板；视觉参考，不是长期逻辑真值 |
+| [archive/](archive/) | Historical | 旧计划、旧原型、外部历史方案；只作溯源 |
+| [chiple-ring-spec/](chiple-ring-spec/) | Reference | Chiple/Ring 相关子规格、计划、状态 |
+
+---
+
+## 5. 按角色阅读
+
+### Product / Founder
+
+优先读：
+
+1. [00-product-overview.md](00-product-overview.md)
+2. [design-system-revamp.md](design/design-system-revamp.md)
+3. [04-frontend.md](04-frontend.md)
+4. [14-proactive-reka.md](14-proactive-reka.md)
+5. [12-business-model.md](12-business-model.md)
+
+### Design Agent
+
+优先读：
+
+1. [design-system-revamp.md](design/design-system-revamp.md)
+2. [05-design-system.md](05-design-system.md)
+3. [04-frontend.md](04-frontend.md)
+4. [handoff-today-home-design.md](handoffs/handoff-today-home-design.md)
+5. [handoff-reka-emote-notif.md](handoffs/handoff-reka-emote-notif.md)
+
+不要从 `archive/prototype-today-page.md` 或 `design/today-home/` 直接开始设计；那些是参考，不是当前系统 brief。
+
+### Coding Agent
+
+优先读：
+
+1. 任务对应的 `handoff-*`
+2. 相关长期 spec 章节
+3. 当前代码
+
+近期可执行：
+
+- [handoff-period-time-fix.md](handoffs/handoff-period-time-fix.md)
+- [handoff-flash-warm-reply.md](handoffs/handoff-flash-warm-reply.md)
+- [handoff-reka-emote-notif.md](handoffs/handoff-reka-emote-notif.md)
+
+### Backend / AI
+
+优先读：
+
+1. [01-agent-architecture.md](01-agent-architecture.md)
+2. [02-data-model.md](02-data-model.md)
+3. [03-api-reference.md](03-api-reference.md)
+4. [99-prompts-appendix.md](99-prompts-appendix.md)
+5. [06-synthesis-report.md](06-synthesis-report.md)
+
+### Flutter / Frontend
+
+优先读：
+
+1. [04-frontend.md](04-frontend.md)
+2. [05-design-system.md](05-design-system.md)
+3. [03-api-reference.md](03-api-reference.md)
+4. [08-domain-system.md](08-domain-system.md)
+5. [09-pet.md](09-pet.md)
+
+---
+
+## 6. 文档维护规则
+
+### 6.1 新需求放哪里
+
+| 需求类型 | 放置位置 |
+|---|---|
+| 长期产品/架构规则 | 对应 `00-14` 章节 |
+| Agent prompt / seed 变化 | `99-prompts-appendix.md` + 对应章节 |
+| 给 coding agent 的执行卡 | `handoffs/handoff-<topic>.md` |
+| 给 design agent 的设计 brief | `design/design-<topic>.md` 或 `handoffs/handoff-<topic>-design.md` |
+| 用户原型逐字保存 | `archive/prototype-<topic>.md` 或 `design/<topic>/README*.md` |
+| 已完成但有历史价值的实现计划 | `archive/`，并在本 README 标为 Historical |
+
+### 6.2 命名规则
+
+```text
+00-14-*.md                  长期章节，留在 spec/ 根层
+99-prompts-appendix.md      prompt 附录，留在 spec/ 根层
+handoffs/handoff-*.md       agent 执行卡
+design/design-*.md          设计方向 / design system / conceptual design
+design/<topic>/             设计原型包 / HTML bundle
+archive/prototype-*.md      用户原型原文保存
+archive/plan-*.md           实施计划，完成后归档
+```
+
+### 6.3 更新规则
+
+- 写新 handoff 时，必须在本 README 的 Active Briefs 区补一行。
+- 一个 handoff 完成后，改成本 README 里的 Reference / Historical。
+- 如果新文档取代旧文档，在旧文档顶部加 superseded 指向。
+- 不要删除历史文档，除非确认没有引用且用户明确要求清理。
+- 物理移动文件时，必须同步修复所有相对链接，并跑一次 markdown link check。
+
+---
+
+## 7. 已完成的整理
+
+当前目录已完成物理分层：
+
+```text
+spec/
+  00-14, 99, README, SPEC.md     # 长期 spec / 索引 / 历史全文快照
+  handoffs/                      # agent 执行卡
+  design/                        # 设计 brief / hifi 真值 / 原型包
+  archive/                       # 旧计划 / 旧原型 / 外部历史方案
+  chiple-ring-spec/              # 硬件子规格
+```
+
+已加顶部 historical / superseded 标注：
+
+- `handoffs/handoff-today-landing.md`
+- `handoffs/handoff-today-page.md`
+- `archive/prototype-today-page.md`
+- `archive/plan-today-page-landing.md`
+
+仍可继续精修：
+
+- `handoffs/handoff-calendar-design.md` 中的旧 today-page 部分
+- 未来可把 `SPEC.md` 拆成纯归档，或生成一个自动 concat 脚本，避免手工同步。

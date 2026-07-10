@@ -56,9 +56,9 @@ class EurekaColors {
   /// `.theme-atmosphere` — the default dark theme.
   static const dark = EurekaColors(
     brightness: Brightness.dark,
-    bg: Color(0xFF0B1220),
-    surface: Color(0xFF0E1422),
-    surfaceRaised: Color(0xFF121A2B),
+    bg: Color(0xFF0B0D10),
+    surface: Color(0xFF13161A),
+    surfaceRaised: Color(0xFF171B20),
     border: Color(0x12FFFFFF), // rgba(255,255,255,0.07)
     rule: Color(0x0FFFFFFF), // rgba(255,255,255,0.06)
     textHi: Color(0xFFF4F7FB),
@@ -80,12 +80,11 @@ class EurekaColors {
   /// `.theme-light` — warm off-white day mode.
   static const light = EurekaColors(
     brightness: Brightness.light,
-    // P2 表层深度:bg 比 surfaceRaised 暗一档(原 F4F2EC 几乎与 raised 同明度 → 卡片浮不起来)。
-    bg: Color(0xFFEFEBE1),
-    surface: Color(0xFFEAE7DE),
-    surfaceRaised: Color(0xFFFCFBF8),
-    border: Color(0x1F141812), // rgba(20,18,12,0.12)
-    rule: Color(0x14141812), // rgba(20,18,12,0.08)
+    bg: Color(0xFFF6F4EF),
+    surface: Color(0xFFFFFFFF),
+    surfaceRaised: Color(0xFFFBFAF7),
+    border: Color(0x14211F19), // rgba(33,31,25,0.08)
+    rule: Color(0x10211F19), // rgba(33,31,25,0.06)
     textHi: Color(0xFF1B1D22),
     text: Color(0xFF34373F),
     textMid: Color(0xFF5F636E),
