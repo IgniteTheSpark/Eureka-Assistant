@@ -57,5 +57,82 @@ void main() {
 
       expect(card.subtitle, '全天 · 上海');
     });
+
+    test('prefers a resolved display name over raw and legacy names', () {
+      final card = buildCard(
+        payload: const {
+          'attendees': [
+            {
+              'display_name': 'Alex Chen',
+              'name_raw': 'Alex',
+              'name': 'Legacy Alex',
+            },
+          ],
+        },
+        spec: synthesizeSpec('event'),
+        displayName: 'event',
+      );
+
+      expect(card.subtitle, 'Alex Chen');
+    });
+
+    test('falls back to an unresolved raw attendee name', () {
+      final card = buildCard(
+        payload: const {
+          'attendees': [
+            {'name_raw': 'External Guest'},
+          ],
+        },
+        spec: synthesizeSpec('event'),
+        displayName: 'event',
+      );
+
+      expect(card.subtitle, 'External Guest');
+    });
+
+    test('keeps supporting the legacy attendee name', () {
+      final card = buildCard(
+        payload: const {
+          'attendees': [
+            {'name': 'Legacy Guest'},
+          ],
+        },
+        spec: synthesizeSpec('event'),
+        displayName: 'event',
+      );
+
+      expect(card.subtitle, 'Legacy Guest');
+    });
+
+    test('counts duplicate attendee names as separate rows', () {
+      final card = buildCard(
+        payload: const {
+          'attendees': [
+            {'display_name': 'Alex', 'name_raw': 'Old'},
+            {'display_name': 'Alex', 'name_raw': 'Other'},
+          ],
+        },
+        spec: synthesizeSpec('event'),
+        displayName: 'event',
+      );
+
+      expect(card.subtitle, 'Alex +1');
+    });
+
+    test('skips empty names and honors a larger declared count', () {
+      final card = buildCard(
+        payload: const {
+          'attendees': [
+            {'display_name': '  ', 'name_raw': '', 'name': ''},
+            {'name_raw': 'Visible Guest'},
+          ],
+          'attendees_count': 4,
+        },
+        spec: synthesizeSpec('event'),
+        displayName: 'event',
+      );
+
+      expect(card.subtitle, 'Visible Guest +3');
+    });
   });
 }

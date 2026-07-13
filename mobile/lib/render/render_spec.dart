@@ -222,11 +222,16 @@ String _eventAttendeeSummary(Map<String, dynamic> event) {
   final names = <String>[];
   if (raw is List) {
     for (final attendee in raw) {
-      final dynamic candidate = attendee is Map
-          ? attendee['name'] ?? attendee['name_raw'] ?? attendee['display_name']
-          : attendee;
-      final name = candidate?.toString().trim() ?? '';
-      if (name.isNotEmpty && !names.contains(name)) names.add(name);
+      var name = '';
+      if (attendee is Map) {
+        for (final field in const ['display_name', 'name_raw', 'name']) {
+          name = attendee[field]?.toString().trim() ?? '';
+          if (name.isNotEmpty) break;
+        }
+      } else {
+        name = attendee?.toString().trim() ?? '';
+      }
+      if (name.isNotEmpty) names.add(name);
     }
   }
   if (names.isEmpty) return '';
