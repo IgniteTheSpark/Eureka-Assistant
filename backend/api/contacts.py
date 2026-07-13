@@ -20,8 +20,9 @@ from typing import List, Optional
 
 from core.auth import get_current_user_id
 from core.contacts_meta import clean_socials, notes_to_list, append_notes
-from db.models import Contact
+from db.models import Contact, EventAttendee
 from db.database import AsyncSessionLocal
+from mcp_server.tools import _detach_event_attendee_contact
 from typing import Dict
 import uuid
 
@@ -169,6 +170,12 @@ async def delete_contact(contact_id: str, user_id: str = Depends(get_current_use
         )).scalar_one_or_none()
         if not c:
             raise HTTPException(status_code=404, detail="contact not found")
+        attendees = (await db.execute(
+            select(EventAttendee).where(EventAttendee.contact_id == c.id)
+            .order_by(EventAttendee.created_at.asc(), EventAttendee.id.asc())
+        )).scalars().all()
+        for attendee in attendees:
+            _detach_event_attendee_contact(attendee, c)
         await db.delete(c)
         await db.commit()
     return {"ok": True, "deleted_contact_id": contact_id}

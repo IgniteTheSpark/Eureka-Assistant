@@ -451,13 +451,50 @@ class _EventAttendeeSelectorState extends State<_EventAttendeeSelector> {
             child: Row(
               children: [
                 Expanded(
-                  child: Text(
-                    '已选',
-                    style: TextStyle(
-                      color: eu.textMid,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
+                  child: Row(
+                    children: [
+                      Text(
+                        '已选',
+                        style: TextStyle(
+                          color: eu.textMid,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      if (_selected.isNotEmpty) ...[
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: [
+                                for (final contact in _selected.values)
+                                  Container(
+                                    margin: const EdgeInsets.only(right: 6),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 9,
+                                      vertical: 5,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: eu.surface,
+                                      borderRadius: BorderRadius.circular(999),
+                                      border: Border.all(color: eu.border),
+                                    ),
+                                    child: Text(
+                                      '• ${contact.name}',
+                                      style: TextStyle(
+                                        color: eu.textHi,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
                 FilledButton(

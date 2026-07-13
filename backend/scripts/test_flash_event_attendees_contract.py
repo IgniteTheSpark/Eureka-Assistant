@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
+import ast
 import re
+import unicodedata
 from pathlib import Path
 from typing import Optional
 
@@ -75,16 +77,43 @@ def main() -> None:
     assert "contact_id=" not in zero_add
 
     one_add = tool_calls(one_match, "tool_add_event_attendee")[0]
-    assert 'name=contacts[0]["name"]' in one_add
-    assert 'contact_id=contacts[0]["contact_id"]' in one_add
+    assert 'name=exact_contacts[0]["name"]' in one_add
+    assert 'contact_id=exact_contacts[0]["contact_id"]' in one_add
 
     many_add = tool_calls(many_matches, "tool_add_event_attendee")[0]
     assert literal_argument(many_add, "name") == "<原文里的称呼>"
     assert "contact_id=" not in many_add
-    assert "contacts[0]" in many_matches and "第一条" in many_matches
+    assert "exact_contacts[0]" in many_matches and "第一条" in many_matches
     assert "不得" in many_matches or "不使用" in many_matches
     for call in actual_call_lines(many_matches):
-        assert "contacts[0]" not in call and "第一条" not in call
+        assert "exact_contacts[0]" not in call and "第一条" not in call
+
+    assert "len(contacts)" not in step_3b
+    assert "exact_contacts" in step_3b
+    assert "Alex Chen" in step_3b and "Alexander" in step_3b
+    assert "Alex" in step_3b
+
+    tools_source = (SKILL.parents[2] / "mcp_server" / "tools.py").read_text()
+    query_contact = section(tools_source, "async def query_contact", "async def update_contact")
+    assert "exact_contacts" in query_contact
+    assert "_normalize_contact_name" in query_contact
+    assert 'search_query = (name_query or "").strip()' in query_contact
+    assert 'f"%{search_query}%"' in query_contact
+    tools_module = ast.parse(tools_source)
+    normalize_node = next(
+        node
+        for node in tools_module.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_normalize_contact_name"
+    )
+    namespace = {"unicodedata": unicodedata}
+    exec(
+        compile(ast.Module(body=[normalize_node], type_ignores=[]), "normalize_subset", "exec"),
+        namespace,
+    )
+    normalize = namespace["_normalize_contact_name"]
+    assert normalize("  Ａｌｅｘ  ") == "alex"
+    assert normalize("Straße") == normalize("STRASSE")
 
     dedupe_at = step_3b.index("完全重复")
     first_call_at = min(step_3b.index(call) for call in actual_call_lines(step_3b))

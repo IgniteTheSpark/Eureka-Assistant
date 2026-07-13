@@ -48,8 +48,9 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import (
-    Asset, UserSkill, GlobalSkill, Event, InputTurn, File, Contact,
+    Asset, UserSkill, GlobalSkill, Event, EventAttendee, InputTurn, File, Contact,
 )
+from mcp_server.tools import _event_attendee_to_dict
 
 
 # ── effective_at per kind ─────────────────────────────────────────────────────
@@ -251,7 +252,18 @@ def _asset_item(asset: Asset, skill_name: str, render_spec: Optional[dict] = Non
     }
 
 
-def _event_item(event: Event) -> dict:
+def _event_item(event: Event, attendees: Optional[list] = None) -> dict:
+    attendees = attendees or []
+    payload = {
+        "event_id": str(event.id),
+        "title": event.title,
+        "start_at": _iso(event.start_at),
+        "end_at": _iso(event.end_at),
+        "all_day": bool(event.all_day),
+        "location": event.location,
+        "description": event.description,
+        "attendees": attendees,
+    }
     return {
         "kind":                 "event",
         "id":                   str(event.id),
@@ -264,6 +276,7 @@ def _event_item(event: Event) -> dict:
         "location":             event.location,
         "all_day":              bool(event.all_day),
         "source_input_turn_id": str(event.source_input_turn_id) if event.source_input_turn_id else None,
+        "payload":              payload,
     }
 
 
@@ -425,8 +438,33 @@ async def assemble_timeline(
     if "event" in kinds:
         stmt = select(Event).where(Event.user_id == user_id)
         events = (await db.execute(stmt)).scalars().all()
+        event_ids = [event.id for event in events]
+        attendees_by_event = {event_id: [] for event_id in event_ids}
+        if event_ids:
+            attendees = (await db.execute(
+                select(EventAttendee)
+                .where(EventAttendee.event_id.in_(event_ids))
+                .order_by(EventAttendee.created_at.asc(), EventAttendee.id.asc())
+            )).scalars().all()
+            contact_ids = {attendee.contact_id for attendee in attendees if attendee.contact_id}
+            contacts_by_id = {}
+            if contact_ids:
+                contacts = (await db.execute(
+                    select(Contact).where(
+                        Contact.id.in_(contact_ids),
+                        Contact.user_id == user_id,
+                    )
+                )).scalars().all()
+                contacts_by_id = {contact.id: contact for contact in contacts}
+            for attendee in attendees:
+                attendees_by_event[attendee.event_id].append(
+                    _event_attendee_to_dict(
+                        attendee,
+                        contacts_by_id.get(attendee.contact_id),
+                    )
+                )
         for ev in events:
-            items.append(_event_item(ev))
+            items.append(_event_item(ev, attendees_by_event[ev.id]))
 
     # ── contacts (first-class entity in its own table) ──
     if "contact" in kinds:

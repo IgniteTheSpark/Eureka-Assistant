@@ -15,6 +15,7 @@ Changes from previous version (Step 2 design integration):
 - Renamed _get_user_skill → _resolve_user_skill for clarity
 """
 import json
+import unicodedata
 import uuid
 from typing import Optional
 
@@ -511,20 +512,33 @@ async def create_contact(
 
 
 async def query_contact(name_query: str = "", user_id: str = "default") -> dict:
+    search_query = (name_query or "").strip()
     async with AsyncSessionLocal() as db:
         stmt = select(Contact).where(Contact.user_id == user_id)
-        if name_query:
-            stmt = stmt.where(Contact.name.ilike(f"%{name_query}%"))
+        if search_query:
+            stmt = stmt.where(Contact.name.ilike(f"%{search_query}%"))
         stmt = stmt.order_by(Contact.created_at.desc()).limit(50)
         result = await db.execute(stmt)
         contacts = result.scalars().all()
 
-    return _ok(contacts=[
+    serialized = [
         {"contact_id": str(c.id), "name": c.name, "phone": c.phone,
          "company": c.company, "title": c.title, "email": c.email,
          "notes": notes_to_list(c.notes), "socials": clean_socials(c.socials)}
         for c in contacts
-    ])
+    ]
+    normalized_query = _normalize_contact_name(name_query)
+    exact_contacts = [
+        contact for contact in serialized
+        if normalized_query
+        and _normalize_contact_name(contact["name"]) == normalized_query
+    ]
+    return _ok(contacts=serialized, exact_contacts=exact_contacts)
+
+
+def _normalize_contact_name(value: str) -> str:
+    """Normalize a spoken/stored name for safe automatic exact matching."""
+    return unicodedata.normalize("NFKC", value or "").strip().casefold()
 
 
 async def update_contact(
@@ -708,6 +722,12 @@ def _event_attendee_unbound_name(name_raw, contact=None):
     return None
 
 
+def _detach_event_attendee_contact(attendee, contact):
+    """Preserve a readable fallback before detaching a deleted contact."""
+    attendee.name_raw = _event_attendee_unbound_name(attendee.name_raw, contact)
+    attendee.contact_id = None
+
+
 def _apply_event_attendee_patch(
     attendee,
     name=None,
@@ -859,6 +879,7 @@ async def query_event(
         if event_ids:
             atts = (await db.execute(
                 select(EventAttendee).where(EventAttendee.event_id.in_(event_ids))
+                .order_by(EventAttendee.created_at.asc(), EventAttendee.id.asc())
             )).scalars().all()
             contact_ids = {a.contact_id for a in atts if a.contact_id}
             contacts_by_id = {}
@@ -901,6 +922,7 @@ async def get_event(event_id: str, user_id: str = "default") -> dict:
             return _err(f"event not found: {event_id}")
         atts = (await db.execute(
             select(EventAttendee).where(EventAttendee.event_id == event.id)
+            .order_by(EventAttendee.created_at.asc(), EventAttendee.id.asc())
         )).scalars().all()
         contact_ids = {a.contact_id for a in atts if a.contact_id}
         contacts_by_id = {}
@@ -1029,7 +1051,7 @@ async def add_event_attendee(
         att = EventAttendee(
             event_id=event_uuid,
             contact_id=contact_uuid,
-            name_raw=name or None,
+            name_raw=_event_attendee_unbound_name(name, contact),
             role=role,
         )
         db.add(att)

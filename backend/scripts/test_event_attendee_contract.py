@@ -14,6 +14,7 @@ def _load_attendee_helpers(source: str) -> dict:
     module = ast.parse(source)
     expected = {
         "_apply_event_attendee_patch",
+        "_detach_event_attendee_contact",
         "_event_attendee_to_dict",
         "_event_attendee_unbound_name",
     }
@@ -42,6 +43,7 @@ def test_event_attendee_contract() -> None:
     helpers = _load_attendee_helpers(tools_source)
     serialize = helpers["_event_attendee_to_dict"]
     apply_patch = helpers["_apply_event_attendee_patch"]
+    detach_contact = helpers["_detach_event_attendee_contact"]
     attendee = SimpleNamespace(
         id="att-1",
         contact_id="contact-1",
@@ -105,6 +107,22 @@ def test_event_attendee_contract() -> None:
     assert error == "attendee requires a contact or display name"
     assert unresolved_attendee.name_raw == "张总"
 
+    contact_only.contact_id = "contact-1"
+    contact_only.name_raw = None
+    detach_contact(contact_only, contact)
+    assert contact_only.contact_id is None
+    assert contact_only.name_raw == "Alex"
+
+    existing_fallback = SimpleNamespace(
+        id="att-4",
+        contact_id="contact-1",
+        name_raw="Original Alex",
+        role="attendee",
+    )
+    detach_contact(existing_fallback, contact)
+    assert existing_fallback.contact_id is None
+    assert existing_fallback.name_raw == "Original Alex"
+
     assert "async def update_event_attendee(" in tools_source
     assert "async def delete_event_attendee(" in tools_source
     assert "update_event_attendee" in server_source
@@ -114,6 +132,27 @@ def test_event_attendee_contract() -> None:
 
     for field in ("name", "company", "title", "phone", "email"):
         assert f"Contact.{field}.ilike" in contacts_source
+
+    attendee_order = (
+        ".order_by(EventAttendee.created_at.asc(), EventAttendee.id.asc())"
+    )
+    assert tools_source.count(attendee_order) >= 2
+    assert attendee_order in (ROOT / "core/timeline.py").read_text()
+
+    add_attendee = tools_source[
+        tools_source.index("async def add_event_attendee("):
+        tools_source.index("async def update_event_attendee(")
+    ]
+    assert "name_raw=_event_attendee_unbound_name(name, contact)" in add_attendee
+
+    delete_contact = contacts_source[
+        contacts_source.index('@router.delete("/contacts/{contact_id}")'):
+        contacts_source.index("\ndef _serialize", contacts_source.index('@router.delete("/contacts/{contact_id}")'))
+    ]
+    assert "select(EventAttendee)" in delete_contact
+    assert "EventAttendee.contact_id == c.id" in delete_contact
+    assert "_detach_event_attendee_contact(attendee, c)" in delete_contact
+    assert delete_contact.index("_detach_event_attendee_contact") < delete_contact.index("db.delete(c)")
 
 
 if __name__ == "__main__":

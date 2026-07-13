@@ -1228,6 +1228,50 @@ void main() {
     },
   );
 
+  testWidgets('selector footer shows selected names without avatars', (
+    tester,
+  ) async {
+    final api = ApiClient(
+      baseUrl: 'http://localhost',
+      enableLogging: false,
+      client: MockClient(
+        (_) async => http.Response(
+          jsonEncode({'contacts': const []}),
+          200,
+          headers: {'content-type': 'application/json'},
+        ),
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildEurekaTheme(EurekaColors.light),
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () => showEventAttendeeSelector(
+              context,
+              api: api,
+              initialSelection: const [
+                ContactChoice(id: 'c1', name: 'Footer Alex'),
+                ContactChoice(id: 'c2', name: 'Footer Bob'),
+              ],
+              onCreateContact: (_) async => null,
+            ),
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('已选'), findsOneWidget);
+    expect(find.text('• Footer Alex'), findsOneWidget);
+    expect(find.text('• Footer Bob'), findsOneWidget);
+    expect(find.text('保存(2)'), findsOneWidget);
+    expect(find.byType(CircleAvatar), findsNothing);
+  });
+
   testWidgets(
     'selector rejects an old response as soon as the search text changes',
     (tester) async {

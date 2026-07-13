@@ -1,4 +1,5 @@
 import '../api/api_client.dart';
+import '../render/render_spec.dart';
 
 /// Icon + label + accent for a skill / derived kind.
 class SkillMeta {
@@ -83,17 +84,35 @@ class TimelineItem {
   });
 
   factory TimelineItem.fromJson(Map<String, dynamic> j) {
+    final kind = j['kind'] as String? ?? 'asset';
     final ea =
         DateTime.tryParse(j['effective_at'] as String? ?? '')?.toLocal() ??
         DateTime.now();
     final rawDerived =
         (j['derived'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final rawPayload =
+        (j['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final payload = kind == 'event'
+        ? <String, dynamic>{
+            'event_id': j['event_id'],
+            'title': j['title'],
+            'start_at': j['start_at'] ?? j['effective_at'],
+            'end_at': j['end_at'],
+            'all_day': j['all_day'],
+            'location': j['location'],
+            'description': j['description'],
+            'attendees': j['attendees'],
+            ...rawPayload,
+          }
+        : rawPayload;
     return TimelineItem(
-      kind: j['kind'] as String? ?? 'asset',
+      kind: kind,
       id: j['id'] as String? ?? '',
       effectiveAt: ea,
       title: j['title'] as String? ?? '',
-      subtitle: j['subtitle'] as String? ?? '',
+      subtitle: kind == 'event'
+          ? eventCardSummary(payload)
+          : j['subtitle'] as String? ?? '',
       skillName: j['skill_name'] as String?,
       sessionId: j['session_id'] as String?,
       endAt: DateTime.tryParse(j['end_at'] as String? ?? '')?.toLocal(),
@@ -101,7 +120,7 @@ class TimelineItem {
       location: j['location'] as String?,
       eventId: j['event_id'] as String?,
       contactId: j['contact_id'] as String?,
-      payload: (j['payload'] as Map?)?.cast<String, dynamic>() ?? const {},
+      payload: payload,
       derived: {
         for (final e in rawDerived.entries)
           if (e.value is num) e.key: (e.value as num).toInt(),

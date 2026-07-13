@@ -99,25 +99,27 @@ Call `tool_create_event`:
 
 从 source_text 里抽出所有可能指代「参与方」的名词或称呼,**不区分是真人名、职称、泛称还是团队**。按原文称呼做**完全重复**去重,保留第一次出现的顺序;同一个完全相同的名字只处理一次。
 
-对去重后的每个名字调用 `tool_query_contact`,读取返回 JSON 顶层的 `contacts` 数组。只按 `len(contacts)` 进入以下一个分支;每个分支展示完整路径,每个去重后的名字实际只查询一次、只添加一次 attendee。
+对去重后的每个名字调用 `tool_query_contact`,读取返回 JSON 顶层的 `exact_contacts` 数组。`contacts` 仍是 contains 搜索候选,不可用于自动绑定。只按 `len(exact_contacts)` 进入以下一个分支;每个分支展示完整路径,每个去重后的名字实际只查询一次、只添加一次 attendee。
 
-#### 0 命中 (`len(contacts) == 0`)
+#### 0 命中 (`len(exact_contacts) == 0`)
 
-`tool_query_contact(name_query="<原文里的称呼>")` → `{"ok": true, "contacts": []}`
+`tool_query_contact(name_query="<原文里的称呼>")` → `{"ok": true, "contacts": [<contains candidates>], "exact_contacts": []}`
 `tool_add_event_attendee(event_id=<event_id>, name="<原文里的称呼>", role="attendee")`
 
-#### 1 命中 (`len(contacts) == 1`)
+#### 1 命中 (`len(exact_contacts) == 1`)
 
-`tool_query_contact(name_query="<原文里的称呼>")` → `{"ok": true, "contacts": [{"contact_id": "<id>", "name": "<contact name>"}]}`
-`tool_add_event_attendee(event_id=<event_id>, name=contacts[0]["name"], contact_id=contacts[0]["contact_id"], role="attendee")`
+`tool_query_contact(name_query="<原文里的称呼>")` → `{"ok": true, "contacts": [<contains candidates>], "exact_contacts": [{"contact_id": "<id>", "name": "<contact name>"}]}`
+`tool_add_event_attendee(event_id=<event_id>, name=exact_contacts[0]["name"], contact_id=exact_contacts[0]["contact_id"], role="attendee")`
 
-#### 2+ 命中 (`len(contacts) >= 2`)
+#### 2+ 命中 (`len(exact_contacts) >= 2`)
 
-`tool_query_contact(name_query="<原文里的称呼>")` → `{"ok": true, "contacts": [<candidate A>, <candidate B>, ...]}`
-有歧义,不得使用 `contacts[0]` 或第一条候选,也不猜测其他候选。
+`tool_query_contact(name_query="<原文里的称呼>")` → `{"ok": true, "contacts": [<contains candidates>], "exact_contacts": [<exact candidate A>, <exact candidate B>, ...]}`
+有歧义,不得使用 `exact_contacts[0]` 或第一条候选,也不猜测其他候选。
 `tool_add_event_attendee(event_id=<event_id>, name="<原文里的称呼>", role="attendee")`
 
 0 命中时**不创建 contact**;2+ 命中时也不任选候选、**不创建 contact**。只有 1 命中才传 `contact_id`;0 或 2+ 命中继续保留原文称呼作为未解析 attendee。
+
+**精确匹配安全例:** 原文称呼为 `Alex` 时,即使 `contacts` 包含 `Alex Chen`、`Alexander`,只要 `exact_contacts` 为空就走 0 命中,绝不绑定这些 contains 候选。
 
 **抽取规则**(宁可少抽,不要错抽更不要瞎编):
 - 「和 X 的会议」「跟 X 开会」「X 和我」「找 X」「跟 X 聊」 → 抽 `X`
