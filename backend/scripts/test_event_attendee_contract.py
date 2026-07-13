@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def _load_attendee_helpers(source: str) -> dict:
     module = ast.parse(source)
     expected = {
+        "_apply_event_attendee_patch",
         "_event_attendee_to_dict",
         "_event_attendee_unbound_name",
     }
@@ -40,7 +41,7 @@ def test_event_attendee_contract() -> None:
 
     helpers = _load_attendee_helpers(tools_source)
     serialize = helpers["_event_attendee_to_dict"]
-    unbound_name = helpers["_event_attendee_unbound_name"]
+    apply_patch = helpers["_apply_event_attendee_patch"]
     attendee = SimpleNamespace(
         id="att-1",
         contact_id="contact-1",
@@ -71,9 +72,38 @@ def test_event_attendee_contract() -> None:
     assert unresolved["is_resolved"] is False
     assert unresolved["contact_summary"] == ""
 
-    contact_only = SimpleNamespace(name_raw=None)
-    assert unbound_name(contact_only, contact) == "Alex"
-    assert unbound_name(contact_only, SimpleNamespace(name="  ")) is None
+    contact_only = SimpleNamespace(
+        id="att-2",
+        contact_id="contact-1",
+        name_raw=None,
+        role="attendee",
+    )
+    error = apply_patch(
+        contact_only,
+        name=None,
+        contact_id="",
+        role=None,
+        previous_contact=contact,
+    )
+    assert error is None
+    unbound = serialize(contact_only)
+    assert unbound["contact_id"] is None
+    assert unbound["display_name"] == "Alex"
+
+    unresolved_attendee = SimpleNamespace(
+        id="att-3",
+        contact_id=None,
+        name_raw="张总",
+        role="attendee",
+    )
+    error = apply_patch(
+        unresolved_attendee,
+        name="",
+        contact_id=None,
+        role=None,
+    )
+    assert error == "attendee requires a contact or display name"
+    assert unresolved_attendee.name_raw == "张总"
 
     assert "async def update_event_attendee(" in tools_source
     assert "async def delete_event_attendee(" in tools_source

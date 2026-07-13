@@ -699,12 +699,36 @@ def _event_attendee_to_dict(attendee, contact=None):
     }
 
 
-def _event_attendee_unbound_name(attendee, contact=None):
+def _event_attendee_unbound_name(name_raw, contact=None):
     """Return a non-blank display fallback suitable for an unbound attendee."""
-    if attendee.name_raw and attendee.name_raw.strip():
-        return attendee.name_raw
+    if name_raw and name_raw.strip():
+        return name_raw
     if contact and contact.name and contact.name.strip():
         return contact.name
+    return None
+
+
+def _apply_event_attendee_patch(
+    attendee,
+    name=None,
+    contact_id=None,
+    role=None,
+    previous_contact=None,
+):
+    """Apply an attendee patch only when the resulting row stays displayable."""
+    next_name = attendee.name_raw if name is None else (name or None)
+    next_contact_id = (
+        attendee.contact_id if contact_id is None else (contact_id or None)
+    )
+    if next_contact_id is None:
+        next_name = _event_attendee_unbound_name(next_name, previous_contact)
+        if not next_name:
+            return "attendee requires a contact or display name"
+
+    attendee.name_raw = next_name
+    attendee.contact_id = next_contact_id
+    if role is not None:
+        attendee.role = role
     return None
 
 
@@ -1048,10 +1072,8 @@ async def update_event_attendee(
         if not attendee:
             return _err(f"attendee not found: {attendee_id}")
 
-        if name is not None:
-            attendee.name_raw = name or None
-
         contact = None
+        previous_contact = None
         if contact_id is not None:
             if contact_uuid:
                 contact = (await db.execute(
@@ -1069,13 +1091,6 @@ async def update_event_attendee(
                         Contact.user_id == user_id,
                     )
                 )).scalar_one_or_none()
-                fallback_name = _event_attendee_unbound_name(
-                    attendee, previous_contact,
-                )
-                if not fallback_name:
-                    return _err("cannot unbind attendee without a display name")
-                attendee.name_raw = fallback_name
-            attendee.contact_id = contact_uuid
         elif attendee.contact_id:
             contact = (await db.execute(
                 select(Contact).where(
@@ -1084,8 +1099,18 @@ async def update_event_attendee(
                 )
             )).scalar_one_or_none()
 
-        if role is not None:
-            attendee.role = role
+        contact_patch = None
+        if contact_id is not None:
+            contact_patch = contact_uuid or ""
+        patch_error = _apply_event_attendee_patch(
+            attendee,
+            name=name,
+            contact_id=contact_patch,
+            role=role,
+            previous_contact=previous_contact,
+        )
+        if patch_error:
+            return _err(patch_error)
 
         await db.commit()
         await db.refresh(attendee)
