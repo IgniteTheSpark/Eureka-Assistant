@@ -95,14 +95,19 @@ Call `tool_create_event`:
 
 记下返回的 `event_id`,Step 3b 要用。
 
-**Step 3b — 把 source_text 里所有「可能是参与人」的字符串占位为 attendee**
+**Step 3b — 安全解析 attendee（先去重,再查 contact）**
 
-从 source_text 里抽出所有可能指代「参与方」的名词或称呼,**不区分是真人名、职称、泛称还是团队** —— 全部用 `name_raw` 形式存进 attendee,不要尝试匹配 contact,**不要传 contact_id**。
+从 source_text 里抽出所有可能指代「参与方」的名词或称呼,**不区分是真人名、职称、泛称还是团队**。按原文称呼做**完全重复**去重,保留第一次出现的顺序;同一个完全相同的名字只处理一次。
 
-对每个抽出来的名字调一次:
-```
-tool_add_event_attendee(event_id=<上一步的 event_id>, name="<原文里的称呼>", role="attendee")
-```
+对去重后的每个名字调用 `tool_query_contact(name_query="<原文里的称呼>")`。该工具返回 JSON,候选列表位于顶层 `contacts` 数组。只按 `len(contacts)` 做以下安全分支,并且每个去重后的名字最终只调用一次 `tool_add_event_attendee`:
+
+| 查询结果 | attendee 写入方式 |
+|---|---|
+| **0 命中** (`len(contacts) == 0`) | 未解析: `tool_add_event_attendee(event_id=<event_id>, name="<原文里的称呼>", role="attendee")` |
+| **1 命中** (`len(contacts) == 1`) | 唯一绑定: `tool_add_event_attendee(event_id=<event_id>, contact_id=contacts[0]["contact_id"], role="attendee")` |
+| **2+ 命中** (`len(contacts) >= 2`) | 有歧义,不猜: `tool_add_event_attendee(event_id=<event_id>, name="<原文里的称呼>", role="attendee")` |
+
+0 命中时**不创建 contact**;2+ 命中时也不任选候选、**不创建 contact**。只有 1 命中才传 `contact_id`;0 或 2+ 命中继续保留原文称呼作为未解析 attendee。
 
 **抽取规则**(宁可少抽,不要错抽更不要瞎编):
 - 「和 X 的会议」「跟 X 开会」「X 和我」「找 X」「跟 X 聊」 → 抽 `X`
@@ -113,11 +118,10 @@ tool_add_event_attendee(event_id=<上一步的 event_id>, name="<原文里的称
 - 没有任何人/参与方提及 → **不调 add_event_attendee**(0 个 attendee 是允许的)
 
 **为什么这样设计**(给未来的你/agent 看):
-- 现阶段**不做智能匹配**(不查 contacts 表、不创建联系人) —— 保守策略:不出错胜过出错
-- 所有 attendee 都以 `name_raw` 形式占位,前端把它们渲染成可点击 chip
-- 用户点击后跳到联系人匹配/创建界面,自己决定怎么落实
-- 同名/重复:重复 add 没关系,以后清理是 UI / Assistant 的事
-- 未来升级智能匹配时,只需把上面的「不查不创建」规则替换成「查 contact_id 命中则用,不命中保留 name_raw」
+- 唯一候选才自动绑定,避免同名联系人误绑
+- 0 或 2+ 候选都保留原文 `name_raw`,让用户之后自己确认
+- Flash event 只引用已有 contact,不负责创建联系人
+- 完全重复称呼在调用工具前去重,避免同一 event 出现重复 attendee
 
 ### Update
 
@@ -142,7 +146,7 @@ For successful create:
   "event_id": "<from create_event>",
   "title": "...",
   "start_at": "...",
-  "attendees_added": ["冯总", "客户"]    // 新加的 name_raw 列表,可以是 []
+  "attendees_added": ["冯总", "客户"]    // 已添加的原文参与方称呼(可能已绑定 contact),可以是 []
 }
 ```
 
@@ -173,20 +177,24 @@ For errors:
 
 **输入:** `明天下午两点到三点跟客户开会,地点在会议室B` (今天是 2026-05-25)
 1. `tool_create_event(title="跟客户开会", start_at="2026-05-26T14:00:00+08:00", end_at="2026-05-26T15:00:00+08:00", location="会议室B", source_input_turn_id=<turn>)` → event_id="e-xxx"
-2. `tool_add_event_attendee(event_id="e-xxx", name="客户")`
+2. `tool_query_contact(name_query="客户")` → `{"ok": true, "contacts": []}` (0 命中)
+3. `tool_add_event_attendee(event_id="e-xxx", name="客户", role="attendee")`
 → 返回:`{"ok": true, "operation": "create", "event_id": "e-xxx", "title": "...", "start_at": "...", "attendees_added": ["客户"]}`
 
 **输入:** `明天下午六点有个和冯总的会议`
 1. `tool_create_event(title="和冯总的会议", start_at="2026-05-26T18:00:00+08:00", source_input_turn_id=<turn>)` → event_id="e-yyy"
-2. `tool_add_event_attendee(event_id="e-yyy", name="冯总")`
+2. `tool_query_contact(name_query="冯总")` → `{"ok": true, "contacts": [{"contact_id": "c-feng", "name": "冯总", "phone": null, "company": null, "title": null, "email": null, "notes": [], "socials": {}}]}` (1 命中)
+3. `tool_add_event_attendee(event_id="e-yyy", contact_id="c-feng", role="attendee")`
 → `{"ok": true, ..., "attendees_added": ["冯总"]}`
 
-**输入:** `周五晚上7点跟Kevin、刘洋老师还有客户那边一起吃饭`
+**输入:** `周五晚上7点跟Kevin、Kevin和刘洋老师一起吃饭`
 1. `tool_create_event(title="晚餐", start_at="2026-05-30T19:00:00+08:00", ...)` → event_id
-2. `tool_add_event_attendee(event_id, name="Kevin")`
-3. `tool_add_event_attendee(event_id, name="刘洋老师")`
-4. `tool_add_event_attendee(event_id, name="客户那边")`
-→ `attendees_added: ["Kevin", "刘洋老师", "客户那边"]`
+2. 完全重复的 `Kevin` 先去重,只查询和添加一次
+3. `tool_query_contact(name_query="Kevin")` → `contacts` 有 2 条 (2+ 命中)
+4. `tool_add_event_attendee(event_id, name="Kevin", role="attendee")` (不猜、不绑定)
+5. `tool_query_contact(name_query="刘洋老师")` → `contacts` 有 1 条
+6. `tool_add_event_attendee(event_id, contact_id=contacts[0]["contact_id"], role="attendee")`
+→ `attendees_added: ["Kevin", "刘洋老师"]`
 
 **输入:** `明天早上 9 点站会`
 1. `tool_create_event(title="站会", start_at="2026-05-26T09:00:00+08:00", ...)` → event_id
@@ -208,6 +216,7 @@ For errors:
 - 不要捏造没说的字段(地点没说就不要瞎填 location)
 - 时区默认 +08:00
 - 一个 source_text 只处理一个 event 操作;dispatcher 已经把多意图拆开了
-- **attendees 在 create 时**自动占位为 `name_raw`(不查 contacts、不创建 contact)
+- **attendees 在 create 时**先按完全重复称呼去重,再用 `tool_query_contact` 查询;仅 1 命中绑定 `contact_id`,0 或 2+ 命中保留原文 `name_raw`
+- Flash event **不创建 contact**,也不在多候选时猜测绑定
 - update / delete 操作不动 attendees
-- 重复 attendee(同一个名字出现多次)不去重 —— 由 UI / 后续清理处理
+- 完全重复 attendee(同一个原文称呼出现多次)必须去重,每个去重后的名字只调用一次 `tool_add_event_attendee`
