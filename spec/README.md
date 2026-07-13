@@ -72,7 +72,7 @@
 | [design-system-revamp.md](design/design-system-revamp.md) | Active Brief | 下一轮全 app design system revamp 总 brief。先做 Global Shell + Asset Surface System，再做 Today/Calendar/Library |
 | [design-habit-streak.md](design/design-habit-streak.md) | Active Brief | 习惯 / streak 系统设计讨论稿 |
 | [handoff-today-home-design.md](handoffs/handoff-today-home-design.md) | Active Brief | 今日页作为 app home 的设计 handoff |
-| [handoff-calendar-current-prd.md](handoffs/handoff-calendar-current-prd.md) | Active Brief | Calendar Mobile 当前交互复刻 PRD：流/月/年、每日详情、四类内容详情 Bottom Sheet 与截图占位；不规定技术实现 |
+| [handoff-calendar-current-prd.md](handoffs/handoff-calendar-current-prd.md) | Active Brief | Calendar Mobile 当前交互复刻 PRD：流/月/年、每日详情、卡片与编辑页 General Rule、四类详情 Bottom Sheet、Ask Agent 卡片复用；不规定技术实现 |
 | [redesign-home-B.md](design/redesign-home-B.md) | Reference / Hifi Truth | 今日首页 B「潮汐」hifi 视觉/交互真值收录；由 `handoff-today-home-design.md` 引用 |
 | [handoff-calendar-design.md](handoffs/handoff-calendar-design.md) | Reference | 日历 / 今日页早期设计 brief；部分已被今日 home 新模型取代 |
 
@@ -83,6 +83,7 @@
 | [handoff-period-time-fix.md](handoffs/handoff-period-time-fix.md) | Active Brief | 模糊时段不造假钟点；todo/custom skill 承接 `period/occurred_at` |
 | [handoff-flash-warm-reply.md](handoffs/handoff-flash-warm-reply.md) | Active Brief | Flash Reply Agent：替换「已记录 N 项内容」 |
 | [handoff-uiux-design-system-revamp.md](handoffs/handoff-uiux-design-system-revamp.md) | Active Brief | Quiet Warm Minimalism UIUX revamp：tokens、surface、Library tile、Dynamic Edit、Agent/Skill patterns |
+| [handoff-event-attendees.md](handoffs/handoff-event-attendees.md) | Active Brief | Event 参会人：联系人选择 sheet、重名消歧、Flash 安全绑定 |
 | [handoff-reka-emote-notif.md](handoffs/handoff-reka-emote-notif.md) | Active Brief | Reka emote、统一气泡容器、通知持久化 |
 | [handoff-reka-companion.md](handoffs/handoff-reka-companion.md) | Reference | 主动 REKA / report→todo / companion 层实现卡 |
 | [handoff-report-prompts-v2.md](handoffs/handoff-report-prompts-v2.md) | Reference | 报告 prompt 升级成稿 |

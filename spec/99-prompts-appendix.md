@@ -331,10 +331,13 @@ Return only the JSON result from the final MCP call. No explanation, no markdown
   `description`、`all_day`(0/1)。
 - **走 event 专用 MCP 工具**（`tool_create_event`/`tool_update_event`/`tool_delete_event`），
   **不是** create_asset。
-- **Step 3b attendee 占位**：从 source_text 抽所有「可能是参与方」的称呼（带姓头衔/泛称/组织名），
-  每个调 `tool_add_event_attendee(event_id, name=<原称呼>, role="attendee")`，
-  **全部 name_raw 形式、不传 contact_id、不查 contacts、不创建 contact**（保守：不出错胜过出错）。
-  「我/自己/我们组」不抽；无人提及则 0 attendee。重复不去重。
+- **Step 3b attendee 抽取 + 安全绑定**：从 source_text 抽所有「可能是参与方」的称呼（人名、带姓头衔、组织名；如 Alex/张总/客户/产品组），
+  「我/自己/我们组」不抽；无人提及则 0 attendee；同一句里完全重复的称呼去重。
+  - 对每个称呼先 `tool_query_contact(name_query=<称呼>)`（工具当前按联系人姓名子串查；后续可扩展 company/title/phone）。
+  - **0 命中**：调 `tool_add_event_attendee(event_id, name=<原称呼>, role="attendee")`，只写 `name_raw`，不创建 contact。
+  - **1 命中**：调 `tool_add_event_attendee(event_id, name=<contact.name>, contact_id=<id>, role="attendee")`，绑定到已有名片。
+  - **2+ 命中 / 重名**：不要猜、不要绑定第一条；调 `tool_add_event_attendee(event_id, name=<原称呼>, role="attendee")` 裸名落位，让用户在 event 详情的参会人 sheet 手动消歧。
+  - **永不因为 event attendee 自动创建联系人**；创建联系人只在用户明确说“保存联系人/新增名片”或手动点「新增联系人」时发生。
 - update/delete 不动 attendees。
 - 返回含 `event_id`、`attendees_added`(name_raw 列表，可为 `[]`)。
 
