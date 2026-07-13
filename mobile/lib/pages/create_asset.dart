@@ -5,6 +5,7 @@ import '../data_revision.dart';
 import '../render/asset_detail_sheet.dart' show AssetEditPage, MdEditor;
 import '../render/render_spec.dart' show RenderSpec, normalizeTodoSpec;
 import '../render/skill_card.dart' show SkillCard, accentOf;
+import 'event_attendees.dart';
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
 
@@ -221,18 +222,53 @@ class _CreateMenuState extends State<_CreateMenu> {
 
 /* ── Event create form ────────────────────────────────────────────────────── */
 
+/// Parses both the enriched attendee contract and the legacy
+/// `{attendee_id, name}` records still present in older event snapshots.
+List<EventAttendeeDraft> eventAttendeeDraftsFromExisting(dynamic raw) {
+  if (raw is! List) return const [];
+  return raw.whereType<Map>().map((item) {
+    final normalized = Map<dynamic, dynamic>.from(item);
+    if ('${normalized['id'] ?? ''}'.trim().isEmpty) {
+      normalized['id'] = normalized['attendee_id'];
+    }
+    if ('${normalized['name_raw'] ?? ''}'.trim().isEmpty &&
+        '${normalized['name'] ?? ''}'.trim().isNotEmpty) {
+      normalized['name_raw'] = normalized['name'];
+    }
+    if ('${normalized['display_name'] ?? ''}'.trim().isEmpty &&
+        '${normalized['name'] ?? ''}'.trim().isNotEmpty) {
+      normalized['display_name'] = normalized['name'];
+    }
+    return EventAttendeeDraft.fromJson(normalized);
+  }).toList();
+}
+
+String? eventIdFromCreateResponse(dynamic response) {
+  if (response is! Map) return null;
+  final value = '${response['event_id'] ?? ''}'.trim();
+  if (value.isNotEmpty) return value;
+  return eventIdFromCreateResponse(response['event']);
+}
+
 class EventForm extends StatefulWidget {
   final DateTime?
   presetDate; // empty-day create → default the event to that day (09:00)
   final String? eventId; // non-null = EDIT mode (PUT instead of POST)
   final Map<String, dynamic>? existing; // event record to prefill in edit mode
-  const EventForm({super.key, this.presetDate, this.eventId, this.existing});
+  final ApiClient? api;
+  const EventForm({
+    super.key,
+    this.presetDate,
+    this.eventId,
+    this.existing,
+    this.api,
+  });
   @override
   State<EventForm> createState() => _EventFormState();
 }
 
 class _EventFormState extends State<EventForm> {
-  final _api = ApiClient();
+  late final ApiClient _api = widget.api ?? ApiClient();
   final _title = TextEditingController();
   final _location = TextEditingController();
   final _desc = TextEditingController();
@@ -242,12 +278,17 @@ class _EventFormState extends State<EventForm> {
   bool _allDay = false;
   bool _busy = false;
   String? _error;
+  String? _savedCreateEventId;
+  late final List<EventAttendeeDraft> _originalAttendees;
+  late List<EventAttendeeDraft> _attendees;
   bool get _isEdit => widget.eventId != null;
 
   @override
   void initState() {
     super.initState();
     final e = widget.existing;
+    _originalAttendees = eventAttendeeDraftsFromExisting(e?['attendees']);
+    _attendees = List<EventAttendeeDraft>.of(_originalAttendees);
     if (e != null) {
       _title.text = '${e['title'] ?? ''}';
       _location.text = '${e['location'] ?? ''}';
@@ -288,8 +329,63 @@ class _EventFormState extends State<EventForm> {
     _title.dispose();
     _location.dispose();
     _desc.dispose();
-    _api.close();
+    if (widget.api == null) _api.close();
     super.dispose();
+  }
+
+  Future<Map<String, dynamic>?> _openContactForm(BuildContext context) async {
+    final receipt = await Navigator.of(
+      context,
+    ).push<dynamic>(MaterialPageRoute(builder: (_) => const ContactForm()));
+    return receipt is Map ? Map<String, dynamic>.from(receipt) : null;
+  }
+
+  Future<void> _addAttendees() async {
+    final excludedIds = _attendees
+        .map((attendee) => attendee.contactId)
+        .whereType<String>()
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    final selected = await showEventAttendeeSelector(
+      context,
+      api: _api,
+      excludedContactIds: excludedIds,
+      onCreateContact: _openContactForm,
+    );
+    if (!mounted || selected == null) return;
+    setState(() {
+      final seen = _attendees
+          .map((attendee) => attendee.contactId)
+          .whereType<String>()
+          .toSet();
+      for (final contact in selected) {
+        if (seen.add(contact.id)) {
+          _attendees.add(EventAttendeeDraft.fromContact(contact));
+        }
+      }
+    });
+  }
+
+  Future<void> _bindAttendee(int index) async {
+    final target = _attendees[index];
+    final excludedIds = _attendees
+        .map((attendee) => attendee.contactId)
+        .whereType<String>()
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    final selected = await showEventAttendeeSelector(
+      context,
+      api: _api,
+      excludedContactIds: excludedIds,
+      singleSelect: true,
+      onCreateContact: _openContactForm,
+    );
+    if (!mounted || selected == null || selected.isEmpty) return;
+    final currentIndex = _attendees.indexOf(target);
+    if (currentIndex < 0) return;
+    setState(() {
+      _attendees[currentIndex] = target.copyWith(contact: selected.first);
+    });
   }
 
   Future<void> _pick({required bool isStart}) async {
@@ -343,10 +439,35 @@ class _EventFormState extends State<EventForm> {
         'location': _location.text.trim(),
         'description': _desc.text.trim(),
       };
+      late final String savedEventId;
       if (_isEdit) {
         await _api.putJson('/api/events/${widget.eventId}', body);
+        savedEventId = widget.eventId!;
+      } else if (_savedCreateEventId != null) {
+        savedEventId = _savedCreateEventId!;
+        await _api.putJson('/api/events/$savedEventId', body);
       } else {
-        await _api.postJson('/api/events', body);
+        final response = await _api.postJson('/api/events', body);
+        savedEventId =
+            eventIdFromCreateResponse(response) ??
+            (throw StateError('创建事件响应缺少 event_id'));
+        _savedCreateEventId = savedEventId;
+      }
+      try {
+        await syncEventAttendees(
+          _api,
+          eventId: savedEventId,
+          original: _originalAttendees,
+          current: _attendees,
+        );
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _busy = false;
+            _error = '保存参会人失败：$e';
+          });
+        }
+        return;
       }
       bumpData();
       if (mounted) {
@@ -383,7 +504,86 @@ class _EventFormState extends State<EventForm> {
     'all_day': _allDay ? 1 : 0,
     'location': _location.text.trim(),
     'description': _desc.text.trim(),
+    'attendees': [
+      for (final attendee in _attendees)
+        {
+          'name': attendee.displayName,
+          'display_name': attendee.displayName,
+          'contact_id': attendee.contactId,
+          'is_resolved': attendee.isResolved,
+        },
+    ],
   };
+
+  Widget _attendeeSection(EurekaColors eu) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        '参会人',
+        style: euMono(fontSize: 10, letterSpacing: 1.2, color: eu.textLo),
+      ),
+      const SizedBox(height: 8),
+      for (var index = 0; index < _attendees.length; index++)
+        Container(
+          key: ValueKey(
+            _attendees[index].id ??
+                _attendees[index].contactId ??
+                'attendee-$index',
+          ),
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
+          decoration: BoxDecoration(
+            color: eu.surface,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: eu.border),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _attendees[index].displayName,
+                      style: TextStyle(
+                        color: eu.textHi,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    if (_attendees[index].contactSummary.isNotEmpty)
+                      Text(
+                        _attendees[index].contactSummary,
+                        style: TextStyle(color: eu.textMid, fontSize: 12),
+                      ),
+                    if (!_attendees[index].isResolved)
+                      Text(
+                        '未绑定名片',
+                        style: TextStyle(color: eu.textLo, fontSize: 12),
+                      ),
+                  ],
+                ),
+              ),
+              if (_attendees[index].id != null && !_attendees[index].isResolved)
+                TextButton(
+                  onPressed: () => _bindAttendee(index),
+                  child: const Text('绑定名片'),
+                ),
+              IconButton(
+                tooltip: '移除参会人',
+                onPressed: () => setState(() => _attendees.removeAt(index)),
+                icon: Icon(Icons.close, size: 18, color: eu.textLo),
+              ),
+            ],
+          ),
+        ),
+      TextButton.icon(
+        onPressed: _addAttendees,
+        icon: Icon(Icons.add, size: 18, color: eu.brand),
+        label: Text('添加参会人', style: TextStyle(color: eu.brand)),
+      ),
+    ],
+  );
 
   Widget _timeBox(EurekaColors eu, String text, VoidCallback onTap) =>
       GestureDetector(
@@ -551,6 +751,8 @@ class _EventFormState extends State<EventForm> {
               style: TextStyle(color: eu.textHi),
               decoration: dec('可选'),
             ),
+            const SizedBox(height: 14),
+            _attendeeSection(eu),
             const SizedBox(height: 14),
             // 描述 supports markdown (same editor as the asset editor) — events
             // often carry agendas / notes that want structure, not a flat field.

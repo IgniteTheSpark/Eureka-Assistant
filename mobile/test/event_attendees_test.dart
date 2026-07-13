@@ -7,6 +7,7 @@ import 'package:eureka/pages/event_attendees.dart';
 import 'package:eureka/theme/app_theme.dart';
 import 'package:eureka/theme/eureka_colors.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -75,6 +76,16 @@ void main() {
     );
   });
 
+  test('event id extraction accepts a nested map response', () {
+    expect(
+      eventIdFromCreateResponse(const {
+        'ok': true,
+        'event': {'event_id': 'event-nested'},
+      }),
+      'event-nested',
+    );
+  });
+
   test('syncs adds, removals and bindings while ignoring unchanged rows', () async {
     final requests = <String>[];
     final api = ApiClient(
@@ -138,6 +149,619 @@ void main() {
       'POST /api/events/event-1/attendees {"contact_id":"c-new-1","role":"attendee"}',
       'POST /api/events/event-1/attendees {"contact_id":"c-new-2","role":"attendee"}',
     ]);
+  });
+
+  testWidgets(
+    'event form renders enriched and legacy attendees without avatars',
+    (tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            theme: buildEurekaTheme(EurekaColors.light),
+            home: EventForm(
+              existing: const {
+                'title': 'Planning',
+                'start_at': '2026-07-13T09:00:00+08:00',
+                'end_at': '2026-07-13T10:00:00+08:00',
+                'attendees': [
+                  {
+                    'id': 'a1',
+                    'contact_id': 'c1',
+                    'display_name': 'Alex Chen',
+                    'contact_summary': 'Acme · PM',
+                    'is_resolved': true,
+                  },
+                  {
+                    'attendee_id': 'a2',
+                    'name': 'Legacy Lee',
+                    'contact_id': null,
+                  },
+                ],
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('参会人'), findsOneWidget);
+      expect(find.text('Alex Chen'), findsOneWidget);
+      expect(find.text('Acme · PM'), findsOneWidget);
+      expect(find.text('Legacy Lee'), findsOneWidget);
+      expect(find.text('未绑定名片'), findsOneWidget);
+      expect(find.text('绑定名片'), findsOneWidget);
+      expect(find.text('添加参会人'), findsOneWidget);
+      expect(find.textContaining('Alex Chen +1'), findsOneWidget);
+      expect(find.byType(CircleAvatar), findsNothing);
+    },
+  );
+
+  testWidgets('event form removes one attendee without disturbing order', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          theme: buildEurekaTheme(EurekaColors.light),
+          home: EventForm(
+            existing: const {
+              'title': 'Planning',
+              'attendees': [
+                {
+                  'id': 'a1',
+                  'contact_id': 'c1',
+                  'display_name': 'First Person',
+                  'is_resolved': true,
+                },
+                {
+                  'id': 'a2',
+                  'contact_id': 'c2',
+                  'display_name': 'Second Person',
+                  'is_resolved': true,
+                },
+              ],
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.ensureVisible(find.byTooltip('移除参会人').first);
+    await tester.pump();
+    await tester.tap(find.byTooltip('移除参会人').first);
+    await tester.pump();
+
+    expect(find.text('First Person'), findsNothing);
+    expect(find.text('Second Person'), findsOneWidget);
+  });
+
+  testWidgets('event form opens the multi-select attendee picker', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          theme: buildEurekaTheme(EurekaColors.light),
+          home: const EventForm(existing: {'title': 'Planning'}),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.text('添加参会人'));
+    await tester.pump();
+
+    expect(find.text('选择参会人'), findsOneWidget);
+    expect(find.text('可选择多个联系人'), findsOneWidget);
+  });
+
+  testWidgets(
+    'event form adds selected contacts in order and filters duplicates',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final api = ApiClient(
+        baseUrl: 'http://localhost',
+        enableLogging: false,
+        client: MockClient(
+          (_) async => http.Response(
+            jsonEncode({
+              'contacts': [
+                {'id': 'c1', 'name': 'Already Bound'},
+                {'id': 'c2', 'name': 'New One', 'company': 'Acme'},
+                {'id': 'c3', 'name': 'New Two', 'title': 'Designer'},
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          ),
+        ),
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            theme: buildEurekaTheme(EurekaColors.light),
+            home: EventForm(
+              api: api,
+              existing: const {
+                'title': 'Planning',
+                'attendees': [
+                  {
+                    'id': 'a1',
+                    'contact_id': 'c1',
+                    'display_name': 'Already Bound',
+                    'is_resolved': true,
+                  },
+                ],
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.text('添加参会人'));
+      await tester.pumpAndSettle();
+      final sheet = find.byType(BottomSheet);
+      expect(
+        find.descendant(of: sheet, matching: find.byKey(const ValueKey('c1'))),
+        findsNothing,
+      );
+      await tester.tap(find.text('New One'));
+      await tester.pump();
+      await tester.tap(find.text('New Two'));
+      await tester.pump();
+      await tester.tap(find.text('保存(2)'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Already Bound'), findsOneWidget);
+      expect(find.text('New One'), findsOneWidget);
+      expect(find.text('New Two'), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.text('New One')).dy,
+        lessThan(tester.getTopLeft(find.text('New Two')).dy),
+      );
+    },
+  );
+
+  testWidgets('event form binds an unresolved persisted attendee once', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final api = ApiClient(
+      baseUrl: 'http://localhost',
+      enableLogging: false,
+      client: MockClient(
+        (_) async => http.Response(
+          jsonEncode({
+            'contacts': [
+              {'id': 'c1', 'name': 'Already Bound'},
+              {
+                'id': 'c2',
+                'name': 'Alex Bound',
+                'company': 'Acme',
+                'title': 'CTO',
+              },
+            ],
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        ),
+      ),
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          theme: buildEurekaTheme(EurekaColors.light),
+          home: EventForm(
+            api: api,
+            existing: const {
+              'title': 'Planning',
+              'attendees': [
+                {
+                  'id': 'a1',
+                  'name_raw': 'Alex Raw',
+                  'display_name': 'Alex Raw',
+                  'is_resolved': false,
+                },
+                {
+                  'id': 'a2',
+                  'contact_id': 'c1',
+                  'display_name': 'Already Bound',
+                  'is_resolved': true,
+                },
+              ],
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.text('绑定名片'));
+    await tester.pumpAndSettle();
+    expect(find.text('选择一张名片完成绑定'), findsOneWidget);
+    final sheet = find.byType(BottomSheet);
+    expect(
+      find.descendant(of: sheet, matching: find.byKey(const ValueKey('c1'))),
+      findsNothing,
+    );
+    await tester.tap(find.text('Alex Bound'));
+    await tester.pump();
+    await tester.tap(find.text('保存(1)'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Alex Bound'), findsOneWidget);
+    expect(find.text('Acme · CTO'), findsOneWidget);
+    expect(find.text('未绑定名片'), findsNothing);
+    expect(find.text('绑定名片'), findsNothing);
+  });
+
+  testWidgets(
+    'create saves the event before attendee posts using response id',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final operations = <String>[];
+      final api = ApiClient(
+        baseUrl: 'http://localhost',
+        enableLogging: false,
+        client: MockClient((request) async {
+          if (request.method == 'GET' && request.url.path == '/api/contacts') {
+            return http.Response(
+              jsonEncode({
+                'contacts': [
+                  {'id': 'c1', 'name': 'First'},
+                  {'id': 'c2', 'name': 'Second'},
+                ],
+              }),
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          operations.add(
+            '${request.method} ${request.url.path}'
+            '${request.body.isEmpty ? '' : ' ${request.body}'}',
+          );
+          if (request.method == 'POST' && request.url.path == '/api/events') {
+            return http.Response(
+              jsonEncode({'ok': true, 'event_id': 'event-new'}),
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          return http.Response(
+            jsonEncode({'ok': true}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            theme: buildEurekaTheme(EurekaColors.light),
+            home: EventForm(
+              api: api,
+              existing: const {
+                'title': 'Planning',
+                'start_at': '2026-07-13T09:00:00+08:00',
+                'end_at': '2026-07-13T10:00:00+08:00',
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.text('添加参会人'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('First'));
+      await tester.pump();
+      await tester.tap(find.text('Second'));
+      await tester.pump();
+      await tester.tap(find.text('保存(2)'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.widgetWithText(TextButton, '保存'));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(operations, [
+        startsWith('POST /api/events {'),
+        'POST /api/events/event-new/attendees '
+            '{"contact_id":"c1","role":"attendee"}',
+        'POST /api/events/event-new/attendees '
+            '{"contact_id":"c2","role":"attendee"}',
+      ]);
+    },
+  );
+
+  testWidgets(
+    'attendee sync failure keeps edit draft open with a specific error',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final operations = <String>[];
+      final api = ApiClient(
+        baseUrl: 'http://localhost',
+        enableLogging: false,
+        client: MockClient((request) async {
+          if (request.method == 'GET') {
+            return http.Response(
+              jsonEncode({
+                'contacts': [
+                  {'id': 'c2', 'name': 'Alex Bound', 'company': 'Acme'},
+                ],
+              }),
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          operations.add('${request.method} ${request.url.path}');
+          if (request.method == 'PATCH') {
+            return http.Response(
+              jsonEncode({'detail': 'sync failed'}),
+              500,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          return http.Response(
+            jsonEncode({'ok': true}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            theme: buildEurekaTheme(EurekaColors.light),
+            home: EventForm(
+              api: api,
+              eventId: 'event-edit',
+              existing: const {
+                'title': 'Planning',
+                'start_at': '2026-07-13T09:00:00+08:00',
+                'end_at': '2026-07-13T10:00:00+08:00',
+                'attendees': [
+                  {
+                    'id': 'a1',
+                    'name_raw': 'Alex Raw',
+                    'display_name': 'Alex Raw',
+                    'is_resolved': false,
+                  },
+                ],
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.text('绑定名片'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Alex Bound'));
+      await tester.pump();
+      await tester.tap(find.text('保存(1)'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.widgetWithText(TextButton, '保存'));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(operations, [
+        'PUT /api/events/event-edit',
+        'PATCH /api/events/event-edit/attendees/a1',
+      ]);
+      await tester.scrollUntilVisible(
+        find.textContaining('保存参会人失败'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.textContaining('保存参会人失败'), findsOneWidget);
+      expect(find.text('EVENT'), findsOneWidget);
+      expect(find.text('Alex Bound'), findsOneWidget);
+    },
+  );
+
+  testWidgets('create retry reuses the event created before attendee failure', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final operations = <String>[];
+    var attendeeAttempts = 0;
+    final api = ApiClient(
+      baseUrl: 'http://localhost',
+      enableLogging: false,
+      client: MockClient((request) async {
+        operations.add('${request.method} ${request.url.path}');
+        if (request.method == 'POST' && request.url.path == '/api/events') {
+          return http.Response(
+            jsonEncode({'event_id': 'event-created'}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        if (request.url.path.endsWith('/attendees')) {
+          attendeeAttempts++;
+          return http.Response(
+            jsonEncode({'ok': attendeeAttempts > 1}),
+            attendeeAttempts == 1 ? 500 : 200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response(
+          jsonEncode({'ok': true}),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          theme: buildEurekaTheme(EurekaColors.light),
+          home: EventForm(
+            api: api,
+            existing: const {
+              'title': 'Planning',
+              'start_at': '2026-07-13T09:00:00+08:00',
+              'end_at': '2026-07-13T10:00:00+08:00',
+              'attendees': [
+                {
+                  'contact_id': 'c1',
+                  'display_name': 'Retry Person',
+                  'is_resolved': true,
+                },
+              ],
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.widgetWithText(TextButton, '保存'));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(find.widgetWithText(TextButton, '保存'));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(operations, [
+      'POST /api/events',
+      'POST /api/events/event-created/attendees',
+      'PUT /api/events/event-created',
+      'POST /api/events/event-created/attendees',
+    ]);
+  });
+
+  testWidgets(
+    'create without a response event id never sends an attendee path',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final operations = <String>[];
+      final api = ApiClient(
+        baseUrl: 'http://localhost',
+        enableLogging: false,
+        client: MockClient((request) async {
+          operations.add('${request.method} ${request.url.path}');
+          return http.Response(
+            jsonEncode({'ok': true}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            theme: buildEurekaTheme(EurekaColors.light),
+            home: EventForm(
+              api: api,
+              existing: const {
+                'title': 'Planning',
+                'start_at': '2026-07-13T09:00:00+08:00',
+                'end_at': '2026-07-13T10:00:00+08:00',
+                'attendees': [
+                  {
+                    'contact_id': 'c1',
+                    'display_name': 'No Wrong Path',
+                    'is_resolved': true,
+                  },
+                ],
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.widgetWithText(TextButton, '保存'));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(operations, ['POST /api/events']);
+      await tester.scrollUntilVisible(
+        find.textContaining('创建事件响应缺少 event_id'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.textContaining('创建事件响应缺少 event_id'), findsOneWidget);
+    },
+  );
+
+  testWidgets('failed event save prevents attendee deletion', (tester) async {
+    tester.view.physicalSize = const Size(800, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final operations = <String>[];
+    final api = ApiClient(
+      baseUrl: 'http://localhost',
+      enableLogging: false,
+      client: MockClient((request) async {
+        operations.add('${request.method} ${request.url.path}');
+        if (request.method == 'PUT') {
+          return http.Response(
+            jsonEncode({'detail': 'event save failed'}),
+            500,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response(
+          jsonEncode({'ok': true}),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          theme: buildEurekaTheme(EurekaColors.light),
+          home: EventForm(
+            api: api,
+            eventId: 'event-edit',
+            existing: const {
+              'title': 'Planning',
+              'start_at': '2026-07-13T09:00:00+08:00',
+              'end_at': '2026-07-13T10:00:00+08:00',
+              'attendees': [
+                {
+                  'id': 'a1',
+                  'contact_id': 'c1',
+                  'display_name': 'Remove Me',
+                  'is_resolved': true,
+                },
+              ],
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byTooltip('移除参会人'));
+    await tester.pump();
+
+    await tester.tap(find.widgetWithText(TextButton, '保存'));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(operations, ['PUT /api/events/event-edit']);
   });
 
   testWidgets(
