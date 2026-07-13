@@ -16,6 +16,8 @@ Used by ADK agents as a subprocess MCP server (decision #2):
     MCPToolset(StdioServerParameters(command="python", args=["-m", "mcp_server.server"]))
 """
 import json
+from typing import Optional
+
 from fastmcp import FastMCP
 
 from mcp_server.tools import (
@@ -25,7 +27,8 @@ from mcp_server.tools import (
     create_contact, query_contact, update_contact, delete_contact,
     query_input_turn, get_input_turn,
     create_event, query_event, get_event, update_event, delete_event,   # v1.4
-    add_event_attendee, link_event_file,                                  # v1.4
+    add_event_attendee, update_event_attendee, delete_event_attendee,
+    link_event_file,                                                       # v1.4
 )
 
 mcp = FastMCP("eureka")
@@ -382,6 +385,31 @@ async def tool_add_event_attendee(
     role: organizer | attendee | optional
     """
     return _jsonify(await add_event_attendee(event_id, name, contact_id, role, user_id))
+
+
+@mcp.tool()
+async def tool_update_event_attendee(
+    event_id: str,
+    attendee_id: str,
+    name: Optional[str] = None,
+    contact_id: Optional[str] = None,
+    role: Optional[str] = None,
+    user_id: str = "default",
+) -> str:
+    """Update, bind, or unbind an attendee on the current user's event."""
+    return _jsonify(await update_event_attendee(
+        event_id, attendee_id, name, contact_id, role, user_id,
+    ))
+
+
+@mcp.tool()
+async def tool_delete_event_attendee(
+    event_id: str,
+    attendee_id: str,
+    user_id: str = "default",
+) -> str:
+    """Remove an attendee from the current user's event; keeps contacts intact."""
+    return _jsonify(await delete_event_attendee(event_id, attendee_id, user_id))
 
 
 @mcp.tool()

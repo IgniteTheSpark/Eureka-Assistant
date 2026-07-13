@@ -27,7 +27,8 @@ from typing import Optional
 from core.auth import get_current_user_id
 from mcp_server.tools import (
     create_event, query_event, get_event, update_event, delete_event,
-    add_event_attendee, link_event_file,
+    add_event_attendee, update_event_attendee, delete_event_attendee,
+    link_event_file,
 )
 
 router = APIRouter()
@@ -61,6 +62,12 @@ class AttendeeCreate(BaseModel):
     name:       Optional[str] = ""
     contact_id: Optional[str] = ""
     role:       Optional[str] = "attendee"  # organizer | attendee | optional
+
+
+class AttendeePatch(BaseModel):
+    name:       Optional[str] = None
+    contact_id: Optional[str] = None
+    role:       Optional[str] = None
 
 
 class EventFileLink(BaseModel):
@@ -168,6 +175,43 @@ async def add_attendee_endpoint(
     if not result.get("ok"):
         code = 404 if "not found" in result.get("error", "") else 400
         raise HTTPException(status_code=code, detail=result.get("error", "add attendee failed"))
+    return result
+
+
+@router.patch("/events/{event_id}/attendees/{attendee_id}")
+async def update_attendee_endpoint(
+    event_id: str,
+    attendee_id: str,
+    body: AttendeePatch,
+    user_id: str = Depends(get_current_user_id),
+):
+    fields = body.model_fields_set
+    if not fields:
+        raise HTTPException(status_code=400, detail="empty patch")
+    result = await update_event_attendee(
+        event_id=event_id,
+        attendee_id=attendee_id,
+        name=body.name if "name" in fields else None,
+        contact_id=(body.contact_id or "") if "contact_id" in fields else None,
+        role=body.role if "role" in fields else None,
+        user_id=user_id,
+    )
+    if not result.get("ok"):
+        code = 404 if "not found" in result.get("error", "") else 400
+        raise HTTPException(status_code=code, detail=result.get("error", "update attendee failed"))
+    return result
+
+
+@router.delete("/events/{event_id}/attendees/{attendee_id}")
+async def delete_attendee_endpoint(
+    event_id: str,
+    attendee_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
+    result = await delete_event_attendee(event_id, attendee_id, user_id)
+    if not result.get("ok"):
+        code = 404 if "not found" in result.get("error", "") else 400
+        raise HTTPException(status_code=code, detail=result.get("error", "delete attendee failed"))
     return result
 
 

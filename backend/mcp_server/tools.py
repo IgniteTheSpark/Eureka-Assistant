@@ -16,6 +16,7 @@ Changes from previous version (Step 2 design integration):
 """
 import json
 import uuid
+from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, Text
@@ -684,6 +685,20 @@ def _event_to_dict(event: Event, attendees: list = None, files: list = None) -> 
     }
 
 
+def _event_attendee_to_dict(attendee, contact=None):
+    """Serialize an attendee, preferring its bound contact for display data."""
+    summary = " · ".join(x for x in (contact.company, contact.title) if x) if contact else ""
+    return {
+        "id": str(attendee.id),
+        "contact_id": str(attendee.contact_id) if attendee.contact_id else None,
+        "name_raw": attendee.name_raw,
+        "display_name": contact.name if contact else attendee.name_raw,
+        "role": attendee.role,
+        "is_resolved": contact is not None,
+        "contact_summary": summary,
+    }
+
+
 async def create_event(
     title: str,
     start_at: str,
@@ -812,13 +827,20 @@ async def query_event(
             atts = (await db.execute(
                 select(EventAttendee).where(EventAttendee.event_id.in_(event_ids))
             )).scalars().all()
+            contact_ids = {a.contact_id for a in atts if a.contact_id}
+            contacts_by_id = {}
+            if contact_ids:
+                contacts = (await db.execute(
+                    select(Contact).where(
+                        Contact.id.in_(contact_ids),
+                        Contact.user_id == user_id,
+                    )
+                )).scalars().all()
+                contacts_by_id = {contact.id: contact for contact in contacts}
             for a in atts:
-                attendees_by_event[a.event_id].append({
-                    "attendee_id": str(a.id),
-                    "contact_id":  str(a.contact_id) if a.contact_id else None,
-                    "name":        a.name_raw,
-                    "role":        a.role,
-                })
+                attendees_by_event[a.event_id].append(
+                    _event_attendee_to_dict(a, contacts_by_id.get(a.contact_id))
+                )
             efs = (await db.execute(
                 select(EventFile).where(EventFile.event_id.in_(event_ids))
             )).scalars().all()
@@ -847,17 +869,25 @@ async def get_event(event_id: str, user_id: str = "default") -> dict:
         atts = (await db.execute(
             select(EventAttendee).where(EventAttendee.event_id == event.id)
         )).scalars().all()
+        contact_ids = {a.contact_id for a in atts if a.contact_id}
+        contacts_by_id = {}
+        if contact_ids:
+            contacts = (await db.execute(
+                select(Contact).where(
+                    Contact.id.in_(contact_ids),
+                    Contact.user_id == user_id,
+                )
+            )).scalars().all()
+            contacts_by_id = {contact.id: contact for contact in contacts}
         efs = (await db.execute(
             select(EventFile).where(EventFile.event_id == event.id)
         )).scalars().all()
     return _ok(**_event_to_dict(
         event,
-        attendees=[{
-            "attendee_id": str(a.id),
-            "contact_id":  str(a.contact_id) if a.contact_id else None,
-            "name":        a.name_raw,
-            "role":        a.role,
-        } for a in atts],
+        attendees=[
+            _event_attendee_to_dict(a, contacts_by_id.get(a.contact_id))
+            for a in atts
+        ],
         files=[{
             "event_file_id": str(f.id),
             "file_id":       str(f.file_id),
@@ -938,17 +968,34 @@ async def add_event_attendee(
     if not name and not contact_id:
         return _err("either name or contact_id must be provided")
 
+    try:
+        event_uuid = uuid.UUID(event_id)
+        contact_uuid = uuid.UUID(contact_id) if contact_id else None
+    except ValueError:
+        return _err("invalid event or contact id")
+
     async with AsyncSessionLocal() as db:
         # Confirm event exists for this user
         ev = (await db.execute(
-            select(Event).where(Event.id == uuid.UUID(event_id), Event.user_id == user_id)
+            select(Event).where(Event.id == event_uuid, Event.user_id == user_id)
         )).scalar_one_or_none()
         if not ev:
             return _err(f"event not found: {event_id}")
 
+        contact = None
+        if contact_uuid:
+            contact = (await db.execute(
+                select(Contact).where(
+                    Contact.id == contact_uuid,
+                    Contact.user_id == user_id,
+                )
+            )).scalar_one_or_none()
+            if not contact:
+                return _err(f"contact not found: {contact_id}")
+
         att = EventAttendee(
-            event_id=uuid.UUID(event_id),
-            contact_id=uuid.UUID(contact_id) if contact_id else None,
+            event_id=event_uuid,
+            contact_id=contact_uuid,
             name_raw=name or None,
             role=role,
         )
@@ -956,12 +1003,119 @@ async def add_event_attendee(
         await db.commit()
         await db.refresh(att)
 
+    attendee = _event_attendee_to_dict(att, contact)
+    return _ok(event_id=event_id, attendee_id=str(att.id), attendee=attendee)
+
+
+async def update_event_attendee(
+    event_id: str,
+    attendee_id: str,
+    name: Optional[str] = None,
+    contact_id: Optional[str] = None,
+    role: Optional[str] = None,
+    user_id: str = "default",
+) -> dict:
+    """Update an attendee belonging to one of the current user's events."""
+    try:
+        event_uuid = uuid.UUID(event_id)
+        attendee_uuid = uuid.UUID(attendee_id)
+        contact_uuid = uuid.UUID(contact_id) if contact_id else None
+    except ValueError:
+        return _err("invalid event, attendee, or contact id")
+
+    async with AsyncSessionLocal() as db:
+        event = (await db.execute(
+            select(Event).where(Event.id == event_uuid, Event.user_id == user_id)
+        )).scalar_one_or_none()
+        if not event:
+            return _err(f"event not found: {event_id}")
+
+        attendee = (await db.execute(
+            select(EventAttendee).where(
+                EventAttendee.id == attendee_uuid,
+                EventAttendee.event_id == event.id,
+            )
+        )).scalar_one_or_none()
+        if not attendee:
+            return _err(f"attendee not found: {attendee_id}")
+
+        contact = None
+        if contact_id is not None:
+            if contact_uuid:
+                contact = (await db.execute(
+                    select(Contact).where(
+                        Contact.id == contact_uuid,
+                        Contact.user_id == user_id,
+                    )
+                )).scalar_one_or_none()
+                if not contact:
+                    return _err(f"contact not found: {contact_id}")
+            attendee.contact_id = contact_uuid
+        elif attendee.contact_id:
+            contact = (await db.execute(
+                select(Contact).where(
+                    Contact.id == attendee.contact_id,
+                    Contact.user_id == user_id,
+                )
+            )).scalar_one_or_none()
+
+        if name is not None:
+            attendee.name_raw = name or None
+        if role is not None:
+            attendee.role = role
+
+        await db.commit()
+        await db.refresh(attendee)
+
+    enriched = _event_attendee_to_dict(attendee, contact)
+    return _ok(event_id=event_id, attendee_id=attendee_id, attendee=enriched)
+
+
+async def delete_event_attendee(
+    event_id: str,
+    attendee_id: str,
+    user_id: str = "default",
+) -> dict:
+    """Remove an attendee row without deleting any bound contact."""
+    try:
+        event_uuid = uuid.UUID(event_id)
+        attendee_uuid = uuid.UUID(attendee_id)
+    except ValueError:
+        return _err("invalid event or attendee id")
+
+    async with AsyncSessionLocal() as db:
+        event = (await db.execute(
+            select(Event).where(Event.id == event_uuid, Event.user_id == user_id)
+        )).scalar_one_or_none()
+        if not event:
+            return _err(f"event not found: {event_id}")
+
+        attendee = (await db.execute(
+            select(EventAttendee).where(
+                EventAttendee.id == attendee_uuid,
+                EventAttendee.event_id == event.id,
+            )
+        )).scalar_one_or_none()
+        if not attendee:
+            return _err(f"attendee not found: {attendee_id}")
+
+        contact = None
+        if attendee.contact_id:
+            contact = (await db.execute(
+                select(Contact).where(
+                    Contact.id == attendee.contact_id,
+                    Contact.user_id == user_id,
+                )
+            )).scalar_one_or_none()
+        enriched = _event_attendee_to_dict(attendee, contact)
+        await db.delete(attendee)
+        await db.commit()
+
     return _ok(
-        attendee_id=str(att.id),
         event_id=event_id,
-        contact_id=str(att.contact_id) if att.contact_id else None,
-        name=att.name_raw,
-        role=att.role,
+        attendee_id=attendee_id,
+        attendee=enriched,
+        status="deleted",
     )
 
 

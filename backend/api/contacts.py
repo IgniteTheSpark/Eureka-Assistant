@@ -15,7 +15,7 @@ table.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from typing import List, Optional
 
 from core.auth import get_current_user_id
@@ -51,14 +51,21 @@ class ContactUpdateRequest(BaseModel):
 
 @router.get("/contacts")
 async def list_contacts(
-    q: Optional[str] = Query(None, description="Name search"),
+    q: Optional[str] = Query(None, description="Contact search"),
     limit: int = Query(50, le=200),
     user_id: str = Depends(get_current_user_id),
 ):
     async with AsyncSessionLocal() as db:
         stmt = select(Contact).where(Contact.user_id == user_id)
         if q:
-            stmt = stmt.where(Contact.name.ilike(f"%{q}%"))
+            pattern = f"%{q}%"
+            stmt = stmt.where(or_(
+                Contact.name.ilike(pattern),
+                Contact.company.ilike(pattern),
+                Contact.title.ilike(pattern),
+                Contact.phone.ilike(pattern),
+                Contact.email.ilike(pattern),
+            ))
         stmt = stmt.order_by(Contact.created_at.desc()).limit(limit)
         result = await db.execute(stmt)
         contacts = result.scalars().all()
