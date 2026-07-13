@@ -1027,7 +1027,7 @@ class _AssetViewState extends State<_AssetView> {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: rows);
   }
 
-  // Quiet one-line source. §四: manual (no session) shows nothing.
+  // Quiet one-line source. Priority: report → source session → manual Quick Create.
   Widget _sourceLine(EurekaColors eu) {
     // §6.13: a todo born from a report's action bar shows its origin first.
     final reportTitle = payload['source_report_title'] as String?;
@@ -1073,7 +1073,32 @@ class _AssetViewState extends State<_AssetView> {
       );
     }
     final hasSession = widget.sessionId != null && widget.sessionId!.isNotEmpty;
-    if (!hasSession) return const SizedBox(height: 8);
+    if (!hasSession) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 4),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(height: 1, color: eu.rule),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Icon(
+                  Icons.add_circle_outline_rounded,
+                  size: 15,
+                  color: eu.brand,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '来自「快创」',
+                  style: TextStyle(color: eu.textLo, fontSize: 12),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 4),
       child: Column(

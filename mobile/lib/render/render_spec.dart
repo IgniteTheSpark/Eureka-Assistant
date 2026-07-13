@@ -166,6 +166,77 @@ class MetaFieldSpec {
   const MetaFieldSpec(this.field, this.format);
 }
 
+/// Canonical compatibility rule for Todo completion across API payload versions.
+/// Keep this in the render layer so every card surface resolves completion the
+/// same way instead of maintaining its own subset of legacy fields.
+bool todoPayloadIsDone(Map<String, dynamic> payload) =>
+    payload['status'] == 'done' ||
+    payload['done'] == true ||
+    payload['completed'] == true;
+
+/// The canonical second line for Event cards across Library, Calendar, and
+/// Agent messages. Optional context never displaces the time range.
+String eventCardSummary(Map<String, dynamic> event) {
+  final parts = <String>[];
+  final allDay = event['all_day'] == true || event['all_day'] == 1;
+  final start = _eventDate(event['start_at']);
+  final end = _eventDate(event['end_at']);
+
+  if (allDay) {
+    parts.add('全天');
+  } else if (start != null) {
+    if (end == null) {
+      parts.add(_eventClock(start));
+    } else if (_sameLocalDay(start, end)) {
+      parts.add('${_eventClock(start)}–${_eventClock(end)}');
+    } else {
+      parts.add('${_eventDateTime(start)}–${_eventDateTime(end)}');
+    }
+  }
+
+  final location = event['location']?.toString().trim() ?? '';
+  if (location.isNotEmpty) parts.add(location);
+
+  final attendees = _eventAttendeeSummary(event);
+  if (attendees.isNotEmpty) parts.add(attendees);
+  return parts.join(' · ');
+}
+
+DateTime? _eventDate(dynamic value) {
+  final raw = value?.toString().trim() ?? '';
+  if (raw.isEmpty) return null;
+  return DateTime.tryParse(raw.replaceAll('Z', '+00:00'))?.toLocal();
+}
+
+String _eventClock(DateTime value) =>
+    '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
+
+String _eventDateTime(DateTime value) =>
+    '${value.month}月${value.day}日 ${_eventClock(value)}';
+
+bool _sameLocalDay(DateTime a, DateTime b) =>
+    a.year == b.year && a.month == b.month && a.day == b.day;
+
+String _eventAttendeeSummary(Map<String, dynamic> event) {
+  final raw = event['attendees'] ?? event['attendee_names'];
+  final names = <String>[];
+  if (raw is List) {
+    for (final attendee in raw) {
+      final dynamic candidate = attendee is Map
+          ? attendee['name'] ?? attendee['name_raw'] ?? attendee['display_name']
+          : attendee;
+      final name = candidate?.toString().trim() ?? '';
+      if (name.isNotEmpty && !names.contains(name)) names.add(name);
+    }
+  }
+  if (names.isEmpty) return '';
+
+  var total = names.length;
+  final declaredTotal = int.tryParse('${event['attendees_count'] ?? ''}');
+  if (declaredTotal != null && declaredTotal > total) total = declaredTotal;
+  return total == 1 ? names.first : '${names.first} +${total - 1}';
+}
+
 /// Normalized card props the SkillCard renders (from a payload + spec).
 class CardData {
   final String layout;
@@ -226,19 +297,27 @@ CardData buildCard({
     // while still rendering content as the body in the detail sheet.
     primary = applyFormat(payload['content'], null);
   }
-  final secondary = spec.secondaryField != null
+  final isEvent = displayName == 'event';
+  final eventSummary = isEvent ? eventCardSummary(payload) : '';
+  final secondary = isEvent
+      ? (eventSummary.isNotEmpty
+            ? eventSummary
+            : (payload['subtitle']?.toString() ?? ''))
+      : spec.secondaryField != null
       ? applyFormat(payload[spec.secondaryField], spec.secondaryFormat)
       : '';
   final meta = <({String value, String? format})>[];
-  for (final mf in spec.metaFields) {
-    final v = applyFormat(payload[mf.field], mf.format);
-    if (v.isNotEmpty) meta.add((value: v, format: mf.format));
+  if (!isEvent) {
+    for (final mf in spec.metaFields) {
+      final v = applyFormat(payload[mf.field], mf.format);
+      if (v.isNotEmpty) meta.add((value: v, format: mf.format));
+    }
   }
   // Checkable skills (todo) always carry a bool checkDone so the card shows a
   // toggleable checkbox even before a status is set.
   bool? checkDone;
-  if (spec.actions.contains('check')) {
-    checkDone = payload['status'] == 'done' || payload['done'] == true;
+  if (displayName == 'todo' || spec.actions.contains('check')) {
+    checkDone = todoPayloadIsDone(payload);
   }
   return CardData(
     layout: spec.cardLayout,
@@ -274,9 +353,6 @@ RenderSpec synthesizeSpec(String cardType) {
         icon: '📅',
         accentColor: 'purple',
         primaryField: 'title',
-        secondaryField: 'start_at',
-        secondaryFormat: 'absolute_date',
-        metaFields: [MetaFieldSpec('location', 'text')],
       );
     case 'contact':
       return const RenderSpec(

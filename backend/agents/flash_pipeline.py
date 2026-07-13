@@ -805,10 +805,22 @@ def _error_card(r: dict, render_specs: dict) -> dict:
 def _event_card(r: dict) -> dict:
     """event-skill creates rows in the `events` table, not `assets`."""
     payload = r.get("payload") or {}
+    def field(name: str, default=None):
+        value = r.get(name)
+        return value if value is not None else payload.get(name, default)
+
+    start_at = field("start_at", "")
     return {
         "card_type": "event",
         "title":     r.get("title") or payload.get("title") or "事件",
-        "subtitle":  _fmt_dt(r.get("start_at") or payload.get("start_at", "")),
+        "subtitle":  _fmt_dt(start_at),
+        # Persist raw fields with the message card so every client can build the
+        # same time → location → attendees summary after the session reloads.
+        "start_at":  start_at,
+        "end_at":    field("end_at"),
+        "all_day":   field("all_day", False),
+        "location":  field("location", ""),
+        "attendees": field("attendees", []),
         "event_id":  r.get("event_id"),
         "asset_id":  None,
     }

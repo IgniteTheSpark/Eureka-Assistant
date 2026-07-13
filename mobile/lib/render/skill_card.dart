@@ -54,7 +54,8 @@ class SkillCard extends ConsumerStatefulWidget {
   /// Force a layout regardless of the spec — list contexts pass 'horizontal'
   /// so every card in a list reads the same size.
   final String? layoutOverride;
-  const SkillCard(this.card, {super.key, this.layoutOverride});
+  final VoidCallback? onTap;
+  const SkillCard(this.card, {super.key, this.layoutOverride, this.onTap});
 
   @override
   ConsumerState<SkillCard> createState() => _SkillCardState();
@@ -63,6 +64,7 @@ class SkillCard extends ConsumerStatefulWidget {
 class _SkillCardState extends ConsumerState<SkillCard> {
   final _api = ApiClient();
   bool? _doneOverride;
+  int _todoSyncSerial = 0;
   bool _deleted = false;
   // §1.8 B「一键升级成本子」: while the promote call runs, and the structured
   // card it returns (which replaces this 随记 card in place).
@@ -71,6 +73,11 @@ class _SkillCardState extends ConsumerState<SkillCard> {
   Map<String, dynamic>? _replacedCard;
 
   Map<String, dynamic> get card => _replacedCard ?? widget.card;
+  bool get _isTodoCard =>
+      card['card_type'] == 'todo' ||
+      card['user_skill_name'] == 'todo' ||
+      card['skill_name'] == 'todo';
+
   String? get _assetId {
     final type = card['card_type'] as String?;
     final id = switch (type) {
@@ -82,7 +89,52 @@ class _SkillCardState extends ConsumerState<SkillCard> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    dataRevision.addListener(_onDataRevision);
+    unawaited(_syncTodoState());
+  }
+
+  @override
+  void didUpdateWidget(covariant SkillCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.card, widget.card)) {
+      _doneOverride = null;
+      _todoSyncSerial++;
+      unawaited(_syncTodoState());
+    }
+  }
+
+  void _onDataRevision() => unawaited(_syncTodoState());
+
+  /// Session messages persist card snapshots, but Todo completion is mutable.
+  /// Refresh only that small state by asset id so an old message card cannot
+  /// disagree with Library, Calendar, or the hydrated detail sheet.
+  Future<void> _syncTodoState() async {
+    final id = _assetId;
+    if (!_isTodoCard || id == null || id.isEmpty) return;
+    final serial = ++_todoSyncSerial;
+    try {
+      final res = await _api.getJson('/api/assets/$id');
+      final asset = (res is Map ? res['asset'] : null) as Map?;
+      final payload = (asset?['payload'] as Map?)?.cast<String, dynamic>();
+      if (!mounted ||
+          payload == null ||
+          serial != _todoSyncSerial ||
+          id != _assetId) {
+        return;
+      }
+      final done = todoPayloadIsDone(payload);
+      if (_doneOverride != done) setState(() => _doneOverride = done);
+    } catch (_) {
+      // Offline/legacy cards keep their snapshot state.
+    }
+  }
+
+  @override
   void dispose() {
+    dataRevision.removeListener(_onDataRevision);
+    _todoSyncSerial++;
     _api.close();
     super.dispose();
   }
@@ -130,15 +182,17 @@ class _SkillCardState extends ConsumerState<SkillCard> {
     final canToggle = data.checkDone != null && _assetId != null;
     final body = GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: () => showAssetDetail(
-        context,
-        data: data,
-        payload: payload,
-        cardType: cardType,
-        assetId: _assetId,
-        sessionId: card['session_id'] as String?,
-        spec: spec,
-      ),
+      onTap:
+          widget.onTap ??
+          () => showAssetDetail(
+            context,
+            data: data,
+            payload: payload,
+            cardType: cardType,
+            assetId: _assetId,
+            sessionId: card['session_id'] as String?,
+            spec: spec,
+          ),
       child: _CardBody(data, onToggleCheck: canToggle ? _toggle : null),
     );
 
@@ -298,6 +352,7 @@ class _SkillCardState extends ConsumerState<SkillCard> {
       await _api.putJson('/api/assets/$id', {
         'payload_patch': {'status': next ? 'done' : 'pending'},
       });
+      bumpData();
     } catch (_) {
       if (mounted) setState(() => _doneOverride = !next); // revert on failure
     }
@@ -342,17 +397,24 @@ class _SkillCardState extends ConsumerState<SkillCard> {
     final actions = ((card['actions'] as List?) ?? const [])
         .whereType<String>()
         .toSet();
-    final done = card['status'] == 'done' || card['done'] == true;
-    final checkable = actions.contains('check');
+    final payload =
+        (card['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final eventSummary = card['card_type'] == 'event'
+        ? eventCardSummary({...card, ...payload})
+        : '';
+    final done = todoPayloadIsDone(card) || todoPayloadIsDone(payload);
+    final checkable = _isTodoCard || actions.contains('check');
     return CardData(
       layout:
           (card['card_layout'] ?? card['layout']) as String? ?? 'horizontal',
       icon: card['icon'] as String? ?? '•',
       accentColor: card['accent_color'] as String? ?? 'gray',
       title: card['title'] as String? ?? '资产',
-      subtitle: card['subtitle'] as String? ?? '',
-      metaFields: meta,
-      checkDone: checkable ? done : (done ? true : null),
+      subtitle: eventSummary.isNotEmpty
+          ? eventSummary
+          : card['subtitle'] as String? ?? '',
+      metaFields: eventSummary.isNotEmpty ? const [] : meta,
+      checkDone: checkable ? done : null,
     );
   }
 }
@@ -647,6 +709,7 @@ class _CardBody extends StatelessWidget {
 
   Widget _inline(BuildContext context) {
     final eu = context.eu;
+    final done = data.checkDone == true;
     return Container(
       margin: const EdgeInsets.only(top: 6),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -664,7 +727,11 @@ class _CardBody extends StatelessWidget {
               data.title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: eu.textHi, fontSize: 13),
+              style: TextStyle(
+                color: done ? eu.textLo : eu.textHi,
+                fontSize: 13,
+                decoration: done ? TextDecoration.lineThrough : null,
+              ),
             ),
           ),
         ],

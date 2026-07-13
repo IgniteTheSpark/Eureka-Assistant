@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../theme/domains.dart';
 import '../timeline/timeline.dart';
+import 'skill_card.dart';
 
 /// §4.5.0a 一天渲染 (DayRender) — the calendar-redesign wireframe's「非日程」段视图
 /// (Direction B「时段水洗带」). One day's [TimelineItem]s render as up to 5
@@ -365,7 +366,6 @@ class _ItemRow extends StatelessWidget {
           child: _DayCard(
             item: item,
             skills: skills,
-            compact: compact,
             muted: muted,
             onTap: onTap,
           ),
@@ -375,161 +375,57 @@ class _ItemRow extends StatelessWidget {
   }
 }
 
-/// 3-line card DNA (spec §4.7.3 / brief): IconTile + (title + 领域 chip) + subtitle
-/// + ≤2 meta. Fixed structure; long fields ellipsize and never wrap.
+/// Daily-detail rows use the same canonical horizontal card as Library Recent
+/// and Ask Agent. The time column and band wash stay outside the card.
 class _DayCard extends StatelessWidget {
   const _DayCard({
     required this.item,
     required this.skills,
-    required this.compact,
     this.muted = false,
     this.onTap,
   });
 
   final TimelineItem item;
   final Map<String, SkillMeta> skills;
-  final bool compact;
   final bool muted;
   final void Function(TimelineItem)? onTap;
 
-  String get _icon {
-    switch (item.kind) {
-      case 'event':
-        return '📅';
-      case 'contact':
-        return '👤';
-      default:
-        return resolveMeta(item.skillName ?? 'misc', skills).icon;
-    }
-  }
-
-  String? get _domain {
-    final d = item.payload['domain'];
-    return d is String && d.isNotEmpty ? d : null;
-  }
-
-  // ≤2 meta. Events show their time range + location; others reuse the item's
-  // location if present. (Skill-specific meta arrives with render-spec wiring.)
-  List<String> get _meta {
-    final out = <String>[];
-    if (item.kind == 'event') {
-      final s = item.effectiveAt;
-      final e = item.endAt;
-      String hm(DateTime t) =>
-          '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
-      out.add(e != null ? '${hm(s)}–${hm(e)}' : hm(s));
-    }
-    final loc = item.location;
-    if (loc != null && loc.isNotEmpty) out.add('📍 $loc');
-    return out.take(2).toList();
+  Map<String, dynamic> get _card {
+    final isEvent = item.kind == 'event';
+    final isContact = item.kind == 'contact';
+    final skill = item.skillName ?? 'misc';
+    final meta = isEvent || isContact
+        ? resolveMeta(item.kind, skills)
+        : resolveMeta(skill, skills);
+    return {
+      if (isEvent) 'card_type': 'event',
+      if (isContact) 'card_type': 'contact',
+      if (!isEvent && !isContact) 'user_skill_name': skill,
+      if (isEvent) 'event_id': item.eventId ?? item.id,
+      if (isContact) 'contact_id': item.contactId ?? item.id,
+      if (!isEvent && !isContact) 'asset_id': item.id,
+      'id': item.id,
+      'session_id': item.sessionId,
+      'payload': item.payload,
+      'title': item.title.isEmpty ? '记录' : item.title,
+      'subtitle': item.subtitle,
+      'icon': meta.icon,
+      'accent_color': meta.accentColor,
+      'meta_fields': const <Map<String, dynamic>>[],
+      if (skill == 'todo') 'actions': const ['check'],
+      if (item.domain.isNotEmpty) 'domain': item.domain,
+    };
   }
 
   @override
   Widget build(BuildContext context) {
-    final eu = context.eu;
-    final dom = _domain;
-    final accent = dom != null ? domainColor(eu, dom) : eu.textLo;
-    final meta = _meta;
-    final tileSize = compact ? 28.0 : 30.0;
-
-    final card = Container(
-      decoration: BoxDecoration(
-        color: muted ? eu.surface.withValues(alpha: 0.55) : eu.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: muted ? eu.border.withValues(alpha: 0.7) : eu.border,
-          width: 1.5,
-        ),
-      ),
-      padding: EdgeInsets.symmetric(
-        horizontal: compact ? 9 : 10,
-        vertical: compact ? 7 : 8,
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: tileSize,
-            height: tileSize,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: accent.withValues(alpha: 0.14),
-              borderRadius: BorderRadius.circular(9),
-              border: Border.all(color: accent.withValues(alpha: 0.32)),
-            ),
-            child: Text(_icon, style: TextStyle(fontSize: compact ? 13 : 14)),
-          ),
-          const SizedBox(width: 9),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // ① title row — title (1 line, ellipsis) + 领域 tag pinned right
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        item.title.isEmpty ? '记录' : item.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: eu.textHi,
-                          fontSize: compact ? 12.5 : 13,
-                        ),
-                      ),
-                    ),
-                    if (dom != null) ...[
-                      const SizedBox(width: 7),
-                      DomainChip(dom),
-                    ],
-                  ],
-                ),
-                // ② subtitle — single line
-                if (item.subtitle.isNotEmpty) ...[
-                  const SizedBox(height: 3),
-                  Text(
-                    item.subtitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: eu.textMid,
-                      fontSize: compact ? 10 : 10.5,
-                    ),
-                  ),
-                ],
-                // ③ info row — ≤2 meta, equal-width, never wrap
-                if (meta.isNotEmpty) ...[
-                  const SizedBox(height: 5),
-                  Row(
-                    children: [
-                      for (var i = 0; i < meta.length; i++) ...[
-                        if (i > 0) const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            meta[i],
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: euMono(fontSize: 9, color: eu.textLo),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
+    Widget card = SkillCard(
+      _card,
+      layoutOverride: 'horizontal',
+      onTap: onTap == null ? null : () => onTap!(item),
     );
-
-    if (onTap == null) return card;
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () => onTap!(item),
-      child: card,
-    );
+    if (muted) card = Opacity(opacity: 0.68, child: card);
+    return card;
   }
 }
 

@@ -123,6 +123,9 @@ CardData _timelineCardData(TimelineItem item, Map<String, SkillMeta> skills) {
     title: item.title.isEmpty ? '记录' : item.title,
     subtitle: item.subtitle,
     metaFields: const [],
+    checkDone: item.skillName == 'todo'
+        ? todoPayloadIsDone(item.payload)
+        : null,
   );
 }
 
@@ -2113,6 +2116,7 @@ class _BandView extends StatelessWidget {
     TimelineItem it, {
     required bool noTime,
   }) {
+    final done = it.skillName == 'todo' && todoPayloadIsDone(it.payload);
     final icon = it.kind == 'event'
         ? '📅'
         : it.kind == 'contact'
@@ -2132,9 +2136,10 @@ class _BandView extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              color: eu.textHi,
+              color: done ? eu.textLo : eu.textHi,
               fontSize: 12.5,
               fontWeight: FontWeight.w500,
+              decoration: done ? TextDecoration.lineThrough : null,
             ),
           ),
         ),
@@ -2426,8 +2431,7 @@ class _DayDetailPageState extends State<DayDetailPage> {
 
   // 待办是否已完成(status=done / done / completed 任一)。
   static bool _isDone(TimelineItem it) {
-    final p = it.payload;
-    return p['status'] == 'done' || p['done'] == true || p['completed'] == true;
+    return todoPayloadIsDone(it.payload);
   }
 
   // ○ 点击 → 勾选/取消完成(PUT status,复用详情页路径);bumpData 即时重拉反映。
@@ -3429,6 +3433,7 @@ class _DayDetailPageState extends State<DayDetailPage> {
         : it.kind == 'contact'
         ? '👤'
         : resolveMeta(it.skillName ?? 'misc', skills).icon;
+    final done = it.skillName == 'todo' && todoPayloadIsDone(it.payload);
     final row = GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () => _openTimelineItem(context, it, skills),
@@ -3470,10 +3475,11 @@ class _DayDetailPageState extends State<DayDetailPage> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: eu.textHi,
+                      color: done ? eu.textLo : eu.textHi,
                       fontSize: 13.5,
                       fontWeight: FontWeight.w500,
                       height: 1.3,
+                      decoration: done ? TextDecoration.lineThrough : null,
                     ),
                   ),
                   if (it.subtitle.isNotEmpty)

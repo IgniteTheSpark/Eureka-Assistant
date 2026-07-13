@@ -20,6 +20,41 @@ void main() {
     expect(normalized.primaryField, 'title');
   });
 
+  test('todo completion survives legacy cards without a check action', () {
+    const spec = RenderSpec(
+      cardLayout: 'horizontal',
+      icon: 'todo',
+      accentColor: 'blue',
+      primaryField: 'title',
+    );
+
+    for (final payload in [
+      {'title': '状态字段', 'status': 'done'},
+      {'title': '布尔字段', 'done': true},
+      {'title': '兼容字段', 'completed': true},
+    ]) {
+      final card = buildCard(payload: payload, spec: spec, displayName: 'todo');
+      expect(card.checkDone, isTrue, reason: payload.toString());
+    }
+  });
+
+  test('non-todo records are not made checkable by a done-like field', () {
+    const spec = RenderSpec(
+      cardLayout: 'horizontal',
+      icon: 'notes',
+      accentColor: 'amber',
+      primaryField: 'title',
+    );
+
+    final card = buildCard(
+      payload: const {'title': '普通记录', 'status': 'done'},
+      spec: spec,
+      displayName: 'notes',
+    );
+
+    expect(card.checkDone, isNull);
+  });
+
   test('capture fallback time does not imply a scheduled todo', () {
     final item = TimelineItem.fromJson({
       'kind': 'asset',
