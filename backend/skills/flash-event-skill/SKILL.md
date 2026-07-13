@@ -104,8 +104,8 @@ Call `tool_create_event`:
 | 查询结果 | attendee 写入方式 |
 |---|---|
 | **0 命中** (`len(contacts) == 0`) | 未解析: `tool_add_event_attendee(event_id=<event_id>, name="<原文里的称呼>", role="attendee")` |
-| **1 命中** (`len(contacts) == 1`) | 唯一绑定: `tool_add_event_attendee(event_id=<event_id>, contact_id=contacts[0]["contact_id"], role="attendee")` |
-| **2+ 命中** (`len(contacts) >= 2`) | 有歧义,不猜: `tool_add_event_attendee(event_id=<event_id>, name="<原文里的称呼>", role="attendee")` |
+| **1 命中** (`len(contacts) == 1`) | 唯一绑定: `tool_add_event_attendee(event_id=<event_id>, name=contacts[0]["name"], contact_id=contacts[0]["contact_id"], role="attendee")` |
+| **2+ 命中** (`len(contacts) >= 2`) | 有歧义,不得使用 `contacts[0]` 或第一条候选: `tool_add_event_attendee(event_id=<event_id>, name="<原文里的称呼>", role="attendee")` |
 
 0 命中时**不创建 contact**;2+ 命中时也不任选候选、**不创建 contact**。只有 1 命中才传 `contact_id`;0 或 2+ 命中继续保留原文称呼作为未解析 attendee。
 
@@ -184,7 +184,7 @@ For errors:
 **输入:** `明天下午六点有个和冯总的会议`
 1. `tool_create_event(title="和冯总的会议", start_at="2026-05-26T18:00:00+08:00", source_input_turn_id=<turn>)` → event_id="e-yyy"
 2. `tool_query_contact(name_query="冯总")` → `{"ok": true, "contacts": [{"contact_id": "c-feng", "name": "冯总", "phone": null, "company": null, "title": null, "email": null, "notes": [], "socials": {}}]}` (1 命中)
-3. `tool_add_event_attendee(event_id="e-yyy", contact_id="c-feng", role="attendee")`
+3. `tool_add_event_attendee(event_id="e-yyy", name="冯总", contact_id="c-feng", role="attendee")`
 → `{"ok": true, ..., "attendees_added": ["冯总"]}`
 
 **输入:** `周五晚上7点跟Kevin、Kevin和刘洋老师一起吃饭`
@@ -193,7 +193,7 @@ For errors:
 3. `tool_query_contact(name_query="Kevin")` → `contacts` 有 2 条 (2+ 命中)
 4. `tool_add_event_attendee(event_id, name="Kevin", role="attendee")` (不猜、不绑定)
 5. `tool_query_contact(name_query="刘洋老师")` → `contacts` 有 1 条
-6. `tool_add_event_attendee(event_id, contact_id=contacts[0]["contact_id"], role="attendee")`
+6. `tool_add_event_attendee(event_id, name=contacts[0]["name"], contact_id=contacts[0]["contact_id"], role="attendee")`
 → `attendees_added: ["Kevin", "刘洋老师"]`
 
 **输入:** `明天早上 9 点站会`
@@ -216,7 +216,7 @@ For errors:
 - 不要捏造没说的字段(地点没说就不要瞎填 location)
 - 时区默认 +08:00
 - 一个 source_text 只处理一个 event 操作;dispatcher 已经把多意图拆开了
-- **attendees 在 create 时**先按完全重复称呼去重,再用 `tool_query_contact` 查询;仅 1 命中绑定 `contact_id`,0 或 2+ 命中保留原文 `name_raw`
+- **attendees 在 create 时**先按完全重复称呼去重,再用 `tool_query_contact` 查询;仅 1 命中使用 contact 的 `name` + `contact_id` 绑定,0 或 2+ 命中保留原文 `name_raw`
 - Flash event **不创建 contact**,也不在多候选时猜测绑定
 - update / delete 操作不动 attendees
 - 完全重复 attendee(同一个原文称呼出现多次)必须去重,每个去重后的名字只调用一次 `tool_add_event_attendee`
