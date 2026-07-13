@@ -7,6 +7,7 @@ import '../render/render_spec.dart';
 import '../render/skill_card.dart' show CardPreview, renderSpecsProvider;
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
+import '../widgets/skeleton_loader.dart';
 import '../widgets/toast.dart';
 
 /// Reusable skill render-config editor — the same controls the add-skill wizard's
@@ -467,7 +468,12 @@ class _SkillConfigPageState extends ConsumerState<SkillConfigPage> {
         ],
       ),
       body: _loading
-          ? Center(child: CircularProgressIndicator(color: eu.brand))
+          ? const USkeletonList(
+              padding: EdgeInsets.fromLTRB(16, 16, 16, 24),
+              count: 6,
+              cardHeight: 76,
+              leading: false,
+            )
           : _skill == null
           ? Center(
               child: Text(

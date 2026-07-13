@@ -4,6 +4,7 @@ import '../api/api_client.dart';
 import '../data_revision.dart';
 import '../render/skill_card.dart';
 import '../theme/app_theme.dart';
+import '../widgets/skeleton_loader.dart';
 
 /// A simple list of one first-class entity type (events / contacts / files),
 /// fetched from [endpoint] and rendered as SkillCards. Opened by tapping a
@@ -61,37 +62,54 @@ class _EntityListPageState extends State<EntityListPage> {
         backgroundColor: eu.bg,
         foregroundColor: eu.textHi,
         elevation: 0,
-        title: Text(widget.title,
-            style: TextStyle(color: eu.textHi, fontSize: 18, fontWeight: FontWeight.w700)),
+        title: Text(
+          widget.title,
+          style: TextStyle(
+            color: eu.textHi,
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
       ),
       body: ValueListenableBuilder<int>(
         valueListenable: dataRevision,
         builder: (context, rev, _) => FutureBuilder<List<Map<String, dynamic>>>(
-        future: _futureFor(rev),
-        builder: (ctx, snap) {
-          if (snap.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snap.hasError) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Text('加载失败：${snap.error}',
-                    textAlign: TextAlign.center, style: TextStyle(color: eu.accentRed)),
+          future: _futureFor(rev),
+          builder: (ctx, snap) {
+            if (snap.connectionState != ConnectionState.done) {
+              return const USkeletonList(
+                padding: EdgeInsets.fromLTRB(16, 8, 16, 24),
+                count: 7,
+              );
+            }
+            if (snap.hasError) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text(
+                    '加载失败：${snap.error}',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: eu.accentRed),
+                  ),
+                ),
+              );
+            }
+            final items = snap.data ?? const [];
+            if (items.isEmpty) {
+              return Center(
+                child: Text('还没有内容', style: TextStyle(color: eu.textMid)),
+              );
+            }
+            return ListView.builder(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+              itemCount: items.length,
+              itemBuilder: (_, i) => SkillCard(
+                widget.toCard(items[i]),
+                layoutOverride: 'horizontal',
               ),
             );
-          }
-          final items = snap.data ?? const [];
-          if (items.isEmpty) {
-            return Center(child: Text('还没有内容', style: TextStyle(color: eu.textMid)));
-          }
-          return ListView.builder(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-            itemCount: items.length,
-            itemBuilder: (_, i) => SkillCard(widget.toCard(items[i]), layoutOverride: 'horizontal'),
-          );
-        },
-      ),
+          },
+        ),
       ),
     );
   }

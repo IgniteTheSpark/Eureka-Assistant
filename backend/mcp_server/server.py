@@ -79,6 +79,7 @@ async def tool_create_asset(
 @mcp.tool()
 async def tool_create_todo(
     content: str,
+    title: str = "",
     due_date: str = "",
     session_id: str = "",
     source_input_turn_id: str = "",
@@ -90,7 +91,9 @@ async def tool_create_todo(
     """
     Create a 待办 (todo). Typed — no JSON payload to assemble.
 
-    content: the task, faithful to the user's words.
+    title: compact task title for card/detail header, e.g. "给张总打电话".
+    content: detail/body text faithful to the user's words, e.g. "沟通报价和合同风险".
+             If there is no extra detail, pass "" or the same text as title.
     due_date: deadline only:
               · ISO8601 + +08:00 when a concrete due time is given
                 (e.g. 2026-06-05T15:00:00+08:00);
@@ -107,6 +110,7 @@ async def tool_create_todo(
     """
     return _jsonify(await create_todo(
         content=content,
+        title=title,
         due_date=due_date,
         session_id=session_id,
         source_input_turn_id=source_input_turn_id,

@@ -71,6 +71,34 @@ def _parse_occurred(s: str):
     s = (s or "").strip()
     if not s:
         return None
+
+
+def _normalize_todo_payload(
+    payload_dict: dict, period: str, occurred_at: str,
+) -> tuple[dict, str, str]:
+    """Keep todo business fields separate from timeline placement metadata.
+
+    The generic MCP tool is available to every skill agent, so an LLM can still
+    put ``period``/``occurred_at`` inside payload despite the typed todo prompt.
+    Normalize that at the storage boundary and retain compatibility for callers
+    that supplied only content or only title.
+    """
+    payload_dict = dict(payload_dict)
+    payload_period = payload_dict.pop("period", "")
+    payload_occurred_at = payload_dict.pop("occurred_at", "")
+    period = period or (payload_period if isinstance(payload_period, str) else "")
+    occurred_at = occurred_at or (
+        payload_occurred_at if isinstance(payload_occurred_at, str) else ""
+    )
+
+    title = str(payload_dict.get("title") or payload_dict.get("content") or "").strip()
+    content = str(payload_dict.get("content") or title).strip()
+    if title:
+        payload_dict["title"] = title
+    if content:
+        payload_dict["content"] = content
+    payload_dict.setdefault("status", "pending")
+    return payload_dict, period, occurred_at
     try:
         return datetime.fromisoformat(s.replace("Z", "+00:00"))
     except ValueError:
@@ -110,6 +138,10 @@ async def create_asset(
         return _err(f"invalid payload JSON: {e}")
     if not isinstance(payload_dict, dict):
         return _err("payload must be a JSON object")
+    if user_skill_name == "todo":
+        payload_dict, period, occurred_at = _normalize_todo_payload(
+            payload_dict, period, occurred_at,
+        )
 
     async with AsyncSessionLocal() as db:
         user_skill = await _resolve_user_skill(db, user_id, user_skill_name)
@@ -170,6 +202,7 @@ async def create_asset(
 
 async def create_todo(
     content: str,
+    title: str = "",
     due_date: str = "",
     session_id: str = "",
     source_input_turn_id: str = "",
@@ -187,7 +220,9 @@ async def create_todo(
     occurred_at=""; "下午3点" → occurred_at=<ISO8601+08:00> (+ period).
     domain (§8): tag by content ("交报告"→工作, "买菜"→生活); omit if unsure.
     """
-    payload: dict = {"title": content, "content": content, "status": "pending"}
+    title = (title or "").strip() or (content or "").strip()
+    content = (content or "").strip() or title
+    payload: dict = {"title": title, "content": content, "status": "pending"}
     if due_date and due_date.strip():
         payload["due_date"] = due_date.strip()
     return await create_asset(

@@ -5,6 +5,7 @@ import '../data_revision.dart';
 import '../pet/floating_mascot.dart' show openRekaInsight;
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
+import '../widgets/skeleton_loader.dart';
 import 'report_viewer_page.dart';
 
 /// 报告容器 (§6.8.4) — the permanent home for synthesis reports, reached from
@@ -45,7 +46,10 @@ class _ReportListPageState extends State<ReportListPage> {
     try {
       final res = await _api.getJson('/api/reports');
       final list = (res is Map ? res['reports'] : null) as List? ?? const [];
-      return list.whereType<Map>().map((e) => e.cast<String, dynamic>()).toList();
+      return list
+          .whereType<Map>()
+          .map((e) => e.cast<String, dynamic>())
+          .toList();
     } catch (_) {
       return const [];
     }
@@ -63,14 +67,18 @@ class _ReportListPageState extends State<ReportListPage> {
       final res = await _api.getJson('/api/reports/$id');
       final report = (res is Map ? res['report'] : null) as Map?;
       if (report == null || !mounted) return;
-      Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => ReportViewerPage(
-          title: report['title'] as String? ?? '报告',
-          html: report['html'] as String? ?? '',
-          reportId: report['id'] as String?,
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ReportViewerPage(
+            title: report['title'] as String? ?? '报告',
+            html: report['html'] as String? ?? '',
+            reportId: report['id'] as String?,
+          ),
         ),
-      ));
-    } catch (_) {/* transient — ignore */}
+      );
+    } catch (_) {
+      /* transient — ignore */
+    }
   }
 
   Future<bool> _deleteReport(String? id) async {
@@ -108,17 +116,27 @@ class _ReportListPageState extends State<ReportListPage> {
                 const SizedBox(height: 18),
                 if (snap.connectionState != ConnectionState.done)
                   const Padding(
-                    padding: EdgeInsets.only(top: 40),
-                    child: Center(child: CircularProgressIndicator()),
+                    padding: EdgeInsets.only(top: 2),
+                    child: Column(
+                      children: [
+                        USkeletonCard(height: 78, leading: false),
+                        SizedBox(height: 10),
+                        USkeletonCard(height: 78, leading: false),
+                        SizedBox(height: 10),
+                        USkeletonCard(height: 78, leading: false),
+                      ],
+                    ),
                   )
                 else if (reports.isEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 24),
-                    child: Text('还没有报告 —— 点上面「✨ 洞察 · 升华」生成一份',
-                        style: euMono(fontSize: 11.5, color: eu.textLo)),
+                    child: Text(
+                      '还没有报告 —— 点上面「✨ 洞察 · 升华」生成一份',
+                      style: euMono(fontSize: 11.5, color: eu.textLo),
+                    ),
                   )
                 else ...[
-                  _sectionLabel(eu,'历史 · ${reports.length}'),
+                  _sectionLabel(eu, '历史 · ${reports.length}'),
                   const SizedBox(height: 8),
                   for (final r in reports) _reportRow(eu, r),
                 ],
@@ -141,7 +159,10 @@ class _ReportListPageState extends State<ReportListPage> {
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [eu.brand.withValues(alpha: 0.22), eu.accentPurple.withValues(alpha: 0.06)],
+            colors: [
+              eu.brand.withValues(alpha: 0.22),
+              eu.accentPurple.withValues(alpha: 0.06),
+            ],
           ),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: eu.brand.withValues(alpha: 0.34)),
@@ -164,11 +185,19 @@ class _ReportListPageState extends State<ReportListPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('洞察 · 升华',
-                      style: TextStyle(color: eu.textHi, fontSize: 16, fontWeight: FontWeight.w700)),
+                  Text(
+                    '洞察 · 升华',
+                    style: TextStyle(
+                      color: eu.textHi,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                   const SizedBox(height: 2),
-                  Text('把你的记录合成图文报告',
-                      style: TextStyle(color: eu.textMid, fontSize: 12.5)),
+                  Text(
+                    '把你的记录合成图文报告',
+                    style: TextStyle(color: eu.textMid, fontSize: 12.5),
+                  ),
                 ],
               ),
             ),
@@ -182,12 +211,16 @@ class _ReportListPageState extends State<ReportListPage> {
   Widget _reportRow(EurekaColors eu, Map<String, dynamic> r) {
     final genre = r['genre'] as String? ?? 'digest';
     final meta = _genreMeta[genre] ?? ('🗞', '报告');
-    final created = DateTime.tryParse(r['created_at'] as String? ?? '')?.toLocal();
+    final created = DateTime.tryParse(
+      r['created_at'] as String? ?? '',
+    )?.toLocal();
     final dateStr = created == null ? '' : '${created.month}月${created.day}日';
     final id = r['id'] as String?;
     return Dismissible(
       key: ValueKey('report-$id'),
-      direction: id == null ? DismissDirection.none : DismissDirection.endToStart,
+      direction: id == null
+          ? DismissDirection.none
+          : DismissDirection.endToStart,
       confirmDismiss: (_) => _deleteReport(id),
       background: Container(
         alignment: Alignment.centerRight,
@@ -218,13 +251,21 @@ class _ReportListPageState extends State<ReportListPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(r['title'] as String? ?? '报告',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: eu.textHi, fontSize: 14, fontWeight: FontWeight.w600)),
+                    Text(
+                      r['title'] as String? ?? '报告',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: eu.textHi,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                     const SizedBox(height: 2),
-                    Text('${meta.$2}${dateStr.isEmpty ? '' : ' · $dateStr'}',
-                        style: TextStyle(color: eu.textLo, fontSize: 11)),
+                    Text(
+                      '${meta.$2}${dateStr.isEmpty ? '' : ' · $dateStr'}',
+                      style: TextStyle(color: eu.textLo, fontSize: 11),
+                    ),
                   ],
                 ),
               ),
@@ -236,6 +277,8 @@ class _ReportListPageState extends State<ReportListPage> {
     );
   }
 
-  Widget _sectionLabel(EurekaColors eu, String t) =>
-      Text(t, style: euMono(fontSize: 10.5, letterSpacing: 2.2, color: eu.textMid));
+  Widget _sectionLabel(EurekaColors eu, String t) => Text(
+    t,
+    style: euMono(fontSize: 10.5, letterSpacing: 2.2, color: eu.textMid),
+  );
 }

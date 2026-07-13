@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import '../api/api_client.dart';
 import '../data_revision.dart';
 import '../render/asset_detail_sheet.dart' show AssetEditPage, MdEditor;
-import '../render/render_spec.dart' show RenderSpec;
-import '../render/skill_card.dart' show accentOf;
+import '../render/render_spec.dart' show RenderSpec, normalizeTodoSpec;
+import '../render/skill_card.dart' show SkillCard, accentOf;
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
 
@@ -12,11 +12,14 @@ import '../theme/eureka_colors.dart';
 /// (schemaFields / types / long / required / labels). Lets 快创 reuse the same
 /// [AssetEditPage] as 编辑 — create is edit with empty data. (The card preview
 /// resolves its own full spec via the provider; this only drives the inputs.)
-RenderSpec renderSpecForSkill(SkillDef s) => RenderSpec(
-      cardLayout: 'horizontal',
-      icon: s.icon,
-      accentColor: s.accentColor,
-    ).withSchema(s.schema);
+RenderSpec renderSpecForSkill(SkillDef s) {
+  final spec = RenderSpec(
+    cardLayout: 'horizontal',
+    icon: s.icon,
+    accentColor: s.accentColor,
+  ).withSchema(s.schema);
+  return s.name == 'todo' ? normalizeTodoSpec(spec) : spec;
+}
 
 /// Serialize a picked wall-clock [DateTime] as Beijing time (+08:00) — matching
 /// the backend's `_LOCAL_TZ` and the agent's ISO convention. `dateOnly` fields
@@ -39,7 +42,13 @@ class SkillDef {
   final String icon;
   final String accentColor;
   final Map<String, dynamic> schema;
-  const SkillDef(this.name, this.displayName, this.icon, this.accentColor, this.schema);
+  const SkillDef(
+    this.name,
+    this.displayName,
+    this.icon,
+    this.accentColor,
+    this.schema,
+  );
 }
 
 Future<List<SkillDef>> fetchSkillDefs(ApiClient api) async {
@@ -50,13 +59,15 @@ Future<List<SkillDef>> fetchSkillDefs(ApiClient api) async {
     final name = s['name'] as String?;
     if (name == null || name == 'qa' || name == 'external_ref') continue;
     final rs = (s['render_spec'] as Map?)?.cast<String, dynamic>() ?? const {};
-    out.add(SkillDef(
-      name,
-      s['display_name'] as String? ?? name,
-      rs['icon'] as String? ?? '•',
-      rs['accent_color'] as String? ?? 'gray',
-      (s['payload_schema'] as Map?)?.cast<String, dynamic>() ?? const {},
-    ));
+    out.add(
+      SkillDef(
+        name,
+        s['display_name'] as String? ?? name,
+        rs['icon'] as String? ?? '•',
+        rs['accent_color'] as String? ?? 'gray',
+        (s['payload_schema'] as Map?)?.cast<String, dynamic>() ?? const {},
+      ),
+    );
   }
   return out;
 }
@@ -106,22 +117,35 @@ class _CreateMenuState extends State<_CreateMenu> {
     return SafeArea(
       top: false,
       child: ConstrainedBox(
-        constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.7),
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.7,
+        ),
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('创建',
-                  style: TextStyle(color: eu.textHi, fontSize: 18, fontWeight: FontWeight.w700)),
+              Text(
+                '创建',
+                style: TextStyle(
+                  color: eu.textHi,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
               const SizedBox(height: 12),
               FutureBuilder<List<SkillDef>>(
                 future: _future,
                 builder: (ctx, snap) {
                   final tiles = <Widget>[
-                    _tile(eu, '📅', '事件', 'purple',
-                        () => _open(EventForm(presetDate: widget.presetDate))),
+                    _tile(
+                      eu,
+                      '📅',
+                      '事件',
+                      'purple',
+                      () => _open(EventForm(presetDate: widget.presetDate)),
+                    ),
                   ];
                   for (final s in snap.data ?? const <SkillDef>[]) {
                     // contact is a 真身 entity → its dedicated form (socials /
@@ -129,15 +153,19 @@ class _CreateMenuState extends State<_CreateMenu> {
                     // AssetEditPage as 编辑 (create = edit with empty data).
                     final onTap = s.name == 'contact'
                         ? () => _open(const ContactForm())
-                        : () => _open(AssetEditPage(
+                        : () => _open(
+                            AssetEditPage(
                               payload: const {},
                               cardType: s.name,
                               title: '',
                               spec: renderSpecForSkill(s),
                               displayName: s.displayName,
                               presetDate: widget.presetDate,
-                            ));
-                    tiles.add(_tile(eu, s.icon, s.displayName, s.accentColor, onTap));
+                            ),
+                          );
+                    tiles.add(
+                      _tile(eu, s.icon, s.displayName, s.accentColor, onTap),
+                    );
                   }
                   return Wrap(spacing: 10, runSpacing: 10, children: tiles);
                 },
@@ -149,7 +177,13 @@ class _CreateMenuState extends State<_CreateMenu> {
     );
   }
 
-  Widget _tile(EurekaColors eu, String icon, String label, String accent, VoidCallback onTap) {
+  Widget _tile(
+    EurekaColors eu,
+    String icon,
+    String label,
+    String accent,
+    VoidCallback onTap,
+  ) {
     final a = accentOf(accent, eu);
     return GestureDetector(
       onTap: onTap,
@@ -167,10 +201,16 @@ class _CreateMenuState extends State<_CreateMenu> {
             Text(icon, style: const TextStyle(fontSize: 16)),
             const SizedBox(width: 8),
             Expanded(
-              child: Text(label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: eu.textHi, fontSize: 14, fontWeight: FontWeight.w500)),
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: eu.textHi,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
             ),
           ],
         ),
@@ -182,7 +222,8 @@ class _CreateMenuState extends State<_CreateMenu> {
 /* ── Event create form ────────────────────────────────────────────────────── */
 
 class EventForm extends StatefulWidget {
-  final DateTime? presetDate; // empty-day create → default the event to that day (09:00)
+  final DateTime?
+  presetDate; // empty-day create → default the event to that day (09:00)
   final String? eventId; // non-null = EDIT mode (PUT instead of POST)
   final Map<String, dynamic>? existing; // event record to prefill in edit mode
   const EventForm({super.key, this.presetDate, this.eventId, this.existing});
@@ -211,21 +252,36 @@ class _EventFormState extends State<EventForm> {
       _title.text = '${e['title'] ?? ''}';
       _location.text = '${e['location'] ?? ''}';
       _desc.text = '${e['description'] ?? ''}';
-      _allDay = e['all_day'] == 1 || e['all_day'] == true || e['all_day'] == '1';
+      _allDay =
+          e['all_day'] == 1 || e['all_day'] == true || e['all_day'] == '1';
       _start = _parseDt(e['start_at']) ?? _defaultStart();
       _end = _parseDt(e['end_at']) ?? _start.add(const Duration(hours: 1));
     } else {
       _start = _defaultStart();
       _end = _start.add(const Duration(hours: 1));
     }
+    _title.addListener(_rebuild);
+    _location.addListener(_rebuild);
+    _desc.addListener(_rebuild);
+  }
+
+  void _rebuild() {
+    if (mounted) setState(() {});
   }
 
   DateTime _defaultStart() => widget.presetDate != null
-      ? DateTime(widget.presetDate!.year, widget.presetDate!.month, widget.presetDate!.day, 9)
+      ? DateTime(
+          widget.presetDate!.year,
+          widget.presetDate!.month,
+          widget.presetDate!.day,
+          9,
+        )
       : _roundToHour(DateTime.now().add(const Duration(hours: 1)));
-  static DateTime? _parseDt(dynamic v) =>
-      (v is String && v.isNotEmpty) ? DateTime.tryParse(v.replaceAll('Z', '+00:00'))?.toLocal() : null;
-  static DateTime _roundToHour(DateTime d) => DateTime(d.year, d.month, d.day, d.hour);
+  static DateTime? _parseDt(dynamic v) => (v is String && v.isNotEmpty)
+      ? DateTime.tryParse(v.replaceAll('Z', '+00:00'))?.toLocal()
+      : null;
+  static DateTime _roundToHour(DateTime d) =>
+      DateTime(d.year, d.month, d.day, d.hour);
 
   @override
   void dispose() {
@@ -247,7 +303,10 @@ class _EventFormState extends State<EventForm> {
     if (d == null || !mounted) return;
     var picked = DateTime(d.year, d.month, d.day);
     if (!_allDay) {
-      final t = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(base));
+      final t = await showTimePicker(
+        context: context,
+        initialTime: TimeOfDay.fromDateTime(base),
+      );
       picked = DateTime(d.year, d.month, d.day, t?.hour ?? 0, t?.minute ?? 0);
     }
     setState(() {
@@ -291,14 +350,16 @@ class _EventFormState extends State<EventForm> {
       }
       bumpData();
       if (mounted) {
-        Navigator.of(context).maybePop(_isEdit
-            ? true
-            : <String, dynamic>{
-                'user_skill_name': 'event',
-                'display_name': '事件',
-                'icon': '📅',
-                'payload': {'title': _title.text.trim()},
-              });
+        Navigator.of(context).maybePop(
+          _isEdit
+              ? true
+              : <String, dynamic>{
+                  'user_skill_name': 'event',
+                  'display_name': '事件',
+                  'icon': '📅',
+                  'payload': {'title': _title.text.trim()},
+                },
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -314,7 +375,18 @@ class _EventFormState extends State<EventForm> {
       ? '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}'
       : '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
 
-  Widget _timeBox(EurekaColors eu, String text, VoidCallback onTap) => GestureDetector(
+  Map<String, dynamic> _previewCard() => {
+    'card_type': 'event',
+    'title': _title.text.trim(),
+    'start_at': isoBeijing(_start, dateOnly: _allDay),
+    if (!_allDay) 'end_at': isoBeijing(_end),
+    'all_day': _allDay ? 1 : 0,
+    'location': _location.text.trim(),
+    'description': _desc.text.trim(),
+  };
+
+  Widget _timeBox(EurekaColors eu, String text, VoidCallback onTap) =>
+      GestureDetector(
         onTap: onTap,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
@@ -331,39 +403,115 @@ class _EventFormState extends State<EventForm> {
   Widget build(BuildContext context) {
     final eu = context.eu;
     InputDecoration dec(String hint) => InputDecoration(
-          hintText: hint,
-          hintStyle: TextStyle(color: eu.textLo),
-          isDense: true,
-          filled: true,
-          fillColor: eu.surface,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-          border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: eu.border)),
-          enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: eu.border)),
-          focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: eu.brand)),
-        );
+      hintText: hint,
+      hintStyle: TextStyle(color: eu.textLo),
+      isDense: true,
+      filled: true,
+      fillColor: eu.surface,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: eu.border),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: eu.border),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: eu.brand),
+      ),
+    );
     return Scaffold(
       backgroundColor: eu.bg,
       appBar: AppBar(
         backgroundColor: eu.bg,
         foregroundColor: eu.textHi,
         elevation: 0,
-        title: Text(_isEdit ? '📅 编辑事件' : '📅 事件',
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+        leading: TextButton(
+          onPressed: () => Navigator.of(context).maybePop(),
+          child: Text('取消', style: TextStyle(color: eu.textMid, fontSize: 15)),
+        ),
+        leadingWidth: 64,
+        centerTitle: true,
+        title: Text(
+          'EVENT',
+          style: euMono(fontSize: 11, letterSpacing: 1.6, color: eu.textLo),
+        ),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: TextButton(
+              onPressed: _busy ? null : _save,
+              child: _busy
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Text(
+                      '保存',
+                      style: TextStyle(
+                        color: eu.brand,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+            ),
+          ),
+        ],
       ),
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+          padding: const EdgeInsets.fromLTRB(22, 6, 22, 48),
           children: [
-            Text('标题 *', style: euMono(fontSize: 10, letterSpacing: 1.2, color: eu.textLo)),
-            const SizedBox(height: 6),
-            TextField(controller: _title, style: TextStyle(color: eu.textHi), decoration: dec('事件标题')),
+            Text(
+              '预览',
+              style: euMono(fontSize: 10, letterSpacing: 1.4, color: eu.textLo),
+            ),
+            const SizedBox(height: 8),
+            IgnorePointer(
+              child: SkillCard(_previewCard(), layoutOverride: 'horizontal'),
+            ),
+            const SizedBox(height: 18),
+            Container(height: 1, color: eu.rule),
+            const SizedBox(height: 18),
+            Text(
+              '标题 · title *',
+              style: TextStyle(
+                color: eu.textLo,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 7),
+            TextField(
+              controller: _title,
+              style: TextStyle(
+                color: eu.textHi,
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.3,
+              ),
+              decoration: const InputDecoration(
+                isCollapsed: true,
+                border: InputBorder.none,
+                hintText: '事件标题',
+              ),
+            ),
             const SizedBox(height: 14),
+            Container(height: 1, color: eu.rule),
+            const SizedBox(height: 18),
             Row(
               children: [
-                Text('全天', style: euMono(fontSize: 10, letterSpacing: 1.2, color: eu.textLo)),
+                Text(
+                  '全天',
+                  style: TextStyle(
+                    color: eu.textLo,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
                 const Spacer(),
                 Switch(
                   value: _allDay,
@@ -373,44 +521,48 @@ class _EventFormState extends State<EventForm> {
               ],
             ),
             const SizedBox(height: 6),
-            Text('开始时间', style: euMono(fontSize: 10, letterSpacing: 1.2, color: eu.textLo)),
+            Text(
+              '开始时间',
+              style: euMono(fontSize: 10, letterSpacing: 1.2, color: eu.textLo),
+            ),
             const SizedBox(height: 6),
             _timeBox(eu, _fmt(_start), () => _pick(isStart: true)),
             if (!_allDay) ...[
               const SizedBox(height: 14),
-              Text('结束时间', style: euMono(fontSize: 10, letterSpacing: 1.2, color: eu.textLo)),
+              Text(
+                '结束时间',
+                style: euMono(
+                  fontSize: 10,
+                  letterSpacing: 1.2,
+                  color: eu.textLo,
+                ),
+              ),
               const SizedBox(height: 6),
               _timeBox(eu, _fmt(_end), () => _pick(isStart: false)),
             ],
             const SizedBox(height: 14),
-            Text('地点', style: euMono(fontSize: 10, letterSpacing: 1.2, color: eu.textLo)),
+            Text(
+              '地点',
+              style: euMono(fontSize: 10, letterSpacing: 1.2, color: eu.textLo),
+            ),
             const SizedBox(height: 6),
-            TextField(controller: _location, style: TextStyle(color: eu.textHi), decoration: dec('可选')),
+            TextField(
+              controller: _location,
+              style: TextStyle(color: eu.textHi),
+              decoration: dec('可选'),
+            ),
             const SizedBox(height: 14),
             // 描述 supports markdown (same editor as the asset editor) — events
             // often carry agendas / notes that want structure, not a flat field.
             MdEditor(label: '描述', controller: _desc),
             const SizedBox(height: 18),
             if (_error != null) ...[
-              Text(_error!, style: TextStyle(color: eu.accentRed, fontSize: 13)),
+              Text(
+                _error!,
+                style: TextStyle(color: eu.accentRed, fontSize: 13),
+              ),
               const SizedBox(height: 12),
             ],
-            GestureDetector(
-              onTap: _busy ? null : _save,
-              behavior: HitTestBehavior.opaque,
-              child: Container(
-                alignment: Alignment.center,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                decoration: BoxDecoration(color: eu.brand, borderRadius: BorderRadius.circular(12)),
-                child: _busy
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : const Text('保存',
-                        style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
-              ),
-            ),
           ],
         ),
       ),
@@ -432,8 +584,10 @@ const List<({String key, String label, String emoji})> kSocialPlatforms = [
 ];
 
 ({String key, String label, String emoji}) _socialMeta(String key) =>
-    kSocialPlatforms.firstWhere((p) => p.key == key,
-        orElse: () => (key: key, label: key, emoji: '🔗'));
+    kSocialPlatforms.firstWhere(
+      (p) => p.key == key,
+      orElse: () => (key: key, label: key, emoji: '🔗'),
+    );
 
 /// Dedicated contact editor (and creator). EDIT mode when [contactId] is set
 /// (PUT /api/contacts/{id}); otherwise POST /api/contacts. The contacts table
@@ -483,16 +637,32 @@ class _ContactFormState extends State<ContactForm> {
         for (final p in kSocialPlatforms) {
           final h = s[p.key];
           if (h != null && '$h'.trim().isNotEmpty) {
-            _socials[p.key] = TextEditingController(text: '$h'.trim());
+            _socials[p.key] = TextEditingController(text: '$h'.trim())
+              ..addListener(_rebuild);
           }
         }
       }
     }
+    for (final c in [_name, _company, _title, _phone, _email, _notes]) {
+      c.addListener(_rebuild);
+    }
+  }
+
+  void _rebuild() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
-    for (final c in [_name, _company, _title, _phone, _email, _notes, ..._socials.values]) {
+    for (final c in [
+      _name,
+      _company,
+      _title,
+      _phone,
+      _email,
+      _notes,
+      ..._socials.values,
+    ]) {
       c.dispose();
     }
     _api.close();
@@ -502,14 +672,17 @@ class _ContactFormState extends State<ContactForm> {
   /// Show the platforms not yet added → tap to add a row (focus it). This is the
   /// "select from supported list" gate — no free-form platforms.
   Future<void> _addSocial() async {
-    final remaining = kSocialPlatforms.where((p) => !_socials.containsKey(p.key)).toList();
+    final remaining = kSocialPlatforms
+        .where((p) => !_socials.containsKey(p.key))
+        .toList();
     if (remaining.isEmpty) return;
     final eu = context.eu;
     final key = await showModalBottomSheet<String>(
       context: context,
       backgroundColor: eu.surface,
       shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (ctx) => SafeArea(
         top: false,
         child: Column(
@@ -519,14 +692,26 @@ class _ContactFormState extends State<ContactForm> {
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
               child: Align(
                 alignment: Alignment.centerLeft,
-                child: Text('添加社交媒体',
-                    style: euMono(fontSize: 11, letterSpacing: 1.2, color: eu.textLo)),
+                child: Text(
+                  '添加社交媒体',
+                  style: euMono(
+                    fontSize: 11,
+                    letterSpacing: 1.2,
+                    color: eu.textLo,
+                  ),
+                ),
               ),
             ),
             for (final p in remaining)
               ListTile(
                 leading: Text(p.emoji, style: const TextStyle(fontSize: 20)),
-                title: Text(p.label, style: TextStyle(color: eu.textHi, fontWeight: FontWeight.w600)),
+                title: Text(
+                  p.label,
+                  style: TextStyle(
+                    color: eu.textHi,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
                 onTap: () => Navigator.of(ctx).pop(p.key),
               ),
             const SizedBox(height: 8),
@@ -535,7 +720,9 @@ class _ContactFormState extends State<ContactForm> {
       ),
     );
     if (key != null && mounted) {
-      setState(() => _socials[key] = TextEditingController());
+      setState(
+        () => _socials[key] = TextEditingController()..addListener(_rebuild),
+      );
     }
   }
 
@@ -549,8 +736,11 @@ class _ContactFormState extends State<ContactForm> {
       _busy = true;
       _error = null;
     });
-    final notes =
-        _notes.text.split('\n').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+    final notes = _notes.text
+        .split('\n')
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
     final socials = <String, String>{};
     _socials.forEach((k, c) {
       final h = c.text.trim();
@@ -573,14 +763,16 @@ class _ContactFormState extends State<ContactForm> {
       }
       bumpData();
       if (mounted) {
-        Navigator.of(context).maybePop(_isEdit
-            ? true
-            : <String, dynamic>{
-                'user_skill_name': 'contact',
-                'display_name': '联系人',
-                'icon': '👤',
-                'payload': {'name': _name.text.trim()},
-              });
+        Navigator.of(context).maybePop(
+          _isEdit
+              ? true
+              : <String, dynamic>{
+                  'user_skill_name': 'contact',
+                  'display_name': '联系人',
+                  'icon': '👤',
+                  'payload': {'name': _name.text.trim()},
+                },
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -595,38 +787,70 @@ class _ContactFormState extends State<ContactForm> {
   @override
   Widget build(BuildContext context) {
     final eu = context.eu;
+    Map<String, dynamic> previewCard() {
+      final socials = <String, String>{};
+      _socials.forEach((k, c) {
+        final h = c.text.trim();
+        if (h.isNotEmpty) socials[k] = h;
+      });
+      return {
+        'card_type': 'contact',
+        'name': _name.text.trim(),
+        'company': _company.text.trim(),
+        'title': _title.text.trim(),
+        'phone': _phone.text.trim(),
+        'email': _email.text.trim(),
+        'notes': _notes.text.trim(),
+        'socials': socials,
+      };
+    }
+
     InputDecoration dec(String hint) => InputDecoration(
-          hintText: hint,
-          hintStyle: TextStyle(color: eu.textLo),
-          isDense: true,
-          filled: true,
-          fillColor: eu.surface,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-          border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: eu.border)),
-          enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: eu.border)),
-          focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: eu.brand)),
-        );
-    Widget field(String label, TextEditingController c,
-            {String hint = '可选', TextInputType? kb, int min = 1, int max = 1}) =>
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label, style: euMono(fontSize: 10, letterSpacing: 1.2, color: eu.textLo)),
-            const SizedBox(height: 6),
-            TextField(
-              controller: c,
-              style: TextStyle(color: eu.textHi),
-              decoration: dec(hint),
-              keyboardType: kb,
-              minLines: min,
-              maxLines: max,
-            ),
-            const SizedBox(height: 14),
-          ],
-        );
+      hintText: hint,
+      hintStyle: TextStyle(color: eu.textLo),
+      isDense: true,
+      filled: true,
+      fillColor: eu.surface,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: eu.border),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: eu.border),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: eu.brand),
+      ),
+    );
+    Widget field(
+      String label,
+      TextEditingController c, {
+      String hint = '可选',
+      TextInputType? kb,
+      int min = 1,
+      int max = 1,
+    }) => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: euMono(fontSize: 10, letterSpacing: 1.2, color: eu.textLo),
+        ),
+        const SizedBox(height: 6),
+        TextField(
+          controller: c,
+          style: TextStyle(color: eu.textHi),
+          decoration: dec(hint),
+          keyboardType: kb,
+          minLines: min,
+          maxLines: max,
+        ),
+        const SizedBox(height: 14),
+      ],
+    );
     Widget socialRow(String key) {
       final m = _socialMeta(key);
       return Padding(
@@ -637,8 +861,14 @@ class _ContactFormState extends State<ContactForm> {
             const SizedBox(width: 8),
             SizedBox(
               width: 72,
-              child: Text(m.label,
-                  style: TextStyle(color: eu.textHi, fontSize: 13, fontWeight: FontWeight.w600)),
+              child: Text(
+                m.label,
+                style: TextStyle(
+                  color: eu.textHi,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
             Expanded(
               child: TextField(
@@ -652,7 +882,9 @@ class _ContactFormState extends State<ContactForm> {
               onPressed: () {
                 final c = _socials.remove(key);
                 setState(() {});
-                WidgetsBinding.instance.addPostFrameCallback((_) => c?.dispose());
+                WidgetsBinding.instance.addPostFrameCallback(
+                  (_) => c?.dispose(),
+                );
               },
             ),
           ],
@@ -660,28 +892,98 @@ class _ContactFormState extends State<ContactForm> {
       );
     }
 
-    final remainingSocials =
-        kSocialPlatforms.where((p) => !_socials.containsKey(p.key)).toList();
+    final remainingSocials = kSocialPlatforms
+        .where((p) => !_socials.containsKey(p.key))
+        .toList();
     return Scaffold(
       backgroundColor: eu.bg,
       appBar: AppBar(
         backgroundColor: eu.bg,
         foregroundColor: eu.textHi,
         elevation: 0,
-        title: Text(_isEdit ? '👤 编辑联系人' : '👤 联系人',
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+        leading: TextButton(
+          onPressed: () => Navigator.of(context).maybePop(),
+          child: Text('取消', style: TextStyle(color: eu.textMid, fontSize: 15)),
+        ),
+        leadingWidth: 64,
+        centerTitle: true,
+        title: Text(
+          'CONTACT',
+          style: euMono(fontSize: 11, letterSpacing: 1.6, color: eu.textLo),
+        ),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: TextButton(
+              onPressed: _busy ? null : _save,
+              child: _busy
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Text(
+                      '保存',
+                      style: TextStyle(
+                        color: eu.brand,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+            ),
+          ),
+        ],
       ),
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+          padding: const EdgeInsets.fromLTRB(22, 6, 22, 48),
           children: [
-            field('姓名 *', _name, hint: '联系人姓名'),
+            Text(
+              '预览',
+              style: euMono(fontSize: 10, letterSpacing: 1.4, color: eu.textLo),
+            ),
+            const SizedBox(height: 8),
+            IgnorePointer(
+              child: SkillCard(previewCard(), layoutOverride: 'horizontal'),
+            ),
+            const SizedBox(height: 18),
+            Container(height: 1, color: eu.rule),
+            const SizedBox(height: 18),
+            Text(
+              '姓名 · name *',
+              style: TextStyle(
+                color: eu.textLo,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 7),
+            TextField(
+              controller: _name,
+              style: TextStyle(
+                color: eu.textHi,
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.3,
+              ),
+              decoration: const InputDecoration(
+                isCollapsed: true,
+                border: InputBorder.none,
+                hintText: '联系人姓名',
+              ),
+            ),
+            const SizedBox(height: 14),
+            Container(height: 1, color: eu.rule),
+            const SizedBox(height: 18),
             field('公司', _company),
             field('职位', _title),
             field('电话', _phone, kb: TextInputType.phone),
             field('邮箱', _email, kb: TextInputType.emailAddress),
             // 社交媒体 — pick from the supported list, store the handle only
-            Text('社交媒体', style: euMono(fontSize: 10, letterSpacing: 1.2, color: eu.textLo)),
+            Text(
+              '社交媒体',
+              style: euMono(fontSize: 10, letterSpacing: 1.2, color: eu.textLo),
+            ),
             const SizedBox(height: 8),
             for (final key in _socials.keys.toList()) socialRow(key),
             if (remainingSocials.isNotEmpty)
@@ -690,35 +992,26 @@ class _ContactFormState extends State<ContactForm> {
                 child: TextButton.icon(
                   onPressed: _addSocial,
                   icon: Icon(Icons.add, size: 18, color: eu.brand),
-                  label: Text('添加社交媒体', style: TextStyle(color: eu.brand, fontSize: 13)),
+                  label: Text(
+                    '添加社交媒体',
+                    style: TextStyle(color: eu.brand, fontSize: 13),
+                  ),
                   style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      minimumSize: const Size(0, 36)),
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    minimumSize: const Size(0, 36),
+                  ),
                 ),
               ),
             const SizedBox(height: 14),
             field('备注', _notes, hint: '在哪相遇 / 怎么认识…一行一条', min: 3, max: 6),
             const SizedBox(height: 4),
             if (_error != null) ...[
-              Text(_error!, style: TextStyle(color: eu.accentRed, fontSize: 13)),
+              Text(
+                _error!,
+                style: TextStyle(color: eu.accentRed, fontSize: 13),
+              ),
               const SizedBox(height: 12),
             ],
-            GestureDetector(
-              onTap: _busy ? null : _save,
-              behavior: HitTestBehavior.opaque,
-              child: Container(
-                alignment: Alignment.center,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                decoration: BoxDecoration(color: eu.brand, borderRadius: BorderRadius.circular(12)),
-                child: _busy
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : const Text('保存',
-                        style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
-              ),
-            ),
           ],
         ),
       ),

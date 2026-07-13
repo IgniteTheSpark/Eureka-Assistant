@@ -4,6 +4,7 @@ import '../api/api_client.dart';
 import '../data_revision.dart';
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
+import '../widgets/skeleton_loader.dart';
 import '../widgets/toast.dart';
 import 'add_skill.dart';
 
@@ -20,8 +21,15 @@ class _SkillRow {
   final String accent;
   final bool enabledServer;
   final int count;
-  _SkillRow(this.userSkillId, this.name, this.displayName, this.icon, this.accent,
-      this.enabledServer, this.count);
+  _SkillRow(
+    this.userSkillId,
+    this.name,
+    this.displayName,
+    this.icon,
+    this.accent,
+    this.enabledServer,
+    this.count,
+  );
 }
 
 /// 技能管理页 — list ALL skills (incl. disabled), toggle the active set (capped
@@ -61,34 +69,42 @@ class _SkillManagePageState extends State<SkillManagePage> {
       final assetsRes = await _api.getJson('/api/assets');
       if (!mounted) return;
       final counts = <String, int>{};
-      for (final a in ((assetsRes is Map ? assetsRes['assets'] : null) as List? ?? const [])) {
+      for (final a
+          in ((assetsRes is Map ? assetsRes['assets'] : null) as List? ??
+              const [])) {
         if (a is Map) {
           final n = a['user_skill_name'] as String?;
           if (n != null) counts[n] = (counts[n] ?? 0) + 1;
         }
       }
       final rows = <_SkillRow>[];
-      for (final s in ((res is Map ? res['skills'] : null) as List? ?? const [])) {
+      for (final s
+          in ((res is Map ? res['skills'] : null) as List? ?? const [])) {
         if (s is! Map) continue;
         final name = s['name'] as String?;
         if (name == null || _hidden.contains(name)) continue;
-        final rs = (s['render_spec'] as Map?)?.cast<String, dynamic>() ?? const {};
-        rows.add(_SkillRow(
-          s['user_skill_id'] as String? ?? '',
-          name,
-          s['display_name'] as String? ?? name,
-          rs['icon'] as String? ?? '•',
-          rs['accent_color'] as String? ?? 'gray',
-          (s['enabled'] as int? ?? 1) != 0,
-          counts[name] ?? 0,
-        ));
+        final rs =
+            (s['render_spec'] as Map?)?.cast<String, dynamic>() ?? const {};
+        rows.add(
+          _SkillRow(
+            s['user_skill_id'] as String? ?? '',
+            name,
+            s['display_name'] as String? ?? name,
+            rs['icon'] as String? ?? '•',
+            rs['accent_color'] as String? ?? 'gray',
+            (s['enabled'] as int? ?? 1) != 0,
+            counts[name] ?? 0,
+          ),
+        );
       }
       setState(() {
         _cap = (res is Map ? res['active_cap'] as int? : null) ?? 9;
         _rows = rows;
         _active
           ..clear()
-          ..addAll(rows.where((r) => r.enabledServer).map((r) => r.userSkillId));
+          ..addAll(
+            rows.where((r) => r.enabledServer).map((r) => r.userSkillId),
+          );
         _loading = false;
       });
     } catch (e) {
@@ -119,7 +135,9 @@ class _SkillManagePageState extends State<SkillManagePage> {
     if (_saving) return;
     setState(() => _saving = true);
     try {
-      await _api.putJson('/api/skills/active', {'active_ids': _active.toList()});
+      await _api.putJson('/api/skills/active', {
+        'active_ids': _active.toList(),
+      });
       bumpData();
       if (mounted) {
         showToast(context, '已保存');
@@ -139,25 +157,37 @@ class _SkillManagePageState extends State<SkillManagePage> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: eu.surfaceRaised,
-        title: Text('删除「${r.displayName}」？', style: TextStyle(color: eu.textHi)),
+        title: Text(
+          '删除「${r.displayName}」？',
+          style: TextStyle(color: eu.textHi),
+        ),
         content: Text(
           r.count > 0 ? '这会同时删除 ${r.count} 条记录，且无法恢复。' : '确定删除这个技能？',
           style: TextStyle(color: eu.textMid),
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: Text('取消', style: TextStyle(color: eu.textMid))),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('取消', style: TextStyle(color: eu.textMid)),
+          ),
           TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: Text(r.count > 0 ? '仍然删除' : '确定删除',
-                  style: TextStyle(color: eu.accentRed, fontWeight: FontWeight.w600))),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(
+              r.count > 0 ? '仍然删除' : '确定删除',
+              style: TextStyle(
+                color: eu.accentRed,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
         ],
       ),
     );
     if (ok != true) return false;
     try {
-      await _api.deleteJson('/api/skills/${r.userSkillId}${r.count > 0 ? '?force=true' : ''}');
+      await _api.deleteJson(
+        '/api/skills/${r.userSkillId}${r.count > 0 ? '?force=true' : ''}',
+      );
       _active.remove(r.userSkillId);
       bumpData();
       return true;
@@ -168,13 +198,13 @@ class _SkillManagePageState extends State<SkillManagePage> {
   }
 
   Color _accentColor(EurekaColors eu, String name) => switch (name) {
-        'blue' => eu.accentBlue,
-        'amber' => eu.accentAmber,
-        'green' => eu.accentGreen,
-        'red' => eu.accentRed,
-        'purple' => eu.accentPurple,
-        _ => eu.textMid,
-      };
+    'blue' => eu.accentBlue,
+    'amber' => eu.accentAmber,
+    'green' => eu.accentGreen,
+    'red' => eu.accentRed,
+    'purple' => eu.accentPurple,
+    _ => eu.textMid,
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -187,43 +217,62 @@ class _SkillManagePageState extends State<SkillManagePage> {
         backgroundColor: eu.bg,
         foregroundColor: eu.textHi,
         elevation: 0,
-        title: const Text('技能管理', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+        title: const Text(
+          '技能管理',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+        ),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: Center(
-              child: Text('活跃 $n/$_cap',
-                  style: euMono(
-                      fontSize: 12,
-                      color: full ? eu.accentRed : eu.brand,
-                      letterSpacing: 0.5)),
+              child: Text(
+                '活跃 $n/$_cap',
+                style: euMono(
+                  fontSize: 12,
+                  color: full ? eu.accentRed : eu.brand,
+                  letterSpacing: 0.5,
+                ),
+              ),
             ),
           ),
         ],
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? const USkeletonList(
+              padding: EdgeInsets.fromLTRB(12, 8, 12, 24),
+              count: 8,
+              cardHeight: 72,
+            )
           : _error != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text('加载失败：$_error',
-                        textAlign: TextAlign.center, style: TextStyle(color: eu.accentRed)),
-                  ),
-                )
-              : ListView(
-                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-                      child: Text('打开的技能进资产库 + 被 Agent 自动记录；关闭的只是收起，历史记录不删、仍可查。左滑删除。',
-                          style: TextStyle(color: eu.textLo, fontSize: 11.5, height: 1.4)),
-                    ),
-                    for (final r in _rows) _row(eu, r),
-                    const SizedBox(height: 12),
-                    _addBtn(eu),
-                  ],
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  '加载失败：$_error',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: eu.accentRed),
                 ),
+              ),
+            )
+          : ListView(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                  child: Text(
+                    '打开的技能进资产库 + 被 Agent 自动记录；关闭的只是收起，历史记录不删、仍可查。左滑删除。',
+                    style: TextStyle(
+                      color: eu.textLo,
+                      fontSize: 11.5,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+                for (final r in _rows) _row(eu, r),
+                const SizedBox(height: 12),
+                _addBtn(eu),
+              ],
+            ),
       bottomNavigationBar: _loading || _error != null
           ? null
           : SafeArea(
@@ -239,19 +288,27 @@ class _SkillManagePageState extends State<SkillManagePage> {
                     behavior: HitTestBehavior.opaque,
                     child: DecoratedBox(
                       decoration: BoxDecoration(
-                          color: eu.brand, borderRadius: BorderRadius.circular(12)),
+                        color: eu.brand,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                       child: Center(
                         child: _saving
                             ? const SizedBox(
                                 width: 18,
                                 height: 18,
                                 child: CircularProgressIndicator(
-                                    strokeWidth: 2, color: Colors.white))
-                            : const Text('保存',
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Text(
+                                '保存',
                                 style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w600)),
+                                  color: Colors.white,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
                       ),
                     ),
                   ),
@@ -272,7 +329,9 @@ class _SkillManagePageState extends State<SkillManagePage> {
         margin: const EdgeInsets.symmetric(vertical: 4),
         padding: const EdgeInsets.only(right: 20),
         decoration: BoxDecoration(
-            color: eu.accentRed.withValues(alpha: 0.85), borderRadius: BorderRadius.circular(12)),
+          color: eu.accentRed.withValues(alpha: 0.85),
+          borderRadius: BorderRadius.circular(12),
+        ),
         child: const Icon(Icons.delete_outline, color: Colors.white),
       ),
       confirmDismiss: (_) => _delete(r),
@@ -302,12 +361,20 @@ class _SkillManagePageState extends State<SkillManagePage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(r.displayName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: eu.textHi, fontSize: 14, fontWeight: FontWeight.w600)),
-                  Text('${r.count} 条记录',
-                      style: euMono(fontSize: 10.5, color: eu.textLo)),
+                  Text(
+                    r.displayName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: eu.textHi,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  Text(
+                    '${r.count} 条记录',
+                    style: euMono(fontSize: 10.5, color: eu.textLo),
+                  ),
                 ],
               ),
             ),
@@ -338,8 +405,14 @@ class _SkillManagePageState extends State<SkillManagePage> {
           children: [
             const Text('✨', style: TextStyle(fontSize: 15)),
             const SizedBox(width: 8),
-            Text('新技能',
-                style: TextStyle(color: eu.textHi, fontSize: 14, fontWeight: FontWeight.w600)),
+            Text(
+              '新技能',
+              style: TextStyle(
+                color: eu.textHi,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ],
         ),
       ),

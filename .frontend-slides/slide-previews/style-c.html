@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>从想法到产品：UReka 的 vibe coding 实践</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@700;800;900&family=Noto+Serif+SC:wght@500;700;900&family=Work+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --paper: #fbfaf5;
+      --ink: #181817;
+      --soft: #ece6da;
+      --line: #d9d0bf;
+      --green: #4cb79e;
+      --blue: #315fdb;
+      --amber: #c7862b;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: #eee9dd; overflow: hidden; }
+    body { font-family: "Work Sans", "Noto Serif SC", serif; }
+
+    /* === FIXED STAGE === */
+    .deck-viewport {
+      width: 100vw;
+      height: 100vh;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+    }
+    .stage {
+      position: relative;
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      background: var(--paper);
+      color: var(--ink);
+      transform-origin: center center;
+      box-shadow: 0 34px 90px rgba(43, 38, 29, .2);
+    }
+
+    /* === MATERIAL BACKGROUND === */
+    .stage::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at 78% 24%, rgba(76, 183, 158, .18), transparent 26%),
+        radial-gradient(circle at 30% 78%, rgba(199, 134, 43, .14), transparent 28%),
+        linear-gradient(90deg, rgba(24, 24, 23, .055) 1px, transparent 1px);
+      background-size: auto, auto, 120px 120px;
+    }
+    .rule {
+      position: absolute;
+      left: 84px;
+      right: 84px;
+      top: 86px;
+      height: 2px;
+      background: var(--line);
+    }
+    .rule.bottom { top: auto; bottom: 86px; }
+
+    /* === EDITORIAL TITLE === */
+    .kicker {
+      position: absolute;
+      top: 124px;
+      left: 110px;
+      font: 700 22px/1 "Work Sans", sans-serif;
+      color: var(--amber);
+      letter-spacing: .18em;
+      text-transform: uppercase;
+    }
+    h1 {
+      position: absolute;
+      left: 104px;
+      top: 190px;
+      width: 900px;
+      margin: 0;
+      font-family: "Noto Serif SC", "Fraunces", serif;
+      font-size: 116px;
+      line-height: 1.1;
+      font-weight: 900;
+      letter-spacing: 0;
+    }
+    h1 span {
+      color: var(--blue);
+      display: block;
+    }
+    .subtitle {
+      position: absolute;
+      left: 112px;
+      bottom: 172px;
+      width: 740px;
+      font-size: 32px;
+      line-height: 1.6;
+      color: #4c4841;
+    }
+    .chips {
+      position: absolute;
+      left: 112px;
+      bottom: 104px;
+      display: flex;
+      gap: 16px;
+    }
+    .chip {
+      height: 44px;
+      padding: 0 20px;
+      border: 2px solid var(--line);
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      font-size: 18px;
+      font-weight: 700;
+      color: #5b564d;
+      background: rgba(255, 255, 255, .45);
+    }
+
+    /* === PRODUCT STILL LIFE === */
+    .hardware-card {
+      position: absolute;
+      right: 120px;
+      top: 118px;
+      width: 560px;
+      height: 750px;
+      background: #fff;
+      border: 2px solid var(--line);
+      overflow: hidden;
+      box-shadow: 24px 24px 0 var(--soft);
+    }
+    .hardware-card img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center;
+    }
+    .mini-phone {
+      position: absolute;
+      right: 575px;
+      bottom: 112px;
+      width: 220px;
+      height: 380px;
+      border: 7px solid var(--ink);
+      border-radius: 34px;
+      overflow: hidden;
+      background: #111;
+      transform: rotate(-4deg);
+      box-shadow: 0 24px 60px rgba(0, 0, 0, .22);
+    }
+    .mini-phone img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: top center;
+    }
+    .caption {
+      position: absolute;
+      right: 124px;
+      bottom: 114px;
+      width: 390px;
+      font-size: 24px;
+      line-height: 1.42;
+      color: #5b564d;
+      font-weight: 500;
+    }
+    .caption strong {
+      display: block;
+      color: var(--ink);
+      font-size: 34px;
+      margin-bottom: 12px;
+    }
+
+    /* === MOTION === */
+    .kicker, h1, .subtitle, .chips, .hardware-card, .mini-phone, .caption {
+      opacity: 0;
+      animation: floatIn .75s cubic-bezier(.2, .75, .2, 1) forwards;
+    }
+    h1 { animation-delay: .1s; }
+    .hardware-card { animation-delay: .18s; }
+    .subtitle { animation-delay: .28s; }
+    .mini-phone { animation-delay: .36s; }
+    .caption { animation-delay: .48s; }
+    .chips { animation-delay: .58s; }
+    @keyframes floatIn {
+      from { opacity: 0; transform: translateY(30px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .mini-phone { animation-name: tiltPhone; }
+    @keyframes tiltPhone {
+      from { opacity: 0; transform: translateY(34px) rotate(-4deg) scale(.95); }
+      to { opacity: 1; transform: translateY(0) rotate(-4deg) scale(1); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; opacity: 1 !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="deck-viewport">
+    <main class="stage" id="stage">
+      <div class="rule"></div>
+      <div class="rule bottom"></div>
+      <div class="kicker">MAKE SENSE OF EVERYTHING</div>
+      <h1>从想法到产品<span>UReka</span></h1>
+      <p class="subtitle">一次关于闪念、硬件入口、个人 Agent 架构和 AI coding 真实迭代密度的复盘。</p>
+      <div class="chips">
+        <div class="chip">Flash Pipeline</div>
+        <div class="chip">Agent Design</div>
+        <div class="chip">Taste Skill</div>
+      </div>
+      <figure class="hardware-card">
+        <img src="../../docs/ai-sharing-export/assets/images/15-hardware-flash-button.png" alt="EUREKA hardware card view">
+      </figure>
+      <figure class="mini-phone">
+        <img src="../../docs/ai-sharing-export/assets/images/12-home-bubble-pool.png" alt="UReka home bubble pool screenshot">
+      </figure>
+      <p class="caption"><strong>让记录变成资产</strong>从一个按钮开始，把碎片输入组织成日程、记账、灵感、报告和下一步行动。</p>
+    </main>
+  </div>
+  <script>
+    function scaleStage() {
+      const stage = document.getElementById('stage');
+      const scale = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+      stage.style.transform = `scale(${scale})`;
+    }
+    window.addEventListener('resize', scaleStage);
+    scaleStage();
+  </script>
+</body>
+</html>

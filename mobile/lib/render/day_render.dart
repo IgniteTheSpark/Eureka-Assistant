@@ -75,6 +75,7 @@ class DayRender extends StatelessWidget {
   static bool _isTimed(TimelineItem it) {
     if (it.allDay) return false;
     if (it.kind == 'event') return true;
+    if (it.skillName == 'todo') return it.hasScheduledTime;
     if (it.hasClockTime) return true;
     if (it.period.isNotEmpty) return false;
     return !(it.effectiveAt.hour == 0 && it.effectiveAt.minute == 0);
@@ -87,7 +88,8 @@ class DayRender extends StatelessWidget {
 
     final allDay = <TimelineItem>[];
     final bandTimed = <_Band, List<TimelineItem>>{};
-    final bandSoft = <_Band, List<TimelineItem>>{}; // period-only, no clock time
+    final bandSoft =
+        <_Band, List<TimelineItem>>{}; // period-only, no clock time
     final bottomNoTime = <TimelineItem>[];
 
     for (final it in visible) {
@@ -104,7 +106,10 @@ class DayRender extends StatelessWidget {
       l.sort((a, b) => a.effectiveAt.compareTo(b.effectiveAt));
     }
 
-    if (allDay.isEmpty && bottomNoTime.isEmpty && bandTimed.isEmpty && bandSoft.isEmpty) {
+    if (allDay.isEmpty &&
+        bottomNoTime.isEmpty &&
+        bandTimed.isEmpty &&
+        bandSoft.isEmpty) {
       return const SizedBox.shrink();
     }
 
@@ -112,7 +117,9 @@ class DayRender extends StatelessWidget {
     final children = <Widget>[];
 
     if (allDay.isNotEmpty) {
-      children.add(_AllDayStrip(items: allDay, skills: skills, onTap: onTapItem));
+      children.add(
+        _AllDayStrip(items: allDay, skills: skills, onTap: onTapItem),
+      );
       children.add(SizedBox(height: compact ? 8 : 9));
     }
 
@@ -120,25 +127,37 @@ class DayRender extends StatelessWidget {
       final timed = bandTimed[def.band] ?? const <TimelineItem>[];
       final soft = bandSoft[def.band] ?? const <TimelineItem>[];
       if (timed.isEmpty && soft.isEmpty) continue;
-      children.add(_BandSection(
-        def: def,
-        items: timed,
-        soft: soft,
-        skills: skills,
-        compact: compact,
-        isNow: def.band == nowBand,
-        onTap: onTapItem,
-      ));
+      children.add(
+        _BandSection(
+          def: def,
+          items: timed,
+          soft: soft,
+          skills: skills,
+          compact: compact,
+          isNow: def.band == nowBand,
+          onTap: onTapItem,
+        ),
+      );
       children.add(SizedBox(height: compact ? 8 : 9));
     }
 
     if (bottomNoTime.isNotEmpty) {
-      children.add(_NoTimeGroup(items: bottomNoTime, skills: skills, compact: compact, onTap: onTapItem));
+      children.add(
+        _NoTimeGroup(
+          items: bottomNoTime,
+          skills: skills,
+          compact: compact,
+          onTap: onTapItem,
+        ),
+      );
     } else if (children.isNotEmpty) {
       children.removeLast(); // drop the trailing gap after the last band
     }
 
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: children);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: children,
+    );
   }
 }
 
@@ -189,14 +208,26 @@ class _BandSection extends StatelessWidget {
     final pad = compact ? 9.0 : 12.0;
     // Wash band: a faint vertical gradient of the band tint over the raised
     // surface — enough to feel the time-of-day "temperature", never loud.
-    final top = Color.alphaBlend(def.tint.withValues(alpha: 0.10), eu.surfaceRaised);
-    final bottom = Color.alphaBlend(def.tint.withValues(alpha: 0.04), eu.surfaceRaised);
+    final top = Color.alphaBlend(
+      def.tint.withValues(alpha: 0.10),
+      eu.surfaceRaised,
+    );
+    final bottom = Color.alphaBlend(
+      def.tint.withValues(alpha: 0.04),
+      eu.surfaceRaised,
+    );
 
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [top, bottom]),
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [top, bottom],
+        ),
         borderRadius: BorderRadius.circular(compact ? 12 : 16),
-        border: isNow ? Border.all(color: eu.brand.withValues(alpha: 0.55), width: 1.5) : null,
+        border: isNow
+            ? Border.all(color: eu.brand.withValues(alpha: 0.55), width: 1.5)
+            : null,
       ),
       padding: EdgeInsets.fromLTRB(pad, pad - 1, pad, pad),
       child: Column(
@@ -206,34 +237,62 @@ class _BandSection extends StatelessWidget {
             children: [
               Text(def.emoji, style: TextStyle(fontSize: compact ? 11 : 13)),
               const SizedBox(width: 6),
-              Text(def.label,
-                  style: TextStyle(
-                      color: eu.textMid, fontSize: compact ? 11.5 : 13, letterSpacing: 0.4)),
+              Text(
+                def.label,
+                style: TextStyle(
+                  color: eu.textMid,
+                  fontSize: compact ? 11.5 : 13,
+                  letterSpacing: 0.4,
+                ),
+              ),
               const Spacer(),
               if (isNow)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
-                  decoration: BoxDecoration(color: eu.brand, borderRadius: BorderRadius.circular(999)),
-                  child: Text('现在',
-                      style: euMono(fontSize: 9.5, color: Colors.white)),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 1,
+                  ),
+                  decoration: BoxDecoration(
+                    color: eu.brand,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    '现在',
+                    style: euMono(fontSize: 9.5, color: Colors.white),
+                  ),
                 ),
             ],
           ),
           SizedBox(height: compact ? 7 : 9),
           for (var i = 0; i < items.length; i++) ...[
             if (i > 0) SizedBox(height: compact ? 6 : 7),
-            _ItemRow(item: items[i], skills: skills, compact: compact, onTap: onTap),
+            _ItemRow(
+              item: items[i],
+              skills: skills,
+              compact: compact,
+              onTap: onTap,
+            ),
           ],
           // period-only rows fall into this 段's soft「没具体时间」tail (brief §2.1):
           // a very faint divider + dimmed cards, no time column.
           if (soft.isNotEmpty) ...[
             Padding(
               padding: EdgeInsets.fromLTRB(
-                  compact ? 34 : 40, items.isEmpty ? 0 : (compact ? 9 : 11), 0, compact ? 5 : 6),
+                compact ? 34 : 40,
+                items.isEmpty ? 0 : (compact ? 9 : 11),
+                0,
+                compact ? 5 : 6,
+              ),
               child: Row(
                 children: [
-                  Text('没具体时间',
-                      style: TextStyle(color: eu.textLo, fontSize: 9, letterSpacing: 0.3)),
+                  Text(
+                    '没具体时间',
+                    style: TextStyle(
+                      color: eu.textLo,
+                      fontSize: 9,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
                   const SizedBox(width: 7),
                   Expanded(child: Container(height: 1, color: eu.rule)),
                 ],
@@ -242,12 +301,13 @@ class _BandSection extends StatelessWidget {
             for (var i = 0; i < soft.length; i++) ...[
               if (i > 0) SizedBox(height: compact ? 6 : 7),
               _ItemRow(
-                  item: soft[i],
-                  skills: skills,
-                  compact: compact,
-                  showTime: false,
-                  muted: true,
-                  onTap: onTap),
+                item: soft[i],
+                skills: skills,
+                compact: compact,
+                showTime: false,
+                muted: true,
+                onTap: onTap,
+              ),
             ],
           ],
         ],
@@ -289,14 +349,27 @@ class _ItemRow extends StatelessWidget {
           child: showTime
               ? Padding(
                   padding: const EdgeInsets.only(top: 9),
-                  child: Text(_time,
-                      textAlign: TextAlign.right,
-                      style: euMono(fontSize: compact ? 9.5 : 10.5, color: eu.textLo)),
+                  child: Text(
+                    _time,
+                    textAlign: TextAlign.right,
+                    style: euMono(
+                      fontSize: compact ? 9.5 : 10.5,
+                      color: eu.textLo,
+                    ),
+                  ),
                 )
               : null,
         ),
         const SizedBox(width: 8),
-        Expanded(child: _DayCard(item: item, skills: skills, compact: compact, muted: muted, onTap: onTap)),
+        Expanded(
+          child: _DayCard(
+            item: item,
+            skills: skills,
+            compact: compact,
+            muted: muted,
+            onTap: onTap,
+          ),
+        ),
       ],
     );
   }
@@ -368,7 +441,10 @@ class _DayCard extends StatelessWidget {
           width: 1.5,
         ),
       ),
-      padding: EdgeInsets.symmetric(horizontal: compact ? 9 : 10, vertical: compact ? 7 : 8),
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 9 : 10,
+        vertical: compact ? 7 : 8,
+      ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -397,19 +473,30 @@ class _DayCard extends StatelessWidget {
                         item.title.isEmpty ? '记录' : item.title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: eu.textHi, fontSize: compact ? 12.5 : 13),
+                        style: TextStyle(
+                          color: eu.textHi,
+                          fontSize: compact ? 12.5 : 13,
+                        ),
                       ),
                     ),
-                    if (dom != null) ...[const SizedBox(width: 7), DomainChip(dom)],
+                    if (dom != null) ...[
+                      const SizedBox(width: 7),
+                      DomainChip(dom),
+                    ],
                   ],
                 ),
                 // ② subtitle — single line
                 if (item.subtitle.isNotEmpty) ...[
                   const SizedBox(height: 3),
-                  Text(item.subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: eu.textMid, fontSize: compact ? 10 : 10.5)),
+                  Text(
+                    item.subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: eu.textMid,
+                      fontSize: compact ? 10 : 10.5,
+                    ),
+                  ),
                 ],
                 // ③ info row — ≤2 meta, equal-width, never wrap
                 if (meta.isNotEmpty) ...[
@@ -419,10 +506,12 @@ class _DayCard extends StatelessWidget {
                       for (var i = 0; i < meta.length; i++) ...[
                         if (i > 0) const SizedBox(width: 6),
                         Expanded(
-                          child: Text(meta[i],
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: euMono(fontSize: 9, color: eu.textLo)),
+                          child: Text(
+                            meta[i],
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: euMono(fontSize: 9, color: eu.textLo),
+                          ),
                         ),
                       ],
                     ],
@@ -469,18 +558,33 @@ class _AllDayStrip extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: amber.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: amber.withValues(alpha: 0.3), width: 1.5),
+                  border: Border.all(
+                    color: amber.withValues(alpha: 0.3),
+                    width: 1.5,
+                  ),
                 ),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 7,
+                ),
                 child: Row(
                   children: [
-                    Text('全天', style: euMono(fontSize: 9.5, color: amber, letterSpacing: 0.5)),
+                    Text(
+                      '全天',
+                      style: euMono(
+                        fontSize: 9.5,
+                        color: amber,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
                     const SizedBox(width: 9),
                     Expanded(
-                      child: Text(it.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(color: eu.textHi, fontSize: 12.5)),
+                      child: Text(
+                        it.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: eu.textHi, fontSize: 12.5),
+                      ),
                     ),
                   ],
                 ),
@@ -495,7 +599,12 @@ class _AllDayStrip extends StatelessWidget {
 /* ── bottom「没说时间」soft group ─────────────────────────────────────────────── */
 
 class _NoTimeGroup extends StatelessWidget {
-  const _NoTimeGroup({required this.items, required this.skills, required this.compact, this.onTap});
+  const _NoTimeGroup({
+    required this.items,
+    required this.skills,
+    required this.compact,
+    this.onTap,
+  });
   final List<TimelineItem> items;
   final Map<String, SkillMeta> skills;
   final bool compact;
@@ -512,8 +621,14 @@ class _NoTimeGroup extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(2, 2, 2, 8),
           child: Row(
             children: [
-              Text('没说时间',
-                  style: TextStyle(color: eu.textLo, fontSize: 9.5, letterSpacing: 0.4)),
+              Text(
+                '没说时间',
+                style: TextStyle(
+                  color: eu.textLo,
+                  fontSize: 9.5,
+                  letterSpacing: 0.4,
+                ),
+              ),
               const SizedBox(width: 8),
               Expanded(child: Container(height: 1, color: eu.rule)),
             ],
@@ -521,7 +636,14 @@ class _NoTimeGroup extends StatelessWidget {
         ),
         for (var i = 0; i < items.length; i++) ...[
           if (i > 0) SizedBox(height: compact ? 6 : 7),
-          _ItemRow(item: items[i], skills: skills, compact: compact, showTime: false, muted: true, onTap: onTap),
+          _ItemRow(
+            item: items[i],
+            skills: skills,
+            compact: compact,
+            showTime: false,
+            muted: true,
+            onTap: onTap,
+          ),
         ],
       ],
     );
