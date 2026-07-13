@@ -10,21 +10,26 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _load_attendee_serializer(source: str):
+def _load_attendee_helpers(source: str) -> dict:
     module = ast.parse(source)
+    expected = {
+        "_event_attendee_to_dict",
+        "_event_attendee_unbound_name",
+    }
     body = [
         node
         for node in module.body
         if isinstance(node, ast.FunctionDef)
-        and node.name == "_event_attendee_to_dict"
+        and node.name in expected
     ]
-    assert body, "_event_attendee_to_dict is missing"
+    found = {node.name for node in body}
+    assert found == expected, f"missing attendee helpers: {sorted(expected - found)}"
     namespace: dict = {}
     exec(
         compile(ast.Module(body=body, type_ignores=[]), "attendee_subset", "exec"),
         namespace,
     )
-    return namespace["_event_attendee_to_dict"]
+    return namespace
 
 
 def test_event_attendee_contract() -> None:
@@ -33,7 +38,9 @@ def test_event_attendee_contract() -> None:
     contacts_source = (ROOT / "api/contacts.py").read_text()
     server_source = (ROOT / "mcp_server/server.py").read_text()
 
-    serialize = _load_attendee_serializer(tools_source)
+    helpers = _load_attendee_helpers(tools_source)
+    serialize = helpers["_event_attendee_to_dict"]
+    unbound_name = helpers["_event_attendee_unbound_name"]
     attendee = SimpleNamespace(
         id="att-1",
         contact_id="contact-1",
@@ -63,6 +70,10 @@ def test_event_attendee_contract() -> None:
     assert unresolved["display_name"] == "张总"
     assert unresolved["is_resolved"] is False
     assert unresolved["contact_summary"] == ""
+
+    contact_only = SimpleNamespace(name_raw=None)
+    assert unbound_name(contact_only, contact) == "Alex"
+    assert unbound_name(contact_only, SimpleNamespace(name="  ")) is None
 
     assert "async def update_event_attendee(" in tools_source
     assert "async def delete_event_attendee(" in tools_source

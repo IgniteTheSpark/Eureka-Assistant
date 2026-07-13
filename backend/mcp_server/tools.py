@@ -699,6 +699,15 @@ def _event_attendee_to_dict(attendee, contact=None):
     }
 
 
+def _event_attendee_unbound_name(attendee, contact=None):
+    """Return a non-blank display fallback suitable for an unbound attendee."""
+    if attendee.name_raw and attendee.name_raw.strip():
+        return attendee.name_raw
+    if contact and contact.name and contact.name.strip():
+        return contact.name
+    return None
+
+
 async def create_event(
     title: str,
     start_at: str,
@@ -1039,6 +1048,9 @@ async def update_event_attendee(
         if not attendee:
             return _err(f"attendee not found: {attendee_id}")
 
+        if name is not None:
+            attendee.name_raw = name or None
+
         contact = None
         if contact_id is not None:
             if contact_uuid:
@@ -1050,6 +1062,19 @@ async def update_event_attendee(
                 )).scalar_one_or_none()
                 if not contact:
                     return _err(f"contact not found: {contact_id}")
+            elif attendee.contact_id:
+                previous_contact = (await db.execute(
+                    select(Contact).where(
+                        Contact.id == attendee.contact_id,
+                        Contact.user_id == user_id,
+                    )
+                )).scalar_one_or_none()
+                fallback_name = _event_attendee_unbound_name(
+                    attendee, previous_contact,
+                )
+                if not fallback_name:
+                    return _err("cannot unbind attendee without a display name")
+                attendee.name_raw = fallback_name
             attendee.contact_id = contact_uuid
         elif attendee.contact_id:
             contact = (await db.execute(
@@ -1059,8 +1084,6 @@ async def update_event_attendee(
                 )
             )).scalar_one_or_none()
 
-        if name is not None:
-            attendee.name_raw = name or None
         if role is not None:
             attendee.role = role
 
