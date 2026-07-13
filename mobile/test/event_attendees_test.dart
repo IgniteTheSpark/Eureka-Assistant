@@ -86,6 +86,17 @@ void main() {
     );
   });
 
+  test(
+    'event attendee refresh distinguishes missing data from an empty list',
+    () {
+      expect(eventAttendeesFromResponse(const {'ok': true}), isNull);
+      expect(
+        eventAttendeesFromResponse(const {'ok': true, 'attendees': []}),
+        isEmpty,
+      );
+    },
+  );
+
   test('syncs adds, removals and bindings while ignoring unchanged rows', () async {
     final requests = <String>[];
     final api = ApiClient(
@@ -150,6 +161,48 @@ void main() {
       'POST /api/events/event-1/attendees {"contact_id":"c-new-2","role":"attendee"}',
     ]);
   });
+
+  test(
+    'attendee sync treats a missing DELETE target as already removed',
+    () async {
+      final requests = <String>[];
+      final api = ApiClient(
+        baseUrl: 'http://localhost',
+        enableLogging: false,
+        client: MockClient((request) async {
+          requests.add('${request.method} ${request.url.path}');
+          return http.Response(
+            jsonEncode({'ok': request.method != 'DELETE'}),
+            request.method == 'DELETE' ? 404 : 200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      await syncEventAttendees(
+        api,
+        eventId: 'event-1',
+        original: [
+          EventAttendeeDraft.fromJson(const {
+            'id': 'a1',
+            'contact_id': 'c1',
+            'display_name': 'Removed',
+            'is_resolved': true,
+          }),
+        ],
+        current: [
+          EventAttendeeDraft.fromContact(
+            ContactChoice.fromJson(const {'id': 'c2', 'name': 'New'}),
+          ),
+        ],
+      );
+
+      expect(requests, [
+        'DELETE /api/events/event-1/attendees/a1',
+        'POST /api/events/event-1/attendees',
+      ]);
+    },
+  );
 
   testWidgets(
     'event form renders enriched and legacy attendees without avatars',
@@ -575,7 +628,113 @@ void main() {
     },
   );
 
-  testWidgets('create retry reuses the event created before attendee failure', (
+  testWidgets(
+    'partial attendee posts refresh before retrying only the remainder',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final operations = <String>[];
+      var secondAttendeeAttempts = 0;
+      final api = ApiClient(
+        baseUrl: 'http://localhost',
+        enableLogging: false,
+        client: MockClient((request) async {
+          final requestBody = request.body.isEmpty
+              ? const <String, dynamic>{}
+              : (jsonDecode(request.body) as Map).cast<String, dynamic>();
+          final contactId = requestBody['contact_id'];
+          operations.add(
+            '${request.method} ${request.url.path}'
+            '${contactId == null ? '' : ' $contactId'}',
+          );
+          if (request.method == 'POST' && request.url.path == '/api/events') {
+            return http.Response(
+              jsonEncode({'event_id': 'event-created'}),
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          if (request.method == 'GET' &&
+              request.url.path == '/api/events/event-created') {
+            return http.Response(
+              jsonEncode({
+                'event_id': 'event-created',
+                'attendees': [
+                  {
+                    'id': 'a1',
+                    'contact_id': 'c1',
+                    'display_name': 'First',
+                    'is_resolved': true,
+                  },
+                ],
+              }),
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          if (request.url.path.endsWith('/attendees') && contactId == 'c2') {
+            secondAttendeeAttempts++;
+            return http.Response(
+              jsonEncode({'ok': secondAttendeeAttempts > 1}),
+              secondAttendeeAttempts == 1 ? 500 : 200,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          return http.Response(
+            jsonEncode({'ok': true}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            theme: buildEurekaTheme(EurekaColors.light),
+            home: EventForm(
+              api: api,
+              existing: const {
+                'title': 'Planning',
+                'start_at': '2026-07-13T09:00:00+08:00',
+                'end_at': '2026-07-13T10:00:00+08:00',
+                'attendees': [
+                  {
+                    'contact_id': 'c1',
+                    'display_name': 'First',
+                    'is_resolved': true,
+                  },
+                  {
+                    'contact_id': 'c2',
+                    'display_name': 'Second',
+                    'is_resolved': true,
+                  },
+                ],
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.widgetWithText(TextButton, '保存'));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(find.widgetWithText(TextButton, '保存'));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(operations, [
+        'POST /api/events',
+        'POST /api/events/event-created/attendees c1',
+        'POST /api/events/event-created/attendees c2',
+        'GET /api/events/event-created',
+        'PUT /api/events/event-created',
+        'POST /api/events/event-created/attendees c2',
+      ]);
+    },
+  );
+
+  testWidgets('failed attendee refresh blocks unsafe retry until reopen', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(800, 1000);
@@ -583,24 +742,15 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     final operations = <String>[];
-    var attendeeAttempts = 0;
     final api = ApiClient(
       baseUrl: 'http://localhost',
       enableLogging: false,
       client: MockClient((request) async {
         operations.add('${request.method} ${request.url.path}');
-        if (request.method == 'POST' && request.url.path == '/api/events') {
+        if (request.method == 'POST' || request.method == 'GET') {
           return http.Response(
-            jsonEncode({'event_id': 'event-created'}),
-            200,
-            headers: {'content-type': 'application/json'},
-          );
-        }
-        if (request.url.path.endsWith('/attendees')) {
-          attendeeAttempts++;
-          return http.Response(
-            jsonEncode({'ok': attendeeAttempts > 1}),
-            attendeeAttempts == 1 ? 500 : 200,
+            jsonEncode({'detail': 'offline'}),
+            500,
             headers: {'content-type': 'application/json'},
           );
         }
@@ -617,6 +767,7 @@ void main() {
           theme: buildEurekaTheme(EurekaColors.light),
           home: EventForm(
             api: api,
+            eventId: 'event-edit',
             existing: const {
               'title': 'Planning',
               'start_at': '2026-07-13T09:00:00+08:00',
@@ -624,7 +775,7 @@ void main() {
               'attendees': [
                 {
                   'contact_id': 'c1',
-                  'display_name': 'Retry Person',
+                  'display_name': 'Unsafe Retry',
                   'is_resolved': true,
                 },
               ],
@@ -634,19 +785,117 @@ void main() {
       ),
     );
     await tester.pump();
-
-    await tester.tap(find.widgetWithText(TextButton, '保存'));
-    await tester.pump(const Duration(milliseconds: 100));
     await tester.tap(find.widgetWithText(TextButton, '保存'));
     await tester.pump(const Duration(milliseconds: 100));
 
     expect(operations, [
-      'POST /api/events',
-      'POST /api/events/event-created/attendees',
-      'PUT /api/events/event-created',
-      'POST /api/events/event-created/attendees',
+      'PUT /api/events/event-edit',
+      'POST /api/events/event-edit/attendees',
+      'GET /api/events/event-edit',
     ]);
+    final saveButton = tester.widget<TextButton>(
+      find.widgetWithText(TextButton, '保存'),
+    );
+    expect(saveButton.onPressed, isNull);
+    await tester.scrollUntilVisible(
+      find.textContaining('状态刷新失败，请重新打开事件后再试'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.textContaining('状态刷新失败，请重新打开事件后再试'), findsOneWidget);
   });
+
+  testWidgets(
+    'successful attendee delete is not repeated after later failure',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final operations = <String>[];
+      var postAttempts = 0;
+      final api = ApiClient(
+        baseUrl: 'http://localhost',
+        enableLogging: false,
+        client: MockClient((request) async {
+          final requestBody = request.body.isEmpty
+              ? const <String, dynamic>{}
+              : (jsonDecode(request.body) as Map).cast<String, dynamic>();
+          final contactId = requestBody['contact_id'];
+          operations.add(
+            '${request.method} ${request.url.path}'
+            '${contactId == null ? '' : ' $contactId'}',
+          );
+          if (request.method == 'GET') {
+            return http.Response(
+              jsonEncode({'event_id': 'event-edit', 'attendees': const []}),
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          if (request.method == 'POST') {
+            postAttempts++;
+            return http.Response(
+              jsonEncode({'ok': postAttempts > 1}),
+              postAttempts == 1 ? 500 : 200,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          return http.Response(
+            jsonEncode({'ok': true}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            theme: buildEurekaTheme(EurekaColors.light),
+            home: EventForm(
+              api: api,
+              eventId: 'event-edit',
+              existing: const {
+                'title': 'Planning',
+                'start_at': '2026-07-13T09:00:00+08:00',
+                'end_at': '2026-07-13T10:00:00+08:00',
+                'attendees': [
+                  {
+                    'id': 'a1',
+                    'contact_id': 'c1',
+                    'display_name': 'Remove Once',
+                    'is_resolved': true,
+                  },
+                  {
+                    'contact_id': 'c2',
+                    'display_name': 'Fail Later',
+                    'is_resolved': true,
+                  },
+                ],
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.byTooltip('移除参会人').first);
+      await tester.pump();
+
+      await tester.tap(find.widgetWithText(TextButton, '保存'));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(find.widgetWithText(TextButton, '保存'));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(operations, [
+        'PUT /api/events/event-edit',
+        'DELETE /api/events/event-edit/attendees/a1',
+        'POST /api/events/event-edit/attendees c2',
+        'GET /api/events/event-edit',
+        'PUT /api/events/event-edit',
+        'POST /api/events/event-edit/attendees c2',
+      ]);
+    },
+  );
 
   testWidgets(
     'create without a response event id never sends an attendee path',
@@ -757,6 +1006,77 @@ void main() {
     await tester.pump();
     await tester.tap(find.byTooltip('移除参会人'));
     await tester.pump();
+
+    await tester.tap(find.widgetWithText(TextButton, '保存'));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(operations, ['PUT /api/events/event-edit']);
+  });
+
+  testWidgets('remove then re-add of one contact is an unchanged attendee', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final operations = <String>[];
+    final api = ApiClient(
+      baseUrl: 'http://localhost',
+      enableLogging: false,
+      client: MockClient((request) async {
+        if (request.method == 'GET' && request.url.path == '/api/contacts') {
+          return http.Response(
+            jsonEncode({
+              'contacts': [
+                {'id': 'c1', 'name': 'Re-added'},
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        operations.add('${request.method} ${request.url.path}');
+        return http.Response(
+          jsonEncode({'ok': true}),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          theme: buildEurekaTheme(EurekaColors.light),
+          home: EventForm(
+            api: api,
+            eventId: 'event-edit',
+            existing: const {
+              'title': 'Planning',
+              'start_at': '2026-07-13T09:00:00+08:00',
+              'end_at': '2026-07-13T10:00:00+08:00',
+              'attendees': [
+                {
+                  'id': 'a1',
+                  'contact_id': 'c1',
+                  'display_name': 'Re-added',
+                  'is_resolved': true,
+                },
+              ],
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byTooltip('移除参会人'));
+    await tester.pump();
+    await tester.tap(find.text('添加参会人'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Re-added'));
+    await tester.pump();
+    await tester.tap(find.text('保存(1)'));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.widgetWithText(TextButton, '保存'));
     await tester.pump(const Duration(milliseconds: 100));

@@ -250,6 +250,65 @@ String? eventIdFromCreateResponse(dynamic response) {
   return eventIdFromCreateResponse(response['event']);
 }
 
+({List<EventAttendeeDraft> original, List<EventAttendeeDraft> current})
+reconcileEventAttendeesWithServer({
+  required List<EventAttendeeDraft> server,
+  required List<EventAttendeeDraft> desired,
+}) {
+  final available = List<EventAttendeeDraft>.of(server);
+  final current = <EventAttendeeDraft>[];
+  for (final attendee in desired) {
+    var matchIndex = -1;
+    if (attendee.id != null) {
+      matchIndex = available.indexWhere((item) => item.id == attendee.id);
+    }
+    if (matchIndex < 0 && attendee.contactId != null) {
+      matchIndex = available.indexWhere(
+        (item) => item.contactId == attendee.contactId,
+      );
+    }
+    if (matchIndex >= 0) {
+      final matched = available.removeAt(matchIndex);
+      current.add(
+        EventAttendeeDraft(
+          id: matched.id,
+          contactId: attendee.contactId,
+          nameRaw: attendee.nameRaw,
+          displayName: attendee.displayName,
+          role: attendee.role,
+          isResolved: attendee.isResolved,
+          contactSummary: attendee.contactSummary,
+          contact: attendee.contact,
+        ),
+      );
+    } else if (attendee.id != null) {
+      current.add(
+        EventAttendeeDraft(
+          contactId: attendee.contactId,
+          nameRaw: attendee.nameRaw,
+          displayName: attendee.displayName,
+          role: attendee.role,
+          isResolved: attendee.isResolved,
+          contactSummary: attendee.contactSummary,
+          contact: attendee.contact,
+        ),
+      );
+    } else {
+      current.add(attendee);
+    }
+  }
+  return (original: List<EventAttendeeDraft>.of(server), current: current);
+}
+
+List<EventAttendeeDraft>? eventAttendeesFromResponse(dynamic response) {
+  if (response is! Map) return null;
+  if (response.containsKey('attendees')) {
+    final raw = response['attendees'];
+    return raw is List ? eventAttendeeDraftsFromExisting(raw) : null;
+  }
+  return eventAttendeesFromResponse(response['event']);
+}
+
 class EventForm extends StatefulWidget {
   final DateTime?
   presetDate; // empty-day create → default the event to that day (09:00)
@@ -277,9 +336,10 @@ class _EventFormState extends State<EventForm> {
   late DateTime _end;
   bool _allDay = false;
   bool _busy = false;
+  bool _attendeeSyncBlocked = false;
   String? _error;
   String? _savedCreateEventId;
-  late final List<EventAttendeeDraft> _originalAttendees;
+  late List<EventAttendeeDraft> _originalAttendees;
   late List<EventAttendeeDraft> _attendees;
   bool get _isEdit => widget.eventId != null;
 
@@ -360,7 +420,17 @@ class _EventFormState extends State<EventForm> {
           .toSet();
       for (final contact in selected) {
         if (seen.add(contact.id)) {
-          _attendees.add(EventAttendeeDraft.fromContact(contact));
+          EventAttendeeDraft? persisted;
+          for (final original in _originalAttendees) {
+            if (original.id != null && original.contactId == contact.id) {
+              persisted = original;
+              break;
+            }
+          }
+          _attendees.add(
+            persisted?.copyWith(contact: contact) ??
+                EventAttendeeDraft.fromContact(contact),
+          );
         }
       }
     });
@@ -417,7 +487,7 @@ class _EventFormState extends State<EventForm> {
   }
 
   Future<void> _save() async {
-    if (_busy) return;
+    if (_busy || _attendeeSyncBlocked) return;
     if (_title.text.trim().isEmpty) {
       setState(() => _error = '请填写标题');
       return;
@@ -461,11 +531,32 @@ class _EventFormState extends State<EventForm> {
           current: _attendees,
         );
       } catch (e) {
-        if (mounted) {
-          setState(() {
-            _busy = false;
-            _error = '保存参会人失败：$e';
-          });
+        try {
+          final response = await _api.getJson('/api/events/$savedEventId');
+          final server =
+              eventAttendeesFromResponse(response) ??
+              (throw StateError('事件响应缺少 attendees'));
+          final reconciled = reconcileEventAttendeesWithServer(
+            server: server,
+            desired: _attendees,
+          );
+          if (mounted) {
+            setState(() {
+              _originalAttendees = reconciled.original;
+              _attendees = reconciled.current;
+              _busy = false;
+              _attendeeSyncBlocked = false;
+              _error = '保存参会人失败：$e';
+            });
+          }
+        } catch (refreshError) {
+          if (mounted) {
+            setState(() {
+              _busy = false;
+              _attendeeSyncBlocked = true;
+              _error = '保存参会人失败，状态刷新失败，请重新打开事件后再试：$refreshError';
+            });
+          }
         }
         return;
       }
@@ -642,7 +733,7 @@ class _EventFormState extends State<EventForm> {
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: TextButton(
-              onPressed: _busy ? null : _save,
+              onPressed: _busy || _attendeeSyncBlocked ? null : _save,
               child: _busy
                   ? const SizedBox(
                       width: 16,

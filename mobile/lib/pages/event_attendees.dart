@@ -165,7 +165,11 @@ Future<void> syncEventAttendees(
   for (final attendee in original) {
     final id = attendee.id;
     if (id != null && !currentById.containsKey(id)) {
-      await api.deleteJson('/api/events/$eventId/attendees/$id');
+      try {
+        await api.deleteJson('/api/events/$eventId/attendees/$id');
+      } catch (error) {
+        if (error is! ApiException || error.statusCode != 404) rethrow;
+      }
     }
   }
 
