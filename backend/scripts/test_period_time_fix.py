@@ -106,7 +106,7 @@ def _assert_skill_prompts_period_rules() -> None:
     assert 'occurred_at=""' in expense
 
     assert 'source_text: "下午要开一个会"' in todo
-    assert 'tool_create_todo(content="开一个会", due_date="", period="下午", occurred_at="")' in todo
+    assert 'tool_create_todo(title="开一个会", content="", due_date="", period="下午", occurred_at="")' in todo
     assert 'source_text: "明天下午要开一个会"' in todo
     assert 'due_date="<tomorrow YYYY-MM-DD>", period="下午", occurred_at=""' in todo
     assert "Do not manufacture default clocks" in todo

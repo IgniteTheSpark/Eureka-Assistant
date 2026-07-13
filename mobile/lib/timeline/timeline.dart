@@ -12,8 +12,13 @@ class SkillMeta {
   /// Active-set flag: enabled skills show in the library grid + the agent
   /// routes to them. Disabled ones live only in the 技能管理页.
   final bool enabled;
-  const SkillMeta(this.icon, this.label,
-      [this.accentColor = 'gray', this.userSkillId, this.enabled = true]);
+  const SkillMeta(
+    this.icon,
+    this.label, [
+    this.accentColor = 'gray',
+    this.userSkillId,
+    this.enabled = true,
+  ]);
 }
 
 /// One unified timeline entry (asset / event / contact / input_turn / file),
@@ -48,6 +53,11 @@ class TimelineItem {
   /// is that precise moment). Events with a start time count via `kind`.
   final bool hasClockTime;
 
+  /// True only when the user actually scheduled this item. Unlike
+  /// [effectiveAt], this never becomes true merely because the backend uses the
+  /// capture time as a sorting fallback for an otherwise time-less todo.
+  final bool hasScheduledTime;
+
   /// §8 生活领域(工作/学习/健康/运动/社交/娱乐/生活/灵感),否则 ''。流/月卡片的领域 tag。
   final String domain;
 
@@ -68,13 +78,16 @@ class TimelineItem {
     this.payload = const {},
     this.period = '',
     this.hasClockTime = false,
+    this.hasScheduledTime = false,
     this.domain = '',
   });
 
   factory TimelineItem.fromJson(Map<String, dynamic> j) {
-    final ea = DateTime.tryParse(j['effective_at'] as String? ?? '')?.toLocal() ??
+    final ea =
+        DateTime.tryParse(j['effective_at'] as String? ?? '')?.toLocal() ??
         DateTime.now();
-    final rawDerived = (j['derived'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final rawDerived =
+        (j['derived'] as Map?)?.cast<String, dynamic>() ?? const {};
     return TimelineItem(
       kind: j['kind'] as String? ?? 'asset',
       id: j['id'] as String? ?? '',
@@ -95,6 +108,7 @@ class TimelineItem {
       },
       period: j['period'] as String? ?? '',
       hasClockTime: j['has_clock_time'] == true,
+      hasScheduledTime: j['has_scheduled_time'] == true,
       domain: j['domain'] as String? ?? '',
     );
   }
@@ -104,9 +118,9 @@ const _builtin = <String, SkillMeta>{
   'todo': SkillMeta('📋', '待办', 'blue'),
   'event': SkillMeta('📅', '日程', 'purple'),
   'contact': SkillMeta('👤', '名片', 'neutral'),
-  'notes': SkillMeta('✍️', '随记', 'amber'),   // 随记 (idea/misc merged in)
-  'idea': SkillMeta('✍️', '随记', 'amber'),    // legacy fallback → 随记
-  'misc': SkillMeta('✍️', '随记', 'amber'),    // legacy fallback → 随记
+  'notes': SkillMeta('✍️', '随记', 'amber'), // 随记 (idea/misc merged in)
+  'idea': SkillMeta('✍️', '随记', 'amber'), // legacy fallback → 随记
+  'misc': SkillMeta('✍️', '随记', 'amber'), // legacy fallback → 随记
   'expense': SkillMeta('💰', '记账', 'green'),
   'external_ref': SkillMeta('🔗', '外部', 'purple'),
 };
@@ -161,15 +175,24 @@ Future<Map<String, SkillMeta>> fetchSkills(ApiClient api) async {
 }
 
 /// Group items into day buckets, newest day first; items within a day ascend.
-List<MapEntry<DateTime, List<TimelineItem>>> groupByDay(List<TimelineItem> items) {
+List<MapEntry<DateTime, List<TimelineItem>>> groupByDay(
+  List<TimelineItem> items,
+) {
   final byDay = <DateTime, List<TimelineItem>>{};
   for (final it in items) {
-    final d = DateTime(it.effectiveAt.year, it.effectiveAt.month, it.effectiveAt.day);
+    final d = DateTime(
+      it.effectiveAt.year,
+      it.effectiveAt.month,
+      it.effectiveAt.day,
+    );
     byDay.putIfAbsent(d, () => []).add(it);
   }
   final days = byDay.keys.toList()..sort((a, b) => b.compareTo(a));
   return [
     for (final d in days)
-      MapEntry(d, byDay[d]!..sort((a, b) => a.effectiveAt.compareTo(b.effectiveAt))),
+      MapEntry(
+        d,
+        byDay[d]!..sort((a, b) => a.effectiveAt.compareTo(b.effectiveAt)),
+      ),
   ];
 }

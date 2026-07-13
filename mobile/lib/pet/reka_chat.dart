@@ -8,15 +8,12 @@ import '../app_events.dart' show navigatorKey, openNotificationTarget;
 import '../assets/assets.dart';
 import '../data_revision.dart';
 import '../pages/chat_page.dart';
-import '../pages/create_asset.dart'
-    show fetchSkillDefs, SkillDef, renderSpecForSkill, EventForm;
+import '../pages/create_asset.dart' show showCreateMenu;
 import '../pages/notifications_page.dart' show NotificationsPage;
 import '../pages/pet_page.dart';
 import '../pages/report_viewer_page.dart';
-import '../render/asset_detail_sheet.dart' show AssetEditPage;
 import '../render/pet_view.dart';
 import '../widgets/asset_picker.dart';
-import '../render/skill_card.dart' show accentOf;
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
 import 'floating_mascot.dart' show mascotSuppressed, releaseMascotSuppress;
@@ -28,7 +25,7 @@ import 'reka_notifications.dart';
 /// REKA (top layer, not a page). REKA's options + the user's choices happen in
 /// the bubbles; heavy edits open as **centered modal popups** (设计稿 doctrine:
 /// 居中弹窗、点 scrim 不关、X/取消 才退) that take over the screen.
-///  - 快创 → bubble shows ALL types as a tile grid; tap one → centered edit popup.
+///  - 快创 → opens the same global create menu used by calendar/day detail.
 ///  - 洞察 → bubble = 一句话输入 + 快捷 pills + 「手动选择资产」;手动 → 居中弹窗
 ///    多选(资产卡片)→ 回气泡 → 生成(REKA 小动画)→ 结果气泡 + 查看报告。
 class RekaChat extends StatefulWidget {
@@ -55,16 +52,7 @@ class RekaChat extends StatefulWidget {
   State<RekaChat> createState() => _RekaChatState();
 }
 
-enum _K {
-  reka,
-  user,
-  chips,
-  createGrid,
-  synthEntry,
-  status,
-  receipt,
-  notifPanel,
-}
+enum _K { reka, user, chips, synthEntry, status, receipt, notifPanel }
 
 class _Opt {
   final String? icon;
@@ -73,22 +61,11 @@ class _Opt {
   _Opt(this.icon, this.label, this.onTap);
 }
 
-/// A 快创 type tile (mirrors reka-system.js CREATE_TYPES .ctile).
-class _CreateType {
-  final String icon;
-  final String label;
-  final String sub;
-  final String accentKey;
-  final Widget Function() form;
-  _CreateType(this.icon, this.label, this.sub, this.accentKey, this.form);
-}
-
 class _Node {
   final _K kind;
   final String? text;
   final List<_Opt>? opts;
-  final List<_CreateType>? types;
-  _Node(this.kind, {this.text, this.opts, this.types});
+  _Node(this.kind, {this.text, this.opts});
 }
 
 class _RekaChatState extends State<RekaChat>
@@ -129,7 +106,6 @@ class _RekaChatState extends State<RekaChat>
   // report state
   List<AssetItem> _assets = const [];
   final Set<String> _selectedIds = {};
-  List<SkillDef>? _skillDefs;
 
   @override
   void initState() {
@@ -186,22 +162,7 @@ class _RekaChatState extends State<RekaChat>
 
   Future<void> _prefetch() async {
     try {
-      final r = await Future.wait([fetchAssets(_api), fetchSkillDefs(_api)]);
-      _assets = r[0] as List<AssetItem>;
-      _skillDefs = r[1] as List<SkillDef>;
-      // 快创 entered before skills loaded? swap the placeholder grid in now.
-      if (mounted &&
-          widget.intent == 'create' &&
-          _nodes.every((n) => n.kind != _K.createGrid)) {
-        setState(() {
-          _nodes.removeWhere(
-            (n) => n.kind == _K.reka && (n.text?.contains('加载中') ?? false),
-          );
-          _nodes.add(
-            _Node(_K.createGrid, types: _createTypes(r[1] as List<SkillDef>)),
-          );
-        });
-      }
+      _assets = await fetchAssets(_api);
     } catch (_) {
       /* features degrade gracefully */
     }
@@ -283,82 +244,12 @@ class _RekaChatState extends State<RekaChat>
 
   void _chooseCreate() {
     if (_busy) return;
-    final defs = _skillDefs;
-    if (defs == null) {
-      _add(_Node(_K.reka, text: '想快速记点什么?(加载中…)'));
-      return; // _prefetch swaps in the grid when skills arrive
-    }
-    _add(_Node(_K.createGrid, types: _createTypes(defs)));
-  }
-
-  // 全部类型(事件 + 每个技能),带域色 → 点开**居中弹窗**编辑表单。
-  List<_CreateType> _createTypes(List<SkillDef> defs) => [
-    _CreateType('📅', '事件', '约定时间', 'purple', () => const EventForm()),
-    for (final s in defs)
-      _CreateType(
-        s.icon,
-        s.displayName,
-        _createSub(s.name),
-        s.accentColor,
-        // same AssetEditPage as 编辑 — create = edit with empty data.
-        () => AssetEditPage(
-          payload: const {},
-          cardType: s.name,
-          title: '',
-          spec: renderSpecForSkill(s),
-          displayName: s.displayName,
-        ),
-      ),
-  ];
-
-  String _createSub(String name) =>
-      const {
-        'event': '约定时间',
-        'todo': '要做的事',
-        'note': '随手记一笔',
-        '随记': '随手记一笔',
-        'contact': '一张名片',
-        'expense': '一笔花销',
-        'book_note': '读书笔记',
-        'idea': '一个念头',
-      }[name] ??
-      '快速记录';
-
-  // §9.2 居中编辑弹窗(替代底部 sheet):form 自带 Scaffold + 标题 + 保存;存后
-  // maybePop(result) → 回执气泡 + REKA celebrate。点 scrim 不关(barrierDismissible:false)。
-  Future<void> _openCreatePop(Widget form) async {
     final ctx = navigatorKey.currentContext;
     if (ctx == null) return;
-    final eu = ctx.eu;
-    _enterModal(); // hide the bubble + floating ball — the popup takes over
-    try {
-      final res = await showDialog<Map<String, dynamic>>(
-        context: ctx,
-        barrierDismissible: false,
-        barrierColor: Colors.black.withValues(alpha: 0.62),
-        builder: (dctx) {
-          final mq = MediaQuery.of(dctx);
-          return Padding(
-            padding: EdgeInsets.fromLTRB(14, 24, 14, mq.viewInsets.bottom + 24),
-            child: Center(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: 440,
-                  maxHeight: mq.size.height * 0.86,
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(22),
-                  child: Material(color: eu.surface, child: form),
-                ),
-              ),
-            ),
-          );
-        },
-      );
-      if (res != null && mounted) _onCreated(res);
-    } finally {
-      _exitModal();
-    }
+    _close();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (ctx.mounted) showCreateMenu(ctx);
+    });
   }
 
   void _enterModal() {
@@ -369,35 +260,6 @@ class _RekaChatState extends State<RekaChat>
   void _exitModal() {
     releaseMascotSuppress();
     if (mounted) setState(() => _modal = false);
-  }
-
-  void _onCreated(Map<String, dynamic> res) {
-    final name = (res['display_name'] as String?) ?? '记录';
-    final icon = (res['icon'] as String?) ?? '✅';
-    final payload =
-        (res['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
-    final detail = _receiptDetail(payload);
-    final receipt = detail.isEmpty
-        ? '$name · 已闭环 ✓'
-        : '$name · $detail · 已闭环 ✓';
-    _add(_Node(_K.receipt, text: receipt));
-    RekaNotifications.instance.add(
-      icon: icon,
-      title: '已记下 · $name',
-      meta: detail.isEmpty ? null : detail,
-    );
-  }
-
-  String _receiptDetail(Map<String, dynamic> p) {
-    if (p['amount'] != null) return '¥${p['amount']}';
-    for (final k in ['content', 'title', 'name', 'quote', 'note']) {
-      final v = p[k];
-      if (v != null && '$v'.trim().isNotEmpty) {
-        final s = '$v'.trim();
-        return s.length > 12 ? '${s.substring(0, 12)}…' : s;
-      }
-    }
-    return '';
   }
 
   void _chooseSummarize() {
@@ -747,8 +609,6 @@ class _RekaChatState extends State<RekaChat>
             children: [for (final o in n.opts!) _chip(eu, o)],
           ),
         );
-      case _K.createGrid:
-        return _createGridBubble(eu, n.types ?? const []);
       case _K.synthEntry:
         return _synthEntryBubble(eu);
       case _K.status:
@@ -773,98 +633,6 @@ class _RekaChatState extends State<RekaChat>
       ),
     ),
   );
-
-  // ── 快创 tile grid (reka-system.js .ctgrid) ─────────────────────────────────
-  Widget _createGridBubble(EurekaColors eu, List<_CreateType> types) {
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: eu.surfaceRaised,
-        borderRadius: BorderRadius.circular(15),
-        border: Border.all(color: eu.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _kicker(eu, '快创 · 选个类型'),
-          Text(
-            '想快速记点什么?选一个,我给你开张卡。',
-            style: TextStyle(color: eu.textHi, fontSize: 13.5, height: 1.4),
-          ),
-          const SizedBox(height: 10),
-          GridView.count(
-            crossAxisCount: 2,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            mainAxisSpacing: 7,
-            crossAxisSpacing: 7,
-            childAspectRatio: 2.55,
-            children: [for (final t in types) _createTile(eu, t)],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _createTile(EurekaColors eu, _CreateType t) {
-    final accent = accentOf(t.accentKey, eu).solid;
-    return GestureDetector(
-      onTap: () => _openCreatePop(t.form()),
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 8),
-        decoration: BoxDecoration(
-          color: eu.surface,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: eu.border),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 28,
-              height: 28,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: accent.withValues(alpha: 0.16),
-                borderRadius: BorderRadius.circular(9),
-              ),
-              child: Text(t.icon, style: const TextStyle(fontSize: 14)),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    t.label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: eu.textHi,
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  Text(
-                    t.sub,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: eu.textLo,
-                      fontSize: 10,
-                      height: 1.2,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
   // ── 洞察 entry (reka-system.js renderSynthBubble) ───────────────────────────
   Widget _synthEntryBubble(EurekaColors eu) {

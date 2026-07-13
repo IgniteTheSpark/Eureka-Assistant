@@ -11,6 +11,7 @@ import '../theme/app_theme.dart';
 import '../theme/domains.dart';
 import '../theme/eureka_colors.dart';
 import '../timeline/timeline.dart';
+import '../widgets/skeleton_loader.dart';
 import 'create_asset.dart';
 import 'day_flash_view.dart';
 import 'session_detail_page.dart';
@@ -21,16 +22,22 @@ void _openFlashSession(BuildContext context, TimelineItem item) {
   final sid = item.sessionId;
   if (sid == null || sid.isEmpty) return;
   final d = item.effectiveAt;
-  Navigator.of(context).push(MaterialPageRoute(
-    builder: (_) => SessionDetailPage(sessionId: sid, title: '${d.month}月${d.day}日 闪念'),
-  ));
+  Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) =>
+          SessionDetailPage(sessionId: sid, title: '${d.month}月${d.day}日 闪念'),
+    ),
+  );
 }
 
 /// Dispatch a tapped timeline item to the right detail surface (web
 /// handleItemTap): input_turn → capture session; event/contact/asset → fetch
 /// the record and open the shared asset-detail sheet.
 Future<void> _openTimelineItem(
-    BuildContext context, TimelineItem item, Map<String, SkillMeta> skills) async {
+  BuildContext context,
+  TimelineItem item,
+  Map<String, SkillMeta> skills,
+) async {
   if (item.kind == 'input_turn') {
     _openFlashSession(context, item);
     return;
@@ -44,7 +51,8 @@ Future<void> _openTimelineItem(
     };
     final res = await api.getJson(path);
     final raw = res is Map ? (res[wrapKey] ?? res) : res;
-    final record = (raw as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+    final record =
+        (raw as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
 
     final isAsset = item.kind != 'event' && item.kind != 'contact';
     // event/contact PUT flat fields → cardType is the kind; assets carry a
@@ -57,7 +65,9 @@ Future<void> _openTimelineItem(
     if (isAsset) {
       try {
         spec = (await fetchRenderSpecs(api))[cardType];
-      } catch (_) {/* fall back to label dict */}
+      } catch (_) {
+        /* fall back to label dict */
+      }
     }
     if (!context.mounted) return;
 
@@ -69,7 +79,10 @@ Future<void> _openTimelineItem(
     showAssetDetail(
       context,
       // carry the asset's domain so the hero shows the 领域 chip (was empty).
-      data: _timelineCardData(item, skills).copyWith(domain: record['domain'] as String?),
+      data: _timelineCardData(
+        item,
+        skills,
+      ).copyWith(domain: record['domain'] as String?),
       payload: payload,
       cardType: cardType,
       assetId: assetId,
@@ -132,7 +145,11 @@ class _CalData {
   static Map<DateTime, List<TimelineItem>> _bucket(List<TimelineItem> items) {
     final m = <DateTime, List<TimelineItem>>{};
     for (final it in items) {
-      final d = DateTime(it.effectiveAt.year, it.effectiveAt.month, it.effectiveAt.day);
+      final d = DateTime(
+        it.effectiveAt.year,
+        it.effectiveAt.month,
+        it.effectiveAt.day,
+      );
       m.putIfAbsent(d, () => []).add(it);
     }
     for (final v in m.values) {
@@ -153,7 +170,8 @@ class _CalendarPageState extends State<CalendarPage> {
   // hot-reload (no initState-registered listener to miss).
   int _loadedRev = -1;
   Future<_CalData>? _future;
-  _CalData? _lastData; // keep last data on screen during a refetch (no spinner flash)
+  _CalData?
+  _lastData; // keep last data on screen during a refetch (no spinner flash)
 
   Future<_CalData> _futureFor(int rev) {
     if (rev != _loadedRev || _future == null) {
@@ -166,8 +184,14 @@ class _CalendarPageState extends State<CalendarPage> {
   // START_CAL_MODE lets a build boot into a specific calendar mode for
   // screenshot/visual verification (timeline | month | year). Default = 流
   // (timeline · 今天) — the home view (产品决策 2026-06).
-  String _mode = const String.fromEnvironment('START_CAL_MODE', defaultValue: 'timeline');
-  late DateTime _focusMonth = DateTime(DateTime.now().year, DateTime.now().month);
+  String _mode = const String.fromEnvironment(
+    'START_CAL_MODE',
+    defaultValue: 'timeline',
+  );
+  late DateTime _focusMonth = DateTime(
+    DateTime.now().year,
+    DateTime.now().month,
+  );
 
   // 流/月/年 are swipeable (PageView) + tappable (segmented), kept in sync.
   static const _modes = ['timeline', 'month', 'year'];
@@ -179,7 +203,11 @@ class _CalendarPageState extends State<CalendarPage> {
     setState(() => _mode = m);
     final i = _modes.indexOf(m);
     if (i >= 0 && _pager.hasClients && animate) {
-      _pager.animateToPage(i, duration: const Duration(milliseconds: 260), curve: Curves.easeOut);
+      _pager.animateToPage(
+        i,
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOut,
+      );
     }
   }
 
@@ -229,15 +257,18 @@ class _CalendarPageState extends State<CalendarPage> {
                         // Selecting 流 re-centers on today (bump calendarHome →
                         // _goHome switches mode + the stream jumps to today). 月/年
                         // just switch. Fixes 流 staying scrolled where it was left.
-                        onChanged: (v) => v == 'timeline' ? calendarHome.value++ : _switchMode(v),
+                        onChanged: (v) => v == 'timeline'
+                            ? calendarHome.value++
+                            : _switchMode(v),
                       ),
                     ),
                     Align(
                       alignment: Alignment.centerRight,
                       child: IconButton(
-                          onPressed: _refresh,
-                          tooltip: '刷新',
-                          icon: Icon(Icons.refresh, color: eu.textMid)),
+                        onPressed: _refresh,
+                        tooltip: '刷新',
+                        icon: Icon(Icons.refresh, color: eu.textMid),
+                      ),
                     ),
                   ],
                 ),
@@ -247,50 +278,56 @@ class _CalendarPageState extends State<CalendarPage> {
               child: ValueListenableBuilder<int>(
                 valueListenable: dataRevision,
                 builder: (context, rev, _) => FutureBuilder<_CalData>(
-                future: _futureFor(rev),
-                builder: (ctx, snap) {
-                  if (snap.hasData) _lastData = snap.data;
-                  final data = _lastData;
-                  // First load only: spinner / error. On refetch we keep the
-                  // PageView mounted with the last data — no spinner flash, and
-                  // the PageController never detaches (so 流/月/年 never desyncs
-                  // from the segmented control).
-                  if (data == null) {
-                    if (snap.hasError) {
-                      return Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Text('加载失败：${snap.error}',
+                  future: _futureFor(rev),
+                  builder: (ctx, snap) {
+                    if (snap.hasData) _lastData = snap.data;
+                    final data = _lastData;
+                    // First load only: spinner / error. On refetch we keep the
+                    // PageView mounted with the last data — no spinner flash, and
+                    // the PageController never detaches (so 流/月/年 never desyncs
+                    // from the segmented control).
+                    if (data == null) {
+                      if (snap.hasError) {
+                        return Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Text(
+                              '加载失败：${snap.error}',
                               textAlign: TextAlign.center,
-                              style: TextStyle(color: eu.accentRed)),
-                        ),
+                              style: TextStyle(color: eu.accentRed),
+                            ),
+                          ),
+                        );
+                      }
+                      return const USkeletonList(
+                        padding: EdgeInsets.fromLTRB(16, 14, 16, 96),
+                        count: 7,
+                        cardHeight: 78,
                       );
                     }
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  // Swipeable 流/月/年 (synced with the segmented control).
-                  return PageView(
-                    controller: _pager,
-                    onPageChanged: (i) => setState(() => _mode = _modes[i]),
-                    children: [
-                      _TimelineView(data: data),
-                      _MonthView(
-                        focusMonth: _focusMonth,
-                        byDay: data.byDay,
-                        skills: data.skills,
-                      ),
-                      _YearView(
-                        year: _focusMonth.year,
-                        byDay: data.byDay,
-                        onPickMonth: (m) {
-                          setState(() => _focusMonth = m);
-                          _switchMode('month');
-                        },
-                      ),
-                    ],
-                  );
-                },
-              ),
+                    // Swipeable 流/月/年 (synced with the segmented control).
+                    return PageView(
+                      controller: _pager,
+                      onPageChanged: (i) => setState(() => _mode = _modes[i]),
+                      children: [
+                        _TimelineView(data: data),
+                        _MonthView(
+                          focusMonth: _focusMonth,
+                          byDay: data.byDay,
+                          skills: data.skills,
+                        ),
+                        _YearView(
+                          year: _focusMonth.year,
+                          byDay: data.byDay,
+                          onPickMonth: (m) {
+                            setState(() => _focusMonth = m);
+                            _switchMode('month');
+                          },
+                        ),
+                      ],
+                    );
+                  },
+                ),
               ),
             ),
           ],
@@ -326,16 +363,22 @@ class _Segmented extends StatelessWidget {
             GestureDetector(
               onTap: () => onChanged(o.$1),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: value == o.$1 ? eu.brand : Colors.transparent,
                   borderRadius: BorderRadius.circular(18),
                 ),
-                child: Text(o.$2,
-                    style: TextStyle(
-                        color: value == o.$1 ? Colors.white : eu.textMid,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600)),
+                child: Text(
+                  o.$2,
+                  style: TextStyle(
+                    color: value == o.$1 ? Colors.white : eu.textMid,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
             ),
         ],
@@ -354,6 +397,8 @@ class _DayR {
   final bool monthBoundary;
   const _DayR(this.day, {this.monthBoundary = false});
 }
+
+String streamMonthLabel(DateTime day) => '${day.year}年${day.month}月';
 
 /// 流 — a continuous, infinitely-scrollable day stream (Timepage style).
 /// A CustomScrollView centered on today: scroll up for the past, down for the
@@ -379,21 +424,29 @@ class _TimelineViewState extends State<_TimelineView> {
   bool _growingPast = false;
 
   // §流:有内容的日 → 点(date / 空白)开全屏日视图(`_openDay`)。
-  void _openDay(DateTime d) =>
-      Navigator.of(context).push(MaterialPageRoute(builder: (_) => DayDetailPage(day: d)));
+  void _openDay(DateTime d) => Navigator.of(
+    context,
+  ).push(MaterialPageRoute(builder: (_) => DayDetailPage(day: d)));
 
   DateTime _today = _d(DateTime.now());
   // Overlay watermark + 回今天 button as notifiers: the per-scroll _updateOverlay
   // updates ONLY these layers (ValueListenableBuilder) instead of setState-
   // rebuilding (and repainting every band gradient) the whole timeline per frame.
-  final _overlay = ValueNotifier<({String? text, bool visible})>((text: null, visible: false));
+  final _overlay = ValueNotifier<({String? text, bool visible})>((
+    text: null,
+    visible: false,
+  ));
   final _todayInView = ValueNotifier<bool>(true);
+  final _visibleMonth = ValueNotifier<DateTime>(
+    DateTime(DateTime.now().year, DateTime.now().month),
+  );
   Timer? _fadeTimer;
   Timer? _overlayThrottle; // coalesce the O(rows) render-object scan to ~10fps
 
   static DateTime _d(DateTime x) => DateTime(x.year, x.month, x.day);
   static String _dayStr(DateTime d) => '${d.year}-${d.month}-${d.day}';
-  GlobalKey _keyFor(DateTime d) => _dayKeys.putIfAbsent(_dayStr(d), () => GlobalKey());
+  GlobalKey _keyFor(DateTime d) =>
+      _dayKeys.putIfAbsent(_dayStr(d), () => GlobalKey());
 
   @override
   void initState() {
@@ -416,6 +469,7 @@ class _TimelineViewState extends State<_TimelineView> {
     _overlayThrottle?.cancel();
     _overlay.dispose();
     _todayInView.dispose();
+    _visibleMonth.dispose();
     _scroll.dispose();
     super.dispose();
   }
@@ -428,7 +482,10 @@ class _TimelineViewState extends State<_TimelineView> {
     }
     // Grow the past window near the top → endless scroll up. Prepending rows
     // shifts content down, so compensate the offset to keep the view steady.
-    if (_didScroll && !_growingPast && _pastDays < 3650 && p.pixels - p.minScrollExtent < 600) {
+    if (_didScroll &&
+        !_growingPast &&
+        _pastDays < 3650 &&
+        p.pixels - p.minScrollExtent < 600) {
       _growPast();
     }
     // Throttle the overlay scan (O(rows) render-object queries) to ~10fps —
@@ -446,14 +503,21 @@ class _TimelineViewState extends State<_TimelineView> {
     var addedH = 0.0;
     for (var i = 1; i <= add; i++) {
       final d = oldMin.subtract(Duration(days: i));
-      final items = widget.data.byDay[DateTime(d.year, d.month, d.day)] ?? const [];
-      addedH += (items.isEmpty ? 72 : 24 + items.length * 30 + (items.length - 1) * 8) + 8;
+      final items =
+          widget.data.byDay[DateTime(d.year, d.month, d.day)] ?? const [];
+      addedH +=
+          (items.isEmpty
+              ? 72
+              : 24 + items.length * 30 + (items.length - 1) * 8) +
+          8;
     }
     final px = _scroll.position.pixels;
     setState(() => _pastDays += add);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _scroll.hasClients) {
-        _scroll.jumpTo((px + addedH).clamp(0.0, _scroll.position.maxScrollExtent));
+        _scroll.jumpTo(
+          (px + addedH).clamp(0.0, _scroll.position.maxScrollExtent),
+        );
       }
       _growingPast = false;
     });
@@ -469,6 +533,9 @@ class _TimelineViewState extends State<_TimelineView> {
 
     String? bestStr;
     double best = double.infinity;
+    DateTime? leadingDay;
+    double leadingDistance = double.infinity;
+    const monthHeaderHeight = 38.0;
     _dayKeys.forEach((str, key) {
       final ctx = key.currentContext;
       if (ctx == null) return;
@@ -481,7 +548,23 @@ class _TimelineViewState extends State<_TimelineView> {
         best = dist;
         bestStr = str;
       }
+      // The pinned month follows the first row visible below its own header.
+      // A row intersecting the header wins; otherwise use the nearest row below.
+      if (dy + rb.size.height > monthHeaderHeight) {
+        final distance = dy <= monthHeaderHeight ? 0.0 : dy - monthHeaderHeight;
+        if (distance < leadingDistance) {
+          leadingDistance = distance;
+          leadingDay = _parse(str);
+        }
+      }
     });
+
+    if (leadingDay != null) {
+      final visibleMonth = DateTime(leadingDay!.year, leadingDay!.month);
+      if (_visibleMonth.value != visibleMonth) {
+        _visibleMonth.value = visibleMonth;
+      }
+    }
 
     var todayIn = false;
     final tctx = _dayKeys[_dayStr(_today)]?.currentContext;
@@ -493,7 +576,9 @@ class _TimelineViewState extends State<_TimelineView> {
       }
     }
 
-    final label = bestStr != null ? _distanceLabel(_parse(bestStr!)) : _overlay.value.text;
+    final label = bestStr != null
+        ? _distanceLabel(_parse(bestStr!))
+        : _overlay.value.text;
     // Notifier writes → only the watermark / button layers rebuild, not the list.
     _overlay.value = (text: label, visible: true);
     _todayInView.value = todayIn;
@@ -539,11 +624,16 @@ class _TimelineViewState extends State<_TimelineView> {
     // (event-loop), not a post-frame, so an idle app still advances.
     if (!_scroll.hasClients || !_scroll.position.hasContentDimensions) {
       if (tries < 40) {
-        Future.delayed(const Duration(milliseconds: 32), () => _autoScroll(tries + 1));
+        Future.delayed(
+          const Duration(milliseconds: 32),
+          () => _autoScroll(tries + 1),
+        );
       }
       return;
     }
-    _scroll.jumpTo(_offsetToToday().clamp(0.0, _scroll.position.maxScrollExtent));
+    _scroll.jumpTo(
+      _offsetToToday().clamp(0.0, _scroll.position.maxScrollExtent),
+    );
     _didScroll = true;
     WidgetsBinding.instance.addPostFrameCallback((_) => _seekToday());
   }
@@ -558,11 +648,22 @@ class _TimelineViewState extends State<_TimelineView> {
   // the remaining day-distance × the measured average row height, and repeat.
   // Each hop shrinks the error; once today's row is really laid out we align
   // it exactly with ensureVisible.
+  void _refreshRailsAfterSeek() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      // ensureVisible has updated the scroll offset, and this frame has now
+      // committed the matching row geometry. Rebuild once so sticky rails
+      // validate their cached anchors against that settled layout.
+      setState(() {});
+    });
+  }
+
   void _seekToday([int iter = 0]) {
     if (!mounted || !_scroll.hasClients) return;
     final tctx = _dayKeys[_dayStr(_today)]?.currentContext;
     if (tctx != null) {
       Scrollable.ensureVisible(tctx, alignment: 0.06, duration: Duration.zero);
+      _refreshRailsAfterSeek();
       _todayInView.value = true;
       return;
     }
@@ -596,8 +697,12 @@ class _TimelineViewState extends State<_TimelineView> {
     final deltaDays = _today.difference(nearest!).inDays;
     if (deltaDays != 0) {
       final avgH = sumH / nH + 8; // + inter-row gap
-      _scroll.jumpTo((_scroll.position.pixels + deltaDays * avgH)
-          .clamp(0.0, _scroll.position.maxScrollExtent));
+      _scroll.jumpTo(
+        (_scroll.position.pixels + deltaDays * avgH).clamp(
+          0.0,
+          _scroll.position.maxScrollExtent,
+        ),
+      );
     }
     WidgetsBinding.instance.addPostFrameCallback((_) => _seekToday(iter + 1));
   }
@@ -606,7 +711,11 @@ class _TimelineViewState extends State<_TimelineView> {
     // The scroll may not be attached yet (switching to 流 from another mode/tab
     // before the page lays out) — retry a few frames.
     if (!_scroll.hasClients) {
-      if (tries < 8) WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToToday(tries + 1));
+      if (tries < 8) {
+        WidgetsBinding.instance.addPostFrameCallback(
+          (_) => _jumpToToday(tries + 1),
+        );
+      }
       return;
     }
     // Animate toward the estimate (feels intentional), then converge exactly
@@ -618,8 +727,8 @@ class _TimelineViewState extends State<_TimelineView> {
           curve: Curves.easeOutCubic,
         )
         .whenComplete(() {
-      if (mounted) _seekToday();
-    });
+          if (mounted) _seekToday();
+        });
   }
 
   DateTime _parse(String s) {
@@ -640,11 +749,49 @@ class _TimelineViewState extends State<_TimelineView> {
     return '${(abs / 365).round()} 年$suffix';
   }
 
+  Widget _streamMonthHeader(EurekaColors eu) => IgnorePointer(
+    child: Container(
+      height: 38,
+      padding: const EdgeInsets.only(left: 18, right: 16),
+      color: eu.bg,
+      child: Row(
+        children: [
+          ValueListenableBuilder<DateTime>(
+            valueListenable: _visibleMonth,
+            builder: (_, month, _) => AnimatedSwitcher(
+              duration: const Duration(milliseconds: 180),
+              transitionBuilder: (child, animation) =>
+                  FadeTransition(opacity: animation, child: child),
+              child: Text(
+                streamMonthLabel(month),
+                key: ValueKey('${month.year}-${month.month}'),
+                style: euMono(
+                  fontSize: 11,
+                  letterSpacing: 1.2,
+                  color: eu.brand,
+                ).copyWith(fontWeight: FontWeight.w700),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Container(
+              height: 1,
+              color: eu.brand.withValues(alpha: 0.18),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     final eu = context.eu;
     if (widget.data.items.isEmpty) {
-      return Center(child: Text('还没有内容', style: TextStyle(color: eu.textMid)));
+      return Center(
+        child: Text('还没有内容', style: TextStyle(color: eu.textMid)),
+      );
     }
     final byDay = widget.data.byDay;
     _today = _d(DateTime.now());
@@ -661,83 +808,96 @@ class _TimelineViewState extends State<_TimelineView> {
     final minD = today.subtract(Duration(days: pastN));
     final maxD = today.add(Duration(days: _fwdDays));
     final allDays = <DateTime>[
-      for (var d = minD; !d.isAfter(maxD); d = d.add(const Duration(days: 1))) d,
+      for (var d = minD; !d.isAfter(maxD); d = d.add(const Duration(days: 1)))
+        d,
     ];
 
     final rows = _buildRows(allDays);
     _rows = rows;
     WidgetsBinding.instance.addPostFrameCallback((_) => _autoScroll());
 
-    return Stack(
+    return Column(
       children: [
-        ListView.builder(
-          controller: _scroll,
-          padding: const EdgeInsets.only(top: 6, right: 16, bottom: 100),
-          itemCount: rows.length,
-          // RepaintBoundary isolates each day's repaint (band gradients) so a row
-          // never drags its neighbours into a repaint during scroll.
-          itemBuilder: (_, i) => RepaintBoundary(child: _rowWidget(rows[i])),
-        ),
-        // A — floating distance watermark; the notifier rebuilds ONLY this layer.
-        Positioned.fill(
-          child: IgnorePointer(
-            child: ValueListenableBuilder<({String? text, bool visible})>(
-              valueListenable: _overlay,
-              builder: (_, ov, _) => ov.text == null
-                  ? const SizedBox.shrink()
-                  : Align(
-                      alignment: const Alignment(0.95, -0.12),
-                      child: AnimatedOpacity(
-                        opacity: ov.visible ? 0.16 : 0.0,
-                        duration: const Duration(milliseconds: 220),
-                        child: Text(
-                          ov.text!,
-                          textAlign: TextAlign.right,
-                          style: TextStyle(
-                            fontSize: 60,
-                            height: 0.9,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: -1.5,
-                            color: eu.textHi,
+        _streamMonthHeader(eu),
+        Expanded(
+          child: Stack(
+            children: [
+              ListView.builder(
+                controller: _scroll,
+                padding: const EdgeInsets.only(top: 6, right: 16, bottom: 100),
+                itemCount: rows.length,
+                // RepaintBoundary isolates each day's repaint (band gradients) so a row
+                // never drags its neighbours into a repaint during scroll.
+                itemBuilder: (_, i) =>
+                    RepaintBoundary(child: _rowWidget(rows[i])),
+              ),
+              // A — floating distance watermark; notifier rebuilds only this layer.
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: ValueListenableBuilder<({String? text, bool visible})>(
+                    valueListenable: _overlay,
+                    builder: (_, ov, _) => ov.text == null
+                        ? const SizedBox.shrink()
+                        : Align(
+                            alignment: const Alignment(0.95, -0.12),
+                            child: AnimatedOpacity(
+                              opacity: ov.visible ? 0.16 : 0.0,
+                              duration: const Duration(milliseconds: 220),
+                              child: Text(
+                                ov.text!,
+                                textAlign: TextAlign.right,
+                                style: TextStyle(
+                                  fontSize: 60,
+                                  height: 0.9,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: -1.5,
+                                  color: eu.textHi,
+                                ),
+                              ),
+                            ),
+                          ),
+                  ),
+                ),
+              ),
+              // E — jump to today, only while today is outside the stream viewport.
+              Positioned(
+                bottom: 104,
+                left: 0,
+                right: 0,
+                child: ValueListenableBuilder<bool>(
+                  valueListenable: _todayInView,
+                  builder: (_, inView, _) => inView
+                      ? const SizedBox.shrink()
+                      : Center(
+                          child: GestureDetector(
+                            onTap: _jumpToToday,
+                            child: Container(
+                              width: 46,
+                              height: 46,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: eu.surfaceRaised,
+                                border: Border.all(color: eu.border),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.35),
+                                    blurRadius: 18,
+                                    offset: const Offset(0, 6),
+                                  ),
+                                ],
+                              ),
+                              child: Icon(
+                                Icons.today_outlined,
+                                size: 20,
+                                color: eu.textHi,
+                              ),
+                            ),
                           ),
                         ),
-                      ),
-                    ),
-            ),
-          ),
-        ),
-        // E — 跳回今天 button, only when today is off-screen (notifier-driven).
-        Positioned(
-          bottom: 104,
-          left: 0,
-          right: 0,
-          child: ValueListenableBuilder<bool>(
-            valueListenable: _todayInView,
-            builder: (_, inView, _) => inView
-                ? const SizedBox.shrink()
-                : Center(
-                    child: GestureDetector(
-                      onTap: _jumpToToday,
-                      child: Container(
-                        width: 46,
-                        height: 46,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: eu.surfaceRaised,
-                          border: Border.all(color: eu.border),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.35),
-                              blurRadius: 18,
-                              offset: const Offset(0, 6),
-                            ),
-                          ],
-                        ),
-                        child: Icon(Icons.today_outlined, size: 20, color: eu.textHi),
-                      ),
-                    ),
-                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ],
@@ -792,7 +952,12 @@ Widget _railMonthLabel(EurekaColors eu, DateTime day) {
           style: euMono(fontSize: 8.5, letterSpacing: 1.4, color: fg).copyWith(
             fontWeight: isCurrent ? FontWeight.w700 : FontWeight.w500,
             shadows: isCurrent
-                ? [Shadow(color: eu.brand.withValues(alpha: 0.4), blurRadius: 8)]
+                ? [
+                    Shadow(
+                      color: eu.brand.withValues(alpha: 0.4),
+                      blurRadius: 8,
+                    ),
+                  ]
                 : null,
           ),
         ),
@@ -840,17 +1005,23 @@ class _EmptyDayRowState extends State<_EmptyDayRow> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(wd[widget.day.weekday % 7],
-                        style: euMono(
-                            fontSize: 9,
-                            letterSpacing: 1.2,
-                            color: fg.withValues(alpha: 0.8))),
-                    Text('${widget.day.day}',
-                        style: TextStyle(
-                            fontSize: 23,
-                            height: 1.05,
-                            fontWeight: FontWeight.w600,
-                            color: fg)),
+                    Text(
+                      wd[widget.day.weekday % 7],
+                      style: euMono(
+                        fontSize: 9,
+                        letterSpacing: 1.2,
+                        color: fg.withValues(alpha: 0.8),
+                      ),
+                    ),
+                    Text(
+                      '${widget.day.day}',
+                      style: TextStyle(
+                        fontSize: 23,
+                        height: 1.05,
+                        fontWeight: FontWeight.w600,
+                        color: fg,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -869,17 +1040,18 @@ class _EmptyDayRowState extends State<_EmptyDayRow> {
                         : eu.surface.withValues(alpha: 0.5),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                        color: _revealed
-                            ? eu.brand.withValues(alpha: 0.4)
-                            : eu.border),
+                      color: _revealed
+                          ? eu.brand.withValues(alpha: 0.4)
+                          : eu.border,
+                    ),
                     boxShadow: [
                       BoxShadow(
-                          color: Colors.black.withValues(
-                              alpha: eu.brightness == Brightness.dark
-                                  ? 0.18
-                                  : 0.05),
-                          blurRadius: 6,
-                          offset: const Offset(0, 2)),
+                        color: Colors.black.withValues(
+                          alpha: eu.brightness == Brightness.dark ? 0.18 : 0.05,
+                        ),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
+                      ),
                     ],
                   ),
                   clipBehavior: Clip.antiAlias,
@@ -890,17 +1062,22 @@ class _EmptyDayRowState extends State<_EmptyDayRow> {
                             children: [
                               Icon(Icons.add, size: 15, color: eu.brand),
                               const SizedBox(width: 4),
-                              Text('在这天记一笔',
-                                  style: TextStyle(
-                                      color: eu.brand,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600)),
+                              Text(
+                                '在这天记一笔',
+                                style: TextStyle(
+                                  color: eu.brand,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
                             ],
                           ),
                         )
                       : CustomPaint(
                           painter: _HatchPainter(
-                              eu.textLo.withValues(alpha: 0.10))),
+                            eu.textLo.withValues(alpha: 0.10),
+                          ),
+                        ),
                 ),
               ),
             ),
@@ -916,7 +1093,12 @@ const _wdCaps = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 /// Shared rail header: weekday cap + prominent date, today brand-highlighted,
 /// + the vertical month anchor at month boundaries + today's accent line. No
 /// divider hairline — the day tiles carry the structure (reference design).
-Widget railHeader(EurekaColors eu, DateTime day, bool isToday, bool monthBoundary) {
+Widget railHeader(
+  EurekaColors eu,
+  DateTime day,
+  bool isToday,
+  bool monthBoundary,
+) {
   return Stack(
     children: [
       // Two columns: a fixed 13px strip for the vertical month anchor + the
@@ -936,20 +1118,32 @@ Widget railHeader(EurekaColors eu, DateTime day, bool isToday, bool monthBoundar
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Text(_wdCaps[day.weekday % 7],
-                      style: euMono(
-                          fontSize: 10, letterSpacing: 1.5, color: isToday ? eu.brand : eu.textLo)),
+                  Text(
+                    _wdCaps[day.weekday % 7],
+                    style: euMono(
+                      fontSize: 10,
+                      letterSpacing: 1.5,
+                      color: isToday ? eu.brand : eu.textLo,
+                    ),
+                  ),
                   const SizedBox(height: 2),
-                  Text('${day.day}',
-                      style: TextStyle(
-                        fontSize: isToday ? 26 : 22,
-                        height: 1.0,
-                        fontWeight: isToday ? FontWeight.w700 : FontWeight.w600,
-                        color: isToday ? eu.brand : eu.textHi,
-                        shadows: isToday
-                            ? [Shadow(color: eu.brand.withValues(alpha: 0.5), blurRadius: 12)]
-                            : null,
-                      )),
+                  Text(
+                    '${day.day}',
+                    style: TextStyle(
+                      fontSize: isToday ? 26 : 22,
+                      height: 1.0,
+                      fontWeight: isToday ? FontWeight.w700 : FontWeight.w600,
+                      color: isToday ? eu.brand : eu.textHi,
+                      shadows: isToday
+                          ? [
+                              Shadow(
+                                color: eu.brand.withValues(alpha: 0.5),
+                                blurRadius: 12,
+                              ),
+                            ]
+                          : null,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -965,7 +1159,12 @@ Widget railHeader(EurekaColors eu, DateTime day, bool isToday, bool monthBoundar
             width: 2,
             decoration: BoxDecoration(
               color: eu.brand,
-              boxShadow: [BoxShadow(color: eu.brand.withValues(alpha: 0.6), blurRadius: 8)],
+              boxShadow: [
+                BoxShadow(
+                  color: eu.brand.withValues(alpha: 0.6),
+                  blurRadius: 8,
+                ),
+              ],
             ),
           ),
         ),
@@ -976,24 +1175,26 @@ Widget railHeader(EurekaColors eu, DateTime day, bool isToday, bool monthBoundar
 /// Faint rounded card used for every day tile (empty + content), so the stream
 /// reads as a column of uniform cards (reference design).
 BoxDecoration dayTileDecoration(EurekaColors eu) => BoxDecoration(
-      gradient: LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          Color.alphaBlend(eu.brand.withValues(alpha: 0.08), eu.surfaceRaised),
-          eu.surfaceRaised,
-        ],
+  gradient: LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [
+      Color.alphaBlend(eu.brand.withValues(alpha: 0.08), eu.surfaceRaised),
+      eu.surfaceRaised,
+    ],
+  ),
+  borderRadius: BorderRadius.circular(16),
+  border: Border.all(color: eu.border),
+  boxShadow: [
+    BoxShadow(
+      color: Colors.black.withValues(
+        alpha: eu.brightness == Brightness.dark ? 0.22 : 0.04,
       ),
-      borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: eu.border),
-      boxShadow: [
-        BoxShadow(
-          color: Colors.black.withValues(alpha: eu.brightness == Brightness.dark ? 0.22 : 0.04),
-          blurRadius: 8,
-          offset: const Offset(0, 2),
-        ),
-      ],
-    );
+      blurRadius: 8,
+      offset: const Offset(0, 2),
+    ),
+  ],
+);
 
 /* ── 月 continuous month scroll + pinned selected-day footer ─────────────── */
 
@@ -1004,7 +1205,11 @@ class _MonthView extends StatefulWidget {
   final DateTime focusMonth;
   final Map<DateTime, List<TimelineItem>> byDay;
   final Map<String, SkillMeta> skills;
-  const _MonthView({required this.focusMonth, required this.byDay, required this.skills});
+  const _MonthView({
+    required this.focusMonth,
+    required this.byDay,
+    required this.skills,
+  });
 
   @override
   State<_MonthView> createState() => _MonthViewState();
@@ -1013,7 +1218,10 @@ class _MonthView extends StatefulWidget {
 class _MonthViewState extends State<_MonthView> {
   // Show ONE month (the date grid was eating the screen as a 13-month scroll);
   // prev/next switch it, and the 年视图 still drives it via focusMonth.
-  late DateTime _displayMonth = DateTime(widget.focusMonth.year, widget.focusMonth.month);
+  late DateTime _displayMonth = DateTime(
+    widget.focusMonth.year,
+    widget.focusMonth.month,
+  );
   late DateTime _selected = _dayOnly(DateTime.now());
 
   static DateTime _dayOnly(DateTime d) => DateTime(d.year, d.month, d.day);
@@ -1027,18 +1235,24 @@ class _MonthViewState extends State<_MonthView> {
   }
 
   void _shiftMonth(int delta) => setState(
-      () => _displayMonth = DateTime(_displayMonth.year, _displayMonth.month + delta));
+    () => _displayMonth = DateTime(
+      _displayMonth.year,
+      _displayMonth.month + delta,
+    ),
+  );
 
   void _openDay(DateTime d) {
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => DayDetailPage(day: d),
-    ));
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => DayDetailPage(day: d)));
   }
 
   // First tap selects the day (footer updates); tapping the already-selected
   // day opens the full day view — mirrors the web MonthPane (tap-again → DayDetail).
   void _onDayTap(DateTime d) {
-    if (d.year == _selected.year && d.month == _selected.month && d.day == _selected.day) {
+    if (d.year == _selected.year &&
+        d.month == _selected.month &&
+        d.day == _selected.day) {
       _openDay(d);
     } else {
       setState(() => _selected = d);
@@ -1075,7 +1289,8 @@ class _MonthViewState extends State<_MonthView> {
   Widget _monthSwitcher(BuildContext context) {
     final eu = context.eu;
     final now = DateTime.now();
-    final isCur = _displayMonth.year == now.year && _displayMonth.month == now.month;
+    final isCur =
+        _displayMonth.year == now.year && _displayMonth.month == now.month;
     return Padding(
       padding: const EdgeInsets.fromLTRB(10, 10, 10, 2),
       child: Row(
@@ -1086,13 +1301,18 @@ class _MonthViewState extends State<_MonthView> {
               behavior: HitTestBehavior.opaque,
               onTap: isCur
                   ? null
-                  : () => setState(() => _displayMonth = DateTime(now.year, now.month)),
+                  : () => setState(
+                      () => _displayMonth = DateTime(now.year, now.month),
+                    ),
               child: Center(
-                child: Text('${_displayMonth.year}年${_displayMonth.month}月',
-                    style: TextStyle(
-                        color: isCur ? eu.brand : eu.textHi,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700)),
+                child: Text(
+                  '${_displayMonth.year}年${_displayMonth.month}月',
+                  style: TextStyle(
+                    color: isCur ? eu.brand : eu.textHi,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               ),
             ),
           ),
@@ -1102,7 +1322,8 @@ class _MonthViewState extends State<_MonthView> {
     );
   }
 
-  Widget _arrow(EurekaColors eu, IconData icon, VoidCallback onTap) => GestureDetector(
+  Widget _arrow(EurekaColors eu, IconData icon, VoidCallback onTap) =>
+      GestureDetector(
         onTap: onTap,
         behavior: HitTestBehavior.opaque,
         child: Padding(
@@ -1145,8 +1366,14 @@ class _MonthBlock extends StatelessWidget {
               for (final w in _wd)
                 Expanded(
                   child: Center(
-                    child: Text(w,
-                        style: euMono(fontSize: 9.5, letterSpacing: 1.4, color: eu.textLo)),
+                    child: Text(
+                      w,
+                      style: euMono(
+                        fontSize: 9.5,
+                        letterSpacing: 1.4,
+                        color: eu.textLo,
+                      ),
+                    ),
                   ),
                 ),
             ],
@@ -1164,8 +1391,12 @@ class _MonthBlock extends StatelessWidget {
                   day: d,
                   inMonth: d.month == month.month,
                   kind: _kind(byDay[DateTime(d.year, d.month, d.day)]),
-                  isToday: d.year == now.year && d.month == now.month && d.day == now.day,
-                  isSelected: d.year == selected.year &&
+                  isToday:
+                      d.year == now.year &&
+                      d.month == now.month &&
+                      d.day == now.day,
+                  isSelected:
+                      d.year == selected.year &&
                       d.month == selected.month &&
                       d.day == selected.day,
                   onTap: () => onSelect(DateTime(d.year, d.month, d.day)),
@@ -1181,9 +1412,14 @@ class _MonthBlock extends StatelessWidget {
   /// Null = no fill (matches the web MonthPane).
   static String? _kind(List<TimelineItem>? items) {
     if (items == null || items.isEmpty) return null;
-    final hasEvent = items.any((i) => i.kind == 'event' || i.skillName == 'event');
-    final hasTodo =
-        items.any((i) => i.kind == 'asset' && (i.skillName == 'todo' || i.skillName == 'expense'));
+    final hasEvent = items.any(
+      (i) => i.kind == 'event' || i.skillName == 'event',
+    );
+    final hasTodo = items.any(
+      (i) =>
+          i.kind == 'asset' &&
+          (i.skillName == 'todo' || i.skillName == 'expense'),
+    );
     if (hasEvent && hasTodo) return 'mixed';
     if (hasEvent) return 'event';
     if (hasTodo) return 'todo';
@@ -1233,7 +1469,9 @@ class _MonthCell extends StatelessWidget {
       bg = eu.textHi;
       fg = eu.bg;
       border = Colors.transparent;
-      glow = [BoxShadow(color: eu.textHi.withValues(alpha: 0.5), blurRadius: 12)];
+      glow = [
+        BoxShadow(color: eu.textHi.withValues(alpha: 0.5), blurRadius: 12),
+      ];
     } else if (isSelected) {
       bg = Colors.transparent;
       border = eu.brand;
@@ -1254,11 +1492,13 @@ class _MonthCell extends StatelessWidget {
             border: Border.all(color: border, width: 1.5),
             boxShadow: glow,
           ),
-          child: Text('${day.day}',
-              style: euMono(
-                  fontSize: isToday ? 12.5 : 12,
-                  color: fg)
-              .copyWith(fontWeight: isToday ? FontWeight.w700 : FontWeight.w500)),
+          child: Text(
+            '${day.day}',
+            style: euMono(
+              fontSize: isToday ? 12.5 : 12,
+              color: fg,
+            ).copyWith(fontWeight: isToday ? FontWeight.w700 : FontWeight.w500),
+          ),
         ),
       ),
     );
@@ -1302,8 +1542,9 @@ class _SelectedDayFooterState extends State<_SelectedDayFooter> {
   Widget build(BuildContext context) {
     final eu = context.eu;
     final flashes = FlashPill.flashesIn(widget.items);
-    final hasContent =
-        widget.items.where((i) => i.kind != 'input_turn').isNotEmpty;
+    final hasContent = widget.items
+        .where((i) => i.kind != 'input_turn')
+        .isNotEmpty;
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
@@ -1339,11 +1580,14 @@ class _SelectedDayFooterState extends State<_SelectedDayFooter> {
                     onTap: widget.onOpenDay,
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-                      child: Text('空闲',
-                          style: TextStyle(
-                              color: eu.textLo,
-                              fontStyle: FontStyle.italic,
-                              fontSize: 13)),
+                      child: Text(
+                        '空闲',
+                        style: TextStyle(
+                          color: eu.textLo,
+                          fontStyle: FontStyle.italic,
+                          fontSize: 13,
+                        ),
+                      ),
                     ),
                   ),
           ),
@@ -1365,38 +1609,45 @@ class _SelectedDayFooterState extends State<_SelectedDayFooter> {
             end: Alignment.bottomCenter,
             colors: [
               Color.alphaBlend(
-                  eu.brand.withValues(alpha: 0.05), eu.surfaceRaised),
+                eu.brand.withValues(alpha: 0.05),
+                eu.surfaceRaised,
+              ),
               eu.surfaceRaised,
             ],
           ),
           border: Border(bottom: BorderSide(color: eu.border)),
           boxShadow: [
             BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 5,
-                offset: const Offset(0, 2)),
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 5,
+              offset: const Offset(0, 2),
+            ),
           ],
         ),
         child: Row(
           children: [
             // Expanded(不是 Flexible+Spacer)——日期占满左侧、闪念真正贴到最右,无留白。
             Expanded(
-              child: Text(_dateLabel(),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: isToday ? eu.brand : eu.textHi)),
+              child: Text(
+                _dateLabel(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: isToday ? eu.brand : eu.textHi,
+                ),
+              ),
             ),
             // 闪念 → 最右侧(⚡N,无「闪念」字样),与左侧日期对称。点 → 当天闪念 session。
             if (flashes.isNotEmpty) ...[
               const SizedBox(width: 8),
               FlashPill(
-                  day: widget.day,
-                  flashes: flashes,
-                  skills: widget.skills,
-                  compact: true),
+                day: widget.day,
+                flashes: flashes,
+                skills: widget.skills,
+                compact: true,
+              ),
             ],
           ],
         ),
@@ -1418,8 +1669,8 @@ class _SelectedDayFooterState extends State<_SelectedDayFooter> {
     final dist = diff == 0
         ? ' · 今天'
         : diff == 1
-            ? ' · 明天'
-            : '';
+        ? ' · 明天'
+        : '';
     return '${d.month}月${d.day}日 ${wd[d.weekday % 7]}$dist';
   }
 }
@@ -1430,7 +1681,11 @@ class _YearView extends StatelessWidget {
   final int year;
   final Map<DateTime, List<TimelineItem>> byDay;
   final ValueChanged<DateTime> onPickMonth;
-  const _YearView({required this.year, required this.byDay, required this.onPickMonth});
+  const _YearView({
+    required this.year,
+    required this.byDay,
+    required this.onPickMonth,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1447,8 +1702,14 @@ class _YearView extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
           child: Center(
-            child: Text('$year 年',
-                style: TextStyle(color: eu.textHi, fontSize: 16, fontWeight: FontWeight.w700)),
+            child: Text(
+              '$year 年',
+              style: TextStyle(
+                color: eu.textHi,
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ),
         ),
         Expanded(
@@ -1494,22 +1755,35 @@ class _YearMonthCell extends StatelessWidget {
       child: Container(
         decoration: BoxDecoration(
           color: isCurrent
-              ? Color.alphaBlend(eu.brand.withValues(alpha: 0.12), eu.surfaceRaised)
+              ? Color.alphaBlend(
+                  eu.brand.withValues(alpha: 0.12),
+                  eu.surfaceRaised,
+                )
               : eu.surfaceRaised,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: isCurrent ? eu.brand.withValues(alpha: 0.45) : eu.border),
+          border: Border.all(
+            color: isCurrent ? eu.brand.withValues(alpha: 0.45) : eu.border,
+          ),
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text('$month 月',
-                style: TextStyle(
-                    color: isCurrent ? eu.brand : eu.textHi,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600)),
+            Text(
+              '$month 月',
+              style: TextStyle(
+                color: isCurrent ? eu.brand : eu.textHi,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
             const SizedBox(height: 4),
-            Text(count > 0 ? '$count 件' : '—',
-                style: euMono(fontSize: 11, color: count > 0 ? eu.brand : eu.textLo)),
+            Text(
+              count > 0 ? '$count 件' : '—',
+              style: euMono(
+                fontSize: 11,
+                color: count > 0 ? eu.brand : eu.textLo,
+              ),
+            ),
           ],
         ),
       ),
@@ -1575,12 +1849,18 @@ class _DayRowState extends State<_DayRow> {
     final rb = _tileKey.currentContext?.findRenderObject() as RenderBox?;
     final vp = _scrollable?.context.findRenderObject() as RenderBox?;
     if (rb != null && rb.attached && vp != null && vp.attached) {
-      final dy = rb.localToGlobal(Offset.zero, ancestor: vp).dy; // tile top vs viewport
+      final dy = rb
+          .localToGlobal(Offset.zero, ancestor: vp)
+          .dy; // tile top vs viewport
+      final anchor = widget.scroll.offset + dy;
       if (dy >= 0) {
-        _pin = widget.scroll.offset + dy; // not pinned yet — keep anchor fresh
+        _pin = anchor; // not pinned yet — keep anchor fresh
         return 0;
       }
-      _pin ??= widget.scroll.offset + dy; // built already pinned (e.g. after seek)
+      // A programmatic seek can reuse this row's State with an anchor from a
+      // distant scroll position. The live anchor stays constant during normal
+      // scrolling, so only a real layout discontinuity should resync it.
+      if (_pin == null || (_pin! - anchor).abs() > 1) _pin = anchor;
     }
     if (_pin == null) return 0;
     return (widget.scroll.offset - _pin!).clamp(0.0, maxOff);
@@ -1616,11 +1896,12 @@ class _DayRowState extends State<_DayRow> {
                     // P2 表层深度:暖色软阴影(非纯黑)→ day 容器明确浮起 bg,修 beige-on-beige 扁平。
                     boxShadow: [
                       BoxShadow(
-                          color: eu.brightness == Brightness.dark
-                              ? Colors.black.withValues(alpha: 0.28)
-                              : const Color(0xFF6B5A3A).withValues(alpha: 0.13),
-                          blurRadius: 18,
-                          offset: const Offset(0, 6)),
+                        color: eu.brightness == Brightness.dark
+                            ? Colors.black.withValues(alpha: 0.28)
+                            : const Color(0xFF6B5A3A).withValues(alpha: 0.13),
+                        blurRadius: 18,
+                        offset: const Offset(0, 6),
+                      ),
                     ],
                   ),
                   padding: const EdgeInsets.all(7),
@@ -1676,19 +1957,25 @@ class _DayRowState extends State<_DayRow> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(wd[d.weekday % 7],
-                      style: euMono(
-                          fontSize: 9,
-                          letterSpacing: 1.2,
-                          color: isToday
-                              ? eu.brand
-                              : eu.textLo.withValues(alpha: 0.85))),
-                  Text('${d.day}',
-                      style: TextStyle(
-                          fontSize: 23,
-                          height: 1.05,
-                          fontWeight: FontWeight.w600,
-                          color: isToday ? eu.brand : eu.textHi)),
+                  Text(
+                    wd[d.weekday % 7],
+                    style: euMono(
+                      fontSize: 9,
+                      letterSpacing: 1.2,
+                      color: isToday
+                          ? eu.brand
+                          : eu.textLo.withValues(alpha: 0.85),
+                    ),
+                  ),
+                  Text(
+                    '${d.day}',
+                    style: TextStyle(
+                      fontSize: 23,
+                      height: 1.05,
+                      fontWeight: FontWeight.w600,
+                      color: isToday ? eu.brand : eu.textHi,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -1698,10 +1985,11 @@ class _DayRowState extends State<_DayRow> {
             Padding(
               padding: const EdgeInsets.only(top: 8, left: 1),
               child: FlashPill(
-                  day: widget.day,
-                  flashes: flashes,
-                  skills: widget.skills,
-                  compact: true),
+                day: widget.day,
+                flashes: flashes,
+                skills: widget.skills,
+                compact: true,
+              ),
             ),
         ],
       ),
@@ -1715,11 +2003,7 @@ class _DayRowState extends State<_DayRow> {
 /// never as a band row. Reused by _DayRow (流) and the 月 day footer so the two
 /// stay in lockstep.
 class _BandView extends StatelessWidget {
-  const _BandView({
-    required this.items,
-    required this.skills,
-    this.onTap,
-  });
+  const _BandView({required this.items, required this.skills, this.onTap});
 
   final List<TimelineItem> items;
   final Map<String, SkillMeta> skills;
@@ -1750,8 +2034,14 @@ class _BandView extends StatelessWidget {
   ) {
     final (_, label, tint, list) = group;
     // 有钟点的在上(按时刻);说了时段没说钟点的沉到段尾(虚线、不显时间)。
-    final timed = [for (final it in list) if (!_noTime(it)) it];
-    final noTime = [for (final it in list) if (_noTime(it)) it];
+    final timed = [
+      for (final it in list)
+        if (!_noTime(it)) it,
+    ];
+    final noTime = [
+      for (final it in list)
+        if (_noTime(it)) it,
+    ];
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
@@ -1777,21 +2067,26 @@ class _BandView extends StatelessWidget {
               children: [
                 _segOrb(tint, 12),
                 const SizedBox(width: 7),
-                Text(label,
-                    style: TextStyle(
-                        color: eu.textMid,
-                        fontSize: 11,
-                        letterSpacing: 1.2,
-                        fontWeight: FontWeight.w600)),
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: eu.textMid,
+                    fontSize: 11,
+                    letterSpacing: 1.2,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
                 const SizedBox(width: 9),
                 Expanded(
                   child: Container(
                     height: 1,
                     decoration: BoxDecoration(
-                      gradient: LinearGradient(colors: [
-                        tint.withValues(alpha: 0.42),
-                        tint.withValues(alpha: 0),
-                      ]),
+                      gradient: LinearGradient(
+                        colors: [
+                          tint.withValues(alpha: 0.42),
+                          tint.withValues(alpha: 0),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -1812,14 +2107,19 @@ class _BandView extends StatelessWidget {
   }
 
   // One record = 左侧时刻列 + 带边框小卡片(icon + 标题省略 + 领域 tag)。无时刻 = 虚线、空时刻列。
-  Widget _card(BuildContext context, EurekaColors eu, TimelineItem it,
-      {required bool noTime}) {
+  Widget _card(
+    BuildContext context,
+    EurekaColors eu,
+    TimelineItem it, {
+    required bool noTime,
+  }) {
     final icon = it.kind == 'event'
         ? '📅'
         : it.kind == 'contact'
-            ? '👤'
-            : resolveMeta(it.skillName ?? 'misc', skills).icon;
-    final time = '${it.effectiveAt.hour.toString().padLeft(2, '0')}:'
+        ? '👤'
+        : resolveMeta(it.skillName ?? 'misc', skills).icon;
+    final time =
+        '${it.effectiveAt.hour.toString().padLeft(2, '0')}:'
         '${it.effectiveAt.minute.toString().padLeft(2, '0')}';
     final inner = Row(
       children: [
@@ -1827,11 +2127,16 @@ class _BandView extends StatelessWidget {
         const SizedBox(width: 7),
         // Expanded(而非 Flexible)→ 标题吃满中间,领域色点被推到卡片最右、各条对齐。
         Expanded(
-          child: Text(it.title.isEmpty ? '记录' : it.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                  color: eu.textHi, fontSize: 12.5, fontWeight: FontWeight.w500)),
+          child: Text(
+            it.title.isEmpty ? '记录' : it.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: eu.textHi,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
         ),
         if (isDomain(it.domain)) ...[
           const SizedBox(width: 8),
@@ -1845,8 +2150,9 @@ class _BandView extends StatelessWidget {
     // 没有时间的(noTime)用更淡填充 + 无阴影,读作"还没落定"。
     final Widget box = Container(
       decoration: BoxDecoration(
-        color:
-            noTime ? eu.surfaceRaised.withValues(alpha: 0.5) : eu.surfaceRaised,
+        color: noTime
+            ? eu.surfaceRaised.withValues(alpha: 0.5)
+            : eu.surfaceRaised,
         borderRadius: radius,
         boxShadow: noTime
             ? null
@@ -1872,9 +2178,11 @@ class _BandView extends StatelessWidget {
             width: 38,
             child: noTime
                 ? null
-                : Text(time,
+                : Text(
+                    time,
                     textAlign: TextAlign.right,
-                    style: euMono(fontSize: 10, color: eu.textMid)),
+                    style: euMono(fontSize: 10, color: eu.textMid),
+                  ),
           ),
           const SizedBox(width: 7),
           Expanded(child: box),
@@ -1896,20 +2204,20 @@ class _BandView extends StatelessWidget {
 
 // 发光小球 — radial highlight + soft glow of the band tint. Shared by 段头 + 日头。
 Widget _segOrb(Color tint, double size) => Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: RadialGradient(
-          center: const Alignment(-0.3, -0.4),
-          colors: [Color.lerp(tint, Colors.white, 0.55)!, tint],
-          stops: const [0, 0.78],
-        ),
-        boxShadow: [
-          BoxShadow(color: tint.withValues(alpha: 0.5), blurRadius: size * 0.5),
-        ],
-      ),
-    );
+  width: size,
+  height: size,
+  decoration: BoxDecoration(
+    shape: BoxShape.circle,
+    gradient: RadialGradient(
+      center: const Alignment(-0.3, -0.4),
+      colors: [Color.lerp(tint, Colors.white, 0.55)!, tint],
+      stops: const [0, 0.78],
+    ),
+    boxShadow: [
+      BoxShadow(color: tint.withValues(alpha: 0.5), blurRadius: size * 0.5),
+    ],
+  ),
+);
 
 // 斜纹占位 — diagonal hatch fill for empty days (空块斜纹).
 class _HatchPainter extends CustomPainter {
@@ -1923,7 +2231,11 @@ class _HatchPainter extends CustomPainter {
       ..style = PaintingStyle.stroke;
     const gap = 9.0;
     for (var x = 0.0; x < size.width + size.height; x += gap) {
-      canvas.drawLine(Offset(x, 0), Offset(x - size.height, size.height), paint);
+      canvas.drawLine(
+        Offset(x, 0),
+        Offset(x - size.height, size.height),
+        paint,
+      );
     }
   }
 
@@ -1935,6 +2247,7 @@ class _HatchPainter extends CustomPainter {
 // 钟点 → 无时间;两者皆无的午夜兜底 → 无时间。
 bool _noTime(TimelineItem it) {
   if (it.kind == 'event' || it.hasClockTime) return false;
+  if (it.skillName == 'todo') return !it.hasScheduledTime;
   if (it.period.isNotEmpty) return true;
   return it.effectiveAt.hour == 0 && it.effectiveAt.minute == 0;
 }
@@ -1987,7 +2300,9 @@ int _bandIndexOf(TimelineItem it) {
     case '晚上':
       return 4;
   }
-  final timed = it.kind == 'event' ||
+  if (it.skillName == 'todo' && !it.hasScheduledTime) return 5;
+  final timed =
+      it.kind == 'event' ||
       it.hasClockTime ||
       !(it.effectiveAt.hour == 0 && it.effectiveAt.minute == 0);
   if (!timed) return 5;
@@ -2052,12 +2367,17 @@ class _DayDetailPageState extends State<DayDetailPage> {
   }
 
   bool _sameDay(DateTime a) =>
-      a.year == widget.day.year && a.month == widget.day.month && a.day == widget.day.day;
+      a.year == widget.day.year &&
+      a.month == widget.day.month &&
+      a.day == widget.day.day;
 
   Future<_DayData> _load() async {
     final r = await Future.wait([fetchTimeline(_api), fetchSkills(_api)]);
-    final items = (r[0] as List<TimelineItem>).where((it) => _sameDay(it.effectiveAt)).toList()
-      ..sort((a, b) => a.effectiveAt.compareTo(b.effectiveAt));
+    final items =
+        (r[0] as List<TimelineItem>)
+            .where((it) => _sameDay(it.effectiveAt))
+            .toList()
+          ..sort((a, b) => a.effectiveAt.compareTo(b.effectiveAt));
     return _DayData(items, r[1] as Map<String, SkillMeta>);
   }
 
@@ -2076,7 +2396,8 @@ class _DayDetailPageState extends State<DayDetailPage> {
     List<TimelineItem> grid,
     List<TimelineItem> unscheduled,
     List<TimelineItem> records,
-  }) _bucket(List<TimelineItem> items) {
+  })
+  _bucket(List<TimelineItem> items) {
     final allDay = <TimelineItem>[];
     final grid = <TimelineItem>[]; // 事件(有时刻) + 待办(有时刻)
     final unscheduled = <TimelineItem>[]; // 无时刻待办
@@ -2091,21 +2412,22 @@ class _DayDetailPageState extends State<DayDetailPage> {
         records.add(it);
       }
     }
-    return (allDay: allDay, grid: grid, unscheduled: unscheduled, records: records);
+    return (
+      allDay: allDay,
+      grid: grid,
+      unscheduled: unscheduled,
+      records: records,
+    );
   }
 
   // 待办有没有"落格"的时刻:说了钟点(occurred_at)或 due 是非午夜时刻 → 进网格;
   // 否则(只有日期 / 没说时间)→「待安排」。
-  static bool _todoTimed(TimelineItem it) =>
-      it.hasClockTime ||
-      !(it.effectiveAt.hour == 0 && it.effectiveAt.minute == 0);
+  static bool _todoTimed(TimelineItem it) => it.hasScheduledTime;
 
   // 待办是否已完成(status=done / done / completed 任一)。
   static bool _isDone(TimelineItem it) {
     final p = it.payload;
-    return p['status'] == 'done' ||
-        p['done'] == true ||
-        p['completed'] == true;
+    return p['status'] == 'done' || p['done'] == true || p['completed'] == true;
   }
 
   // ○ 点击 → 勾选/取消完成(PUT status,复用详情页路径);bumpData 即时重拉反映。
@@ -2126,7 +2448,9 @@ class _DayDetailPageState extends State<DayDetailPage> {
     final isToday = _sameDay(now);
     final firstHour = timed.isNotEmpty ? timed.first.effectiveAt.hour : null;
     final fallback = isToday ? (now.hour - 2).clamp(7, 23) : 7;
-    final anchor = firstHour != null ? (firstHour - 1).clamp(0, fallback) : fallback;
+    final anchor = firstHour != null
+        ? (firstHour - 1).clamp(0, fallback)
+        : fallback;
     final target = (anchor - _kGridStartHour) * _kHourHeight;
     _gridScroll.jumpTo(target.clamp(0.0, _gridScroll.position.maxScrollExtent));
   }
@@ -2142,8 +2466,14 @@ class _DayDetailPageState extends State<DayDetailPage> {
         onPressed: () => showCreateMenu(context, presetDate: widget.day),
         backgroundColor: eu.brand,
         icon: const Icon(Icons.add, color: Colors.white),
-        label: const Text('在这天记一笔',
-            style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
+        label: const Text(
+          '在这天记一笔',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
       ),
       body: SafeArea(
         child: ValueListenableBuilder<int>(
@@ -2162,7 +2492,8 @@ class _DayDetailPageState extends State<DayDetailPage> {
               final items = (data?.items ?? const <TimelineItem>[])
                   .where((it) => !_deletedIds.contains(it.id))
                   .toList();
-              final firstLoad = data == null && snap.connectionState != ConnectionState.done;
+              final firstLoad =
+                  data == null && snap.connectionState != ConnectionState.done;
               return Column(
                 children: [
                   _header(eu, items, skills),
@@ -2170,8 +2501,8 @@ class _DayDetailPageState extends State<DayDetailPage> {
                     child: firstLoad
                         ? const Center(child: CircularProgressIndicator())
                         : _view == 'list'
-                            ? _listView(eu, items, skills)
-                            : _scheduleView(eu, items, skills),
+                        ? _listView(eu, items, skills)
+                        : _scheduleView(eu, items, skills),
                   ),
                 ],
               );
@@ -2182,7 +2513,11 @@ class _DayDetailPageState extends State<DayDetailPage> {
     );
   }
 
-  Widget _header(EurekaColors eu, List<TimelineItem> items, Map<String, SkillMeta> skills) {
+  Widget _header(
+    EurekaColors eu,
+    List<TimelineItem> items,
+    Map<String, SkillMeta> skills,
+  ) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 6, 12, 10),
       child: Row(
@@ -2196,12 +2531,24 @@ class _DayDetailPageState extends State<DayDetailPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(_weekday(widget.day),
-                    style: TextStyle(
-                        color: eu.textHi, fontSize: 20, fontWeight: FontWeight.w700, letterSpacing: 0.5)),
+                Text(
+                  _weekday(widget.day),
+                  style: TextStyle(
+                    color: eu.textHi,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.5,
+                  ),
+                ),
                 const SizedBox(height: 2),
-                Text('${_distance(widget.day)} · ${widget.day.month}月${widget.day.day}日',
-                    style: euMono(fontSize: 10.5, letterSpacing: 1.6, color: eu.textLo)),
+                Text(
+                  '${_distance(widget.day)} · ${widget.day.month}月${widget.day.day}日',
+                  style: euMono(
+                    fontSize: 10.5,
+                    letterSpacing: 1.6,
+                    color: eu.textLo,
+                  ),
+                ),
               ],
             ),
           ),
@@ -2237,11 +2584,14 @@ class _DayDetailPageState extends State<DayDetailPage> {
             borderRadius: BorderRadius.circular(999),
             border: active ? Border.all(color: eu.border) : null,
           ),
-          child: Text(label,
-              style: TextStyle(
-                  color: active ? eu.textHi : eu.textLo,
-                  fontSize: 12,
-                  fontWeight: active ? FontWeight.w600 : FontWeight.w500)),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: active ? eu.textHi : eu.textLo,
+              fontSize: 12,
+              fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+            ),
+          ),
         ),
       );
     }
@@ -2261,7 +2611,11 @@ class _DayDetailPageState extends State<DayDetailPage> {
   }
 
   // ── 非日程 view (default) — 段视图 DayRender (5 时段水洗带) ──
-  Widget _listView(EurekaColors eu, List<TimelineItem> items, Map<String, SkillMeta> skills) {
+  Widget _listView(
+    EurekaColors eu,
+    List<TimelineItem> items,
+    Map<String, SkillMeta> skills,
+  ) {
     // Flash captures live in the ⚡ pill, not the bands — if a day has only those,
     // the segment view is empty → show the gentle empty state.
     if (items.where((i) => i.kind != 'input_turn').isEmpty) return _empty(eu);
@@ -2279,7 +2633,11 @@ class _DayDetailPageState extends State<DayDetailPage> {
   }
 
   // ── SCHEDULE view (hour grid) ──
-  Widget _scheduleView(EurekaColors eu, List<TimelineItem> items, Map<String, SkillMeta> skills) {
+  Widget _scheduleView(
+    EurekaColors eu,
+    List<TimelineItem> items,
+    Map<String, SkillMeta> skills,
+  ) {
     final b = _bucket(items);
     WidgetsBinding.instance.addPostFrameCallback((_) => _anchorGrid(b.grid));
     final dayEmpty = items.where((i) => i.kind != 'input_turn').isEmpty;
@@ -2301,8 +2659,12 @@ class _DayDetailPageState extends State<DayDetailPage> {
   }
 
   // 网格顶部两个并列「轻托盘」(全天 / 待安排)= 同款容器 + 同款标题样式。
-  Widget _topTray(EurekaColors eu,
-      {required String label, String? count, required Widget child}) {
+  Widget _topTray(
+    EurekaColors eu, {
+    required String label,
+    String? count,
+    required Widget child,
+  }) {
     return Container(
       padding: const EdgeInsets.fromLTRB(11, 8, 11, 9),
       decoration: BoxDecoration(
@@ -2315,9 +2677,14 @@ class _DayDetailPageState extends State<DayDetailPage> {
         children: [
           Row(
             children: [
-              Text(label,
-                  style: euMono(
-                      fontSize: 10, letterSpacing: 1.5, color: eu.textMid)),
+              Text(
+                label,
+                style: euMono(
+                  fontSize: 10,
+                  letterSpacing: 1.5,
+                  color: eu.textMid,
+                ),
+              ),
               if (count != null) ...[
                 const Spacer(),
                 Text(count, style: TextStyle(fontSize: 10, color: eu.textLo)),
@@ -2332,17 +2699,26 @@ class _DayDetailPageState extends State<DayDetailPage> {
   }
 
   // 全天(左)+ 待安排(右)左右并列;只有一个时占满整行。
-  Widget _topTrays(EurekaColors eu, List<TimelineItem> allDay,
-      List<TimelineItem> unscheduled, Map<String, SkillMeta> skills) {
+  Widget _topTrays(
+    EurekaColors eu,
+    List<TimelineItem> allDay,
+    List<TimelineItem> unscheduled,
+    Map<String, SkillMeta> skills,
+  ) {
     final left = allDay.isNotEmpty
-        ? _topTray(eu,
-            label: '全天', child: _allDayTrayContent(eu, allDay, skills))
+        ? _topTray(
+            eu,
+            label: '全天',
+            child: _allDayTrayContent(eu, allDay, skills),
+          )
         : null;
     final right = unscheduled.isNotEmpty
-        ? _topTray(eu,
+        ? _topTray(
+            eu,
             label: '待安排',
             count: '共 ${unscheduled.length} 条',
-            child: _unscheduledTrayContent(eu, unscheduled, skills))
+            child: _unscheduledTrayContent(eu, unscheduled, skills),
+          )
         : null;
     if (left == null && right == null) return const SizedBox.shrink();
     if (left != null && right != null) {
@@ -2359,8 +2735,11 @@ class _DayDetailPageState extends State<DayDetailPage> {
   }
 
   // 全天事件 = 正常的行(紫点 + 标题),不再是 pill。
-  Widget _allDayTrayContent(EurekaColors eu, List<TimelineItem> allDay,
-      Map<String, SkillMeta> skills) {
+  Widget _allDayTrayContent(
+    EurekaColors eu,
+    List<TimelineItem> allDay,
+    Map<String, SkillMeta> skills,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -2374,16 +2753,21 @@ class _DayDetailPageState extends State<DayDetailPage> {
               child: Row(
                 children: [
                   Container(
-                      width: 6,
-                      height: 6,
-                      decoration: BoxDecoration(
-                          shape: BoxShape.circle, color: eu.accentPurple)),
+                    width: 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: eu.accentPurple,
+                    ),
+                  ),
                   const SizedBox(width: 9),
                   Expanded(
-                    child: Text(it.title.isEmpty ? '事件' : it.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: eu.textHi, fontSize: 13)),
+                    child: Text(
+                      it.title.isEmpty ? '事件' : it.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: eu.textHi, fontSize: 13),
+                    ),
                   ),
                 ],
               ),
@@ -2394,8 +2778,11 @@ class _DayDetailPageState extends State<DayDetailPage> {
   }
 
   // 待安排内容:○ 待办行(≤3)+ 展开其余 N 条(内部滚)。
-  Widget _unscheduledTrayContent(EurekaColors eu, List<TimelineItem> todos,
-      Map<String, SkillMeta> skills) {
+  Widget _unscheduledTrayContent(
+    EurekaColors eu,
+    List<TimelineItem> todos,
+    Map<String, SkillMeta> skills,
+  ) {
     final shown = _unschedExpanded ? todos : todos.take(3).toList();
     final rest = todos.length - shown.length;
     return Column(
@@ -2421,11 +2808,14 @@ class _DayDetailPageState extends State<DayDetailPage> {
             behavior: HitTestBehavior.opaque,
             child: Padding(
               padding: const EdgeInsets.only(top: 6),
-              child: Text(_unschedExpanded ? '收起 ⌃' : '展开其余 $rest 条 ⌄',
-                  style: TextStyle(
-                      fontSize: 11.5,
-                      color: eu.brand,
-                      fontWeight: FontWeight.w600)),
+              child: Text(
+                _unschedExpanded ? '收起 ⌃' : '展开其余 $rest 条 ⌄',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  color: eu.brand,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
           ),
       ],
@@ -2434,7 +2824,10 @@ class _DayDetailPageState extends State<DayDetailPage> {
 
   // 一条待办行(○ 勾选框 + 标题)。点行 → 详情;done 显勾 + 删除线。
   Widget _todoCheckRow(
-      EurekaColors eu, TimelineItem it, Map<String, SkillMeta> skills) {
+    EurekaColors eu,
+    TimelineItem it,
+    Map<String, SkillMeta> skills,
+  ) {
     final done = _isDone(it);
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
@@ -2451,10 +2844,11 @@ class _DayDetailPageState extends State<DayDetailPage> {
                 shape: BoxShape.circle,
                 color: done ? eu.accentGreen : Colors.transparent,
                 border: Border.all(
-                    color: done
-                        ? eu.accentGreen
-                        : eu.textLo.withValues(alpha: 0.6),
-                    width: 1.5),
+                  color: done
+                      ? eu.accentGreen
+                      : eu.textLo.withValues(alpha: 0.6),
+                  width: 1.5,
+                ),
               ),
               child: done
                   ? const Icon(Icons.check, size: 11, color: Colors.white)
@@ -2463,13 +2857,16 @@ class _DayDetailPageState extends State<DayDetailPage> {
           ),
           const SizedBox(width: 9),
           Expanded(
-            child: Text(it.title.isEmpty ? '待办' : it.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                    color: done ? eu.textLo : eu.textHi,
-                    fontSize: 13,
-                    decoration: done ? TextDecoration.lineThrough : null)),
+            child: Text(
+              it.title.isEmpty ? '待办' : it.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: done ? eu.textLo : eu.textHi,
+                fontSize: 13,
+                decoration: done ? TextDecoration.lineThrough : null,
+              ),
+            ),
           ),
         ],
       ),
@@ -2486,16 +2883,22 @@ class _DayDetailPageState extends State<DayDetailPage> {
         child: Row(
           children: [
             Container(
-                width: 3,
-                height: 15,
-                decoration: BoxDecoration(
-                    color: eu.brand, borderRadius: BorderRadius.circular(2))),
+              width: 3,
+              height: 15,
+              decoration: BoxDecoration(
+                color: eu.brand,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
             const SizedBox(width: 9),
-            Text(text,
-                style: TextStyle(
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w700,
-                    color: eu.textHi)),
+            Text(
+              text,
+              style: TextStyle(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w700,
+                color: eu.textHi,
+              ),
+            ),
             if (trailing != null) ...[
               const SizedBox(width: 12),
               Expanded(child: trailing),
@@ -2504,13 +2907,16 @@ class _DayDetailPageState extends State<DayDetailPage> {
         ),
       );
 
-
   static const _captureLabels = <String, String>{
     'todo': '待办', 'expense': '记账', 'contact': '名片',
-    'notes': '随记', 'idea': '随记', 'misc': '随记',  // idea/misc merged into 随记
+    'notes': '随记', 'idea': '随记', 'misc': '随记', // idea/misc merged into 随记
   };
 
-  Widget _capturedSection(EurekaColors eu, List<TimelineItem> captured, Map<String, SkillMeta> skills) {
+  Widget _capturedSection(
+    EurekaColors eu,
+    List<TimelineItem> captured,
+    Map<String, SkillMeta> skills,
+  ) {
     // Group by type so a card-heavy day doesn't bury the hour grid; tabs switch
     // between types (待办 / 记账 / 想法 / 名片 / …), like the web CapturedSection.
     final types = <String>[];
@@ -2518,8 +2924,12 @@ class _DayDetailPageState extends State<DayDetailPage> {
       final k = it.skillName ?? 'misc';
       if (!types.contains(k)) types.add(k);
     }
-    final active = types.contains(_capturedTab) ? _capturedTab! : (types.isNotEmpty ? types.first : 'misc');
-    final shown = captured.where((it) => (it.skillName ?? 'misc') == active).toList();
+    final active = types.contains(_capturedTab)
+        ? _capturedTab!
+        : (types.isNotEmpty ? types.first : 'misc');
+    final shown = captured
+        .where((it) => (it.skillName ?? 'misc') == active)
+        .toList();
     String label(String t) => _captureLabels[t] ?? resolveMeta(t, skills).label;
 
     final tabRow = types.length > 1
@@ -2532,15 +2942,25 @@ class _DayDetailPageState extends State<DayDetailPage> {
                     onTap: () => setState(() => _capturedTab = t),
                     child: Container(
                       margin: const EdgeInsets.only(right: 6),
-                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 9,
+                        vertical: 3,
+                      ),
                       decoration: BoxDecoration(
-                        color: t == active ? eu.surfaceRaised : Colors.transparent,
+                        color: t == active
+                            ? eu.surfaceRaised
+                            : Colors.transparent,
                         borderRadius: BorderRadius.circular(999),
-                        border: Border.all(color: t == active ? eu.border : Colors.transparent),
+                        border: Border.all(
+                          color: t == active ? eu.border : Colors.transparent,
+                        ),
                       ),
                       child: Text(
                         '${label(t)} ${captured.where((it) => (it.skillName ?? 'misc') == t).length}',
-                        style: euMono(fontSize: 10.5, color: t == active ? eu.textHi : eu.textLo),
+                        style: euMono(
+                          fontSize: 10.5,
+                          color: t == active ? eu.textHi : eu.textLo,
+                        ),
                       ),
                     ),
                   ),
@@ -2550,7 +2970,9 @@ class _DayDetailPageState extends State<DayDetailPage> {
         : null;
 
     return Container(
-      decoration: BoxDecoration(border: Border(bottom: BorderSide(color: eu.rule))),
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: eu.rule)),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -2583,7 +3005,11 @@ class _DayDetailPageState extends State<DayDetailPage> {
   }
 
   Widget _hourGrid(
-      EurekaColors eu, List<TimelineItem> timed, Map<String, SkillMeta> skills, bool dayEmpty) {
+    EurekaColors eu,
+    List<TimelineItem> timed,
+    Map<String, SkillMeta> skills,
+    bool dayEmpty,
+  ) {
     final now = DateTime.now();
     final isToday = _sameDay(now);
     final baseGridHeight = (_kGridEndHour - _kGridStartHour) * _kHourHeight;
@@ -2621,12 +3047,16 @@ class _DayDetailPageState extends State<DayDetailPage> {
       }
       return s;
     }
+
     final gridHeight =
         baseGridHeight + expansions.fold<double>(0.0, (a, e) => a + e.$2);
     // 重叠规则:同时段事件/待办等分成并列列(google-calendar 式)。grid 占满 body 宽。
     final cols = _eventColumns(layout);
     const leftPad = 62.0, gap = 3.0;
-    final avail = (MediaQuery.sizeOf(context).width - leftPad - 12.0).clamp(40.0, double.infinity);
+    final avail = (MediaQuery.sizeOf(context).width - leftPad - 12.0).clamp(
+      40.0,
+      double.infinity,
+    );
     return SingleChildScrollView(
       controller: _gridScroll,
       child: SizedBox(
@@ -2636,23 +3066,36 @@ class _DayDetailPageState extends State<DayDetailPage> {
             // Hour rows + labels
             for (int h = _kGridStartHour; h < _kGridEndHour; h++)
               Positioned(
-                top: (h - _kGridStartHour) * _kHourHeight +
+                top:
+                    (h - _kGridStartHour) * _kHourHeight +
                     pushAt((h - _kGridStartHour) * _kHourHeight),
                 left: 0,
                 right: 0,
                 height: _kHourHeight,
                 child: Container(
                   decoration: BoxDecoration(
-                    border: Border(top: BorderSide(color: h > _kGridStartHour ? eu.rule : Colors.transparent)),
+                    border: Border(
+                      top: BorderSide(
+                        color: h > _kGridStartHour
+                            ? eu.rule
+                            : Colors.transparent,
+                      ),
+                    ),
                   ),
                   padding: const EdgeInsets.only(top: 2, right: 8),
                   child: Align(
                     alignment: Alignment.topLeft,
                     child: SizedBox(
                       width: 56,
-                      child: Text(_hourLabel(h),
-                          textAlign: TextAlign.right,
-                          style: euMono(fontSize: 10, letterSpacing: 0.4, color: eu.textLo)),
+                      child: Text(
+                        _hourLabel(h),
+                        textAlign: TextAlign.right,
+                        style: euMono(
+                          fontSize: 10,
+                          letterSpacing: 0.4,
+                          color: eu.textLo,
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -2660,31 +3103,49 @@ class _DayDetailPageState extends State<DayDetailPage> {
             // Timed event / 待办 blocks — overlap-aware columns;同点多待办 = 计数 chip。
             for (final it in layout)
               clusters.containsKey(it.id)
-                  ? _todoClusterBlock(eu, clusters[it.id]!, skills,
+                  ? _todoClusterBlock(
+                      eu,
+                      clusters[it.id]!,
+                      skills,
                       col: cols[it.id]?.$1 ?? 0,
                       count: cols[it.id]?.$2 ?? 1,
                       leftPad: leftPad,
                       avail: avail,
                       gap: gap,
-                      topOffset: pushAt(_startMin(it) / 60.0 * _kHourHeight))
-                  : _eventBlock(eu, it, skills,
+                      topOffset: pushAt(_startMin(it) / 60.0 * _kHourHeight),
+                    )
+                  : _eventBlock(
+                      eu,
+                      it,
+                      skills,
                       col: cols[it.id]?.$1 ?? 0,
                       count: cols[it.id]?.$2 ?? 1,
                       leftPad: leftPad,
                       avail: avail,
                       gap: gap,
-                      topOffset: pushAt(_startMin(it) / 60.0 * _kHourHeight)),
+                      topOffset: pushAt(_startMin(it) / 60.0 * _kHourHeight),
+                    ),
             // "now" line — only on today
             if (isToday)
               Positioned(
-                top: (now.hour * 60 + now.minute) / 60.0 * _kHourHeight +
+                top:
+                    (now.hour * 60 + now.minute) / 60.0 * _kHourHeight +
                     pushAt((now.hour * 60 + now.minute) / 60.0 * _kHourHeight),
                 left: 52,
                 right: 12,
                 child: Row(
                   children: [
-                    Container(width: 6, height: 6, decoration: BoxDecoration(color: eu.accentRed, shape: BoxShape.circle)),
-                    Expanded(child: Container(height: 1.5, color: eu.accentRed)),
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: eu.accentRed,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    Expanded(
+                      child: Container(height: 1.5, color: eu.accentRed),
+                    ),
                   ],
                 ),
               ),
@@ -2694,8 +3155,14 @@ class _DayDetailPageState extends State<DayDetailPage> {
                 left: 0,
                 right: 0,
                 child: Center(
-                  child: Text('这一天什么都没有',
-                      style: TextStyle(color: eu.textLo, fontStyle: FontStyle.italic, fontSize: 14)),
+                  child: Text(
+                    '这一天什么都没有',
+                    style: TextStyle(
+                      color: eu.textLo,
+                      fontStyle: FontStyle.italic,
+                      fontSize: 14,
+                    ),
+                  ),
                 ),
               ),
           ],
@@ -2704,7 +3171,8 @@ class _DayDetailPageState extends State<DayDetailPage> {
     );
   }
 
-  static int _startMin(TimelineItem it) => it.effectiveAt.hour * 60 + it.effectiveAt.minute;
+  static int _startMin(TimelineItem it) =>
+      it.effectiveAt.hour * 60 + it.effectiveAt.minute;
   static int _endMin(TimelineItem it) {
     final s = _startMin(it);
     var e = it.endAt != null ? it.endAt!.hour * 60 + it.endAt!.minute : s + 30;
@@ -2726,7 +3194,8 @@ class _DayDetailPageState extends State<DayDetailPage> {
 
     void flush() {
       if (cluster.isEmpty) return;
-      final colEnds = <int>[]; // end-min of the last event placed in each column
+      final colEnds =
+          <int>[]; // end-min of the last event placed in each column
       final colOf = <String, int>{};
       for (final e in cluster) {
         final s = _startMin(e);
@@ -2761,16 +3230,22 @@ class _DayDetailPageState extends State<DayDetailPage> {
     return out;
   }
 
-  Widget _eventBlock(EurekaColors eu, TimelineItem it, Map<String, SkillMeta> skills,
-      {required int col,
-      required int count,
-      required double leftPad,
-      required double avail,
-      required double gap,
-      double topOffset = 0}) {
+  Widget _eventBlock(
+    EurekaColors eu,
+    TimelineItem it,
+    Map<String, SkillMeta> skills, {
+    required int col,
+    required int count,
+    required double leftPad,
+    required double avail,
+    required double gap,
+    double topOffset = 0,
+  }) {
     final start = it.effectiveAt;
     final startMin = start.hour * 60 + start.minute;
-    var endMin = it.endAt != null ? it.endAt!.hour * 60 + it.endAt!.minute : startMin + 30;
+    var endMin = it.endAt != null
+        ? it.endAt!.hour * 60 + it.endAt!.minute
+        : startMin + 30;
     if (endMin <= startMin) endMin = startMin + 30;
     final top = startMin / 60.0 * _kHourHeight + topOffset;
     final rawH = (endMin - startMin) / 60.0 * _kHourHeight;
@@ -2812,11 +3287,16 @@ class _DayDetailPageState extends State<DayDetailPage> {
                           shape: BoxShape.circle,
                           color: done ? eu.accentGreen : Colors.transparent,
                           border: Border.all(
-                              color: done ? eu.accentGreen : accent, width: 1.5),
+                            color: done ? eu.accentGreen : accent,
+                            width: 1.5,
+                          ),
                         ),
                         child: done
-                            ? const Icon(Icons.check,
-                                size: 9, color: Colors.white)
+                            ? const Icon(
+                                Icons.check,
+                                size: 9,
+                                color: Colors.white,
+                              )
                             : null,
                       ),
                     ),
@@ -2824,24 +3304,27 @@ class _DayDetailPageState extends State<DayDetailPage> {
                   ],
                   Expanded(
                     child: Text(
-                        it.title.isEmpty ? (isEvent ? '事件' : '待办') : it.title,
-                        maxLines: height > 40 ? 2 : 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                            color: done ? eu.textLo : eu.textHi,
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w600,
-                            height: 1.2,
-                            decoration:
-                                done ? TextDecoration.lineThrough : null)),
+                      it.title.isEmpty ? (isEvent ? '事件' : '待办') : it.title,
+                      maxLines: height > 40 ? 2 : 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: done ? eu.textLo : eu.textHi,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        height: 1.2,
+                        decoration: done ? TextDecoration.lineThrough : null,
+                      ),
+                    ),
                   ),
                 ],
               ),
               if (it.location != null && it.location!.isNotEmpty && height > 44)
-                Text(it.location!,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: eu.textMid, fontSize: 10.5)),
+                Text(
+                  it.location!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: eu.textMid, fontSize: 10.5),
+                ),
             ],
           ),
         ),
@@ -2851,13 +3334,16 @@ class _DayDetailPageState extends State<DayDetailPage> {
 
   // §B 同一时刻 N 个待办 → 一个「N 个待办 ▾」计数 chip,点开就地展成可勾小列表。
   Widget _todoClusterBlock(
-      EurekaColors eu, List<TimelineItem> todos, Map<String, SkillMeta> skills,
-      {required int col,
-      required int count,
-      required double leftPad,
-      required double avail,
-      required double gap,
-      double topOffset = 0}) {
+    EurekaColors eu,
+    List<TimelineItem> todos,
+    Map<String, SkillMeta> skills, {
+    required int col,
+    required int count,
+    required double leftPad,
+    required double avail,
+    required double gap,
+    double topOffset = 0,
+  }) {
     final repId = todos.first.id;
     final expanded = _expandedClusters.contains(repId);
     final top = _startMin(todos.first) / 60.0 * _kHourHeight + topOffset;
@@ -2885,20 +3371,28 @@ class _DayDetailPageState extends State<DayDetailPage> {
             SizedBox(
               height: _kClusterHeaderH,
               child: GestureDetector(
-                onTap: () => setState(() => expanded
-                    ? _expandedClusters.remove(repId)
-                    : _expandedClusters.add(repId)),
+                onTap: () => setState(
+                  () => expanded
+                      ? _expandedClusters.remove(repId)
+                      : _expandedClusters.add(repId),
+                ),
                 behavior: HitTestBehavior.opaque,
                 child: Row(
                   children: [
-                    Text('${todos.length} 个待办',
-                        style: TextStyle(
-                            color: accent,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700)),
+                    Text(
+                      '${todos.length} 个待办',
+                      style: TextStyle(
+                        color: accent,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                     const Spacer(),
-                    Icon(expanded ? Icons.expand_less : Icons.expand_more,
-                        size: 16, color: accent),
+                    Icon(
+                      expanded ? Icons.expand_less : Icons.expand_more,
+                      size: 16,
+                      color: accent,
+                    ),
                   ],
                 ),
               ),
@@ -2906,8 +3400,9 @@ class _DayDetailPageState extends State<DayDetailPage> {
             if (expanded)
               for (final t in todos)
                 SizedBox(
-                    height: _kClusterRowH,
-                    child: _todoCheckRow(eu, t, skills)),
+                  height: _kClusterRowH,
+                  child: _todoCheckRow(eu, t, skills),
+                ),
           ],
         ),
       ),
@@ -2915,20 +3410,25 @@ class _DayDetailPageState extends State<DayDetailPage> {
   }
 
   // ── shared item row (list + 今日捕捉) ──
-  Widget _itemRow(EurekaColors eu, TimelineItem it, Map<String, SkillMeta> skills) {
+  Widget _itemRow(
+    EurekaColors eu,
+    TimelineItem it,
+    Map<String, SkillMeta> skills,
+  ) {
     final isFlash = it.kind == 'input_turn';
     final timeStr = isFlash
         ? '${it.effectiveAt.hour.toString().padLeft(2, '0')}:${it.effectiveAt.minute.toString().padLeft(2, '0')}'
-        : (it.allDay || (it.effectiveAt.hour == 0 && it.effectiveAt.minute == 0))
-            ? '全天'
-            : '${it.effectiveAt.hour.toString().padLeft(2, '0')}:${it.effectiveAt.minute.toString().padLeft(2, '0')}';
+        : (it.allDay ||
+              (it.effectiveAt.hour == 0 && it.effectiveAt.minute == 0))
+        ? '全天'
+        : '${it.effectiveAt.hour.toString().padLeft(2, '0')}:${it.effectiveAt.minute.toString().padLeft(2, '0')}';
     final icon = isFlash
         ? '⚡'
         : it.kind == 'event'
-            ? '📅'
-            : it.kind == 'contact'
-                ? '👤'
-                : resolveMeta(it.skillName ?? 'misc', skills).icon;
+        ? '📅'
+        : it.kind == 'contact'
+        ? '👤'
+        : resolveMeta(it.skillName ?? 'misc', skills).icon;
     final row = GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () => _openTimelineItem(context, it, skills),
@@ -2944,9 +3444,20 @@ class _DayDetailPageState extends State<DayDetailPage> {
         ),
         child: Row(
           children: [
-            SizedBox(width: 40, child: Text(timeStr, style: euMono(fontSize: 10.5, color: eu.textMid))),
+            SizedBox(
+              width: 40,
+              child: Text(
+                timeStr,
+                style: euMono(fontSize: 10.5, color: eu.textMid),
+              ),
+            ),
             const SizedBox(width: 6),
-            SizedBox(width: 20, child: Center(child: Text(icon, style: const TextStyle(fontSize: 14)))),
+            SizedBox(
+              width: 20,
+              child: Center(
+                child: Text(icon, style: const TextStyle(fontSize: 14)),
+              ),
+            ),
             const SizedBox(width: 8),
             Expanded(
               child: Column(
@@ -2954,17 +3465,26 @@ class _DayDetailPageState extends State<DayDetailPage> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(it.title.isEmpty ? (isFlash ? '闪念' : '记录') : it.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: eu.textHi, fontSize: 13.5, fontWeight: FontWeight.w500, height: 1.3)),
+                  Text(
+                    it.title.isEmpty ? (isFlash ? '闪念' : '记录') : it.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: eu.textHi,
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w500,
+                      height: 1.3,
+                    ),
+                  ),
                   if (it.subtitle.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(top: 2),
-                      child: Text(it.subtitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(color: eu.textMid, fontSize: 11.5)),
+                      child: Text(
+                        it.subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: eu.textMid, fontSize: 11.5),
+                      ),
                     ),
                 ],
               ),
@@ -3021,12 +3541,19 @@ class _DayDetailPageState extends State<DayDetailPage> {
         content: Text('删除后无法恢复。', style: TextStyle(color: eu.textMid)),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: Text('取消', style: TextStyle(color: eu.textMid))),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('取消', style: TextStyle(color: eu.textMid)),
+          ),
           TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: Text('删除',
-                  style: TextStyle(color: eu.accentRed, fontWeight: FontWeight.w600))),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(
+              '删除',
+              style: TextStyle(
+                color: eu.accentRed,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -3040,9 +3567,15 @@ class _DayDetailPageState extends State<DayDetailPage> {
   }
 
   Widget _empty(EurekaColors eu) => Center(
-        child: Text('这一天什么都没有',
-            style: TextStyle(color: eu.textLo, fontStyle: FontStyle.italic, fontSize: 14)),
-      );
+    child: Text(
+      '这一天什么都没有',
+      style: TextStyle(
+        color: eu.textLo,
+        fontStyle: FontStyle.italic,
+        fontSize: 14,
+      ),
+    ),
+  );
 
   String _hourLabel(int h) {
     final period = h < 12 ? '上午' : '下午';

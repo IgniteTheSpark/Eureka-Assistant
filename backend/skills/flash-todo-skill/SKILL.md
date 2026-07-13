@@ -45,7 +45,15 @@ When the intent is ambiguous, default to `create`.
 
 Extract:
 
-**content** — the task the user wants to remember. Pull it directly from `source_text`. Keep it concise but faithful. Don't add words that aren't there.
+**title** — a compact task title for cards and detail headers. Use the core
+verb-object/action, usually 6-14 Chinese characters. Do not put time, domain,
+status, or explanatory background here. Keep it faithful; do not invent a new
+project name unless the user gave it.
+
+**content** — the detail/body text. Put the user's extra requirements,
+background, sub-items, constraints, or "要沟通/要准备/注意..." content here.
+If the todo is a simple one-clause task with no extra detail, set `content` to
+`""` or the same text as `title` — the UI will avoid duplicate display.
 
 **due_date** — when the task is due:
 - Specific date + time → ISO8601 with +08:00 timezone
@@ -71,7 +79,8 @@ Single-point meeting/to-do remains a todo; only complete ranges (start+end,
 start+duration, all-day) should become events upstream.
 
 Call **`tool_create_todo`**(待办专属 typed 工具,无需手拼 JSON payload):
-- `content`: 任务原文(忠于原话)
+- `title`: 短标题,用于卡片/详情头部,如「给张总打电话」
+- `content`: 详情正文,如「沟通报价和合同风险」;没有额外信息时留空或等于 title
 - `due_date`: 有时刻 → ISO8601 + +08:00;只有日期 → `"YYYY-MM-DD"`;没有 → 留空 `""`
 - `period`: 只说「早上/下午/晚上」但没说钟点 → `"上午"/"下午"/"晚上"`;否则 `""`
 - `occurred_at`: 说了具体钟点 → ISO8601+08:00;否则 `""`
@@ -87,7 +96,7 @@ Call **`tool_create_todo`**(待办专属 typed 工具,无需手拼 JSON payload)
 3. Pick the **most relevant** match based on content similarity and recency.
 4. Determine what field(s) to change:
    - Time/date change → update `due_date` (apply the same date rules as CREATE)
-   - Content change → update `content`
+   - Title/content change → update `title` and/or `content`
    - Status change → update `status` (`"pending"` / `"done"`)
 5. Call `tool_update_asset` with `asset_id` and a `payload_patch` JSON string containing only the changed fields.
 
@@ -128,7 +137,7 @@ For **delete**, the result should look like:
 ```
 source_text: "下午三点前提交季度报告"
 ```
-→ tool_create_todo(content="提交季度报告", due_date="<today>T15:00:00+08:00", period="下午", occurred_at="<today>T15:00:00+08:00")
+→ tool_create_todo(title="提交季度报告", content="", due_date="<today>T15:00:00+08:00", period="下午", occurred_at="<today>T15:00:00+08:00")
 
 ---
 
@@ -136,7 +145,7 @@ source_text: "下午三点前提交季度报告"
 ```
 source_text: "下午要开一个会"
 ```
-→ tool_create_todo(content="开一个会", due_date="", period="下午", occurred_at="")
+→ tool_create_todo(title="开一个会", content="", due_date="", period="下午", occurred_at="")
 
 ---
 
@@ -144,7 +153,7 @@ source_text: "下午要开一个会"
 ```
 source_text: "明天下午要开一个会"
 ```
-→ tool_create_todo(content="开一个会", due_date="<tomorrow YYYY-MM-DD>", period="下午", occurred_at="")
+→ tool_create_todo(title="开一个会", content="", due_date="<tomorrow YYYY-MM-DD>", period="下午", occurred_at="")
 
 ---
 
@@ -152,7 +161,7 @@ source_text: "明天下午要开一个会"
 ```
 source_text: "明天下午3点要开会"
 ```
-→ tool_create_todo(content="开会", due_date="<tomorrow>T15:00:00+08:00", period="下午", occurred_at="<tomorrow>T15:00:00+08:00")
+→ tool_create_todo(title="开会", content="", due_date="<tomorrow>T15:00:00+08:00", period="下午", occurred_at="<tomorrow>T15:00:00+08:00")
 
 ---
 
@@ -160,7 +169,7 @@ source_text: "明天下午3点要开会"
 ```
 source_text: "提醒我明天给刘洋发合同"
 ```
-→ tool_create_todo(content="给刘洋发合同", due_date="2026-05-22", period="", occurred_at="")
+→ tool_create_todo(title="给刘洋发合同", content="", due_date="2026-05-22", period="", occurred_at="")
 
 ---
 
@@ -168,7 +177,23 @@ source_text: "提醒我明天给刘洋发合同"
 ```
 source_text: "记得跟进Kevin的报价"
 ```
-→ tool_create_todo(content="跟进Kevin的报价", due_date="", period="", occurred_at="")
+→ tool_create_todo(title="跟进Kevin的报价", content="", due_date="", period="", occurred_at="")
+
+---
+
+**CREATE — title + detail split**
+```
+source_text: "明天下午3点给张总打电话，沟通报价和合同风险"
+```
+→ tool_create_todo(title="给张总打电话", content="沟通报价和合同风险", due_date="<tomorrow>T15:00:00+08:00", period="下午", occurred_at="<tomorrow>T15:00:00+08:00")
+
+---
+
+**CREATE — multiple preparation details**
+```
+source_text: "客户要来拜访，记得准备会议室、打印报价单"
+```
+→ tool_create_todo(title="客户拜访准备", content="准备会议室、打印报价单", due_date="", period="", occurred_at="")
 
 ---
 

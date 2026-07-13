@@ -115,6 +115,17 @@ def effective_at_for_event(event: Event) -> datetime:
     return event.start_at
 
 
+def _todo_due_has_clock(payload: dict) -> bool:
+    """Whether a todo deadline contains a user-facing clock component.
+
+    ``effective_at`` may fall back to ``created_at`` for sorting, so its hour is
+    not evidence that the user scheduled the todo. A date-only deadline remains
+    unscheduled; any ISO datetime (including midnight) is an explicit time.
+    """
+    due = payload.get("due_date")
+    return isinstance(due, str) and "T" in due
+
+
 def effective_at_for_input_turn(turn: InputTurn) -> datetime:
     """
     For flash: capture moment (= created_at when ASR is sync/inline).
@@ -223,6 +234,12 @@ def _asset_item(asset: Asset, skill_name: str, render_spec: Optional[dict] = Non
         # 钟点(occurred_at 已 set,effective_at 即该精确时刻)。两者皆无 = 捕捉兜底。
         "period":               getattr(asset, "period", None) or "",
         "has_clock_time":       getattr(asset, "occurred_at", None) is not None,
+        # Distinct from effective_at: a no-deadline todo sorts by created_at but
+        # must still render in 待安排, never at its capture clock time.
+        "has_scheduled_time":   (
+            getattr(asset, "occurred_at", None) is not None
+            or (skill_name == "todo" and _todo_due_has_clock(p))
+        ),
         # §8 生活领域(工作/学习/健康/运动/社交/娱乐/生活/灵感)— drives the 流/月 卡片领域 tag.
         "domain":               getattr(asset, "domain", None) or "",
         "title":                str(title)[:120],

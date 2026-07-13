@@ -195,19 +195,9 @@ Future<TodayData> loadToday(ApiClient api, {DateTime? nowOverride}) async {
 /// upcoming-timed chain and the no-clock todo list. Done todos drop out (the
 /// chain is forward-looking; overdue / records live in 日历 / 资产).
 Future<
-  ({
-    List<ChainItem> chain,
-    List<ChainItem> noTime,
-    int todoTotal,
-    int todoDone,
-  })
+  ({List<ChainItem> chain, List<ChainItem> noTime, int todoTotal, int todoDone})
 >
-_loadChain(
-  ApiClient api,
-  String from,
-  String to,
-  DateTime now,
-) async {
+_loadChain(ApiClient api, String from, String to, DateTime now) async {
   try {
     final res = await api.getJson(
       '/api/timeline',
@@ -250,15 +240,13 @@ _loadChain(
         // A todo is "timed" (→ chain with a countdown) when its due_date carries
         // a clock time (ISO with a `T…` part); a date-only due → no-time list.
         // has_clock_time is occurred_at-based, which a not-yet-done todo lacks.
-        final due = it.payload['due_date'];
-        final dueTimed = due is String && due.contains('T');
         candidates.add(
           ChainItem(
             kind: 'todo',
             id: it.id,
             title: it.title,
             at: it.effectiveAt,
-            timed: it.hasClockTime || dueTimed,
+            timed: it.hasScheduledTime,
             sub: it.subtitle,
             domain: it.domain,
             note: it.subtitle.isEmpty ? null : it.subtitle,

@@ -13,6 +13,7 @@ import '../theme/eureka_colors.dart';
 import '../theme/ureka_tokens.dart';
 import '../timeline/timeline.dart';
 import '../widgets/quiet_surface.dart';
+import '../widgets/skeleton_loader.dart';
 import '../widgets/toast.dart';
 import 'add_skill.dart';
 import 'category_detail_page.dart';
@@ -164,7 +165,11 @@ class _LibraryPageState extends State<LibraryPage> {
                   _header(eu, data?.total),
                   Expanded(
                     child: snap.connectionState != ConnectionState.done
-                        ? const Center(child: CircularProgressIndicator())
+                        ? const USkeletonList(
+                            padding: EdgeInsets.fromLTRB(16, 12, 16, 96),
+                            count: 7,
+                            cardHeight: 86,
+                          )
                         : snap.hasError
                         ? Center(
                             child: Padding(

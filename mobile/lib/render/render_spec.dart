@@ -335,14 +335,7 @@ RenderSpec normalizeTodoSpec(RenderSpec spec) {
     'due_date': spec.fieldLabels['due_date'] ?? '截止时间',
     'status': spec.fieldLabels['status'] ?? '状态',
   };
-  final fields = <String>[
-    'title',
-    'content',
-    'due_date',
-    'status',
-    for (final f in spec.schemaFields)
-      if (!{'title', 'content', 'due_date', 'status'}.contains(f)) f,
-  ];
+  final fields = <String>['title', 'due_date', 'content'];
   return spec.copyWith(
     primaryField: 'title',
     secondaryField: '',
@@ -352,7 +345,7 @@ RenderSpec normalizeTodoSpec(RenderSpec spec) {
     schemaFields: fields,
     longFields: {...spec.longFields, 'content'},
     fieldTypes: {...spec.fieldTypes, 'title': 'string', 'content': 'string'},
-    requiredFields: {...spec.requiredFields, 'content'},
+    requiredFields: {'title'},
   );
 }
 

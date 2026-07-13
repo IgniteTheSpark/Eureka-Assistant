@@ -95,6 +95,7 @@ class _AssetView extends StatefulWidget {
 class _AssetViewState extends State<_AssetView> {
   final _api = ApiClient();
   bool _busy = false;
+  late final Future<void> _hydrateFuture;
   bool? _doneOverride; // optimistic 完成 state for checkable (todo) cards
   late String? _domain = widget.data.domain;
 
@@ -126,7 +127,7 @@ class _AssetViewState extends State<_AssetView> {
   @override
   void initState() {
     super.initState();
-    _hydrate();
+    _hydrateFuture = _hydrate();
   }
 
   // Single source of truth: re-fetch the asset by id so the detail never renders
@@ -325,6 +326,8 @@ class _AssetViewState extends State<_AssetView> {
 
   // §4 长内容编辑：全屏编辑页(支持 md 文档),而非二次弹出的底部 sheet。
   Future<void> _edit() async {
+    await _hydrateFuture;
+    if (!mounted) return;
     final nav = Navigator.of(context);
     // event/contact are 真身 entities (not assets) — edit them with their
     // dedicated forms (proper date/time pickers, end>start validation, flat
@@ -869,6 +872,7 @@ class _AssetViewState extends State<_AssetView> {
 
     payload.forEach((key, value) {
       if (_skip(key, value)) return;
+      if (cardType == 'todo' && !_todoEditableFields.contains(key)) return;
       if (cardType == 'contact' &&
           (key == 'name' || key == 'company' || key == 'title')) {
         return;
@@ -1330,6 +1334,9 @@ class _AssetEditPageState extends State<AssetEditPage> {
   // structure, empty included, fillable) ∪ orphan payload fields (left over
   // from a skill regenerate). Plumbing keys + nested maps dropped.
   List<String> _orderedKeys() {
+    if (widget.cardType == 'todo') {
+      return _todoEditableFields.toList(growable: false);
+    }
     final out = <String>[];
     void add(String k, {required bool fromSchema}) {
       if (out.contains(k) || _skipKeys.contains(k)) return;
@@ -1668,7 +1675,9 @@ class _AssetEditPageState extends State<AssetEditPage> {
                 ],
               // 领域 selector — same control in create & edit (event/contact define
               // their own domain, so this only shows for asset skills).
-              if (widget.cardType != 'event' && widget.cardType != 'contact')
+              if (widget.cardType != 'event' &&
+                  widget.cardType != 'contact' &&
+                  widget.cardType != 'todo')
                 _domainField(eu),
               if (_error != null) ...[
                 const SizedBox(height: 4),
@@ -2257,6 +2266,8 @@ const _docKeys = <String>{
   'thoughts',
 };
 bool _isDocKey(String key) => _docKeys.contains(key.toLowerCase());
+
+const _todoEditableFields = {'title', 'due_date', 'content'};
 
 const _skipKeys = <String>{
   'ok', 'contact_action', 'when', 'card_type', 'kind', 'skill_name',

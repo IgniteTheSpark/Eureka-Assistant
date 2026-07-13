@@ -290,20 +290,22 @@ When ambiguous, default to `create`.
 ## Step 2 — Execute
 
 ### CREATE
-- **content** — pull directly from source_text, concise but faithful, don't add words.
+- **title** — compact action title for card/detail header; core verb-object only, no time/domain/status.
+- **content** — detail/body text: background, sub-items, constraints. Simple one-clause todos may leave content empty or equal to title; UI suppresses duplicate display.
 - **due_date** —
   - Specific date + time → ISO8601 with +08:00
   - Date but no explicit time ("明天"/"下周五"/"今晚"/"饭局") → `"YYYY-MM-DD"`, no time component, do NOT guess time
   - No time reference → `null`
-Call `tool_create_asset`: user_skill_name="todo",
-payload={"content":"...","due_date":"YYYY-MM-DD or ISO8601 or null","status":"pending"},
-session_id, source_input_turn_id pass through.
+Call `tool_create_todo(title, content, due_date, period?, occurred_at?)`;
+`session_id`, `source_input_turn_id` pass through. Examples:
+`明天下午3点给张总打电话,沟通报价和合同风险` →
+`title="给张总打电话", content="沟通报价和合同风险", due_date="<tomorrow>T15:00:00+08:00"`.
 
 ### UPDATE
 1. Extract search keyword (最 distinctive word: 饭局/合同/Kevin)
 2. tool_query_asset(user_skill_name="todo", contains=<keyword>)
 3. Pick most relevant by content similarity + recency
-4. Time→due_date / Content→content / Status→status("pending"/"done")
+4. Time→due_date / title/content change→title/content / Status→status("pending"/"done")
 5. tool_update_asset(asset_id, payload_patch=<changed fields only JSON string>)
 If no match → fall back to CREATE using full source_text.
 
@@ -974,7 +976,8 @@ B) 描述太笼统(只给类目,没说要记什么字段/目的)→ 追问:
 {
   "name": "todo", "display_name": "待办",
   "payload_schema": {
-    "content":  {"type": "string",   "required": True},
+    "title":    {"type": "string", "label": "标题"},
+    "content":  {"type": "string", "label": "内容", "required": True, "long": True},
     "due_date": {"type": "datetime"},
     "status":   {"type": "string", "enum": ["pending","done","pending_confirmation"], "default": "pending"},
   },
@@ -983,8 +986,9 @@ B) 描述太笼统(只给类目,没说要记什么字段/目的)→ 追问:
     {"field": "status",   "index_type": "enum"},
   ],
   "render_spec": {
-    "card_layout": "horizontal", "icon": "✅", "accent_color": "blue",
-    "primary_field": "content", "secondary_field": "due_date", "secondary_format": "relative_date",
+    "card_layout": "horizontal", "icon": "📋", "accent_color": "blue",
+    "primary_field": "title",
+    "meta_fields": [{"field": "due_date", "format": "relative_date"}],
     "actions": ["check", "edit"],
     "timeline_position": {"time_field": "due_date", "fallback": "created_at"},
     "calendar_render":   {"date_field": "due_date"},

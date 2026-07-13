@@ -8,6 +8,7 @@ import '../render/asset_detail_sheet.dart';
 import '../render/render_spec.dart';
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
+import '../widgets/skeleton_loader.dart';
 import 'session_detail_page.dart';
 
 /// One notification from GET /api/notifications.
@@ -31,15 +32,16 @@ class NotifItem {
   });
 
   factory NotifItem.fromJson(Map<String, dynamic> j) => NotifItem(
-        id: j['id'] as String? ?? '',
-        type: j['type'] as String? ?? '',
-        title: j['title'] as String? ?? '',
-        body: j['body'] as String? ?? '',
-        link: j['link'] as String? ?? '',
-        read: j['read'] == true,
-        createdAt:
-            DateTime.tryParse(j['created_at'] as String? ?? '')?.toLocal() ?? DateTime.now(),
-      );
+    id: j['id'] as String? ?? '',
+    type: j['type'] as String? ?? '',
+    title: j['title'] as String? ?? '',
+    body: j['body'] as String? ?? '',
+    link: j['link'] as String? ?? '',
+    read: j['read'] == true,
+    createdAt:
+        DateTime.tryParse(j['created_at'] as String? ?? '')?.toLocal() ??
+        DateTime.now(),
+  );
 }
 
 /// Notifications surface (pushed from the bell). Tap a row to mark it read;
@@ -66,7 +68,8 @@ class _NotificationsPageState extends State<NotificationsPage> {
   Future<void> _load() async {
     try {
       final res = await _api.getJson('/api/notifications');
-      final list = (res is Map ? res['notifications'] : null) as List? ?? const [];
+      final list =
+          (res is Map ? res['notifications'] : null) as List? ?? const [];
       if (!mounted) return;
       setState(() {
         _items = list
@@ -105,7 +108,9 @@ class _NotificationsPageState extends State<NotificationsPage> {
         // 闪念 → its capture session (link is the bare session_id).
         if (!mounted) return;
         await Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => SessionDetailPage(sessionId: link, title: '闪念')),
+          MaterialPageRoute(
+            builder: (_) => SessionDetailPage(sessionId: link, title: '闪念'),
+          ),
         );
       } else if (n.type == 'reminder') {
         // The scheduler stores a composite key, not a bare id:
@@ -120,51 +125,70 @@ class _NotificationsPageState extends State<NotificationsPage> {
           final ev = (res is Map ? (res['event'] ?? res) : null) as Map?;
           if (ev == null || !mounted) return;
           final card = {'card_type': 'event', ...ev.cast<String, dynamic>()};
-          showAssetDetail(context,
-              data: buildCard(payload: card, spec: synthesizeSpec('event'), displayName: 'event'),
+          showAssetDetail(
+            context,
+            data: buildCard(
               payload: card,
-              cardType: 'event',
-              assetId: id);
+              spec: synthesizeSpec('event'),
+              displayName: 'event',
+            ),
+            payload: card,
+            cardType: 'event',
+            assetId: id,
+          );
         } else {
           final res = await _api.getJson('/api/assets/$id');
           final a = (res is Map ? (res['asset'] ?? res) : null) as Map?;
           if (a == null || !mounted) return;
           final am = a.cast<String, dynamic>();
           final skill = am['user_skill_name'] as String? ?? 'todo';
-          final payload = (am['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
+          final payload =
+              (am['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
           RenderSpec? spec;
           try {
             spec = (await fetchRenderSpecs(_api))[skill];
           } catch (_) {}
           if (!mounted) return;
-          showAssetDetail(context,
-              data: buildCard(payload: payload, spec: spec ?? synthesizeSpec(skill), displayName: skill)
-                  .copyWith(domain: am['domain'] as String?),
+          showAssetDetail(
+            context,
+            data: buildCard(
               payload: payload,
-              cardType: skill,
-              assetId: id,
-              sessionId: am['session_id'] as String?,
-              spec: spec);
+              spec: spec ?? synthesizeSpec(skill),
+              displayName: skill,
+            ).copyWith(domain: am['domain'] as String?),
+            payload: payload,
+            cardType: skill,
+            assetId: id,
+            sessionId: am['session_id'] as String?,
+            spec: spec,
+          );
         }
       } else if (n.type == 'task_done' || n.type == 'task_failed') {
         final res = await _api.getJson('/api/assets/$link');
-        final a = ((res is Map ? res['asset'] : null) as Map?)?.cast<String, dynamic>();
+        final a = ((res is Map ? res['asset'] : null) as Map?)
+            ?.cast<String, dynamic>();
         if (a == null || !mounted) return;
         final skill = a['user_skill_name'] as String? ?? 'misc';
-        final payload = (a['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
+        final payload =
+            (a['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
         RenderSpec? spec;
         try {
           spec = (await fetchRenderSpecs(_api))[skill];
         } catch (_) {}
         if (!mounted) return;
-        showAssetDetail(context,
-            data: buildCard(payload: payload, spec: spec ?? synthesizeSpec(skill), displayName: skill)
-                .copyWith(domain: a['domain'] as String?),
+        showAssetDetail(
+          context,
+          data: buildCard(
             payload: payload,
-            cardType: skill,
-            assetId: link,
-            sessionId: a['session_id'] as String?,
-            spec: spec);
+            spec: spec ?? synthesizeSpec(skill),
+            displayName: skill,
+          ).copyWith(domain: a['domain'] as String?),
+          payload: payload,
+          cardType: skill,
+          assetId: link,
+          sessionId: a['session_id'] as String?,
+          spec: spec,
+        );
       }
     } catch (_) {
       // navigation target gone / fetch failed — already marked read
@@ -224,41 +248,53 @@ class _NotificationsPageState extends State<NotificationsPage> {
         ],
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? const USkeletonList(
+              padding: EdgeInsets.fromLTRB(16, 8, 16, 24),
+              count: 8,
+              cardHeight: 76,
+            )
           : _error != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text('加载失败：$_error',
-                        textAlign: TextAlign.center, style: TextStyle(color: eu.accentRed)),
-                  ),
-                )
-              : _items.isEmpty
-                  ? Center(child: Text('暂无通知', style: TextStyle(color: eu.textMid)))
-                  : ListView.builder(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                      itemCount: _items.length,
-                      itemBuilder: (_, i) {
-                        final n = _items[i];
-                        return Dismissible(
-                          key: ValueKey('notif_${n.id}'),
-                          direction: DismissDirection.endToStart,
-                          background: Container(
-                            alignment: Alignment.centerRight,
-                            margin: const EdgeInsets.symmetric(vertical: 4),
-                            padding: const EdgeInsets.only(right: 20),
-                            decoration: BoxDecoration(
-                              color: eu.accentRed.withValues(alpha: 0.85),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: const Icon(Icons.delete_outline, color: Colors.white),
-                          ),
-                          confirmDismiss: (_) => _dismiss(n),
-                          onDismissed: (_) => setState(() => _items.remove(n)),
-                          child: _NotifRow(n, onTap: () => _openNotif(n)),
-                        );
-                      },
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  '加载失败：$_error',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: eu.accentRed),
+                ),
+              ),
+            )
+          : _items.isEmpty
+          ? Center(
+              child: Text('暂无通知', style: TextStyle(color: eu.textMid)),
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+              itemCount: _items.length,
+              itemBuilder: (_, i) {
+                final n = _items[i];
+                return Dismissible(
+                  key: ValueKey('notif_${n.id}'),
+                  direction: DismissDirection.endToStart,
+                  background: Container(
+                    alignment: Alignment.centerRight,
+                    margin: const EdgeInsets.symmetric(vertical: 4),
+                    padding: const EdgeInsets.only(right: 20),
+                    decoration: BoxDecoration(
+                      color: eu.accentRed.withValues(alpha: 0.85),
+                      borderRadius: BorderRadius.circular(12),
                     ),
+                    child: const Icon(
+                      Icons.delete_outline,
+                      color: Colors.white,
+                    ),
+                  ),
+                  confirmDismiss: (_) => _dismiss(n),
+                  onDismissed: (_) => setState(() => _items.remove(n)),
+                  child: _NotifRow(n, onTap: () => _openNotif(n)),
+                );
+              },
+            ),
     );
   }
 }
@@ -302,23 +338,30 @@ class _NotifRow extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(n.title,
-                      style: TextStyle(
-                          color: eu.textHi,
-                          fontSize: 14,
-                          fontWeight: n.read ? FontWeight.w500 : FontWeight.w700)),
+                  Text(
+                    n.title,
+                    style: TextStyle(
+                      color: eu.textHi,
+                      fontSize: 14,
+                      fontWeight: n.read ? FontWeight.w500 : FontWeight.w700,
+                    ),
+                  ),
                   if (n.body.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(top: 2),
-                      child: Text(n.body,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(color: eu.textMid, fontSize: 12)),
+                      child: Text(
+                        n.body,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: eu.textMid, fontSize: 12),
+                      ),
                     ),
                   Padding(
                     padding: const EdgeInsets.only(top: 4),
-                    child: Text(_relativeTime(n.createdAt),
-                        style: TextStyle(color: eu.textLo, fontSize: 11)),
+                    child: Text(
+                      _relativeTime(n.createdAt),
+                      style: TextStyle(color: eu.textLo, fontSize: 11),
+                    ),
                   ),
                 ],
               ),
@@ -328,7 +371,10 @@ class _NotifRow extends StatelessWidget {
                 margin: const EdgeInsets.only(left: 8, top: 4),
                 width: 8,
                 height: 8,
-                decoration: BoxDecoration(color: eu.brand, shape: BoxShape.circle),
+                decoration: BoxDecoration(
+                  color: eu.brand,
+                  shape: BoxShape.circle,
+                ),
               ),
           ],
         ),
@@ -426,7 +472,10 @@ class _NotificationsBellState extends State<NotificationsBell> {
             child: Container(
               width: 8,
               height: 8,
-              decoration: BoxDecoration(color: eu.accentRed, shape: BoxShape.circle),
+              decoration: BoxDecoration(
+                color: eu.accentRed,
+                shape: BoxShape.circle,
+              ),
             ),
           ),
       ],

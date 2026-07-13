@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>从想法到产品：UReka 的 vibe coding 实践</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@700;800;900&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --paper: #f7f4eb;
+      --ink: #141414;
+      --blue: #234fe8;
+      --blue-soft: #dce6ff;
+      --mint: #8ed8c5;
+      --line: rgba(35, 79, 232, .24);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: #d9dddf; overflow: hidden; }
+    body { font-family: "Noto Sans SC", sans-serif; }
+
+    /* === FIXED STAGE === */
+    .deck-viewport {
+      width: 100vw;
+      height: 100vh;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+    }
+    .stage {
+      position: relative;
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      background: var(--paper);
+      color: var(--ink);
+      transform-origin: center center;
+      box-shadow: 0 36px 90px rgba(0, 0, 0, .22);
+    }
+
+    /* === GRAPH PAPER SYSTEM === */
+    .stage::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(var(--line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--line) 1px, transparent 1px);
+      background-size: 80px 80px;
+      opacity: .48;
+    }
+    .stage::after {
+      content: "";
+      position: absolute;
+      inset: 38px;
+      border: 3px solid var(--blue);
+      pointer-events: none;
+    }
+
+    /* === TITLE COMPOSITION === */
+    .meta {
+      position: absolute;
+      left: 110px;
+      top: 84px;
+      display: flex;
+      gap: 34px;
+      align-items: center;
+      color: var(--blue);
+      font: 700 24px/1 "Archivo", sans-serif;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .mark {
+      width: 72px;
+      height: 72px;
+      border: 3px solid var(--blue);
+      display: grid;
+      place-items: center;
+      font-size: 38px;
+      color: var(--blue);
+      background: var(--paper);
+    }
+    h1 {
+      position: absolute;
+      left: 108px;
+      top: 206px;
+      width: 1010px;
+      margin: 0;
+      font-family: "Noto Sans SC", sans-serif;
+      font-size: 118px;
+      line-height: 1.05;
+      font-weight: 900;
+      letter-spacing: 0;
+    }
+    h1 span {
+      display: block;
+      color: var(--blue);
+      font-family: "Archivo", "Noto Sans SC", sans-serif;
+      font-size: 132px;
+      line-height: .96;
+    }
+    .thesis {
+      position: absolute;
+      left: 116px;
+      bottom: 150px;
+      width: 780px;
+      padding-left: 30px;
+      border-left: 10px solid var(--blue);
+      font-size: 34px;
+      line-height: 1.55;
+      font-weight: 500;
+    }
+
+    /* === IMAGE STACK === */
+    .phone {
+      position: absolute;
+      right: 150px;
+      top: 150px;
+      width: 380px;
+      height: 720px;
+      border: 8px solid #161616;
+      border-radius: 48px;
+      overflow: hidden;
+      background: #111;
+      box-shadow: 28px 34px 0 var(--blue), 0 28px 80px rgba(0, 0, 0, .28);
+      transform: rotate(2deg);
+    }
+    .phone img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: top center;
+    }
+    .bubble {
+      position: absolute;
+      right: 580px;
+      bottom: 160px;
+      width: 270px;
+      height: 270px;
+      border-radius: 50%;
+      background: var(--mint);
+      border: 3px solid var(--blue);
+      display: grid;
+      place-items: center;
+      font: 900 54px/1 "Archivo", sans-serif;
+      color: var(--blue);
+      box-shadow: 18px 18px 0 var(--blue-soft);
+    }
+    .caption {
+      position: absolute;
+      right: 115px;
+      bottom: 72px;
+      font-size: 24px;
+      color: var(--blue);
+      font-weight: 700;
+    }
+
+    /* === MOTION === */
+    .meta, h1, .thesis, .phone, .bubble, .caption {
+      opacity: 0;
+      animation: rise .7s cubic-bezier(.2, .7, .2, 1) forwards;
+    }
+    h1 { animation-delay: .12s; }
+    .thesis { animation-delay: .24s; }
+    .phone { animation-delay: .34s; }
+    .bubble { animation-delay: .46s; }
+    .caption { animation-delay: .58s; }
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(32px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .phone { animation-name: phoneIn; }
+    @keyframes phoneIn {
+      from { opacity: 0; transform: translateY(32px) rotate(2deg) scale(.96); }
+      to { opacity: 1; transform: translateY(0) rotate(2deg) scale(1); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; opacity: 1 !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="deck-viewport">
+    <main class="stage" id="stage">
+      <div class="meta"><div class="mark">U</div><div>AI CODING / UREKA / 2026</div></div>
+      <h1>从想法到产品<span>UReka 的 vibe coding 实践</span></h1>
+      <p class="thesis">不是让 AI 替你写代码，而是把产品判断、Agent 架构、审美输入和工程验证组织成一个可迭代的系统。</p>
+      <div class="bubble">REKA</div>
+      <figure class="phone">
+        <img src="../../docs/ai-sharing-export/assets/images/17-asset-library.png" alt="UReka asset library screenshot">
+      </figure>
+      <div class="caption">统一入口 · 资产沉淀 · 主动提醒</div>
+    </main>
+  </div>
+  <script>
+    function scaleStage() {
+      const stage = document.getElementById('stage');
+      const scale = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+      stage.style.transform = `scale(${scale})`;
+    }
+    window.addEventListener('resize', scaleStage);
+    scaleStage();
+  </script>
+</body>
+</html>
