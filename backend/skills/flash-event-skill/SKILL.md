@@ -130,8 +130,8 @@ Call `tool_create_event`:
 - 没有任何人/参与方提及 → **不调 add_event_attendee**(0 个 attendee 是允许的)
 
 **为什么这样设计**(给未来的你/agent 看):
-- 唯一候选才自动绑定,避免同名联系人误绑
-- 0 或 2+ 候选都保留原文 `name_raw`,让用户之后自己确认
+- 唯一 exact contact 才自动绑定,contains 候选绝不触发绑定
+- 0 或 2+ exact contact 都保留原文 `name_raw`,让用户之后自己确认
 - Flash event 只引用已有 contact,不负责创建联系人
 - 完全重复称呼在调用工具前去重,避免同一 event 出现重复 attendee
 
@@ -189,24 +189,29 @@ For errors:
 
 **输入:** `明天下午两点到三点跟客户开会,地点在会议室B` (今天是 2026-05-25)
 1. `tool_create_event(title="跟客户开会", start_at="2026-05-26T14:00:00+08:00", end_at="2026-05-26T15:00:00+08:00", location="会议室B", source_input_turn_id=<turn>)` → event_id="e-xxx"
-2. `tool_query_contact(name_query="客户")` → `{"ok": true, "contacts": []}` (0 命中)
+2. `tool_query_contact(name_query="客户")` → `{"ok": true, "contacts": [], "exact_contacts": []}` (0 exact 命中)
 3. `tool_add_event_attendee(event_id="e-xxx", name="客户", role="attendee")`
 → 返回:`{"ok": true, "operation": "create", "event_id": "e-xxx", "title": "...", "start_at": "...", "attendees_added": ["客户"]}`
 
 **输入:** `明天下午六点有个和冯总的会议`
 1. `tool_create_event(title="和冯总的会议", start_at="2026-05-26T18:00:00+08:00", source_input_turn_id=<turn>)` → event_id="e-yyy"
-2. `tool_query_contact(name_query="冯总")` → `{"ok": true, "contacts": [{"contact_id": "c-feng", "name": "冯总", "phone": null, "company": null, "title": null, "email": null, "notes": [], "socials": {}}]}` (1 命中)
-3. `tool_add_event_attendee(event_id="e-yyy", name="冯总", contact_id="c-feng", role="attendee")`
+2. `tool_query_contact(name_query="冯总")` → `{"ok": true, "contacts": [{"contact_id": "c-feng", "name": "冯总"}], "exact_contacts": [{"contact_id": "c-feng", "name": "冯总"}]}` (1 exact 命中)
+3. `tool_add_event_attendee(event_id="e-yyy", name=exact_contacts[0]["name"], contact_id=exact_contacts[0]["contact_id"], role="attendee")`
 → `{"ok": true, ..., "attendees_added": ["冯总"]}`
 
 **输入:** `周五晚上7点跟Kevin、Kevin和刘洋老师一起吃饭`
 1. `tool_create_event(title="晚餐", start_at="2026-05-30T19:00:00+08:00", ...)` → event_id
 2. 完全重复的 `Kevin` 先去重,只查询和添加一次
-3. `tool_query_contact(name_query="Kevin")` → `contacts` 有 2 条 (2+ 命中)
-4. `tool_add_event_attendee(event_id, name="Kevin", role="attendee")` (不猜、不绑定)
-5. `tool_query_contact(name_query="刘洋老师")` → `contacts` 有 1 条
-6. `tool_add_event_attendee(event_id, name=contacts[0]["name"], contact_id=contacts[0]["contact_id"], role="attendee")`
+3. `tool_query_contact(name_query="Kevin")` → `{"ok": true, "contacts": [{"contact_id": "c-kevin", "name": "Kevin"}, {"contact_id": "c-kevin-chen", "name": "Kevin Chen"}, {"contact_id": "c-kevin-zhang", "name": "Kevin Zhang"}], "exact_contacts": [{"contact_id": "c-kevin", "name": "Kevin"}]}` (多个 contains,唯一 exact)
+4. `tool_add_event_attendee(event_id, name=exact_contacts[0]["name"], contact_id=exact_contacts[0]["contact_id"], role="attendee")` (绑定唯一 exact Kevin)
+5. `tool_query_contact(name_query="刘洋老师")` → `{"ok": true, "contacts": [{"contact_id": "c-liu-1", "name": "刘洋老师"}, {"contact_id": "c-liu-2", "name": "刘洋老师"}], "exact_contacts": [{"contact_id": "c-liu-1", "name": "刘洋老师"}, {"contact_id": "c-liu-2", "name": "刘洋老师"}]}` (2+ exact,有歧义)
+6. `tool_add_event_attendee(event_id, name="刘洋老师", role="attendee")` (不猜、不绑定)
 → `attendees_added: ["Kevin", "刘洋老师"]`
+
+**输入:** `明天下午和Alex开会`
+1. `tool_create_event(title="和Alex开会", start_at="2026-05-26T14:00:00+08:00", ...)` → event_id
+2. `tool_query_contact(name_query="Alex")` → `{"ok": true, "contacts": [{"contact_id": "c-alexander", "name": "Alexander"}], "exact_contacts": []}` (只有 contains,无 exact)
+3. `tool_add_event_attendee(event_id, name="Alex", role="attendee")` (保留裸名,不绑定 Alexander)
 
 **输入:** `明天早上 9 点站会`
 1. `tool_create_event(title="站会", start_at="2026-05-26T09:00:00+08:00", ...)` → event_id
@@ -228,7 +233,7 @@ For errors:
 - 不要捏造没说的字段(地点没说就不要瞎填 location)
 - 时区默认 +08:00
 - 一个 source_text 只处理一个 event 操作;dispatcher 已经把多意图拆开了
-- **attendees 在 create 时**先按完全重复称呼去重,再用 `tool_query_contact` 查询;仅 1 命中使用 contact 的 `name` + `contact_id` 绑定,0 或 2+ 命中保留原文 `name_raw`
+- **attendees 在 create 时**先按完全重复称呼去重,再用 `tool_query_contact` 查询;仅 1 个 exact contact 命中才使用其 `name` + `contact_id` 绑定,0 或 2+ exact 命中都保留原文 `name_raw`
 - Flash event **不创建 contact**,也不在多候选时猜测绑定
 - update / delete 操作不动 attendees
 - 完全重复 attendee(同一个原文称呼出现多次)必须去重,每个去重后的名字只调用一次 `tool_add_event_attendee`

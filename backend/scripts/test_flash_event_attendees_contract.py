@@ -18,6 +18,7 @@ def section(text: str, start: str, end: str) -> str:
 CALL_LINE = re.compile(
     r"^\s*(?:\d+\.\s*)?`?(tool_query_contact|tool_add_event_attendee)\("
 )
+BARE_CONTACTS_INDEX = re.compile(r"(?<!exact_)contacts\[0\]")
 
 
 def actual_call_lines(text: str) -> list[str]:
@@ -120,23 +121,74 @@ def main() -> None:
     assert dedupe_at < first_call_at
 
     examples = section(text, "## Examples", "## Notes")
+    for query in [
+        *tool_calls(step_3b, "tool_query_contact"),
+        *tool_calls(examples, "tool_query_contact"),
+    ]:
+        assert '"contacts"' in query, f"query response omits contacts: {query}"
+        assert '"exact_contacts"' in query, (
+            f"query response omits exact_contacts: {query}"
+        )
+
+    for call in actual_call_lines(text):
+        assert not BARE_CONTACTS_INDEX.search(call), (
+            f"runtime call uses unsafe bare contacts[0]: {call}"
+        )
+        match = CALL_LINE.match(call)
+        if (
+            match
+            and match.group(1) == "tool_add_event_attendee"
+            and "contact_id=" in call
+        ):
+            assert 'name=exact_contacts[0]["name"]' in call, (
+                f"bound attendee name must reference the exact result: {call}"
+            )
+            assert 'contact_id=exact_contacts[0]["contact_id"]' in call, (
+                f"bound attendee id must reference the exact result: {call}"
+            )
+
     kevin_example = section(
         examples,
         "**输入:** `周五晚上7点跟Kevin、Kevin和刘洋老师一起吃饭`",
-        "**输入:** `明天早上 9 点站会`",
+        "**输入:** `明天下午和Alex开会`",
     )
     kevin_queries = [
         call
         for call in tool_calls(kevin_example, "tool_query_contact")
         if "Kevin" in (literal_argument(call, "name_query") or "")
     ]
-    kevin_adds = [
-        call
-        for call in tool_calls(kevin_example, "tool_add_event_attendee")
-        if "Kevin" in (literal_argument(call, "name") or "")
-    ]
     assert len(kevin_queries) == 1, f"Kevin query calls: {kevin_queries}"
-    assert len(kevin_adds) == 1, f"Kevin add calls: {kevin_adds}"
+    assert "Kevin Chen" in kevin_queries[0] and "Kevin Zhang" in kevin_queries[0]
+    assert '"exact_contacts": [{"contact_id": "c-kevin", "name": "Kevin"}]' in kevin_queries[0]
+    kevin_adds = tool_calls(kevin_example, "tool_add_event_attendee")
+    assert sum("exact_contacts[0]" in call for call in kevin_adds) == 1
+    assert any(
+        'name=exact_contacts[0]["name"]' in call
+        and 'contact_id=exact_contacts[0]["contact_id"]' in call
+        for call in kevin_adds
+    )
+    assert any(
+        literal_argument(call, "name") == "刘洋老师"
+        and "contact_id=" not in call
+        for call in kevin_adds
+    ), "2+ exact matches must remain unbound"
+
+    alex_example = section(
+        examples,
+        "**输入:** `明天下午和Alex开会`",
+        "**输入:** `明天早上 9 点站会`",
+    )
+    alex_query = tool_calls(alex_example, "tool_query_contact")
+    alex_add = tool_calls(alex_example, "tool_add_event_attendee")
+    assert len(alex_query) == 1 and "Alexander" in alex_query[0]
+    assert '"exact_contacts": []' in alex_query[0]
+    assert len(alex_add) == 1
+    assert literal_argument(alex_add[0], "name") == "Alex"
+    assert "contact_id=" not in alex_add[0]
+
+    notes = text[text.index("## Notes"):]
+    assert "仅 1 个 exact contact 命中才" in notes
+    assert "仅 1 命中使用 contact" not in notes
 
     print("ok - flash event attendee safety contract")
 

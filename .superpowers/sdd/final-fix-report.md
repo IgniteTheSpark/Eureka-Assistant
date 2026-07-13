@@ -59,3 +59,24 @@ PASS — all findings in `final-fix-brief.md` are implemented and the required f
 
 - The local Python environment does not have runtime packages such as SQLAlchemy/FastMCP installed, so an import-level backend smoke test was unavailable. The required source contracts and `py_compile` gate pass.
 - Flutter emits the existing dependency-update and iOS Swift Package Manager warnings; focused tests and analysis are clean.
+
+## Follow-up: runtime Flash examples exact-match consistency
+
+Status: PASS. Commit: follow-up commit reported in the agent handoff.
+
+TDD evidence:
+
+- RED: the strengthened full-runtime contract first failed because the customer example omitted `exact_contacts`; a second binding-source assertion then failed on the Feng example's literal `name`/`contact_id`, proving bound calls were not yet consistently sourced from `exact_contacts[0]`.
+- GREEN: `test_flash_event_attendees_contract.py` passes after every Step 3b/Examples contact-query response exposes both arrays, every binding call uses `exact_contacts[0]`, Kevin demonstrates multiple contains with one exact binding, Alex/Alexander demonstrates zero exact remaining unbound, and two exact Liu rows remain unbound.
+
+Verification:
+
+- Flash attendee safety contract — PASS.
+- Event attendee, event card, and timeline attendee contracts — PASS.
+- `py_compile` for the changed Python contract — PASS.
+- `git diff --check` — PASS.
+
+Self-review / concern:
+
+- Notes now state that only one exact contact may bind; runtime actual call lines are scanned with a negative-lookbehind regex that rejects bare `contacts[0]` without rejecting `exact_contacts[0]`.
+- Per reviewer direction, the existing Minor `core.timeline` → private MCP serializer dependency is intentionally retained for this follow-up rather than expanded into a riskier refactor.
