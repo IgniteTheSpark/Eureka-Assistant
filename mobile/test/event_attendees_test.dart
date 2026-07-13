@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:eureka/api/api_client.dart';
@@ -194,6 +195,7 @@ void main() {
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
 
+      expect(find.text('选择参会人'), findsOneWidget);
       expect(queries, [
         {'q': '', 'limit': '20'},
       ]);
@@ -259,6 +261,8 @@ void main() {
 
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
+      expect(find.text('选择参会人'), findsOneWidget);
+      expect(find.text('选择一张名片完成绑定'), findsOneWidget);
       expect(queries, ['']);
 
       await tester.enterText(find.byType(TextField), 'Alex');
@@ -279,4 +283,118 @@ void main() {
       expect(result?.single.id, 'c3');
     },
   );
+
+  testWidgets(
+    'selector rejects an old response as soon as the search text changes',
+    (tester) async {
+      final oldResponse = Completer<http.Response>();
+      final api = ApiClient(
+        baseUrl: 'http://localhost',
+        enableLogging: false,
+        client: MockClient((request) async {
+          final query = request.url.queryParameters['q'];
+          if (query == 'Old') return oldResponse.future;
+          final contacts = query == 'New'
+              ? [
+                  {'id': 'new', 'name': 'New Result'},
+                ]
+              : const <Map<String, String>>[];
+          return http.Response(
+            jsonEncode({'contacts': contacts}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildEurekaTheme(EurekaColors.light),
+          home: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showEventAttendeeSelector(
+                context,
+                api: api,
+                onCreateContact: (_) async => null,
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'Old');
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.enterText(find.byType(TextField), 'New');
+      await tester.pump();
+
+      oldResponse.complete(
+        http.Response(
+          jsonEncode({
+            'contacts': [
+              {'id': 'old', 'name': 'Old Result'},
+            ],
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('Old Result'), findsNothing);
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pumpAndSettle();
+      expect(find.text('New Result'), findsOneWidget);
+    },
+  );
+
+  testWidgets('selector contains create errors and restores the retry button', (
+    tester,
+  ) async {
+    var attempts = 0;
+    final api = ApiClient(
+      baseUrl: 'http://localhost',
+      enableLogging: false,
+      client: MockClient(
+        (_) async => http.Response(
+          jsonEncode({'contacts': const []}),
+          200,
+          headers: {'content-type': 'application/json'},
+        ),
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildEurekaTheme(EurekaColors.dark),
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () => showEventAttendeeSelector(
+              context,
+              api: api,
+              onCreateContact: (_) async {
+                attempts++;
+                throw StateError('create failed');
+              },
+            ),
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('新增联系人'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('新增联系人失败，请重试'), findsOneWidget);
+    final retry = tester.widget<TextButton>(
+      find.widgetWithText(TextButton, '新增联系人'),
+    );
+    expect(retry.onPressed, isNotNull);
+    await tester.tap(find.text('新增联系人'));
+    await tester.pumpAndSettle();
+    expect(attempts, 2);
+  });
 }

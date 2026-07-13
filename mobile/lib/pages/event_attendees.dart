@@ -265,13 +265,14 @@ class _EventAttendeeSelectorState extends State<_EventAttendeeSelector> {
   bool _loading = true;
   bool _creating = false;
   String? _error;
-  int _requestSerial = 0;
+  String? _createError;
+  int _searchGeneration = 0;
 
   @override
   void initState() {
     super.initState();
     _searchController.addListener(_searchChanged);
-    _load('');
+    _load('', generation: ++_searchGeneration);
   }
 
   @override
@@ -284,14 +285,14 @@ class _EventAttendeeSelectorState extends State<_EventAttendeeSelector> {
 
   void _searchChanged() {
     _debounce?.cancel();
+    final generation = ++_searchGeneration;
     _debounce = Timer(
       const Duration(milliseconds: 300),
-      () => _load(_searchController.text.trim()),
+      () => _load(_searchController.text.trim(), generation: generation),
     );
   }
 
-  Future<void> _load(String query) async {
-    final serial = ++_requestSerial;
+  Future<void> _load(String query, {required int generation}) async {
     if (mounted) {
       setState(() {
         _loading = true;
@@ -315,13 +316,13 @@ class _EventAttendeeSelectorState extends State<_EventAttendeeSelector> {
                 )
                 .toList()
           : <ContactChoice>[];
-      if (!mounted || serial != _requestSerial) return;
+      if (!mounted || generation != _searchGeneration) return;
       setState(() {
         _contacts = contacts;
         _loading = false;
       });
     } catch (error) {
-      if (!mounted || serial != _requestSerial) return;
+      if (!mounted || generation != _searchGeneration) return;
       setState(() {
         _loading = false;
         _error = '加载联系人失败：$error';
@@ -342,7 +343,10 @@ class _EventAttendeeSelectorState extends State<_EventAttendeeSelector> {
 
   Future<void> _createContact() async {
     if (_creating) return;
-    setState(() => _creating = true);
+    setState(() {
+      _creating = true;
+      _createError = null;
+    });
     try {
       final receipt = await widget.onCreateContact(context);
       if (!mounted || receipt == null) return;
@@ -363,6 +367,10 @@ class _EventAttendeeSelectorState extends State<_EventAttendeeSelector> {
         if (widget.singleSelect) _selected.clear();
         _selected[contact.id] = contact;
       });
+    } catch (_) {
+      if (mounted) {
+        setState(() => _createError = '新增联系人失败，请重试');
+      }
     } finally {
       if (mounted) setState(() => _creating = false);
     }
@@ -382,7 +390,7 @@ class _EventAttendeeSelectorState extends State<_EventAttendeeSelector> {
                 children: [
                   Expanded(
                     child: Text(
-                      widget.singleSelect ? '绑定名片' : '添加参会人',
+                      '选择参会人',
                       style: TextStyle(
                         color: eu.textHi,
                         fontSize: 20,
@@ -395,6 +403,10 @@ class _EventAttendeeSelectorState extends State<_EventAttendeeSelector> {
                     icon: Icon(Icons.close, color: eu.textMid),
                   ),
                 ],
+              ),
+              Text(
+                widget.singleSelect ? '选择一张名片完成绑定' : '可选择多个联系人',
+                style: TextStyle(color: eu.textLo, fontSize: 12),
               ),
               const SizedBox(height: 10),
               TextField(
@@ -487,6 +499,13 @@ class _EventAttendeeSelectorState extends State<_EventAttendeeSelector> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text('没有找到联系人', style: TextStyle(color: eu.textLo)),
+            if (_createError != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                _createError!,
+                style: TextStyle(color: eu.accentRed, fontSize: 12),
+              ),
+            ],
             const SizedBox(height: 8),
             TextButton.icon(
               onPressed: _creating ? null : _createContact,
