@@ -119,20 +119,105 @@ void main() {
       expect(card.subtitle, 'Alex +1');
     });
 
-    test('skips empty names and honors a larger declared count', () {
+    test('counts unlabeled rows after finding the first visible attendee', () {
       final card = buildCard(
         payload: const {
           'attendees': [
-            {'display_name': '  ', 'name_raw': '', 'name': ''},
-            {'name_raw': 'Visible Guest'},
+            {},
+            {'display_name': 'Visible Guest'},
           ],
-          'attendees_count': 4,
         },
         spec: synthesizeSpec('event'),
         displayName: 'event',
       );
 
-      expect(card.subtitle, 'Visible Guest +3');
+      expect(card.subtitle, 'Visible Guest +1');
+    });
+
+    test('falls back from an empty display name to the raw name', () {
+      final card = buildCard(
+        payload: const {
+          'attendees': [
+            {
+              'display_name': ' ',
+              'name_raw': 'Raw Guest',
+              'name': 'Legacy Guest',
+            },
+          ],
+        },
+        spec: synthesizeSpec('event'),
+        displayName: 'event',
+      );
+
+      expect(card.subtitle, 'Raw Guest');
+    });
+
+    test('falls back from empty enriched names to the legacy name', () {
+      final card = buildCard(
+        payload: const {
+          'attendees': [
+            {'display_name': '', 'name_raw': '  ', 'name': 'Legacy Guest'},
+          ],
+        },
+        spec: synthesizeSpec('event'),
+        displayName: 'event',
+      );
+
+      expect(card.subtitle, 'Legacy Guest');
+    });
+
+    test('ignores declared counts at or below the attendee row count', () {
+      for (final declaredCount in const [1, 2]) {
+        final card = buildCard(
+          payload: {
+            'attendees': const [
+              {'display_name': 'Alex'},
+              {'display_name': 'Bob'},
+            ],
+            'attendees_count': declaredCount,
+          },
+          spec: synthesizeSpec('event'),
+          displayName: 'event',
+        );
+
+        expect(card.subtitle, 'Alex +1');
+      }
+    });
+
+    test(
+      'uses a declared count only when it exceeds the attendee row count',
+      () {
+        final card = buildCard(
+          payload: const {
+            'attendees': [
+              {'display_name': '  ', 'name_raw': '', 'name': ''},
+              {'name_raw': 'Visible Guest'},
+            ],
+            'attendees_count': 4,
+          },
+          spec: synthesizeSpec('event'),
+          displayName: 'event',
+        );
+
+        expect(card.subtitle, 'Visible Guest +3');
+      },
+    );
+
+    test('omits the attendee summary when every row is unlabeled', () {
+      final card = buildCard(
+        payload: const {
+          'attendees': [
+            {},
+            null,
+            {'display_name': ' ', 'name_raw': '', 'name': null},
+          ],
+          'attendees_count': 5,
+        },
+        spec: synthesizeSpec('event'),
+        displayName: 'event',
+      );
+
+      expect(card.subtitle, isEmpty);
     });
   });
 }

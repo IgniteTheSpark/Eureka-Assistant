@@ -236,7 +236,7 @@ String _eventAttendeeSummary(Map<String, dynamic> event) {
   }
   if (names.isEmpty) return '';
 
-  var total = names.length;
+  var total = raw is List ? raw.length : names.length;
   final declaredTotal = int.tryParse('${event['attendees_count'] ?? ''}');
   if (declaredTotal != null && declaredTotal > total) total = declaredTotal;
   return total == 1 ? names.first : '${names.first} +${total - 1}';
