@@ -589,6 +589,28 @@ const List<({String key, String label, String emoji})> kSocialPlatforms = [
       orElse: () => (key: key, label: key, emoji: '🔗'),
     );
 
+/// Preserve the 快创 receipt consumed by existing callers while exposing the
+/// backend contact record to attendee selectors for immediate auto-selection.
+Map<String, dynamic> contactCreationReceipt(
+  dynamic response, {
+  required String fallbackName,
+}) {
+  final responseMap = response is Map ? response : const <dynamic, dynamic>{};
+  final rawContact = responseMap['contact'];
+  final contact = rawContact is Map
+      ? Map<String, dynamic>.from(rawContact)
+      : <String, dynamic>{};
+  final contactId = '${responseMap['contact_id'] ?? contact['id'] ?? ''}';
+  return <String, dynamic>{
+    'user_skill_name': 'contact',
+    'display_name': '联系人',
+    'icon': '👤',
+    'payload': {'name': fallbackName},
+    'contact_id': contactId,
+    'contact': contact,
+  };
+}
+
 /// Dedicated contact editor (and creator). EDIT mode when [contactId] is set
 /// (PUT /api/contacts/{id}); otherwise POST /api/contacts. The contacts table
 /// is the 真身 for contact data — this never routes through /api/assets.
@@ -756,22 +778,21 @@ class _ContactFormState extends State<ContactForm> {
       'socials': socials, // full replace; supported-only enforced by backend
     };
     try {
+      dynamic createResponse;
       if (_isEdit) {
         await _api.putJson('/api/contacts/${widget.contactId}', body);
       } else {
-        await _api.postJson('/api/contacts', body);
+        createResponse = await _api.postJson('/api/contacts', body);
       }
       bumpData();
       if (mounted) {
         Navigator.of(context).maybePop(
           _isEdit
               ? true
-              : <String, dynamic>{
-                  'user_skill_name': 'contact',
-                  'display_name': '联系人',
-                  'icon': '👤',
-                  'payload': {'name': _name.text.trim()},
-                },
+              : contactCreationReceipt(
+                  createResponse,
+                  fallbackName: _name.text.trim(),
+                ),
         );
       }
     } catch (e) {
