@@ -123,8 +123,8 @@ class RingApp(rumps.App):
         self._mapping = {}
         self._demo = DemoSessionController()
         self._capture_context = None
-        self._recording_active = False
-        self._asr_active_count = 0
+        self._recording_context = None
+        self._asr_active_counts = {}
         self._finalizing_recording = False
         self._pending_capture = None
         self._config_process = None
@@ -218,7 +218,9 @@ class RingApp(rumps.App):
                 def start_recording():
                     with self._state_lock:
                         self._rec.start()
-                        self._recording_active = self._rec.recording
+                        self._recording_context = (
+                            context if self._rec.recording else None
+                        )
                     self.last = (
                         f"{name}->🎙录音"
                         if self._rec.recording
@@ -259,9 +261,13 @@ class RingApp(rumps.App):
         finally:
             self._finalizing_recording = False
         if was_recording and not self._rec.recording:
-            with self._state_lock:
-                self._recording_active = False
             context = self._capture_context
+            with self._state_lock:
+                if (
+                    context is not None
+                    and self._recording_context == context.demo
+                ):
+                    self._recording_context = None
             if context is not None:
                 self._demo.events.publish(
                     "recording.stopped", _capture_event_data(context.demo)
@@ -284,7 +290,9 @@ class RingApp(rumps.App):
 
     def _start_transcription(self, adpcm: bytes, context: VoiceCaptureContext):
         with self._state_lock:
-            self._asr_active_count += 1
+            self._asr_active_counts[context.demo] = (
+                self._asr_active_counts.get(context.demo, 0) + 1
+            )
         self._demo.events.publish("asr.started", _capture_event_data(context.demo))
         try:
             threading.Thread(
@@ -293,12 +301,16 @@ class RingApp(rumps.App):
                 daemon=True,
             ).start()
         except Exception:
-            self._mark_asr_finished()
+            self._mark_asr_finished(context.demo)
             raise
 
-    def _mark_asr_finished(self):
+    def _mark_asr_finished(self, context: CaptureContext):
         with self._state_lock:
-            self._asr_active_count = max(0, self._asr_active_count - 1)
+            remaining = self._asr_active_counts.get(context, 0) - 1
+            if remaining > 0:
+                self._asr_active_counts[context] = remaining
+            else:
+                self._asr_active_counts.pop(context, None)
 
     def _run_if_capture_current(
         self,
@@ -333,7 +345,7 @@ class RingApp(rumps.App):
             nonlocal asr_finished
             if asr_finished:
                 return
-            self._mark_asr_finished()
+            self._mark_asr_finished(context.demo)
             asr_finished = True
 
         try:
@@ -425,12 +437,15 @@ class RingApp(rumps.App):
             log.warning("refresh error: %s", e)
 
     def _demo_state_snapshot(self):
+        current_context = self._demo.capture_context()
         with self._state_lock:
             return {
                 "activeApp": self._frontmost,
                 "mapping": dict(self._mapping),
-                "recording": self._recording_active,
-                "asrProcessing": self._asr_active_count > 0,
+                "recording": self._recording_context == current_context,
+                "asrProcessing": (
+                    self._asr_active_counts.get(current_context, 0) > 0
+                ),
             }
 
     @rumps.clicked("打开配置…")

@@ -181,8 +181,8 @@ def _bare_ring_app(controller=None):
     ring_app._frontmost = None
     ring_app._mapping = {}
     ring_app._capture_context = None
-    ring_app._recording_active = False
-    ring_app._asr_active_count = 0
+    ring_app._recording_context = None
+    ring_app._asr_active_counts = {}
     ring_app.last = "-"
     ring_app.status = "starting"
     return ring_app
@@ -818,3 +818,97 @@ def test_activity_state_is_current_when_each_lifecycle_event_is_published(
     assert lifecycle_snapshots["recording.stopped"]["recording"] is False
     assert lifecycle_snapshots["asr.started"]["asrProcessing"] is True
     assert lifecycle_snapshots["transcript.ready"]["asrProcessing"] is False
+
+
+def test_flash_recording_does_not_pollute_vibe_generation_snapshot(monkeypatch):
+    controller = DemoSessionController(lease_seconds=30)
+    controller.acquire("browser-1")
+    controller.set_mode("browser-1", DemoMode.FLASH)
+    ring_app = _bare_ring_app(controller)
+    ring_app._frontmost = "com.apple.Safari"
+    ring_app._rec = Recorder(on_capture=ring_app._on_capture)
+    monkeypatch.setattr(app, "load_config", lambda _path: {})
+
+    ring_app._on_gesture(2)
+    assert ring_app._demo_state_snapshot()["recording"] is True
+
+    controller.set_mode("browser-1", DemoMode.VIBE)
+
+    snapshot = ring_app._demo_state_snapshot()
+    assert snapshot["recording"] is False
+    assert snapshot["asrProcessing"] is False
+
+
+def test_flash_asr_does_not_pollute_vibe_generation_snapshot(monkeypatch):
+    controller = DemoSessionController(lease_seconds=30)
+    controller.acquire("browser-1")
+    controller.set_mode("browser-1", DemoMode.FLASH)
+    ring_app = _bare_ring_app(controller)
+    flash_context = app.VoiceCaptureContext(
+        controller.capture_context(), "com.apple.Safari"
+    )
+    threads = _defer_transcription(monkeypatch, lambda _wav: "captured thought")
+
+    ring_app._start_transcription(b"flash", flash_context)
+    assert ring_app._demo_state_snapshot()["asrProcessing"] is True
+
+    controller.set_mode("browser-1", DemoMode.VIBE)
+
+    snapshot = ring_app._demo_state_snapshot()
+    assert snapshot["recording"] is False
+    assert snapshot["asrProcessing"] is False
+    assert len(threads) == 1
+
+
+@pytest.mark.parametrize("finish_first", ["old", "current"])
+def test_asr_terminal_only_updates_its_own_capture_generation(
+    monkeypatch, finish_first
+):
+    controller = DemoSessionController(lease_seconds=30)
+    controller.acquire("browser-1")
+    controller.set_mode("browser-1", DemoMode.FLASH)
+    ring_app = _bare_ring_app(controller)
+    old_context = app.VoiceCaptureContext(
+        controller.capture_context(), "com.apple.Safari"
+    )
+    threads = _defer_transcription(monkeypatch, lambda _wav: "captured thought")
+    monkeypatch.setattr(app, "type_text", lambda _text: None)
+    ring_app._start_transcription(b"old", old_context)
+
+    controller.set_mode("browser-1", DemoMode.VIBE)
+    ring_app._frontmost = "com.openai.codex"
+    current_context = app.VoiceCaptureContext(
+        controller.capture_context(), "com.openai.codex"
+    )
+    ring_app._start_transcription(b"current", current_context)
+    assert ring_app._demo_state_snapshot()["asrProcessing"] is True
+
+    first_index = 0 if finish_first == "old" else 1
+    threads[first_index].run()
+
+    assert ring_app._demo_state_snapshot()["asrProcessing"] is (
+        finish_first == "old"
+    )
+
+    threads[1 - first_index].run()
+    assert ring_app._demo_state_snapshot()["asrProcessing"] is False
+
+
+def test_same_generation_snapshot_recovers_recording_and_asr(monkeypatch):
+    controller = DemoSessionController(lease_seconds=30)
+    controller.acquire("browser-1")
+    controller.set_mode("browser-1", DemoMode.FLASH)
+    ring_app = _bare_ring_app(controller)
+    ring_app._frontmost = "com.apple.Safari"
+    ring_app._rec = Recorder(on_capture=ring_app._on_capture)
+    monkeypatch.setattr(app, "load_config", lambda _path: {})
+    _defer_transcription(monkeypatch, lambda _wav: "captured thought")
+
+    ring_app._on_gesture(2)
+    ring_app._start_transcription(
+        b"parallel", app.VoiceCaptureContext(controller.capture_context(), None)
+    )
+
+    snapshot = ring_app._demo_state_snapshot()
+    assert snapshot["recording"] is True
+    assert snapshot["asrProcessing"] is True
