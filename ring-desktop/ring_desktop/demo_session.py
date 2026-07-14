@@ -130,6 +130,19 @@ class DemoSessionController:
             self._expire_locked()
             return context == self._capture_context_locked()
 
+    def run_if_current(
+        self,
+        context: CaptureContext,
+        callback: Callable[[], None],
+    ) -> bool:
+        """Run a short side effect while the capture generation stays current."""
+        with self._lock:
+            self._expire_locked()
+            if context != self._capture_context_locked():
+                return False
+            callback()
+            return True
+
     def snapshot(self) -> dict:
         with self._lock:
             self._expire_locked()

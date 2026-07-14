@@ -83,7 +83,9 @@ def test_standalone_keeps_config_routing():
 def _bare_ring_app(controller=None):
     ring_app = object.__new__(app.RingApp)
     ring_app._demo = controller or DemoSessionController(lease_seconds=30)
+    ring_app._state_lock = threading.RLock()
     ring_app._frontmost = None
+    ring_app._mapping = {}
     ring_app._capture_context = None
     ring_app.last = "-"
     ring_app.status = "starting"
@@ -92,6 +94,81 @@ def _bare_ring_app(controller=None):
 
 def _next_event(subscriber):
     return subscriber.get_nowait()
+
+
+@pytest.mark.parametrize("next_mode", [DemoMode.IDLE, DemoMode.FLASH])
+def test_vibe_recording_does_not_start_after_mode_transition(
+    monkeypatch, next_mode
+):
+    controller = DemoSessionController(lease_seconds=30)
+    controller.acquire("browser-1")
+    controller.set_mode("browser-1", DemoMode.VIBE)
+    ring_app = _bare_ring_app(controller)
+    ring_app._frontmost = "com.openai.codex"
+    ring_app._rec = Recorder(on_capture=ring_app._on_capture)
+
+    def resolve_then_transition(*_args, **_kwargs):
+        controller.set_mode("browser-1", next_mode)
+        return {"type": "voice"}
+
+    monkeypatch.setattr(app, "resolve_demo_action", resolve_then_transition)
+
+    ring_app._on_gesture(2)
+
+    assert controller.snapshot()["mode"] == next_mode.value
+    assert ring_app._rec.recording is False
+
+
+@pytest.mark.parametrize("next_mode", [DemoMode.IDLE, DemoMode.FLASH])
+def test_vibe_recording_does_not_stop_after_mode_transition(
+    monkeypatch, next_mode
+):
+    controller = DemoSessionController(lease_seconds=30)
+    controller.acquire("browser-1")
+    controller.set_mode("browser-1", DemoMode.VIBE)
+    ring_app = _bare_ring_app(controller)
+    ring_app._frontmost = "com.openai.codex"
+    ring_app._rec = Recorder(on_capture=ring_app._on_capture)
+    ring_app._rec.start()
+    ring_app._capture_context = app.VoiceCaptureContext(
+        controller.capture_context(), "com.openai.codex"
+    )
+
+    def resolve_then_transition(*_args, **_kwargs):
+        controller.set_mode("browser-1", next_mode)
+        return {"type": "voice"}
+
+    monkeypatch.setattr(app, "resolve_demo_action", resolve_then_transition)
+
+    ring_app._on_gesture(2)
+
+    assert controller.snapshot()["mode"] == next_mode.value
+    assert ring_app._rec.recording is True
+
+
+@pytest.mark.parametrize("next_mode", [DemoMode.IDLE, DemoMode.FLASH])
+def test_vibe_non_voice_action_does_not_dispatch_after_mode_transition(
+    monkeypatch, next_mode
+):
+    controller = DemoSessionController(lease_seconds=30)
+    controller.acquire("browser-1")
+    controller.set_mode("browser-1", DemoMode.VIBE)
+    ring_app = _bare_ring_app(controller)
+    ring_app._frontmost = "com.openai.codex"
+    ring_app._rec = Recorder(on_capture=ring_app._on_capture)
+    dispatched = []
+
+    def resolve_then_transition(*_args, **_kwargs):
+        controller.set_mode("browser-1", next_mode)
+        return {"type": "key", "value": "enter"}
+
+    monkeypatch.setattr(app, "resolve_demo_action", resolve_then_transition)
+    monkeypatch.setattr(app, "dispatch", dispatched.append)
+
+    ring_app._on_gesture(3)
+
+    assert controller.snapshot()["mode"] == next_mode.value
+    assert dispatched == []
 
 
 @pytest.mark.parametrize(
@@ -176,6 +253,14 @@ class _ImmediateThread:
         self._target(*self._args)
 
 
+class _DeferredThread(_ImmediateThread):
+    def start(self):
+        return None
+
+    def run(self):
+        self._target(*self._args)
+
+
 def _stub_transcription(monkeypatch, text="captured thought"):
     monkeypatch.setattr(app.threading, "Thread", _ImmediateThread)
     monkeypatch.setattr(app.audio, "decode_adpcm", lambda payload: b"pcm:" + payload)
@@ -183,12 +268,29 @@ def _stub_transcription(monkeypatch, text="captured thought"):
     monkeypatch.setattr(app.asr, "transcribe", lambda wav: text)
 
 
+def _defer_transcription(monkeypatch, transcribe):
+    threads = []
+
+    def create_thread(*args, **kwargs):
+        thread = _DeferredThread(*args, **kwargs)
+        threads.append(thread)
+        return thread
+
+    monkeypatch.setattr(app.threading, "Thread", create_thread)
+    monkeypatch.setattr(app.audio, "decode_adpcm", lambda payload: b"pcm:" + payload)
+    monkeypatch.setattr(app.audio, "write_wav_temp", lambda pcm: "capture.wav")
+    monkeypatch.setattr(app.asr, "transcribe", transcribe)
+    return threads
+
+
 def test_flash_capture_publishes_stamped_transcript_without_injecting(monkeypatch):
     controller = DemoSessionController(lease_seconds=30)
     controller.acquire("browser-1")
     controller.set_mode("browser-1", DemoMode.FLASH)
     ring_app = _bare_ring_app(controller)
-    ring_app._capture_context = controller.capture_context()
+    ring_app._capture_context = app.VoiceCaptureContext(
+        controller.capture_context(), "com.apple.Safari"
+    )
     subscriber = controller.events.subscribe()
     injected = []
     _stub_transcription(monkeypatch)
@@ -223,7 +325,11 @@ def test_vibe_and_standalone_capture_inject_text(monkeypatch, mode):
         controller.acquire("browser-1")
         controller.set_mode("browser-1", mode)
     ring_app = _bare_ring_app(controller)
-    ring_app._capture_context = controller.capture_context()
+    source_bundle = "com.openai.codex" if mode is DemoMode.VIBE else None
+    ring_app._frontmost = source_bundle
+    ring_app._capture_context = app.VoiceCaptureContext(
+        controller.capture_context(), source_bundle
+    )
     subscriber = controller.events.subscribe()
     injected = []
     _stub_transcription(monkeypatch)
@@ -242,7 +348,9 @@ def test_stale_capture_is_discarded_after_mode_change(monkeypatch):
     controller.acquire("browser-1")
     controller.set_mode("browser-1", DemoMode.FLASH)
     ring_app = _bare_ring_app(controller)
-    ring_app._capture_context = controller.capture_context()
+    ring_app._capture_context = app.VoiceCaptureContext(
+        controller.capture_context(), "com.apple.Safari"
+    )
     controller.set_mode("browser-1", DemoMode.VIBE)
     subscriber = controller.events.subscribe()
     injected = []
@@ -256,6 +364,60 @@ def test_stale_capture_is_discarded_after_mode_change(monkeypatch):
     assert ring_app.last == "-"
     with pytest.raises(queue.Empty):
         subscriber.get_nowait()
+
+
+def test_vibe_capture_does_not_inject_after_frontmost_app_changes(monkeypatch):
+    controller = DemoSessionController(lease_seconds=30)
+    controller.acquire("browser-1")
+    controller.set_mode("browser-1", DemoMode.VIBE)
+    ring_app = _bare_ring_app(controller)
+    ring_app._frontmost = "com.openai.codex"
+    ring_app._rec = Recorder(on_capture=ring_app._on_capture)
+    monkeypatch.setattr(
+        app,
+        "load_config",
+        lambda _path: {
+            "com.openai.codex": {"double": {"type": "voice"}}
+        },
+    )
+    injected = []
+    monkeypatch.setattr(app, "type_text", injected.append)
+    threads = _defer_transcription(monkeypatch, lambda _wav: "captured thought")
+
+    ring_app._on_gesture(2)
+    ring_app._rec.feed(b"adpcm")
+    ring_app._on_gesture(2)
+    assert len(threads) == 1
+
+    ring_app._frontmost = "com.apple.Safari"
+    threads[0].run()
+
+    assert injected == []
+    assert ring_app.last == "double->🎙停"
+
+
+def test_stale_asr_exception_does_not_set_visible_failure(monkeypatch):
+    controller = DemoSessionController(lease_seconds=30)
+    controller.acquire("browser-1")
+    controller.set_mode("browser-1", DemoMode.FLASH)
+    ring_app = _bare_ring_app(controller)
+    ring_app._frontmost = "com.apple.Safari"
+    ring_app._rec = Recorder(on_capture=ring_app._on_capture)
+    monkeypatch.setattr(app, "load_config", lambda _path: {})
+
+    def fail_asr(_wav):
+        raise RuntimeError("ASR unavailable")
+
+    threads = _defer_transcription(monkeypatch, fail_asr)
+    ring_app._on_gesture(2)
+    ring_app._rec.feed(b"adpcm")
+    ring_app._on_gesture(2)
+    assert len(threads) == 1
+    controller.set_mode("browser-1", DemoMode.IDLE)
+
+    threads[0].run()
+
+    assert ring_app.last == "double->🎙停"
 
 
 def test_status_change_publishes_real_connection_snapshot():
@@ -331,3 +493,14 @@ def test_frontmost_events_publish_only_when_bundle_changes(monkeypatch):
     ]
     with pytest.raises(queue.Empty):
         subscriber.get_nowait()
+
+
+def test_demo_state_snapshot_exposes_cached_active_app_and_mapping():
+    ring_app = _bare_ring_app()
+    ring_app._frontmost = "com.openai.codex"
+    ring_app._mapping = {"double": "Voice", "triple": "Enter"}
+
+    assert ring_app._demo_state_snapshot() == {
+        "activeApp": "com.openai.codex",
+        "mapping": {"double": "Voice", "triple": "Enter"},
+    }

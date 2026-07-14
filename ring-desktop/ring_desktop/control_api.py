@@ -28,6 +28,7 @@ class VibrationControlServer:
         request_disconnect: Optional[Callable[[], bool]] = None,
         demo_controller: Optional[DemoSessionController] = None,
         demo_events: Optional[DemoEventBroker] = None,
+        get_demo_state: Optional[Callable[[], dict]] = None,
         host: str = "127.0.0.1",
         port: int = 17863,
     ):
@@ -39,6 +40,7 @@ class VibrationControlServer:
         scan_callback = request_scan
         connect_callback = request_connect
         disconnect_callback = request_disconnect
+        demo_state_callback = get_demo_state
         demo_event_broker = (
             demo_events
             if demo_events is not None
@@ -63,7 +65,7 @@ class VibrationControlServer:
                 elif self.path == "/demo/status":
                     if not self._demo_enabled():
                         return
-                    self._json(200, {"ok": True, **demo_controller.snapshot()})
+                    self._json(200, {"ok": True, **self._demo_snapshot()})
                 elif self.path == "/demo/events":
                     if not self._demo_enabled(require_events=True):
                         return
@@ -285,7 +287,7 @@ class VibrationControlServer:
                     self.send_header("Connection", "keep-alive")
                     self._send_cors_headers()
                     self.end_headers()
-                    snapshot = demo_controller.snapshot()
+                    snapshot = self._demo_snapshot()
                     latest_mode_generation = snapshot["generation"]
                     self._write_sse("snapshot", snapshot)
                     while not sse_shutdown.is_set():
@@ -319,6 +321,14 @@ class VibrationControlServer:
                             sse_subscribers.discard(subscriber)
                             sse_connections.pop(subscriber, None)
                             sse_condition.notify_all()
+
+            def _demo_snapshot(self):
+                desktop_state = (
+                    demo_state_callback() if demo_state_callback is not None else {}
+                )
+                if not isinstance(desktop_state, dict):
+                    desktop_state = {}
+                return {**desktop_state, **demo_controller.snapshot()}
 
             def _write_sse(self, event, payload):
                 data = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))

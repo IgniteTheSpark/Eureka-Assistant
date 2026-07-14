@@ -1,4 +1,5 @@
 import queue
+import threading
 
 import pytest
 
@@ -70,6 +71,68 @@ def test_mode_change_invalidates_capture():
 
     assert snapshot["generation"] == 3
     assert controller.accept_capture(capture) is False
+
+
+def test_run_if_current_rejects_callback_after_generation_change():
+    controller = DemoSessionController(lease_seconds=30)
+    controller.acquire("browser-1")
+    controller.set_mode("browser-1", DemoMode.VIBE)
+    capture = controller.capture_context()
+    called = []
+    controller.set_mode("browser-1", DemoMode.IDLE)
+
+    accepted = controller.run_if_current(capture, lambda: called.append("action"))
+
+    assert accepted is False
+    assert called == []
+
+
+def test_run_if_current_executes_callback_for_current_generation():
+    controller = DemoSessionController(lease_seconds=30)
+    controller.acquire("browser-1")
+    controller.set_mode("browser-1", DemoMode.VIBE)
+    capture = controller.capture_context()
+    called = []
+
+    accepted = controller.run_if_current(capture, lambda: called.append("action"))
+
+    assert accepted is True
+    assert called == ["action"]
+
+
+def test_run_if_current_holds_authorization_through_callback():
+    controller = DemoSessionController(lease_seconds=30)
+    controller.acquire("browser-1")
+    controller.set_mode("browser-1", DemoMode.VIBE)
+    capture = controller.capture_context()
+    callback_entered = threading.Event()
+    transition_started = threading.Event()
+    transition_done = threading.Event()
+    order = []
+
+    def transition_mode():
+        assert callback_entered.wait(1)
+        transition_started.set()
+        controller.set_mode("browser-1", DemoMode.IDLE)
+        order.append("transition")
+        transition_done.set()
+
+    transition_thread = threading.Thread(target=transition_mode)
+    transition_thread.start()
+
+    def authorized_action():
+        callback_entered.set()
+        assert transition_started.wait(1)
+        assert transition_done.is_set() is False
+        order.append("action")
+
+    accepted = controller.run_if_current(capture, authorized_action)
+    transition_thread.join(timeout=1)
+
+    assert accepted is True
+    assert transition_thread.is_alive() is False
+    assert order == ["action", "transition"]
+    assert controller.snapshot()["mode"] == "idle"
 
 
 def test_setting_current_mode_renews_lease_without_changing_generation():

@@ -219,6 +219,10 @@ def test_demo_endpoints_manage_session_lifecycle():
         lambda _kind: True,
         demo_controller=controller,
         demo_events=controller.events,
+        get_demo_state=lambda: {
+            "activeApp": "com.openai.codex",
+            "mapping": {"double": "Voice"},
+        },
         port=0,
     ).start()
     try:
@@ -230,6 +234,8 @@ def test_demo_endpoints_manage_session_lifecycle():
             "mode": "standalone",
             "generation": 0,
             "lease_expires_at": None,
+            "activeApp": "com.openai.codex",
+            "mapping": {"double": "Voice"},
         }
 
         status, body = post(server, {"sessionId": "browser-1"}, "/demo/session")
@@ -359,6 +365,10 @@ def test_demo_events_streams_snapshot_and_broker_events_then_unsubscribes():
         lambda _kind: True,
         demo_controller=controller,
         demo_events=broker,
+        get_demo_state=lambda: {
+            "activeApp": "com.openai.codex",
+            "mapping": {"triple": "Enter"},
+        },
         port=0,
     ).start()
     response = None
@@ -380,6 +390,8 @@ def test_demo_events_streams_snapshot_and_broker_events_then_unsubscribes():
                 "mode": "standalone",
                 "generation": 0,
                 "lease_expires_at": None,
+                "activeApp": "com.openai.codex",
+                "mapping": {"triple": "Enter"},
             },
         )
 
