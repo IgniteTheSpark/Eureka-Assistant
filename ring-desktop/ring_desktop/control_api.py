@@ -43,6 +43,15 @@ class VibrationControlServer:
             if demo_events is not None
             else demo_controller.events if demo_controller is not None else None
         )
+        sse_shutdown = threading.Event()
+        sse_stop_message = object()
+        sse_subscribers = set()
+        sse_condition = threading.Condition()
+
+        self._sse_shutdown = sse_shutdown
+        self._sse_stop_message = sse_stop_message
+        self._sse_subscribers = sse_subscribers
+        self._sse_condition = sse_condition
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):
@@ -259,6 +268,11 @@ class VibrationControlServer:
 
             def _handle_demo_events(self):
                 subscriber = demo_event_broker.subscribe()
+                with sse_condition:
+                    if sse_shutdown.is_set():
+                        demo_event_broker.unsubscribe(subscriber)
+                        return
+                    sse_subscribers.add(subscriber)
                 try:
                     self.send_response(200)
                     self.send_header("Content-Type", "text/event-stream")
@@ -266,19 +280,39 @@ class VibrationControlServer:
                     self.send_header("Connection", "keep-alive")
                     self._send_cors_headers()
                     self.end_headers()
-                    self._write_sse("snapshot", demo_controller.snapshot())
-                    while True:
+                    snapshot = demo_controller.snapshot()
+                    latest_mode_generation = snapshot["generation"]
+                    self._write_sse("snapshot", snapshot)
+                    while not sse_shutdown.is_set():
                         try:
                             message = subscriber.get(timeout=10)
                         except queue.Empty:
+                            if sse_shutdown.is_set():
+                                break
                             self.wfile.write(b": heartbeat\n\n")
                             self.wfile.flush()
                             continue
+                        if message is sse_stop_message or sse_shutdown.is_set():
+                            break
+                        if message["event"] == "mode.changed":
+                            generation = message["data"].get("generation")
+                            if (
+                                isinstance(generation, int)
+                                and generation <= latest_mode_generation
+                            ):
+                                continue
+                            if isinstance(generation, int):
+                                latest_mode_generation = generation
                         self._write_sse(message["event"], message["data"])
                 except (BrokenPipeError, ConnectionResetError, OSError):
                     return
                 finally:
-                    demo_event_broker.unsubscribe(subscriber)
+                    try:
+                        demo_event_broker.unsubscribe(subscriber)
+                    finally:
+                        with sse_condition:
+                            sse_subscribers.discard(subscriber)
+                            sse_condition.notify_all()
 
             def _write_sse(self, event, payload):
                 data = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
@@ -322,6 +356,24 @@ class VibrationControlServer:
         return self
 
     def stop(self):
+        self._sse_shutdown.set()
+        with self._sse_condition:
+            subscribers = tuple(self._sse_subscribers)
+        for subscriber in subscribers:
+            while True:
+                try:
+                    subscriber.put_nowait(self._sse_stop_message)
+                    break
+                except queue.Full:
+                    try:
+                        subscriber.get_nowait()
+                    except queue.Empty:
+                        continue
         self._server.shutdown()
         self._server.server_close()
         self._thread.join(timeout=2)
+        with self._sse_condition:
+            self._sse_condition.wait_for(
+                lambda: not self._sse_subscribers,
+                timeout=2,
+            )

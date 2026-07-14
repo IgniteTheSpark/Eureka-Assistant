@@ -7,7 +7,7 @@ from urllib.request import Request, urlopen
 import pytest
 
 from ring_desktop.control_api import VibrationControlServer
-from ring_desktop.demo_session import DemoEventBroker, DemoSessionController
+from ring_desktop.demo_session import DemoEventBroker, DemoMode, DemoSessionController
 from ring_desktop.vibration import VibrationType
 
 
@@ -52,6 +52,18 @@ class TrackingDemoEventBroker(DemoEventBroker):
     def unsubscribe(self, subscriber):
         super().unsubscribe(subscriber)
         self.unsubscribed.set()
+
+
+class SubscribeHookDemoEventBroker(TrackingDemoEventBroker):
+    def __init__(self):
+        super().__init__()
+        self.on_subscribe = None
+
+    def subscribe(self):
+        subscriber = super().subscribe()
+        if self.on_subscribe is not None:
+            self.on_subscribe()
+        return subscriber
 
 
 def test_vibration_request_calls_callback():
@@ -366,6 +378,59 @@ def test_demo_events_streams_snapshot_and_broker_events_then_unsubscribes():
             if broker.unsubscribed.wait(0.2):
                 break
         assert broker.unsubscribed.is_set()
+    finally:
+        if response is not None:
+            response.close()
+        server.stop()
+
+
+def test_server_stop_unsubscribes_open_demo_event_stream():
+    broker = TrackingDemoEventBroker()
+    controller = DemoSessionController(lease_seconds=30, events=broker)
+    server = VibrationControlServer(
+        lambda _kind: True,
+        demo_controller=controller,
+        demo_events=broker,
+        port=0,
+    ).start()
+    response = urlopen(
+        f"http://127.0.0.1:{server.port}/demo/events",
+        timeout=2,
+    )
+    try:
+        assert read_sse_event(response)[0] == "snapshot"
+
+        server.stop()
+
+        assert broker.unsubscribed.is_set()
+    finally:
+        response.close()
+
+
+def test_demo_events_filters_mode_event_already_covered_by_snapshot():
+    broker = SubscribeHookDemoEventBroker()
+    controller = DemoSessionController(lease_seconds=30, events=broker)
+    broker.on_subscribe = lambda: controller.acquire("browser-1")
+    server = VibrationControlServer(
+        lambda _kind: True,
+        demo_controller=controller,
+        demo_events=broker,
+        port=0,
+    ).start()
+    response = None
+    try:
+        response = urlopen(
+            f"http://127.0.0.1:{server.port}/demo/events",
+            timeout=2,
+        )
+        snapshot_event, snapshot = read_sse_event(response)
+        assert snapshot_event == "snapshot"
+        assert snapshot["generation"] == 1
+
+        changed = controller.set_mode("browser-1", DemoMode.FLASH)
+
+        assert read_sse_event(response) == ("mode.changed", changed)
+        assert changed["generation"] > snapshot["generation"]
     finally:
         if response is not None:
             response.close()
