@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { RingClient } from "./ring-client";
+import { normalizeDemoSnapshot, RingClient } from "./ring-client";
 
 const jsonResponse = (body: unknown) =>
   new Response(JSON.stringify(body), {
@@ -44,6 +44,39 @@ describe("RingClient", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     fetchMock.mockReset();
+  });
+
+  it("normalizes recording activity from Desktop snapshots", () => {
+    expect(
+      normalizeDemoSnapshot({
+        session_id: "tab-1",
+        mode: "flash",
+        generation: 2,
+        recording: true,
+        asr_processing: false,
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        recording: true,
+        asrProcessing: false,
+      }),
+    );
+
+    expect(
+      normalizeDemoSnapshot({
+        sessionId: "tab-1",
+        mode: "flash",
+        generation: 2,
+        asrProcessing: true,
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        asrProcessing: true,
+      }),
+    );
+    expect(
+      normalizeDemoSnapshot({ mode: "flash", generation: 2 }),
+    ).not.toHaveProperty("recording");
   });
 
   it("uses the localhost connection control endpoints", async () => {

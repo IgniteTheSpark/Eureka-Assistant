@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, expect, it, vi } from "vitest";
 
@@ -21,6 +21,7 @@ const connection: RingConnectionSnapshot = {
 
 function testDependencies(overrides: Partial<DemoSnapshot> = {}) {
   let emitEvent: ((event: RingEvent) => void) | undefined;
+  let reconnect: (() => void) | undefined;
   const snapshot: DemoSnapshot = {
     sessionId: "tab-1",
     mode: "vibe",
@@ -38,8 +39,9 @@ function testDependencies(overrides: Partial<DemoSnapshot> = {}) {
     release: vi.fn().mockResolvedValue({ ok: true }),
     releaseOnUnload: vi.fn(),
     setMode: vi.fn().mockResolvedValue(snapshot),
-    subscribe: vi.fn((onEvent: (event: RingEvent) => void) => {
+    subscribe: vi.fn((onEvent: (event: RingEvent) => void, onReconnect: () => void) => {
       emitEvent = onEvent;
+      reconnect = onReconnect;
       return vi.fn();
     }),
     scan: vi.fn(),
@@ -49,6 +51,9 @@ function testDependencies(overrides: Partial<DemoSnapshot> = {}) {
   return {
     emit(event: string, data: Record<string, unknown>) {
       act(() => emitEvent?.({ event, data }));
+    },
+    reconnect() {
+      act(() => reconnect?.());
     },
     ringClient,
   };
@@ -135,10 +140,57 @@ it("shows Recording only between matching live capture events", async () => {
 
   dependencies.emit("asr.started", matchingData());
   expect(screen.queryByText("Recording")).not.toBeInTheDocument();
+  expect(screen.getByText("Transcribing")).toBeVisible();
 
   dependencies.emit("recording.started", matchingData());
   dependencies.emit("recording.stopped", matchingData());
   expect(screen.queryByText("Recording")).not.toBeInTheDocument();
+});
+
+it("recovers recording and transcription state from reconnect snapshots", async () => {
+  const dependencies = testDependencies();
+  renderPage(dependencies);
+  await screen.findByText("BCL60392D5");
+
+  dependencies.emit("recording.started", matchingData());
+  expect(screen.getByText("Recording")).toBeVisible();
+
+  dependencies.ringClient.getStatus.mockResolvedValueOnce({
+    sessionId: "tab-1",
+    mode: "vibe",
+    generation: 2,
+    connection,
+    recording: false,
+    asrProcessing: true,
+  });
+  dependencies.reconnect();
+  expect(await screen.findByText("Transcribing")).toBeVisible();
+  expect(screen.queryByText("Recording")).not.toBeInTheDocument();
+
+  dependencies.ringClient.getStatus.mockResolvedValueOnce({
+    sessionId: "tab-1",
+    mode: "vibe",
+    generation: 2,
+    connection,
+    recording: false,
+    asrProcessing: false,
+  });
+  dependencies.reconnect();
+  await waitFor(() => {
+    expect(screen.queryByText("Recording")).not.toBeInTheDocument();
+    expect(screen.queryByText("Transcribing")).not.toBeInTheDocument();
+  });
+
+  dependencies.ringClient.getStatus.mockResolvedValueOnce({
+    sessionId: "tab-1",
+    mode: "vibe",
+    generation: 2,
+    connection,
+    recording: true,
+    asrProcessing: false,
+  });
+  dependencies.reconnect();
+  expect(await screen.findByText("Recording")).toBeVisible();
 });
 
 it("clears Recording when the Vibe generation rolls over", async () => {

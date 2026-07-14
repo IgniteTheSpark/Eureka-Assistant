@@ -58,6 +58,9 @@ export interface DemoContextValue {
   generation: number;
   activeApp: string | null;
   mapping: RingMapping;
+  recording: boolean;
+  asrProcessing: boolean;
+  activityRevision: number;
   events: RingEvent[];
   error: string | null;
   experienceResetKey: number;
@@ -119,6 +122,7 @@ export function DemoProvider({
   const sessionId = useMemo(getTabSessionId, []);
   const mountedRef = useRef(false);
   const generationRef = useRef(0);
+  const modeRef = useRef<DemoMode>("idle");
   const modeIntentRef = useRef(0);
   const modeQueueRef = useRef<Promise<void>>(Promise.resolve());
   const [ringStatus, setRingStatus] = useState<RingStatus>("loading");
@@ -128,6 +132,9 @@ export function DemoProvider({
   const [generation, setGeneration] = useState(0);
   const [activeApp, setActiveApp] = useState<string | null>(null);
   const [mapping, setMapping] = useState<RingMapping>(null);
+  const [recording, setRecording] = useState(false);
+  const [asrProcessing, setAsrProcessing] = useState(false);
+  const [activityRevision, setActivityRevision] = useState(0);
   const [events, setEvents] = useState<RingEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [experienceResetKey, setExperienceResetKey] = useState(0);
@@ -145,8 +152,19 @@ export function DemoProvider({
   }, []);
 
   const applySnapshot = useCallback((snapshot: DemoSnapshot) => {
-    if (snapshot.generation < generationRef.current) return false;
+    const currentGeneration = generationRef.current;
+    if (snapshot.sessionId !== null && snapshot.sessionId !== sessionId) {
+      return false;
+    }
+    if (
+      snapshot.generation < currentGeneration ||
+      (snapshot.generation === currentGeneration &&
+        snapshot.mode !== modeRef.current)
+    ) {
+      return false;
+    }
     generationRef.current = snapshot.generation;
+    modeRef.current = snapshot.mode;
     setGeneration(snapshot.generation);
     setModeState(snapshot.mode);
     if ("activeApp" in snapshot) setActiveApp(snapshot.activeApp ?? null);
@@ -159,25 +177,47 @@ export function DemoProvider({
     ) {
       setConnection(snapshot.connection);
     }
+    if (
+      snapshot.sessionId === sessionId &&
+      ("recording" in snapshot || "asrProcessing" in snapshot)
+    ) {
+      if ("recording" in snapshot) setRecording(snapshot.recording === true);
+      if ("asrProcessing" in snapshot) {
+        setAsrProcessing(snapshot.asrProcessing === true);
+      }
+      setActivityRevision((revision) => revision + 1);
+    }
     return true;
-  }, []);
+  }, [sessionId]);
 
   const applyModeEvent = useCallback(
     (data: Record<string, unknown>) => {
       const nextMode = eventMode(data);
       const nextGeneration = eventGeneration(data);
+      const eventSession = data.sessionId ?? data.session_id;
       if (
         !nextMode ||
         nextGeneration === null ||
-        nextGeneration < generationRef.current
+        (typeof eventSession === "string" && eventSession !== sessionId) ||
+        nextGeneration < generationRef.current ||
+        (nextGeneration === generationRef.current &&
+          nextMode !== modeRef.current)
       ) {
         return;
       }
+      const changed =
+        nextGeneration !== generationRef.current || nextMode !== modeRef.current;
       generationRef.current = nextGeneration;
+      modeRef.current = nextMode;
       setGeneration(nextGeneration);
       setModeState(nextMode);
+      if (changed) {
+        setRecording(false);
+        setAsrProcessing(false);
+        setActivityRevision((revision) => revision + 1);
+      }
     },
-    [],
+    [sessionId],
   );
 
   const refreshConnection = useCallback(async () => {
@@ -325,6 +365,9 @@ export function DemoProvider({
       generation,
       activeApp,
       mapping,
+      recording,
+      asrProcessing,
+      activityRevision,
       events,
       error,
       experienceResetKey,
@@ -338,6 +381,8 @@ export function DemoProvider({
     }),
     [
       activeApp,
+      activityRevision,
+      asrProcessing,
       beginFlashProcessing,
       connection,
       error,
@@ -348,6 +393,7 @@ export function DemoProvider({
       generation,
       mapping,
       mode,
+      recording,
       refreshConnection,
       ringStatus,
       resetLocalExperience,

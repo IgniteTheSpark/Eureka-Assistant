@@ -69,7 +69,9 @@ export function VibePage({
   ringClient?: VibeRingClient;
 }) {
   const demo = useDemo();
-  const [recording, setRecording] = useState(false);
+  const [captureState, setCaptureState] = useState<
+    "idle" | "recording" | "transcribing"
+  >("idle");
   const seenEvents = useRef<WeakSet<RingEvent> | null>(null);
   if (!seenEvents.current) seenEvents.current = new WeakSet(demo.events);
 
@@ -78,8 +80,24 @@ export function VibePage({
   }, [demo.setMode]);
 
   useEffect(() => {
-    setRecording(false);
+    setCaptureState("idle");
   }, [demo.experienceResetKey, demo.generation, demo.mode, demo.sessionId]);
+
+  useEffect(() => {
+    if (demo.activityRevision === 0 || demo.mode !== "vibe") return;
+    setCaptureState(
+      demo.recording
+        ? "recording"
+        : demo.asrProcessing
+          ? "transcribing"
+          : "idle",
+    );
+  }, [
+    demo.activityRevision,
+    demo.asrProcessing,
+    demo.mode,
+    demo.recording,
+  ]);
 
   useEffect(() => {
     for (const event of demo.events) {
@@ -88,21 +106,26 @@ export function VibePage({
       if (!eventMatches(event, demo.sessionId, demo.generation)) continue;
 
       if (event.event === "recording.started") {
-        setRecording(true);
-      } else if (
-        event.event === "recording.stopped" ||
-        event.event === "asr.started"
-      ) {
-        setRecording(false);
+        setCaptureState("recording");
+      } else if (event.event === "recording.stopped") {
+        setCaptureState("idle");
+      } else if (event.event === "asr.started") {
+        setCaptureState("transcribing");
       }
     }
   }, [demo.events, demo.generation, demo.sessionId]);
 
   const activeApp = isSupportedApp(demo.activeApp) ? demo.activeApp : null;
   const mapping = Object.entries(demo.mapping ?? {});
+  const captureClass =
+    captureState === "recording"
+      ? " vibe-is-recording"
+      : captureState === "transcribing"
+        ? " vibe-is-transcribing"
+        : "";
 
   return (
-    <main className={`vibe-page${recording ? " vibe-is-recording" : ""}`}>
+    <main className={`vibe-page${captureClass}`}>
       <nav className="demo-nav" aria-label="Demo modes">
         <Link to="/">Home</Link>
         <Link to="/flash">Flash</Link>
@@ -114,10 +137,15 @@ export function VibePage({
           <p className="eyebrow">EUREKA RING · VIBE</p>
           <h1>Vibe Mode</h1>
         </div>
-        {recording ? (
-          <div className="vibe-recording" aria-live="polite">
+        {captureState !== "idle" ? (
+          <div
+            className={`vibe-recording${
+              captureState === "transcribing" ? " vibe-transcribing" : ""
+            }`}
+            aria-live="polite"
+          >
             <span aria-hidden="true" />
-            Recording
+            {captureState === "recording" ? "Recording" : "Transcribing"}
           </div>
         ) : null}
       </header>

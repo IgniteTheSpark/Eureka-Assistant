@@ -59,6 +59,8 @@ export interface DemoSnapshot {
   connection: RingConnectionSnapshot;
   activeApp?: string | null;
   mapping?: RingMapping;
+  recording?: boolean;
+  asrProcessing?: boolean;
 }
 
 export interface RingEvent {

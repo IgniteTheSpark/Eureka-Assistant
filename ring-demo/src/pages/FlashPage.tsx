@@ -39,6 +39,12 @@ type FlashAction =
   | { type: "connection"; connected: boolean }
   | { type: "recording-started" }
   | { type: "recording-stopped" }
+  | {
+      type: "activity-snapshot";
+      recording: boolean;
+      asrProcessing: boolean;
+      connected: boolean;
+    }
   | { type: "processing"; transcript: string }
   | { type: "revealed"; result: FlashResponse }
   | { type: "failed"; message: string }
@@ -53,6 +59,26 @@ function reducer(state: FlashState, action: FlashAction): FlashState {
       return { phase: "listening", transcript: "", result: null, error: null };
     case "recording-stopped":
       return { ...state, phase: "transcribing", error: null };
+    case "activity-snapshot":
+      if (action.recording) {
+        return {
+          phase: "listening",
+          transcript: "",
+          result: null,
+          error: null,
+        };
+      }
+      if (action.asrProcessing) {
+        return { ...state, phase: "transcribing", error: null };
+      }
+      if (state.phase === "listening" || state.phase === "transcribing") {
+        return {
+          ...state,
+          phase: action.connected ? "ready" : "disconnected",
+          error: null,
+        };
+      }
+      return state;
     case "processing":
       return {
         phase: "processing",
@@ -160,6 +186,26 @@ export function FlashPage({
   useEffect(() => {
     dispatch({ type: "connection", connected: demo.connection.connected });
   }, [demo.connection.connected]);
+
+  useEffect(() => {
+    if (demo.activityRevision === 0 || demo.mode !== "flash") return;
+    if (demo.recording) {
+      requestSerial.current += 1;
+      recordingCycle.current += 1;
+    }
+    dispatch({
+      type: "activity-snapshot",
+      recording: demo.recording,
+      asrProcessing: demo.asrProcessing,
+      connected: demo.connection.connected,
+    });
+  }, [
+    demo.activityRevision,
+    demo.asrProcessing,
+    demo.connection.connected,
+    demo.mode,
+    demo.recording,
+  ]);
 
   useEffect(() => {
     requestSerial.current += 1;

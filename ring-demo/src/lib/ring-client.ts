@@ -80,6 +80,10 @@ export function normalizeDemoSnapshot(value: unknown): DemoSnapshot {
   const activeApp = record.activeApp ?? record.active_app;
   const hasMapping = hasOwn(record, "mapping");
   const mapping = record.mapping;
+  const hasRecording = hasOwn(record, "recording");
+  const hasAsrProcessing =
+    hasOwn(record, "asrProcessing") || hasOwn(record, "asr_processing");
+  const asrProcessing = record.asrProcessing ?? record.asr_processing;
   return {
     sessionId:
       typeof (record.sessionId ?? record.session_id) === "string"
@@ -103,6 +107,8 @@ export function normalizeDemoSnapshot(value: unknown): DemoSnapshot {
               : null,
         }
       : {}),
+    ...(hasRecording ? { recording: record.recording === true } : {}),
+    ...(hasAsrProcessing ? { asrProcessing: asrProcessing === true } : {}),
   };
 }
 

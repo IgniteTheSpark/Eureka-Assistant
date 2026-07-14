@@ -33,6 +33,9 @@ function Harness() {
       <output data-testid="generation">{demo.generation}</output>
       <output data-testid="active-app">{demo.activeApp}</output>
       <output data-testid="mapping">{JSON.stringify(demo.mapping)}</output>
+      <output data-testid="recording">{String(demo.recording)}</output>
+      <output data-testid="asr-processing">{String(demo.asrProcessing)}</output>
+      <output data-testid="activity-revision">{demo.activityRevision}</output>
       <output data-testid="device">{demo.connection.device?.name}</output>
       <output data-testid="events">{demo.events.length}</output>
       <output data-testid="reset-key">{demo.experienceResetKey}</output>
@@ -108,6 +111,75 @@ it("applies SSE state and refreshes the snapshot when EventSource reconnects", a
 
   act(() => ring.reconnect());
   await waitFor(() => expect(ring.client.getStatus).toHaveBeenCalledOnce());
+});
+
+it("restores capture activity from a reconnect snapshot", async () => {
+  const ring = fakeRingClient();
+  ring.client.acquire.mockResolvedValue({
+    ...snapshot,
+    mode: "flash",
+    generation: 2,
+    recording: false,
+    asrProcessing: false,
+  });
+  ring.client.getStatus.mockResolvedValue({
+    ...snapshot,
+    mode: "flash",
+    generation: 2,
+    recording: false,
+    asrProcessing: true,
+  });
+  render(
+    <DemoProvider ringClient={ring.client}>
+      <Harness />
+    </DemoProvider>,
+  );
+  await waitFor(() =>
+    expect(screen.getByTestId("activity-revision")).toHaveTextContent("1"),
+  );
+
+  act(() => ring.reconnect());
+
+  await waitFor(() =>
+    expect(screen.getByTestId("activity-revision")).toHaveTextContent("2"),
+  );
+  expect(screen.getByTestId("recording")).toHaveTextContent("false");
+  expect(screen.getByTestId("asr-processing")).toHaveTextContent("true");
+});
+
+it.each([
+  ["another session", { sessionId: "other-tab", mode: "flash", generation: 3 }],
+  ["no current session", { sessionId: null, mode: "flash", generation: 3 }],
+  ["an old mode", { sessionId: "tab-1", mode: "vibe", generation: 2 }],
+] as const)("rejects capture activity from %s snapshot", async (_label, staleScope) => {
+  const ring = fakeRingClient();
+  ring.client.acquire.mockResolvedValue({
+    ...snapshot,
+    mode: "flash",
+    generation: 2,
+    recording: false,
+    asrProcessing: false,
+  });
+  render(
+    <DemoProvider ringClient={ring.client}>
+      <Harness />
+    </DemoProvider>,
+  );
+  await waitFor(() => expect(screen.getByTestId("mode")).toHaveTextContent("flash"));
+
+  act(() => ring.emit({
+    event: "snapshot",
+    data: {
+      ...staleScope,
+      recording: true,
+      asrProcessing: false,
+    },
+  }));
+
+  expect(screen.getByTestId("mode")).toHaveTextContent("flash");
+  expect(screen.getByTestId("recording")).toHaveTextContent("false");
+  expect(screen.getByTestId("asr-processing")).toHaveTextContent("false");
+  expect(screen.getByTestId("activity-revision")).toHaveTextContent("1");
 });
 
 it("changes mode through the shared provider and releases on unload", async () => {

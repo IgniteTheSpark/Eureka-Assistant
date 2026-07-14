@@ -31,6 +31,7 @@ const snapshot: DemoSnapshot = {
 
 function testDependencies() {
   let emitEvent: ((event: RingEvent) => void) | undefined;
+  let reconnect: (() => void) | undefined;
   const ringClient = {
     acquire: vi.fn().mockResolvedValue(snapshot),
     getStatus: vi.fn().mockResolvedValue(snapshot),
@@ -39,8 +40,9 @@ function testDependencies() {
     release: vi.fn().mockResolvedValue({ ok: true }),
     releaseOnUnload: vi.fn(),
     setMode: vi.fn().mockResolvedValue(snapshot),
-    subscribe: vi.fn((onEvent: (event: RingEvent) => void) => {
+    subscribe: vi.fn((onEvent: (event: RingEvent) => void, onReconnect: () => void) => {
       emitEvent = onEvent;
+      reconnect = onReconnect;
       return vi.fn();
     }),
     scan: vi.fn(),
@@ -54,6 +56,9 @@ function testDependencies() {
     backendClient,
     emit(event: string, data: Record<string, unknown>) {
       act(() => emitEvent?.({ event, data }));
+    },
+    reconnect() {
+      act(() => reconnect?.());
     },
     ringClient,
   };
@@ -115,6 +120,43 @@ it("shows the shared connected ring and follows real recording events", async ()
   dependencies.emit("recording.stopped", matchingData());
   expect(screen.queryByText("Recording")).not.toBeInTheDocument();
   expect(screen.getByText("Transcribing")).toBeVisible();
+});
+
+it("recovers its capture phase from Desktop snapshots after SSE reconnects", async () => {
+  const dependencies = testDependencies();
+  renderPage(dependencies);
+  await screen.findByText("BCL60392D5");
+
+  dependencies.emit("recording.started", matchingData());
+  expect(screen.getByText("Recording")).toBeVisible();
+
+  dependencies.ringClient.getStatus.mockResolvedValueOnce({
+    ...snapshot,
+    recording: false,
+    asrProcessing: true,
+  });
+  dependencies.reconnect();
+  expect(await screen.findByText("Transcribing")).toBeVisible();
+  expect(screen.queryByText("Recording")).not.toBeInTheDocument();
+
+  dependencies.emit("recording.started", matchingData());
+  expect(screen.getByText("Recording")).toBeVisible();
+  dependencies.ringClient.getStatus.mockResolvedValueOnce({
+    ...snapshot,
+    recording: false,
+    asrProcessing: false,
+  });
+  dependencies.reconnect();
+  expect(await screen.findByText("Ready")).toBeVisible();
+  expect(screen.queryByText("Recording")).not.toBeInTheDocument();
+
+  dependencies.ringClient.getStatus.mockResolvedValueOnce({
+    ...snapshot,
+    recording: true,
+    asrProcessing: false,
+  });
+  dependencies.reconnect();
+  expect(await screen.findByText("Recording")).toBeVisible();
 });
 
 it("submits one matching transcript and reveals returned cards", async () => {
