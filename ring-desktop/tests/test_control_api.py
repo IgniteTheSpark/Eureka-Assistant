@@ -1,3 +1,4 @@
+import http.client
 import json
 import socket
 import threading
@@ -12,11 +13,14 @@ from ring_desktop.demo_session import DemoEventBroker, DemoMode, DemoSessionCont
 from ring_desktop.vibration import VibrationType
 
 
-def post(server, payload, path="/vibrate"):
+def post(server, payload, path="/vibrate", headers=None):
+    request_headers = {"Content-Type": "application/json"}
+    if headers is not None:
+        request_headers.update(headers)
     request = Request(
         f"http://127.0.0.1:{server.port}{path}",
         data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json"},
+        headers=request_headers,
         method="POST",
     )
     with urlopen(request, timeout=2) as response:
@@ -222,6 +226,8 @@ def test_demo_endpoints_manage_session_lifecycle():
         get_demo_state=lambda: {
             "activeApp": "com.openai.codex",
             "mapping": {"double": "Voice"},
+            "recording": True,
+            "asrProcessing": False,
         },
         port=0,
     ).start()
@@ -236,6 +242,8 @@ def test_demo_endpoints_manage_session_lifecycle():
             "lease_expires_at": None,
             "activeApp": "com.openai.codex",
             "mapping": {"double": "Voice"},
+            "recording": True,
+            "asrProcessing": False,
         }
 
         status, body = post(server, {"sessionId": "browser-1"}, "/demo/session")
@@ -358,6 +366,118 @@ def test_options_and_demo_response_return_only_allowed_local_cors_origin():
         server.stop()
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/vibrate",
+        "/event",
+        "/connection/scan",
+        "/connection/connect",
+        "/connection/disconnect",
+        "/demo/session",
+        "/demo/heartbeat",
+        "/demo/mode",
+        "/demo/release",
+    ],
+)
+@pytest.mark.parametrize("origin", ["https://evil.example", "null"])
+def test_all_browser_write_requests_reject_untrusted_origins(path, origin):
+    controller = DemoSessionController(lease_seconds=30)
+    server = VibrationControlServer(
+        lambda _kind: True,
+        request_event=lambda _app, _event: True,
+        request_scan=lambda: True,
+        request_connect=lambda _address, _name: True,
+        request_disconnect=lambda: True,
+        demo_controller=controller,
+        demo_events=controller.events,
+        port=0,
+    ).start()
+    try:
+        with pytest.raises(HTTPError) as error:
+            post(server, {}, path, headers={"Origin": origin})
+    finally:
+        server.stop()
+
+    assert error.value.code == 403
+    assert error_json(error.value) == {
+        "ok": False,
+        "error": "origin not allowed",
+    }
+
+
+def test_browser_write_requires_content_type_even_from_allowed_origin():
+    received = []
+    server = VibrationControlServer(
+        lambda kind: received.append(kind) or True,
+        port=0,
+    ).start()
+    try:
+        connection = http.client.HTTPConnection("127.0.0.1", server.port, timeout=2)
+        connection.request(
+            "POST",
+            "/vibrate",
+            body=json.dumps({"type": "gradient"}),
+            headers={"Origin": "http://localhost:5173"},
+        )
+        response = connection.getresponse()
+        status = response.status
+        body = json.loads(response.read())
+        connection.close()
+    finally:
+        server.stop()
+
+    assert status == 415
+    assert body == {
+        "ok": False,
+        "error": "content type required",
+    }
+    assert received == []
+
+
+def test_allowed_browser_send_beacon_text_plain_write_is_preserved():
+    received = []
+    server = VibrationControlServer(
+        lambda kind: received.append(kind) or True,
+        port=0,
+    ).start()
+    try:
+        status, body = post(
+            server,
+            {"type": "gradient"},
+            headers={
+                "Origin": "http://localhost:5173",
+                "Content-Type": "text/plain;charset=UTF-8",
+            },
+        )
+    finally:
+        server.stop()
+
+    assert status == 200
+    assert body == {"ok": True, "type": "gradient"}
+    assert received == [VibrationType.GRADIENT]
+
+
+def test_native_write_without_origin_keeps_accepting_non_browser_content_type():
+    received = []
+    server = VibrationControlServer(
+        lambda kind: received.append(kind) or True,
+        port=0,
+    ).start()
+    try:
+        status, body = post(
+            server,
+            {"type": "gradient"},
+            headers={"Content-Type": "text/plain"},
+        )
+    finally:
+        server.stop()
+
+    assert status == 200
+    assert body == {"ok": True, "type": "gradient"}
+    assert received == [VibrationType.GRADIENT]
+
+
 def test_demo_events_streams_snapshot_and_broker_events_then_unsubscribes():
     broker = TrackingDemoEventBroker()
     controller = DemoSessionController(lease_seconds=30, events=broker)
@@ -368,6 +488,8 @@ def test_demo_events_streams_snapshot_and_broker_events_then_unsubscribes():
         get_demo_state=lambda: {
             "activeApp": "com.openai.codex",
             "mapping": {"triple": "Enter"},
+            "recording": False,
+            "asrProcessing": True,
         },
         port=0,
     ).start()
@@ -392,6 +514,8 @@ def test_demo_events_streams_snapshot_and_broker_events_then_unsubscribes():
                 "lease_expires_at": None,
                 "activeApp": "com.openai.codex",
                 "mapping": {"triple": "Enter"},
+                "recording": False,
+                "asrProcessing": True,
             },
         )
 

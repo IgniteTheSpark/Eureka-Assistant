@@ -58,6 +58,100 @@ def test_vibe_resolves_actions_for_supported_frontmost_apps(bundle):
     assert action == {"type": "key", "value": "enter"}
 
 
+@pytest.mark.parametrize(
+    ("bundle", "gesture", "action"),
+    [
+        ("com.openai.codex", "double", {"type": "voice"}),
+        ("com.openai.codex", "triple", {"type": "key", "value": "enter"}),
+        ("com.openai.codex", "up", {"type": "scroll", "value": "up"}),
+        ("com.openai.codex", "down", {"type": "scroll", "value": "down"}),
+        ("com.alibaba.DingTalkMac", "double", {"type": "voice"}),
+        (
+            "com.alibaba.DingTalkMac",
+            "triple",
+            {"type": "key", "value": "enter"},
+        ),
+        ("com.alibaba.DingTalkMac", "up", {"type": "key", "value": "up"}),
+        (
+            "com.alibaba.DingTalkMac",
+            "down",
+            {"type": "key", "value": "down"},
+        ),
+    ],
+)
+def test_vibe_allows_only_the_explicit_app_gesture_actions(
+    bundle, gesture, action
+):
+    assert app.resolve_demo_action(
+        mode="vibe",
+        bundle=bundle,
+        gesture=gesture,
+        config={bundle: {gesture: action}},
+    ) == action
+
+
+@pytest.mark.parametrize(
+    ("bundle", "gesture", "action"),
+    [
+        (
+            "com.openai.codex",
+            "longPress",
+            {"type": "key", "value": "cmd+a;backspace"},
+        ),
+        ("com.openai.codex", "single", {"type": "voice"}),
+        ("com.openai.codex", "triple", {"type": "key", "value": "cmd+a"}),
+        ("com.openai.codex", "up", {"type": "key", "value": "up"}),
+        (
+            "com.alibaba.DingTalkMac",
+            "longPress",
+            {"type": "key", "value": "cmd+a;backspace"},
+        ),
+        (
+            "com.alibaba.DingTalkMac",
+            "up",
+            {"type": "scroll", "value": "up"},
+        ),
+    ],
+)
+def test_vibe_rejects_unsupported_or_repurposed_actions(bundle, gesture, action):
+    assert app.resolve_demo_action(
+        mode="vibe",
+        bundle=bundle,
+        gesture=gesture,
+        config={bundle: {gesture: action}},
+    ) is None
+
+
+@pytest.mark.parametrize(
+    ("bundle", "up_action"),
+    [
+        ("com.openai.codex", {"type": "scroll", "value": "up"}),
+        ("com.alibaba.DingTalkMac", {"type": "key", "value": "up"}),
+    ],
+)
+def test_serialize_mapping_hides_actions_outside_the_vibe_allowlist(
+    bundle, up_action
+):
+    config = {
+        "default": {
+            "longPress": {"type": "key", "value": "cmd+a;backspace"},
+            "single": {"type": "voice"},
+        },
+        bundle: {
+            "double": {"type": "voice"},
+            "triple": {"type": "key", "value": "enter"},
+            "up": up_action,
+            "down": {"type": "key", "value": "cmd+a"},
+        },
+    }
+
+    assert app.serialize_mapping(config, bundle) == {
+        "double": "Voice",
+        "triple": "Enter",
+        "up": "Scroll up" if bundle == "com.openai.codex" else "Up",
+    }
+
+
 def test_idle_suppresses_all_gestures():
     action = app.resolve_demo_action(
         mode="idle",
@@ -87,6 +181,8 @@ def _bare_ring_app(controller=None):
     ring_app._frontmost = None
     ring_app._mapping = {}
     ring_app._capture_context = None
+    ring_app._recording_active = False
+    ring_app._asr_active_count = 0
     ring_app.last = "-"
     ring_app.status = "starting"
     return ring_app
@@ -649,4 +745,76 @@ def test_demo_state_snapshot_exposes_cached_active_app_and_mapping():
     assert ring_app._demo_state_snapshot() == {
         "activeApp": "com.openai.codex",
         "mapping": {"double": "Voice", "triple": "Enter"},
+        "recording": False,
+        "asrProcessing": False,
     }
+
+
+@pytest.mark.parametrize("transcript", ["captured thought", ""])
+def test_demo_snapshot_tracks_recording_and_asr_through_transcript_terminal(
+    monkeypatch, transcript
+):
+    controller = DemoSessionController(lease_seconds=30)
+    controller.acquire("browser-1")
+    controller.set_mode("browser-1", DemoMode.FLASH)
+    ring_app = _bare_ring_app(controller)
+    ring_app._frontmost = "com.apple.Safari"
+    ring_app._rec = Recorder(on_capture=ring_app._on_capture)
+    monkeypatch.setattr(app, "load_config", lambda _path: {})
+    threads = _defer_transcription(monkeypatch, lambda _wav: transcript)
+
+    assert ring_app._demo_state_snapshot()["recording"] is False
+    assert ring_app._demo_state_snapshot()["asrProcessing"] is False
+
+    ring_app._on_gesture(2)
+
+    assert ring_app._demo_state_snapshot()["recording"] is True
+    assert ring_app._demo_state_snapshot()["asrProcessing"] is False
+
+    ring_app._rec.feed(b"adpcm")
+    ring_app._on_gesture(2)
+
+    assert len(threads) == 1
+    assert ring_app._demo_state_snapshot()["recording"] is False
+    assert ring_app._demo_state_snapshot()["asrProcessing"] is True
+
+    threads[0].run()
+
+    assert ring_app._demo_state_snapshot()["recording"] is False
+    assert ring_app._demo_state_snapshot()["asrProcessing"] is False
+
+
+def test_activity_state_is_current_when_each_lifecycle_event_is_published(
+    monkeypatch,
+):
+    controller = DemoSessionController(lease_seconds=30)
+    controller.acquire("browser-1")
+    controller.set_mode("browser-1", DemoMode.FLASH)
+    ring_app = _bare_ring_app(controller)
+    ring_app._frontmost = "com.apple.Safari"
+    ring_app._rec = Recorder(on_capture=ring_app._on_capture)
+    monkeypatch.setattr(app, "load_config", lambda _path: {})
+    lifecycle_snapshots = {}
+    real_publish = controller.events.publish
+
+    def capture_snapshot(event, payload):
+        if event in {
+            "recording.started",
+            "recording.stopped",
+            "asr.started",
+            "transcript.ready",
+        }:
+            lifecycle_snapshots[event] = ring_app._demo_state_snapshot()
+        real_publish(event, payload)
+
+    monkeypatch.setattr(controller.events, "publish", capture_snapshot)
+    _stub_transcription(monkeypatch)
+
+    ring_app._on_gesture(2)
+    ring_app._rec.feed(b"adpcm")
+    ring_app._on_gesture(2)
+
+    assert lifecycle_snapshots["recording.started"]["recording"] is True
+    assert lifecycle_snapshots["recording.stopped"]["recording"] is False
+    assert lifecycle_snapshots["asr.started"]["asrProcessing"] is True
+    assert lifecycle_snapshots["transcript.ready"]["asrProcessing"] is False

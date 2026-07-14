@@ -28,6 +28,20 @@ log = logging.getLogger("ring_desktop.app")
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.json")
 CONFIG_HOTKEY = "<ctrl>+<alt>+r"
 VIBE_BUNDLES = frozenset({"com.openai.codex", "com.alibaba.DingTalkMac"})
+VIBE_ACTIONS = {
+    "com.openai.codex": {
+        "double": {"type": "voice"},
+        "triple": {"type": "key", "value": "enter"},
+        "up": {"type": "scroll", "value": "up"},
+        "down": {"type": "scroll", "value": "down"},
+    },
+    "com.alibaba.DingTalkMac": {
+        "double": {"type": "voice"},
+        "triple": {"type": "key", "value": "enter"},
+        "up": {"type": "key", "value": "up"},
+        "down": {"type": "key", "value": "down"},
+    },
+}
 
 
 @dataclass(frozen=True)
@@ -55,7 +69,10 @@ def resolve_demo_action(
     if mode == DemoMode.VIBE.value:
         if bundle not in VIBE_BUNDLES:
             return None
-        return resolve_action(config, bundle, gesture)
+        action = resolve_action(config, bundle, gesture)
+        if action != VIBE_ACTIONS[bundle].get(gesture):
+            return None
+        return action
     return resolve_action(config, bundle, gesture)
 
 
@@ -79,6 +96,8 @@ def serialize_mapping(config: dict, bundle: Optional[str]) -> dict:
     mapping = {}
     for gesture, action in merged.items():
         if gesture == "vibration":
+            continue
+        if bundle in VIBE_BUNDLES and action != VIBE_ACTIONS[bundle].get(gesture):
             continue
         label = _action_label(action)
         if label is not None:
@@ -104,6 +123,8 @@ class RingApp(rumps.App):
         self._mapping = {}
         self._demo = DemoSessionController()
         self._capture_context = None
+        self._recording_active = False
+        self._asr_active_count = 0
         self._finalizing_recording = False
         self._pending_capture = None
         self._config_process = None
@@ -195,7 +216,9 @@ class RingApp(rumps.App):
                     self.last = f"{name}->-"
             else:
                 def start_recording():
-                    self._rec.start()
+                    with self._state_lock:
+                        self._rec.start()
+                        self._recording_active = self._rec.recording
                     self.last = (
                         f"{name}->🎙录音"
                         if self._rec.recording
@@ -236,6 +259,8 @@ class RingApp(rumps.App):
         finally:
             self._finalizing_recording = False
         if was_recording and not self._rec.recording:
+            with self._state_lock:
+                self._recording_active = False
             context = self._capture_context
             if context is not None:
                 self._demo.events.publish(
@@ -258,12 +283,22 @@ class RingApp(rumps.App):
         self._start_transcription(adpcm, context)
 
     def _start_transcription(self, adpcm: bytes, context: VoiceCaptureContext):
+        with self._state_lock:
+            self._asr_active_count += 1
         self._demo.events.publish("asr.started", _capture_event_data(context.demo))
-        threading.Thread(
-            target=self._transcribe_inject,
-            args=(adpcm, context),
-            daemon=True,
-        ).start()
+        try:
+            threading.Thread(
+                target=self._transcribe_inject,
+                args=(adpcm, context),
+                daemon=True,
+            ).start()
+        except Exception:
+            self._mark_asr_finished()
+            raise
+
+    def _mark_asr_finished(self):
+        with self._state_lock:
+            self._asr_active_count = max(0, self._asr_active_count - 1)
 
     def _run_if_capture_current(
         self,
@@ -292,6 +327,15 @@ class RingApp(rumps.App):
         return authorized and performed
 
     def _transcribe_inject(self, adpcm: bytes, context: VoiceCaptureContext):
+        asr_finished = False
+
+        def finish_asr():
+            nonlocal asr_finished
+            if asr_finished:
+                return
+            self._mark_asr_finished()
+            asr_finished = True
+
         try:
             wav = audio.write_wav_temp(audio.decode_adpcm(adpcm))
             text = asr.transcribe(wav)
@@ -302,6 +346,7 @@ class RingApp(rumps.App):
             def deliver_text():
                 self.last = f"🎙{text[:14]}"
                 if context.demo.mode is DemoMode.FLASH:
+                    finish_asr()
                     self._demo.events.publish(
                         "transcript.ready",
                         {**_capture_event_data(context.demo), "text": text},
@@ -325,6 +370,8 @@ class RingApp(rumps.App):
                 context.source_bundle,
                 lambda: setattr(self, "last", "voice->失败"),
             )
+        finally:
+            finish_asr()
 
     def _request_vibration(self, vibration_type: VibrationType) -> bool:
         accepted = self._ble.request_vibration(vibration_type)
@@ -382,6 +429,8 @@ class RingApp(rumps.App):
             return {
                 "activeApp": self._frontmost,
                 "mapping": dict(self._mapping),
+                "recording": self._recording_active,
+                "asrProcessing": self._asr_active_count > 0,
             }
 
     @rumps.clicked("打开配置…")

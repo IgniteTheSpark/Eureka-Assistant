@@ -74,6 +74,8 @@ class VibrationControlServer:
                     self._json(404, {"ok": False, "error": "not found"})
 
             def do_POST(self):
+                if not self._authorize_browser_write():
+                    return
                 if self.path == "/vibrate":
                     self._handle_vibrate()
                 elif self.path == "/event":
@@ -94,6 +96,20 @@ class VibrationControlServer:
                     self._handle_demo_release()
                 else:
                     self._json(404, {"ok": False, "error": "not found"})
+
+            def _authorize_browser_write(self):
+                if "Origin" not in self.headers:
+                    return True
+                origin = self.headers.get("Origin")
+                if origin not in ALLOWED_ORIGINS:
+                    self._json(403, {"ok": False, "error": "origin not allowed"})
+                    return False
+                content_type = self.headers.get("Content-Type", "")
+                media_type = content_type.partition(";")[0].strip().lower()
+                if media_type not in {"application/json", "text/plain"}:
+                    self._json(415, {"ok": False, "error": "content type required"})
+                    return False
+                return True
 
             def do_OPTIONS(self):
                 self.send_response(204)
