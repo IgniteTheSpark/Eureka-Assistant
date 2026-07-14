@@ -18,6 +18,8 @@
 - Do not use long-press or present failure vibration.
 - Preserve Ring Desktop standalone behavior when no Demo lease is active.
 - Use simple React/CSS transitions; no shader, 3D engine, or heavy motion dependency.
+- The Home Hero may remain a functional placeholder in the first closed-loop milestone.
+- Flash and Vibe both show connection controls, a connected-ring visual slot, and recording state driven by real `recording.started`/`recording.stopped` events.
 
 ---
 
@@ -41,7 +43,7 @@
 - Create `ring-demo/src/lib/ring-client.ts`: localhost Ring REST/SSE client.
 - Create `ring-demo/src/lib/backend-client.ts`: JWT auth and Flash API client.
 - Create `ring-demo/src/state/demo-store.tsx`: Demo Session lifecycle and shared state.
-- Create `ring-demo/src/components/RingConnection.tsx`: scan/connect/disconnect UI.
+- Create `ring-demo/src/components/RingConnection.tsx`: scan/connect/disconnect UI plus connected-ring visual slot.
 - Create `ring-demo/src/components/AssetCard.tsx`: known-card and generic fallback renderer.
 - Create `ring-demo/src/pages/HomePage.tsx`, `SetupPage.tsx`, `FlashPage.tsx`, `VibePage.tsx`.
 - Create focused `ring-demo/src/**/*.test.ts(x)` tests next to each unit.
@@ -387,7 +389,7 @@ export function HomePage() {
 }
 ```
 
-Use one responsive column below 840px, two columns above it, visible keyboard focus, `prefers-reduced-motion`, and 180–300ms opacity/transform transitions.
+Use a functional placeholder for the Hero visual, one responsive column below 840px, two columns above it, visible keyboard focus, `prefers-reduced-motion`, and 180–300ms opacity/transform transitions.
 
 - [ ] **Step 4: Verify tests and production build**
 
@@ -457,6 +459,8 @@ export async function requestJson<T>(url: string, init?: RequestInit): Promise<T
 ```
 
 Create one UUID per browser tab using `sessionStorage`, acquire on provider mount, heartbeat every 3 seconds, release with `sendBeacon`/best-effort fetch on unload, reconnect EventSource with browser defaults, and refresh `/demo/status` after SSE reconnect. Store JWT in `localStorage`; invalid/absent JWT redirects to `/setup` without putting credentials in source or env.
+
+`RingConnection` is shared by Flash and Vibe. Once connected it renders a stable ring visual placeholder with device name and connected status; it must not disappear when switching pages.
 
 - [ ] **Step 4: Verify tests, types, and build**
 
@@ -545,6 +549,7 @@ git commit -m "feat(demo): run flash pipeline from ring voice"
 
 **Interfaces:**
 - Consumes `active_app.changed` and `mapping.changed`.
+- Consumes `recording.started` and `recording.stopped` for the same live recording indicator used by Flash.
 - Displays only Codex and DingTalk profiles; it never sends App content or business actions.
 
 - [ ] **Step 1: Write failing Vibe tests**
@@ -559,6 +564,14 @@ it("shows the active Codex profile", () => {
   });
   expect(screen.getByText("Codex active")).toBeVisible();
   expect(screen.getByText("Voice")).toBeVisible();
+});
+
+it("enters and leaves the live recording state", () => {
+  render(<VibePage />, { wrapper: demoWrapper("vibe") });
+  emitRingEvent("recording.started", {});
+  expect(screen.getByText(/recording/i)).toBeVisible();
+  emitRingEvent("recording.stopped", {});
+  expect(screen.queryByText(/recording/i)).toBeNull();
 });
 ```
 
@@ -576,7 +589,7 @@ const APP_PROFILES = {
 } as const;
 ```
 
-Show connection status, both supported profiles, the current active profile, and serialized gesture labels. For any other Bundle ID, show “Open Codex or DingTalk to activate Ring controls.” Do not add send/success/failure state to the page.
+Show the shared connection/ring visual, both supported profiles, the current active profile, serialized gesture labels, and a recording indicator controlled only by real Ring events. For any other Bundle ID, show “Open Codex or DingTalk to activate Ring controls.” Do not add send/success/failure state to the page.
 
 - [ ] **Step 4: Verify all Web tests and build**
 
