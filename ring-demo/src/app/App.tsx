@@ -1,13 +1,11 @@
 import { useEffect, useState } from "react";
 import {
-  Link,
   Navigate,
   Outlet,
   Route,
   Routes,
 } from "react-router-dom";
 
-import { RingConnection } from "../components/RingConnection";
 import {
   ApiError,
   backendClient as defaultBackendClient,
@@ -17,15 +15,11 @@ import {
   ringClient as defaultRingClient,
   type RingClient,
 } from "../lib/ring-client";
-import type { DemoMode } from "../lib/types";
 import { FlashPage } from "../pages/FlashPage";
 import { HomePage } from "../pages/HomePage";
 import { AUTH_TOKEN_KEY, SetupPage } from "../pages/SetupPage";
-import {
-  DemoProvider,
-  type DemoRingClient,
-  useDemo,
-} from "../state/demo-store";
+import { VibePage } from "../pages/VibePage";
+import { DemoProvider, type DemoRingClient } from "../state/demo-store";
 
 type AppBackendClient = Pick<
   BackendClient,
@@ -103,34 +97,6 @@ function DemoLayout({
   );
 }
 
-function ModePlaceholder({
-  title,
-  mode,
-  ringClient,
-}: {
-  title: string;
-  mode: DemoMode;
-  ringClient: AppRingClient;
-}) {
-  const demo = useDemo();
-  useEffect(() => {
-    void demo.setMode(mode).catch(() => undefined);
-  }, [demo.setMode, mode]);
-
-  return (
-    <main className="placeholder-page">
-      <nav className="demo-nav" aria-label="Demo modes">
-        <Link to="/">Home</Link>
-        <Link to="/flash">Flash</Link>
-        <Link to="/vibe">Vibe</Link>
-      </nav>
-      <p className="eyebrow">EUREKA RING</p>
-      <h1>{title}</h1>
-      <RingConnection ringClient={ringClient} />
-    </main>
-  );
-}
-
 export function App({
   backendClient = defaultBackendClient,
   ringClient = defaultRingClient,
@@ -158,13 +124,7 @@ export function App({
           />
           <Route
             path="/vibe"
-            element={
-              <ModePlaceholder
-                mode="vibe"
-                ringClient={ringClient}
-                title="Vibe Mode"
-              />
-            }
+            element={<VibePage ringClient={ringClient} />}
           />
         </Route>
       </Route>

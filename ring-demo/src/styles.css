@@ -23,6 +23,7 @@ a {
 .home,
 .placeholder-page,
 .flash-page,
+.vibe-page,
 .setup-page,
 .auth-check {
   width: min(1120px, calc(100% - 40px));
@@ -287,6 +288,145 @@ input:focus-visible,
   min-height: 100vh;
 }
 
+.vibe-page {
+  min-height: 100vh;
+}
+
+.vibe-header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 32px;
+}
+
+.vibe-header h1 {
+  font-size: clamp(2.8rem, 7vw, 5.8rem);
+}
+
+.vibe-recording {
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #5f413b;
+  border-radius: 999px;
+  color: #f2c2b9;
+  background: #241817;
+}
+
+.vibe-recording span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ff7d6f;
+  box-shadow: 0 0 0 7px rgb(255 125 111 / 12%);
+  animation: flash-breathe 1.4s ease-in-out infinite;
+}
+
+.vibe-workspace {
+  width: min(820px, 100%);
+  margin-top: 28px;
+  display: grid;
+  gap: 18px;
+}
+
+.vibe-app-status,
+.vibe-mapping {
+  padding: 24px;
+  border: 1px solid #35332f;
+  border-radius: 18px;
+  background: #171614;
+}
+
+.vibe-active-state,
+.vibe-app-prompt,
+.vibe-mapping-empty {
+  margin: 0;
+}
+
+.vibe-active-state {
+  color: #9fd6a9;
+  font-size: clamp(1.4rem, 3vw, 2rem);
+}
+
+.vibe-app-prompt,
+.vibe-mapping-empty {
+  color: #b8b3aa;
+}
+
+.vibe-profiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.vibe-profile {
+  padding: 20px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  border: 1px solid #35332f;
+  border-radius: 16px;
+  background: #171614;
+  transition: border-color 180ms ease, background 180ms ease;
+}
+
+.vibe-profile.is-active {
+  border-color: #5f8066;
+  background: #19201a;
+}
+
+.vibe-profile-dot {
+  width: 9px;
+  height: 9px;
+  margin-top: 8px;
+  border-radius: 50%;
+  background: #5c5953;
+}
+
+.vibe-profile.is-active .vibe-profile-dot {
+  background: #8fc89c;
+  box-shadow: 0 0 0 6px rgb(143 200 156 / 10%);
+}
+
+.vibe-profile h2,
+.vibe-profile p {
+  margin: 0;
+}
+
+.vibe-profile h2 {
+  font-size: 1.25rem;
+}
+
+.vibe-profile p {
+  margin-top: 6px;
+  color: #aaa69f;
+  line-height: 1.45;
+}
+
+.vibe-mapping dl {
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.vibe-mapping dl > div {
+  padding: 12px 0;
+  display: grid;
+  grid-template-columns: minmax(120px, 0.7fr) minmax(0, 1fr);
+  gap: 20px;
+  border-top: 1px solid #35332f;
+}
+
+.vibe-mapping dt {
+  color: #8f8b83;
+}
+
+.vibe-mapping dd {
+  margin: 0;
+  color: #f4f2ee;
+}
+
 .flash-header {
   display: flex;
   align-items: end;
@@ -540,9 +680,14 @@ input:focus-visible,
 }
 
 @media (max-width: 620px) {
-  .flash-header {
+  .flash-header,
+  .vibe-header {
     align-items: start;
     flex-direction: column;
+  }
+
+  .vibe-profiles {
+    grid-template-columns: 1fr;
   }
 
   .ring-connection.is-connected {
@@ -559,7 +704,9 @@ input:focus-visible,
   .mode-card,
   .asset-card,
   .flash-status-dot,
-  .flash-signal span {
+  .flash-signal span,
+  .vibe-profile,
+  .vibe-recording span {
     transition: none;
     animation: none;
   }

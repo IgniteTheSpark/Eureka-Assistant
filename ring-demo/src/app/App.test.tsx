@@ -88,6 +88,8 @@ it("keeps the connected ring state while switching between Flash and Vibe", asyn
   fireEvent.click(screen.getByRole("link", { name: "Vibe" }));
   expect(await screen.findByRole("heading", { name: "Vibe Mode" })).toBeInTheDocument();
   expect(screen.getByText("BCL60392D5")).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Codex" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "DingTalk" })).toBeInTheDocument();
   await waitFor(() => expect(dependencies.ringClient.acquire).toHaveBeenCalledTimes(1));
 });
 
