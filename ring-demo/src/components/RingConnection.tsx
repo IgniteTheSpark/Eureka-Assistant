@@ -46,7 +46,9 @@ function RingConnectionView({
   ringClient: ConnectionClient;
 }) {
   const [devices, setDevices] = useState(connection.devices);
-  const [pending, setPending] = useState(false);
+  const [pendingAction, setPendingAction] = useState<
+    "scan" | "connect" | "disconnect" | null
+  >(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => setDevices(connection.devices), [connection.devices]);
@@ -58,8 +60,11 @@ function RingConnectionView({
     return next;
   };
 
-  const run = async (command: () => Promise<unknown>) => {
-    setPending(true);
+  const run = async (
+    action: "scan" | "connect" | "disconnect",
+    command: () => Promise<unknown>,
+  ) => {
+    setPendingAction(action);
     setError(null);
     try {
       await command();
@@ -71,13 +76,18 @@ function RingConnectionView({
           : "Could not reach Ring Desktop",
       );
     } finally {
-      setPending(false);
+      setPendingAction(null);
     }
   };
 
-  const scan = () => run(() => ringClient.scan());
-  const connect = (device: RingDevice) => run(() => ringClient.connect(device));
-  const disconnect = () => run(() => ringClient.disconnect());
+  const scan = () => run("scan", () => ringClient.scan());
+  const connect = (device: RingDevice) =>
+    run("connect", () => ringClient.connect(device));
+  const disconnect = () => run("disconnect", () => ringClient.disconnect());
+  const scanning = connection.status === "scanning" || pendingAction === "scan";
+  const connecting =
+    connection.status === "connecting" || pendingAction === "connect";
+  const pending = scanning || connecting || pendingAction === "disconnect";
 
   if (connection.connected && connection.device) {
     return (
@@ -102,7 +112,7 @@ function RingConnectionView({
         <h2>Connect your ring</h2>
       </div>
       <button disabled={pending} onClick={() => void scan()} type="button">
-        {pending ? "Scanning…" : "Scan for rings"}
+        {scanning ? "Scanning…" : "Scan for rings"}
       </button>
       {devices.length > 0 ? (
         <ul className="ring-device-list" aria-label="Discovered rings">
@@ -113,7 +123,7 @@ function RingConnectionView({
                 onClick={() => void connect(device)}
                 type="button"
               >
-                {device.name}
+                {connecting ? "Connecting…" : device.name}
               </button>
             </li>
           ))}

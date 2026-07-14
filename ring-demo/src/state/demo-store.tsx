@@ -5,6 +5,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -33,6 +34,10 @@ const EMPTY_CONNECTION: RingConnectionSnapshot = {
   lastError: null,
 };
 
+type RetryRequest =
+  | { kind: "session" }
+  | { kind: "mode"; mode: DemoMode };
+
 export type DemoRingClient = Pick<
   RingClient,
   | "acquire"
@@ -50,6 +55,7 @@ export interface DemoContextValue {
   ringStatus: RingStatus;
   connection: RingConnectionSnapshot;
   mode: DemoMode;
+  generation: number;
   activeApp: string | null;
   mapping: RingMapping;
   events: RingEvent[];
@@ -79,6 +85,10 @@ function eventMode(data: Record<string, unknown>): DemoMode | null {
     : null;
 }
 
+function eventGeneration(data: Record<string, unknown>) {
+  return typeof data.generation === "number" ? data.generation : null;
+}
+
 function eventActiveApp(data: Record<string, unknown>) {
   const value = data.activeApp ?? data.active_app ?? data.bundle ?? data.app;
   return typeof value === "string" ? value : null;
@@ -102,16 +112,35 @@ export function DemoProvider({
   ringClient?: DemoRingClient;
 }) {
   const sessionId = useMemo(getTabSessionId, []);
+  const mountedRef = useRef(false);
+  const generationRef = useRef(0);
+  const modeIntentRef = useRef(0);
+  const modeQueueRef = useRef<Promise<void>>(Promise.resolve());
   const [ringStatus, setRingStatus] = useState<RingStatus>("loading");
   const [connection, setConnection] =
     useState<RingConnectionSnapshot>(EMPTY_CONNECTION);
   const [mode, setModeState] = useState<DemoMode>("idle");
+  const [generation, setGeneration] = useState(0);
   const [activeApp, setActiveApp] = useState<string | null>(null);
   const [mapping, setMapping] = useState<RingMapping>(null);
   const [events, setEvents] = useState<RingEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [retryRequest, setRetryRequest] = useState<RetryRequest | null>(null);
+
+  const clearError = useCallback(() => {
+    setError(null);
+    setRetryRequest(null);
+  }, []);
+
+  const showError = useCallback((nextError: unknown, retry: RetryRequest) => {
+    setError(errorMessage(nextError));
+    setRetryRequest(retry);
+  }, []);
 
   const applySnapshot = useCallback((snapshot: DemoSnapshot) => {
+    if (snapshot.generation < generationRef.current) return false;
+    generationRef.current = snapshot.generation;
+    setGeneration(snapshot.generation);
     setModeState(snapshot.mode);
     setActiveApp(snapshot.activeApp);
     setMapping(snapshot.mapping);
@@ -123,32 +152,70 @@ export function DemoProvider({
     ) {
       setConnection(snapshot.connection);
     }
+    return true;
   }, []);
+
+  const applyModeEvent = useCallback(
+    (data: Record<string, unknown>) => {
+      const nextMode = eventMode(data);
+      const nextGeneration = eventGeneration(data);
+      if (
+        !nextMode ||
+        nextGeneration === null ||
+        nextGeneration < generationRef.current
+      ) {
+        return;
+      }
+      generationRef.current = nextGeneration;
+      setGeneration(nextGeneration);
+      setModeState(nextMode);
+    },
+    [],
+  );
 
   const refreshConnection = useCallback(async () => {
     const next = await ringClient.getConnection();
-    setConnection(next);
+    if (mountedRef.current) setConnection(next);
     return next;
   }, [ringClient]);
 
   const refreshStatus = useCallback(async () => {
     const next = await ringClient.getStatus();
-    applySnapshot(next);
+    if (mountedRef.current) applySnapshot(next);
     return next;
   }, [applySnapshot, ringClient]);
 
+  const initialize = useCallback(async () => {
+    setRingStatus("loading");
+    clearError();
+    try {
+      const [snapshot, nextConnection] = await Promise.all([
+        ringClient.acquire(sessionId),
+        ringClient.getConnection(),
+      ]);
+      if (!mountedRef.current) return;
+      applySnapshot(snapshot);
+      setConnection(nextConnection);
+      setRingStatus("ready");
+      clearError();
+    } catch (setupError) {
+      if (!mountedRef.current) return;
+      setRingStatus("error");
+      showError(setupError, { kind: "session" });
+    }
+  }, [applySnapshot, clearError, ringClient, sessionId, showError]);
+
   useEffect(() => {
-    let active = true;
+    mountedRef.current = true;
     const handleEvent = (event: RingEvent) => {
-      if (!active) return;
+      if (!mountedRef.current) return;
       setEvents((current) => [...current.slice(-99), event]);
       if (event.event === "snapshot") {
         applySnapshot(normalizeDemoSnapshot(event.data));
       } else if (event.event === "connection.changed") {
         setConnection(normalizeConnection(event.data));
       } else if (event.event === "mode.changed") {
-        const nextMode = eventMode(event.data);
-        if (nextMode) setModeState(nextMode);
+        applyModeEvent(event.data);
       } else if (event.event === "active_app.changed") {
         setActiveApp(eventActiveApp(event.data));
       } else if (event.event === "mapping.changed") {
@@ -156,57 +223,77 @@ export function DemoProvider({
       }
     };
     const unsubscribe = ringClient.subscribe(handleEvent, () => {
-      if (!active) return;
+      if (!mountedRef.current) return;
       void refreshStatus().catch((refreshError: unknown) => {
-        if (active) setError(errorMessage(refreshError));
+        if (mountedRef.current) showError(refreshError, { kind: "session" });
       });
     });
 
-    void Promise.all([ringClient.acquire(sessionId), ringClient.getConnection()])
-      .then(([snapshot, nextConnection]) => {
-        if (!active) return;
-        applySnapshot(snapshot);
-        setConnection(nextConnection);
-        setRingStatus("ready");
-        setError(null);
-      })
-      .catch((setupError: unknown) => {
-        if (!active) return;
-        setRingStatus("error");
-        setError(errorMessage(setupError));
-      });
-
+    void initialize();
     const heartbeat = window.setInterval(() => {
       void ringClient.heartbeat(sessionId).catch((heartbeatError: unknown) => {
-        if (!active) return;
+        if (!mountedRef.current) return;
         setRingStatus("error");
-        setError(errorMessage(heartbeatError));
+        showError(heartbeatError, { kind: "session" });
       });
     }, 3_000);
     const release = () => ringClient.releaseOnUnload(sessionId);
     window.addEventListener("beforeunload", release);
 
     return () => {
-      active = false;
+      mountedRef.current = false;
       window.clearInterval(heartbeat);
       window.removeEventListener("beforeunload", release);
       unsubscribe();
     };
-  }, [applySnapshot, refreshStatus, ringClient, sessionId]);
+  }, [
+    applyModeEvent,
+    applySnapshot,
+    initialize,
+    refreshStatus,
+    ringClient,
+    sessionId,
+    showError,
+  ]);
 
   const setMode = useCallback(
-    async (nextMode: DemoMode) => {
-      try {
-        const snapshot = await ringClient.setMode(sessionId, nextMode);
-        applySnapshot(snapshot);
-        setError(null);
-      } catch (modeError) {
-        setError(errorMessage(modeError));
-        throw modeError;
-      }
+    (nextMode: DemoMode) => {
+      const intent = ++modeIntentRef.current;
+      const operation = modeQueueRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          try {
+            const snapshot = await ringClient.setMode(sessionId, nextMode);
+            if (!mountedRef.current || intent !== modeIntentRef.current) return;
+            applySnapshot(snapshot);
+            clearError();
+          } catch (modeError) {
+            if (mountedRef.current && intent === modeIntentRef.current) {
+              showError(modeError, { kind: "mode", mode: nextMode });
+            }
+            throw modeError;
+          }
+        });
+      modeQueueRef.current = operation.catch(() => undefined);
+      return operation;
     },
-    [applySnapshot, ringClient, sessionId],
+    [applySnapshot, clearError, ringClient, sessionId, showError],
   );
+
+  const retryError = useCallback(async () => {
+    const request = retryRequest;
+    if (!request) return;
+    clearError();
+    if (request.kind === "session") {
+      await initialize();
+      return;
+    }
+    try {
+      await setMode(request.mode);
+    } catch {
+      // setMode restores the actionable error for another retry.
+    }
+  }, [clearError, initialize, retryRequest, setMode]);
 
   const value = useMemo<DemoContextValue>(
     () => ({
@@ -214,6 +301,7 @@ export function DemoProvider({
       ringStatus,
       connection,
       mode,
+      generation,
       activeApp,
       mapping,
       events,
@@ -227,6 +315,7 @@ export function DemoProvider({
       connection,
       error,
       events,
+      generation,
       mapping,
       mode,
       refreshConnection,
@@ -236,12 +325,26 @@ export function DemoProvider({
     ],
   );
 
+  const errorSurface = error ? (
+    <section className="demo-error" role="alert">
+      <p>{error}</p>
+      <button onClick={() => void retryError()} type="button">
+        Retry Ring session
+      </button>
+    </section>
+  ) : null;
+
   return (
     <DemoContext.Provider value={value}>
       {ringStatus === "loading" ? (
         <main className="auth-check">Connecting to Ring Desktop…</main>
+      ) : ringStatus === "error" ? (
+        <main className="auth-check auth-error">{errorSurface}</main>
       ) : (
-        children
+        <>
+          {errorSurface}
+          {children}
+        </>
       )}
     </DemoContext.Provider>
   );

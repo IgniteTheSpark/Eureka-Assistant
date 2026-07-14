@@ -9,6 +9,7 @@ import {
 
 import { RingConnection } from "../components/RingConnection";
 import {
+  ApiError,
   backendClient as defaultBackendClient,
   type BackendClient,
 } from "../lib/backend-client";
@@ -31,28 +32,57 @@ type AppRingClient = DemoRingClient &
 
 function AuthGate({ backendClient }: { backendClient: AppBackendClient }) {
   const token = window.localStorage.getItem(AUTH_TOKEN_KEY);
-  const [valid, setValid] = useState<boolean | null>(token ? null : false);
+  const [status, setStatus] = useState<
+    "checking" | "valid" | "invalid" | "error"
+  >(token ? "checking" : "invalid");
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let active = true;
     if (!token) return () => undefined;
+    setStatus("checking");
+    setError(null);
     void backendClient
       .me()
       .then(() => {
-        if (active) setValid(true);
+        if (active) setStatus("valid");
       })
-      .catch(() => {
-        window.localStorage.removeItem(AUTH_TOKEN_KEY);
-        if (active) setValid(false);
+      .catch((authError: unknown) => {
+        if (!active) return;
+        if (
+          authError instanceof ApiError &&
+          (authError.status === 401 || authError.status === 403)
+        ) {
+          window.localStorage.removeItem(AUTH_TOKEN_KEY);
+          setStatus("invalid");
+          return;
+        }
+        setError(
+          authError instanceof Error
+            ? authError.message
+            : "Could not verify your session",
+        );
+        setStatus("error");
       });
     return () => {
       active = false;
     };
-  }, [backendClient, token]);
+  }, [attempt, backendClient, token]);
 
-  if (valid === false) return <Navigate replace to="/setup" />;
-  if (valid === null) {
+  if (status === "invalid") return <Navigate replace to="/setup" />;
+  if (status === "checking") {
     return <main className="auth-check">Checking your session…</main>;
+  }
+  if (status === "error") {
+    return (
+      <main className="auth-check auth-error" role="alert">
+        <p>{error}</p>
+        <button onClick={() => setAttempt((value) => value + 1)} type="button">
+          Retry authentication
+        </button>
+      </main>
+    );
   }
   return <Outlet />;
 }

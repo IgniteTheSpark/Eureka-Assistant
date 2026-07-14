@@ -177,6 +177,32 @@ input:focus-visible,
   color: #ffb4a8;
 }
 
+.auth-error {
+  min-height: 50vh;
+  display: grid;
+  align-content: center;
+  justify-items: start;
+}
+
+.demo-error {
+  width: min(680px, calc(100% - 40px));
+  margin: 24px auto 0;
+  padding: 18px 20px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid #8a5148;
+  border-radius: 14px;
+  color: #ffcec6;
+  background: #2a1917;
+}
+
+.demo-error p {
+  margin: 0;
+}
+
 .auth-actions,
 .demo-nav {
   display: flex;

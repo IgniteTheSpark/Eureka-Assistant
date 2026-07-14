@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, expect, it, vi } from "vitest";
 
+import { ApiError } from "../lib/backend-client";
 import type { DemoSnapshot, RingConnectionSnapshot } from "../lib/types";
 import { App } from "./App";
 
@@ -87,4 +88,74 @@ it("keeps the connected ring state while switching between Flash and Vibe", asyn
   expect(await screen.findByRole("heading", { name: "Vibe Mode" })).toBeInTheDocument();
   expect(screen.getByText("BCL60392D5")).toBeInTheDocument();
   await waitFor(() => expect(dependencies.ringClient.acquire).toHaveBeenCalledTimes(1));
+});
+
+it.each([
+  ["server failure", new ApiError(503, { detail: "Backend unavailable" })],
+  ["network failure", new TypeError("Network unavailable")],
+] as const)("preserves the token on a %s and retries bootstrap", async (_label, failure) => {
+  window.localStorage.setItem("eureka.authToken", "jwt");
+  const dependencies = clients();
+  dependencies.backendClient.me
+    .mockRejectedValueOnce(failure)
+    .mockResolvedValueOnce({
+      ok: true,
+      user: { id: "1", email: "demo@example.com" },
+    });
+  render(
+    <MemoryRouter
+      future={{ v7_relativeSplatPath: true, v7_startTransition: true }}
+      initialEntries={["/flash"]}
+    >
+      <App {...dependencies} />
+    </MemoryRouter>,
+  );
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(failure.message);
+  expect(window.localStorage.getItem("eureka.authToken")).toBe("jwt");
+  fireEvent.click(screen.getByRole("button", { name: "Retry authentication" }));
+
+  expect(await screen.findByRole("heading", { name: "Flash Mode" })).toBeInTheDocument();
+  expect(dependencies.backendClient.me).toHaveBeenCalledTimes(2);
+});
+
+it.each([401, 403])("clears an invalid token after a %s response", async (status) => {
+  window.localStorage.setItem("eureka.authToken", "jwt");
+  const dependencies = clients();
+  dependencies.backendClient.me.mockRejectedValue(
+    new ApiError(status, { detail: "Session expired" }),
+  );
+  render(
+    <MemoryRouter
+      future={{ v7_relativeSplatPath: true, v7_startTransition: true }}
+      initialEntries={["/flash"]}
+    >
+      <App {...dependencies} />
+    </MemoryRouter>,
+  );
+
+  expect(await screen.findByRole("heading", { name: "Set up your demo" })).toBeInTheDocument();
+  expect(window.localStorage.getItem("eureka.authToken")).toBeNull();
+});
+
+it("renders a retry action when selecting the route mode fails", async () => {
+  window.localStorage.setItem("eureka.authToken", "jwt");
+  const dependencies = clients();
+  dependencies.ringClient.setMode
+    .mockRejectedValueOnce(new Error("Mode service unavailable"))
+    .mockResolvedValueOnce({ ...snapshot, mode: "flash", generation: 2 });
+  render(
+    <MemoryRouter
+      future={{ v7_relativeSplatPath: true, v7_startTransition: true }}
+      initialEntries={["/flash"]}
+    >
+      <App {...dependencies} />
+    </MemoryRouter>,
+  );
+
+  expect(await screen.findByRole("alert")).toHaveTextContent("Mode service unavailable");
+  fireEvent.click(screen.getByRole("button", { name: "Retry Ring session" }));
+
+  await waitFor(() => expect(dependencies.ringClient.setMode).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(screen.queryByText("Mode service unavailable")).toBeNull());
 });
