@@ -137,6 +137,7 @@ function DemoShell({
           window.localStorage.removeItem(AUTH_TOKEN_KEY);
           navigate("/setup", { replace: true });
         }}
+        flashProcessing={demo.flashProcessing}
         resetLocalExperience={demo.resetLocalExperience}
       />
     </>

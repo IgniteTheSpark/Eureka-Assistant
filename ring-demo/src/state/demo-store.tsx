@@ -61,6 +61,9 @@ export interface DemoContextValue {
   events: RingEvent[];
   error: string | null;
   experienceResetKey: number;
+  flashProcessing: boolean;
+  beginFlashProcessing: () => void;
+  endFlashProcessing: () => void;
   resetLocalExperience: () => void;
   setMode: (mode: DemoMode) => Promise<void>;
   refreshConnection: () => Promise<RingConnectionSnapshot>;
@@ -128,6 +131,7 @@ export function DemoProvider({
   const [events, setEvents] = useState<RingEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [experienceResetKey, setExperienceResetKey] = useState(0);
+  const [flashProcessingCount, setFlashProcessingCount] = useState(0);
   const [retryRequest, setRetryRequest] = useState<RetryRequest | null>(null);
 
   const clearError = useCallback(() => {
@@ -304,6 +308,14 @@ export function DemoProvider({
     setExperienceResetKey((value) => value + 1);
   }, [clearError]);
 
+  const beginFlashProcessing = useCallback(() => {
+    setFlashProcessingCount((count) => count + 1);
+  }, []);
+
+  const endFlashProcessing = useCallback(() => {
+    setFlashProcessingCount((count) => Math.max(0, count - 1));
+  }, []);
+
   const value = useMemo<DemoContextValue>(
     () => ({
       sessionId,
@@ -316,6 +328,9 @@ export function DemoProvider({
       events,
       error,
       experienceResetKey,
+      flashProcessing: flashProcessingCount > 0,
+      beginFlashProcessing,
+      endFlashProcessing,
       resetLocalExperience,
       setMode,
       refreshConnection,
@@ -323,10 +338,13 @@ export function DemoProvider({
     }),
     [
       activeApp,
+      beginFlashProcessing,
       connection,
       error,
       events,
       experienceResetKey,
+      endFlashProcessing,
+      flashProcessingCount,
       generation,
       mapping,
       mode,

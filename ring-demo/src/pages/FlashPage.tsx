@@ -172,6 +172,7 @@ export function FlashPage({
     async (transcript: string) => {
       const request = ++requestSerial.current;
       dispatch({ type: "processing", transcript });
+      demo.beginFlashProcessing();
       try {
         const result = await backendClient.flash(transcript);
         if (!result.ok) throw new Error("UReka could not process this recording");
@@ -184,9 +185,11 @@ export function FlashPage({
           type: "failed",
           message: error instanceof Error ? error.message : "Flash request failed",
         });
+      } finally {
+        demo.endFlashProcessing();
       }
     },
-    [backendClient],
+    [backendClient, demo.beginFlashProcessing, demo.endFlashProcessing],
   );
 
   useEffect(() => {

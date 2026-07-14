@@ -15,6 +15,7 @@ function dependencies() {
     },
     resetLocalExperience: vi.fn(),
     onUnauthorized: vi.fn(),
+    flashProcessing: false,
   };
 }
 
@@ -81,6 +82,37 @@ it("disables reset controls while the request is pending", async () => {
   await waitFor(() => expect(props.resetLocalExperience).toHaveBeenCalledOnce());
 });
 
+it("disables reset while Flash is processing", () => {
+  const props = dependencies();
+  props.flashProcessing = true;
+  render(<OperatorControls email="demo@example.com" {...props} />);
+
+  fireEvent.click(screen.getByRole("button", { name: /operator controls/i }));
+
+  expect(screen.getByRole("button", { name: /reset demo data/i })).toBeDisabled();
+  expect(screen.getByText(/wait for flash to finish/i)).toBeInTheDocument();
+  expect(props.backendClient.resetDemo).not.toHaveBeenCalled();
+});
+
+it("blocks confirmation if Flash starts after confirmation opens", () => {
+  const props = dependencies();
+  const view = render(<OperatorControls email="demo@example.com" {...props} />);
+
+  fireEvent.click(screen.getByRole("button", { name: /operator controls/i }));
+  fireEvent.click(screen.getByRole("button", { name: /reset demo data/i }));
+  view.rerender(
+    <OperatorControls
+      email="demo@example.com"
+      {...props}
+      flashProcessing
+    />,
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: /confirm reset/i }));
+  expect(screen.getByRole("button", { name: /confirm reset/i })).toBeDisabled();
+  expect(props.backendClient.resetDemo).not.toHaveBeenCalled();
+});
+
 it("fails safely when a successful response has invalid deletion counts", async () => {
   const props = dependencies();
   props.backendClient.resetDemo.mockResolvedValue({
@@ -121,6 +153,23 @@ it("marks reset unavailable after a 404 without clearing local state", async () 
 
   expect(await screen.findByRole("alert")).toHaveTextContent(/not available/i);
   expect(screen.getByRole("button", { name: /reset demo data/i })).toBeDisabled();
+  expect(props.resetLocalExperience).not.toHaveBeenCalled();
+});
+
+it("explains a 409 Flash conflict without clearing local state", async () => {
+  const props = dependencies();
+  props.backendClient.resetDemo.mockRejectedValue(
+    new ApiError(409, { detail: "workspace operation in progress" }),
+  );
+  render(<OperatorControls email="demo@example.com" {...props} />);
+
+  fireEvent.click(screen.getByRole("button", { name: /operator controls/i }));
+  fireEvent.click(screen.getByRole("button", { name: /reset demo data/i }));
+  fireEvent.click(screen.getByRole("button", { name: /confirm reset/i }));
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    /flash is still processing/i,
+  );
   expect(props.resetLocalExperience).not.toHaveBeenCalled();
 });
 

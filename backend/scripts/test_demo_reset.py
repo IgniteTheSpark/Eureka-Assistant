@@ -287,6 +287,158 @@ async def _cleanup_endpoint_fixture(user_ids: tuple[str, str]) -> None:
             await db.execute(delete(User).where(User.id.in_(user_ids)))
 
 
+async def _cleanup_concurrency_fixture(user_id: str) -> None:
+    async with AsyncSessionLocal() as db:
+        async with db.begin():
+            await reset_demo_workspace(db, user_id)
+            await db.execute(delete(User).where(User.id == user_id))
+
+
+async def test_reset_rejects_while_flash_can_still_write() -> None:
+    """A reset must not report success before an older Flash finishes writing."""
+    suffix = uuid.uuid4().hex[:12]
+    user_id = f"demo-concurrent-flash-{suffix}"
+    original_enabled = settings.demo_reset_enabled
+    from core import flash_service
+
+    original_pipeline = flash_service.run_flash_pipeline
+    pipeline_started = asyncio.Event()
+    release_pipeline = asyncio.Event()
+
+    async def blocked_pipeline(**_kwargs):
+        pipeline_started.set()
+        await release_pipeline.wait()
+        async with AsyncSessionLocal() as db:
+            async with db.begin():
+                db.add(
+                    Report(
+                        user_id=user_id,
+                        title="late flash asset",
+                        genre="digest",
+                        content_md="fixture",
+                        html="<p>fixture</p>",
+                    )
+                )
+        return {
+            "ok": True,
+            "reply": "",
+            "summary": "done",
+            "cards": [],
+            "derived_assets": [],
+        }
+
+    flash_service.run_flash_pipeline = blocked_pipeline
+    try:
+        async with AsyncSessionLocal() as db:
+            async with db.begin():
+                db.add(
+                    User(
+                        id=user_id,
+                        email=f"{user_id}@example.com",
+                        password_hash="fixture",
+                    )
+                )
+
+        settings.demo_reset_enabled = True
+        headers = {"Authorization": f"Bearer {create_token(user_id)}"}
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            flash_request = asyncio.create_task(
+                client.post(
+                    "/api/flash",
+                    headers=headers,
+                    json={"text": "an in-flight thought"},
+                )
+            )
+            await asyncio.wait_for(pipeline_started.wait(), timeout=5)
+
+            conflict = await client.post("/api/demo/reset", headers=headers)
+            assert conflict.status_code == 409, conflict.text
+            assert conflict.json()["detail"] == "workspace operation in progress"
+
+            release_pipeline.set()
+            flash_response = await asyncio.wait_for(flash_request, timeout=5)
+            assert flash_response.status_code == 200, flash_response.text
+            assert await _count(Report, user_id) == 1
+
+            reset_response = await client.post("/api/demo/reset", headers=headers)
+            assert reset_response.status_code == 200, reset_response.text
+            assert await _count(Report, user_id) == 0
+    finally:
+        release_pipeline.set()
+        flash_service.run_flash_pipeline = original_pipeline
+        settings.demo_reset_enabled = original_enabled
+        await _cleanup_concurrency_fixture(user_id)
+
+
+async def test_flash_rejects_while_reset_is_in_progress() -> None:
+    """A Flash started during reset must not become post-reset stale content."""
+    suffix = uuid.uuid4().hex[:12]
+    user_id = f"demo-concurrent-reset-{suffix}"
+    original_enabled = settings.demo_reset_enabled
+    from api import demo as demo_api
+    from core import flash_service
+
+    original_reset = demo_api.reset_demo_workspace
+    original_pipeline = flash_service.run_flash_pipeline
+    reset_started = asyncio.Event()
+    release_reset = asyncio.Event()
+
+    async def blocked_reset(db, locked_user_id: str):
+        reset_started.set()
+        await release_reset.wait()
+        return await original_reset(db, locked_user_id)
+
+    async def immediate_pipeline(**_kwargs):
+        return {
+            "ok": True,
+            "reply": "",
+            "summary": "done",
+            "cards": [],
+            "derived_assets": [],
+        }
+
+    demo_api.reset_demo_workspace = blocked_reset
+    flash_service.run_flash_pipeline = immediate_pipeline
+    try:
+        async with AsyncSessionLocal() as db:
+            async with db.begin():
+                db.add(
+                    User(
+                        id=user_id,
+                        email=f"{user_id}@example.com",
+                        password_hash="fixture",
+                    )
+                )
+
+        settings.demo_reset_enabled = True
+        headers = {"Authorization": f"Bearer {create_token(user_id)}"}
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            reset_request = asyncio.create_task(
+                client.post("/api/demo/reset", headers=headers)
+            )
+            await asyncio.wait_for(reset_started.wait(), timeout=5)
+
+            conflict = await client.post(
+                "/api/flash",
+                headers=headers,
+                json={"text": "must not sneak through reset"},
+            )
+            assert conflict.status_code == 409, conflict.text
+            assert conflict.json()["detail"] == "workspace operation in progress"
+
+            release_reset.set()
+            reset_response = await asyncio.wait_for(reset_request, timeout=5)
+            assert reset_response.status_code == 200, reset_response.text
+    finally:
+        release_reset.set()
+        demo_api.reset_demo_workspace = original_reset
+        flash_service.run_flash_pipeline = original_pipeline
+        settings.demo_reset_enabled = original_enabled
+        await _cleanup_concurrency_fixture(user_id)
+
+
 async def test_reset_endpoint_is_gated_authenticated_scoped_and_transactional() -> None:
     suffix = uuid.uuid4().hex[:12]
     user_ids = (f"demo-endpoint-a-{suffix}", f"demo-endpoint-b-{suffix}")
@@ -395,9 +547,11 @@ async def main() -> None:
     try:
         await test_reset_is_user_scoped()
         await test_reset_endpoint_is_gated_authenticated_scoped_and_transactional()
+        await test_reset_rejects_while_flash_can_still_write()
+        await test_flash_rejects_while_reset_is_in_progress()
         print(
             "PASS - demo reset service and endpoint are gated, authenticated, "
-            "user-scoped, and transactional"
+            "user-scoped, transactional, and serialized with Flash"
         )
     finally:
         await async_engine.dispose()

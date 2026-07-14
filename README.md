@@ -198,7 +198,9 @@ Vibe. It shows the current account and requires a second confirmation before
 resetting. A successful reset deletes only that account's demo content and clears
 the current Demo UI; it preserves the account, Skills, Connected Apps, card
 configuration, and active ring connection. Reset before handing the demo to the
-next visitor. If reset reports that it is unavailable, confirm
+next visitor. Reset is temporarily disabled while this tab is processing Flash;
+another tab or client receives `409` instead of racing the reset. Retry after
+Flash finishes. If reset reports that it is unavailable, confirm
 `DEMO_RESET_ENABLED=true` in `.env` and restart the run script.
 
 ### Troubleshooting
@@ -212,6 +214,7 @@ next visitor. If reset reports that it is unavailable, confirm
 | Gestures do not reach Codex or DingTalk | Grant Accessibility permission to the terminal that launched the script, restart it, and focus the target app. |
 | Ring is absent from scan results | Disconnect it from the phone/other Mac, keep it awake, and scan again. |
 | Operator Reset returns `401` | Sign in again; the local account token is no longer valid. |
+| Operator Reset returns `409` | A Flash request is still processing. Wait for it to finish, then retry Reset. |
 
 ### Physical-ring smoke checklist
 

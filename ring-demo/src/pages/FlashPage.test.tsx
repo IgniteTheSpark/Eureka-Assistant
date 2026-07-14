@@ -78,9 +78,14 @@ function renderPage(dependencies: ReturnType<typeof testDependencies>) {
 function ResetHarness() {
   const demo = useDemo();
   return (
-    <button onClick={demo.resetLocalExperience} type="button">
-      Test local reset
-    </button>
+    <>
+      <output data-testid="flash-processing">
+        {demo.flashProcessing ? "processing" : "idle"}
+      </output>
+      <button onClick={demo.resetLocalExperience} type="button">
+        Test local reset
+      </button>
+    </>
   );
 }
 
@@ -134,6 +139,28 @@ it("submits one matching transcript and reveals returned cards", async () => {
   expect(dependencies.backendClient.flash).toHaveBeenCalledWith("帮我准备展会");
   expect(screen.getAllByRole("article")[0]).toHaveClass("card-stagger-1");
   expect(screen.getAllByRole("article")[1]).toHaveClass("card-stagger-2");
+});
+
+it("shares Flash processing state until the backend request settles", async () => {
+  const dependencies = testDependencies();
+  let resolveFlash:
+    | ((response: FlashResponse) => void)
+    | undefined;
+  dependencies.backendClient.flash.mockImplementation(
+    () => new Promise((resolve) => { resolveFlash = resolve; }),
+  );
+  renderPage(dependencies);
+  await screen.findByText("BCL60392D5");
+
+  dependencies.emit("transcript.ready", matchingData("帮我准备展会"));
+
+  await waitFor(() =>
+    expect(screen.getByTestId("flash-processing")).toHaveTextContent("processing"),
+  );
+  resolveFlash?.({ ok: true, cards: [] });
+  await waitFor(() =>
+    expect(screen.getByTestId("flash-processing")).toHaveTextContent("idle"),
+  );
 });
 
 it("rejects stale, foreign, non-Flash, empty, and duplicate transcripts", async () => {

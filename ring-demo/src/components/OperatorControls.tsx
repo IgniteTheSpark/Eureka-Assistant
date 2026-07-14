@@ -26,11 +26,13 @@ export function OperatorControls({
   backendClient,
   resetLocalExperience,
   onUnauthorized,
+  flashProcessing,
 }: {
   email: string;
   backendClient: OperatorBackendClient;
   resetLocalExperience: () => void;
   onUnauthorized: () => void;
+  flashProcessing: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -52,7 +54,7 @@ export function OperatorControls({
   }, [confirming]);
 
   const reset = async () => {
-    if (pending || disabled) return;
+    if (pending || disabled || flashProcessing) return;
     setPending(true);
     setError(null);
     setMessage(null);
@@ -70,7 +72,11 @@ export function OperatorControls({
       setMessage(`${total} demo records deleted. The Ring session is still connected.`);
     } catch (resetError) {
       setConfirming(false);
-      if (resetError instanceof ApiError && resetError.status === 404) {
+      if (resetError instanceof ApiError && resetError.status === 409) {
+        setError(
+          "Flash is still processing. Wait for it to finish, then retry the reset.",
+        );
+      } else if (resetError instanceof ApiError && resetError.status === 404) {
         setDisabled(true);
         setError("Demo reset is not available on this server.");
       } else if (
@@ -119,7 +125,7 @@ export function OperatorControls({
               <div className="operator-controls-actions">
                 <button
                   className="operator-reset-confirm"
-                  disabled={pending}
+                  disabled={pending || flashProcessing}
                   onClick={() => void reset()}
                   ref={confirmResetRef}
                   type="button"
@@ -138,7 +144,7 @@ export function OperatorControls({
           ) : (
             <button
               className="operator-reset-start"
-              disabled={disabled || pending}
+              disabled={disabled || pending || flashProcessing}
               onClick={() => {
                 setConfirming(true);
                 setError(null);
@@ -150,6 +156,12 @@ export function OperatorControls({
               Reset demo data
             </button>
           )}
+
+          {flashProcessing ? (
+            <p className="operator-controls-notice" role="status">
+              Wait for Flash to finish before resetting demo data.
+            </p>
+          ) : null}
 
           {message ? (
             <p className="operator-controls-success" role="status">
