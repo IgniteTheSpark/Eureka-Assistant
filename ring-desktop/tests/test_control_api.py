@@ -1,10 +1,13 @@
 import json
+import socket
+import threading
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import pytest
 
 from ring_desktop.control_api import VibrationControlServer
+from ring_desktop.demo_session import DemoEventBroker, DemoSessionController
 from ring_desktop.vibration import VibrationType
 
 
@@ -22,6 +25,33 @@ def post(server, payload, path="/vibrate"):
 def get(server, path):
     with urlopen(f"http://127.0.0.1:{server.port}{path}", timeout=2) as response:
         return response.status, json.loads(response.read())
+
+
+def error_json(error):
+    return json.loads(error.read())
+
+
+def read_sse_event(response):
+    event = None
+    data = None
+    while True:
+        line = response.readline().decode().rstrip("\r\n")
+        if not line:
+            return event, json.loads(data)
+        if line.startswith("event: "):
+            event = line.removeprefix("event: ")
+        elif line.startswith("data: "):
+            data = line.removeprefix("data: ")
+
+
+class TrackingDemoEventBroker(DemoEventBroker):
+    def __init__(self):
+        super().__init__()
+        self.unsubscribed = threading.Event()
+
+    def unsubscribe(self, subscriber):
+        super().unsubscribe(subscriber)
+        self.unsubscribed.set()
 
 
 def test_vibration_request_calls_callback():
@@ -153,3 +183,195 @@ def test_connection_commands_route_to_callbacks():
         ("connect", "ring-id", "BCL60392D5"),
         ("disconnect",),
     ]
+
+
+def test_demo_endpoints_manage_session_lifecycle():
+    controller = DemoSessionController(now=lambda: 10.0, lease_seconds=30)
+    server = VibrationControlServer(
+        lambda _kind: True,
+        demo_controller=controller,
+        demo_events=controller.events,
+        port=0,
+    ).start()
+    try:
+        status, body = get(server, "/demo/status")
+        assert status == 200
+        assert body == {
+            "ok": True,
+            "session_id": None,
+            "mode": "standalone",
+            "generation": 0,
+            "lease_expires_at": None,
+        }
+
+        status, body = post(server, {"sessionId": "browser-1"}, "/demo/session")
+        assert status == 200
+        assert body["mode"] == "idle"
+
+        status, body = post(
+            server,
+            {"sessionId": "browser-1", "mode": "flash"},
+            "/demo/mode",
+        )
+        assert status == 200
+        assert body["mode"] == "flash"
+
+        assert post(server, {"sessionId": "browser-1"}, "/demo/heartbeat") == (
+            200,
+            {"ok": True},
+        )
+        assert post(server, {"sessionId": "browser-1"}, "/demo/release") == (
+            200,
+            {"ok": True},
+        )
+        assert get(server, "/demo/status")[1]["mode"] == "standalone"
+    finally:
+        server.stop()
+
+
+@pytest.mark.parametrize(
+    ("path", "payload", "error_message"),
+    [
+        ("/demo/session", {}, "invalid demo session"),
+        ("/demo/session", [], "invalid JSON object"),
+        ("/demo/heartbeat", {"sessionId": "other"}, "invalid demo session"),
+        (
+            "/demo/mode",
+            {"sessionId": "browser-1", "mode": "standalone"},
+            "invalid demo session or mode",
+        ),
+        ("/demo/release", {"sessionId": "other"}, "invalid demo session"),
+    ],
+)
+def test_demo_endpoints_reject_invalid_requests(path, payload, error_message):
+    controller = DemoSessionController(lease_seconds=30)
+    controller.acquire("browser-1")
+    server = VibrationControlServer(
+        lambda _kind: True,
+        demo_controller=controller,
+        demo_events=controller.events,
+        port=0,
+    ).start()
+    try:
+        with pytest.raises(HTTPError) as error:
+            post(server, payload, path)
+    finally:
+        server.stop()
+
+    assert error.value.code in {400, 409}
+    assert error_json(error.value) == {"ok": False, "error": error_message}
+
+
+def test_demo_routes_are_disabled_without_controller():
+    server = VibrationControlServer(lambda _kind: True, port=0).start()
+    try:
+        with pytest.raises(HTTPError) as error:
+            get(server, "/demo/status")
+    finally:
+        server.stop()
+
+    assert error.value.code == 404
+    assert error_json(error.value) == {"ok": False, "error": "demo disabled"}
+
+
+def test_options_and_demo_response_return_only_allowed_local_cors_origin():
+    controller = DemoSessionController()
+    server = VibrationControlServer(
+        lambda _kind: True,
+        demo_controller=controller,
+        demo_events=controller.events,
+        port=0,
+    ).start()
+    try:
+        request = Request(
+            f"http://127.0.0.1:{server.port}/demo/status",
+            method="OPTIONS",
+            headers={
+                "Origin": "http://localhost:5173",
+                "Access-Control-Request-Headers": "content-type",
+                "Access-Control-Request-Method": "GET",
+            },
+        )
+        with urlopen(request, timeout=2) as response:
+            assert response.status == 204
+            assert (
+                response.headers["Access-Control-Allow-Origin"]
+                == "http://localhost:5173"
+            )
+            assert response.headers["Access-Control-Allow-Methods"] == (
+                "GET, POST, OPTIONS"
+            )
+            assert response.headers["Access-Control-Allow-Headers"] == "Content-Type"
+
+        request = Request(
+            f"http://127.0.0.1:{server.port}/demo/status",
+            headers={"Origin": "http://127.0.0.1:5173"},
+        )
+        with urlopen(request, timeout=2) as response:
+            assert (
+                response.headers["Access-Control-Allow-Origin"]
+                == "http://127.0.0.1:5173"
+            )
+
+        request = Request(
+            f"http://127.0.0.1:{server.port}/demo/status",
+            method="OPTIONS",
+            headers={"Origin": "https://example.com"},
+        )
+        with urlopen(request, timeout=2) as response:
+            assert response.headers["Access-Control-Allow-Origin"] is None
+    finally:
+        server.stop()
+
+
+def test_demo_events_streams_snapshot_and_broker_events_then_unsubscribes():
+    broker = TrackingDemoEventBroker()
+    controller = DemoSessionController(lease_seconds=30, events=broker)
+    server = VibrationControlServer(
+        lambda _kind: True,
+        demo_controller=controller,
+        demo_events=broker,
+        port=0,
+    ).start()
+    response = None
+    try:
+        request = Request(
+            f"http://127.0.0.1:{server.port}/demo/events",
+            headers={"Origin": "http://localhost:5173"},
+        )
+        response = urlopen(request, timeout=2)
+        assert response.headers["Content-Type"] == "text/event-stream"
+        assert response.headers["Cache-Control"] == "no-cache"
+        assert response.headers["Access-Control-Allow-Origin"] == (
+            "http://localhost:5173"
+        )
+        assert read_sse_event(response) == (
+            "snapshot",
+            {
+                "session_id": None,
+                "mode": "standalone",
+                "generation": 0,
+                "lease_expires_at": None,
+            },
+        )
+
+        changed = controller.acquire("browser-1")
+        assert read_sse_event(response) == ("mode.changed", changed)
+
+        response.fp.raw._sock.shutdown(socket.SHUT_RDWR)
+        response.close()
+        response = None
+        for _ in range(3):
+            broker.publish("disconnect.probe", {})
+            if broker.unsubscribed.wait(0.2):
+                break
+        assert broker.unsubscribed.is_set()
+    finally:
+        if response is not None:
+            response.close()
+        server.stop()
+
+
+def test_server_rejects_non_loopback_bind_address():
+    with pytest.raises(ValueError, match="127.0.0.1"):
+        VibrationControlServer(lambda _kind: True, host="0.0.0.0", port=0)
