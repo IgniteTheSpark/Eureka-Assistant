@@ -29,6 +29,7 @@ function clients() {
       me: vi.fn().mockResolvedValue({ ok: true, user: { id: "1", email: "demo@example.com" } }),
       login: vi.fn(),
       register: vi.fn(),
+      flash: vi.fn(),
     },
     ringClient: {
       acquire: vi.fn().mockResolvedValue(snapshot),

@@ -18,6 +18,7 @@ import {
   type RingClient,
 } from "../lib/ring-client";
 import type { DemoMode } from "../lib/types";
+import { FlashPage } from "../pages/FlashPage";
 import { HomePage } from "../pages/HomePage";
 import { AUTH_TOKEN_KEY, SetupPage } from "../pages/SetupPage";
 import {
@@ -26,7 +27,10 @@ import {
   useDemo,
 } from "../state/demo-store";
 
-type AppBackendClient = Pick<BackendClient, "login" | "register" | "me">;
+type AppBackendClient = Pick<
+  BackendClient,
+  "login" | "register" | "me" | "flash"
+>;
 type AppRingClient = DemoRingClient &
   Pick<RingClient, "scan" | "connect" | "disconnect">;
 
@@ -146,10 +150,9 @@ export function App({
           <Route
             path="/flash"
             element={
-              <ModePlaceholder
-                mode="flash"
+              <FlashPage
+                backendClient={backendClient}
                 ringClient={ringClient}
-                title="Flash Mode"
               />
             }
           />
