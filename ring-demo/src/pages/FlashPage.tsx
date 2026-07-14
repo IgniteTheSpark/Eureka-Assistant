@@ -41,7 +41,8 @@ type FlashAction =
   | { type: "recording-stopped" }
   | { type: "processing"; transcript: string }
   | { type: "revealed"; result: FlashResponse }
-  | { type: "failed"; message: string };
+  | { type: "failed"; message: string }
+  | { type: "reset"; connected: boolean };
 
 function reducer(state: FlashState, action: FlashAction): FlashState {
   switch (action.type) {
@@ -63,6 +64,13 @@ function reducer(state: FlashState, action: FlashAction): FlashState {
       return { ...state, phase: "revealed", result: action.result, error: null };
     case "failed":
       return { ...state, phase: "revealed", result: null, error: action.message };
+    case "reset":
+      return {
+        phase: action.connected ? "ready" : "disconnected",
+        transcript: "",
+        result: null,
+        error: null,
+      };
   }
 }
 
@@ -152,6 +160,13 @@ export function FlashPage({
   useEffect(() => {
     dispatch({ type: "connection", connected: demo.connection.connected });
   }, [demo.connection.connected]);
+
+  useEffect(() => {
+    requestSerial.current += 1;
+    recordingCycle.current = 0;
+    acceptedTranscripts.current.clear();
+    dispatch({ type: "reset", connected: demo.connection.connected });
+  }, [demo.experienceResetKey]);
 
   const submitTranscript = useCallback(
     async (transcript: string) => {

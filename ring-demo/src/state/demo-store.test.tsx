@@ -35,8 +35,10 @@ function Harness() {
       <output data-testid="mapping">{JSON.stringify(demo.mapping)}</output>
       <output data-testid="device">{demo.connection.device?.name}</output>
       <output data-testid="events">{demo.events.length}</output>
+      <output data-testid="reset-key">{demo.experienceResetKey}</output>
       <button type="button" onClick={() => void demo.setMode("vibe")}>Vibe</button>
       <button type="button" onClick={() => void demo.setMode("flash")}>Flash</button>
+      <button type="button" onClick={demo.resetLocalExperience}>Reset local</button>
     </>
   );
 }
@@ -279,4 +281,25 @@ it("renders and retries a failed demo lease", async () => {
 
   await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("ready"));
   expect(ring.client.acquire).toHaveBeenCalledTimes(2);
+});
+
+it("resets transient events while retaining the Ring connection and tab session", async () => {
+  const ring = fakeRingClient();
+  render(
+    <DemoProvider ringClient={ring.client}>
+      <Harness />
+    </DemoProvider>,
+  );
+  await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("ready"));
+  act(() => ring.emit({ event: "recording.started", data: {} }));
+  expect(screen.getByTestId("events")).toHaveTextContent("1");
+
+  act(() => screen.getByRole("button", { name: "Reset local" }).click());
+
+  expect(screen.getByTestId("events")).toHaveTextContent("0");
+  expect(screen.getByTestId("reset-key")).toHaveTextContent("1");
+  expect(screen.getByTestId("session")).toHaveTextContent("tab-1");
+  expect(screen.getByTestId("device")).toHaveTextContent("BCL60392D5");
+  expect(ring.client.release).not.toHaveBeenCalled();
+  expect(ring.client.acquire).toHaveBeenCalledTimes(1);
 });

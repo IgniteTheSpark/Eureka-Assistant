@@ -30,6 +30,7 @@ function clients() {
       login: vi.fn(),
       register: vi.fn(),
       flash: vi.fn(),
+      resetDemo: vi.fn().mockResolvedValue({ ok: true, deleted: {} }),
     },
     ringClient: {
       acquire: vi.fn().mockResolvedValue(snapshot),
@@ -91,6 +92,50 @@ it("keeps the connected ring state while switching between Flash and Vibe", asyn
   expect(screen.getByRole("heading", { name: "Codex" })).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "DingTalk" })).toBeInTheDocument();
   await waitFor(() => expect(dependencies.ringClient.acquire).toHaveBeenCalledTimes(1));
+});
+
+it.each([
+  ["home", "/"],
+  ["Flash", "/flash"],
+  ["Vibe", "/vibe"],
+] as const)("weakly surfaces operator controls with the account email on %s", async (_page, path) => {
+  window.localStorage.setItem("eureka.authToken", "jwt");
+  const dependencies = clients();
+  render(
+    <MemoryRouter
+      future={{ v7_relativeSplatPath: true, v7_startTransition: true }}
+      initialEntries={[path]}
+    >
+      <App {...dependencies} />
+    </MemoryRouter>,
+  );
+
+  const trigger = await screen.findByRole("button", { name: /operator controls/i });
+  fireEvent.click(trigger);
+  expect(screen.getByText("demo@example.com")).toBeInTheDocument();
+});
+
+it("clears an expired token and returns to setup when reset receives a 401", async () => {
+  window.localStorage.setItem("eureka.authToken", "jwt");
+  const dependencies = clients();
+  dependencies.backendClient.resetDemo.mockRejectedValue(
+    new ApiError(401, { detail: "Session expired" }),
+  );
+  render(
+    <MemoryRouter
+      future={{ v7_relativeSplatPath: true, v7_startTransition: true }}
+      initialEntries={["/"]}
+    >
+      <App {...dependencies} />
+    </MemoryRouter>,
+  );
+
+  fireEvent.click(await screen.findByRole("button", { name: /operator controls/i }));
+  fireEvent.click(screen.getByRole("button", { name: /reset demo data/i }));
+  fireEvent.click(screen.getByRole("button", { name: /confirm reset/i }));
+
+  expect(await screen.findByRole("heading", { name: "Set up your demo" })).toBeInTheDocument();
+  expect(window.localStorage.getItem("eureka.authToken")).toBeNull();
 });
 
 it.each([

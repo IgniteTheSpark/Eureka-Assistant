@@ -30,6 +30,11 @@ export interface FlashResponse {
   elapsed_ms?: number;
 }
 
+export interface DemoResetResponse {
+  ok: true;
+  deleted: Record<string, number>;
+}
+
 export interface RingDevice {
   address: string;
   name: string;

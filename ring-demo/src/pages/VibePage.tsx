@@ -79,7 +79,7 @@ export function VibePage({
 
   useEffect(() => {
     setRecording(false);
-  }, [demo.generation, demo.mode, demo.sessionId]);
+  }, [demo.experienceResetKey, demo.generation, demo.mode, demo.sessionId]);
 
   useEffect(() => {
     for (const event of demo.events) {

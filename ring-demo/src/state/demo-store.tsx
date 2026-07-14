@@ -60,6 +60,8 @@ export interface DemoContextValue {
   mapping: RingMapping;
   events: RingEvent[];
   error: string | null;
+  experienceResetKey: number;
+  resetLocalExperience: () => void;
   setMode: (mode: DemoMode) => Promise<void>;
   refreshConnection: () => Promise<RingConnectionSnapshot>;
   updateConnection: (connection: RingConnectionSnapshot) => void;
@@ -125,6 +127,7 @@ export function DemoProvider({
   const [mapping, setMapping] = useState<RingMapping>(null);
   const [events, setEvents] = useState<RingEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [experienceResetKey, setExperienceResetKey] = useState(0);
   const [retryRequest, setRetryRequest] = useState<RetryRequest | null>(null);
 
   const clearError = useCallback(() => {
@@ -295,6 +298,12 @@ export function DemoProvider({
     }
   }, [clearError, initialize, retryRequest, setMode]);
 
+  const resetLocalExperience = useCallback(() => {
+    setEvents([]);
+    clearError();
+    setExperienceResetKey((value) => value + 1);
+  }, [clearError]);
+
   const value = useMemo<DemoContextValue>(
     () => ({
       sessionId,
@@ -306,6 +315,8 @@ export function DemoProvider({
       mapping,
       events,
       error,
+      experienceResetKey,
+      resetLocalExperience,
       setMode,
       refreshConnection,
       updateConnection: setConnection,
@@ -315,11 +326,13 @@ export function DemoProvider({
       connection,
       error,
       events,
+      experienceResetKey,
       generation,
       mapping,
       mode,
       refreshConnection,
       ringStatus,
+      resetLocalExperience,
       sessionId,
       setMode,
     ],

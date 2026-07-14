@@ -9,7 +9,7 @@ import type {
   RingConnectionSnapshot,
   RingEvent,
 } from "../lib/types";
-import { DemoProvider } from "../state/demo-store";
+import { DemoProvider, useDemo } from "../state/demo-store";
 import { FlashPage } from "./FlashPage";
 
 const connection: RingConnectionSnapshot = {
@@ -69,8 +69,18 @@ function renderPage(dependencies: ReturnType<typeof testDependencies>) {
           backendClient={dependencies.backendClient}
           ringClient={dependencies.ringClient}
         />
+        <ResetHarness />
       </DemoProvider>
     </MemoryRouter>,
+  );
+}
+
+function ResetHarness() {
+  const demo = useDemo();
+  return (
+    <button onClick={demo.resetLocalExperience} type="button">
+      Test local reset
+    </button>
   );
 }
 
@@ -203,4 +213,44 @@ it("uses derived asset cards and falls back to a 随记 for text-only results", 
   expect(await screen.findByText("随记")).toBeVisible();
   expect(screen.getByText("已经帮你记下了")).toBeVisible();
   await waitFor(() => expect(dependencies.backendClient.flash).toHaveBeenCalledTimes(2));
+});
+
+it("clears transcript and result without reconnecting the Ring", async () => {
+  const dependencies = testDependencies();
+  dependencies.backendClient.flash.mockResolvedValue({
+    ok: true,
+    cards: [{ card_type: "todo", content: "准备展会" }],
+  });
+  renderPage(dependencies);
+  await screen.findByText("BCL60392D5");
+  dependencies.emit("transcript.ready", matchingData("帮我准备展会"));
+  expect(await screen.findByText("准备展会")).toBeVisible();
+
+  fireEvent.click(screen.getByRole("button", { name: "Test local reset" }));
+
+  expect(screen.queryByText("帮我准备展会")).not.toBeInTheDocument();
+  expect(screen.queryByText("准备展会")).not.toBeInTheDocument();
+  expect(screen.getByText("BCL60392D5")).toBeVisible();
+  expect(dependencies.ringClient.acquire).toHaveBeenCalledTimes(1);
+  expect(dependencies.ringClient.release).not.toHaveBeenCalled();
+});
+
+it("clears a local Flash error without reconnecting the Ring", async () => {
+  const dependencies = testDependencies();
+  dependencies.backendClient.flash.mockRejectedValue(
+    new Error("Flash backend unavailable"),
+  );
+  renderPage(dependencies);
+  await screen.findByText("BCL60392D5");
+  dependencies.emit("transcript.ready", matchingData("帮我准备展会"));
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Flash backend unavailable",
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "Test local reset" }));
+
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  expect(screen.queryByText("帮我准备展会")).not.toBeInTheDocument();
+  expect(screen.getByText("BCL60392D5")).toBeVisible();
+  expect(dependencies.ringClient.acquire).toHaveBeenCalledTimes(1);
 });

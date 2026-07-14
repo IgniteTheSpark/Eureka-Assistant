@@ -1,4 +1,9 @@
-import type { AuthResponse, FlashResponse, MeResponse } from "./types";
+import type {
+  AuthResponse,
+  DemoResetResponse,
+  FlashResponse,
+  MeResponse,
+} from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -59,6 +64,13 @@ export class BackendClient {
       method: "POST",
       headers: this.headers(true),
       body: JSON.stringify({ text, source: "voice" }),
+    });
+  }
+
+  resetDemo() {
+    return requestJson<DemoResetResponse>(`${this.baseUrl}/api/demo/reset`, {
+      method: "POST",
+      headers: this.headers(true),
     });
   }
 

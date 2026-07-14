@@ -71,6 +71,23 @@ describe("BackendClient", () => {
     );
   });
 
+  it("posts an authenticated request to reset the current demo account", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ ok: true, deleted: { captures: 2 } }),
+    );
+    const client = new BackendClient("http://localhost:8000", () => "jwt");
+
+    await client.resetDemo();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8000/api/demo/reset",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ Authorization: "Bearer jwt" }),
+      }),
+    );
+  });
+
   it("throws a status-aware error for non-JSON API failures", async () => {
     fetchMock.mockResolvedValue(new Response("bad gateway", { status: 502 }));
     const client = new BackendClient("http://localhost:8000", () => null);
