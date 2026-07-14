@@ -141,6 +141,33 @@ it("shows Recording only between matching live capture events", async () => {
   expect(screen.queryByText("Recording")).not.toBeInTheDocument();
 });
 
+it("clears Recording when the Vibe generation rolls over", async () => {
+  const dependencies = testDependencies();
+  renderPage(dependencies);
+  await screen.findByText("BCL60392D5");
+
+  dependencies.emit("recording.started", matchingData());
+  expect(screen.getByText("Recording")).toBeVisible();
+
+  dependencies.emit("mode.changed", { mode: "vibe", generation: 3 });
+  expect(screen.queryByText("Recording")).not.toBeInTheDocument();
+
+  dependencies.emit("recording.stopped", matchingData());
+  expect(screen.queryByText("Recording")).not.toBeInTheDocument();
+});
+
+it("clears Recording when the shared mode leaves Vibe", async () => {
+  const dependencies = testDependencies();
+  renderPage(dependencies);
+  await screen.findByText("BCL60392D5");
+
+  dependencies.emit("recording.started", matchingData());
+  expect(screen.getByText("Recording")).toBeVisible();
+
+  dependencies.emit("mode.changed", { mode: "idle", generation: 3 });
+  expect(screen.queryByText("Recording")).not.toBeInTheDocument();
+});
+
 it("shows the unsupported-app prompt without inferred business outcomes", async () => {
   const dependencies = testDependencies({
     activeApp: "com.apple.Safari",
@@ -155,3 +182,21 @@ it("shows the unsupported-app prompt without inferred business outcomes", async 
   ).toBeVisible();
   expect(screen.queryByText(/sent|success|failed/i)).not.toBeInTheDocument();
 });
+
+it.each(["constructor", "toString"])(
+  "treats inherited object key %s as an unsupported app",
+  async (activeApp) => {
+    const dependencies = testDependencies({
+      activeApp,
+      mapping: { double: "Voice" },
+    });
+    renderPage(dependencies);
+
+    expect(
+      await screen.findByText(
+        "Open Codex or DingTalk to activate Ring controls.",
+      ),
+    ).toBeVisible();
+    expect(screen.queryByText("Voice")).not.toBeInTheDocument();
+  },
+);

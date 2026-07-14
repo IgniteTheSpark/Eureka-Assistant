@@ -37,7 +37,7 @@ const GESTURE_LABELS: Record<string, string> = {
 };
 
 function isSupportedApp(value: string | null): value is SupportedApp {
-  return value !== null && value in APP_PROFILES;
+  return value !== null && Object.hasOwn(APP_PROFILES, value);
 }
 
 function eventValue(data: Record<string, unknown>, camel: string, snake: string) {
@@ -76,6 +76,10 @@ export function VibePage({
   useEffect(() => {
     void demo.setMode("vibe").catch(() => undefined);
   }, [demo.setMode]);
+
+  useEffect(() => {
+    setRecording(false);
+  }, [demo.generation, demo.mode, demo.sessionId]);
 
   useEffect(() => {
     for (const event of demo.events) {
