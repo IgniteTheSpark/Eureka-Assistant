@@ -48,6 +48,7 @@ Start at [`spec/README.md`](spec/README.md).
 
 - **Docker Desktop** (runs MySQL + the backend)
 - **Flutter SDK** + **Xcode** (to run the iOS app on a simulator/device)
+- **Node.js + npm** (to run the local Ring Demo website)
 - A **DeepSeek API key** — get one at https://platform.deepseek.com (the agent needs it)
 - *(optional)* Python 3 + macOS Bluetooth/Accessibility permissions for `ring-desktop/`
 
@@ -131,6 +132,66 @@ cp config.example.json config.json
 python -m ring_desktop.app
 ```
 
+## Ring Demo (local, real-ring flow)
+
+The Ring Demo uses four local processes: MySQL, the Eureka backend, Ring Desktop,
+and the Vite Demo Web app. Complete the root `.env` setup above and the Ring
+Desktop installation once, then start the stack from the repository root in
+separate terminals.
+
+**Terminal 1 — MySQL and Backend:**
+
+```bash
+docker compose up -d db
+docker compose run --rm backend alembic upgrade head
+docker compose run --rm backend python -m db.seed
+docker compose up -d backend
+```
+
+**Terminal 2 — Ring Desktop:**
+
+```bash
+cd ring-desktop
+source .venv/bin/activate
+python -m ring_desktop.app
+```
+
+**Terminal 3 — Demo Web:**
+
+```bash
+cd ring-demo
+npm install
+npm run dev
+```
+
+On the first Ring Desktop launch, allow Bluetooth when macOS prompts. Also open
+*System Settings → Privacy & Security → Accessibility* and enable the terminal
+app that launches Ring Desktop; if Bluetooth was denied, enable that terminal in
+the Bluetooth privacy list too. Restart Ring Desktop after changing permissions.
+
+Open `http://localhost:5173`. Sign in with an existing local UReka email/password,
+or use **Create account** (passwords must be at least six characters). Use the same
+account in the existing UReka client to confirm that Flash assets share the same
+Backend/MySQL data.
+
+### Physical-ring smoke checklist
+
+This checklist requires a real ring and is not covered by the automated tests:
+
+1. Stop any phone app that may already own the ring connection, then scan for and
+   connect the `BCL…` ring in the Demo Web connection panel.
+2. Enter Flash. Double-tap once to start recording and double-tap again to stop.
+3. Confirm the transcript appears in Flash, `/api/flash` returns real assets, and
+   the cards render in the Demo Web.
+4. Open the existing UReka client with the same account and confirm those assets
+   appear there.
+5. Return home, enter Vibe, focus Codex, and exercise its configured gesture
+   mappings; then focus DingTalk and exercise its configured mappings.
+6. Start ASR, switch between Flash and Vibe before transcription completes, and
+   confirm the late result is not delivered into the new mode.
+7. Close the Demo Web tab and confirm Ring Desktop returns to standalone routing
+   (the lease fallback expires within 10 seconds if browser release is missed).
+
 ## Reset the database
 
 ```bash
@@ -147,6 +208,7 @@ docker compose up -d backend
 mobile/          Flutter iOS app — the PRIMARY client
 backend/         FastAPI app, ADK agents, FastMCP servers, Alembic migrations, db/seed
 ring-desktop/    macOS ring BLE, voice, gesture routing, and haptic notifications
+ring-demo/       Local React/Vite website for the real-ring Flash and Vibe demo
 deploy/          Production deploy (Caddy auto-HTTPS + Docker Compose on a VM)
 spec/            Source-of-truth spec (chapters 00–13 + handoffs)
 docker-compose.yml   MySQL db + backend for local dev
