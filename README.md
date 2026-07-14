@@ -134,9 +134,12 @@ python -m ring_desktop.app
 
 ## Ring Demo (local, real-ring flow)
 
-The exhibition demo runs entirely on one Mac: MySQL and the Eureka Backend run
-in Docker, while Ring Desktop and the Vite Demo Web app run on macOS. After
-cloning the repository, run the setup script from the repository root:
+The exhibition Demo Web, MySQL, Eureka Backend, and Ring bridge all run on one
+Mac: MySQL and the Backend run in Docker, while Ring Desktop and the Vite app
+run on macOS. Voice transcription still uses Ring Desktop's existing synchronous
+ASR service at `https://pre.card.biz/api/platform/speech/asr`, so the recording
+flow needs internet access even though no remote Eureka Demo Backend is required.
+After cloning the repository, run the setup script from the repository root:
 
 ```bash
 ./scripts/setup-ring-demo.sh
@@ -212,6 +215,7 @@ Flash finishes. If reset reports that it is unavailable, confirm
 | Demo Web says port `5173` is occupied | Close the earlier Vite process, or identify it with `lsof -nP -iTCP:5173 -sTCP:LISTEN`. The runner intentionally does not silently choose another port. |
 | Ring connection API on `17863` is unavailable | Stop any older Ring Desktop process, restart `./scripts/run-ring-demo.sh`, then check macOS Bluetooth permission. |
 | Gestures do not reach Codex or DingTalk | Grant Accessibility permission to the terminal that launched the script, restart it, and focus the target app. |
+| Recording stops but no transcript appears | Confirm the Mac can reach `https://pre.card.biz`; Ring Desktop currently uses that existing synchronous ASR service. |
 | Ring is absent from scan results | Disconnect it from the phone/other Mac, keep it awake, and scan again. |
 | Operator Reset returns `401` | Sign in again; the local account token is no longer valid. |
 | Operator Reset returns `409` | A Flash request is still processing. Wait for it to finish, then retry Reset. |
