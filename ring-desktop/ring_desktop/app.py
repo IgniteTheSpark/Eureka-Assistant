@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 import threading
+from typing import Optional
 
 import rumps
 from AppKit import NSApplicationActivateIgnoringOtherApps, NSRunningApplication
@@ -14,6 +15,7 @@ from .ble import RingBLE
 from .gestures import GESTURE_NAMES
 from .config import load_config, resolve_action, resolve_vibration
 from .control_api import VibrationControlServer
+from .demo_session import CaptureContext, DemoMode, DemoSessionController
 from .frontmost import frontmost_bundle_id
 from .actions import dispatch, type_text
 from .recorder import Recorder
@@ -24,6 +26,7 @@ log = logging.getLogger("ring_desktop.app")
 
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.json")
 CONFIG_HOTKEY = "<ctrl>+<alt>+r"
+VIBE_BUNDLES = frozenset({"com.openai.codex", "com.alibaba.DingTalkMac"})
 
 
 def status_icon(status: str, recording: bool) -> str:
@@ -32,12 +35,68 @@ def status_icon(status: str, recording: bool) -> str:
     return "🟢" if status == "connected" else "⚪️"
 
 
+def resolve_demo_action(
+    mode: str,
+    bundle: Optional[str],
+    gesture: str,
+    config: dict,
+):
+    if mode == DemoMode.IDLE.value:
+        return None
+    if mode == DemoMode.FLASH.value:
+        return {"type": "voice"} if gesture == "double" else None
+    if mode == DemoMode.VIBE.value:
+        if bundle not in VIBE_BUNDLES:
+            return None
+        return resolve_action(config, bundle, gesture)
+    return resolve_action(config, bundle, gesture)
+
+
+def _action_label(action: object) -> Optional[str]:
+    if not isinstance(action, dict):
+        return None
+    action_type = action.get("type")
+    value = action.get("value")
+    if action_type == "voice":
+        return "Voice"
+    if action_type == "scroll" and isinstance(value, str):
+        return f"Scroll {value}"
+    if action_type == "key" and isinstance(value, str):
+        return value.replace("+", " + ").title()
+    return str(value) if value is not None else None
+
+
+def serialize_mapping(config: dict, bundle: Optional[str]) -> dict:
+    merged = dict(config.get("default", {}))
+    merged.update(config.get(bundle or "", {}))
+    mapping = {}
+    for gesture, action in merged.items():
+        if gesture == "vibration":
+            continue
+        label = _action_label(action)
+        if label is not None:
+            mapping[gesture] = label
+    return mapping
+
+
+def _capture_event_data(context: CaptureContext) -> dict:
+    return {
+        "sessionId": context.session_id,
+        "generation": context.generation,
+        "mode": context.mode.value,
+    }
+
+
 class RingApp(rumps.App):
     def __init__(self):
         super().__init__("Ring", title="⚪️", quit_button=None)
         self.status = "starting"
         self.last = "-"
         self._frontmost = None          # 主线程缓存的前台 app（BLE 线程读它，别自己调 AppKit）
+        self._demo = DemoSessionController()
+        self._capture_context = None
+        self._finalizing_recording = False
+        self._pending_capture = None
         self._config_process = None
         self._open_config_requested = threading.Event()
         vibration_menu = rumps.MenuItem("测试震动")
@@ -64,7 +123,7 @@ class RingApp(rumps.App):
         self._ble = RingBLE(
             on_gesture=self._on_gesture,
             on_audio=self._rec.feed,
-            on_tick=self._rec.tick,
+            on_tick=self._on_recorder_tick,
             on_status=self._on_status,
         )
         threading.Thread(target=self._run_ble, daemon=True).start()
@@ -77,6 +136,8 @@ class RingApp(rumps.App):
                 request_scan=self._ble.request_scan,
                 request_connect=self._ble.request_connect,
                 request_disconnect=self._ble.request_disconnect,
+                demo_controller=self._demo,
+                demo_events=self._demo.events,
             ).start()
         except OSError as error:
             log.warning("local control API unavailable: %s", error)
@@ -95,22 +156,35 @@ class RingApp(rumps.App):
 
     def _on_status(self, s: str):
         self.status = s
+        self._demo.events.publish(
+            "connection.changed", self._ble.connection_state()
+        )
 
     def _on_gesture(self, code: int):
         # 本回调在 BLE 后台线程执行：绝不在这里碰 AppKit（前台 app 用主线程缓存的 self._frontmost）。
         name = GESTURE_NAMES.get(code, str(code))
         bundle = self._frontmost
-        action = resolve_action(load_config(CONFIG_PATH), bundle, name)
+        context = self._demo.capture_context()
+        action = resolve_demo_action(
+            context.mode.value,
+            bundle,
+            name,
+            load_config(CONFIG_PATH),
+        )
         log.info("gesture=%s app=%s action=%s", name, bundle, action)
         if action and action.get("type") == "voice":
             if self._rec.recording:         # 第二次双击 = 立即停（断流仍作兜底）
-                self._rec.stop()
+                self._finalize_recording(self._rec.stop)
                 self.last = f"{name}->🎙停"
                 log.info("voice recording stopped (double-tap)")
             else:
                 self._rec.start()
                 self.last = f"{name}->🎙录音" if self._rec.recording else f"{name}->(冷却忽略)"
                 if self._rec.recording:
+                    self._capture_context = context
+                    self._demo.events.publish(
+                        "recording.started", _capture_event_data(context)
+                    )
                     log.info("voice recording started")
         elif action:
             self.last = f"{name}->{action.get('value')}"
@@ -121,17 +195,66 @@ class RingApp(rumps.App):
         else:
             self.last = f"{name}->-"
 
+    def _on_recorder_tick(self):
+        self._finalize_recording(self._rec.tick)
+
+    def _finalize_recording(self, finalize):
+        was_recording = self._rec.recording
+        self._finalizing_recording = True
+        try:
+            finalize()
+        finally:
+            self._finalizing_recording = False
+        if was_recording and not self._rec.recording:
+            context = self._capture_context
+            if context is not None:
+                self._demo.events.publish(
+                    "recording.stopped", _capture_event_data(context)
+                )
+        pending_capture = getattr(self, "_pending_capture", None)
+        self._pending_capture = None
+        if pending_capture is not None:
+            self._start_transcription(*pending_capture)
+
     def _on_capture(self, adpcm: bytes):
         log.info("captured %d adpcm bytes -> decode+ASR", len(adpcm))
-        threading.Thread(target=self._transcribe_inject, args=(adpcm,), daemon=True).start()
+        context = self._capture_context
+        if context is None:
+            log.warning("discarding capture without recording context")
+            return
+        if getattr(self, "_finalizing_recording", False):
+            self._pending_capture = (adpcm, context)
+            return
+        self._start_transcription(adpcm, context)
 
-    def _transcribe_inject(self, adpcm: bytes):
+    def _start_transcription(self, adpcm: bytes, context: CaptureContext):
+        self._demo.events.publish("asr.started", _capture_event_data(context))
+        threading.Thread(
+            target=self._transcribe_inject,
+            args=(adpcm, context),
+            daemon=True,
+        ).start()
+
+    def _transcribe_inject(self, adpcm: bytes, context: CaptureContext):
         try:
             wav = audio.write_wav_temp(audio.decode_adpcm(adpcm))
             text = asr.transcribe(wav)
             log.info("voice text: %s", text)
+            if not text:
+                return
+            if not self._demo.accept_capture(context):
+                log.info(
+                    "discarding stale transcript generation=%s",
+                    context.generation,
+                )
+                return
             self.last = f"🎙{text[:14]}"
-            if text:
+            if context.mode is DemoMode.FLASH:
+                self._demo.events.publish(
+                    "transcript.ready",
+                    {**_capture_event_data(context), "text": text},
+                )
+            elif context.mode in {DemoMode.VIBE, DemoMode.STANDALONE}:
                 type_text(text)
         except Exception as e:
             log.warning("voice transcribe/inject failed: %r", e)
@@ -163,10 +286,21 @@ class RingApp(rumps.App):
 
     def _refresh(self, _):
         try:
+            self._demo.tick()
             if self._open_config_requested.is_set():
                 self._open_config_requested.clear()
                 self.open_config(None)
-            self._frontmost = frontmost_bundle_id()   # AppKit 调用留在主线程
+            bundle = frontmost_bundle_id()   # AppKit 调用留在主线程
+            if bundle != self._frontmost:
+                self._frontmost = bundle
+                config = load_config(CONFIG_PATH)
+                self._demo.events.publish(
+                    "active_app.changed", {"activeApp": bundle}
+                )
+                self._demo.events.publish(
+                    "mapping.changed",
+                    {"mapping": serialize_mapping(config, bundle)},
+                )
             self.title = status_icon(self.status, self._rec.recording)
             self.menu["打开配置…"].title = f"打开配置…  ({self.status}·{self.last})"
         except Exception as e:
