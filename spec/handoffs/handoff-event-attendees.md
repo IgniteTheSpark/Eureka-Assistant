@@ -87,7 +87,7 @@ DELETE /api/events/{id}/attendees/{attendee_id}
 
 ### 3.3 EventCard meta
 
-EventCard 第二行 meta：
+完整/通用 EventCard（资产库、对话内卡片、详情/编辑预览）第二行 meta：
 
 ```text
 14:00–15:00 · 会议室 · Alex +3
@@ -102,6 +102,8 @@ EventCard 第二行 meta：
 attendees 摘要：第一位 `display_name/name_raw` + `+N`，`N = total - 1`。
 
 不做头像，不做 avatar stack。
+
+日历流/月中的紧凑 event item 保持单行 `[时间] [类型 emoji] 标题`，不展示第二行 meta；点开详情后再展示上述完整摘要和参会人。
 
 ## 4. Agent / Flash
 
@@ -124,4 +126,4 @@ Flash event skill 创建 event 后抽参会人：
   - 若 Alex 唯一存在，event attendee 绑定 Alex 的 `contact_id`。
   - 若 Alex 不存在，event attendee 为裸名 `name_raw=Alex`。
   - 若 Alex 有多个，event attendee 为裸名，不自动绑定。
-- EventCard 显示类似 `14:00–15:00 · 会议室 · Alex +3`。
+- 完整/通用 EventCard 显示类似 `14:00–15:00 · 会议室 · Alex +3`；日历流/月中的紧凑 event item 保持单行标题。
