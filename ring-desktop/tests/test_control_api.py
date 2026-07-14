@@ -1,6 +1,7 @@
 import json
 import socket
 import threading
+import time
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -47,7 +48,22 @@ def read_sse_event(response):
 class TrackingDemoEventBroker(DemoEventBroker):
     def __init__(self):
         super().__init__()
+        self.subscribed = threading.Event()
         self.unsubscribed = threading.Event()
+        self.dequeued = threading.Event()
+
+    def subscribe(self):
+        subscriber = super().subscribe()
+        real_get = subscriber.get
+
+        def observed_get(*args, **kwargs):
+            message = real_get(*args, **kwargs)
+            self.dequeued.set()
+            return message
+
+        subscriber.get = observed_get
+        self.subscribed.set()
+        return subscriber
 
     def unsubscribe(self, subscriber):
         super().unsubscribe(subscriber)
@@ -397,14 +413,59 @@ def test_server_stop_unsubscribes_open_demo_event_stream():
         f"http://127.0.0.1:{server.port}/demo/events",
         timeout=2,
     )
+    stopped = False
     try:
         assert read_sse_event(response)[0] == "snapshot"
 
         server.stop()
+        stopped = True
 
         assert broker.unsubscribed.is_set()
     finally:
         response.close()
+        if not stopped:
+            server.stop()
+
+
+def test_server_stop_closes_stalled_demo_event_socket():
+    broker = TrackingDemoEventBroker()
+    controller = DemoSessionController(lease_seconds=30, events=broker)
+    server = VibrationControlServer(
+        lambda _kind: True,
+        demo_controller=controller,
+        demo_events=broker,
+        port=0,
+    ).start()
+    client = socket.create_connection(("127.0.0.1", server.port), timeout=2)
+    client.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024)
+    client.sendall(
+        b"GET /demo/events HTTP/1.1\r\n"
+        b"Host: 127.0.0.1\r\n"
+        b"Connection: keep-alive\r\n\r\n"
+    )
+    stopped = False
+    try:
+        assert broker.subscribed.wait(1)
+        broker.publish("large.event", {"blob": "x" * (8 * 1024 * 1024)})
+        assert broker.dequeued.wait(1)
+        time.sleep(0.2)
+
+        server.stop()
+        stopped = True
+
+        assert broker.unsubscribed.is_set()
+        client.settimeout(1)
+        try:
+            while client.recv(65536):
+                pass
+        except ConnectionResetError:
+            pass
+        except socket.timeout:
+            pytest.fail("stalled SSE socket remained open after server.stop()")
+    finally:
+        client.close()
+        if not stopped:
+            server.stop()
 
 
 def test_demo_events_filters_mode_event_already_covered_by_snapshot():

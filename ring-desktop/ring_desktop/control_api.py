@@ -1,6 +1,7 @@
 import json
 import logging
 import queue
+import socket
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Callable, Optional
@@ -46,11 +47,13 @@ class VibrationControlServer:
         sse_shutdown = threading.Event()
         sse_stop_message = object()
         sse_subscribers = set()
+        sse_connections = {}
         sse_condition = threading.Condition()
 
         self._sse_shutdown = sse_shutdown
         self._sse_stop_message = sse_stop_message
         self._sse_subscribers = sse_subscribers
+        self._sse_connections = sse_connections
         self._sse_condition = sse_condition
 
         class Handler(BaseHTTPRequestHandler):
@@ -273,7 +276,9 @@ class VibrationControlServer:
                         demo_event_broker.unsubscribe(subscriber)
                         return
                     sse_subscribers.add(subscriber)
+                    sse_connections[subscriber] = self.connection
                 try:
+                    self.close_connection = True
                     self.send_response(200)
                     self.send_header("Content-Type", "text/event-stream")
                     self.send_header("Cache-Control", "no-cache")
@@ -312,6 +317,7 @@ class VibrationControlServer:
                     finally:
                         with sse_condition:
                             sse_subscribers.discard(subscriber)
+                            sse_connections.pop(subscriber, None)
                             sse_condition.notify_all()
 
             def _write_sse(self, event, payload):
@@ -359,6 +365,7 @@ class VibrationControlServer:
         self._sse_shutdown.set()
         with self._sse_condition:
             subscribers = tuple(self._sse_subscribers)
+            connections = tuple(self._sse_connections.values())
         for subscriber in subscribers:
             while True:
                 try:
@@ -369,11 +376,17 @@ class VibrationControlServer:
                         subscriber.get_nowait()
                     except queue.Empty:
                         continue
+        for connection in connections:
+            try:
+                connection.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            try:
+                connection.close()
+            except OSError:
+                pass
         self._server.shutdown()
         self._server.server_close()
         self._thread.join(timeout=2)
         with self._sse_condition:
-            self._sse_condition.wait_for(
-                lambda: not self._sse_subscribers,
-                timeout=2,
-            )
+            self._sse_condition.wait_for(lambda: not self._sse_subscribers)
