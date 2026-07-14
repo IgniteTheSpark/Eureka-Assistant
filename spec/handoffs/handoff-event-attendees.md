@@ -69,7 +69,7 @@ DELETE /api/events/{id}/attendees/{attendee_id}
 
 - 已选 attendee 用 chip/list 展示。
 - `contact_id != null` 显 `display_name` + `contact_summary`。
-- `contact_id == null` 显 `name_raw`，可标轻提示「未绑定名片」。
+- `contact_id == null` 显 `name_raw` 和弱提示「未关联联系人」，并提供可选操作「关联」。这是可长期保留的合法状态，不强制用户处理。
 - 支持移除 attendee。
 
 ### 3.2 Select contacts sheet
@@ -84,6 +84,8 @@ DELETE /api/events/{id}/attendees/{attendee_id}
 - 无结果时显示「新增联系人」
 
 新增联系人复用 `ContactForm`；创建成功后自动选中并添加到当前 event。
+
+从裸名参会人的「关联」入口进入时，选择器默认以 `name_raw` 搜索；新建联系人表单默认预填当前搜索词，创建完成后原位 PATCH 该参会人。
 
 ### 3.3 EventCard meta
 
@@ -102,6 +104,8 @@ DELETE /api/events/{id}/attendees/{attendee_id}
 attendees 摘要：第一位 `display_name/name_raw` + `+N`，`N = total - 1`。
 
 不做头像，不做 avatar stack。
+
+EventCard 不展示 `?`、`?N`、待确认角标或其他“未关联”标识；裸名与已关联联系人采用相同摘要规则。
 
 日历流/月中的紧凑 event item 保持单行 `[时间] [类型 emoji] 标题`，不展示第二行 meta；点开详情后再展示上述完整摘要和参会人。
 
@@ -122,8 +126,11 @@ Flash event skill 创建 event 后抽参会人：
 - 搜索联系人支持名字和公司/职位/电话关键字。
 - 搜不到时能新建联系人，并自动加入当前 event。
 - 两个同名联系人时，sheet 显示两条带副信息的候选；用户选择后绑定正确 `contact_id`。
+- 裸名参会人可长期保留；用户不执行关联也不影响日程创建、展示和使用。
+- 点击裸名参会人的「关联」后，以其姓名预填搜索；选中或新建联系人后原位回填 `contact_id`。
 - Flash 输入「明天下午2-3点和 Alex 开会」：
   - 若 Alex 唯一存在，event attendee 绑定 Alex 的 `contact_id`。
   - 若 Alex 不存在，event attendee 为裸名 `name_raw=Alex`。
   - 若 Alex 有多个，event attendee 为裸名，不自动绑定。
 - 完整/通用 EventCard 显示类似 `14:00–15:00 · 会议室 · Alex +3`；日历流/月中的紧凑 event item 保持单行标题。
+- EventCard 与日历流不展示待确认标识，仍遵守既定两行卡片和单行日历流摘要规则。

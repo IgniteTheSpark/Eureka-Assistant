@@ -6,6 +6,7 @@ import '../data_revision.dart';
 import '../pages/chat_page.dart';
 import '../pages/create_asset.dart'
     show EventForm, ContactForm, kSocialPlatforms;
+import '../pages/event_attendees.dart';
 import '../pages/report_viewer_page.dart';
 import '../pages/session_detail_page.dart';
 import '../theme/app_theme.dart';
@@ -28,6 +29,7 @@ void showAssetDetail(
   String? assetId,
   String? sessionId,
   RenderSpec? spec,
+  ApiClient? api,
 }) {
   final eu = context.eu;
   final controller = DraggableScrollableController();
@@ -56,6 +58,7 @@ void showAssetDetail(
           assetId: assetId,
           sessionId: sessionId,
           spec: spec,
+          api: api,
           scrollController: scrollController,
           onExpand: () => controller.animateTo(
             0.95,
@@ -75,6 +78,7 @@ class _AssetView extends StatefulWidget {
   final String? assetId;
   final String? sessionId;
   final RenderSpec? spec;
+  final ApiClient? api;
   final ScrollController scrollController;
   final VoidCallback onExpand;
   const _AssetView({
@@ -86,6 +90,7 @@ class _AssetView extends StatefulWidget {
     required this.scrollController,
     required this.onExpand,
     this.spec,
+    this.api,
   });
 
   @override
@@ -93,7 +98,7 @@ class _AssetView extends StatefulWidget {
 }
 
 class _AssetViewState extends State<_AssetView> {
-  final _api = ApiClient();
+  late final ApiClient _api = widget.api ?? ApiClient();
   bool _busy = false;
   late final Future<void> _hydrateFuture;
   bool? _doneOverride; // optimistic 完成 state for checkable (todo) cards
@@ -193,7 +198,7 @@ class _AssetViewState extends State<_AssetView> {
 
   @override
   void dispose() {
-    _api.close();
+    if (widget.api == null) _api.close();
     super.dispose();
   }
 
@@ -441,6 +446,62 @@ class _AssetViewState extends State<_AssetView> {
       bumpData();
     } catch (_) {
       /* keep optimistic value; revision refresh will reconcile */
+    }
+  }
+
+  Future<Map<String, dynamic>?> _openContactForm(
+    BuildContext context,
+    String initialName,
+  ) async {
+    final receipt = await Navigator.of(context).push<dynamic>(
+      MaterialPageRoute(
+        builder: (_) => ContactForm(
+          existing: initialName.isEmpty ? null : {'name': initialName},
+        ),
+      ),
+    );
+    return receipt is Map ? Map<String, dynamic>.from(receipt) : null;
+  }
+
+  Future<void> _bindEventAttendee(EventAttendeeDraft attendee) async {
+    final eventId = widget.assetId;
+    final attendeeId = attendee.id;
+    if (_busy || eventId == null || attendeeId == null) return;
+    final rawAttendees = payload['attendees'];
+    final excludedIds = rawAttendees is List
+        ? rawAttendees
+              .whereType<Map>()
+              .map(EventAttendeeDraft.fromJson)
+              .map((item) => item.contactId)
+              .whereType<String>()
+              .where((id) => id.isNotEmpty)
+              .toSet()
+        : <String>{};
+    final selected = await showEventAttendeeSelector(
+      context,
+      api: _api,
+      excludedContactIds: excludedIds,
+      initialQuery: attendee.nameRaw ?? attendee.displayName,
+      singleSelect: true,
+      onCreateContact: _openContactForm,
+    );
+    if (!mounted || selected == null || selected.isEmpty) return;
+
+    setState(() => _busy = true);
+    try {
+      await _api.patchJson('/api/events/$eventId/attendees/$attendeeId', {
+        'contact_id': selected.first.id,
+      });
+      await _hydrate();
+      bumpData();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('关联联系人失败，请重试')));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -872,6 +933,18 @@ class _AssetViewState extends State<_AssetView> {
 
     payload.forEach((key, value) {
       if (_skip(key, value)) return;
+      if (cardType == 'event' && key == 'attendees') {
+        if (value is! List) return;
+        final attendees = value
+            .whereType<Map>()
+            .map(EventAttendeeDraft.fromJson)
+            .where((attendee) => attendee.displayName.isNotEmpty)
+            .toList();
+        if (attendees.isNotEmpty) {
+          stats.add((label: '参会人', value: _eventAttendeeRows(eu, attendees)));
+        }
+        return;
+      }
       if (cardType == 'todo' && !_todoEditableFields.contains(key)) return;
       if (cardType == 'contact' &&
           (key == 'name' || key == 'company' || key == 'title')) {
@@ -938,6 +1011,55 @@ class _AssetViewState extends State<_AssetView> {
         docs[i],
       ],
     ];
+  }
+
+  Widget _eventAttendeeRows(
+    EurekaColors eu,
+    List<EventAttendeeDraft> attendees,
+  ) {
+    return Column(
+      children: [
+        for (var index = 0; index < attendees.length; index++) ...[
+          if (index > 0) Divider(height: 18, color: eu.rule),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      attendees[index].displayName,
+                      style: TextStyle(
+                        color: eu.textHi,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    if (attendees[index].contactSummary.isNotEmpty)
+                      Text(
+                        attendees[index].contactSummary,
+                        style: TextStyle(color: eu.textMid, fontSize: 12),
+                      )
+                    else if (!attendees[index].isResolved)
+                      Text(
+                        '未关联联系人',
+                        style: TextStyle(color: eu.textLo, fontSize: 12),
+                      ),
+                  ],
+                ),
+              ),
+              if (!attendees[index].isResolved && attendees[index].id != null)
+                TextButton(
+                  onPressed: _busy
+                      ? null
+                      : () => _bindEventAttendee(attendees[index]),
+                  child: const Text('关联'),
+                ),
+            ],
+          ),
+        ],
+      ],
+    );
   }
 
   // 信息 fields as a quiet label-over-value list (not a heavy boxed panel).

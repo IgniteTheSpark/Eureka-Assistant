@@ -393,10 +393,17 @@ class _EventFormState extends State<EventForm> {
     super.dispose();
   }
 
-  Future<Map<String, dynamic>?> _openContactForm(BuildContext context) async {
-    final receipt = await Navigator.of(
-      context,
-    ).push<dynamic>(MaterialPageRoute(builder: (_) => const ContactForm()));
+  Future<Map<String, dynamic>?> _openContactForm(
+    BuildContext context,
+    String initialName,
+  ) async {
+    final receipt = await Navigator.of(context).push<dynamic>(
+      MaterialPageRoute(
+        builder: (_) => ContactForm(
+          existing: initialName.isEmpty ? null : {'name': initialName},
+        ),
+      ),
+    );
     return receipt is Map ? Map<String, dynamic>.from(receipt) : null;
   }
 
@@ -447,6 +454,7 @@ class _EventFormState extends State<EventForm> {
       context,
       api: _api,
       excludedContactIds: excludedIds,
+      initialQuery: target.nameRaw ?? target.displayName,
       singleSelect: true,
       onCreateContact: _openContactForm,
     );
@@ -649,7 +657,7 @@ class _EventFormState extends State<EventForm> {
                       ),
                     if (!_attendees[index].isResolved)
                       Text(
-                        '未绑定名片',
+                        '未关联联系人',
                         style: TextStyle(color: eu.textLo, fontSize: 12),
                       ),
                   ],
@@ -658,7 +666,7 @@ class _EventFormState extends State<EventForm> {
               if (_attendees[index].id != null && !_attendees[index].isResolved)
                 TextButton(
                   onPressed: () => _bindAttendee(index),
-                  child: const Text('绑定名片'),
+                  child: const Text('关联'),
                 ),
               IconButton(
                 tooltip: '移除参会人',

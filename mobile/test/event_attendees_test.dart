@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:eureka/api/api_client.dart';
 import 'package:eureka/pages/create_asset.dart';
 import 'package:eureka/pages/event_attendees.dart';
+import 'package:eureka/render/asset_detail_sheet.dart';
+import 'package:eureka/render/render_spec.dart';
 import 'package:eureka/theme/app_theme.dart';
 import 'package:eureka/theme/eureka_colors.dart';
 import 'package:flutter/material.dart';
@@ -241,8 +243,8 @@ void main() {
       expect(find.text('Alex Chen'), findsOneWidget);
       expect(find.text('Acme · PM'), findsOneWidget);
       expect(find.text('Legacy Lee'), findsOneWidget);
-      expect(find.text('未绑定名片'), findsOneWidget);
-      expect(find.text('绑定名片'), findsOneWidget);
+      expect(find.text('未关联联系人'), findsOneWidget);
+      expect(find.text('关联'), findsOneWidget);
       expect(find.text('添加参会人'), findsOneWidget);
       expect(find.textContaining('Alex Chen +1'), findsOneWidget);
       expect(find.byType(CircleAvatar), findsNothing);
@@ -441,7 +443,7 @@ void main() {
     );
     await tester.pump();
 
-    await tester.tap(find.text('绑定名片'));
+    await tester.tap(find.text('关联'));
     await tester.pumpAndSettle();
     expect(find.text('选择一张名片完成绑定'), findsOneWidget);
     final sheet = find.byType(BottomSheet);
@@ -456,8 +458,245 @@ void main() {
 
     expect(find.text('Alex Bound'), findsOneWidget);
     expect(find.text('Acme · CTO'), findsOneWidget);
-    expect(find.text('未绑定名片'), findsNothing);
-    expect(find.text('绑定名片'), findsNothing);
+    expect(find.text('未关联联系人'), findsNothing);
+    expect(find.text('关联'), findsNothing);
+  });
+
+  testWidgets('event form preloads an unresolved attendee name when linking', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final queries = <String?>[];
+    final api = ApiClient(
+      baseUrl: 'http://localhost',
+      enableLogging: false,
+      client: MockClient((request) async {
+        queries.add(request.url.queryParameters['q']);
+        return http.Response(
+          jsonEncode({'contacts': const []}),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+    );
+    addTearDown(api.close);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          theme: buildEurekaTheme(EurekaColors.light),
+          home: EventForm(
+            api: api,
+            existing: const {
+              'title': 'Planning',
+              'attendees': [
+                {
+                  'id': 'a1',
+                  'name_raw': 'Alex Raw',
+                  'display_name': 'Alex Raw',
+                  'is_resolved': false,
+                },
+              ],
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.text('关联'));
+    await tester.pumpAndSettle();
+
+    final search = tester.widget<TextField>(find.byType(TextField).last);
+    expect(search.controller?.text, 'Alex Raw');
+    expect(queries, ['Alex Raw']);
+  });
+
+  testWidgets('event detail lists a bare-name attendee as unlinked', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    const event = <String, dynamic>{
+      'event_id': 'event-1',
+      'title': 'Roadmap review',
+      'start_at': '2026-07-14T17:00:00+08:00',
+      'end_at': '2026-07-14T18:00:00+08:00',
+      'location': '3楼会议室',
+      'attendees': [
+        {
+          'id': 'a1',
+          'name_raw': 'Kevin',
+          'display_name': 'Kevin',
+          'is_resolved': false,
+        },
+      ],
+    };
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildEurekaTheme(EurekaColors.light),
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () => showAssetDetail(
+              context,
+              data: buildCard(
+                payload: event,
+                spec: synthesizeSpec('event'),
+                displayName: 'event',
+              ),
+              payload: event,
+              cardType: 'event',
+              assetId: 'event-1',
+            ),
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Kevin'), findsOneWidget);
+    expect(find.text('未关联联系人'), findsOneWidget);
+    expect(find.text('关联'), findsOneWidget);
+  });
+
+  testWidgets('event detail links a bare-name attendee in place', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var linked = false;
+    final operations = <String>[];
+    Map<String, dynamic> event() => {
+      'event_id': 'event-1',
+      'title': 'Roadmap review',
+      'start_at': '2026-07-14T17:00:00+08:00',
+      'end_at': '2026-07-14T18:00:00+08:00',
+      'location': '3楼会议室',
+      'attendees': [
+        linked
+            ? {
+                'id': 'a1',
+                'contact_id': 'c-google',
+                'name_raw': 'Kevin',
+                'display_name': 'Kevin',
+                'contact_summary': 'Google · 工程师',
+                'is_resolved': true,
+              }
+            : {
+                'id': 'a1',
+                'name_raw': 'Kevin',
+                'display_name': 'Kevin',
+                'is_resolved': false,
+              },
+      ],
+    };
+    final api = ApiClient(
+      baseUrl: 'http://localhost',
+      enableLogging: false,
+      client: MockClient((request) async {
+        if (request.method == 'GET' &&
+            request.url.path == '/api/events/event-1') {
+          return http.Response(
+            jsonEncode({'event': event()}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        if (request.method == 'GET' && request.url.path == '/api/contacts') {
+          operations.add('GET contacts q=${request.url.queryParameters['q']}');
+          return http.Response(
+            jsonEncode({
+              'contacts': [
+                {
+                  'id': 'c-google',
+                  'name': 'Kevin',
+                  'company': 'Google',
+                  'title': '工程师',
+                },
+                {
+                  'id': 'c-abccc',
+                  'name': 'Kevin',
+                  'company': 'abccc',
+                  'title': '产品经理',
+                },
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        if (request.method == 'PATCH' &&
+            request.url.path == '/api/events/event-1/attendees/a1') {
+          operations.add('PATCH ${request.body}');
+          linked = true;
+          return http.Response(
+            jsonEncode({'ok': true}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+    addTearDown(api.close);
+    final initialEvent = event();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildEurekaTheme(EurekaColors.light),
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () => showAssetDetail(
+              context,
+              data: buildCard(
+                payload: initialEvent,
+                spec: synthesizeSpec('event'),
+                displayName: 'event',
+              ),
+              payload: initialEvent,
+              cardType: 'event',
+              assetId: 'event-1',
+              api: api,
+            ),
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('关联'));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller?.text,
+      'Kevin',
+    );
+    expect(find.text('Google · 工程师'), findsOneWidget);
+    expect(find.text('abccc · 产品经理'), findsOneWidget);
+    await tester.tap(find.text('Google · 工程师'));
+    await tester.pump();
+    await tester.tap(find.text('保存(1)'));
+    await tester.pumpAndSettle();
+
+    expect(operations, [
+      'GET contacts q=Kevin',
+      'PATCH {"contact_id":"c-google"}',
+    ]);
+    expect(find.text('未关联联系人'), findsNothing);
+    expect(find.text('Google · 工程师'), findsOneWidget);
   });
 
   testWidgets(
@@ -603,7 +842,7 @@ void main() {
         ),
       );
       await tester.pump();
-      await tester.tap(find.text('绑定名片'));
+      await tester.tap(find.text('关联'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Alex Bound'));
       await tester.pump();
@@ -1127,7 +1366,7 @@ void main() {
                 result = await showEventAttendeeSelector(
                   context,
                   api: api,
-                  onCreateContact: (_) async => null,
+                  onCreateContact: (_, _) async => null,
                 );
               },
               child: const Text('open'),
@@ -1177,6 +1416,7 @@ void main() {
         }),
       );
       List<ContactChoice>? result;
+      String? createdInitialName;
       await tester.pumpWidget(
         MaterialApp(
           theme: buildEurekaTheme(EurekaColors.dark),
@@ -1187,13 +1427,16 @@ void main() {
                   context,
                   api: api,
                   singleSelect: true,
-                  onCreateContact: (_) async => {
-                    'contact_id': 'c3',
-                    'contact': {
-                      'id': 'c3',
-                      'name': 'Alex Chen',
-                      'company': 'Created Co',
-                    },
+                  onCreateContact: (_, initialName) async {
+                    createdInitialName = initialName;
+                    return {
+                      'contact_id': 'c3',
+                      'contact': {
+                        'id': 'c3',
+                        'name': 'Alex Chen',
+                        'company': 'Created Co',
+                      },
+                    };
                   },
                 );
               },
@@ -1219,6 +1462,7 @@ void main() {
 
       await tester.tap(find.text('新增联系人'));
       await tester.pumpAndSettle();
+      expect(createdInitialName, 'Alex');
       expect(find.text('Alex Chen'), findsOneWidget);
       expect(find.text('保存(1)'), findsOneWidget);
       await tester.tap(find.text('保存(1)'));
@@ -1254,7 +1498,7 @@ void main() {
                 ContactChoice(id: 'c1', name: 'Footer Alex'),
                 ContactChoice(id: 'c2', name: 'Footer Bob'),
               ],
-              onCreateContact: (_) async => null,
+              onCreateContact: (_, _) async => null,
             ),
             child: const Text('open'),
           ),
@@ -1302,7 +1546,7 @@ void main() {
               onPressed: () => showEventAttendeeSelector(
                 context,
                 api: api,
-                onCreateContact: (_) async => null,
+                onCreateContact: (_, _) async => null,
               ),
               child: const Text('open'),
             ),
@@ -1360,7 +1604,7 @@ void main() {
             onPressed: () => showEventAttendeeSelector(
               context,
               api: api,
-              onCreateContact: (_) async {
+              onCreateContact: (_, _) async {
                 attempts++;
                 throw StateError('create failed');
               },

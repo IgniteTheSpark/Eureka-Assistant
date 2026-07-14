@@ -291,9 +291,10 @@ default `attendee`（`organizer/attendee/optional`）· `created_at`。
 
 **参会人语义（2026-07 补充）**：
 - `contact_id != null` = 已绑定到用户名片库里的 `contacts` 真身。展示名优先读 `contacts.name`，副信息可读 `company/title/phone`。
-- `contact_id == null && name_raw != null` = 未绑定参会人。来源可能是闪念里提到的「Alex / 张总 / 客户」，或用户手动输入但尚未建名片。
+- `contact_id == null && name_raw != null` = 未关联联系人的裸名参会人。来源可能是闪念里提到的「Alex / 张总 / 客户」，或用户手动输入但尚未建名片。这是长期合法状态，不代表“待确认”或必须处理的任务。
 - **不因 event 自动创建 contact**：参会人是 meeting context，不等于用户真的要保存名片。只有用户在参会人选择 sheet 里点「新增联系人」才写 `contacts`。
 - **重名消歧不写错**：若 `name_raw` 模糊命中多个联系人，保持 `contact_id=null`，由前端在参会人 sheet 里让用户选择具体名片；不要随机绑定第一条。
+- 裸名参会人不会阻塞日程创建、展示或后续使用；用户可以一直保留裸名，也可以稍后在日程详情/编辑页主动关联联系人。
 - GET event 序列化 attendees 时建议返回派生字段：`display_name`（contact.name ?? name_raw）、`is_resolved`（contact_id 是否存在）、`contact_summary`（company/title/phone 的短副行）。
 
 ### 3.11 `event_files`

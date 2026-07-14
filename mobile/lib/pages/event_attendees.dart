@@ -205,7 +205,10 @@ Future<void> syncEventAttendees(
 }
 
 typedef CreateContactCallback =
-    Future<Map<String, dynamic>?> Function(BuildContext context);
+    Future<Map<String, dynamic>?> Function(
+      BuildContext context,
+      String initialName,
+    );
 
 /// Contact picker shared by event attendee creation and unresolved-attendee
 /// binding. Single-select mode still returns a list, with at most one item, so
@@ -215,6 +218,7 @@ Future<List<ContactChoice>?> showEventAttendeeSelector(
   ApiClient? api,
   List<ContactChoice> initialSelection = const [],
   Set<String> excludedContactIds = const {},
+  String initialQuery = '',
   bool singleSelect = false,
   required CreateContactCallback onCreateContact,
 }) {
@@ -232,6 +236,7 @@ Future<List<ContactChoice>?> showEventAttendeeSelector(
         api: api,
         initialSelection: initialSelection,
         excludedContactIds: excludedContactIds,
+        initialQuery: initialQuery,
         singleSelect: singleSelect,
         onCreateContact: onCreateContact,
       ),
@@ -244,6 +249,7 @@ class _EventAttendeeSelector extends StatefulWidget {
     required this.api,
     required this.initialSelection,
     required this.excludedContactIds,
+    required this.initialQuery,
     required this.singleSelect,
     required this.onCreateContact,
   });
@@ -251,6 +257,7 @@ class _EventAttendeeSelector extends StatefulWidget {
   final ApiClient? api;
   final List<ContactChoice> initialSelection;
   final Set<String> excludedContactIds;
+  final String initialQuery;
   final bool singleSelect;
   final CreateContactCallback onCreateContact;
 
@@ -263,7 +270,7 @@ class _EventAttendeeSelectorState extends State<_EventAttendeeSelector> {
   late final Map<String, ContactChoice> _selected = {
     for (final contact in widget.initialSelection) contact.id: contact,
   };
-  final _searchController = TextEditingController();
+  late final TextEditingController _searchController;
   Timer? _debounce;
   List<ContactChoice> _contacts = const [];
   bool _loading = true;
@@ -275,8 +282,9 @@ class _EventAttendeeSelectorState extends State<_EventAttendeeSelector> {
   @override
   void initState() {
     super.initState();
+    _searchController = TextEditingController(text: widget.initialQuery);
     _searchController.addListener(_searchChanged);
-    _load('', generation: ++_searchGeneration);
+    _load(widget.initialQuery.trim(), generation: ++_searchGeneration);
   }
 
   @override
@@ -352,7 +360,10 @@ class _EventAttendeeSelectorState extends State<_EventAttendeeSelector> {
       _createError = null;
     });
     try {
-      final receipt = await widget.onCreateContact(context);
+      final receipt = await widget.onCreateContact(
+        context,
+        _searchController.text.trim(),
+      );
       if (!mounted || receipt == null) return;
       final raw = receipt['contact'];
       if (raw is! Map) return;
