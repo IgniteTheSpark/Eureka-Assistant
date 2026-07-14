@@ -50,7 +50,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db.models import (
     Asset, UserSkill, GlobalSkill, Event, EventAttendee, InputTurn, File, Contact,
 )
-from mcp_server.tools import _event_attendee_to_dict
+from mcp_server.tools import _event_attendee_to_dict, _event_source_sessions
 
 
 # ── effective_at per kind ─────────────────────────────────────────────────────
@@ -252,7 +252,11 @@ def _asset_item(asset: Asset, skill_name: str, render_spec: Optional[dict] = Non
     }
 
 
-def _event_item(event: Event, attendees: Optional[list] = None) -> dict:
+def _event_item(
+    event: Event,
+    attendees: Optional[list] = None,
+    session_id=None,
+) -> dict:
     attendees = attendees or []
     payload = {
         "event_id": str(event.id),
@@ -275,6 +279,7 @@ def _event_item(event: Event, attendees: Optional[list] = None) -> dict:
         "end_at":               _iso(event.end_at),
         "location":             event.location,
         "all_day":              bool(event.all_day),
+        "session_id":           str(session_id) if session_id else None,
         "source_input_turn_id": str(event.source_input_turn_id) if event.source_input_turn_id else None,
         "payload":              payload,
     }
@@ -438,6 +443,7 @@ async def assemble_timeline(
     if "event" in kinds:
         stmt = select(Event).where(Event.user_id == user_id)
         events = (await db.execute(stmt)).scalars().all()
+        source_sessions = await _event_source_sessions(db, events, user_id)
         event_ids = [event.id for event in events]
         attendees_by_event = {event_id: [] for event_id in event_ids}
         if event_ids:
@@ -464,7 +470,11 @@ async def assemble_timeline(
                     )
                 )
         for ev in events:
-            items.append(_event_item(ev, attendees_by_event[ev.id]))
+            items.append(_event_item(
+                ev,
+                attendees_by_event[ev.id],
+                source_sessions.get(ev.source_input_turn_id),
+            ))
 
     # ── contacts (first-class entity in its own table) ──
     if "contact" in kinds:

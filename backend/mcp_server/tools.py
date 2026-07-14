@@ -679,7 +679,12 @@ async def get_input_turn(input_turn_id: str, user_id: str = "default") -> dict:
 
 # ── Event tools (v1.4: Event is a first-class entity) ────────────────────────
 
-def _event_to_dict(event: Event, attendees: list = None, files: list = None) -> dict:
+def _event_to_dict(
+    event: Event,
+    attendees: list = None,
+    files: list = None,
+    session_id=None,
+) -> dict:
     """Serialize an Event row plus optional joined attendees/files."""
     return {
         "event_id":        str(event.id),
@@ -692,11 +697,30 @@ def _event_to_dict(event: Event, attendees: list = None, files: list = None) -> 
         "recurrence_rule": event.recurrence_rule,
         "status":          event.status,
         "sync_source":     event.sync_source,
+        "session_id":      str(session_id) if session_id else None,
         "source_input_turn_id": str(event.source_input_turn_id) if event.source_input_turn_id else None,
         "created_at":      event.created_at.isoformat() if event.created_at else None,
         "attendees":       attendees if attendees is not None else None,
         "files":           files if files is not None else None,
     }
+
+
+async def _event_source_sessions(db, events: list, user_id: str) -> dict:
+    """Map Event.source_input_turn_id to its originating Session id."""
+    turn_ids = {
+        event.source_input_turn_id
+        for event in events
+        if event.source_input_turn_id is not None
+    }
+    if not turn_ids:
+        return {}
+    rows = (await db.execute(
+        select(InputTurn.id, InputTurn.session_id).where(
+            InputTurn.id.in_(turn_ids),
+            InputTurn.user_id == user_id,
+        )
+    )).all()
+    return {turn_id: session_id for turn_id, session_id in rows}
 
 
 def _event_attendee_to_dict(attendee, contact=None):
@@ -819,8 +843,14 @@ async def create_event(
         db.add(event)
         await db.commit()
         await db.refresh(event)
+        source_sessions = await _event_source_sessions(db, [event], user_id)
 
-    return _ok(**_event_to_dict(event, attendees=[], files=[]))
+    return _ok(**_event_to_dict(
+        event,
+        attendees=[],
+        files=[],
+        session_id=source_sessions.get(event.source_input_turn_id),
+    ))
 
 
 async def query_event(
@@ -871,6 +901,7 @@ async def query_event(
         stmt = stmt.order_by(Event.start_at.desc()).limit(limit)
         result = await db.execute(stmt)
         events = result.scalars().all()
+        source_sessions = await _event_source_sessions(db, events, user_id)
 
         # Fetch attendees + files for each (one batched query each)
         event_ids = [e.id for e in events]
@@ -906,7 +937,12 @@ async def query_event(
                 })
 
     return _ok(events=[
-        _event_to_dict(e, attendees=attendees_by_event[e.id], files=files_by_event[e.id])
+        _event_to_dict(
+            e,
+            attendees=attendees_by_event[e.id],
+            files=files_by_event[e.id],
+            session_id=source_sessions.get(e.source_input_turn_id),
+        )
         for e in events
     ])
 
@@ -920,6 +956,7 @@ async def get_event(event_id: str, user_id: str = "default") -> dict:
         event = result.scalar_one_or_none()
         if not event:
             return _err(f"event not found: {event_id}")
+        source_sessions = await _event_source_sessions(db, [event], user_id)
         atts = (await db.execute(
             select(EventAttendee).where(EventAttendee.event_id == event.id)
             .order_by(EventAttendee.created_at.asc(), EventAttendee.id.asc())
@@ -948,6 +985,7 @@ async def get_event(event_id: str, user_id: str = "default") -> dict:
             "file_id":       str(f.file_id),
             "kind":          f.kind,
         } for f in efs],
+        session_id=source_sessions.get(event.source_input_turn_id),
     ))
 
 
@@ -991,8 +1029,12 @@ async def update_event(
             setattr(event, k, v)
         await db.commit()
         await db.refresh(event)
+        source_sessions = await _event_source_sessions(db, [event], user_id)
 
-    return _ok(**_event_to_dict(event))
+    return _ok(**_event_to_dict(
+        event,
+        session_id=source_sessions.get(event.source_input_turn_id),
+    ))
 
 
 async def delete_event(event_id: str, user_id: str = "default") -> dict:
