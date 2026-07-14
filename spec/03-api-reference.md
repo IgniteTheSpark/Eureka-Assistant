@@ -100,7 +100,10 @@ sessions, contacts, events, timeline, tasks, notifications。
 - 产生一条 `flash_done` 通知（link=session_id）。**通知文案 = 纯标题「闪念已整理」,body 留空**(产品决策 2026-06,无多余文字)。
 - **domain(§8):** flash dispatcher 在每个 intent 上判一个 `domain`,pipeline 建好 asset 后 `_apply_domain()` 覆盖到 `assets.domain`(覆盖技能 prior)—— 闪念产出的卡片**按内容打域**,不再只吃 notes/随记 prior。
 
-> **硬件录入桥(dev 集成,代码在 `bizcard/Eureka-BrandNew/integrations/flash-card/`):** W1/W2 录音卡 → FlashType(macOS,BLE+Opus 解码)→ `external` ASR hook `eureka-bridge.py`(whisper.cpp 本地转写 → **带 JWT** `POST /api/flash`)→ 闪念入库 + `capture`/`flash_done` SSE → app。`/api/flash` 需鉴权,桥用 `docker exec create_token` 现取(无盘上 token)。stdout 只回纯转写(诊断写文件 —— FlashType 把 stdout+stderr 合并当转写)。
+> **桌面戒指桥:** `ring-desktop/` 使用 Bleak 直连 BraveChip 戒指，接收手势与
+> ADPCM 音频并完成 WAV/ASR。当前稳定路径把转写注入聚焦的 Mac app；Ring Demo
+> 将在该桥上增加互斥的 Flash/Vibe 会话路由。`/api/flash` 仍由 Eureka 客户端以
+> 已认证用户身份调用。
 >
 > **手机直连(设计中,[§13.3](13-baizhi-integration.md)):** W1/W2 就是百智录音卡 → 把百智 `RecordSDK`(Swift `BluetoothDeviceManager`)封成 **Flutter 插件**,**手机直接** BLE/WiFi 同步 + 闪念事件 → 剥 MARK → ASR → `POST /api/flash`,**去掉 macOS 桥**(桌面桥保留作 dev 路径)。这是「手机优先捕捉」的解锁。
 

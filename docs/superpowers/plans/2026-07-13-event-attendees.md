@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - Implement the approved contract in `spec/handoffs/handoff-event-attendees.md`.
-- Target Flutter under `mobile/`; `frontend-next（deprecated）` is renamed only and receives no implementation work.
+- Target Flutter under `mobile/`; the retired Next.js reference was removed and receives no implementation work.
 - Never auto-create a contact from Flash attendee extraction.
 - Never choose the first result when a contact name has multiple matches.
 - Removing an attendee deletes only `event_attendees`, never `contacts`.

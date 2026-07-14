@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
-/// Eureka color palette, ported from `frontend/src/styles/tokens.css`.
+/// Eureka color palette. Originally ported from the retired Web token set;
+/// this Flutter file is now the implementation source of truth.
 ///
 /// Two themes mirror the web app: `dark` == `.theme-atmosphere` (the default),
 /// `light` == `.theme-light` (warm day mode). Translucent-over-bg web surfaces

@@ -424,7 +424,8 @@ asset/event/contact.source_input_turn_id
 ## 5. render_spec DSL（卡片渲染契约）
 
 存在 `user_skills.render_spec`（JSON）。前端据此**通用渲染** SkillCard，**无 if-type-equals**。
-权威类型见前端 `frontend/src/lib/render-spec.ts`，详见 [§04](04-frontend.md)、[§05](05-design-system.md)。
+权威客户端类型见 `mobile/lib/render/render_spec.dart`，服务端卡片构建见
+`backend/agents/flash_pipeline.py`；详见 [§04](04-frontend.md)、[§05](05-design-system.md)。
 
 ### 5.1 字段
 | key | 取值 | 说明 |

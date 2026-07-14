@@ -148,7 +148,7 @@
 
 ### 渲染管线（一套引擎,两条 Flutter 路径）
 
-`mobile/assets/js/{mascot.js,pixel.js}` 是**唯一引擎真相**(web `frontend/` 仅参考镜像)。Flutter 用**同一份引擎**走两条路:
+`mobile/assets/js/{mascot.js,pixel.js}` 是**唯一引擎真相**。Flutter 用**同一份引擎**走两条路:
 
 1. **活体 `PetView`(WebView)** —— 完整动画 Reka:idle/listen/celebrate/sleep + 自动眨眼 + 庆祝彩纸 + **CSS 光环辉光**。用于 hero、浮动球、孵化页、**掉落揭示弹窗**(`reka_drop_reveal.dart`)。
 2. **sprite-factory(`lib/render/sprite_factory.dart`)** —— **单个隐藏 1×1 WebView** 载入同一引擎,`Mascot.sprite()/partSprite()` → `canvas.toDataURL()` → `Image.memory`,**按 opts 缓存**。用于换装背包的几十个静态预览格(避免一屏几十个 WebView)。**代价**:纯 CSS 效果(光环辉光)不烘进 PNG → 光环槽预览在 Flutter 侧补 `boxShadow`。

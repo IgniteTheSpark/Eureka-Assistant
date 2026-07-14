@@ -5,7 +5,7 @@ Note on rendering: this module is the source of the `title` / `subtitle`
 strings shown in calendar bullets + the "/api/timeline" feed. Field values
 are passed through `_format_value` so an ISO datetime in the primary slot
 reads as "5月30日 08:00" instead of "2026-05-30T08:00:00+08:00". Mirrors
-the auto-format in frontend/src/lib/format.ts applyFormat().
+the client formatting contract in mobile/lib/render/render_spec.dart.
 
 Powers the「全部」filter tab in CalendarPage's Schedule view (per design
 DESIGN.md §5.2 + Phase B §八). NOT a standalone page — just the data source

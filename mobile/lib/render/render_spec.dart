@@ -1,7 +1,7 @@
 import '../api/api_client.dart';
 
-/// Mirror of UserSkill.render_spec (subset the cards use). Ported from the web
-/// lib/render-spec.ts.
+/// Client model for UserSkill.render_spec (subset the cards use).
+/// This Flutter implementation is the active client source of truth.
 class RenderSpec {
   final String cardLayout; // horizontal | stacked | inline | compact
   final String icon;
