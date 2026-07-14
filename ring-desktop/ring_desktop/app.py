@@ -207,7 +207,7 @@ class RingApp(rumps.App):
                             "recording.started", _capture_event_data(context)
                         )
 
-                if self._demo.run_if_current(context, start_recording):
+                if self._run_if_capture_current(context, bundle, start_recording):
                     if self._rec.recording:
                         log.info("voice recording started")
                 else:

@@ -119,6 +119,39 @@ def test_vibe_recording_does_not_start_after_mode_transition(
     assert ring_app._rec.recording is False
 
 
+@pytest.mark.parametrize(
+    ("source_bundle", "next_bundle"),
+    [
+        ("com.openai.codex", "com.apple.Safari"),
+        ("com.alibaba.DingTalkMac", "com.openai.codex"),
+    ],
+)
+def test_vibe_recording_does_not_start_after_frontmost_app_changes(
+    monkeypatch, source_bundle, next_bundle
+):
+    controller = DemoSessionController(lease_seconds=30)
+    controller.acquire("browser-1")
+    controller.set_mode("browser-1", DemoMode.VIBE)
+    ring_app = _bare_ring_app(controller)
+    ring_app._frontmost = source_bundle
+    ring_app._rec = Recorder(on_capture=ring_app._on_capture)
+    subscriber = controller.events.subscribe()
+
+    def resolve_then_switch_app(*_args, **_kwargs):
+        with ring_app._state_lock:
+            ring_app._frontmost = next_bundle
+        return {"type": "voice"}
+
+    monkeypatch.setattr(app, "resolve_demo_action", resolve_then_switch_app)
+
+    ring_app._on_gesture(2)
+
+    assert ring_app._rec.recording is False
+    assert ring_app.last == "double->-"
+    with pytest.raises(queue.Empty):
+        subscriber.get_nowait()
+
+
 @pytest.mark.parametrize("next_mode", [DemoMode.IDLE, DemoMode.FLASH])
 def test_vibe_recording_does_not_stop_after_mode_transition(
     monkeypatch, next_mode
