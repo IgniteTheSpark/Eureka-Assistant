@@ -119,9 +119,10 @@ class USkeletonCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final eu = context.eu;
+    final verticalPadding = height < 84 ? 10.0 : 14.0;
     return Container(
       height: height,
-      padding: const EdgeInsets.all(14),
+      padding: EdgeInsets.symmetric(horizontal: 14, vertical: verticalPadding),
       decoration: BoxDecoration(
         color: eu.surfaceRaised.withValues(
           alpha: eu.brightness == Brightness.dark ? 0.46 : 0.72,
