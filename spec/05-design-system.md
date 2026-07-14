@@ -4,10 +4,12 @@
 > 变量（design token）推导。**组件里几乎不写裸 hex / px**，而是消费 token。Flutter 版
 > 必须把这套 token 1:1 搬成一个 `ThemeData` / 常量表，否则两端视觉一定漂移。
 >
-> 三个文件构成设计系统的全部真相：
-> - `frontend/src/styles/tokens.css` — token 定义，**按主题 class 分组**（4 套主题）。
-> - `frontend/src/styles/globals.css` — base reset + keyframe 动画 + safe-area 工具类。
-> - `frontend/tailwind.config.ts` — 把 `--eu-*` 桥接成 Tailwind 工具类（`bg-eu-surface` 等）。
+> 当前实现真值位于 Flutter：
+> - `mobile/lib/theme/eureka_colors.dart` — 颜色语义与明暗主题。
+> - `mobile/lib/theme/app_theme.dart` — ThemeData、字体与组件访问方式。
+> - `mobile/lib/theme/ureka_tokens.dart` — 间距、圆角与动效时长。
+>
+> 下文 CSS token 名称保留为历史设计语言；实现时以以上 Flutter 文件为准。
 
 ---
 

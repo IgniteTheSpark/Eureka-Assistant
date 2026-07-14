@@ -1,7 +1,8 @@
 # 04 · 前端架构与交互细节
 
-> **真值源（2026-06 翻转）：产品前端 = Flutter `mobile/`（iOS-first）。web `frontend/`
-> （Vite + React + SWR）= 历史来源 / 出处参考，非交付端。** 本章描述的交互行为，**冲突一律以
+> **真值源（2026-06 翻转）：产品前端 = Flutter `mobile/`（iOS-first）。旧 React
+> 参考实现已在 2026-07 仓库清理中移除。** 本章保留部分历史组件名作为行为设计记录；
+> 本章描述的交互行为，**冲突一律以
 > `mobile/` 为准**；章内「Flutter 增量 / 实现注意」即规范。
 > **本章状态：正逐区 re-baseline。** 历史 React 描述（Provider 嵌套 / SWR / React Router / 组件名如
 > `CategoryList` `AssetDetailDrawer`）保留作**意图与命名对照**，但当它与 Flutter 实现冲突时按 Flutter 来；
@@ -170,9 +171,10 @@ header 的 `👤`(目标:从「资料 sheet」升级成一个**全屏设置 hub*
 
 > **dock = 3 tab(2026-06 今日页落地后改)。** dock = `[今日][日历][资产]` 三个纯导航 tab(**日历回归底栏**;**「我的岛」移出底栏 → 进 Reka 浮球雷达菜单**,见下);
 > **全局浮动球球 REKA**(挂根 overlay 浮在**所有页面**之上、可拖、记忆位置,见 [§9.2](09-pet.md))。**短按 → 雷达功能菜单**(快创/洞察/通知/我的岛,corner-aware 扇形;**任务暂从菜单移除**,随岛屿任务 [§7](07-gamemode.md) 落地再加回);**长按 → 续上次对话**(ChatPage)。功能在**气泡**里解析:快创=列所有类型 chip〔带域色点〕→ 底部 sheet 编辑 → 回执气泡 + 庆祝 + 通知+1;洞察(原「总结」,改名去死板)=气泡打字/弹窗选资产→生成(REKA 小动画)→ 结果气泡 + 查看报告 CTA。**通知收敛到 REKA**(角标 + 气泡面板,**header 铃铛已移除**)。🎙 闪念移除(无软件语音)。「我的岛」(REKA 之家:hero + 里程碑 + 换装;周岛/任务占位,待 §7)**从雷达菜单进入,不再是底栏 tab**(2026-06 改)。
-> **下文 5 元素 dock = web 参考实现(`frontend/`),Flutter 已不再沿用。** 仍待做:web 端对齐、周岛/任务板块(§7)、脉冲环动画。
+> **下文 5 元素 dock = 已移除的历史 Web 参考行为，Flutter 已不再沿用。**
+> 仍待做：周岛/任务板块(§7)、脉冲环动画。
 
-web 参考实现(`frontend/`)—— 悬浮胶囊，**5 元素**，非底部 TabBar+FAB：
+历史 Web 参考行为——悬浮胶囊，**5 元素**，非底部 TabBar+FAB：
 
 ```
 ┌───────────────────────────────────────────────┐
@@ -966,10 +968,9 @@ event 是一级实体、**不走 render_spec**——有专用 `EventCard`（紫 
 EurekaMind 录音卡（W1/W2 BLE）的**手机端配对**。由全局 header 的 设备连接（`🔌`）入口进入：已绑定 →
 我的设备；未绑定 → 首配流程。
 
-**硬件管线现状**：`integrations/flash-card/` 里，**FlashType（Swift / Mac app）做 BLE handshake + Opus
-采集 + 解码成 WAV**；`eureka-bridge.py` 跑 whisper.cpp 转写 → `POST /api/flash`；`listen-watcher.py`
-tail FlashType 日志 → `POST /api/flash/listening`。**手机上 FlashType 不在**，所以 iOS 直连必须让
-Flutter 自己拥有 BLE。
+**硬件管线现状**：旧 Mac 录音卡桥已移除。BraveChip
+戒指桌面链路现位于 `ring-desktop/`，手机端戒指链路位于
+`mobile/packages/chiplet_ring/`。W1/W2 的 iOS 直连仍需 Flutter 自己拥有 BLE。
 
 **架构（seam）**：UI 只认 `DeviceController`（单例，持有绑定/连接态），`DeviceController` 只认
 `DeviceTransport` 接口（`scan() / connect() / unbind(deleteData)`）。

@@ -7,15 +7,16 @@ report summaries, and syncs items to third-party tools (DingTalk / Notion / Goog
 Calendar) — now via **per-user** connected apps. A lightweight pet/gamification
 layer rewards capture.
 
-The **primary client is the native Flutter iOS app** (`mobile/`); the web app
-(`frontend/`) is a visual-parity reference, not the shipping client.
+The primary client is the native Flutter app (`mobile/`). The Mac ring client
+(`ring-desktop/`) connects a BraveChip ring directly for voice capture, gesture
+routing, and haptic desktop notifications.
 
 ## Stack
 
 | Layer | Tech |
 |---|---|
 | Primary client | **Flutter** — native iOS app (`mobile/`); reports render in an in-app WebView |
-| Web (reference) | Vite + React + TypeScript (`frontend/`, parity reference — not shipped) |
+| Ring desktop | Python + Bleak + PyObjC (`ring-desktop/`, macOS) |
 | Backend | FastAPI (Python, async) + **Google ADK** agents |
 | LLM | **DeepSeek direct API** (`api.deepseek.com`) via LiteLLM; OpenRouter fallback for dev |
 | Tools | **FastMCP** (internal CRUD) + external MCP (per-user Connected Apps) |
@@ -48,7 +49,7 @@ Start at [`spec/README.md`](spec/README.md).
 - **Docker Desktop** (runs MySQL + the backend)
 - **Flutter SDK** + **Xcode** (to run the iOS app on a simulator/device)
 - A **DeepSeek API key** — get one at https://platform.deepseek.com (the agent needs it)
-- *(optional)* Node 18+ if you want to run the reference web frontend
+- *(optional)* Python 3 + macOS Bluetooth/Accessibility permissions for `ring-desktop/`
 
 ## Quick start
 
@@ -74,9 +75,6 @@ flutter pub get
 flutter run --dart-define=API_BASE=http://localhost:8000
 #   register an account in-app, then capture from the + button or talk to the agent
 ```
-
-> The reference web frontend (optional): `cd frontend && npm install && npm run dev`
-> → http://localhost:5173. It's a parity demo, not the shipping client.
 
 ## Configuration
 
@@ -116,18 +114,21 @@ templates, so you bring your own keys. Never commit a real key or token.
 over `https://`. See [`deploy/README.md`](deploy/README.md) for the full steps;
 build the app with `--dart-define=API_BASE=https://<your-domain>`.
 
-## Hardware voice capture (optional)
+## Ring desktop (optional)
 
-[`integrations/flash-card/`](integrations/flash-card/README.md) links a **BLE voice
-card** to Eureka on macOS: hold the card button → FlashType captures over BLE → local
-Whisper ASR → the flash pipeline. (A native phone-direct path — phone ↔ recording card
-over BLE/WiFi — is designed in [`spec/13-baizhi-integration.md`](spec/13-baizhi-integration.md) §13.3.)
+[`ring-desktop/`](ring-desktop/README.md) connects the BraveChip ring directly to
+macOS. It supports eight gestures, voice transcription into the focused app, and
+haptic notifications from Codex/Claude-style desktop workflows. The current code
+was migrated from the former standalone repository; provenance is recorded in
+[`ring-desktop/UPSTREAM.md`](ring-desktop/UPSTREAM.md).
 
 ```bash
-cd integrations/flash-card
-./setup.sh      # install whisper + model, write config, print FlashType wiring
-./start.sh      # run the listening watcher (foreground)
-./doctor.sh     # preflight when something doesn't connect
+cd ring-desktop
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp config.example.json config.json
+python -m ring_desktop.app
 ```
 
 ## Reset the database
@@ -145,10 +146,9 @@ docker compose up -d backend
 ```
 mobile/          Flutter iOS app — the PRIMARY client
 backend/         FastAPI app, ADK agents, FastMCP servers, Alembic migrations, db/seed
-frontend/        Vite + React reference demo (visual parity — not the shipping client)
+ring-desktop/    macOS ring BLE, voice, gesture routing, and haptic notifications
 deploy/          Production deploy (Caddy auto-HTTPS + Docker Compose on a VM)
 spec/            Source-of-truth spec (chapters 00–13 + handoffs)
-integrations/    flash-card BLE → Whisper → /api/flash bridge (macOS, optional)
 docker-compose.yml   MySQL db + backend for local dev
 ```
 

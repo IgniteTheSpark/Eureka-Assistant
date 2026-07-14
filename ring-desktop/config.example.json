@@ -1,0 +1,31 @@
+{
+  "default": {
+    "triple":    { "type": "key", "value": "enter" },
+    "longPress": { "type": "key", "value": "cmd+a;backspace" }
+  },
+  "com.anthropic.claudefordesktop": {
+    "double":    { "type": "voice" },
+    "triple":    { "type": "key", "value": "enter" },
+    "longPress": { "type": "key", "value": "cmd+a;backspace" },
+    "up":        { "type": "scroll", "value": "up" },
+    "down":      { "type": "scroll", "value": "down" }
+  },
+  "com.alibaba.DingTalkMac": {
+    "double":    { "type": "voice" },
+    "triple":    { "type": "key", "value": "enter" },
+    "up":        { "type": "key", "value": "up" },
+    "down":      { "type": "key", "value": "down" }
+  },
+  "com.openai.codex": {
+    "double":    { "type": "voice" },
+    "triple":    { "type": "key", "value": "enter" },
+    "longPress": { "type": "key", "value": "cmd+a;backspace" },
+    "up":        { "type": "scroll", "value": "up" },
+    "down":      { "type": "scroll", "value": "down" },
+    "vibration": {
+      "taskComplete": "continuous",
+      "needsAttention": "strong",
+      "error": "gradient"
+    }
+  }
+}
