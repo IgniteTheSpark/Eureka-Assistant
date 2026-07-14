@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     user_id:            str = "default"   # legacy single-tenant fallback (unused once auth is on)
     backend_url:        str = "http://localhost:8000"
     env:                str = "dev"   # dev | prod | staging — drives prod secret enforcement
+    demo_reset_enabled: bool = False  # exhibition-only destructive workspace reset
 
     # Auth (email+password → HS256 token). MUST be overridden in prod via env
     # (JWT_SECRET); the default is dev-only and not safe to ship.
