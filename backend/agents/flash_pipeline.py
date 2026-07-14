@@ -509,8 +509,9 @@ async def _run_intent(
 
     # v1.4.x: `task` intent bypasses the SKILL.md skill-agent path entirely —
     # it's a Python orchestrator (task_skill.run_task_intent) that creates a
-    # placeholder + kicks off async MCP work. Returns the placeholder card
-    # immediately so the user sees "⏳ pending" in <100ms.
+    # placeholder and completes MCP work before returning. Flash holds a
+    # workspace lock, so awaiting the tail prevents Reset from racing a late
+    # external action, asset update, or notification.
     if itype == "task":
         from agents.task_skill import run_task_intent
         result = await run_task_intent(
@@ -518,6 +519,7 @@ async def _run_intent(
             session_id=session_id,
             source_input_turn_id=source_input_turn_id,
             user_id=user_id,
+            wait_for_completion=True,
         )
         result["source_text"] = source
         return result

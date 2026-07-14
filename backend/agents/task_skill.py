@@ -3,13 +3,13 @@ task-skill — async orchestrator for third-party MCP calls — Phase B v1.4.x.
 
 Two-phase execution:
   1. **Sync head** (<100ms): create `tasks` row + placeholder `external_ref`
-     asset, return immediately so the caller (Flash or Assistant) gets a
-     "⏳ pending" card right away.
-  2. **Async tail** (3-60s): asyncio.create_task runs an ephemeral LlmAgent
+     asset.
+  2. **Tail** (3-60s): an ephemeral LlmAgent
      with all configured external MCPToolsets attached. The model picks the
      right tool (e.g. create_notion_page) and calls it. On return we extract
      external_id / external_url from the tool response, update the asset
-     payload to status=done.
+     payload to status=done. Chat detaches this work; Flash awaits it so Demo
+     Reset cannot succeed while an older task can still write or act externally.
 
 This skill is reachable from:
   - Flash: dispatcher emits `{type: "task"}` → flash_pipeline._run_intent
@@ -135,6 +135,7 @@ async def run_task_intent(
     content: str = "",
     target_external_id: str = "",
     target_external_system: str = "",
+    wait_for_completion: bool = False,
 ) -> dict:
     """
     Entry point for both Flash (`{type: "task"}` intent) and Chat (Assistant
@@ -146,9 +147,9 @@ async def run_task_intent(
     The caller (Assistant) passes the actual text here so the MCP doc/note gets
     a body instead of just a title.
 
-    Returns the placeholder card immediately. Real MCP work runs in the
-    background via asyncio.create_task; clients poll /api/tasks/{id} or
-    re-fetch the asset to see status=done.
+    Chat returns the placeholder immediately and runs MCP work in the
+    background. Flash passes ``wait_for_completion=True`` so its workspace lock
+    covers the external action and every resulting database write.
     """
     # ── Robustness net: recover the doc body when the LLM dropped it ──
     # Confirmed root cause: the chat Assistant intermittently calls this with an
@@ -209,18 +210,24 @@ async def run_task_intent(
         asset_id = str(placeholder.id)
         title    = placeholder.payload["title"]
 
-    # ── Kick off the async tail (fire-and-forget) ──
-    asyncio.create_task(_run_task_async(
-        task_id=task_id,
-        asset_id=asset_id,
-        user_text=user_text,
-        user_id=user_id,
-        content=content,
-        target_external_id=target_external_id,
-        target_external_system=target_external_system,
-    ))
+    # Flash owns a per-user workspace lock, so its task tail must finish before
+    # the pipeline releases that lock. Chat keeps the existing immediate-return
+    # behavior because it does not participate in exhibition Reset.
+    await _dispatch_task_tail(
+        _run_task_async(
+            task_id=task_id,
+            asset_id=asset_id,
+            user_text=user_text,
+            user_id=user_id,
+            content=content,
+            target_external_id=target_external_id,
+            target_external_system=target_external_system,
+        ),
+        wait_for_completion=wait_for_completion,
+    )
 
-    # ── Sync return: placeholder card so Flash/Chat shows ⏳ immediately ──
+    # Return the stable task/asset handles. Chat initially renders this pending
+    # payload; Flash has already waited for the persisted tail to finish.
     return {
         "ok":       True,
         "skill":    "task-skill",
@@ -234,6 +241,17 @@ async def run_task_intent(
             "task_id":         task_id,
         },
     }
+
+
+async def _dispatch_task_tail(
+    operation,
+    *,
+    wait_for_completion: bool,
+) -> None:
+    if wait_for_completion:
+        await operation
+        return
+    asyncio.create_task(operation)
 
 
 # ── Async tail: run agent, call MCP, update DB ────────────────────────────────
