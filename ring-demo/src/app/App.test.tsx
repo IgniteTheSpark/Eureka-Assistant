@@ -95,6 +95,56 @@ it("keeps the connected ring state while switching between Flash and Vibe", asyn
 });
 
 it.each([
+  ["Flash", "/flash", "flash"],
+  ["Vibe", "/vibe", "vibe"],
+] as const)("returns Ring Desktop to idle when leaving %s for Home", async (heading, path, mode) => {
+  window.localStorage.setItem("eureka.authToken", "jwt");
+  const dependencies = clients();
+  render(
+    <MemoryRouter
+      future={{ v7_relativeSplatPath: true, v7_startTransition: true }}
+      initialEntries={[path]}
+    >
+      <App {...dependencies} />
+    </MemoryRouter>,
+  );
+
+  expect(await screen.findByRole("heading", { name: `${heading} Mode` })).toBeInTheDocument();
+  await waitFor(() =>
+    expect(dependencies.ringClient.setMode).toHaveBeenCalledWith("tab-1", mode),
+  );
+  dependencies.ringClient.setMode.mockClear();
+
+  fireEvent.click(screen.getByRole("link", { name: "Home" }));
+
+  expect(await screen.findByRole("heading", { name: "Intelligence, within reach." })).toBeInTheDocument();
+  await waitFor(() =>
+    expect(dependencies.ringClient.setMode).toHaveBeenCalledWith("tab-1", "idle"),
+  );
+});
+
+it.each([
+  ["Flash", "/flash", "flash"],
+  ["Vibe", "/vibe", "vibe"],
+] as const)("selects %s mode when entering its route", async (heading, path, mode) => {
+  window.localStorage.setItem("eureka.authToken", "jwt");
+  const dependencies = clients();
+  render(
+    <MemoryRouter
+      future={{ v7_relativeSplatPath: true, v7_startTransition: true }}
+      initialEntries={[path]}
+    >
+      <App {...dependencies} />
+    </MemoryRouter>,
+  );
+
+  expect(await screen.findByRole("heading", { name: `${heading} Mode` })).toBeInTheDocument();
+  await waitFor(() =>
+    expect(dependencies.ringClient.setMode).toHaveBeenCalledWith("tab-1", mode),
+  );
+});
+
+it.each([
   ["home", "/"],
   ["Flash", "/flash"],
   ["Vibe", "/vibe"],

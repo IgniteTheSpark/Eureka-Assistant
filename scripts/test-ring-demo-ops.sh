@@ -72,6 +72,18 @@ generated_jwt="$(awk -F= '$1 == "JWT_SECRET" { print substr($0, index($0, "=") +
 [[ ${#generated_jwt} -ge 32 ]] || fail "First setup did not generate a strong local JWT secret"
 grep -Fx 'DEMO_RESET_ENABLED=true' "$TMP_ROOT/repo/.env" >/dev/null || \
   fail "First setup did not enable the exhibition reset control"
+env_permissions="$(stat -f '%Lp' "$TMP_ROOT/repo/.env")"
+[[ "$env_permissions" == "600" ]] || \
+  fail "First setup must create .env with 0600 permissions; got $env_permissions"
+
+cp "$TMP_ROOT/repo/.env" "$TMP_ROOT/generated.env"
+set +e
+"$TMP_ROOT/repo/scripts/setup-ring-demo.sh" >"$TMP_ROOT/existing.out" 2>"$TMP_ROOT/existing.err"
+existing_status=$?
+set -e
+[[ "$existing_status" != 2 ]] || fail "Setup treated an existing .env as a new file"
+cmp -s "$TMP_ROOT/repo/.env" "$TMP_ROOT/generated.env" || \
+  fail "Setup replaced or modified an existing .env"
 
 print -r -- 'DEEPSEEK_API_KEY=sk-test-only-not-a-real-key
 JWT_SECRET=0123456789abcdef0123456789abcdef

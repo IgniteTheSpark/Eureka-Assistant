@@ -4,6 +4,7 @@ import {
   Outlet,
   Route,
   Routes,
+  useLocation,
   useNavigate,
   useOutletContext,
 } from "react-router-dom";
@@ -117,7 +118,15 @@ function DemoShell({
   email: string;
 }) {
   const demo = useDemo();
+  const location = useLocation();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (location.pathname === "/") {
+      void demo.setMode("idle").catch(() => undefined);
+    }
+  }, [demo.setMode, location.pathname]);
+
   return (
     <>
       <Outlet />

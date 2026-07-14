@@ -87,12 +87,13 @@ case "${1:-}" in
 esac
 
 if [[ ! -f "$ENV_FILE" ]]; then
-  cp "$ROOT/.env.example" "$ENV_FILE"
+  (umask 077; cp "$ROOT/.env.example" "$ENV_FILE")
   jwt_secret="$(openssl rand -hex 32)"
   sed -i '' \
     -e "s|^JWT_SECRET=.*|JWT_SECRET=$jwt_secret|" \
     -e 's|^DEMO_RESET_ENABLED=.*|DEMO_RESET_ENABLED=true|' \
     "$ENV_FILE"
+  chmod 600 "$ENV_FILE"
   unset jwt_secret
   print -- "Created $ENV_FILE"
   print -- "A local JWT secret was generated and exhibition Reset was enabled."

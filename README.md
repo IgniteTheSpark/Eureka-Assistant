@@ -143,7 +143,8 @@ cloning the repository, run the setup script from the repository root:
 ```
 
 On its first run, the script checks the macOS prerequisites, copies
-`.env.example` to the gitignored `.env`, generates a strong local JWT secret,
+`.env.example` to the gitignored `.env` with owner-only (`0600`) permissions,
+generates a strong local JWT secret,
 enables the exhibition Reset control, and exits before installing anything.
 Edit `.env` and set:
 
