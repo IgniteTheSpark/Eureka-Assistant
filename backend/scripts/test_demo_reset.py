@@ -10,9 +10,12 @@ import asyncio
 from datetime import datetime, timezone
 import uuid
 
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, func, select
 
+from config import settings
 from core.demo_reset import reset_demo_workspace
+from core.security import create_token
 from db.database import AsyncSessionLocal, async_engine
 from db.models import (
     Asset,
@@ -40,6 +43,7 @@ from db.models import (
     User,
     UserSkill,
 )
+from main import app
 
 
 CONTENT_MODELS = (
@@ -276,10 +280,125 @@ async def test_reset_is_user_scoped() -> None:
             await _cleanup_fixture(user_ids, skill_id, card_ids)
 
 
+async def _cleanup_endpoint_fixture(user_ids: tuple[str, str]) -> None:
+    async with AsyncSessionLocal() as db:
+        async with db.begin():
+            await db.execute(delete(Report).where(Report.user_id.in_(user_ids)))
+            await db.execute(delete(User).where(User.id.in_(user_ids)))
+
+
+async def test_reset_endpoint_is_gated_authenticated_scoped_and_transactional() -> None:
+    suffix = uuid.uuid4().hex[:12]
+    user_ids = (f"demo-endpoint-a-{suffix}", f"demo-endpoint-b-{suffix}")
+    original_enabled = settings.demo_reset_enabled
+
+    try:
+        async with AsyncSessionLocal() as db:
+            async with db.begin():
+                db.add_all(
+                    (
+                        User(
+                            id=user_ids[0],
+                            email=f"demo-endpoint-a-{suffix}@example.com",
+                            password_hash="fixture",
+                        ),
+                        User(
+                            id=user_ids[1],
+                            email=f"demo-endpoint-b-{suffix}@example.com",
+                            password_hash="fixture",
+                        ),
+                        Report(
+                            user_id=user_ids[0],
+                            title="caller report",
+                            genre="digest",
+                            content_md="fixture",
+                            html="<p>fixture</p>",
+                        ),
+                        Report(
+                            user_id=user_ids[1],
+                            title="other report",
+                            genre="digest",
+                            content_md="fixture",
+                            html="<p>fixture</p>",
+                        ),
+                    )
+                )
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            caller_headers = {
+                "Authorization": f"Bearer {create_token(user_ids[0])}"
+            }
+
+            settings.demo_reset_enabled = False
+            disabled = await client.post(
+                "/api/demo/reset",
+                headers=caller_headers,
+                params={"user_id": user_ids[1]},
+                json={"user_id": user_ids[1]},
+            )
+            assert disabled.status_code == 404, disabled.text
+            assert await _count(Report, user_ids[0]) == 1
+            assert await _count(Report, user_ids[1]) == 1
+
+            settings.demo_reset_enabled = True
+            unauthorized = await client.post("/api/demo/reset")
+            assert unauthorized.status_code == 401, unauthorized.text
+            assert await _count(Report, user_ids[0]) == 1
+            assert await _count(Report, user_ids[1]) == 1
+
+            # Force an exception after the service issues its deletes. The
+            # endpoint-owned transaction must roll every statement back.
+            from api import demo as demo_api
+
+            original_reset = demo_api.reset_demo_workspace
+
+            async def fail_after_reset(db, user_id: str):
+                await original_reset(db, user_id)
+                raise RuntimeError("forced endpoint rollback")
+
+            demo_api.reset_demo_workspace = fail_after_reset
+            try:
+                try:
+                    await client.post("/api/demo/reset", headers=caller_headers)
+                except RuntimeError as exc:
+                    assert str(exc) == "forced endpoint rollback"
+                else:
+                    raise AssertionError("forced endpoint failure did not propagate")
+            finally:
+                demo_api.reset_demo_workspace = original_reset
+
+            assert await _count(Report, user_ids[0]) == 1
+            assert await _count(Report, user_ids[1]) == 1
+
+            response = await client.post(
+                "/api/demo/reset",
+                headers=caller_headers,
+                params={"user_id": user_ids[1]},
+                json={"user_id": user_ids[1]},
+            )
+            assert response.status_code == 200, response.text
+            payload = response.json()
+            assert payload["ok"] is True
+            assert payload["deleted"]["reports"] == 1
+
+            # Query/body attempts to select another user are ignored. Identity
+            # comes only from the authenticated dependency.
+            assert await _count(Report, user_ids[0]) == 0
+            assert await _count(Report, user_ids[1]) == 1
+    finally:
+        settings.demo_reset_enabled = original_enabled
+        await _cleanup_endpoint_fixture(user_ids)
+
+
 async def main() -> None:
     try:
         await test_reset_is_user_scoped()
-        print("PASS - demo reset is user-scoped, preserves configuration, and rolls back")
+        await test_reset_endpoint_is_gated_authenticated_scoped_and_transactional()
+        print(
+            "PASS - demo reset service and endpoint are gated, authenticated, "
+            "user-scoped, and transactional"
+        )
     finally:
         await async_engine.dispose()
 
