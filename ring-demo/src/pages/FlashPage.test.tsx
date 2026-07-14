@@ -172,6 +172,8 @@ it("retains the transcript after backend failure and retries it", async () => {
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "Flash backend unavailable",
   );
+  expect(screen.getByText("Ready to retry")).toBeVisible();
+  expect(screen.queryByText("Captured")).not.toBeInTheDocument();
   expect(screen.getByText("帮我准备展会")).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Retry Flash" }));
 

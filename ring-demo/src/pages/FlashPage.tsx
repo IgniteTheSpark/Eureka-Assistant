@@ -235,7 +235,7 @@ export function FlashPage({
         </div>
         <div className="flash-status" aria-live="polite">
           <span className="flash-status-dot" aria-hidden="true" />
-          {PHASE_LABELS[state.phase]}
+          {state.error ? "Ready to retry" : PHASE_LABELS[state.phase]}
         </div>
       </header>
 
