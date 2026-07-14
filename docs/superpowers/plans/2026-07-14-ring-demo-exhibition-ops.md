@@ -71,7 +71,7 @@ The script must clean up its own fixture users in `finally`, and must never touc
 
 - [ ] **Step 2: Run and verify the test fails**
 
-Run: `docker compose exec backend python -m scripts.test_demo_reset`  
+Run: `docker compose exec backend python -m scripts.test_demo_reset`
 Expected: FAIL because `core.demo_reset` does not exist.
 
 - [ ] **Step 3: Add the setting and transactional service**
@@ -116,7 +116,7 @@ Wire `DEMO_RESET_ENABLED=${DEMO_RESET_ENABLED:-false}` into Docker Compose and d
 
 - [ ] **Step 4: Verify isolation, preservation, and rollback**
 
-Run: `docker compose exec backend python -m scripts.test_demo_reset`  
+Run: `docker compose exec backend python -m scripts.test_demo_reset`
 Expected: PASS for current-user deletion, second-user preservation, User/UserSkill/ConnectedApp/CardBinding preservation, counts, and forced-error rollback.
 
 - [ ] **Step 5: Commit**
@@ -154,7 +154,7 @@ assert response.json()["ok"] is True
 
 - [ ] **Step 2: Run and verify failure**
 
-Run: `docker compose exec backend python -m scripts.test_demo_reset`  
+Run: `docker compose exec backend python -m scripts.test_demo_reset`
 Expected: FAIL because `/api/demo/reset` is not registered.
 
 - [ ] **Step 3: Implement and register the endpoint**
@@ -177,9 +177,9 @@ Register `api.demo.router` in `backend/main.py` under prefix `/api`.
 
 - [ ] **Step 4: Run reset and Flash regression checks**
 
-Run: `docker compose exec backend python -m scripts.test_demo_reset`  
-Expected: PASS.  
-Run: `docker compose exec backend python -m scripts.test_flash_text_terminal_status`  
+Run: `docker compose exec backend python -m scripts.test_demo_reset`
+Expected: PASS.
+Run: `docker compose exec backend python -m scripts.test_flash_text_terminal_status`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -219,7 +219,7 @@ it("requires confirmation before resetting the current demo account", async () =
 
 - [ ] **Step 2: Run and verify failure**
 
-Run: `cd ring-demo && npm test -- --run src/components/OperatorControls.test.tsx`  
+Run: `cd ring-demo && npm test -- --run src/components/OperatorControls.test.tsx`
 Expected: FAIL because Operator Controls are missing.
 
 - [ ] **Step 3: Implement the reset client and weakly surfaced panel**
@@ -236,7 +236,7 @@ The panel must show the logged-in email, require an explicit second click, disab
 
 - [ ] **Step 4: Verify all Web checks**
 
-Run: `cd ring-demo && npm test -- --run && npm run typecheck && npm run build`  
+Run: `cd ring-demo && npm test -- --run && npm run typecheck && npm run build`
 Expected: PASS, including success, cancel, 404-disabled, 401-login redirect, and server-error preservation.
 
 - [ ] **Step 5: Commit**
@@ -297,16 +297,16 @@ exec .venv/bin/python -m ring_desktop.app
 
 - [ ] **Step 3: Lint scripts and document exhibition flow**
 
-Run: `zsh -n scripts/setup-ring-demo.sh scripts/run-ring-demo.sh`  
-Expected: exit 0.  
+Run: `zsh -n scripts/setup-ring-demo.sh scripts/run-ring-demo.sh`
+Expected: exit 0.
 Document setup, `DEMO_RESET_ENABLED=true`, first-time permissions, opening `http://localhost:5173`, Demo account login, Operator Reset, and troubleshooting for ports 8000/5173/17863.
 
 - [ ] **Step 4: Run the full exhibition verification**
 
-Run: `cd ring-desktop && pytest -q`  
-Run: `cd ring-demo && npm test -- --run && npm run typecheck && npm run build`  
-Run: `docker compose exec backend python -m scripts.test_demo_reset`  
-Run: `zsh -n scripts/setup-ring-demo.sh scripts/run-ring-demo.sh`  
+Run: `cd ring-desktop && pytest -q`
+Run: `cd ring-demo && npm test -- --run && npm run typecheck && npm run build`
+Run: `docker compose exec backend python -m scripts.test_demo_reset`
+Run: `zsh -n scripts/setup-ring-demo.sh scripts/run-ring-demo.sh`
 Expected: all exit 0.
 
 Perform one real-account cycle: create Flash assets, open the same account in UReka, confirm shared data, use Operator Reset, confirm UReka content is empty, confirm Skills/Connected Apps/account persist, and immediately create a new Flash asset without reconnecting the ring.
@@ -317,4 +317,3 @@ Perform one real-account cycle: create Flash assets, open the same account in UR
 git add scripts/setup-ring-demo.sh scripts/run-ring-demo.sh README.md
 git commit -m "docs(demo): add exhibition setup and run flow"
 ```
-

@@ -99,7 +99,7 @@ def test_expired_lease_restores_standalone():
 
 - [ ] **Step 2: Run the tests and verify they fail**
 
-Run: `cd ring-desktop && pytest -q tests/test_demo_session.py`  
+Run: `cd ring-desktop && pytest -q tests/test_demo_session.py`
 Expected: FAIL because `ring_desktop.demo_session` does not exist.
 
 - [ ] **Step 3: Implement the pure state machine and event broker**
@@ -149,7 +149,7 @@ Use one `threading.RLock`, increment `generation` on acquire, mode change, relea
 
 - [ ] **Step 4: Run state-machine tests**
 
-Run: `cd ring-desktop && pytest -q tests/test_demo_session.py`  
+Run: `cd ring-desktop && pytest -q tests/test_demo_session.py`
 Expected: PASS for acquire, heartbeat, mode validation, generation invalidation, release, expiry, event delivery, and snapshot serialization.
 
 - [ ] **Step 5: Commit**
@@ -206,7 +206,7 @@ def test_options_returns_local_cors_headers():
 
 - [ ] **Step 2: Run the API tests and verify they fail**
 
-Run: `cd ring-desktop && pytest -q tests/test_control_api.py`  
+Run: `cd ring-desktop && pytest -q tests/test_control_api.py`
 Expected: FAIL because constructor arguments and Demo routes are missing.
 
 - [ ] **Step 3: Add Demo routes, JSON validation, CORS, and SSE**
@@ -236,9 +236,9 @@ For `/demo/events`, subscribe to the broker, emit an initial `snapshot` event, w
 
 - [ ] **Step 4: Run API and full Ring Desktop tests**
 
-Run: `cd ring-desktop && pytest -q tests/test_control_api.py`  
-Expected: PASS.  
-Run: `cd ring-desktop && pytest -q`  
+Run: `cd ring-desktop && pytest -q tests/test_control_api.py`
+Expected: PASS.
+Run: `cd ring-desktop && pytest -q`
 Expected: existing tests plus Demo tests PASS.
 
 - [ ] **Step 5: Commit**
@@ -281,7 +281,7 @@ def test_vibe_rejects_unsupported_frontmost_app():
 
 - [ ] **Step 2: Run app tests and verify they fail**
 
-Run: `cd ring-desktop && pytest -q tests/test_app.py`  
+Run: `cd ring-desktop && pytest -q tests/test_app.py`
 Expected: FAIL because `resolve_demo_action` is missing.
 
 - [ ] **Step 3: Implement routing and stamped transcription**
@@ -323,7 +323,7 @@ Publish connection changes from `_on_status`; publish active App/mapping changes
 
 - [ ] **Step 4: Run all Ring Desktop tests**
 
-Run: `cd ring-desktop && pytest -q`  
+Run: `cd ring-desktop && pytest -q`
 Expected: PASS with standalone regression, Flash routing, Vibe allowlist, stale capture, and events covered.
 
 - [ ] **Step 5: Commit**
@@ -365,9 +365,9 @@ it("offers two large demo entries", () => {
 
 - [ ] **Step 2: Install and verify the test fails**
 
-Run: `cd ring-demo && npm install`  
-Expected: dependencies install and `package-lock.json` is created.  
-Run: `cd ring-demo && npm test -- --run`  
+Run: `cd ring-demo && npm install`
+Expected: dependencies install and `package-lock.json` is created.
+Run: `cd ring-demo && npm test -- --run`
 Expected: FAIL because `HomePage` is not implemented.
 
 - [ ] **Step 3: Implement routes, Banner, Demo Blocks, and CSS transitions**
@@ -393,7 +393,7 @@ Use a functional placeholder for the Hero visual, one responsive column below 84
 
 - [ ] **Step 4: Verify tests and production build**
 
-Run: `cd ring-demo && npm test -- --run && npm run typecheck && npm run build`  
+Run: `cd ring-demo && npm test -- --run && npm run typecheck && npm run build`
 Expected: PASS and `dist/` is generated.
 
 - [ ] **Step 5: Commit**
@@ -438,7 +438,7 @@ it("sends voice transcript to the existing flash endpoint", async () => {
 
 - [ ] **Step 2: Run and verify failures**
 
-Run: `cd ring-demo && npm test -- --run`  
+Run: `cd ring-demo && npm test -- --run`
 Expected: FAIL because clients/store do not exist.
 
 - [ ] **Step 3: Implement exact wire types and lifecycle**
@@ -464,7 +464,7 @@ Create one UUID per browser tab using `sessionStorage`, acquire on provider moun
 
 - [ ] **Step 4: Verify tests, types, and build**
 
-Run: `cd ring-demo && npm test -- --run && npm run typecheck && npm run build`  
+Run: `cd ring-demo && npm test -- --run && npm run typecheck && npm run build`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -509,7 +509,7 @@ it("submits one matching transcript and reveals returned cards", async () => {
 
 - [ ] **Step 2: Run and verify failures**
 
-Run: `cd ring-demo && npm test -- --run src/pages/FlashPage.test.tsx src/components/AssetCard.test.tsx`  
+Run: `cd ring-demo && npm test -- --run src/pages/FlashPage.test.tsx src/components/AssetCard.test.tsx`
 Expected: FAIL because components do not exist.
 
 - [ ] **Step 3: Implement the Flash reducer and page**
@@ -530,7 +530,7 @@ Map Ring events to phases, retain transcript on backend failure, provide a low-p
 
 - [ ] **Step 4: Verify Flash tests and build**
 
-Run: `cd ring-demo && npm test -- --run && npm run typecheck && npm run build`  
+Run: `cd ring-demo && npm test -- --run && npm run typecheck && npm run build`
 Expected: PASS, including stale transcript rejection, duplicate event dedupe, empty ASR, backend retry, multi-card stagger classes, and generic fallback.
 
 - [ ] **Step 5: Commit**
@@ -577,7 +577,7 @@ it("enters and leaves the live recording state", () => {
 
 - [ ] **Step 2: Run and verify failure**
 
-Run: `cd ring-demo && npm test -- --run src/pages/VibePage.test.tsx`  
+Run: `cd ring-demo && npm test -- --run src/pages/VibePage.test.tsx`
 Expected: FAIL because `VibePage` does not exist.
 
 - [ ] **Step 3: Implement the Vibe page**
@@ -593,7 +593,7 @@ Show the shared connection/ring visual, both supported profiles, the current act
 
 - [ ] **Step 4: Verify all Web tests and build**
 
-Run: `cd ring-demo && npm test -- --run && npm run typecheck && npm run build`  
+Run: `cd ring-demo && npm test -- --run && npm run typecheck && npm run build`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -636,11 +636,11 @@ Include first-time macOS Bluetooth/Accessibility permission, local Demo login, a
 
 - [ ] **Step 2: Run the complete automated verification**
 
-Run: `cd ring-desktop && pytest -q`  
-Expected: all tests PASS.  
-Run: `cd ring-demo && npm test -- --run && npm run typecheck && npm run build`  
-Expected: all tests PASS and Vite build succeeds.  
-Run: `docker compose config`  
+Run: `cd ring-desktop && pytest -q`
+Expected: all tests PASS.
+Run: `cd ring-demo && npm test -- --run && npm run typecheck && npm run build`
+Expected: all tests PASS and Vite build succeeds.
+Run: `docker compose config`
 Expected: exit 0.
 
 - [ ] **Step 3: Run the real-ring smoke test**
