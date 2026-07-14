@@ -172,6 +172,86 @@ def test_vibe_non_voice_action_does_not_dispatch_after_mode_transition(
 
 
 @pytest.mark.parametrize(
+    "action",
+    [
+        {"type": "key", "value": "enter"},
+        {"type": "scroll", "value": "up"},
+    ],
+)
+@pytest.mark.parametrize(
+    "next_bundle", ["com.apple.Safari", "com.alibaba.DingTalkMac"]
+)
+def test_vibe_non_voice_action_does_not_dispatch_after_frontmost_app_changes(
+    monkeypatch, action, next_bundle
+):
+    controller = DemoSessionController(lease_seconds=30)
+    controller.acquire("browser-1")
+    controller.set_mode("browser-1", DemoMode.VIBE)
+    ring_app = _bare_ring_app(controller)
+    ring_app._frontmost = "com.openai.codex"
+    ring_app._rec = Recorder(on_capture=ring_app._on_capture)
+    dispatched = []
+
+    def resolve_then_switch_app(*_args, **_kwargs):
+        with ring_app._state_lock:
+            ring_app._frontmost = next_bundle
+        return action
+
+    monkeypatch.setattr(app, "resolve_demo_action", resolve_then_switch_app)
+    monkeypatch.setattr(app, "dispatch", dispatched.append)
+
+    ring_app._on_gesture(3)
+
+    assert dispatched == []
+    assert ring_app.last == "triple->-"
+
+
+def test_vibe_dispatch_holds_frontmost_authorization_through_side_effect(
+    monkeypatch,
+):
+    controller = DemoSessionController(lease_seconds=30)
+    controller.acquire("browser-1")
+    controller.set_mode("browser-1", DemoMode.VIBE)
+    ring_app = _bare_ring_app(controller)
+    ring_app._frontmost = "com.openai.codex"
+    ring_app._rec = Recorder(on_capture=ring_app._on_capture)
+    dispatch_entered = threading.Event()
+    switch_started = threading.Event()
+    switch_done = threading.Event()
+    order = []
+    monkeypatch.setattr(
+        app,
+        "resolve_demo_action",
+        lambda *_args, **_kwargs: {"type": "key", "value": "enter"},
+    )
+
+    def switch_frontmost_app():
+        assert dispatch_entered.wait(1)
+        switch_started.set()
+        with ring_app._state_lock:
+            ring_app._frontmost = "com.apple.Safari"
+        order.append("switch")
+        switch_done.set()
+
+    switch_thread = threading.Thread(target=switch_frontmost_app)
+    switch_thread.start()
+
+    def dispatch_while_switch_waits(_action):
+        dispatch_entered.set()
+        assert switch_started.wait(1)
+        assert switch_done.is_set() is False
+        order.append("dispatch")
+
+    monkeypatch.setattr(app, "dispatch", dispatch_while_switch_waits)
+
+    ring_app._on_gesture(3)
+    switch_thread.join(timeout=1)
+
+    assert switch_thread.is_alive() is False
+    assert order == ["dispatch", "switch"]
+
+
+@pytest.mark.parametrize(
     ("mode", "bundle", "config"),
     [
         (DemoMode.FLASH, "com.apple.Safari", {}),
@@ -414,6 +494,39 @@ def test_stale_asr_exception_does_not_set_visible_failure(monkeypatch):
     ring_app._on_gesture(2)
     assert len(threads) == 1
     controller.set_mode("browser-1", DemoMode.IDLE)
+
+    threads[0].run()
+
+    assert ring_app.last == "double->🎙停"
+
+
+def test_vibe_asr_exception_does_not_set_failure_after_frontmost_app_changes(
+    monkeypatch,
+):
+    controller = DemoSessionController(lease_seconds=30)
+    controller.acquire("browser-1")
+    controller.set_mode("browser-1", DemoMode.VIBE)
+    ring_app = _bare_ring_app(controller)
+    ring_app._frontmost = "com.openai.codex"
+    ring_app._rec = Recorder(on_capture=ring_app._on_capture)
+    monkeypatch.setattr(
+        app,
+        "load_config",
+        lambda _path: {
+            "com.openai.codex": {"double": {"type": "voice"}}
+        },
+    )
+
+    def fail_asr(_wav):
+        raise RuntimeError("ASR unavailable")
+
+    threads = _defer_transcription(monkeypatch, fail_asr)
+    ring_app._on_gesture(2)
+    ring_app._rec.feed(b"adpcm")
+    ring_app._on_gesture(2)
+    assert len(threads) == 1
+    with ring_app._state_lock:
+        ring_app._frontmost = "com.apple.Safari"
 
     threads[0].run()
 

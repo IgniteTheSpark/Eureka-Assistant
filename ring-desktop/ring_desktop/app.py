@@ -5,7 +5,7 @@ import subprocess
 import sys
 import threading
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
 
 import rumps
 from AppKit import NSApplicationActivateIgnoringOtherApps, NSRunningApplication
@@ -220,7 +220,7 @@ class RingApp(rumps.App):
                 except Exception as e:
                     log.warning("dispatch failed: %s", e)
 
-            if not self._demo.run_if_current(context, dispatch_action):
+            if not self._run_if_capture_current(context, bundle, dispatch_action):
                 self.last = f"{name}->-"
         else:
             self.last = f"{name}->-"
@@ -265,6 +265,32 @@ class RingApp(rumps.App):
             daemon=True,
         ).start()
 
+    def _run_if_capture_current(
+        self,
+        context: CaptureContext,
+        source_bundle: Optional[str],
+        callback: Callable[[], None],
+    ) -> bool:
+        performed = False
+
+        def authorize_bundle_and_run():
+            nonlocal performed
+            if context.mode is DemoMode.VIBE:
+                with self._state_lock:
+                    if (
+                        self._frontmost not in VIBE_BUNDLES
+                        or self._frontmost != source_bundle
+                    ):
+                        return
+                    callback()
+                    performed = True
+                return
+            callback()
+            performed = True
+
+        authorized = self._demo.run_if_current(context, authorize_bundle_and_run)
+        return authorized and performed
+
     def _transcribe_inject(self, adpcm: bytes, context: VoiceCaptureContext):
         try:
             wav = audio.write_wav_temp(audio.decode_adpcm(adpcm))
@@ -272,45 +298,31 @@ class RingApp(rumps.App):
             log.info("voice text: %s", text)
             if not text:
                 return
-            delivered = [False]
 
             def deliver_text():
-                if context.demo.mode is DemoMode.VIBE:
-                    with self._state_lock:
-                        if (
-                            self._frontmost not in VIBE_BUNDLES
-                            or self._frontmost != context.source_bundle
-                        ):
-                            return
-                        self.last = f"🎙{text[:14]}"
-                        type_text(text)
-                        delivered[0] = True
-                    return
                 self.last = f"🎙{text[:14]}"
                 if context.demo.mode is DemoMode.FLASH:
                     self._demo.events.publish(
                         "transcript.ready",
                         {**_capture_event_data(context.demo), "text": text},
                     )
-                elif context.demo.mode is DemoMode.STANDALONE:
+                elif context.demo.mode in {DemoMode.VIBE, DemoMode.STANDALONE}:
                     type_text(text)
-                delivered[0] = True
 
-            if not self._demo.run_if_current(context.demo, deliver_text):
+            if not self._run_if_capture_current(
+                context.demo,
+                context.source_bundle,
+                deliver_text,
+            ):
                 log.info(
-                    "discarding stale transcript generation=%s",
+                    "discarding stale or app-switched transcript generation=%s",
                     context.demo.generation,
-                )
-                return
-            if not delivered[0]:
-                log.info(
-                    "discarding Vibe transcript after app change source=%s",
-                    context.source_bundle,
                 )
         except Exception as e:
             log.warning("voice transcribe/inject failed: %r", e)
-            self._demo.run_if_current(
+            self._run_if_capture_current(
                 context.demo,
+                context.source_bundle,
                 lambda: setattr(self, "last", "voice->失败"),
             )
 
