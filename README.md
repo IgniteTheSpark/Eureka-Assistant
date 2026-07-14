@@ -143,19 +143,17 @@ cloning the repository, run the setup script from the repository root:
 ```
 
 On its first run, the script checks the macOS prerequisites, copies
-`.env.example` to the gitignored `.env`, and exits before installing anything.
-Edit `.env` and set at least:
+`.env.example` to the gitignored `.env`, generates a strong local JWT secret,
+enables the exhibition Reset control, and exits before installing anything.
+Edit `.env` and set:
 
 ```bash
 DEEPSEEK_API_KEY=<the exhibition DeepSeek key>
-JWT_SECRET=<at least 32 random characters>
-DEMO_RESET_ENABLED=true
 ```
 
-Generate a suitable local JWT secret with `openssl rand -hex 32`. Do not commit
-`.env` or share it in screenshots. Then rerun setup; it creates the Ring Desktop
-virtualenv/config, installs the Demo Web dependencies, builds the Backend, starts
-MySQL, and applies migrations and seed data:
+Do not commit `.env` or share it in screenshots. Then rerun setup; it creates the
+Ring Desktop virtualenv/config, installs the Demo Web dependencies, builds the
+Backend, starts MySQL, and applies migrations and seed data:
 
 ```bash
 ./scripts/setup-ring-demo.sh

@@ -18,7 +18,7 @@ die() {
 check_host_tools() {
   [[ "$(uname -s)" == "Darwin" ]] || die "macOS is required."
   local command_name
-  for command_name in docker node npm python3 curl; do
+  for command_name in docker node npm python3 curl openssl; do
     command -v "$command_name" >/dev/null || die "Missing prerequisite: $command_name"
   done
 }
@@ -88,8 +88,15 @@ esac
 
 if [[ ! -f "$ENV_FILE" ]]; then
   cp "$ROOT/.env.example" "$ENV_FILE"
+  jwt_secret="$(openssl rand -hex 32)"
+  sed -i '' \
+    -e "s|^JWT_SECRET=.*|JWT_SECRET=$jwt_secret|" \
+    -e 's|^DEMO_RESET_ENABLED=.*|DEMO_RESET_ENABLED=true|' \
+    "$ENV_FILE"
+  unset jwt_secret
   print -- "Created $ENV_FILE"
-  print -- "Add DEEPSEEK_API_KEY, generate JWT_SECRET, and set DEMO_RESET_ENABLED=true; then rerun this script."
+  print -- "A local JWT secret was generated and exhibition Reset was enabled."
+  print -- "Add DEEPSEEK_API_KEY, then rerun this script."
   exit 2
 fi
 

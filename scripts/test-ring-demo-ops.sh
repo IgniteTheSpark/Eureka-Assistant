@@ -68,6 +68,10 @@ set -e
 [[ "$first_status" == 2 ]] || fail "First setup must exit 2 after creating .env; got $first_status"
 [[ -f "$TMP_ROOT/repo/.env" ]] || fail "First setup did not create .env"
 [[ ! -s "$RING_DEMO_TEST_LOG" ]] || fail "First setup ran installers before configuration"
+generated_jwt="$(awk -F= '$1 == "JWT_SECRET" { print substr($0, index($0, "=") + 1) }' "$TMP_ROOT/repo/.env")"
+[[ ${#generated_jwt} -ge 32 ]] || fail "First setup did not generate a strong local JWT secret"
+grep -Fx 'DEMO_RESET_ENABLED=true' "$TMP_ROOT/repo/.env" >/dev/null || \
+  fail "First setup did not enable the exhibition reset control"
 
 print -r -- 'DEEPSEEK_API_KEY=sk-test-only-not-a-real-key
 JWT_SECRET=0123456789abcdef0123456789abcdef
