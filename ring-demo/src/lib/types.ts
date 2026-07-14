@@ -52,8 +52,8 @@ export interface DemoSnapshot {
   generation: number;
   leaseExpiresAt?: number | null;
   connection: RingConnectionSnapshot;
-  activeApp: string | null;
-  mapping: RingMapping;
+  activeApp?: string | null;
+  mapping?: RingMapping;
 }
 
 export interface RingEvent {

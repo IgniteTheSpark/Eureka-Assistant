@@ -46,6 +46,10 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
+function hasOwn(record: Record<string, unknown>, key: string) {
+  return Object.prototype.hasOwnProperty.call(record, key);
+}
+
 function asMode(value: unknown): DemoMode {
   return value === "flash" || value === "vibe" ? value : "idle";
 }
@@ -71,7 +75,10 @@ export function normalizeDemoSnapshot(value: unknown): DemoSnapshot {
   const connection = record.connection
     ? normalizeConnection(record.connection)
     : EMPTY_CONNECTION;
+  const hasActiveApp =
+    hasOwn(record, "activeApp") || hasOwn(record, "active_app");
   const activeApp = record.activeApp ?? record.active_app;
+  const hasMapping = hasOwn(record, "mapping");
   const mapping = record.mapping;
   return {
     sessionId:
@@ -85,11 +92,17 @@ export function normalizeDemoSnapshot(value: unknown): DemoSnapshot {
         ? ((record.leaseExpiresAt ?? record.lease_expires_at) as number)
         : null,
     connection,
-    activeApp: typeof activeApp === "string" ? activeApp : null,
-    mapping:
-      typeof mapping === "object" && mapping !== null
-        ? (mapping as RingMapping)
-        : null,
+    ...(hasActiveApp
+      ? { activeApp: typeof activeApp === "string" ? activeApp : null }
+      : {}),
+    ...(hasMapping
+      ? {
+          mapping:
+            typeof mapping === "object" && mapping !== null
+              ? (mapping as RingMapping)
+              : null,
+        }
+      : {}),
   };
 }
 

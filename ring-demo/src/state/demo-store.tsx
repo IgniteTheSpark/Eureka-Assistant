@@ -142,8 +142,8 @@ export function DemoProvider({
     generationRef.current = snapshot.generation;
     setGeneration(snapshot.generation);
     setModeState(snapshot.mode);
-    setActiveApp(snapshot.activeApp);
-    setMapping(snapshot.mapping);
+    if ("activeApp" in snapshot) setActiveApp(snapshot.activeApp ?? null);
+    if ("mapping" in snapshot) setMapping(snapshot.mapping ?? null);
     if (
       snapshot.connection.connected ||
       snapshot.connection.device ||

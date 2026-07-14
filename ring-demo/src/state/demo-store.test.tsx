@@ -2,6 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
+import { normalizeDemoSnapshot } from "../lib/ring-client";
 import type { DemoSnapshot, RingConnectionSnapshot, RingEvent } from "../lib/types";
 import { DemoProvider, useDemo } from "./demo-store";
 
@@ -30,6 +31,8 @@ function Harness() {
       <output data-testid="status">{demo.ringStatus}</output>
       <output data-testid="mode">{demo.mode}</output>
       <output data-testid="generation">{demo.generation}</output>
+      <output data-testid="active-app">{demo.activeApp}</output>
+      <output data-testid="mapping">{JSON.stringify(demo.mapping)}</output>
       <output data-testid="device">{demo.connection.device?.name}</output>
       <output data-testid="events">{demo.events.length}</output>
       <button type="button" onClick={() => void demo.setMode("vibe")}>Vibe</button>
@@ -151,6 +154,53 @@ it("ignores stale refresh and SSE mode generations", async () => {
     data: { sessionId: "tab-1", mode: "idle", generation: 4 },
   }));
   expect(screen.getByTestId("mode")).toHaveTextContent("flash");
+});
+
+it("preserves app and mapping when an equal-generation reconnect snapshot omits them", async () => {
+  const ring = fakeRingClient();
+  const richSnapshot = {
+    ...snapshot,
+    activeApp: "com.openai.codex",
+    mapping: { double: "Voice", triple: "Enter" },
+  } satisfies DemoSnapshot;
+  ring.client.acquire.mockResolvedValue(richSnapshot);
+  ring.client.getStatus.mockResolvedValue(
+    normalizeDemoSnapshot({
+      session_id: "tab-1",
+      mode: "idle",
+      generation: 1,
+    }),
+  );
+  render(
+    <DemoProvider ringClient={ring.client}>
+      <Harness />
+    </DemoProvider>,
+  );
+  await waitFor(() =>
+    expect(screen.getByTestId("active-app")).toHaveTextContent(
+      "com.openai.codex",
+    ),
+  );
+
+  act(() => ring.reconnect());
+  await waitFor(() => expect(ring.client.getStatus).toHaveBeenCalledOnce());
+  expect(screen.getByTestId("active-app")).toHaveTextContent("com.openai.codex");
+  expect(screen.getByTestId("mapping")).toHaveTextContent(
+    JSON.stringify(richSnapshot.mapping),
+  );
+
+  act(() => ring.emit({
+    event: "snapshot",
+    data: {
+      session_id: "tab-1",
+      mode: "idle",
+      generation: 1,
+      active_app: null,
+      mapping: null,
+    },
+  }));
+  expect(screen.getByTestId("active-app")).toBeEmptyDOMElement();
+  expect(screen.getByTestId("mapping")).toHaveTextContent("null");
 });
 
 it("serializes rapid mode changes and only applies the latest response", async () => {
