@@ -134,45 +134,85 @@ python -m ring_desktop.app
 
 ## Ring Demo (local, real-ring flow)
 
-The Ring Demo uses four local processes: MySQL, the Eureka backend, Ring Desktop,
-and the Vite Demo Web app. Complete the root `.env` setup above and the Ring
-Desktop installation once, then start the stack from the repository root in
-separate terminals.
-
-**Terminal 1 — MySQL and Backend:**
+The exhibition demo runs entirely on one Mac: MySQL and the Eureka Backend run
+in Docker, while Ring Desktop and the Vite Demo Web app run on macOS. After
+cloning the repository, run the setup script from the repository root:
 
 ```bash
-docker compose up -d db
-docker compose run --rm backend alembic upgrade head
-docker compose run --rm backend python -m db.seed
-docker compose up -d backend
+./scripts/setup-ring-demo.sh
 ```
 
-**Terminal 2 — Ring Desktop:**
+On its first run, the script checks the macOS prerequisites, copies
+`.env.example` to the gitignored `.env`, and exits before installing anything.
+Edit `.env` and set at least:
 
 ```bash
-cd ring-desktop
-source .venv/bin/activate
-python -m ring_desktop.app
+DEEPSEEK_API_KEY=<the exhibition DeepSeek key>
+JWT_SECRET=<at least 32 random characters>
+DEMO_RESET_ENABLED=true
 ```
 
-**Terminal 3 — Demo Web:**
+Generate a suitable local JWT secret with `openssl rand -hex 32`. Do not commit
+`.env` or share it in screenshots. Then rerun setup; it creates the Ring Desktop
+virtualenv/config, installs the Demo Web dependencies, builds the Backend, starts
+MySQL, and applies migrations and seed data:
 
 ```bash
-cd ring-demo
-npm install
-npm run dev
+./scripts/setup-ring-demo.sh
 ```
+
+The setup is non-destructive: it never removes the Docker data volume and does
+not replace an existing `.env` or `ring-desktop/config.json`. You can rerun its
+launch checks without installing or changing anything:
+
+```bash
+./scripts/setup-ring-demo.sh --check
+```
+
+### Run the exhibition demo
+
+Start all four local processes from one terminal:
+
+```bash
+./scripts/run-ring-demo.sh
+```
+
+The script starts MySQL and the Backend, waits for the Backend health check,
+starts the Demo Web on the fixed address `http://127.0.0.1:5173`, and keeps Ring
+Desktop in the foreground. Keep the terminal open. `Control-C` stops Ring
+Desktop and the Demo Web; the Docker services and exhibition data stay running
+for the next visitor.
 
 On the first Ring Desktop launch, allow Bluetooth when macOS prompts. Also open
 *System Settings → Privacy & Security → Accessibility* and enable the terminal
-app that launches Ring Desktop; if Bluetooth was denied, enable that terminal in
-the Bluetooth privacy list too. Restart Ring Desktop after changing permissions.
+app that launches the script. If Bluetooth was previously denied, enable that
+terminal in the Bluetooth privacy list too. Restart the run script after changing
+permissions.
 
 Open `http://localhost:5173`. Sign in with an existing local UReka email/password,
 or use **Create account** (passwords must be at least six characters). Use the same
 account in the existing UReka client to confirm that Flash assets share the same
 Backend/MySQL data.
+
+The low-emphasis **Operator Controls** panel is available from Home, Flash, and
+Vibe. It shows the current account and requires a second confirmation before
+resetting. A successful reset deletes only that account's demo content and clears
+the current Demo UI; it preserves the account, Skills, Connected Apps, card
+configuration, and active ring connection. Reset before handing the demo to the
+next visitor. If reset reports that it is unavailable, confirm
+`DEMO_RESET_ENABLED=true` in `.env` and restart the run script.
+
+### Troubleshooting
+
+| Symptom | Check |
+|---|---|
+| Docker prerequisite or health check fails | Start Docker Desktop, then run `./scripts/setup-ring-demo.sh --check`. Inspect Backend startup with `docker compose logs backend`. |
+| Port `8000` is occupied | Stop the other local Backend, or identify it with `lsof -nP -iTCP:8000 -sTCP:LISTEN`. |
+| Demo Web says port `5173` is occupied | Close the earlier Vite process, or identify it with `lsof -nP -iTCP:5173 -sTCP:LISTEN`. The runner intentionally does not silently choose another port. |
+| Ring connection API on `17863` is unavailable | Stop any older Ring Desktop process, restart `./scripts/run-ring-demo.sh`, then check macOS Bluetooth permission. |
+| Gestures do not reach Codex or DingTalk | Grant Accessibility permission to the terminal that launched the script, restart it, and focus the target app. |
+| Ring is absent from scan results | Disconnect it from the phone/other Mac, keep it awake, and scan again. |
+| Operator Reset returns `401` | Sign in again; the local account token is no longer valid. |
 
 ### Physical-ring smoke checklist
 
@@ -192,7 +232,11 @@ This checklist requires a real ring and is not covered by the automated tests:
 7. Close the Demo Web tab and confirm Ring Desktop returns to standalone routing
    (the lease fallback expires within 10 seconds if browser release is missed).
 
-## Reset the database
+## Reset the whole local database (development only)
+
+Do not use this during an exhibition: it deletes every local account and all
+configuration. Use **Operator Controls → Reset demo data** for normal visitor
+turnover.
 
 ```bash
 docker compose down -v        # drops the MySQL volume
