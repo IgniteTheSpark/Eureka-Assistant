@@ -21,7 +21,9 @@ a {
 }
 
 .home,
-.placeholder-page {
+.placeholder-page,
+.setup-page,
+.auth-check {
   width: min(1120px, calc(100% - 40px));
   margin: 0 auto;
   padding: 64px 0;
@@ -103,9 +105,176 @@ h1 {
   color: #cbc7c0;
 }
 
+button,
+input {
+  font: inherit;
+}
+
+button {
+  padding: 11px 16px;
+  border: 1px solid #5b5851;
+  border-radius: 999px;
+  color: #f4f2ee;
+  background: #272521;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+button:focus-visible,
+input:focus-visible,
+.demo-nav a:focus-visible {
+  outline: 3px solid #ffffff;
+  outline-offset: 4px;
+}
+
+.setup-page {
+  min-height: 100vh;
+  display: grid;
+  align-content: center;
+  gap: 48px;
+}
+
+.setup-copy h1 {
+  font-size: clamp(2.8rem, 7vw, 5.5rem);
+}
+
+.setup-copy > p:last-child {
+  max-width: 560px;
+  color: #cbc7c0;
+}
+
+.auth-form {
+  max-width: 520px;
+  padding: 28px;
+  display: grid;
+  gap: 10px;
+  border: 1px solid #403e39;
+  border-radius: 18px;
+  background: #1a1917;
+}
+
+.auth-form label {
+  margin-top: 8px;
+  color: #cbc7c0;
+  font-size: 0.85rem;
+}
+
+.auth-form input {
+  width: 100%;
+  padding: 13px 14px;
+  border: 1px solid #555149;
+  border-radius: 10px;
+  color: #f4f2ee;
+  background: #11110f;
+}
+
+.auth-form [role="alert"],
+.ring-connection [role="alert"] {
+  color: #ffb4a8;
+}
+
+.auth-actions,
+.demo-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.auth-actions {
+  margin-top: 14px;
+}
+
+.demo-nav {
+  margin-bottom: 56px;
+}
+
+.demo-nav a {
+  color: #b8b3aa;
+  text-decoration: none;
+}
+
+.ring-connection {
+  width: min(680px, 100%);
+  margin-top: 48px;
+  padding: 24px;
+  display: grid;
+  gap: 18px;
+  border: 1px solid #403e39;
+  border-radius: 18px;
+  background: #1a1917;
+}
+
+.ring-connection.is-connected {
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+}
+
+.ring-connection h2,
+.ring-connection p {
+  margin: 0;
+}
+
+.connection-status {
+  color: #9fd6a9 !important;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ring-connection:not(.is-connected) .connection-status {
+  color: #b8b3aa !important;
+}
+
+.connected-ring-visual {
+  width: 72px;
+  aspect-ratio: 1;
+  border: 12px solid #d7d2ca;
+  border-radius: 50%;
+  box-shadow: 0 0 28px rgb(215 210 202 / 16%);
+}
+
+.ring-device-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.ring-device-list {
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  list-style: none;
+}
+
+.ring-device-list button {
+  width: 100%;
+  text-align: left;
+}
+
 @media (min-width: 840px) {
   .mode-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .setup-page {
+    grid-template-columns: minmax(0, 1.2fr) minmax(360px, 0.8fr);
+    align-items: center;
+  }
+}
+
+@media (max-width: 620px) {
+  .ring-connection.is-connected {
+    grid-template-columns: auto 1fr;
+  }
+
+  .ring-connection.is-connected > button,
+  .ring-connection.is-connected > [role="alert"] {
+    grid-column: 1 / -1;
   }
 }
 
