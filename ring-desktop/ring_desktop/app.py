@@ -446,6 +446,7 @@ class RingApp(rumps.App):
                 "asrProcessing": (
                     self._asr_active_counts.get(current_context, 0) > 0
                 ),
+                "_activityContext": _capture_event_data(current_context),
             }
 
     @rumps.clicked("打开配置…")

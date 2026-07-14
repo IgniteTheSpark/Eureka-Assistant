@@ -478,6 +478,90 @@ def test_native_write_without_origin_keeps_accepting_non_browser_content_type():
     assert received == [VibrationType.GRADIENT]
 
 
+@pytest.mark.parametrize("transition_before_activity_read", [False, True])
+def test_demo_status_never_combines_activity_with_a_different_generation(
+    transition_before_activity_read,
+):
+    controller = DemoSessionController(lease_seconds=30)
+    controller.acquire("browser-1")
+    flash_snapshot = controller.set_mode("browser-1", DemoMode.FLASH)
+
+    def get_demo_state():
+        if transition_before_activity_read:
+            current = controller.set_mode("browser-1", DemoMode.VIBE)
+            return {
+                "recording": False,
+                "asrProcessing": False,
+                "_activityContext": {
+                    "sessionId": current["session_id"],
+                    "mode": current["mode"],
+                    "generation": current["generation"],
+                },
+            }
+        activity = {
+            "recording": True,
+            "asrProcessing": True,
+            "_activityContext": {
+                "sessionId": flash_snapshot["session_id"],
+                "mode": flash_snapshot["mode"],
+                "generation": flash_snapshot["generation"],
+            },
+        }
+        controller.set_mode("browser-1", DemoMode.VIBE)
+        return activity
+
+    server = VibrationControlServer(
+        lambda _kind: True,
+        demo_controller=controller,
+        demo_events=controller.events,
+        get_demo_state=get_demo_state,
+        port=0,
+    ).start()
+    try:
+        status, body = get(server, "/demo/status")
+    finally:
+        server.stop()
+
+    assert status == 200
+    assert body["mode"] == "vibe"
+    assert body["generation"] == 3
+    assert body["recording"] is False
+    assert body["asrProcessing"] is False
+    assert "_activityContext" not in body
+
+
+def test_demo_status_preserves_same_context_activity_without_exposing_metadata():
+    controller = DemoSessionController(lease_seconds=30)
+    controller.acquire("browser-1")
+    current = controller.set_mode("browser-1", DemoMode.FLASH)
+    server = VibrationControlServer(
+        lambda _kind: True,
+        demo_controller=controller,
+        demo_events=controller.events,
+        get_demo_state=lambda: {
+            "recording": True,
+            "asrProcessing": True,
+            "_activityContext": {
+                "sessionId": current["session_id"],
+                "mode": current["mode"],
+                "generation": current["generation"],
+            },
+        },
+        port=0,
+    ).start()
+    try:
+        status, body = get(server, "/demo/status")
+    finally:
+        server.stop()
+
+    assert status == 200
+    assert body["mode"] == "flash"
+    assert body["generation"] == 2
+    assert body["recording"] is True
+    assert body["asrProcessing"] is True
+    assert "_activityContext" not in body
+
+
 def test_demo_events_streams_snapshot_and_broker_events_then_unsubscribes():
     broker = TrackingDemoEventBroker()
     controller = DemoSessionController(lease_seconds=30, events=broker)

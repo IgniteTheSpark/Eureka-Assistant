@@ -344,7 +344,18 @@ class VibrationControlServer:
                 )
                 if not isinstance(desktop_state, dict):
                     desktop_state = {}
-                return {**desktop_state, **demo_controller.snapshot()}
+                else:
+                    desktop_state = dict(desktop_state)
+                activity_context = desktop_state.pop("_activityContext", None)
+                demo_state = demo_controller.snapshot()
+                if activity_context is not None and activity_context != {
+                    "sessionId": demo_state["session_id"],
+                    "mode": demo_state["mode"],
+                    "generation": demo_state["generation"],
+                }:
+                    desktop_state["recording"] = False
+                    desktop_state["asrProcessing"] = False
+                return {**desktop_state, **demo_state}
 
             def _write_sse(self, event, payload):
                 data = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))

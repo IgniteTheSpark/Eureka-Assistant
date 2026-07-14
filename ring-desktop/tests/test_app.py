@@ -747,6 +747,11 @@ def test_demo_state_snapshot_exposes_cached_active_app_and_mapping():
         "mapping": {"double": "Voice", "triple": "Enter"},
         "recording": False,
         "asrProcessing": False,
+        "_activityContext": {
+            "sessionId": None,
+            "generation": 0,
+            "mode": "standalone",
+        },
     }
 
 
