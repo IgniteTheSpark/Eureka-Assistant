@@ -156,3 +156,54 @@ def test_event_broker_unsubscribes_and_drops_oldest_message_when_full():
         except queue.Empty:
             break
     assert last["data"] == {"value": 64}
+
+
+def test_event_broker_overflow_survives_concurrent_consumer_drain():
+    broker = DemoEventBroker()
+    subscriber = broker.subscribe()
+    for number in range(64):
+        broker.publish("number", {"value": number})
+
+    real_put_nowait = subscriber.put_nowait
+    drain_happened = [False]
+
+    def put_nowait_with_concurrent_drain(message):
+        try:
+            real_put_nowait(message)
+        except queue.Full:
+            if not drain_happened[0]:
+                drain_happened[0] = True
+                while True:
+                    try:
+                        subscriber.get_nowait()
+                    except queue.Empty:
+                        break
+            raise
+
+    subscriber.put_nowait = put_nowait_with_concurrent_drain
+
+    broker.publish("number", {"value": 64})
+
+    assert drain_happened[0] is True
+    assert subscriber.get_nowait() == {
+        "event": "number",
+        "data": {"value": 64},
+    }
+
+
+def test_event_broker_isolates_caller_and_subscriber_mutations():
+    broker = DemoEventBroker()
+    first_subscriber = broker.subscribe()
+    second_subscriber = broker.subscribe()
+    payload = {"nested": {"values": ["original"]}}
+
+    broker.publish("snapshot", payload)
+    payload["nested"]["values"].append("caller mutation")
+    first_message = first_subscriber.get_nowait()
+    first_message["event"] = "mutated"
+    first_message["data"]["nested"]["values"].append("subscriber mutation")
+
+    assert second_subscriber.get_nowait() == {
+        "event": "snapshot",
+        "data": {"nested": {"values": ["original"]}},
+    }

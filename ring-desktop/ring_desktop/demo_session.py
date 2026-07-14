@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import queue
 import threading
 import time
@@ -38,15 +39,20 @@ class DemoEventBroker:
             self._subscribers.discard(subscriber)
 
     def publish(self, event: str, payload: dict) -> None:
-        message = {"event": event, "data": payload}
+        message = copy.deepcopy({"event": event, "data": payload})
         with self._lock:
             subscribers = tuple(self._subscribers)
         for subscriber in subscribers:
-            try:
-                subscriber.put_nowait(message)
-            except queue.Full:
-                subscriber.get_nowait()
-                subscriber.put_nowait(message)
+            subscriber_message = copy.deepcopy(message)
+            while True:
+                try:
+                    subscriber.put_nowait(subscriber_message)
+                    break
+                except queue.Full:
+                    try:
+                        subscriber.get_nowait()
+                    except queue.Empty:
+                        continue
 
 
 class DemoSessionController:
