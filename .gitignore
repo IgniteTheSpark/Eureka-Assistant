@@ -39,6 +39,7 @@ uvicorn*.log
 
 # Local analysis/render artifacts. Keep generated files out of the repo.
 tmp/
+output/
 
 # prod TLS certs (acme.sh-managed on the server, never committed)
 deploy/certs/*.pem

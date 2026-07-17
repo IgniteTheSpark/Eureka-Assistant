@@ -1,8 +1,16 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
+import { useCallback, useEffect, useReducer, useRef } from "react";
 import { Link } from "react-router-dom";
 
-import { AssetCard } from "../components/AssetCard";
 import { RingConnection } from "../components/RingConnection";
+import { FlashAssetFolder } from "../features/flash/FlashAssetFolder";
+import {
+  createFlashAssetBatch,
+  type FlashAssetBatch,
+} from "../features/flash/flash-assets";
+import {
+  FlashJourneyDock,
+  type FlashJourneyPhase,
+} from "../features/flash/FlashJourneyDock";
 import {
   backendClient as defaultBackendClient,
   type BackendClient,
@@ -20,18 +28,11 @@ type FlashRingClient = Pick<
   "scan" | "getConnection" | "connect" | "disconnect"
 >;
 
-type FlashPhase =
-  | "disconnected"
-  | "ready"
-  | "listening"
-  | "transcribing"
-  | "processing"
-  | "revealed";
-
 type FlashState = {
-  phase: FlashPhase;
+  phase: FlashJourneyPhase;
   transcript: string;
-  result: FlashResponse | null;
+  batches: FlashAssetBatch[];
+  createdCount: number;
   error: string | null;
 };
 
@@ -45,8 +46,10 @@ type FlashAction =
       asrProcessing: boolean;
       connected: boolean;
     }
-  | { type: "processing"; transcript: string }
-  | { type: "revealed"; result: FlashResponse }
+  | { type: "transcript-ready"; transcript: string }
+  | { type: "analyzing" }
+  | { type: "created"; batch: FlashAssetBatch; count: number }
+  | { type: "settled" }
   | { type: "failed"; message: string }
   | { type: "reset"; connected: boolean };
 
@@ -56,15 +59,21 @@ function reducer(state: FlashState, action: FlashAction): FlashState {
       if (!action.connected) return { ...state, phase: "disconnected" };
       return state.phase === "disconnected" ? { ...state, phase: "ready" } : state;
     case "recording-started":
-      return { phase: "listening", transcript: "", result: null, error: null };
+      return {
+        ...state,
+        phase: "listening",
+        transcript: "",
+        createdCount: 0,
+        error: null,
+      };
     case "recording-stopped":
       return { ...state, phase: "transcribing", error: null };
     case "activity-snapshot":
       if (action.recording) {
         return {
+          ...state,
           phase: "listening",
           transcript: "",
-          result: null,
           error: null,
         };
       }
@@ -79,22 +88,38 @@ function reducer(state: FlashState, action: FlashAction): FlashState {
         };
       }
       return state;
-    case "processing":
+    case "transcript-ready":
       return {
-        phase: "processing",
+        ...state,
+        phase: "transcribing",
         transcript: action.transcript,
-        result: null,
+        createdCount: 0,
         error: null,
       };
-    case "revealed":
-      return { ...state, phase: "revealed", result: action.result, error: null };
+    case "analyzing":
+      return {
+        ...state,
+        phase: "analyzing",
+        error: null,
+      };
+    case "created":
+      return {
+        ...state,
+        phase: "created",
+        batches: [action.batch, ...state.batches],
+        createdCount: action.count,
+        error: null,
+      };
+    case "settled":
+      return { ...state, phase: "settled", error: null };
     case "failed":
-      return { ...state, phase: "revealed", result: null, error: action.message };
+      return { ...state, phase: "failed", error: action.message };
     case "reset":
       return {
         phase: action.connected ? "ready" : "disconnected",
         transcript: "",
-        result: null,
+        batches: [],
+        createdCount: 0,
         error: null,
       };
   }
@@ -116,39 +141,23 @@ function eventMatches(
   );
 }
 
-function responseCards(result: FlashResponse | null) {
-  if (!result) {
-    return {
-      cards: [] as Array<Record<string, unknown>>,
-      fallback: false,
-    };
-  }
-  if (result.cards?.length) return { cards: result.cards, fallback: false };
-  if (result.derived_assets?.length) {
-    return {
-      cards: result.derived_assets.map((asset) => {
-        const card = asset.card;
-        return typeof card === "object" && card !== null && !Array.isArray(card)
-          ? (card as Record<string, unknown>)
-          : asset;
-      }),
-      fallback: false,
-    };
-  }
-  const fallbackText = result.summary?.trim() || result.reply?.trim();
-  return fallbackText
-    ? { cards: [{ card_type: "note", content: fallbackText }], fallback: true }
-    : { cards: [], fallback: false };
-}
-
-const PHASE_LABELS: Record<FlashPhase, string> = {
+const PHASE_LABELS: Record<FlashJourneyPhase, string> = {
   disconnected: "Ring disconnected",
   ready: "Ready",
   listening: "Recording",
   transcribing: "Transcribing",
-  processing: "Creating in UReka",
-  revealed: "Captured",
+  analyzing: "Analyzing",
+  created: "Generated",
+  settled: "Captured",
+  failed: "Ready to retry",
 };
+
+const ACKNOWLEDGEMENT_MS = 700;
+const ANALYZING_MIN_MS = 250;
+
+function delay(milliseconds: number) {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds));
+}
 
 export function FlashPage({
   backendClient = defaultBackendClient,
@@ -161,7 +170,8 @@ export function FlashPage({
   const [state, dispatch] = useReducer(reducer, {
     phase: demo.connection.connected ? "ready" : "disconnected",
     transcript: "",
-    result: null,
+    batches: [],
+    createdCount: 0,
     error: null,
   });
   const seenEvents = useRef<WeakSet<RingEvent> | null>(null);
@@ -169,6 +179,7 @@ export function FlashPage({
   const acceptedTranscripts = useRef(new Set<string>());
   const recordingCycle = useRef(0);
   const requestSerial = useRef(0);
+  const batchSequence = useRef(0);
   const active = useRef(true);
 
   useEffect(() => {
@@ -210,6 +221,7 @@ export function FlashPage({
   useEffect(() => {
     requestSerial.current += 1;
     recordingCycle.current = 0;
+    batchSequence.current = 0;
     acceptedTranscripts.current.clear();
     dispatch({ type: "reset", connected: demo.connection.connected });
   }, [demo.experienceResetKey]);
@@ -217,13 +229,52 @@ export function FlashPage({
   const submitTranscript = useCallback(
     async (transcript: string) => {
       const request = ++requestSerial.current;
-      dispatch({ type: "processing", transcript });
+      dispatch({ type: "transcript-ready", transcript });
       demo.beginFlashProcessing();
+      let outcome: Promise<
+        | { result: FlashResponse; error?: never }
+        | { result?: never; error: unknown }
+      >;
       try {
-        const result = await backendClient.flash(transcript);
+        outcome = backendClient
+          .flash(transcript)
+          .then((result) => ({ result }), (error: unknown) => ({ error }));
+      } catch (error) {
+        outcome = Promise.resolve({ error });
+      }
+
+      try {
+        await delay(ACKNOWLEDGEMENT_MS);
+        if (!active.current || request !== requestSerial.current) return;
+        dispatch({ type: "analyzing" });
+        const analyzingStartedAt = Date.now();
+        const settled = await outcome;
+        if ("error" in settled) throw settled.error;
+        const result = settled.result;
         if (!result.ok) throw new Error("UReka could not process this recording");
+        const remainingAnalyzingTime = Math.max(
+          0,
+          ANALYZING_MIN_MS - (Date.now() - analyzingStartedAt),
+        );
+        if (remainingAnalyzingTime) await delay(remainingAnalyzingTime);
         if (active.current && request === requestSerial.current) {
-          dispatch({ type: "revealed", result });
+          const nextBatchNumber = batchSequence.current + 1;
+          const batch = createFlashAssetBatch(
+            transcript,
+            result,
+            `flash-${nextBatchNumber}`,
+            Date.now(),
+          );
+          if (batch.cards.length) {
+            batchSequence.current = nextBatchNumber;
+            dispatch({
+              type: "created",
+              batch,
+              count: batch.cards.length,
+            });
+          } else {
+            dispatch({ type: "settled" });
+          }
         }
       } catch (error) {
         if (!active.current || request !== requestSerial.current) return;
@@ -265,10 +316,6 @@ export function FlashPage({
     }
   }, [demo.events, demo.generation, demo.sessionId, submitTranscript]);
 
-  const displayed = useMemo(() => responseCards(state.result), [state.result]);
-  const summary = state.result?.summary?.trim();
-  const reply = state.result?.reply?.trim();
-
   return (
     <main className={`flash-page flash-phase-${state.phase}`}>
       <nav className="demo-nav" aria-label="Demo modes">
@@ -284,59 +331,39 @@ export function FlashPage({
         </div>
         <div className="flash-status" aria-live="polite">
           <span className="flash-status-dot" aria-hidden="true" />
-          {state.error ? "Ready to retry" : PHASE_LABELS[state.phase]}
+          {PHASE_LABELS[state.phase]}
         </div>
       </header>
 
-      <RingConnection ringClient={ringClient} />
-
-      <section className="flash-canvas" aria-live="polite">
-        <div className="flash-signal" aria-hidden="true">
-          <span />
-          <span />
-          <span />
-          <span />
-        </div>
-
-        {state.transcript ? (
-          <blockquote className="flash-transcript">{state.transcript}</blockquote>
-        ) : (
-          <p className="flash-hint">Your next thought can start here.</p>
-        )}
-
-        {state.error ? (
-          <div className="flash-request-error" role="alert">
-            <p>{state.error}</p>
-            <button
-              className="flash-retry"
-              onClick={() => void submitTranscript(state.transcript)}
-              type="button"
-            >
-              Retry Flash
-            </button>
-          </div>
-        ) : null}
-
-        {state.result ? (
-          <div className="flash-result">
-            {!displayed.fallback && summary ? (
-              <p className="flash-summary">{summary}</p>
-            ) : null}
-            {reply && reply !== summary && (!displayed.fallback || summary) ? (
-              <p className="flash-reply">{reply}</p>
-            ) : null}
-            <div className="asset-card-list">
-              {displayed.cards.map((card, index) => (
-                <AssetCard
-                  card={card}
-                  index={index}
-                  key={`${String(card.asset_id ?? card.event_id ?? card.title ?? card.content ?? "card")}-${index}`}
-                />
-              ))}
+      <section className="flash-workspace">
+        <aside className="flash-ring-panel">
+          <p className="flash-panel-label">RING / CONNECTED</p>
+          <img
+            alt="Eureka Ring"
+            className="flash-ring-product"
+            src="/ring/ring-connect.png"
+          />
+          <RingConnection ringClient={ringClient} />
+          <div className="flash-guidance">
+            <span aria-hidden="true">02</span>
+            <div>
+              <strong>Double tap to capture a thought.</strong>
+              <p>Speak naturally. Double tap again when you are done.</p>
             </div>
           </div>
-        ) : null}
+        </aside>
+
+        <FlashAssetFolder batches={state.batches} />
       </section>
+
+      <FlashJourneyDock
+        createdCount={state.createdCount}
+        phase={state.phase}
+        transcript={state.transcript}
+        error={state.error}
+        onDismiss={() => dispatch({ type: "settled" })}
+        onRetry={() => void submitTranscript(state.transcript)}
+      />
     </main>
   );
 }

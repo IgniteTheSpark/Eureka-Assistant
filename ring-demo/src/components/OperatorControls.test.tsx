@@ -15,11 +15,22 @@ function dependencies() {
     },
     resetLocalExperience: vi.fn(),
     onUnauthorized: vi.fn(),
+    onManageAccount: vi.fn(),
     flashProcessing: false,
   };
 }
 
 beforeEach(() => vi.clearAllMocks());
+
+it("opens operator account setup from the controls panel", () => {
+  const props = dependencies();
+  render(<OperatorControls email="demo@example.com" {...props} />);
+
+  fireEvent.click(screen.getByRole("button", { name: /operator controls/i }));
+  fireEvent.click(screen.getByRole("button", { name: /manage demo account/i }));
+
+  expect(props.onManageAccount).toHaveBeenCalledOnce();
+});
 
 it("requires confirmation before resetting the current demo account", async () => {
   const props = dependencies();

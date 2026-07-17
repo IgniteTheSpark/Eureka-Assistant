@@ -26,12 +26,14 @@ export function OperatorControls({
   backendClient,
   resetLocalExperience,
   onUnauthorized,
+  onManageAccount,
   flashProcessing,
 }: {
   email: string;
   backendClient: OperatorBackendClient;
   resetLocalExperience: () => void;
   onUnauthorized: () => void;
+  onManageAccount: () => void;
   flashProcessing: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -115,6 +117,15 @@ export function OperatorControls({
         >
           <p className="operator-controls-label">SIGNED IN</p>
           <p className="operator-controls-email">{email}</p>
+
+          <button
+            className="operator-account-manage"
+            disabled={pending}
+            onClick={onManageAccount}
+            type="button"
+          >
+            Manage demo account
+          </button>
 
           {confirming ? (
             <div className="operator-reset-confirmation">

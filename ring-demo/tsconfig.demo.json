@@ -1,0 +1,36 @@
+{
+  "extends": "./tsconfig.app.json",
+  "include": [
+    "src/pages/FlashPage.tsx",
+    "src/pages/FlashPage.test.tsx",
+    "src/pages/VibePage.tsx",
+    "src/pages/VibePage.test.tsx",
+    "src/pages/SetupPage.tsx",
+    "src/pages/SetupPage.test.tsx",
+    "src/state/**/*.ts",
+    "src/state/**/*.tsx",
+    "src/features/**/*.ts",
+    "src/features/**/*.tsx",
+    "src/lib/**/*.ts",
+    "src/lib/**/*.tsx",
+    "src/components/AssetCard.tsx",
+    "src/components/AssetCard.test.tsx",
+    "src/components/Dither.tsx",
+    "src/components/OperatorControls.tsx",
+    "src/components/OperatorControls.test.tsx",
+    "src/components/RingConnection.tsx",
+    "src/components/RingConnection.test.tsx",
+    "src/components/ScrollStack.tsx",
+    "src/components/ScrollStack.test.tsx",
+    "src/components/mode-scenes/**/*.ts",
+    "src/components/mode-scenes/**/*.tsx",
+    "src/test/setup.ts"
+  ],
+  "exclude": [
+    "src/app/**",
+    "src/pages/HomePage.tsx",
+    "src/pages/HomePage.test.tsx",
+    "src/components/landing/**",
+    "src/components/living-ring/**"
+  ]
+}

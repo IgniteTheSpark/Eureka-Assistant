@@ -1,187 +1,203 @@
-# Flash Mode Asset Folder and Journey Dock Design
+# Flash Mode Asset Cards and Journey Dock Design
 
-**Date:** 2026-07-15  
-**Status:** Approved interaction direction; pending written-spec review
+**Date:** 2026-07-16
+**Status:** Approved for implementation
 
 ## Goal
 
-Separate the temporary lifecycle of one spoken Flash from the persistent display of assets it creates.
+Separate the transient lifecycle of one spoken Flash from the persistent assets it creates, while making every returned asset feel like an individual result.
 
-- The left panel remains a stable connected-ring product and guidance surface.
-- The right panel becomes an independently scrollable Asset Folder.
-- Capture, transcription, and agent processing move into a floating dock at the bottom of the page.
-- A single Flash can create one or many cards, which enter the folder as one batch.
+- The left panel remains the stable connected-ring product and guidance surface.
+- The right panel is an independently scrollable Asset Folder.
+- Capture, transcription, semantic analysis, and completion appear in a compact floating Journey Dock.
+- One spoken Flash may create one or many cards; every asset becomes its own opaque stack item.
 
-This iteration does not redesign the detailed content or typography inside each asset card. It establishes the page structure, state choreography, batch behavior, and domain-color hooks needed for that later card-design pass.
+This design applies the canonical card rules in [`spec/04-frontend.md`](../../../spec/04-frontend.md), color rules in [`spec/05-design-system.md`](../../../spec/05-design-system.md), and eight-domain palette in [`spec/08-domain-system.md`](../../../spec/08-domain-system.md).
 
 ## Page Structure
 
-### Connected ring panel
+### Connected Ring Panel
 
-The left panel always displays:
-
-- the ring product visual;
-- the real Ring Desktop connection state and controls;
-- the instruction to double tap, speak, and double tap again.
-
-Recording and processing states do not replace this panel.
+The left panel always displays the Ring product visual, the real Ring Desktop connection state and controls, and the instruction to double tap, speak, and double tap again. Recording and processing states never replace this panel.
 
 ### Asset Folder
 
-The right panel is a stable folder for generated assets. It uses a React Bits-style `ScrollStack` inside its own scroll container, with window scrolling disabled.
+The right panel is a stable folder for generated assets. It uses the existing React Bits-style `ScrollStack` inside its own scroll container with window scrolling disabled.
 
-- Scrolling the folder does not move the ring panel or page header.
-- The newest successful batch is placed at the front and the folder returns to its top position.
-- Cards from earlier batches remain accessible behind it through internal scrolling.
+- Scrolling the folder does not move the Ring panel or page header.
+- The newest card sits at the front of the stack.
+- Older cards remain behind it and are revealed by scrolling downward.
+- The front card moves downward into a lower tucked position before the next older card becomes primary.
+- The folder returns to the front whenever one or more new cards arrive.
 - The folder has a quiet empty state before the first successful Flash.
 
-### Floating Journey Dock
+## One Asset, One Card
 
-The dock is fixed near the bottom of the viewport and aligned to the page content width. It keeps 24 px of outer space and rounded corners instead of touching the browser edges.
-
-- It overlays the lower portion of both panels without changing their layout dimensions.
-- It appears only while one Flash is active.
-- It disappears after the generated cards begin entering the Asset Folder.
-- The dock does not contain historical cards.
-
-## Interaction Sequence
-
-### 1. Ready
-
-- The Journey Dock is absent.
-- The ring panel and Asset Folder remain visible.
-- The newest existing batch, if any, keeps its domain colors.
-
-### 2. Capturing
-
-Triggered by the real `recording.started` event.
-
-- The Journey Dock rises from below the viewport with a restrained spring motion.
-- It shows the grayscale React Bits Dither background.
-- `Capturing` and the live audio-wave treatment are visible.
-- The ring panel and Asset Folder remain visible behind the dock.
-
-### 3. Transcribing
-
-Triggered by `recording.stopped` or `asr.started`.
-
-- The audio wave stops immediately.
-- The dock remains in place.
-- Dither slows while the UI displays `Transcribing` until text is available.
-
-### 4. Transcript acknowledged
-
-Triggered by `transcript.ready`.
-
-- The transcript replaces the transcribing label in the dock.
-- The transcript fades in as the primary content, giving the user a clear acknowledgement of what was heard.
-- The backend Flash request starts immediately; the UI holds the acknowledgement treatment for a minimum of 700 ms so the transcript is perceptible.
-
-### 5. Creating assets
-
-- The transcript remains visible and identifies the content being processed.
-- The status changes to `Creating assets`.
-- Dither transitions from grayscale to a cool steel-blue processing palette (`waveColor={[0.28, 0.46, 0.62]}`). The final palette can be tuned with the asset-card visual pass.
-- The dock remains until a successful response returns.
-
-### 6. Batch arrival
-
-When the backend returns one or more derived assets:
-
-1. Existing colored cards become the historical batch and transition to grayscale.
-2. All cards from the response form one new batch.
-3. The folder scrolls to the front.
-4. The new cards travel visually from the Journey Dock toward the Asset Folder, then settle into the front of the stack in response order.
-5. The Journey Dock fades and moves below the viewport after the first new card begins settling.
-
-If the response contains no structured derived assets but produces the existing note fallback, that fallback is a one-card batch and follows the same choreography.
-
-## Batch and Color Rules
-
-The UI stores generated results as ordered batches rather than one flat card array.
+The backend remains free to return multiple `cards` or `derived_assets` for one transcript. The UI preserves transcript provenance internally but flattens the response for presentation.
 
 ```ts
 interface FlashAssetBatch {
   id: string;
   transcript: string;
   createdAt: number;
-  cards: AssetCardData[];
+  cards: Array<Record<string, unknown>>;
+}
+
+interface FlashAssetItem {
+  id: string;
+  batchId: string;
+  batchOrder: number;
+  createdAt: number;
+  card: Record<string, unknown>;
 }
 ```
 
-- One accepted transcript creates at most one batch.
-- A batch can contain any positive number of cards.
-- Only the newest successful batch receives domain colors.
-- All prior batches receive a neutral historical treatment through presentation state; card data is never mutated.
-- A failed request does not gray the current newest batch because no replacement batch exists.
-- Domain classification uses the existing card type/data (`todo`, `event`, `contact`, `note`/`idea`, `expense`, and generic). The first implementation exposes semantic CSS tokens for these domains; detailed palette tuning remains part of the later card-design pass.
+- A response containing `N` assets creates `N` independent `FlashAssetItem` stack entries.
+- No visible batch wrapper, batch heading, or batch count encloses those cards.
+- Items from the newest response arrive in response order with a 60 ms stagger.
+- New responses prepend their items while existing items keep their relative order.
+- The header count reports total cards, not transcript batches.
+- The note fallback remains one independent card.
 
-The first implementation accumulates batches for the current mounted Flash experience and clears them through the existing demo reset. It does not fetch historical UReka assets into the folder.
+## Card Visual System
 
-## Scroll Stack Behavior
+Cards use the approved **Neutral Record Slip** information structure with domain-colored surfaces.
 
-The Asset Folder adapts the React Bits `ScrollStack` component with container scrolling:
+### Three-line DNA
 
-- `useWindowScroll={false}`;
-- zero rotation and zero blur for legibility;
-- restrained scale and vertical stack distance;
-- latest batch at the front;
-- programmatic return to the front after a successful batch arrives;
-- no automatic scroll when capture starts or when processing fails.
+Each card has a fixed presentation height and follows the canonical compact structure:
 
-The Scroll Stack is a presentation layer. Batch ordering and latest/history state remain explicit React state so the experience does not depend on animation internals.
+1. identity row: skill icon and display name on the left; domain dot and domain name on the right;
+2. title and optional single-line subtitle;
+3. at most two compact metadata values on one non-wrapping row.
+
+Long content truncates in the card instead of changing stack geometry. Full-detail presentation remains outside this demo pass.
+
+### Domain Color
+
+The right-side domain indicator and the card surface use the same domain token.
+
+- The card surface is a fully opaque, low-saturation tint derived from its domain color; it is never translucent.
+- Text and borders remain neutral so domain color does not reduce legibility.
+- Older cards keep their domain surface. History is never represented with grayscale or reduced opacity.
+- Stack depth is expressed only through position, restrained scale, and softer shadow.
+- Canonical domain tokens are `工作`, `学习`, `健康`, `运动`, `社交`, `娱乐`, `生活`, and `灵感` from `spec/08-domain-system.md`.
+- The card reads an explicit card-level `domain` first, then a `domain` meta field. If neither exists, the demo uses a deterministic type fallback so every card still renders safely.
+
+## Stack Direction and Motion
+
+The default folder state shows the newest card in front and older cards behind it.
+
+- Downward wheel, trackpad, keyboard, or touch scrolling tucks the current front card toward the bottom and reveals the next older card.
+- Cards are always opaque, including during overlap.
+- Rotation and blur remain zero.
+- Scale differences are restrained and must not make older cards look disabled.
+- A newly returned group scrolls the folder back to the front, then cards enter one by one with the existing 60 ms stagger.
+- With reduced motion, transforms settle immediately and arrival uses opacity only.
+
+## Compact Journey Dock
+
+The Dock is fixed near the bottom of the viewport, centered to the page, and narrower than the workbench. Every primary phase uses the exact same outer width and height.
+
+- Desktop target: `width: min(780px, calc(100vw - 48px))` and `height: 122px`.
+- Mobile target: `width: calc(100vw - 32px)` with the same compact internal rows.
+- Internal rows are: 30 px transcript rail, flexible centered status, and a 20 px utility footer.
+- The transcript rail is a single line with ellipsis and never changes Dock height.
+- The centered phase title is the dominant Dock element: large white type over a restrained dark contrast veil, with white supporting copy. Dither color identifies the phase without competing with its label.
+- The Dock overlays the page and never changes workbench layout.
+
+## Journey Sequence
+
+### 1. Capturing
+
+Triggered by the real `recording.started` event.
+
+- The Dock enters from below the viewport.
+- The transcript rail displays a quiet placeholder.
+- The center reads `Capturing`.
+- Dither is the only live capture visualization; no secondary audio waveform is rendered.
+- Dither uses signal blue: `[0.32, 0.57, 1.0]`.
+
+### 2. Transcribing
+
+Triggered by `recording.stopped` or `asr.started`.
+
+- The audio wave stops immediately.
+- The center reads `Transcribing`.
+- The transcript rail shows the recognized text as soon as `transcript.ready` arrives.
+- Dither uses language violet: `[0.67, 0.47, 0.90]`.
+
+### 3. Analyzing
+
+Triggered after transcript acknowledgement while the existing backend Flash request is active.
+
+- The transcript remains in the top rail.
+- The center reads `Analyzing`.
+- Dither uses semantic teal: `[0.18, 0.76, 0.73]`.
+- The backend request still starts immediately when the transcript arrives; presentation timing never delays the API call.
+
+### 4. Generated
+
+Triggered by a successful response with at least one normalized card.
+
+- The transcript remains in the top rail.
+- The center reads `Generated`.
+- The supporting result reads `{N} card added` or `{N} cards added`.
+- Completion uses success green `[0.28, 0.73, 0.48]` with a calmer Dither field.
+- The completion state remains visible until the operator selects `Close`; it never dismisses on a timer.
+- New cards begin entering the folder with a 60 ms stagger. Closing the Dock does not remove or reorder those cards.
+
+If the response succeeds without a structured card and without a text fallback, the Dock returns to Ready without showing a false `Generated` count.
 
 ## State and Component Boundaries
 
-`FlashPage` continues to own the real Ring event and backend pipeline, but presentation responsibilities are separated:
+`FlashPage` continues to own Ring events, backend submission, request invalidation, and the approved timing gates.
 
-- `FlashJourneyDock`: renders capturing, transcribing, transcript acknowledgement, processing, and exit choreography.
-- `FlashAssetFolder`: owns the internal scroll viewport and renders ordered batches.
-- `FlashAssetBatch`: maps batch state to latest or historical treatment.
-- `ScrollStack`: reusable React Bits adaptation with no Flash-specific data knowledge.
-- `Dither`: remains a reusable background and accepts the capture or processing palette through props.
+- `FlashJourneyDock` maps the four primary presentation phases to copy, transcript rail, count, and Dither palette.
+- `FlashAssetFolder` flattens newest-first batches into individual stable card items and owns front reset behavior.
+- `AssetCard` owns the three-line card DNA, domain label, domain token, and safe generic fallback.
+- `ScrollStack` remains reusable and has no Flash-specific data knowledge.
+- `Dither` remains reusable and receives phase palette through props.
 
-The Flash state model adds a transcript acknowledgement presentation phase and a batch collection. Backend processing may run during the acknowledgement phase; UI timing does not delay the API call.
+The existing `FlashAssetBatch` state may remain in `FlashPage` for transcript provenance. Batch boundaries must not appear in the visual folder.
 
-## Reset, Navigation, and Failure Behavior
+## Failure, Reset, and Navigation
 
-- The existing demo reset clears the dock, pending request, transcript, and all in-memory batches.
-- Starting a new recording invalidates a stale pending result using the existing request serial behavior.
-- An unsuccessful request inserts no cards and does not gray previous batches.
-- The existing low-priority retry action remains available in the dock, but no new exhibition-focused failure animation is introduced.
-- Navigating away from the mounted Flash experience clears the visual folder in this iteration; persisted UReka assets remain in the backend. Cross-route visual persistence is outside this scope.
+- The four named phases are the exhibition journey. Failure remains an exceptional compact retry surface and receives no new exhibition animation.
+- A failed request inserts no cards and does not change existing card color or order.
+- Starting a new recording invalidates a stale pending result through the existing request serial.
+- Demo reset clears Dock state, transcript, pending request, and every in-memory card.
+- Navigating away clears this mounted visual folder; persisted UReka assets remain unchanged.
 
-## Responsive Behavior
+## Accessibility
 
-- Desktop keeps the two-column workbench and full-width Floating Journey Dock.
-- On narrow screens, the ring panel and Asset Folder stack vertically.
-- The dock keeps viewport-side margins, reduces its maximum height, and truncates exceptionally long transcript display without changing the stored transcript.
-- The Asset Folder remains independently scrollable at every breakpoint.
-
-## Accessibility and Motion
-
-- The Journey Dock is an `aria-live="polite"` region for state and transcript changes.
-- Generated batches receive stable headings describing their creation order and card count.
-- Folder scrolling remains keyboard and trackpad accessible.
-- With reduced motion enabled, the dock and cards use opacity transitions only; Dither animation is disabled and Scroll Stack transforms settle immediately.
+- The Dock remains an `aria-live="polite"` region.
+- Transcript text remains available to assistive technology even when visually truncated.
+- Every independent asset card has its own article label.
+- Folder scrolling supports wheel, trackpad, touch, and keyboard input.
+- Domain is conveyed by text and color, never color alone.
+- `prefers-reduced-motion` disables continuous Dither and animated stack settling.
 
 ## Verification
 
-Focused tests will cover:
+Automated tests must prove:
 
-- Dither appears only in active dock phases and uses different capture/processing palettes.
-- Recording stop removes the live audio wave without dismissing the dock.
-- Transcript remains visible during processing.
-- One backend response with N assets creates one batch with N cards.
-- A successful new batch grays every older batch and becomes the colored front batch.
-- A failed request does not insert a batch or gray the previous batch.
-- The folder uses internal rather than window scrolling and returns to the front only after success.
-- Demo reset clears both active dock state and accumulated batches.
-- Reduced-motion rendering disables continuous background and stack motion.
+- one response with `N` assets produces `N` independent Scroll Stack items;
+- no visible batch wrapper surrounds the cards;
+- old and new cards are fully opaque and retain their domain tokens;
+- explicit and meta-field domains drive the domain label and surface token;
+- the newest response returns the folder to the front exactly once;
+- the Dock has four primary phases with stable geometry;
+- Capturing, Transcribing, and Analyzing use distinct Dither palettes;
+- Generated shows the correct singular/plural card count and only exits through its close control;
+- transcript remains in the top rail from availability through completion;
+- Capturing renders no redundant audio waveform alongside Dither;
+- failure inserts no card and reset clears the complete experience;
+- focused tests, typecheck, production build, and browser QA pass.
 
 ## Out of Scope
 
-- Final asset-card information design and exact domain palette.
-- Loading the user's complete UReka asset history into the folder.
-- Changes to Ring Desktop gestures, recording, ASR, or the Flash backend pipeline.
-- Grid Scan or other processing backgrounds beyond the approved Dither color transition.
+- Loading the complete historical UReka library into the demo folder.
+- Full-screen asset details or editing.
+- Changes to Ring Desktop gestures, recording, ASR, or mode routing.
+- Changes to Flash agent skill selection or asset-generation semantics.

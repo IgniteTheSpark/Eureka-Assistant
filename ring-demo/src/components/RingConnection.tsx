@@ -12,12 +12,38 @@ type ConnectionClient = Pick<
   "scan" | "getConnection" | "connect" | "disconnect"
 >;
 
+export interface RingConnectionCopy {
+  connectTitle: string;
+  connected: string;
+  connecting: string;
+  disconnect: string;
+  disconnected: string;
+  discoveredLabel: string;
+  scan: string;
+  scanning: string;
+}
+
+const DEFAULT_COPY: RingConnectionCopy = {
+  connectTitle: "Connect your ring",
+  connected: "Connected",
+  connecting: "Connecting…",
+  disconnect: "Disconnect",
+  disconnected: "Not connected",
+  discoveredLabel: "Discovered rings",
+  scan: "Scan for rings",
+  scanning: "Scanning…",
+};
+
 export function RingConnection({
   connection: suppliedConnection,
+  copy: suppliedCopy,
+  onActivityChange,
   onConnectionChange,
   ringClient = defaultRingClient,
 }: {
   connection?: RingConnectionSnapshot;
+  copy?: Partial<RingConnectionCopy>;
+  onActivityChange?: (status: "scanning" | "connecting" | "disconnecting" | null) => void;
   onConnectionChange?: (connection: RingConnectionSnapshot) => void;
   ringClient?: ConnectionClient;
 }) {
@@ -30,6 +56,8 @@ export function RingConnection({
   return (
     <RingConnectionView
       connection={connection}
+      copy={{ ...DEFAULT_COPY, ...suppliedCopy }}
+      onActivityChange={onActivityChange}
       onConnectionChange={notifyConnection ?? (() => undefined)}
       ringClient={ringClient}
     />
@@ -38,10 +66,14 @@ export function RingConnection({
 
 function RingConnectionView({
   connection,
+  copy,
+  onActivityChange,
   onConnectionChange,
   ringClient,
 }: {
   connection: RingConnectionSnapshot;
+  copy: RingConnectionCopy;
+  onActivityChange?: (status: "scanning" | "connecting" | "disconnecting" | null) => void;
   onConnectionChange: (connection: RingConnectionSnapshot) => void;
   ringClient: ConnectionClient;
 }) {
@@ -65,6 +97,9 @@ function RingConnectionView({
     command: () => Promise<unknown>,
   ) => {
     setPendingAction(action);
+    onActivityChange?.(
+      action === "scan" ? "scanning" : action === "connect" ? "connecting" : "disconnecting",
+    );
     setError(null);
     try {
       await command();
@@ -77,6 +112,7 @@ function RingConnectionView({
       );
     } finally {
       setPendingAction(null);
+      onActivityChange?.(null);
     }
   };
 
@@ -94,11 +130,11 @@ function RingConnectionView({
       <section className="ring-connection is-connected" aria-label="Ring connection">
         <div className="connected-ring-visual" role="img" aria-label="Connected ring" />
         <div className="ring-device-copy">
-          <p className="connection-status">Connected</p>
+          <p className="connection-status">{copy.connected}</p>
           <h2>{connection.device.name}</h2>
         </div>
         <button disabled={pending} onClick={() => void disconnect()} type="button">
-          Disconnect
+          {copy.disconnect}
         </button>
         {error ? <p role="alert">{error}</p> : null}
       </section>
@@ -108,14 +144,14 @@ function RingConnectionView({
   return (
     <section className="ring-connection" aria-label="Ring connection">
       <div>
-        <p className="connection-status">Not connected</p>
-        <h2>Connect your ring</h2>
+        <p className="connection-status">{copy.disconnected}</p>
+        <h2>{copy.connectTitle}</h2>
       </div>
       <button disabled={pending} onClick={() => void scan()} type="button">
-        {scanning ? "Scanning…" : "Scan for rings"}
+        {scanning ? copy.scanning : copy.scan}
       </button>
       {devices.length > 0 ? (
-        <ul className="ring-device-list" aria-label="Discovered rings">
+        <ul className="ring-device-list" aria-label={copy.discoveredLabel}>
           {devices.map((device) => (
             <li key={device.address}>
               <button
@@ -123,7 +159,7 @@ function RingConnectionView({
                 onClick={() => void connect(device)}
                 type="button"
               >
-                {connecting ? "Connecting…" : device.name}
+                {connecting ? copy.connecting : device.name}
               </button>
             </li>
           ))}

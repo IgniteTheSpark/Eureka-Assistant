@@ -43,18 +43,22 @@ it("keeps scan and connect pending from shared async connection status", async (
     disconnect: vi.fn(),
   };
   const onConnectionChange = vi.fn();
+  const onActivityChange = vi.fn();
   const view = render(
     <RingConnection
       connection={disconnected}
+      onActivityChange={onActivityChange}
       onConnectionChange={onConnectionChange}
       ringClient={ringClient}
     />,
   );
 
   fireEvent.click(screen.getByRole("button", { name: "Scan for rings" }));
+  expect(onActivityChange).toHaveBeenLastCalledWith("scanning");
   expect(screen.getByRole("button", { name: "Scanning…" })).toBeDisabled();
   scan.resolve({ ok: true });
   await waitFor(() => expect(onConnectionChange).toHaveBeenCalledWith(scanning));
+  expect(onActivityChange).toHaveBeenLastCalledWith(null);
 
   view.rerender(
     <RingConnection connection={scanning} onConnectionChange={onConnectionChange} ringClient={ringClient} />,

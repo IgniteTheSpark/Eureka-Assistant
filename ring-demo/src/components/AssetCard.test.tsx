@@ -15,7 +15,7 @@ it.each([
   render(<AssetCard card={{ card_type: cardType, ...fields }} />);
   const values = fields as Record<string, string>;
 
-  expect(screen.getByText(label)).toBeVisible();
+  expect(screen.getByLabelText(`${label} card`)).toBeVisible();
   expect(
     screen.getByText(
       String(values.content ?? values.title ?? values.name),
@@ -37,7 +37,61 @@ it("uses prebuilt title, subtitle, and meta fields", () => {
 
   expect(screen.getByText("提交季度报告")).toBeVisible();
   expect(screen.getByText("周五截止")).toBeVisible();
-  expect(screen.getByText("工作")).toBeVisible();
+  expect(screen.getByLabelText("工作 domain")).toBeVisible();
+  expect(screen.getByLabelText("待办 card")).toHaveAttribute(
+    "data-domain",
+    "work",
+  );
+  expect(screen.getByLabelText("待办 card")).toHaveStyle({
+    "--asset-domain-color": "#8ab4ff",
+  });
+});
+
+it("uses an explicit life domain before a conflicting meta field", () => {
+  render(
+    <AssetCard
+      card={{
+        card_type: "event",
+        domain: "社交",
+        title: "晚餐聚会",
+        meta_fields: [
+          { field: "domain", value: "工作", format: "badge" },
+          { field: "time", value: "周五 19:00" },
+        ],
+      }}
+    />,
+  );
+
+  expect(screen.getByLabelText("社交 domain")).toBeVisible();
+  expect(screen.getByLabelText("日程 card")).toHaveAttribute(
+    "data-domain",
+    "social",
+  );
+  expect(screen.queryByText("工作")).not.toBeInTheDocument();
+});
+
+it("falls back to the skill domain and limits metadata to two values", () => {
+  render(
+    <AssetCard
+      card={{
+        card_type: "idea",
+        content: "让戒指成为安静的入口",
+        meta_fields: [
+          { field: "source", value: "展会" },
+          { field: "owner", value: "产品组" },
+          { field: "extra", value: "不应出现" },
+        ],
+      }}
+    />,
+  );
+
+  expect(screen.getByLabelText("灵感 domain")).toBeVisible();
+  expect(screen.getByLabelText("灵感 card")).toHaveAttribute(
+    "data-domain",
+    "idea",
+  );
+  expect(screen.getAllByRole("listitem")).toHaveLength(2);
+  expect(screen.queryByText("不应出现")).not.toBeInTheDocument();
 });
 
 it("renders an unknown asset generically without exposing secret fields", () => {

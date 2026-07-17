@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import type {
   DemoSnapshot,
@@ -11,6 +11,10 @@ import type {
 } from "../lib/types";
 import { DemoProvider, useDemo } from "../state/demo-store";
 import { FlashPage } from "./FlashPage";
+
+vi.mock("../components/Dither", () => ({
+  Dither: () => <div data-testid="dither-canvas" />,
+}));
 
 const connection: RingConnectionSnapshot = {
   status: "connected",
@@ -109,6 +113,10 @@ beforeEach(() => {
   vi.stubGlobal("crypto", { randomUUID: () => "tab-1" });
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 it("shows the shared connected ring and follows real recording events", async () => {
   const dependencies = testDependencies();
   renderPage(dependencies);
@@ -119,7 +127,68 @@ it("shows the shared connected ring and follows real recording events", async ()
 
   dependencies.emit("recording.stopped", matchingData());
   expect(screen.queryByText("Recording")).not.toBeInTheDocument();
-  expect(screen.getByText("Transcribing")).toBeVisible();
+  expect(screen.getByRole("heading", { name: "Transcribing" })).toBeVisible();
+});
+
+it("shows the Dither capture field only while the ring is recording", async () => {
+  const dependencies = testDependencies();
+  renderPage(dependencies);
+  await screen.findByText("BCL60392D5");
+  expect(screen.queryByTestId("flash-capture-effect")).not.toBeInTheDocument();
+
+  dependencies.emit("recording.started", matchingData());
+  expect(screen.getByTestId("flash-capture-effect")).toBeVisible();
+  expect(screen.getByTestId("dither-canvas")).toBeVisible();
+  expect(screen.getByRole("heading", { name: "Capturing" })).toBeVisible();
+
+  dependencies.emit("recording.stopped", matchingData());
+  expect(screen.queryByTestId("flash-capture-effect")).not.toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Capturing" })).not.toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Transcribing" })).toBeVisible();
+});
+
+it("starts Flash immediately and keeps Generated open until the operator closes it", async () => {
+  const dependencies = testDependencies();
+  dependencies.backendClient.flash.mockResolvedValue({
+    ok: true,
+    cards: [{ card_type: "contact", name: "Alex" }],
+  });
+  renderPage(dependencies);
+  await screen.findByText("BCL60392D5");
+  vi.useFakeTimers();
+
+  dependencies.emit("transcript.ready", matchingData("联系 Alex"));
+
+  expect(dependencies.backendClient.flash).toHaveBeenCalledWith("联系 Alex");
+  expect(screen.getByText("联系 Alex")).toHaveClass("flash-journey-transcript");
+  expect(screen.getByRole("heading", { name: "Transcribing" })).toBeVisible();
+
+  await act(async () => vi.advanceTimersByTimeAsync(699));
+  expect(
+    screen.queryByRole("heading", { name: "Analyzing" }),
+  ).not.toBeInTheDocument();
+
+  await act(async () => vi.advanceTimersByTimeAsync(1));
+  expect(
+    screen.getByRole("heading", { name: "Analyzing" }),
+  ).toBeVisible();
+  expect(screen.getByText("联系 Alex")).toHaveClass("flash-journey-transcript");
+
+  await act(async () => vi.advanceTimersByTimeAsync(249));
+  expect(
+    screen.getByRole("heading", { name: "Analyzing" }),
+  ).toBeVisible();
+
+  await act(async () => vi.advanceTimersByTimeAsync(1));
+  expect(screen.getByRole("heading", { name: "Generated" })).toBeVisible();
+  expect(screen.getByText("1 card added")).toBeVisible();
+  expect(screen.getByText("Alex")).toBeVisible();
+
+  await act(async () => vi.advanceTimersByTimeAsync(10_000));
+  expect(screen.getByRole("heading", { name: "Generated" })).toBeVisible();
+
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  expect(screen.queryByLabelText("Flash capture progress")).not.toBeInTheDocument();
 });
 
 it("recovers its capture phase from Desktop snapshots after SSE reconnects", async () => {
@@ -136,7 +205,9 @@ it("recovers its capture phase from Desktop snapshots after SSE reconnects", asy
     asrProcessing: true,
   });
   dependencies.reconnect();
-  expect(await screen.findByText("Transcribing")).toBeVisible();
+  expect(
+    await screen.findByRole("heading", { name: "Transcribing" }),
+  ).toBeVisible();
   expect(screen.queryByText("Recording")).not.toBeInTheDocument();
 
   dependencies.emit("recording.started", matchingData());
@@ -176,7 +247,6 @@ it("submits one matching transcript and reveals returned cards", async () => {
 
   expect(await screen.findByText("准备展会")).toBeVisible();
   expect(screen.getByText("做一个戒指 Demo")).toBeVisible();
-  expect(screen.getByText("已记录 2 项")).toBeVisible();
   expect(dependencies.backendClient.flash).toHaveBeenCalledTimes(1);
   expect(dependencies.backendClient.flash).toHaveBeenCalledWith("帮我准备展会");
   expect(screen.getAllByRole("article")[0]).toHaveClass("card-stagger-1");
@@ -241,7 +311,9 @@ it("retains the transcript after backend failure and retries it", async () => {
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "Flash backend unavailable",
   );
-  expect(screen.getByText("Ready to retry")).toBeVisible();
+  expect(
+    screen.getByRole("heading", { name: "Ready to retry" }),
+  ).toBeVisible();
   expect(screen.queryByText("Captured")).not.toBeInTheDocument();
   expect(screen.getByText("帮我准备展会")).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Retry Flash" }));
@@ -283,6 +355,10 @@ it("uses derived asset cards and falls back to a 随记 for text-only results", 
   dependencies.emit("transcript.ready", matchingData("随手记一下"));
   expect(await screen.findByText("随记")).toBeVisible();
   expect(screen.getByText("已经帮你记下了")).toBeVisible();
+  expect(screen.getByTestId("asset-flash-2-0")).toBeVisible();
+  expect(screen.getByTestId("asset-flash-1-0")).toBeVisible();
+  expect(document.querySelector(".flash-asset-batch")).not.toBeInTheDocument();
+  expect(screen.getAllByRole("article")).toHaveLength(2);
   await waitFor(() => expect(dependencies.backendClient.flash).toHaveBeenCalledTimes(2));
 });
 

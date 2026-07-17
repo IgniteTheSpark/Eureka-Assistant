@@ -46,9 +46,12 @@ export function SetupPage({
   return (
     <main className="setup-page">
       <section className="setup-copy" aria-labelledby="setup-title">
-        <p className="eyebrow">EUREKA RING</p>
-        <h1 id="setup-title">Set up your demo</h1>
-        <p>Sign in to send real Ring transcripts to your private Eureka space.</p>
+        <p className="eyebrow">EUREKA RING · OPERATOR</p>
+        <h1 id="setup-title">Operator account setup</h1>
+        <p>
+          Only needed when preparing this Mac. Visitors will enter the demo
+          directly after setup.
+        </p>
       </section>
 
       <form className="auth-form" onSubmit={submit}>

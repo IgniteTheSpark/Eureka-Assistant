@@ -1,0 +1,23 @@
+{
+  "extends": "./tsconfig.app.json",
+  "include": [
+    "src/main.tsx",
+    "src/app/App.tsx",
+    "src/pages/HomePage.tsx",
+    "src/components/landing/**/*.ts",
+    "src/components/landing/**/*.tsx",
+    "src/components/living-ring/**/*.ts",
+    "src/components/living-ring/**/*.tsx"
+  ],
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/pages/FlashPage.tsx",
+    "src/pages/VibePage.tsx",
+    "src/pages/SetupPage.tsx",
+    "src/state/demo-store.tsx",
+    "src/features/flash/**",
+    "src/lib/backend-client.ts",
+    "src/lib/ring-client.ts"
+  ]
+}
