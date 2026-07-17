@@ -9,6 +9,7 @@ import uuid
 from types import SimpleNamespace
 
 import core.flash_service as flash_service
+from db.database import async_engine
 
 
 def check(name: str, cond: bool) -> bool:
@@ -133,4 +134,10 @@ async def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(asyncio.run(main()))
+    async def _entrypoint() -> int:
+        try:
+            return await main()
+        finally:
+            await async_engine.dispose()
+
+    raise SystemExit(asyncio.run(_entrypoint()))

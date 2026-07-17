@@ -25,6 +25,7 @@ services:
     ports:
       - "8000:8000"
     environment:
+      ENV: ${ENV:-dev}
       DATABASE_URL: mysql://eureka:eureka@db:3306/eureka
       # Primary LLM — DeepSeek direct API (§1.1). Empty → falls back to OpenRouter.
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
@@ -39,7 +40,9 @@ services:
       BOCHA_API_KEY: ${BOCHA_API_KEY:-}
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}
       # §1.7.1 / §13.1 — Fernet key for Connected Apps + 百智 token encryption.
+      JWT_SECRET: ${JWT_SECRET:-dev-insecure-change-me}
       CONNECTED_APPS_KEY: ${CONNECTED_APPS_KEY:-}
+      DEMO_RESET_ENABLED: ${DEMO_RESET_ENABLED:-false}
       USER_ID: default
 
       # §13.1 / B1 百智 OAuth (all interpolated from the root .env, like the keys

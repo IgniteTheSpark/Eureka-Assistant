@@ -26,5 +26,10 @@ RUN pip install --no-cache-dir -i ${PIP_INDEX_URL} -r requirements.txt
 
 COPY . .
 
+# Fail the image build if the DeepSeek Flash runtime dependency contract is
+# declared incorrectly or the resolved environment cannot actually import it.
+RUN python scripts/test_runtime_dependencies.py \
+    && python -c "import orjson"
+
 EXPOSE 8000
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

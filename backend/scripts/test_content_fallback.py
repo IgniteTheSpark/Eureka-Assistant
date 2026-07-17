@@ -20,7 +20,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete
 
-from db.database import AsyncSessionLocal
+from db.database import AsyncSessionLocal, async_engine
 from db.models import Session as DBSession, Message, Task, Asset
 import agents.task_skill as task_skill
 from agents.task_skill import (
@@ -135,4 +135,10 @@ async def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(asyncio.run(main()))
+    async def _entrypoint() -> int:
+        try:
+            return await main()
+        finally:
+            await async_engine.dispose()
+
+    raise SystemExit(asyncio.run(_entrypoint()))

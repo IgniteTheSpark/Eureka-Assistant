@@ -20,6 +20,7 @@ from core.session_service import (
     persist_agent_message,
     persist_user_message,
 )
+from core.workspace_operation_lock import user_workspace_operation
 from db.database import AsyncSessionLocal
 from db.models import Session as DBSession
 
@@ -100,6 +101,39 @@ async def get_or_create_capture_session_today(
 
 
 async def process_flash_text(
+    user_id: str,
+    text: str,
+    *,
+    source: str = "voice",
+    file_id: Optional[str] = None,
+    recording_id: Optional[str] = None,
+    asr_provider: Optional[str] = None,
+    language: Optional[str] = None,
+    segments: Optional[list] = None,
+    session_id: str = "",
+    capture_session_type: Optional[str] = None,
+    client_task_id: Optional[str] = None,
+    device_file_name: Optional[str] = None,
+) -> dict:
+    """Serialize all persistent Flash work against the current user's Reset."""
+    async with user_workspace_operation(user_id):
+        return await _process_flash_text_unlocked(
+            user_id=user_id,
+            text=text,
+            source=source,
+            file_id=file_id,
+            recording_id=recording_id,
+            asr_provider=asr_provider,
+            language=language,
+            segments=segments,
+            session_id=session_id,
+            capture_session_type=capture_session_type,
+            client_task_id=client_task_id,
+            device_file_name=device_file_name,
+        )
+
+
+async def _process_flash_text_unlocked(
     user_id: str,
     text: str,
     *,

@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     user_id:            str = "default"   # legacy single-tenant fallback (unused once auth is on)
     backend_url:        str = "http://localhost:8000"
     env:                str = "dev"   # dev | prod | staging — drives prod secret enforcement
+    demo_reset_enabled: bool = False  # exhibition-only destructive workspace reset
 
     # Auth (email+password → HS256 token). MUST be overridden in prod via env
     # (JWT_SECRET); the default is dev-only and not safe to ship.
@@ -72,33 +73,42 @@ class Settings(BaseSettings):
 settings = Settings()
 
 
-def validate_prod_secrets() -> None:
-    """Refuse to boot a production-like deployment with dev secrets (codex P1.2).
+_DEV_JWT_SECRET = "dev-insecure-change-me"
+_MIN_JWT_SECRET_LENGTH = 32
 
-    Production-like = `ENV` is prod/staging, OR `JWT_SECRET` was overridden from
-    the dev default (a real deploy always overrides it). In that case both a
-    strong JWT_SECRET and a dedicated CONNECTED_APPS_KEY are mandatory — without
-    the latter, per-user third-party credentials would be encrypted under a key
-    *derived from* jwt_secret (see core/crypto.py), i.e. predictable. Call at
-    startup so a misconfigured prod fails fast instead of silently degrading.
+
+def _jwt_secret_is_weak(secret: str) -> bool:
+    value = secret.strip()
+    return value == _DEV_JWT_SECRET or len(value) < _MIN_JWT_SECRET_LENGTH
+
+
+def validate_prod_secrets() -> None:
+    """Refuse to boot production or demo-reset mode with insecure secrets.
+
+    Production-like environments require a strong JWT_SECRET and a dedicated
+    CONNECTED_APPS_KEY. Exhibition reset additionally requires a strong signing
+    secret in every environment because a forgeable token could otherwise reset
+    another user's workspace. Reset-disabled local dev keeps its zero-config
+    startup behavior.
     """
-    is_prod = (
-        settings.env.lower() in ("prod", "production", "staging")
-        or settings.jwt_secret != "dev-insecure-change-me"
-    )
-    if not is_prod:
+    is_prod = settings.env.lower() in ("prod", "production", "staging")
+    if not is_prod and not settings.demo_reset_enabled:
         return
+
     problems = []
-    if settings.jwt_secret == "dev-insecure-change-me":
-        problems.append("JWT_SECRET is still the dev default — set a strong secret")
-    if not settings.connected_apps_key.strip():
+    if _jwt_secret_is_weak(settings.jwt_secret):
+        problems.append(
+            f"JWT_SECRET must be at least {_MIN_JWT_SECRET_LENGTH} characters and "
+            "must not use the dev default"
+        )
+    if is_prod and not settings.connected_apps_key.strip():
         problems.append(
             "CONNECTED_APPS_KEY is not set — third-party credentials would encrypt "
             "under a jwt-derived key (predictable). Generate a Fernet key and set it."
         )
     if problems:
         raise RuntimeError(
-            "Refusing to start: production-like environment with insecure secrets:\n  - "
+            "Refusing to start: insecure secrets for production or demo reset:\n  - "
             + "\n  - ".join(problems)
-            + "\nSet them in the environment (e.g. .env.prod) before deploying."
+            + "\nSet them in the environment before starting the backend."
         )

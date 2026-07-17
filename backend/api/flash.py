@@ -35,6 +35,7 @@ from core.flash_file_queue import (
 )
 from core.flash_service import process_flash_text
 from core.notifications import publish_event
+from core.workspace_operation_lock import WorkspaceOperationInProgress
 from db.database import AsyncSessionLocal
 from db.models import Card, CardBinding, File, FlashRecording
 
@@ -280,14 +281,17 @@ def _sync_placeholder_key(client_task_id: str) -> str:
 @router.post("/flash", response_model=FlashResponse)
 async def flash(req: FlashRequest, user_id: str = Depends(get_current_user_id)):
     input_source = req.source if req.source in {"voice", "typed", "imported"} else "voice"
-    result = await process_flash_text(
-        user_id=user_id,
-        text=req.text,
-        source=input_source,
-        file_id=req.file_id or None,
-        session_id=req.session_id,
-        capture_session_type=req.capture_session_type if req.capture_session_type in {"flash", "manual"} else None,
-    )
+    try:
+        result = await process_flash_text(
+            user_id=user_id,
+            text=req.text,
+            source=input_source,
+            file_id=req.file_id or None,
+            session_id=req.session_id,
+            capture_session_type=req.capture_session_type if req.capture_session_type in {"flash", "manual"} else None,
+        )
+    except WorkspaceOperationInProgress as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return FlashResponse(**{k: v for k, v in result.items() if k in FlashResponse.model_fields})
 
 
