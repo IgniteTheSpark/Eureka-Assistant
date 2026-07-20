@@ -1,7 +1,7 @@
 # Eureka Ring Landing Page：双语、品牌与移动端设计规格
 
 **日期：** 2026-07-20  
-**状态：** 已确认，待实施  
+**状态：** 已确认，分阶段实施  
 **范围：** `ring-demo` Landing Page；不包含 Flash/Vibe 真机 Demo 页面
 
 ## 1. 目标
@@ -20,8 +20,8 @@
 
 ### 2.1 语言默认值
 
-- 首次访问由 Vercel Routing Middleware 读取请求国家代码。
-- `CN` 默认显示中文；其他国家或无法识别地区默认显示英文。
+- 本轮第一阶段默认显示英文，并提供手动切换至中文的能力。
+- IP 自动判断延后到第二阶段：届时首次访问由 Vercel Routing Middleware 读取请求国家代码，`CN` 默认显示中文，其他国家或无法识别地区默认显示英文。
 - 页面不展示语言选择入口页或首次访问弹窗。
 - 页面右上角保留紧凑的 `中 / EN` 手动切换。
 - 用户手动选择写入 Cookie，并始终优先于 IP 推断。
@@ -95,14 +95,19 @@ const LANDING_CONTENT: Record<Locale, LandingContent> = {
 
 ### 4.2 首次语言解析
 
-优先级固定为：
+第一阶段优先级固定为：
+
+1. 用户手动语言 Cookie；
+2. 默认英文。
+
+第二阶段加入 IP 判断后，优先级调整为：
 
 1. 用户手动语言 Cookie；
 2. Vercel 地理国家代码；
 3. 无 Vercel 上下文的本地开发回退：浏览器语言；
-4. 最终回退：中文。
+4. 最终回退：英文。
 
-项目根目录增加 Vercel `middleware.ts`：
+第二阶段在项目根目录增加 Vercel `middleware.ts`：
 
 - 只匹配 HTML 页面请求；
 - 跳过静态资源、GLB、图片、字体和 API；
