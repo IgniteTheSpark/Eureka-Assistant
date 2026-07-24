@@ -36,6 +36,7 @@ uvicorn*.log
 .claude/
 .gstack/
 .superpowers/
+.worktrees/
 
 # Local analysis/render artifacts. Keep generated files out of the repo.
 tmp/
