@@ -70,7 +70,8 @@
 | 文档 | 状态 | 用途 |
 |---|---|---|
 | [design-system-revamp.md](design/design-system-revamp.md) | Active Brief | 下一轮全 app design system revamp 总 brief。先做 Global Shell + Asset Surface System，再做 Today/Calendar/Library |
-| [design-habit-streak.md](design/design-habit-streak.md) | Active Brief | 习惯 / streak 系统设计讨论稿 |
+| [design-goals-proactive-reka.md](design/design-goals-proactive-reka.md) | Active Brief | 通用 Goal、习惯派生状态、Reka 主动候选、提醒、收件箱与系统通知的产品规范；首页设计另议 |
+| [design-habit-streak.md](design/design-habit-streak.md) | Superseded / Reference | 早期习惯 / streak 讨论稿；用户侧习惯对象已被通用 Goal 规范取代 |
 | [handoff-today-home-design.md](handoffs/handoff-today-home-design.md) | Active Brief | 今日页作为 app home 的设计 handoff |
 | [handoff-calendar-current-prd.md](handoffs/handoff-calendar-current-prd.md) | Active Brief | Calendar Mobile 当前交互复刻 PRD：流/月/年、每日详情、卡片与编辑页 General Rule、四类详情 Bottom Sheet、Ask Agent 卡片复用；不规定技术实现 |
 | [redesign-home-B.md](design/redesign-home-B.md) | Reference / Hifi Truth | 今日首页 B「潮汐」hifi 视觉/交互真值收录；由 `handoff-today-home-design.md` 引用 |
