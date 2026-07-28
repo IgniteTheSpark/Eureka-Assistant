@@ -6,11 +6,13 @@ import '../../api/api_client.dart';
 import '../../data_revision.dart';
 import '../../pages/calendar_page.dart';
 import '../../pages/day_flash_view.dart';
+import '../../render/render_spec.dart';
 import '../../timeline/timeline.dart';
 import '../foundation/theme_v2_motion.dart';
 import '../foundation/theme_v2_semantics.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
+import '../foundation/theme_v2_typography.dart';
 import '../shell/theme_v2_async_state.dart';
 import 'calendar_components.dart';
 import 'calendar_controller.dart';
@@ -208,6 +210,14 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
     _createdEventIds[draft.startAt] = eventId;
   }
 
+  Future<void> _toggleTodo(CalendarRecord record) async {
+    final next = !todoPayloadIsDone(record.item.payload);
+    await _apiClient.putJson('/api/assets/${record.id}', {
+      'payload_patch': {'status': next ? 'done' : 'pending'},
+    });
+    bumpData();
+  }
+
   void _openDraftEditor(CalendarInlineDraft draft) {
     final callback = widget.onOpenDraftEditor;
     if (callback != null) {
@@ -249,29 +259,30 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
       color: tokens.background,
       child: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              ThemeV2Spacing.lg,
-              ThemeV2Spacing.sm,
-              ThemeV2Spacing.sm,
-              ThemeV2Spacing.sm,
+          if (_controller.surface == CalendarSurface.overview)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                ThemeV2Spacing.lg,
+                ThemeV2Spacing.sm,
+                ThemeV2Spacing.sm,
+                ThemeV2Spacing.sm,
+              ),
+              child: Row(
+                children: [
+                  CalendarModeControl(
+                    mode: _controller.mode,
+                    onSelected: _selectMode,
+                  ),
+                  const Spacer(),
+                  ThemeV2IconButton(
+                    semanticLabel: '刷新日历',
+                    icon: Icons.refresh,
+                    color: tokens.muted,
+                    onPressed: () => setState(() => _retry++),
+                  ),
+                ],
+              ),
             ),
-            child: Row(
-              children: [
-                CalendarModeControl(
-                  mode: _controller.mode,
-                  onSelected: _selectMode,
-                ),
-                const Spacer(),
-                ThemeV2IconButton(
-                  semanticLabel: '刷新日历',
-                  icon: Icons.refresh,
-                  color: tokens.muted,
-                  onPressed: () => setState(() => _retry++),
-                ),
-              ],
-            ),
-          ),
           Expanded(
             child: widget.initialData != null
                 ? _dataBody(widget.initialData!)
@@ -344,8 +355,10 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
         data: data,
         controller: _controller,
         onOpenRecord: _openRecord,
+        onToggleTodo: _toggleTodo,
         onCreateDraft: _createDraft,
         onOpenDraftEditor: _openDraftEditor,
+        onManualRecord: () => _requestManualRecord(selectedDate),
       );
     }
     final pages = PageView(
@@ -410,37 +423,110 @@ class _CalendarScheduleRoute extends StatelessWidget {
     required this.data,
     required this.controller,
     required this.onOpenRecord,
+    required this.onToggleTodo,
     required this.onCreateDraft,
     required this.onOpenDraftEditor,
+    required this.onManualRecord,
   });
 
   final DateTime day;
   final CalendarData data;
   final CalendarController controller;
   final ValueChanged<CalendarRecord> onOpenRecord;
+  final Future<void> Function(CalendarRecord) onToggleTodo;
   final CalendarDraftMutation onCreateDraft;
   final ValueChanged<CalendarInlineDraft> onOpenDraftEditor;
+  final VoidCallback onManualRecord;
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
-    return Scaffold(
-      backgroundColor: tokens.background,
-      appBar: AppBar(
-        backgroundColor: tokens.background,
-        foregroundColor: tokens.foreground,
-        surfaceTintColor: Colors.transparent,
-        title: Text('${day.month}月${day.day}日'),
-      ),
-      body: CalendarScheduleGrid(
-        day: day,
-        records: data.records,
-        skills: data.skills,
-        controller: controller,
-        onOpenRecord: onOpenRecord,
-        onCreateDraft: onCreateDraft,
-        onOpenDraftEditor: onOpenDraftEditor,
+    return ColoredBox(
+      color: tokens.background,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          ThemeV2Spacing.lg,
+          ThemeV2Spacing.sm,
+          ThemeV2Spacing.lg,
+          0,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              height: 104,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${day.month}月${day.day}日　·　${_weekday(day)}',
+                    style: ThemeV2Typography.mono(
+                      fontSize: 10,
+                      color: tokens.muted,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                  const Spacer(),
+                  Row(
+                    children: [
+                      Text(
+                        '日程',
+                        style: Theme.of(context).textTheme.headlineLarge
+                            ?.copyWith(
+                              color: tokens.foreground,
+                              fontWeight: FontWeight.w500,
+                              letterSpacing: -1,
+                            ),
+                      ),
+                      const Spacer(),
+                      Semantics(
+                        label: '${day.month}月${day.day}日，手动记录',
+                        button: true,
+                        onTap: onManualRecord,
+                        child: ExcludeSemantics(
+                          child: SizedBox(
+                            width: 76,
+                            height: ThemeV2Sizes.minTouchTarget,
+                            child: OutlinedButton.icon(
+                              onPressed: onManualRecord,
+                              icon: const Icon(Icons.playlist_add, size: 16),
+                              label: const Text('记录'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: tokens.accent,
+                                side: BorderSide(color: tokens.border),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: ThemeV2Spacing.sm,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: ThemeV2Spacing.sm),
+                ],
+              ),
+            ),
+            Expanded(
+              child: CalendarScheduleGrid(
+                day: day,
+                records: data.records,
+                skills: data.skills,
+                controller: controller,
+                onOpenRecord: onOpenRecord,
+                onToggleTodo: onToggleTodo,
+                onCreateDraft: onCreateDraft,
+                onOpenDraftEditor: onOpenDraftEditor,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
+
+  static String _weekday(DateTime day) =>
+      const ['周一', '周二', '周三', '周四', '周五', '周六', '周日'][day.weekday - 1];
 }

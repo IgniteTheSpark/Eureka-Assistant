@@ -9,7 +9,9 @@ import 'calendar_test_fixtures.dart';
 void main() {
   Widget grid({
     CalendarController? controller,
+    List<CalendarRecord>? records,
     ValueChanged<CalendarRecord>? onOpenRecord,
+    Future<void> Function(CalendarRecord)? onToggleTodo,
     CalendarDraftMutation? onCreateDraft,
     ValueChanged<CalendarInlineDraft>? onOpenDraftEditor,
   }) {
@@ -17,15 +19,185 @@ void main() {
     return calendarTestHost(
       CalendarScheduleGrid(
         day: DateTime(2026, 7, 3),
-        records: data.records,
+        records: records ?? data.records,
         skills: data.skills,
         controller: controller ?? CalendarController(),
         onOpenRecord: onOpenRecord ?? (_) {},
+        onToggleTodo: onToggleTodo ?? (_) async {},
         onCreateDraft: onCreateDraft ?? (_) async {},
         onOpenDraftEditor: onOpenDraftEditor ?? (_) {},
       ),
     );
   }
+
+  List<CalendarRecord> records(
+    Iterable<({String id, String title, DateTime at, String kind, bool timed})>
+    values,
+  ) {
+    return [
+      for (final value in values)
+        CalendarRecord.fromTimeline(
+          calendarFixtureItem(
+            id: value.id,
+            title: value.title,
+            at: value.at,
+            kind: value.kind == 'event' ? 'event' : 'asset',
+            skillName: value.kind == 'todo' ? 'todo' : null,
+            endAt: value.kind == 'event'
+                ? value.at.add(const Duration(hours: 1))
+                : null,
+            hasScheduledTime: value.kind == 'todo' && value.timed,
+          ),
+        ),
+    ];
+  }
+
+  testWidgets('zero all-day and unscheduled trays allocate no space', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      grid(
+        records: records([
+          (
+            id: 'meeting',
+            title: '讨论会',
+            at: DateTime(2026, 7, 3, 9),
+            kind: 'event',
+            timed: true,
+          ),
+        ]),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('calendar-all-day-tray')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('calendar-unscheduled-tray')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('more than three unscheduled todos stay in a 92px tray', (
+    tester,
+  ) async {
+    final day = DateTime(2026, 7, 3);
+    final untimed = records([
+      for (var index = 0; index < 4; index++)
+        (
+          id: 'untimed-$index',
+          title: '未排期待办 ${index + 1}',
+          at: day.add(Duration(minutes: index)),
+          kind: 'todo',
+          timed: false,
+        ),
+    ]);
+
+    await tester.pumpWidget(grid(records: untimed));
+    await tester.pumpAndSettle();
+
+    expect(find.text('未排期待办 · 4'), findsOneWidget);
+    expect(
+      tester
+          .getRect(find.byKey(const ValueKey('calendar-unscheduled-tray')))
+          .height,
+      92,
+    );
+    expect(
+      find.byKey(const ValueKey('calendar-unscheduled-scroll')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+    'meeting training and same-minute todo band remain three blocks',
+    (tester) async {
+      final at = DateTime(2026, 7, 3, 14, 30);
+      final sameTime = records([
+        (id: 'meeting', title: '小型讨论会', at: at, kind: 'event', timed: true),
+        (id: 'training', title: '培训', at: at, kind: 'event', timed: true),
+        for (var index = 0; index < 3; index++)
+          (
+            id: 'todo-$index',
+            title: '待办 ${index + 1}',
+            at: at.add(Duration(seconds: index)),
+            kind: 'todo',
+            timed: true,
+          ),
+      ]);
+
+      await tester.pumpWidget(grid(records: sameTime));
+      await tester.pumpAndSettle();
+
+      final blocks = [
+        tester.getRect(
+          find.byKey(const ValueKey('calendar-grid-record-meeting')),
+        ),
+        tester.getRect(
+          find.byKey(const ValueKey('calendar-grid-record-training')),
+        ),
+        tester.getRect(find.bySemanticsLabel('展开 3 个待办')),
+      ];
+      expect(blocks.map((rect) => rect.left).toSet(), hasLength(3));
+      expect(blocks[0].right <= blocks[1].left, isTrue);
+      expect(blocks[1].right <= blocks[2].left, isTrue);
+    },
+  );
+
+  testWidgets('todo checkbox toggles the individual record', (tester) async {
+    final at = DateTime(2026, 7, 3, 15);
+    final todoRecords = records([
+      (id: 'todo-a', title: '确认计划', at: at, kind: 'todo', timed: true),
+      (
+        id: 'todo-b',
+        title: '补充记录',
+        at: at.add(const Duration(seconds: 1)),
+        kind: 'todo',
+        timed: true,
+      ),
+    ]);
+    CalendarRecord? toggled;
+    await tester.pumpWidget(
+      grid(
+        records: todoRecords,
+        onToggleTodo: (record) async => toggled = record,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.bySemanticsLabel('展开 2 个待办'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.bySemanticsLabel('完成待办：确认计划'));
+    await tester.pump();
+
+    expect(toggled?.id, 'todo-a');
+  });
+
+  testWidgets('a single scheduled todo still exposes completion', (
+    tester,
+  ) async {
+    final todoRecords = records([
+      (
+        id: 'solo-todo',
+        title: '单个日程待办',
+        at: DateTime(2026, 7, 3, 15),
+        kind: 'todo',
+        timed: true,
+      ),
+    ]);
+    CalendarRecord? toggled;
+    await tester.pumpWidget(
+      grid(
+        records: todoRecords,
+        onToggleTodo: (record) async => toggled = record,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.bySemanticsLabel('完成待办：单个日程待办'));
+    await tester.pump();
+
+    expect(toggled?.id, 'solo-todo');
+  });
 
   testWidgets('intersecting timed records use stable parallel columns', (
     tester,
@@ -125,6 +297,23 @@ void main() {
     expect(controller.inlineDraft?.startAt, DateTime(2026, 7, 3, 12));
     expect(controller.inlineDraft?.endAt, DateTime(2026, 7, 3, 12, 30));
     expect(find.byKey(const ValueKey('calendar-inline-draft')), findsOneWidget);
+  });
+
+  testWidgets('inline draft shows its explicit start and end time', (
+    tester,
+  ) async {
+    final controller = CalendarController();
+    await tester.pumpWidget(grid(controller: controller, records: const []));
+    await tester.pumpAndSettle();
+
+    final slot = find.byKey(
+      const ValueKey('calendar-empty-slot-2026-07-03-1600'),
+    );
+    await tester.ensureVisible(slot);
+    await tester.tap(slot);
+    await tester.pump();
+
+    expect(find.text('16:00–16:30'), findsOneWidget);
   });
 
   testWidgets('created inline draft remains available for full editing', (

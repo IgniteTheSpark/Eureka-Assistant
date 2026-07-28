@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../render/render_spec.dart';
 import '../../timeline/timeline.dart';
 import '../foundation/theme_v2_semantics.dart';
 import '../foundation/theme_v2_theme.dart';
@@ -19,6 +20,7 @@ class CalendarScheduleGrid extends StatefulWidget {
     required this.skills,
     required this.controller,
     required this.onOpenRecord,
+    this.onToggleTodo,
     required this.onCreateDraft,
     required this.onOpenDraftEditor,
   });
@@ -28,6 +30,7 @@ class CalendarScheduleGrid extends StatefulWidget {
   final Map<String, SkillMeta> skills;
   final CalendarController controller;
   final ValueChanged<CalendarRecord> onOpenRecord;
+  final Future<void> Function(CalendarRecord)? onToggleTodo;
   final CalendarDraftMutation onCreateDraft;
   final ValueChanged<CalendarInlineDraft> onOpenDraftEditor;
 
@@ -114,7 +117,12 @@ class _CalendarScheduleGridState extends State<CalendarScheduleGrid> {
       child: Column(
         children: [
           if (allDay.isNotEmpty || untimed.isNotEmpty)
-            _TopTray(allDay: allDay, untimed: untimed),
+            _TopTrays(
+              allDay: allDay,
+              untimed: untimed,
+              onOpenRecord: widget.onOpenRecord,
+              onToggleTodo: widget.onToggleTodo,
+            ),
           Expanded(
             child: SingleChildScrollView(
               key: const ValueKey('calendar-schedule-scroll'),
@@ -176,6 +184,7 @@ class _CalendarScheduleGridState extends State<CalendarScheduleGrid> {
                                 }
                               }),
                               onOpenRecord: widget.onOpenRecord,
+                              onToggleTodo: widget.onToggleTodo,
                             )
                           else
                             _TimedRecordBlock(
@@ -200,6 +209,9 @@ class _CalendarScheduleGridState extends State<CalendarScheduleGrid> {
                                   60 *
                                   _hourHeight,
                               onTap: () => widget.onOpenRecord(entry.record),
+                              onToggleTodo: widget.onToggleTodo == null
+                                  ? null
+                                  : () => widget.onToggleTodo!(entry.record),
                             ),
                         if (_displayedDraft case final draft?)
                           Positioned(
@@ -317,6 +329,7 @@ class _TimedRecordBlock extends StatelessWidget {
     required this.width,
     required this.height,
     required this.onTap,
+    required this.onToggleTodo,
   });
 
   final CalendarTimeLayoutEntry entry;
@@ -325,6 +338,7 @@ class _TimedRecordBlock extends StatelessWidget {
   final double width;
   final double height;
   final VoidCallback onTap;
+  final Future<void> Function()? onToggleTodo;
 
   @override
   Widget build(BuildContext context) {
@@ -334,30 +348,30 @@ class _TimedRecordBlock extends StatelessWidget {
       ThemeV2Sizes.minTouchTarget,
       double.infinity,
     );
-    return Positioned(
-      top: top,
-      left: left,
-      width: width,
-      height: hitHeight,
-      child: Semantics(
-        label: entry.record.item.title,
-        button: true,
-        onTap: onTap,
-        child: ExcludeSemantics(
-          child: InkWell(
-            onTap: onTap,
-            child: Align(
-              alignment: Alignment.topCenter,
-              child: Container(
-                key: ValueKey('calendar-grid-record-${entry.id}'),
-                width: double.infinity,
-                height: visualHeight,
-                padding: const EdgeInsets.all(ThemeV2Spacing.sm),
-                decoration: BoxDecoration(
-                  color: tokens.surface,
-                  borderRadius: BorderRadius.circular(ThemeV2Radii.sm),
-                  border: Border.all(color: tokens.accent),
-                ),
+    final block = Align(
+      alignment: Alignment.topCenter,
+      child: Container(
+        key: ValueKey('calendar-grid-record-${entry.id}'),
+        width: double.infinity,
+        height: visualHeight,
+        padding: EdgeInsets.symmetric(
+          horizontal: entry.record.isTodo ? 2 : ThemeV2Spacing.sm,
+          vertical: entry.record.isTodo ? 0 : ThemeV2Spacing.sm,
+        ),
+        decoration: BoxDecoration(
+          color: tokens.surface,
+          borderRadius: BorderRadius.circular(ThemeV2Radii.sm),
+          border: Border.all(color: tokens.accent),
+        ),
+        child: entry.record.isTodo
+            ? _ScheduleTodoRow(
+                record: entry.record,
+                compact: true,
+                onOpen: onTap,
+                onToggle: onToggleTodo,
+              )
+            : InkWell(
+                onTap: onTap,
                 child: Text(
                   entry.record.item.title,
                   maxLines: 2,
@@ -368,10 +382,21 @@ class _TimedRecordBlock extends StatelessWidget {
                   ),
                 ),
               ),
-            ),
-          ),
-        ),
       ),
+    );
+    return Positioned(
+      top: top,
+      left: left,
+      width: width,
+      height: hitHeight,
+      child: entry.record.isTodo
+          ? block
+          : Semantics(
+              label: entry.record.item.title,
+              button: true,
+              onTap: onTap,
+              child: ExcludeSemantics(child: block),
+            ),
     );
   }
 }
@@ -387,6 +412,7 @@ class _TodoBandBlock extends StatelessWidget {
     required this.collapsedHeight,
     required this.onToggle,
     required this.onOpenRecord,
+    required this.onToggleTodo,
   });
 
   final CalendarTodoBand band;
@@ -398,6 +424,7 @@ class _TodoBandBlock extends StatelessWidget {
   final double collapsedHeight;
   final VoidCallback onToggle;
   final ValueChanged<CalendarRecord> onOpenRecord;
+  final Future<void> Function(CalendarRecord)? onToggleTodo;
 
   @override
   Widget build(BuildContext context) {
@@ -490,23 +517,12 @@ class _TodoBandBlock extends StatelessWidget {
                 for (final todo in band.todos)
                   SizedBox(
                     height: expandedRowHeight,
-                    child: InkWell(
-                      onTap: () => onOpenRecord(todo),
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: ThemeV2Spacing.sm,
-                          ),
-                          child: Text(
-                            todo.item.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.labelSmall
-                                ?.copyWith(color: tokens.foreground),
-                          ),
-                        ),
-                      ),
+                    child: _ScheduleTodoRow(
+                      record: todo,
+                      onOpen: () => onOpenRecord(todo),
+                      onToggle: onToggleTodo == null
+                          ? null
+                          : () => onToggleTodo!(todo),
                     ),
                   ),
             ],
@@ -517,47 +533,201 @@ class _TodoBandBlock extends StatelessWidget {
   }
 }
 
-class _TopTray extends StatelessWidget {
-  const _TopTray({required this.allDay, required this.untimed});
+class _TopTrays extends StatelessWidget {
+  const _TopTrays({
+    required this.allDay,
+    required this.untimed,
+    required this.onOpenRecord,
+    required this.onToggleTodo,
+  });
 
   final List<CalendarRecord> allDay;
   final List<CalendarRecord> untimed;
+  final ValueChanged<CalendarRecord> onOpenRecord;
+  final Future<void> Function(CalendarRecord)? onToggleTodo;
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
-    return Container(
-      margin: const EdgeInsets.fromLTRB(
-        ThemeV2Spacing.lg,
-        0,
-        ThemeV2Spacing.lg,
-        ThemeV2Spacing.sm,
-      ),
-      padding: const EdgeInsets.all(ThemeV2Spacing.md),
-      decoration: BoxDecoration(
-        color: tokens.surface,
-        borderRadius: BorderRadius.circular(ThemeV2Radii.md),
-        border: Border.all(color: tokens.border),
-      ),
-      child: Row(
+    return Padding(
+      padding: const EdgeInsets.only(bottom: ThemeV2Spacing.sm),
+      child: Column(
         children: [
-          if (allDay.isNotEmpty)
-            Expanded(
-              child: Text(
-                '全天 · ${allDay.length}',
-                style: TextStyle(color: tokens.foreground),
+          if (allDay.isNotEmpty) ...[
+            Container(
+              key: const ValueKey('calendar-all-day-tray'),
+              height: 54,
+              padding: const EdgeInsets.symmetric(
+                horizontal: ThemeV2Spacing.md,
+                vertical: ThemeV2Spacing.xs,
+              ),
+              decoration: _trayDecoration(tokens),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _TrayLabel('全天日程 · ${allDay.length}'),
+                  Expanded(
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      padding: EdgeInsets.zero,
+                      itemCount: allDay.length,
+                      separatorBuilder: (_, _) =>
+                          const SizedBox(width: ThemeV2Spacing.lg),
+                      itemBuilder: (context, index) {
+                        final record = allDay[index];
+                        return InkWell(
+                          onTap: () => onOpenRecord(record),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              '📅 ${record.item.title}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: tokens.foreground,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
               ),
             ),
+            const SizedBox(height: ThemeV2Spacing.sm),
+          ],
           if (untimed.isNotEmpty)
-            Expanded(
-              child: Text(
-                '待安排 · ${untimed.length}',
-                textAlign: TextAlign.end,
-                style: TextStyle(color: tokens.foreground),
+            Container(
+              key: const ValueKey('calendar-unscheduled-tray'),
+              height: 92,
+              padding: const EdgeInsets.fromLTRB(
+                ThemeV2Spacing.md,
+                ThemeV2Spacing.xs,
+                ThemeV2Spacing.sm,
+                ThemeV2Spacing.xs,
+              ),
+              decoration: _trayDecoration(tokens),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _TrayLabel('未排期待办 · ${untimed.length}'),
+                  Expanded(
+                    child: ListView.builder(
+                      key: const ValueKey('calendar-unscheduled-scroll'),
+                      primary: false,
+                      padding: EdgeInsets.zero,
+                      physics: untimed.length > 3
+                          ? const ClampingScrollPhysics()
+                          : const NeverScrollableScrollPhysics(),
+                      itemCount: untimed.length,
+                      itemExtent: 24,
+                      itemBuilder: (context, index) {
+                        final record = untimed[index];
+                        return _ScheduleTodoRow(
+                          record: record,
+                          compact: true,
+                          onOpen: () => onOpenRecord(record),
+                          onToggle: onToggleTodo == null
+                              ? null
+                              : () => onToggleTodo!(record),
+                        );
+                      },
+                    ),
+                  ),
+                ],
               ),
             ),
         ],
       ),
+    );
+  }
+
+  BoxDecoration _trayDecoration(ThemeV2Tokens tokens) => BoxDecoration(
+    color: tokens.surface,
+    borderRadius: BorderRadius.circular(ThemeV2Radii.md),
+    border: Border.all(color: tokens.border),
+  );
+}
+
+class _TrayLabel extends StatelessWidget {
+  const _TrayLabel(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      label,
+      style: ThemeV2Typography.mono(
+        fontSize: 9,
+        color: context.themeV2.muted,
+        fontWeight: FontWeight.w700,
+      ),
+    );
+  }
+}
+
+class _ScheduleTodoRow extends StatelessWidget {
+  const _ScheduleTodoRow({
+    required this.record,
+    required this.onOpen,
+    required this.onToggle,
+    this.compact = false,
+  });
+
+  final CalendarRecord record;
+  final VoidCallback onOpen;
+  final Future<void> Function()? onToggle;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.themeV2;
+    final done = todoPayloadIsDone(record.item.payload);
+    return Row(
+      children: [
+        Semantics(
+          label: '${done ? '取消完成' : '完成'}待办：${record.item.title}',
+          button: true,
+          checked: done,
+          onTap: onToggle,
+          child: ExcludeSemantics(
+            child: InkWell(
+              onTap: onToggle,
+              customBorder: const CircleBorder(),
+              child: SizedBox(
+                width: compact ? 24 : ThemeV2Sizes.minTouchTarget,
+                height: compact ? 24 : ThemeV2Sizes.minTouchTarget,
+                child: Icon(
+                  done ? Icons.check_box : Icons.check_box_outline_blank,
+                  size: compact ? 17 : 19,
+                  color: done ? tokens.accent : tokens.muted,
+                ),
+              ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: InkWell(
+            onTap: onOpen,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                record.item.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: done ? tokens.muted : tokens.foreground,
+                  decoration: done ? TextDecoration.lineThrough : null,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
