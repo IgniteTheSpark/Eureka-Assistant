@@ -372,6 +372,30 @@ void main() {
         expect(card.domain, '工作');
       },
     );
+
+    test('recent events use start_at rather than record creation time', () {
+      final snapshot = LibrarySnapshot(
+        assets: [
+          AssetItem(
+            id: 'a1',
+            skillName: 'notes',
+            payload: const {'title': '资产'},
+            createdAt: DateTime(2026, 7, 29),
+          ),
+        ],
+        events: const [
+          {
+            'event_id': 'e1',
+            'title': '未来评审',
+            'start_at': '2026-07-30T10:00:00+08:00',
+            'created_at': '2026-07-20T10:00:00+08:00',
+          },
+        ],
+      );
+
+      expect(snapshot.recentItems.first.containerId, 'event');
+      expect(snapshot.recentItems.first.effectiveAt.day, 30);
+    });
   });
 
   test(

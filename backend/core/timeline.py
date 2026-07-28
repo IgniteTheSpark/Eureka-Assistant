@@ -31,14 +31,8 @@ tabs (event / todo / expense / ...) typically use their own endpoints with
 richer per-type data (event tab needs end_at + attendees; todo tab needs
 status groupings; etc.) — assemble_timeline is the unified-merge code path.
 """
-from datetime import datetime, timedelta, timezone
-
-# The app's canonical user timezone (Asia/Shanghai). Naive datetime strings on the
-# timeline (LLM-emitted due_date / expense date, or manual entries) are Beijing
-# WALL-CLOCK times — assuming UTC would shift them −8h onto the wrong day (e.g.
-# a todo due "今天 17:00" → 17:00 UTC → 01:00 次日 Beijing).
-_BEIJING = timezone(timedelta(hours=8))
-from typing import Optional, Any
+from datetime import datetime, timezone
+from typing import Optional
 
 # Tz-aware sentinel for sort fallback (datetime.min is naive — incompatible
 # with offset-aware values parsed from ISO8601)
@@ -51,65 +45,10 @@ from db.models import (
     Asset, UserSkill, GlobalSkill, Event, EventAttendee, InputTurn, File, Contact,
 )
 from mcp_server.tools import _event_attendee_to_dict, _event_source_sessions
-
-
-# ── effective_at per kind ─────────────────────────────────────────────────────
-
-def _parse_iso(s: Any) -> Optional[datetime]:
-    """
-    Parse an ISO8601 string into a tz-aware datetime; return None on failure.
-    If the string lacks a timezone offset, assume **Beijing (+08:00)** — naive
-    times in this app are Beijing wall-clock (LLM-emitted due_date / expense date,
-    or manual entry). Assuming UTC mis-dates them by 8h onto the wrong day.
-    (A real `datetime` object reaching here is an ORM column = already UTC-aware.)
-    """
-    if isinstance(s, datetime):
-        # Already a datetime (ORM column) — coerce to aware-UTC if somehow naive.
-        return s if s.tzinfo else s.replace(tzinfo=timezone.utc)
-    if not s or not isinstance(s, str):
-        return None
-    try:
-        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
-    except (ValueError, TypeError):
-        return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=_BEIJING)   # naive string = Beijing wall-clock
-    return dt
-
-
-def effective_at_for_asset(asset: Asset, skill_name: str,
-                           render_spec: Optional[dict] = None) -> datetime:
-    """Compute effective_at for an asset based on its skill type + payload.
-
-    Per-skill time anchor (发生型 skill): a skill may declare
-    `render_spec.timeline_anchor = "<payload field>"` — the field that holds
-    when the thing *happened* (a 球赛 played on 6/5, a workout done yesterday).
-    When present and parseable it wins, so a match recorded today lands on its
-    play date in 流 instead of today. Pure record skills (notes/灵感) declare no
-    anchor → created_at, unchanged. todo/expense keep their built-in anchors.
-    """
-    payload = asset.payload or {}
-    # §4.5.0a: user stated a clock time → occurred_at is the precise moment and
-    # wins over every payload-derived anchor (it's exactly "when it happened").
-    if getattr(asset, "occurred_at", None):
-        return asset.occurred_at
-    rs = render_spec if isinstance(render_spec, dict) else {}
-    anchor = rs.get("timeline_anchor")
-    if anchor:
-        dt = _parse_iso(payload.get(anchor))
-        if dt:
-            return dt
-    if skill_name == "todo":
-        return _parse_iso(payload.get("due_date")) or asset.created_at
-    if skill_name == "expense":
-        # Legacy compatibility: older expense prompts wrote payload.at, including
-        # fuzzy period canonical clocks. New writes use Asset.occurred_at/period
-        # instead; keep reading `at` only so historical rows keep their order.
-        return (_parse_iso(payload.get("at"))
-                or _parse_iso(payload.get("date"))
-                or asset.created_at)
-    # idea / notes / misc / contact / (no-anchor custom) — created_at by default
-    return asset.created_at
+from core.asset_time import (
+    effective_at_for_asset,
+    parse_asset_time as _parse_iso,
+)
 
 
 def effective_at_for_event(event: Event) -> datetime:

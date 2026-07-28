@@ -27,6 +27,7 @@ from sqlalchemy import select, delete, Text, func
 
 from core.auth import get_current_user_id
 from core.domains import normalize_domain
+from core.asset_time import effective_at_for_asset
 from db.database import AsyncSessionLocal
 from db.models import Asset, AssetField, UserSkill, GlobalSkill
 from db.queries import query_assets_structured
@@ -113,9 +114,15 @@ async def _resync_asset_fields(db, asset: Asset, new_payload: dict) -> None:
 
 # ── Common serializer ─────────────────────────────────────────────────────────
 
-def _serialize_asset(a: Asset, skill_name: str) -> dict:
+def _serialize_asset(
+    a: Asset,
+    skill_name: str,
+    render_spec: Optional[dict] = None,
+) -> dict:
+    effective_at = effective_at_for_asset(a, skill_name, render_spec)
     return {
         "id":                   str(a.id),
+        "user_skill_id":        str(a.user_skill_id),
         "user_skill_name":      skill_name,
         "payload":              a.payload,
         "domain":               a.domain,
@@ -123,6 +130,7 @@ def _serialize_asset(a: Asset, skill_name: str) -> dict:
         "occurred_at":          a.occurred_at.isoformat() if a.occurred_at else None,
         "session_id":           str(a.session_id) if a.session_id else None,
         "source_input_turn_id": str(a.source_input_turn_id) if a.source_input_turn_id else None,
+        "effective_at":         effective_at.isoformat(),
         "created_at":           a.created_at.isoformat(),
     }
 
@@ -168,7 +176,11 @@ async def list_assets(
     # Direct query path
     async with AsyncSessionLocal() as db:
         stmt = (
-            select(Asset, GlobalSkill.name.label("skill_name"))
+            select(
+                Asset,
+                GlobalSkill.name.label("skill_name"),
+                UserSkill.render_spec,
+            )
             .join(UserSkill, Asset.user_skill_id == UserSkill.id)
             .join(GlobalSkill, UserSkill.skill_id == GlobalSkill.id)
             .where(Asset.user_id == user_id)
@@ -190,7 +202,7 @@ async def list_assets(
 
     return {
         "ok": True,
-        "assets": [_serialize_asset(a, sn) for a, sn in rows],
+        "assets": [_serialize_asset(a, sn, rs) for a, sn, rs in rows],
     }
 
 
@@ -228,7 +240,11 @@ async def get_asset(
 
     async with AsyncSessionLocal() as db:
         result = await db.execute(
-            select(Asset, GlobalSkill.name.label("skill_name"))
+            select(
+                Asset,
+                GlobalSkill.name.label("skill_name"),
+                UserSkill.render_spec,
+            )
             .join(UserSkill, Asset.user_skill_id == UserSkill.id)
             .join(GlobalSkill, UserSkill.skill_id == GlobalSkill.id)
             .where(Asset.id == aid, Asset.user_id == user_id)
@@ -238,8 +254,8 @@ async def get_asset(
     if not row:
         raise HTTPException(status_code=404, detail="asset not found")
 
-    a, sn = row
-    return {"ok": True, "asset": _serialize_asset(a, sn)}
+    a, sn, render_spec = row
+    return {"ok": True, "asset": _serialize_asset(a, sn, render_spec)}
 
 
 # ── POST /api/assets (manual create) ──────────────────────────────────────────
@@ -305,13 +321,18 @@ async def update_asset(
         await db.refresh(asset)
 
         skill_result = await db.execute(
-            select(GlobalSkill.name)
+            select(GlobalSkill.name, UserSkill.render_spec)
             .join(UserSkill, UserSkill.skill_id == GlobalSkill.id)
             .where(UserSkill.id == asset.user_skill_id)
         )
-        skill_name = skill_result.scalar_one_or_none() or ""
+        skill_row = skill_result.first()
+        skill_name = skill_row[0] if skill_row else ""
+        render_spec = skill_row[1] if skill_row else None
 
-    return {"ok": True, "asset": _serialize_asset(asset, skill_name)}
+    return {
+        "ok": True,
+        "asset": _serialize_asset(asset, skill_name, render_spec),
+    }
 
 
 # ── DELETE /api/assets/{id} ───────────────────────────────────────────────────

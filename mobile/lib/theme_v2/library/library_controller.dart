@@ -137,9 +137,11 @@ class LibrarySnapshot {
           id: asset.id,
           containerId: asset.skillName,
           title: asset.title,
-          effectiveAt: asset.createdAt,
+          effectiveAt: asset.effectiveAt,
           card: {
             'asset_id': asset.id,
+            'user_skill_id':
+                asset.userSkillId ?? skills[asset.skillName]?.userSkillId,
             'user_skill_name': asset.skillName,
             'payload': asset.payload,
             'session_id': asset.sessionId,
@@ -151,7 +153,12 @@ class LibrarySnapshot {
           id: _entityId(event),
           containerId: 'event',
           title: _entityTitle(event, const ['title', 'summary']),
-          effectiveAt: _entityTime(event),
+          effectiveAt: _entityTime(event, const [
+            'effective_at',
+            'start_at',
+            'occurred_at',
+            'created_at',
+          ]),
           card: {'card_type': 'event', ...event},
         ),
       for (final contact in contacts)
@@ -203,9 +210,18 @@ class LibrarySnapshot {
     return '未命名';
   }
 
-  static DateTime _entityTime(Map<String, dynamic> entity) =>
-      DateTime.tryParse(entity['created_at']?.toString() ?? '')?.toLocal() ??
-      DateTime.fromMillisecondsSinceEpoch(0);
+  static DateTime _entityTime(
+    Map<String, dynamic> entity, [
+    List<String> fields = const ['effective_at', 'created_at'],
+  ]) {
+    for (final field in fields) {
+      final parsed = DateTime.tryParse(
+        entity[field]?.toString() ?? '',
+      )?.toLocal();
+      if (parsed != null) return parsed;
+    }
+    return DateTime.fromMillisecondsSinceEpoch(0);
+  }
 }
 
 const _systemContainerIds = {'todo', 'notes', 'external_ref'};

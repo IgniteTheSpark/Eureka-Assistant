@@ -10,6 +10,7 @@ Asset field index helpers.
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from .models import Asset, AssetField, UserSkill, GlobalSkill
+from core.asset_time import effective_at_for_asset
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional
@@ -104,7 +105,11 @@ async def query_assets_structured(
     filters = filters or []
 
     stmt = (
-        select(Asset, GlobalSkill.name.label("skill_name"))
+        select(
+            Asset,
+            GlobalSkill.name.label("skill_name"),
+            UserSkill.render_spec,
+        )
         .join(UserSkill, Asset.user_skill_id == UserSkill.id)
         .join(GlobalSkill, UserSkill.skill_id == GlobalSkill.id)
         .where(Asset.user_id == user_id)
@@ -151,11 +156,19 @@ async def query_assets_structured(
     return [
         {
             "id":                   str(a.id),
+            "user_skill_id":        str(a.user_skill_id),
             "skill_name":           skill_name,
+            "user_skill_name":      skill_name,
             "payload":              a.payload,
+            "domain":               a.domain,
+            "period":               a.period or "",
+            "occurred_at":          a.occurred_at.isoformat() if a.occurred_at else None,
             "session_id":           str(a.session_id) if a.session_id else None,
             "source_input_turn_id": str(a.source_input_turn_id) if a.source_input_turn_id else None,
+            "effective_at":         effective_at_for_asset(
+                a, skill_name, render_spec
+            ).isoformat(),
             "created_at":           a.created_at.isoformat(),
         }
-        for a, skill_name in rows
+        for a, skill_name, render_spec in rows
     ]

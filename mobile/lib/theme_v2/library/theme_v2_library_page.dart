@@ -3,10 +3,9 @@ import 'package:flutter/material.dart';
 import '../../api/api_client.dart';
 import '../../data_revision.dart';
 import '../../pages/add_skill.dart';
-import '../../pages/category_detail_page.dart';
-import '../../pages/entity_list_page.dart';
 import '../../pages/report_list_page.dart';
 import '../../pages/report_viewer_page.dart';
+import '../../render/render_spec.dart';
 import '../../render/skill_card.dart';
 import '../../theme/app_theme.dart';
 import '../../timeline/timeline.dart';
@@ -14,6 +13,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
 import '../shell/theme_v2_async_state.dart';
+import 'asset/asset_detail_sheet.dart';
+import 'asset/asset_list_page.dart';
+import 'asset/set_goal_action.dart';
 import 'container_index.dart';
 import 'create_skill_action.dart';
 import 'library_components.dart';
@@ -29,6 +31,7 @@ class ThemeV2LibraryPage extends ConsumerStatefulWidget {
     this.onOpenContainer,
     this.onOpenRecent,
     this.onCreateSkill,
+    this.onSetGoal,
   });
 
   final LibraryController? controller;
@@ -36,6 +39,7 @@ class ThemeV2LibraryPage extends ConsumerStatefulWidget {
   final LibraryContainerCallback? onOpenContainer;
   final ValueChanged<LibraryRecentItem>? onOpenRecent;
   final VoidCallback? onCreateSkill;
+  final ValueChanged<SetGoalIntent>? onSetGoal;
 
   @override
   ConsumerState<ThemeV2LibraryPage> createState() => _ThemeV2LibraryPageState();
@@ -223,32 +227,50 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
       return;
     }
     final specs = ref.read(renderSpecsProvider).valueOrNull ?? const {};
-    showSkillCardDetail(context, card: item.card, specs: specs);
+    final card = item.card;
+    final type = card['card_type'] as String?;
+    final isEntity = type == 'event' || type == 'contact' || type == 'task';
+    final payload = isEntity
+        ? card
+        : ((card['payload'] as Map?)?.cast<String, dynamic>() ?? const {});
+    final cardType =
+        type ?? (card['user_skill_name'] as String?) ?? item.containerId;
+    final skill = card['user_skill_name'] as String?;
+    await showThemeV2AssetDetail(
+      context,
+      api: _detailApi,
+      data: resolveSkillCardData(card, specs),
+      payload: payload,
+      cardType: cardType,
+      assetId: skillCardAssetId(card),
+      userSkillId: card['user_skill_id'] as String?,
+      sessionId: card['session_id'] as String?,
+      spec: skill == null ? synthesizeSpec(cardType) : specs[skill],
+      onSetGoal: widget.onSetGoal,
+    );
   }
 
   void _openContainer(LibraryContainer container) {
     final snapshot = _controller.snapshot;
     switch (container.kind) {
       case LibraryContainerKind.event:
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => EntityListPage(
-              title: '事件',
-              endpoint: '/api/events',
-              listKey: 'events',
-              toCard: (event) => {'card_type': 'event', ...event},
-            ),
+        _pushLibraryRoute(
+          ThemeV2AssetListPage.entities(
+            title: '事件档案',
+            cardType: 'event',
+            initialEntities: snapshot?.events ?? const [],
+            api: _detailApi,
+            onSetGoal: widget.onSetGoal,
           ),
         );
       case LibraryContainerKind.contact:
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => EntityListPage(
-              title: '联系人',
-              endpoint: '/api/contacts',
-              listKey: 'contacts',
-              toCard: (contact) => {'card_type': 'contact', ...contact},
-            ),
+        _pushLibraryRoute(
+          ThemeV2AssetListPage.entities(
+            title: '人物索引',
+            cardType: 'contact',
+            initialEntities: snapshot?.contacts ?? const [],
+            api: _detailApi,
+            onSetGoal: widget.onSetGoal,
           ),
         );
       case LibraryContainerKind.report:
@@ -260,17 +282,18 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
         final meta =
             snapshot?.skills[container.id] ??
             SkillMeta(container.icon, container.label);
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => CategoryDetailPage(
-              meta: meta,
-              skillName: container.id,
-              assets:
-                  snapshot?.assets
-                      .where((asset) => asset.skillName == container.id)
-                      .toList() ??
-                  const [],
-            ),
+        _pushLibraryRoute(
+          ThemeV2AssetListPage.assets(
+            meta: meta,
+            skillName: container.id,
+            initialAssets:
+                snapshot?.assets
+                    .where((asset) => asset.skillName == container.id)
+                    .toList() ??
+                const [],
+            specs: ref.read(renderSpecsProvider).valueOrNull ?? const {},
+            api: _detailApi,
+            onSetGoal: widget.onSetGoal,
           ),
         );
     }

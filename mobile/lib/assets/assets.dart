@@ -6,6 +6,10 @@ class AssetItem {
   final String skillName;
   final Map<String, dynamic> payload;
   final DateTime createdAt;
+  final DateTime effectiveAt;
+  final DateTime? occurredAt;
+  final String period;
+  final String? userSkillId;
   final String? sessionId;
 
   /// §8 life-domain label (工作/学习/…) or null (不归域). Drives the domain chip.
@@ -21,30 +25,55 @@ class AssetItem {
     required this.skillName,
     required this.payload,
     required this.createdAt,
+    DateTime? effectiveAt,
+    this.occurredAt,
+    this.period = '',
+    this.userSkillId,
     this.sessionId,
     this.domain,
     this.titleOverride,
-  });
+  }) : effectiveAt = effectiveAt ?? occurredAt ?? createdAt;
 
-  factory AssetItem.fromJson(Map<String, dynamic> j) => AssetItem(
-        id: j['id'] as String? ?? '',
-        skillName: j['user_skill_name'] as String? ?? 'misc',
-        payload: (j['payload'] as Map?)?.cast<String, dynamic>() ?? const {},
-        createdAt:
-            DateTime.tryParse(j['created_at'] as String? ?? '')?.toLocal() ?? DateTime.now(),
-        sessionId: j['session_id'] as String?,
-        domain: j['domain'] as String?,
-      );
+  factory AssetItem.fromJson(Map<String, dynamic> j) {
+    final createdAt =
+        DateTime.tryParse(j['created_at'] as String? ?? '')?.toLocal() ??
+        DateTime.now();
+    final occurredAt = DateTime.tryParse(
+      j['occurred_at'] as String? ?? '',
+    )?.toLocal();
+    return AssetItem(
+      id: j['id'] as String? ?? '',
+      skillName:
+          j['user_skill_name'] as String? ??
+          j['skill_name'] as String? ??
+          'misc',
+      payload: (j['payload'] as Map?)?.cast<String, dynamic>() ?? const {},
+      createdAt: createdAt,
+      effectiveAt:
+          DateTime.tryParse(j['effective_at'] as String? ?? '')?.toLocal() ??
+          occurredAt ??
+          createdAt,
+      occurredAt: occurredAt,
+      period: j['period'] as String? ?? '',
+      userSkillId: j['user_skill_id'] as String?,
+      sessionId: j['session_id'] as String?,
+      domain: j['domain'] as String?,
+    );
+  }
 
   AssetItem copyWithTitle(String t) => AssetItem(
-        id: id,
-        skillName: skillName,
-        payload: payload,
-        createdAt: createdAt,
-        sessionId: sessionId,
-        domain: domain,
-        titleOverride: t,
-      );
+    id: id,
+    skillName: skillName,
+    payload: payload,
+    createdAt: createdAt,
+    effectiveAt: effectiveAt,
+    occurredAt: occurredAt,
+    period: period,
+    userSkillId: userSkillId,
+    sessionId: sessionId,
+    domain: domain,
+    titleOverride: t,
+  );
 
   /// Best-effort display title. Prefers an explicit [titleOverride] (resolved via
   /// render_spec), then common payload fields (content / title / name / amount).
@@ -58,7 +87,9 @@ class AssetItem {
 }
 
 Future<List<AssetItem>> fetchAssets(ApiClient api, {int? limit}) async {
-  final res = await api.getJson('/api/assets${limit != null ? '?limit=$limit' : ''}');
+  final res = await api.getJson(
+    '/api/assets${limit != null ? '?limit=$limit' : ''}',
+  );
   final list = (res is Map ? res['assets'] : null) as List? ?? const [];
   return list
       .whereType<Map>()

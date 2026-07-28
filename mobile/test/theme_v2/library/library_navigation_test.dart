@@ -9,6 +9,7 @@ import 'package:eureka/theme/app_theme.dart';
 import 'package:eureka/theme/eureka_colors.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_tokens.dart';
+import 'package:eureka/theme_v2/library/asset/asset_list_page.dart';
 import 'package:eureka/theme_v2/library/container_index.dart';
 import 'package:eureka/theme_v2/library/library_controller.dart';
 import 'package:eureka/theme_v2/library/library_hub.dart';
@@ -142,6 +143,35 @@ void main() {
   });
 
   testWidgets(
+    'default V2 container route opens schema asset list with V2 theme',
+    (tester) async {
+      final controller = await _controller();
+      await _pumpHost(
+        tester,
+        ThemeV2LibraryPage(
+          controller: controller,
+          autoLoad: false,
+          onCreateSkill: () {},
+        ),
+      );
+
+      await tester.tap(find.byKey(const ValueKey('library-pinned-tile-todo')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ThemeV2AssetListPage), findsOneWidget);
+      expect(find.byType(CategoryDetailPage), findsNothing);
+      final routeTheme = Theme.of(
+        tester.element(find.byType(ThemeV2AssetListPage)),
+      );
+      expect(routeTheme.extension<ThemeV2Tokens>(), isNotNull);
+      expect(
+        routeTheme.textTheme.bodyMedium?.fontFamily,
+        buildThemeV2Theme(Brightness.light).textTheme.bodyMedium?.fontFamily,
+      );
+    },
+  );
+
+  testWidgets(
     'default recent asset and event open direct detail not container lists',
     (tester) async {
       final controller = await _controller();
@@ -156,15 +186,28 @@ void main() {
       );
 
       await tester.tap(find.byKey(const ValueKey('library-recent-todo-a1')));
-      await tester.pump();
-      expect(find.byType(DraggableScrollableSheet), findsOneWidget);
-      expect(find.byType(CategoryDetailPage), findsNothing);
-      await tester.tapAt(const Offset(8, 80));
       await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('theme-v2-asset-sheet')),
+        findsOneWidget,
+      );
+      expect(find.byType(CategoryDetailPage), findsNothing);
+      final close = find.byKey(const ValueKey('asset-detail-close'));
+      final logicalHeight =
+          tester.view.physicalSize.height / tester.view.devicePixelRatio;
+      expect(tester.getCenter(close).dy, lessThan(logicalHeight));
+      await tester.tap(close);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('theme-v2-asset-sheet')), findsNothing);
 
-      await tester.tap(find.byKey(const ValueKey('library-recent-event-e1')));
-      await tester.pump();
-      expect(find.byType(DraggableScrollableSheet), findsOneWidget);
+      final event = find.byKey(const ValueKey('library-recent-event-e1'));
+      await tester.ensureVisible(event);
+      await tester.tap(event);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('theme-v2-asset-sheet')),
+        findsOneWidget,
+      );
       expect(find.byType(EntityListPage), findsNothing);
     },
   );
