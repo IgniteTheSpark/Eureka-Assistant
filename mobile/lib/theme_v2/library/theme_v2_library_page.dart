@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../api/api_client.dart';
 import '../../data_revision.dart';
-import '../../pages/add_skill.dart';
 import '../../pages/report_list_page.dart';
 import '../../pages/report_viewer_page.dart';
 import '../../render/render_spec.dart';
@@ -197,10 +196,7 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
   void _pop() => Navigator.of(context).maybePop();
 
   void _openCreateSkill() {
-    showThemeV2CreateSkillLaunch(
-      context,
-      onContinue: () => showAddSkill(context),
-    );
+    showThemeV2CreateSkillLaunch(context);
   }
 
   Future<void> _openRecent(LibraryRecentItem item) async {

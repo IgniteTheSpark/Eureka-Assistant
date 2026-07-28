@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../../data_revision.dart';
 import '../foundation/theme_v2_semantics.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
+import 'create_skill/skill_wizard_controller.dart';
+import 'create_skill/theme_v2_skill_wizard.dart';
 
 class CreateSkillAction extends StatelessWidget {
   const CreateSkillAction({super.key, required this.onPressed});
@@ -81,64 +84,29 @@ class CreateSkillAction extends StatelessWidget {
 
 Future<void> showThemeV2CreateSkillLaunch(
   BuildContext context, {
-  required VoidCallback onContinue,
-}) {
-  final tokens = context.themeV2;
-  return showModalBottomSheet<void>(
+  SkillWizardRepository? repository,
+  VoidCallback? onCreated,
+}) async {
+  final usesProductionRepository = repository == null;
+  final controller = SkillWizardController(
+    repository: repository ?? ApiSkillWizardRepository(),
+    disposeRepository: usesProductionRepository,
+    onCreated: () {
+      bumpData();
+      onCreated?.call();
+    },
+  );
+  await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: tokens.surface,
-    showDragHandle: true,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(
-        top: Radius.circular(ThemeV2Radii.lg),
-      ),
-    ),
-    builder: (sheetContext) => SafeArea(
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          ThemeV2Spacing.xl,
-          ThemeV2Spacing.md,
-          ThemeV2Spacing.xl,
-          ThemeV2Spacing.xl + MediaQuery.viewInsetsOf(sheetContext).bottom,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(Icons.auto_awesome, color: tokens.accent, size: 28),
-            const SizedBox(height: ThemeV2Spacing.md),
-            Text(
-              '让 AI 设计一个新技能',
-              style: Theme.of(
-                sheetContext,
-              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: ThemeV2Spacing.sm),
-            Text(
-              '你只要描述想记录的内容，接下来会复用现有创建能力生成并确认容器结构。',
-              style: Theme.of(
-                sheetContext,
-              ).textTheme.bodyMedium?.copyWith(color: tokens.muted),
-            ),
-            const SizedBox(height: ThemeV2Spacing.xl),
-            SizedBox(
-              width: double.infinity,
-              height: ThemeV2Sizes.minTouchTarget,
-              child: FilledButton.icon(
-                onPressed: () {
-                  Navigator.of(sheetContext).pop();
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    onContinue();
-                  });
-                },
-                icon: const Icon(Icons.arrow_forward),
-                label: const Text('开始描述'),
-              ),
-            ),
-          ],
-        ),
-      ),
+    useSafeArea: true,
+    backgroundColor: Colors.transparent,
+    barrierColor: Colors.black.withValues(alpha: 0.32),
+    builder: (sheetContext) => ThemeV2SkillWizardSheet(
+      controller: controller,
+      onClose: () => Navigator.of(sheetContext).pop(),
+      onComplete: () => Navigator.of(sheetContext).pop(),
     ),
   );
+  controller.dispose();
 }
