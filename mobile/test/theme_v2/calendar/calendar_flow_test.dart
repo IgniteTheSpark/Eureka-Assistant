@@ -17,7 +17,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'calendar_test_fixtures.dart';
 
 void main() {
-  testWidgets('date first tap selects and second tap opens day detail', (
+  testWidgets('populated date opens Day Detail on the first tap', (
     tester,
   ) async {
     final controller = CalendarController();
@@ -29,6 +29,7 @@ void main() {
           controller: controller,
           today: DateTime(2026, 7, 3),
           onOpenDay: (day) => opened = day,
+          onRequestManualRecord: (_) {},
           onOpenRecord: (_) {},
           onOpenFlash: (_) {},
         ),
@@ -36,14 +37,45 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('calendar-date-2026-07-04')));
+    await tester.tap(find.byKey(const ValueKey('calendar-date-2026-07-03')));
     await tester.pump();
-    expect(controller.selectedDate, DateTime(2026, 7, 4));
-    expect(opened, isNull);
+    expect(controller.selectedDate, DateTime(2026, 7, 3));
+    expect(opened, DateTime(2026, 7, 3));
+  });
 
-    await tester.tap(find.byKey(const ValueKey('calendar-date-2026-07-04')));
+  testWidgets('empty date reveals Manual Record before requesting picker', (
+    tester,
+  ) async {
+    final controller = CalendarController();
+    DateTime? requested;
+    await tester.pumpWidget(
+      calendarTestHost(
+        CalendarFlowView(
+          data: CalendarData(const [], const {}),
+          controller: controller,
+          today: DateTime(2026, 7, 3),
+          onOpenDay: (_) {},
+          onRequestManualRecord: (day) => requested = day,
+          onOpenRecord: (_) {},
+          onOpenFlash: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('calendar-date-2026-07-03')));
     await tester.pump();
-    expect(opened, DateTime(2026, 7, 4));
+
+    expect(
+      find.byKey(const ValueKey('calendar-empty-confirmation-2026-07-03')),
+      findsOneWidget,
+    );
+    expect(requested, isNull);
+
+    await tester.tap(
+      find.byKey(const ValueKey('calendar-empty-manual-2026-07-03')),
+    );
+    expect(requested, DateTime(2026, 7, 3));
   });
 
   testWidgets('record tap uses the injected detail callback', (tester) async {
@@ -55,6 +87,7 @@ void main() {
           controller: CalendarController(),
           today: DateTime(2026, 7, 3),
           onOpenDay: (_) {},
+          onRequestManualRecord: (_) {},
           onOpenRecord: (record) => openedId = record.id,
           onOpenFlash: (_) {},
         ),
@@ -106,7 +139,7 @@ void main() {
       ),
     );
 
-    await tester.tap(find.bySemanticsLabel('打开 7月3日闪念，共 1 条'));
+    await tester.tap(find.bySemanticsLabel('7月3日，1 条闪念，查看闪念'));
     expect(flashTaps, 1);
     expect(dateTaps, 0);
   });
@@ -139,7 +172,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.bySemanticsLabel('打开 7月3日闪念，共 1 条'));
+    await tester.tap(find.bySemanticsLabel('7月3日，1 条闪念，查看闪念'));
     await tester.pumpAndSettle();
 
     expect(openedDays, 0);
@@ -158,6 +191,7 @@ void main() {
           controller: CalendarController(),
           today: DateTime(2026, 7, 3),
           onOpenDay: (_) {},
+          onRequestManualRecord: (_) {},
           onOpenRecord: (_) {},
           onOpenFlash: (_) {},
         ),
@@ -184,6 +218,7 @@ void main() {
           controller: CalendarController(),
           today: DateTime(2026, 7, 3),
           onOpenDay: (_) {},
+          onRequestManualRecord: (_) {},
           onOpenRecord: (_) {},
           onOpenFlash: (_) {},
         ),
@@ -197,7 +232,8 @@ void main() {
       const Offset(0, -650),
     );
     await tester.pumpAndSettle();
-    expect(find.text('+1 DAY'), findsWidgets);
+    expect(find.text('1 DAY LATER'), findsWidgets);
+    expect(find.text('+1 DAY'), findsNothing);
   });
 
   testWidgets('next day pushes the sticky rail at the day boundary', (
@@ -210,6 +246,7 @@ void main() {
           controller: CalendarController(),
           today: DateTime(2026, 7, 3),
           onOpenDay: (_) {},
+          onRequestManualRecord: (_) {},
           onOpenRecord: (_) {},
           onOpenFlash: (_) {},
         ),
@@ -289,34 +326,33 @@ void main() {
     expect(find.text('TODAY'), findsOneWidget);
   });
 
-  testWidgets('second date tap opens the Theme V2 schedule route', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      calendarTestHost(
-        ThemeV2CalendarPage(
-          today: DateTime(2026, 7, 3),
-          initialData: calendarFixtureData(),
-          onOpenRecord: (_) {},
-          onCreateDraft: (_) async {},
-          onOpenDraftEditor: (_) {},
+  testWidgets(
+    'first populated date tap opens the current Calendar child route',
+    (tester) async {
+      await tester.pumpWidget(
+        calendarTestHost(
+          ThemeV2CalendarPage(
+            today: DateTime(2026, 7, 3),
+            initialData: calendarFixtureData(),
+            onOpenRecord: (_) {},
+            onCreateDraft: (_) async {},
+            onOpenDraftEditor: (_) {},
+          ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
+      );
+      await tester.pumpAndSettle();
 
-    final today = find.byKey(const ValueKey('calendar-date-2026-07-03'));
-    await tester.tap(today);
-    await tester.pump();
-    await tester.tap(today);
-    await tester.pumpAndSettle();
+      final today = find.byKey(const ValueKey('calendar-date-2026-07-03'));
+      await tester.tap(today);
+      await tester.pumpAndSettle();
 
-    expect(find.byType(CalendarScheduleGrid), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey('calendar-empty-slot-2026-07-03-0000')),
-      findsOneWidget,
-    );
-  });
+      expect(find.byType(CalendarScheduleGrid), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('calendar-empty-slot-2026-07-03-0000')),
+        findsOneWidget,
+      );
+    },
+  );
 
   testWidgets('month and year derive responsive cells at 360px', (
     tester,

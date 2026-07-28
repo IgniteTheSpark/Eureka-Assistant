@@ -16,6 +16,7 @@ class CalendarFlowView extends StatefulWidget {
     required this.controller,
     required this.today,
     required this.onOpenDay,
+    required this.onRequestManualRecord,
     required this.onOpenRecord,
     required this.onOpenFlash,
   });
@@ -24,6 +25,7 @@ class CalendarFlowView extends StatefulWidget {
   final CalendarController controller;
   final DateTime today;
   final ValueChanged<DateTime> onOpenDay;
+  final ValueChanged<DateTime> onRequestManualRecord;
   final ValueChanged<CalendarRecord> onOpenRecord;
   final ValueChanged<DateTime> onOpenFlash;
 
@@ -40,6 +42,7 @@ class _CalendarFlowViewState extends State<CalendarFlowView> {
   )..addListener(_onScroll);
   int _visibleIndex = _pastDays;
   double _railPushOffset = 0;
+  DateTime? _manualConfirmationDay;
 
   DateTime get _firstDay =>
       calendarDayOf(widget.today).subtract(const Duration(days: _pastDays));
@@ -61,14 +64,21 @@ class _CalendarFlowViewState extends State<CalendarFlowView> {
     }
   }
 
-  void _tapDate(DateTime day) {
-    final selected = widget.controller.selectedDate;
-    if (selected != null && calendarDayKey(selected) == calendarDayKey(day)) {
+  void _activateDay(DateTime day) {
+    final dayData = widget.data.day(day);
+    widget.controller.changeDate(day);
+    if (dayData.assetCount + dayData.flashCount > 0) {
+      widget.controller.openDay(day);
+      _manualConfirmationDay = null;
       widget.onOpenDay(day);
       return;
     }
+    setState(() => _manualConfirmationDay = calendarDayOf(day));
+  }
+
+  void _requestManualRecord(DateTime day) {
     widget.controller.changeDate(day);
-    setState(() {});
+    widget.onRequestManualRecord(calendarDayOf(day));
   }
 
   @override
@@ -82,8 +92,7 @@ class _CalendarFlowViewState extends State<CalendarFlowView> {
   @override
   Widget build(BuildContext context) {
     final visibleDay = _dayAt(_visibleIndex);
-    final visibleItems =
-        widget.data.byDay[calendarDayOf(visibleDay)] ?? const <TimelineItem>[];
+    final visibleDayData = widget.data.day(visibleDay);
     return Stack(
       children: [
         Positioned.fill(
@@ -100,6 +109,10 @@ class _CalendarFlowViewState extends State<CalendarFlowView> {
                 final items =
                     widget.data.byDay[calendarDayOf(day)] ??
                     const <TimelineItem>[];
+                final confirmation =
+                    _manualConfirmationDay != null &&
+                    calendarDayKey(_manualConfirmationDay!) ==
+                        calendarDayKey(day);
                 return _FlowDay(
                   day: day,
                   today: widget.today,
@@ -110,7 +123,9 @@ class _CalendarFlowViewState extends State<CalendarFlowView> {
                       widget.controller.selectedDate != null &&
                       calendarDayKey(widget.controller.selectedDate!) ==
                           calendarDayKey(day),
-                  onTapDate: () => _tapDate(day),
+                  showManualConfirmation: confirmation,
+                  onActivateDay: () => _activateDay(day),
+                  onRequestManualRecord: () => _requestManualRecord(day),
                   onOpenRecord: widget.onOpenRecord,
                 );
               },
@@ -123,12 +138,10 @@ class _CalendarFlowViewState extends State<CalendarFlowView> {
           child: CalendarStickyDateRail(
             day: visibleDay,
             today: widget.today,
-            itemCount: visibleItems.length,
-            flashCount: visibleItems
-                .where((item) => item.kind == 'input_turn')
-                .length,
+            itemCount: visibleDayData.assetCount,
+            flashCount: visibleDayData.flashCount,
             pushOffset: _railPushOffset,
-            onTapDate: () => _tapDate(visibleDay),
+            onTapDate: () => _activateDay(visibleDay),
             onOpenFlash: () => widget.onOpenFlash(visibleDay),
           ),
         ),
@@ -145,7 +158,9 @@ class _FlowDay extends StatelessWidget {
     required this.skills,
     required this.showDateControl,
     required this.selected,
-    required this.onTapDate,
+    required this.showManualConfirmation,
+    required this.onActivateDay,
+    required this.onRequestManualRecord,
     required this.onOpenRecord,
   });
 
@@ -155,7 +170,9 @@ class _FlowDay extends StatelessWidget {
   final Map<String, SkillMeta> skills;
   final bool showDateControl;
   final bool selected;
-  final VoidCallback onTapDate;
+  final bool showManualConfirmation;
+  final VoidCallback onActivateDay;
+  final VoidCallback onRequestManualRecord;
   final ValueChanged<CalendarRecord> onOpenRecord;
 
   @override
@@ -190,8 +207,8 @@ class _FlowDay extends StatelessWidget {
                 day: day,
                 today: today,
                 selected: selected,
-                itemCount: items.length,
-                onTap: onTapDate,
+                itemCount: records.length,
+                onTap: onActivateDay,
               ),
             ),
           Positioned(
@@ -199,47 +216,125 @@ class _FlowDay extends StatelessWidget {
             right: ThemeV2Spacing.lg,
             top: 76,
             bottom: ThemeV2Spacing.lg,
-            child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: ThemeV2Spacing.md,
-              ),
-              decoration: BoxDecoration(
-                border: Border(
-                  left: BorderSide(
-                    color: selected ? tokens.accent : tokens.border,
-                    width: selected ? 2 : 1,
+            child: GestureDetector(
+              key: ValueKey('calendar-day-content-${calendarDayKey(day)}'),
+              behavior: HitTestBehavior.opaque,
+              onTap: onActivateDay,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: ThemeV2Spacing.md,
+                ),
+                decoration: BoxDecoration(
+                  border: Border(
+                    left: BorderSide(
+                      color: selected ? tokens.accent : tokens.border,
+                      width: selected ? 2 : 1,
+                    ),
                   ),
                 ),
-              ),
-              child: records.isEmpty
-                  ? Align(
-                      alignment: Alignment.topLeft,
-                      child: Text(
-                        '空闲',
-                        style: Theme.of(
-                          context,
-                        ).textTheme.bodySmall?.copyWith(color: tokens.muted),
-                      ),
-                    )
-                  : ListView(
-                      physics: const NeverScrollableScrollPhysics(),
-                      padding: EdgeInsets.zero,
-                      children: [
-                        for (final record in records) ...[
-                          if (!record.isTimed)
-                            CalendarUntimedDivider(recordId: record.id),
-                          CalendarRecordRow(
-                            record: record,
-                            skills: skills,
-                            muted: !record.isTimed,
-                            onTap: () => onOpenRecord(record),
-                          ),
+                child: records.isEmpty
+                    ? showManualConfirmation
+                          ? _ManualRecordConfirmation(
+                              day: day,
+                              onTap: onRequestManualRecord,
+                            )
+                          : const SizedBox.expand()
+                    : ListView(
+                        physics: const NeverScrollableScrollPhysics(),
+                        padding: EdgeInsets.zero,
+                        children: [
+                          for (final record in records) ...[
+                            if (!record.isTimed)
+                              CalendarUntimedDivider(recordId: record.id),
+                            CalendarRecordRow(
+                              record: record,
+                              skills: skills,
+                              muted: !record.isTimed,
+                              onTap: () => onOpenRecord(record),
+                            ),
+                          ],
                         ],
-                      ],
-                    ),
+                      ),
+              ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ManualRecordConfirmation extends StatelessWidget {
+  const _ManualRecordConfirmation({required this.day, required this.onTap});
+
+  final DateTime day;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.themeV2;
+    return Align(
+      key: ValueKey('calendar-empty-confirmation-${calendarDayKey(day)}'),
+      alignment: Alignment.topLeft,
+      child: Semantics(
+        label: '${day.month}月${day.day}日，暂无记录，手动记录',
+        button: true,
+        onTap: onTap,
+        child: ExcludeSemantics(
+          child: Material(
+            color: tokens.surface,
+            borderRadius: BorderRadius.circular(ThemeV2Radii.md),
+            child: InkWell(
+              key: ValueKey('calendar-empty-manual-${calendarDayKey(day)}'),
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(ThemeV2Radii.md),
+              child: Container(
+                constraints: const BoxConstraints(
+                  minHeight: ThemeV2Sizes.minTouchTarget,
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: ThemeV2Spacing.md,
+                  vertical: ThemeV2Spacing.sm,
+                ),
+                decoration: BoxDecoration(
+                  border: Border.all(color: tokens.border),
+                  borderRadius: BorderRadius.circular(ThemeV2Radii.md),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.add_circle_outline,
+                      size: 18,
+                      color: tokens.accent,
+                    ),
+                    const SizedBox(width: ThemeV2Spacing.sm),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '${day.month}月${day.day}日 · 暂无记录',
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: tokens.foreground),
+                          ),
+                          Text(
+                            '手动记录',
+                            style: Theme.of(context).textTheme.labelSmall
+                                ?.copyWith(
+                                  color: tokens.accent,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

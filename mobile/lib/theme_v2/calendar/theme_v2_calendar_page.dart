@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../api/api_client.dart';
 import '../../data_revision.dart';
 import '../../pages/calendar_page.dart';
+import '../../pages/create_asset.dart' show showCreateMenu;
 import '../../pages/day_flash_view.dart';
 import '../../timeline/timeline.dart';
 import '../foundation/theme_v2_motion.dart';
@@ -31,6 +32,7 @@ class ThemeV2CalendarPage extends StatefulWidget {
     this.controller,
     this.today,
     this.onOpenDay,
+    this.onRequestManualRecord,
     this.onOpenRecord,
     this.onOpenFlash,
     this.onCreateDraft,
@@ -42,6 +44,7 @@ class ThemeV2CalendarPage extends StatefulWidget {
   final CalendarController? controller;
   final DateTime? today;
   final ValueChanged<DateTime>? onOpenDay;
+  final ValueChanged<DateTime>? onRequestManualRecord;
   final ValueChanged<CalendarRecord>? onOpenRecord;
   final ValueChanged<DateTime>? onOpenFlash;
   final CalendarDraftMutation? onCreateDraft;
@@ -144,6 +147,16 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
     } else {
       unawaited(openCalendarTimelineItem(context, record.item, _currentSkills));
     }
+  }
+
+  void _requestManualRecord(DateTime day) {
+    _controller.changeDate(day);
+    final callback = widget.onRequestManualRecord;
+    if (callback != null) {
+      callback(day);
+      return;
+    }
+    showCreateMenu(context, presetDate: day);
   }
 
   void _openFlash(DateTime day) {
@@ -321,6 +334,7 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
           controller: _controller,
           today: _today,
           onOpenDay: _openDay,
+          onRequestManualRecord: _requestManualRecord,
           onOpenRecord: _openRecord,
           onOpenFlash: _openFlash,
         ),

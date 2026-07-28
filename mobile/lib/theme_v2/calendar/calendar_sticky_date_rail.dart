@@ -92,7 +92,7 @@ class CalendarStickyDateRail extends StatelessWidget {
                   left: ThemeV2Spacing.xs,
                 ),
                 child: Semantics(
-                  label: '打开 ${day.month}月${day.day}日闪念，共 $flashCount 条',
+                  label: '${day.month}月${day.day}日，$flashCount 条闪念，查看闪念',
                   button: true,
                   onTap: onOpenFlash,
                   child: ExcludeSemantics(
