@@ -33,37 +33,32 @@ final RouteObserver<PageRoute<dynamic>> shellRouteObserver =
 
 /// Preserves the established screenshot overlays and morning-briefing gate for
 /// both shell implementations.
-void scheduleShellStartupSurface(BuildContext context) {
-  const overlay = String.fromEnvironment('START_OVERLAY');
-  if (overlay == 'notifications') {
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => Navigator.of(
+void scheduleShellStartupSurface(
+  BuildContext context, {
+  String overlay = const String.fromEnvironment('START_OVERLAY'),
+}) {
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (!context.mounted) return;
+    if (overlay == 'notifications') {
+      Navigator.of(
         context,
-      ).push(MaterialPageRoute(builder: (_) => const NotificationsPage())),
-    );
-  } else if (overlay == 'flash') {
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => showFlashSheet(context),
-    );
-  } else if (overlay == 'create') {
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => showCreateMenu(context),
-    );
-  } else if (overlay == 'addskill') {
-    WidgetsBinding.instance.addPostFrameCallback((_) => showAddSkill(context));
-  } else if (overlay == 'device') {
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => Navigator.of(
+      ).push(MaterialPageRoute(builder: (_) => const NotificationsPage()));
+    } else if (overlay == 'flash') {
+      showFlashSheet(context);
+    } else if (overlay == 'create') {
+      showCreateMenu(context);
+    } else if (overlay == 'addskill') {
+      showAddSkill(context);
+    } else if (overlay == 'device') {
+      Navigator.of(
         context,
-      ).push(MaterialPageRoute(builder: (_) => const DevicePairingPage())),
-    );
-  } else {
-    // §14.6 晨间简报 — 中午前的第一次打开进沉浸式「早安」页(每天一次、可滑走、
-    // 失败静默)。放 else 里:截图验证用的 START_OVERLAY 启动不被它抢路由。
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => maybeShowMorningBriefing(),
-    );
-  }
+      ).push(MaterialPageRoute(builder: (_) => const DevicePairingPage()));
+    } else {
+      // §14.6 晨间简报 — 中午前的第一次打开进沉浸式「早安」页(每天一次、可滑走、
+      // 失败静默)。放 else 里:截图验证用的 START_OVERLAY 启动不被它抢路由。
+      maybeShowMorningBriefing();
+    }
+  });
 }
 
 class _AppShellState extends State<AppShell>

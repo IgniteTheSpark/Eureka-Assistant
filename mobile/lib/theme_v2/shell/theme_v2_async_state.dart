@@ -67,6 +67,9 @@ class _LoadingState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final skeletonBase = tokens.muted.withValues(alpha: dark ? 0.16 : 0.12);
+    final skeletonGlow = tokens.muted.withValues(alpha: dark ? 0.26 : 0.22);
     return Semantics(
       label: label,
       liveRegion: true,
@@ -85,16 +88,25 @@ class _LoadingState extends StatelessWidget {
               ),
             ),
             const SizedBox(height: ThemeV2Spacing.md),
-            const USkeletonLine(widthFactor: 0.62, height: 14),
-            const USkeletonLine(
+            USkeletonLine(
+              widthFactor: 0.62,
+              height: 14,
+              baseColor: skeletonBase,
+              glowColor: skeletonGlow,
+            ),
+            USkeletonLine(
               widthFactor: 1,
               height: 12,
-              margin: EdgeInsets.only(top: ThemeV2Spacing.md),
+              margin: const EdgeInsets.only(top: ThemeV2Spacing.md),
+              baseColor: skeletonBase,
+              glowColor: skeletonGlow,
             ),
-            const USkeletonLine(
+            USkeletonLine(
               widthFactor: 0.78,
               height: 12,
-              margin: EdgeInsets.only(top: ThemeV2Spacing.sm),
+              margin: const EdgeInsets.only(top: ThemeV2Spacing.sm),
+              baseColor: skeletonBase,
+              glowColor: skeletonGlow,
             ),
           ],
         ),

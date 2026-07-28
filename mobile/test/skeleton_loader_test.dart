@@ -23,4 +23,47 @@ void main() {
 
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'skeleton disposes and recreates its ticker when reduced motion changes',
+    (tester) async {
+      const skeletonKey = ValueKey('motion-aware-skeleton');
+
+      Future<void> pumpSkeleton({required bool disableAnimations}) {
+        return tester.pumpWidget(
+          MaterialApp(
+            theme: buildEurekaTheme(EurekaColors.light),
+            home: MediaQuery(
+              data: MediaQueryData(disableAnimations: disableAnimations),
+              child: const Scaffold(
+                body: USkeleton(key: skeletonKey, width: 120, height: 16),
+              ),
+            ),
+          ),
+        );
+      }
+
+      await pumpSkeleton(disableAnimations: false);
+      final animatedSkeleton = find.descendant(
+        of: find.byKey(skeletonKey),
+        matching: find.byType(AnimatedBuilder),
+      );
+      final firstController =
+          tester.widget<AnimatedBuilder>(animatedSkeleton).animation
+              as AnimationController;
+      expect(firstController.isAnimating, isTrue);
+
+      await pumpSkeleton(disableAnimations: true);
+      expect(find.byType(ShaderMask), findsNothing);
+      expect(firstController.isAnimating, isFalse);
+
+      await pumpSkeleton(disableAnimations: false);
+      final secondController =
+          tester.widget<AnimatedBuilder>(animatedSkeleton).animation
+              as AnimationController;
+      expect(secondController, isNot(same(firstController)));
+      expect(secondController.isAnimating, isTrue);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

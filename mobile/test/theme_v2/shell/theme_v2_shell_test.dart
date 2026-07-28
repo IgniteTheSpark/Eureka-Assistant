@@ -1,7 +1,10 @@
+import 'package:eureka/app_shell.dart';
+import 'package:eureka/pages/notifications_page.dart';
 import 'package:eureka/theme/app_theme.dart';
 import 'package:eureka/theme/eureka_colors.dart';
 import 'package:eureka/theme/theme_controller.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_semantics.dart';
+import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_tokens.dart';
 import 'package:eureka/theme_v2/shell/device_status_summary.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_async_state.dart';
@@ -130,6 +133,29 @@ void main() {
     expect(find.text('创建第一条记录后会显示在这里'), findsOneWidget);
   });
 
+  testWidgets('async loading works with a pure Theme V2 palette', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const _PureThemeV2Host(child: ThemeV2AsyncState.loading(label: '正在加载资产')),
+    );
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('正在加载资产'), findsOneWidget);
+    final skeletons = tester.widgetList<USkeleton>(find.byType(USkeleton));
+    expect(skeletons, isNotEmpty);
+    for (final skeleton in skeletons) {
+      expect(
+        skeleton.baseColor,
+        ThemeV2Tokens.light.muted.withValues(alpha: 0.12),
+      );
+      expect(
+        skeleton.glowColor,
+        ThemeV2Tokens.light.muted.withValues(alpha: 0.22),
+      );
+    }
+  });
+
   testWidgets('async error exposes an accessible retry action', (tester) async {
     var retries = 0;
     final semantics = tester.ensureSemantics();
@@ -155,6 +181,19 @@ void main() {
     expect(retries, 1);
 
     semantics.dispose();
+  });
+
+  testWidgets('startup callback ignores a context unmounted before its frame', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(home: _UnmountedStartupScheduler()),
+    );
+    await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byType(NotificationsPage), findsNothing);
   });
 }
 
@@ -189,4 +228,41 @@ class _TestHost extends StatelessWidget {
       ),
     );
   }
+}
+
+class _PureThemeV2Host extends StatelessWidget {
+  const _PureThemeV2Host({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      theme: buildThemeV2Theme(Brightness.light),
+      home: MediaQuery(
+        data: const MediaQueryData(disableAnimations: true),
+        child: Scaffold(body: child),
+      ),
+    );
+  }
+}
+
+class _UnmountedStartupScheduler extends StatefulWidget {
+  const _UnmountedStartupScheduler();
+
+  @override
+  State<_UnmountedStartupScheduler> createState() =>
+      _UnmountedStartupSchedulerState();
+}
+
+class _UnmountedStartupSchedulerState
+    extends State<_UnmountedStartupScheduler> {
+  @override
+  void dispose() {
+    scheduleShellStartupSurface(context, overlay: 'notifications');
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }

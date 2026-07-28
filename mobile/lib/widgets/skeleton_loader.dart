@@ -8,6 +8,8 @@ class USkeleton extends StatefulWidget {
   final double height;
   final double radius;
   final EdgeInsetsGeometry margin;
+  final Color? baseColor;
+  final Color? glowColor;
 
   const USkeleton({
     super.key,
@@ -15,33 +17,61 @@ class USkeleton extends StatefulWidget {
     required this.height,
     this.radius = 8,
     this.margin = EdgeInsets.zero,
+    this.baseColor,
+    this.glowColor,
   });
 
   @override
   State<USkeleton> createState() => _USkeletonState();
 }
 
-class _USkeletonState extends State<USkeleton>
-    with SingleTickerProviderStateMixin {
+class _USkeletonState extends State<USkeleton> with TickerProviderStateMixin {
   AnimationController? _controller;
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final reduceMotion =
+        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    if (reduceMotion) {
+      _disposeController();
+    } else {
+      _controller ??= AnimationController(
+        vsync: this,
+        duration: const Duration(milliseconds: 1300),
+      )..repeat();
+    }
+  }
+
+  void _disposeController() {
+    final controller = _controller;
+    _controller = null;
+    controller?.dispose();
+  }
+
+  @override
   void dispose() {
-    _controller?.dispose();
+    _disposeController();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final eu = context.eu;
     final reduceMotion =
         MediaQuery.maybeOf(context)?.disableAnimations ?? false;
-    final base = eu.textLo.withValues(
-      alpha: eu.brightness == Brightness.dark ? 0.16 : 0.12,
-    );
-    final glow = eu.textLo.withValues(
-      alpha: eu.brightness == Brightness.dark ? 0.26 : 0.22,
-    );
+    final needsLegacyPalette =
+        widget.baseColor == null || widget.glowColor == null;
+    final eu = needsLegacyPalette ? context.eu : null;
+    final base =
+        widget.baseColor ??
+        eu!.textLo.withValues(
+          alpha: eu.brightness == Brightness.dark ? 0.16 : 0.12,
+        );
+    final glow =
+        widget.glowColor ??
+        eu!.textLo.withValues(
+          alpha: eu.brightness == Brightness.dark ? 0.26 : 0.22,
+        );
     final shape = Container(
       width: widget.width,
       height: widget.height,
@@ -54,10 +84,7 @@ class _USkeletonState extends State<USkeleton>
 
     if (reduceMotion) return ExcludeSemantics(child: shape);
 
-    final controller = _controller ??= AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1300),
-    )..repeat();
+    final controller = _controller!;
     return ExcludeSemantics(
       child: AnimatedBuilder(
         animation: controller,
@@ -87,12 +114,16 @@ class USkeletonLine extends StatelessWidget {
   final double widthFactor;
   final double height;
   final EdgeInsetsGeometry margin;
+  final Color? baseColor;
+  final Color? glowColor;
 
   const USkeletonLine({
     super.key,
     this.widthFactor = 1,
     this.height = 12,
     this.margin = EdgeInsets.zero,
+    this.baseColor,
+    this.glowColor,
   });
 
   @override
@@ -100,7 +131,13 @@ class USkeletonLine extends StatelessWidget {
     return FractionallySizedBox(
       widthFactor: widthFactor,
       alignment: Alignment.centerLeft,
-      child: USkeleton(height: height, radius: height / 2, margin: margin),
+      child: USkeleton(
+        height: height,
+        radius: height / 2,
+        margin: margin,
+        baseColor: baseColor,
+        glowColor: glowColor,
+      ),
     );
   }
 }
