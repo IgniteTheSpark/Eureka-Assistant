@@ -19,6 +19,7 @@ TimelineItem calendarFixtureItem({
   bool hasClockTime = false,
   bool hasScheduledTime = false,
   String period = '',
+  String? sessionId,
   Map<String, dynamic> payload = const {},
 }) {
   return TimelineItem(
@@ -28,7 +29,7 @@ TimelineItem calendarFixtureItem({
     title: title.isEmpty ? id : title,
     subtitle: '',
     skillName: skillName,
-    sessionId: null,
+    sessionId: sessionId,
     payload: payload,
     derived: const {},
     endAt: endAt,

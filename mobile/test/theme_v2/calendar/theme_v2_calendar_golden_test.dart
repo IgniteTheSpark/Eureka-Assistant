@@ -190,6 +190,36 @@ void main() {
       );
     });
 
+    testWidgets('Flow far scroll 411 $suffix', (tester) async {
+      await pumpGolden(
+        tester,
+        brightness: brightness,
+        child: withCalendarDock(
+          calendarPage(
+            controller: CalendarController(),
+            data: calendarHandoffOverviewData(),
+          ),
+        ),
+      );
+      final scrollFinder = find.byKey(const ValueKey('calendar-flow-scroll'));
+      final scroll = tester.widget<ListView>(scrollFinder);
+      scroll.controller!.jumpTo(scroll.controller!.offset + 16 * 180);
+      await tester.pump();
+      final gesture = await tester.startGesture(tester.getCenter(scrollFinder));
+      await gesture.moveBy(const Offset(0, -24));
+      await tester.pump();
+
+      expect(find.text('2 WEEKS LATER'), findsOneWidget);
+      expect(find.bySemanticsLabel('回到今天'), findsOneWidget);
+      await expectLater(
+        find.byKey(surface),
+        matchesGoldenFile('goldens/calendar-flow-far-scroll-411-$suffix.png'),
+      );
+
+      await gesture.up();
+      await tester.pumpAndSettle();
+    });
+
     testWidgets('Month 411 $suffix', (tester) async {
       await pumpGolden(
         tester,

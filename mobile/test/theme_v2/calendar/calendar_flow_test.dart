@@ -4,6 +4,7 @@ import 'dart:ui' show Tristate;
 import 'package:eureka/data_revision.dart' show bumpData;
 import 'package:eureka/pages/calendar_page.dart' show calendarHome;
 import 'package:eureka/pages/day_flash_view.dart';
+import 'package:eureka/pages/session_detail_page.dart';
 import 'package:eureka/theme_v2/calendar/calendar_controller.dart';
 import 'package:eureka/theme_v2/calendar/calendar_day_detail.dart';
 import 'package:eureka/theme_v2/calendar/calendar_flow_view.dart';
@@ -44,6 +45,30 @@ void main() {
     await tester.pump();
     expect(controller.selectedDate, DateTime(2026, 7, 3));
     expect(opened, DateTime(2026, 7, 3));
+  });
+
+  testWidgets('Flow provides indexed extents so locating today stays lazy', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      calendarTestHost(
+        CalendarFlowView(
+          data: calendarFixtureData(),
+          controller: CalendarController(),
+          today: DateTime(2026, 7, 3),
+          onOpenDay: (_) {},
+          onRequestManualRecord: (_) {},
+          onOpenRecord: (_) {},
+          onOpenFlash: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final list = tester.widget<ListView>(
+      find.byKey(const ValueKey('calendar-flow-scroll')),
+    );
+    expect(list.itemExtentBuilder, isNotNull);
   });
 
   testWidgets('empty date reveals Manual Record before requesting picker', (
@@ -147,7 +172,7 @@ void main() {
     expect(dateTaps, 0);
   });
 
-  testWidgets('default flash callback opens the existing day flash route', (
+  testWidgets('default Flow Flash opens its session without an intermediate', (
     tester,
   ) async {
     final fixture = calendarFixtureData();
@@ -158,6 +183,7 @@ void main() {
         title: '今天想到的事',
         at: DateTime(2026, 7, 3, 11),
         kind: 'input_turn',
+        sessionId: 'flash-session-a',
       ),
     ], fixture.skills);
     var openedDays = 0;
@@ -179,9 +205,14 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(openedDays, 0);
-    expect(find.byType(DayFlashView), findsOneWidget);
-    expect(find.text('7月3日 · 1 条闪念'), findsOneWidget);
-    expect(find.text('今天想到的事'), findsOneWidget);
+    expect(find.byType(DayFlashView), findsNothing);
+    expect(find.byType(SessionDetailPage), findsOneWidget);
+    expect(
+      tester
+          .widget<SessionDetailPage>(find.byType(SessionDetailPage))
+          .sessionId,
+      'flash-session-a',
+    );
   });
 
   testWidgets('sticky rail and scroll content are sibling layout regions', (
@@ -212,6 +243,89 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets(
+    'Flow groups time bands and sinks imprecise assets to each reasonable tail',
+    (tester) async {
+      final day = DateTime(2026, 7, 3);
+      final data = CalendarData([
+        calendarFixtureItem(
+          id: 'morning',
+          title: '上午会议',
+          at: day.add(const Duration(hours: 9)),
+        ),
+        calendarFixtureItem(
+          id: 'afternoon-soft',
+          title: '下午再处理',
+          at: day.add(const Duration(hours: 10)),
+          kind: 'asset',
+          skillName: 'notes',
+          period: '下午',
+        ),
+        calendarFixtureItem(
+          id: 'bottom-untimed',
+          title: '未说明时间',
+          at: day.add(const Duration(hours: 13)),
+          kind: 'asset',
+          skillName: 'notes',
+        ),
+        calendarFixtureItem(
+          id: 'afternoon-timed',
+          title: '下午培训',
+          at: day.add(const Duration(hours: 15)),
+          kind: 'asset',
+          skillName: 'notes',
+          hasClockTime: true,
+        ),
+        calendarFixtureItem(
+          id: 'evening',
+          title: '晚间复盘',
+          at: day.add(const Duration(hours: 20)),
+        ),
+      ], const {});
+
+      await tester.pumpWidget(
+        calendarTestHost(
+          CalendarFlowView(
+            data: data,
+            controller: CalendarController(),
+            today: day,
+            onOpenDay: (_) {},
+            onRequestManualRecord: (_) {},
+            onOpenRecord: (_) {},
+            onOpenFlash: (_) {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('上午 · 1'), findsOneWidget);
+      expect(find.text('下午 · 2'), findsOneWidget);
+      expect(find.text('晚上 · 1'), findsOneWidget);
+      expect(find.text('没说时间 · 1'), findsOneWidget);
+
+      final afternoonTimed = find.text('下午培训');
+      final afternoonSoft = find.text('下午再处理');
+      final evening = find.text('晚间复盘');
+      final bottomUntimed = find.text('未说明时间');
+      expect(
+        tester.getTopLeft(afternoonTimed).dy,
+        lessThan(tester.getTopLeft(afternoonSoft).dy),
+      );
+      expect(
+        tester.getTopLeft(afternoonSoft).dy,
+        lessThan(tester.getTopLeft(evening).dy),
+      );
+      expect(
+        tester.getTopLeft(evening).dy,
+        lessThan(tester.getTopLeft(bottomUntimed).dy),
+      );
+      expect(
+        find.byKey(const ValueKey('calendar-untimed-divider-afternoon-soft')),
+        findsOneWidget,
+      );
+    },
+  );
 
   testWidgets('rich Flow days grow to keep their final record visible', (
     tester,
@@ -272,6 +386,10 @@ void main() {
     list.controller!.jumpTo(list.controller!.offset + 100);
     await tester.pump();
     final beforeRefresh = list.controller!.offset;
+    final visibleDay = find.byKey(
+      const ValueKey('calendar-day-content-2026-07-03'),
+    );
+    final beforeDayTop = tester.getTopLeft(visibleDay).dy;
 
     data.value = CalendarData([
       ...initial.items,
@@ -287,7 +405,8 @@ void main() {
     list = tester.widget<ListView>(
       find.byKey(const ValueKey('calendar-flow-scroll')),
     );
-    expect(list.controller!.offset, closeTo(beforeRefresh + 124, 0.01));
+    expect(list.controller!.offset, greaterThan(beforeRefresh));
+    expect(tester.getTopLeft(visibleDay).dy, closeTo(beforeDayTop, 0.01));
     expect(find.bySemanticsLabel('7月3日，打开日期'), findsOneWidget);
   });
 
@@ -310,24 +429,79 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final nextDayFlash = find.bySemanticsLabel('7月4日，2 条闪念，查看闪念');
-    expect(nextDayFlash, findsOneWidget);
     await tester.drag(
       find.byKey(const ValueKey('calendar-flow-scroll')),
-      const Offset(0, -220),
+      const Offset(0, -420),
     );
     await tester.pumpAndSettle();
+    final nextDayFlash = find.bySemanticsLabel('7月4日，2 条闪念，查看闪念');
+    expect(nextDayFlash, findsOneWidget);
     await tester.tap(nextDayFlash);
     expect(opened, DateTime(2026, 7, 4));
   });
 
-  testWidgets('watermark follows progressive vertical scroll', (tester) async {
+  testWidgets(
+    'watermark is absent at rest and follows center date only while moving',
+    (tester) async {
+      await tester.pumpWidget(
+        calendarTestHost(
+          CalendarFlowView(
+            data: CalendarData(const [], const {}),
+            controller: CalendarController(),
+            today: DateTime(2026, 7, 3),
+            onOpenDay: (_) {},
+            onRequestManualRecord: (_) {},
+            onOpenRecord: (_) {},
+            onOpenFlash: (_) {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('calendar-flow-watermark')),
+        findsNothing,
+      );
+
+      final list = tester.widget<ListView>(
+        find.byKey(const ValueKey('calendar-flow-scroll')),
+      );
+      list.controller!.jumpTo(list.controller!.offset + 8 * 180);
+      await tester.pump();
+      expect(
+        find.byKey(const ValueKey('calendar-flow-watermark')),
+        findsNothing,
+      );
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byKey(const ValueKey('calendar-flow-scroll'))),
+      );
+      await gesture.moveBy(const Offset(0, -24));
+      await tester.pump();
+      final watermark = tester.widget<Text>(
+        find.byKey(const ValueKey('calendar-flow-watermark')),
+      );
+      expect(watermark.data, contains('WEEK'));
+      expect(watermark.data, isNot(contains('+')));
+
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('calendar-flow-watermark')),
+        findsNothing,
+      );
+    },
+  );
+
+  testWidgets('Return to Today appears at seven days and centers Today', (
+    tester,
+  ) async {
+    final today = DateTime(2026, 7, 3);
     await tester.pumpWidget(
       calendarTestHost(
         CalendarFlowView(
-          data: calendarFixtureData(),
+          data: CalendarData(const [], const {}),
           controller: CalendarController(),
-          today: DateTime(2026, 7, 3),
+          today: today,
           onOpenDay: (_) {},
           onRequestManualRecord: (_) {},
           onOpenRecord: (_) {},
@@ -336,15 +510,32 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('TODAY'), findsOneWidget);
 
-    await tester.drag(
-      find.byKey(const ValueKey('calendar-flow-scroll')),
-      const Offset(0, -650),
-    );
+    final scrollFinder = find.byKey(const ValueKey('calendar-flow-scroll'));
+    final list = tester.widget<ListView>(scrollFinder);
+    final initialOffset = list.controller!.offset;
+    final halfViewport = list.controller!.position.viewportDimension / 2;
+    list.controller!.jumpTo(initialOffset + 6 * 180 + 90 - halfViewport);
+    await tester.pump();
+    expect(find.bySemanticsLabel('回到今天'), findsNothing);
+
+    list.controller!.jumpTo(initialOffset + 7 * 180 + 90 - halfViewport);
+    await tester.pump();
+
+    final returnToday = find.bySemanticsLabel('回到今天');
+    expect(returnToday, findsOneWidget);
+    await tester.tap(returnToday);
     await tester.pumpAndSettle();
-    expect(find.text('1 DAY LATER'), findsWidgets);
-    expect(find.text('+1 DAY'), findsNothing);
+
+    expect(returnToday, findsNothing);
+    final viewportCenter = tester.getRect(scrollFinder).center.dy;
+    final todayContent = tester.getRect(
+      find.byKey(const ValueKey('calendar-day-content-2026-07-03')),
+    );
+    expect(
+      viewportCenter,
+      inInclusiveRange(todayContent.top, todayContent.bottom),
+    );
   });
 
   testWidgets('next day pushes the sticky rail at the day boundary', (
@@ -370,7 +561,7 @@ void main() {
     final list = tester.widget<ListView>(
       find.byKey(const ValueKey('calendar-flow-scroll')),
     );
-    list.controller!.jumpTo(list.controller!.offset + 360);
+    list.controller!.jumpTo(list.controller!.offset + 420);
     await tester.pump();
 
     expect(tester.getTopLeft(rail).dy, lessThan(initialTop));
@@ -410,6 +601,43 @@ void main() {
     await tester.pumpAndSettle();
     expect(controller.mode, CalendarMode.year);
     expect(find.byKey(const ValueKey('calendar-year-view')), findsOneWidget);
+
+    await tester.drag(
+      find.byKey(const ValueKey('calendar-mode-pages')),
+      const Offset(-350, 0),
+    );
+    await tester.pumpAndSettle();
+    expect(controller.mode, CalendarMode.flow);
+    expect(find.byKey(const ValueKey('calendar-flow-content')), findsOneWidget);
+  });
+
+  testWidgets('vertical Flow intent does not trigger a scale switch', (
+    tester,
+  ) async {
+    final controller = CalendarController();
+    await tester.pumpWidget(
+      calendarTestHost(
+        ThemeV2CalendarPage(
+          controller: controller,
+          today: DateTime(2026, 7, 3),
+          initialData: calendarFixtureData(),
+          onOpenDay: (_) {},
+          onOpenRecord: (_) {},
+          onCreateDraft: (_) async {},
+          onOpenDraftEditor: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(
+      find.byKey(const ValueKey('calendar-flow-scroll')),
+      const Offset(12, -350),
+    );
+    await tester.pumpAndSettle();
+
+    expect(controller.mode, CalendarMode.flow);
+    expect(find.byKey(const ValueKey('calendar-flow-content')), findsOneWidget);
   });
 
   testWidgets('calendar reselect returns to Flow and today', (tester) async {
@@ -437,7 +665,12 @@ void main() {
 
     expect(controller.mode, CalendarMode.flow);
     expect(controller.selectedDate, DateTime(2026, 7, 3));
-    expect(find.text('TODAY'), findsOneWidget);
+    expect(find.byKey(const ValueKey('calendar-flow-watermark')), findsNothing);
+    expect(find.bySemanticsLabel('回到今天'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('calendar-date-2026-07-03')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('first populated date tap opens Theme V2 Day Detail', (

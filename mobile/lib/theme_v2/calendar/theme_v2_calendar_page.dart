@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../../api/api_client.dart';
 import '../../data_revision.dart';
 import '../../pages/calendar_page.dart';
-import '../../pages/day_flash_view.dart';
+import '../../pages/session_detail_page.dart';
 import '../../render/render_spec.dart';
 import '../../timeline/timeline.dart';
 import '../foundation/theme_v2_motion.dart';
@@ -57,6 +57,8 @@ class ThemeV2CalendarPage extends StatefulWidget {
 }
 
 class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
+  static const _pageSeed = 3000;
+
   ApiClient? _api;
   ApiClient get _apiClient => _api ??= ApiClient();
   late final bool _ownsController = widget.controller == null;
@@ -65,9 +67,10 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
       CalendarController(modeState: CalendarModeState.fromStartDefine());
   late final DateTime _today = calendarDayOf(widget.today ?? DateTime.now());
   late DateTime _focusMonth = DateTime(_today.year, _today.month);
+  late int _pageIndex = _pageSeed + _controller.horizontalIndex;
   PageController? _pages;
   PageController get _pageController =>
-      _pages ??= PageController(initialPage: _controller.horizontalIndex);
+      _pages ??= PageController(initialPage: _pageIndex);
   int _flowRevision = 0;
   Future<CalendarData>? _future;
   CalendarData? _lastData;
@@ -108,20 +111,30 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
     if (_controller.selectMode(mode)) setState(() {});
     final pages = _pages;
     if (pages != null && pages.hasClients) {
+      final targetPage = _nearestPageForMode(mode);
+      _pageIndex = targetPage;
       final duration = ThemeV2Motion.duration(
         context,
         ThemeV2MotionToken.fluid,
       );
       if (duration == Duration.zero) {
-        pages.jumpToPage(mode.index);
+        pages.jumpToPage(targetPage);
       } else {
         pages.animateToPage(
-          mode.index,
+          targetPage,
           duration: duration,
           curve: ThemeV2Motion.easeFluid,
         );
       }
     }
+  }
+
+  int _nearestPageForMode(CalendarMode mode) {
+    final currentMode = _pageIndex % CalendarMode.values.length;
+    var delta = mode.index - currentMode;
+    if (delta > 1) delta -= CalendarMode.values.length;
+    if (delta < -1) delta += CalendarMode.values.length;
+    return _pageIndex + delta;
   }
 
   void _openDay(DateTime day) {
@@ -169,17 +182,51 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
       callback(day);
       return;
     }
+    unawaited(_openFlashSession(day));
+  }
+
+  Future<void> _openFlashSession(DateTime day) async {
     final flashes =
         _currentData.byDay[calendarDayOf(day)]
             ?.where((item) => item.kind == 'input_turn')
             .toList() ??
         const <TimelineItem>[];
+    final sessionId =
+        _latestFlashSessionId(flashes) ?? await _loadFlashSessionId(day);
+    if (!mounted || sessionId == null) return;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) =>
-            DayFlashView(day: day, flashes: flashes, skills: _currentSkills),
+        builder: (_) => SessionDetailPage(
+          sessionId: sessionId,
+          title: '${day.month}月${day.day}日 闪念',
+        ),
       ),
     );
+  }
+
+  String? _latestFlashSessionId(List<TimelineItem> flashes) {
+    final withSession =
+        flashes.where((item) => item.sessionId?.isNotEmpty ?? false).toList()
+          ..sort((a, b) => b.effectiveAt.compareTo(a.effectiveAt));
+    return withSession.isEmpty ? null : withSession.first.sessionId;
+  }
+
+  Future<String?> _loadFlashSessionId(DateTime day) async {
+    String twoDigits(int value) => value.toString().padLeft(2, '0');
+    final date = '${day.year}-${twoDigits(day.month)}-${twoDigits(day.day)}';
+    try {
+      final response = await _apiClient.getJson(
+        '/api/sessions',
+        query: {'session_type': 'flash', 'date': date, 'limit': 1},
+      );
+      final sessions =
+          (response is Map ? response['sessions'] : null) as List? ?? const [];
+      if (sessions.isEmpty || sessions.first is! Map) return null;
+      final id = ((sessions.first as Map)['id'] as String?)?.trim();
+      return id == null || id.isEmpty ? null : id;
+    } catch (_) {
+      return null;
+    }
   }
 
   Map<String, SkillMeta> _currentSkills = const {};
@@ -197,7 +244,10 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
       _flowRevision++;
     });
     final pages = _pages;
-    if (pages != null && pages.hasClients) pages.jumpToPage(0);
+    if (pages != null && pages.hasClients) {
+      _pageIndex = _nearestPageForMode(CalendarMode.flow);
+      pages.jumpToPage(_pageIndex);
+    }
   }
 
   Future<void> _createDraft(CalendarInlineDraft draft) async {
@@ -362,42 +412,44 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
         onManualRecord: () => _requestManualRecord(selectedDate),
       );
     }
-    final pages = PageView(
+    final pages = PageView.builder(
       key: const ValueKey('calendar-mode-pages'),
       controller: _pageController,
       onPageChanged: (index) {
-        if (_controller.setHorizontalIndex(index)) setState(() {});
+        _pageIndex = index;
+        _controller.setHorizontalIndex(index % CalendarMode.values.length);
       },
-      children: [
-        CalendarFlowView(
-          key: ValueKey('calendar-flow-$_flowRevision'),
-          data: data,
-          controller: _controller,
-          today: _today,
-          onOpenDay: _openDay,
-          onRequestManualRecord: _requestManualRecord,
-          onOpenRecord: _openRecord,
-          onOpenFlash: _openFlash,
-        ),
-        CalendarMonthView(
-          month: _focusMonth,
-          data: data,
-          controller: _controller,
-          today: _today,
-          onOpenDay: _openDay,
-          onOpenRecord: _openRecord,
-          onMonthChanged: (month) => _focusMonth = month,
-        ),
-        CalendarYearView(
-          focusMonth: _focusMonth,
-          data: data,
-          today: _today,
-          onSelectMonth: (month) {
-            _focusMonth = month;
-            _selectMode(CalendarMode.month);
+      itemBuilder: (context, index) =>
+          switch (CalendarMode.values[index % CalendarMode.values.length]) {
+            CalendarMode.flow => CalendarFlowView(
+              key: ValueKey('calendar-flow-$_flowRevision'),
+              data: data,
+              controller: _controller,
+              today: _today,
+              onOpenDay: _openDay,
+              onRequestManualRecord: _requestManualRecord,
+              onOpenRecord: _openRecord,
+              onOpenFlash: _openFlash,
+            ),
+            CalendarMode.month => CalendarMonthView(
+              month: _focusMonth,
+              data: data,
+              controller: _controller,
+              today: _today,
+              onOpenDay: _openDay,
+              onOpenRecord: _openRecord,
+              onMonthChanged: (month) => _focusMonth = month,
+            ),
+            CalendarMode.year => CalendarYearView(
+              focusMonth: _focusMonth,
+              data: data,
+              today: _today,
+              onSelectMonth: (month) {
+                _focusMonth = month;
+                _selectMode(CalendarMode.month);
+              },
+            ),
           },
-        ),
-      ],
     );
     return pages;
   }
