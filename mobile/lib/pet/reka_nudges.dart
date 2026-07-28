@@ -200,8 +200,18 @@ class RekaNudges extends ChangeNotifier {
     _applyLocalOutcome(id, status);
     final client = api ?? ApiClient();
     try {
-      await client.postJson('/api/nudges/$id/outcome', {'status': status});
-      _publishOutcome(id, status, committed: true);
+      final response = await client.postJson('/api/nudges/$id/outcome', {
+        'status': status,
+      });
+      final authoritativeStatus = _outcomeStatus(response) ?? status;
+      if (_outcomeRevisions[id] != revision) {
+        bumpData();
+        return true;
+      }
+      if (authoritativeStatus != status) {
+        _applyLocalOutcome(id, authoritativeStatus);
+      }
+      _publishOutcome(id, authoritativeStatus, committed: true);
       notifyListeners();
       bumpData();
       return true;
@@ -220,6 +230,14 @@ class RekaNudges extends ChangeNotifier {
     } finally {
       if (api == null) client.close();
     }
+  }
+
+  String? _outcomeStatus(dynamic response) {
+    if (response is! Map) return null;
+    final nudge = response['nudge'];
+    if (nudge is! Map) return null;
+    final status = nudge['status']?.toString().trim();
+    return status == null || status.isEmpty ? null : status;
   }
 
   void _applyLocalOutcome(String id, String status) {

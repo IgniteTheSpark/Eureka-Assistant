@@ -62,6 +62,33 @@ void main() {
     expect(find.text('全部已读'), findsWidgets);
   });
 
+  testWidgets('double tap execute launches the downstream action once', (
+    tester,
+  ) async {
+    final repository = _ControlledPageRepository();
+    final controller = RekaInboxController(repository: repository);
+    await controller.load();
+    var actions = 0;
+    await _pump(
+      tester,
+      RekaInboxPage(
+        controller: controller,
+        autoLoad: false,
+        onAct: (_) => actions++,
+      ),
+    );
+
+    final execute = find.bySemanticsLabel('执行 提醒 one');
+    await tester.tap(execute);
+    await tester.tap(execute);
+    await tester.pump();
+    expect(repository.outcomeCalls, 1);
+
+    repository.outcomeGate.complete();
+    await tester.pumpAndSettle();
+    expect(actions, 1);
+  });
+
   testWidgets('partial empty data keeps retry reachable', (tester) async {
     final controller = RekaInboxController(
       repository: _PartialEmptyRepository(),
@@ -244,6 +271,17 @@ class _PartialEmptyRepository implements RekaInboxRepository {
 
   @override
   Future<void> outcome(String id, String status) async {}
+}
+
+class _ControlledPageRepository extends _PageRepository {
+  final outcomeGate = Completer<void>();
+  var outcomeCalls = 0;
+
+  @override
+  Future<void> outcome(String id, String status) {
+    outcomeCalls++;
+    return outcomeGate.future;
+  }
 }
 
 Map<String, dynamic> _pageRow(String id, String status) => {

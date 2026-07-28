@@ -80,6 +80,7 @@ class RekaInboxController extends ChangeNotifier {
   bool _disposed = false;
   Future<void> _mutationTail = Future<void>.value();
   final Map<String, String> _confirmedStatuses = {};
+  final Map<String, String> _sharedStatuses = {};
   final Map<String, int> _mutationRevisions = {};
   int _seenBobSignal = 0;
   int _seenOutcomeSignal = 0;
@@ -111,12 +112,29 @@ class RekaInboxController extends ChangeNotifier {
     await _mutationTail;
     if (!_isCurrentLoad(revision)) return;
 
-    final futures = <Future<_InboxSourceResult>>[
-      _capture(RekaInboxSource.pending, repository.loadPending),
-      _capture(RekaInboxSource.recent, repository.loadRecent),
-      if (includeOffers) _capture(RekaInboxSource.offer, repository.loadOffers),
-    ];
-    final results = await Future.wait(futures);
+    final results = <_InboxSourceResult>[];
+    if (includeOffers) {
+      // /offers/today may revive a prior-day dismissed offer. Let that
+      // transaction land before reading history, otherwise a concurrent recent
+      // snapshot can carry the stale terminal status and hide today's offer.
+      results.addAll(
+        await Future.wait([
+          _capture(RekaInboxSource.pending, repository.loadPending),
+          _capture(RekaInboxSource.offer, repository.loadOffers),
+        ]),
+      );
+      if (!_isCurrentLoad(revision)) return;
+      results.add(
+        await _capture(RekaInboxSource.recent, repository.loadRecent),
+      );
+    } else {
+      results.addAll(
+        await Future.wait([
+          _capture(RekaInboxSource.pending, repository.loadPending),
+          _capture(RekaInboxSource.recent, repository.loadRecent),
+        ]),
+      );
+    }
     if (!_isCurrentLoad(revision)) return;
 
     final successes = results.where((result) => result.error == null).toList();
@@ -143,8 +161,16 @@ class RekaInboxController extends ChangeNotifier {
         }
       }
     }
-    final items = merged.values.toList()
-      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final items =
+        merged.values
+            .map(
+              (item) => switch (_sharedStatuses[item.id]) {
+                final status? => item.copyWith(status: status),
+                null => item,
+              },
+            )
+            .toList()
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     _items = List.unmodifiable(items);
     _confirmedStatuses
       ..clear()
@@ -194,10 +220,12 @@ class RekaInboxController extends ChangeNotifier {
     if (outcome == null) {
       _items = const [];
       _confirmedStatuses.clear();
+      _sharedStatuses.clear();
       _status = RekaInboxStatus.empty;
       _notify();
       return;
     }
+    _sharedStatuses[outcome.id] = outcome.status;
     if (itemById(outcome.id) == null) return;
     _replaceStatus(outcome.id, outcome.status);
     if (outcome.committed) {

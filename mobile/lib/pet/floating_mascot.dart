@@ -52,6 +52,17 @@ final ValueNotifier<RekaNudge?> rekaNudgeActRequest = ValueNotifier<RekaNudge?>(
   null,
 );
 
+/// Outcome persistence notifies the shared nudge store more than once. Keep an
+/// already-open action bubble stable while those notifications refer to the
+/// same peek; only a replacement, removal, or genuinely new arrival resets it.
+bool shouldCollapseExpandedNudge({
+  required String? previousPeekId,
+  required String? nextPeekId,
+  required bool isNewArrival,
+}) {
+  return nextPeekId == null || nextPeekId != previousPeekId || isNewArrival;
+}
+
 /// §9.2 v4 「飞入相框」coordinator. The board measures its hero's resting global
 /// rect (transform-independent) and asks the floating ball to fly there; the ball
 /// (overlay-resident, its controller always ticks) animates position+scale into
@@ -166,6 +177,7 @@ class _FloatingMascotState extends State<FloatingMascot>
   );
   final _nudges = RekaNudges.instance;
   int _lastBob = 0;
+  String? _lastPeekId;
   bool _nudgeExpanded = false;
   Timer? _peekTimer;
   Pet? _lastRenderedPet;
@@ -184,6 +196,7 @@ class _FloatingMascotState extends State<FloatingMascot>
     rekaFunctionRequest.addListener(_onFunctionRequest);
     rekaNudgeActRequest.addListener(_onNudgeActRequest);
     _lastBob = _nudges.bobSignal;
+    _lastPeekId = _nudges.peek?.id;
     _nudges.addListener(_onNudges);
   }
 
@@ -212,11 +225,20 @@ class _FloatingMascotState extends State<FloatingMascot>
   void _onNudges() {
     if (!mounted) return;
     final isNew = _nudges.bobSignal != _lastBob;
+    final nextPeekId = _nudges.peek?.id;
+    final collapse = shouldCollapseExpandedNudge(
+      previousPeekId: _lastPeekId,
+      nextPeekId: nextPeekId,
+      isNewArrival: isNew,
+    );
     _lastBob = _nudges.bobSignal;
+    _lastPeekId = nextPeekId;
     if (_nudges.peek != null && isNew && mascotSuppressed.value == 0) {
       _bob.forward(from: 0); // 轻 bob — REKA 主动找你的签名 (§14.7)
     }
-    setState(() => _nudgeExpanded = false);
+    setState(() {
+      if (collapse) _nudgeExpanded = false;
+    });
     _restartPeekTimer();
   }
 

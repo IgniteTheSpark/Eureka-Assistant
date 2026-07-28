@@ -307,6 +307,59 @@ void main() {
       expect(controller.unreadCount, 0);
     });
 
+    test(
+      'shared Home outcome overlays a stale load that completes later',
+      () async {
+        final store = RekaNudges.instance;
+        store.reset();
+        addTearDown(store.reset);
+        store.pushArrival(
+          const RekaNudge(id: 'shared', text: '共享提醒', status: 'delivered'),
+        );
+        final pendingLoad = Completer<List<Map<String, dynamic>>>();
+        final repository = _PendingRepository(pendingLoad);
+        final controller = RekaInboxController(
+          repository: repository,
+          observeNudgeStore: true,
+        );
+        addTearDown(controller.dispose);
+        final load = controller.load(includeOffers: false);
+        final api = ApiClient(
+          client: MockClient(
+            (_) async => http.Response(
+              jsonEncode({
+                'ok': true,
+                'nudge': {'status': 'acted'},
+              }),
+              200,
+              headers: const {'content-type': 'application/json'},
+            ),
+          ),
+          baseUrl: 'https://inbox.test',
+          enableLogging: false,
+        );
+        addTearDown(api.close);
+
+        expect(await store.outcome('shared', 'acted', api: api), isTrue);
+        pendingLoad.complete([_row('shared', status: 'delivered')]);
+        await load;
+
+        expect(controller.itemById('shared')?.status, 'acted');
+        expect(controller.unreadCount, 0);
+      },
+    );
+
+    test('offer revival is observed before recent history is merged', () async {
+      final repository = _RevivedOfferRepository();
+      final controller = RekaInboxController(repository: repository);
+
+      await controller.load();
+
+      expect(repository.recentLoadedAfterOffer, isTrue);
+      expect(controller.itemById('revived')?.status, 'pending');
+      expect(controller.unreadCount, 1);
+    });
+
     test('a live REKA arrival refreshes the data-backed badge', () async {
       final store = RekaNudges.instance;
       store.reset();
@@ -428,6 +481,91 @@ void main() {
       expect(outcomeBody, {'status': 'seen'});
     },
   );
+
+  test(
+    'shared outcome adopts the backend authoritative terminal status',
+    () async {
+      final store = RekaNudges.instance;
+      store.reset();
+      addTearDown(store.reset);
+      store.pushArrival(
+        const RekaNudge(id: 'shared', text: '共享提醒', status: 'delivered'),
+      );
+      final api = ApiClient(
+        client: MockClient(
+          (_) async => http.Response(
+            jsonEncode({
+              'ok': true,
+              'nudge': {'status': 'acted'},
+            }),
+            200,
+            headers: const {'content-type': 'application/json'},
+          ),
+        ),
+        baseUrl: 'https://inbox.test',
+        enableLogging: false,
+      );
+      addTearDown(api.close);
+
+      expect(await store.outcome('shared', 'seen', api: api), isTrue);
+
+      expect(store.latestOutcome?.status, 'acted');
+      expect(store.latestOutcome?.committed, isTrue);
+      expect(store.pending.where((item) => item.id == 'shared'), isEmpty);
+    },
+  );
+
+  test(
+    'older same-id outcome completion cannot overwrite a newer outcome',
+    () async {
+      final store = RekaNudges.instance;
+      store.reset();
+      addTearDown(store.reset);
+      store.pushArrival(
+        const RekaNudge(id: 'shared', text: '共享提醒', status: 'delivered'),
+      );
+      final seen = Completer<http.Response>();
+      final acted = Completer<http.Response>();
+      final api = ApiClient(
+        client: MockClient((request) {
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          return body['status'] == 'seen' ? seen.future : acted.future;
+        }),
+        baseUrl: 'https://inbox.test',
+        enableLogging: false,
+      );
+      addTearDown(api.close);
+
+      final seenOutcome = store.outcome('shared', 'seen', api: api);
+      final actedOutcome = store.outcome('shared', 'acted', api: api);
+      acted.complete(
+        http.Response(
+          jsonEncode({
+            'ok': true,
+            'nudge': {'status': 'acted'},
+          }),
+          200,
+          headers: const {'content-type': 'application/json'},
+        ),
+      );
+      expect(await actedOutcome, isTrue);
+      seen.complete(
+        http.Response(
+          jsonEncode({
+            'ok': true,
+            'nudge': {'status': 'acted'},
+          }),
+          200,
+          headers: const {'content-type': 'application/json'},
+        ),
+      );
+      expect(await seenOutcome, isTrue);
+
+      expect(store.latestOutcome?.status, 'acted');
+      expect(store.latestOutcome?.committed, isTrue);
+      expect(store.pending.where((item) => item.id == 'shared'), isEmpty);
+    },
+  );
 }
 
 Map<String, dynamic> _row(
@@ -522,6 +660,26 @@ class _PendingRepository extends _FakeRepository {
 
   @override
   Future<List<Map<String, dynamic>>> loadPending() => pendingLoad.future;
+}
+
+class _RevivedOfferRepository extends _FakeRepository {
+  _RevivedOfferRepository()
+    : super(pending: const [], recent: const [], offers: const []);
+
+  bool _offerLoaded = false;
+  bool recentLoadedAfterOffer = false;
+
+  @override
+  Future<List<Map<String, dynamic>>> loadOffers() async {
+    _offerLoaded = true;
+    return [_row('revived', status: 'pending')];
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> loadRecent() async {
+    recentLoadedAfterOffer = _offerLoaded;
+    return [_row('revived', status: _offerLoaded ? 'pending' : 'dismissed')];
+  }
 }
 
 class _ControlledOutcomeRepository extends _FakeRepository {

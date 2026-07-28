@@ -35,6 +35,7 @@ class _RekaInboxPageState extends State<RekaInboxPage> {
   late final RekaInboxController _controller =
       widget.controller ?? RekaInboxController();
   late final bool _ownsController = widget.controller == null;
+  final Set<String> _actInFlight = {};
 
   @override
   void initState() {
@@ -62,25 +63,30 @@ class _RekaInboxPageState extends State<RekaInboxPage> {
   }
 
   Future<void> _act(RekaInboxItem item) async {
-    if (!await _controller.markActed(item.id) || !mounted) return;
-    final callback = widget.onAct;
-    if (callback != null) {
-      callback(item);
-      return;
+    if (!_actInFlight.add(item.id)) return;
+    try {
+      if (!await _controller.markActed(item.id) || !mounted) return;
+      final callback = widget.onAct;
+      if (callback != null) {
+        callback(item);
+        return;
+      }
+      if (item.cta == 'view') {
+        await openNotificationTarget('reminder', _viewLink(item.ref));
+        return;
+      }
+      rekaNudgeActRequest.value = RekaNudge(
+        id: item.id,
+        text: item.title,
+        body: item.body,
+        ref: item.ref,
+        cta: item.cta,
+        kind: item.kind,
+        status: 'acted',
+      );
+    } finally {
+      _actInFlight.remove(item.id);
     }
-    if (item.cta == 'view') {
-      await openNotificationTarget('reminder', _viewLink(item.ref));
-      return;
-    }
-    rekaNudgeActRequest.value = RekaNudge(
-      id: item.id,
-      text: item.title,
-      body: item.body,
-      ref: item.ref,
-      cta: item.cta,
-      kind: item.kind,
-      status: 'acted',
-    );
   }
 
   String _viewLink(String ref) => ref.startsWith('reminder:')
