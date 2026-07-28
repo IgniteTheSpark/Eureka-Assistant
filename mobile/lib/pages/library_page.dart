@@ -11,6 +11,7 @@ import '../render/skill_card.dart';
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
 import '../theme/ureka_tokens.dart';
+import '../theme_v2/library/library_controller.dart';
 import '../timeline/timeline.dart';
 import '../widgets/quiet_surface.dart';
 import '../widgets/skeleton_loader.dart';
@@ -82,11 +83,18 @@ const _activeCap = 9;
 
 class _LibraryPageState extends State<LibraryPage> {
   final _api = ApiClient();
+  late final ApiLibraryRepository _repository;
   // Revision-keyed fetch: build() re-subscribes to `dataRevision` every frame
   // via ValueListenableBuilder, so a data change always re-fetches — and unlike
   // an initState-registered listener, this survives hot-reload (build re-runs).
   int _loadedRev = -1;
   Future<_LibData>? _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _repository = ApiLibraryRepository(_api);
+  }
 
   Future<_LibData> _futureFor(int rev) {
     if (rev != _loadedRev || _future == null) {
@@ -97,46 +105,15 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   Future<_LibData> _load() async {
-    final r = await Future.wait([
-      fetchAssets(_api),
-      fetchSkills(_api),
-      _fetchList('/api/events', 'events'),
-      _fetchList('/api/contacts', 'contacts'),
-      _fetchList('/api/reports', 'reports'),
-      _fetchCounts(),
-    ]);
+    final snapshot = await _repository.load();
     return _LibData(
-      r[0] as List<AssetItem>,
-      r[1] as Map<String, SkillMeta>,
-      r[2] as List<Map<String, dynamic>>,
-      r[3] as List<Map<String, dynamic>>,
-      r[4] as List<Map<String, dynamic>>,
-      r[5] as Map<String, int>,
+      snapshot.assets,
+      snapshot.skills,
+      snapshot.events,
+      snapshot.contacts,
+      snapshot.reports,
+      snapshot.assetCounts,
     );
-  }
-
-  /// True per-skill total asset counts (all-time) for the container tiles.
-  Future<Map<String, int>> _fetchCounts() async {
-    try {
-      final res = await _api.getJson('/api/assets/counts');
-      final m = (res is Map ? res['counts'] : null) as Map? ?? const {};
-      return m.map((k, v) => MapEntry(k as String, (v as num).toInt()));
-    } catch (_) {
-      return const {};
-    }
-  }
-
-  Future<List<Map<String, dynamic>>> _fetchList(String path, String key) async {
-    try {
-      final res = await _api.getJson(path);
-      final list = (res is Map ? res[key] : null) as List? ?? const [];
-      return list
-          .whereType<Map>()
-          .map((e) => e.cast<String, dynamic>())
-          .toList();
-    } catch (_) {
-      return const [];
-    }
   }
 
   void _refresh() => bumpData(); // global bump → revision changes → re-fetch

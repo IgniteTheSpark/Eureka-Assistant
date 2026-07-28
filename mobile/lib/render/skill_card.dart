@@ -45,6 +45,98 @@ final renderSpecsProvider = FutureProvider<Map<String, RenderSpec>>((
   }
 });
 
+String? skillCardAssetId(Map<String, dynamic> card) {
+  final type = card['card_type'] as String?;
+  final id = switch (type) {
+    'event' => card['event_id'] ?? card['id'] ?? card['asset_id'],
+    'contact' => card['contact_id'] ?? card['asset_id'] ?? card['id'],
+    _ => card['asset_id'] ?? card['id'],
+  };
+  return id?.toString();
+}
+
+CardData resolveSkillCardData(
+  Map<String, dynamic> card,
+  Map<String, RenderSpec> specs,
+) {
+  if (card.containsKey('accent_color') || card.containsKey('meta_fields')) {
+    final meta = <({String value, String? format})>[];
+    for (final item
+        in ((card['meta_fields'] as List?) ?? const []).whereType<Map>()) {
+      final value = item['value']?.toString() ?? '';
+      if (value.isNotEmpty) {
+        meta.add((value: value, format: item['format'] as String?));
+      }
+    }
+    final actions = ((card['actions'] as List?) ?? const [])
+        .whereType<String>()
+        .toSet();
+    final payload =
+        (card['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final eventSummary = card['card_type'] == 'event'
+        ? eventCardSummary({...card, ...payload})
+        : '';
+    final todo =
+        card['card_type'] == 'todo' ||
+        card['user_skill_name'] == 'todo' ||
+        card['skill_name'] == 'todo';
+    final done = todoPayloadIsDone(card) || todoPayloadIsDone(payload);
+    return CardData(
+      layout:
+          (card['card_layout'] ?? card['layout']) as String? ?? 'horizontal',
+      icon: card['icon'] as String? ?? '•',
+      accentColor: card['accent_color'] as String? ?? 'gray',
+      title: card['title'] as String? ?? '资产',
+      subtitle: eventSummary.isNotEmpty
+          ? eventSummary
+          : card['subtitle'] as String? ?? '',
+      metaFields: eventSummary.isNotEmpty ? const [] : meta,
+      checkDone: todo || actions.contains('check') ? done : null,
+    ).copyWith(domain: card['domain'] as String?);
+  }
+  final type = card['card_type'] as String?;
+  if (type == 'event' || type == 'contact' || type == 'task') {
+    return buildCard(
+      payload: card,
+      spec: synthesizeSpec(type!),
+      displayName: type,
+    ).copyWith(domain: card['domain'] as String?);
+  }
+  final skill = card['user_skill_name'] as String?;
+  final payload =
+      (card['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
+  final spec = skill != null ? specs[skill] : null;
+  return buildCard(
+    payload: payload,
+    spec: spec ?? synthesizeSpec(skill ?? 'misc'),
+    displayName: skill ?? '资产',
+  ).copyWith(domain: card['domain'] as String?);
+}
+
+void showSkillCardDetail(
+  BuildContext context, {
+  required Map<String, dynamic> card,
+  required Map<String, RenderSpec> specs,
+  CardData? resolvedData,
+}) {
+  final type = card['card_type'] as String?;
+  final isEntity = type == 'event' || type == 'contact' || type == 'task';
+  final payload = isEntity
+      ? card
+      : ((card['payload'] as Map?)?.cast<String, dynamic>() ?? const {});
+  final cardType = type ?? (card['user_skill_name'] as String?) ?? 'asset';
+  final skill = card['user_skill_name'] as String?;
+  showAssetDetail(
+    context,
+    data: resolvedData ?? resolveSkillCardData(card, specs),
+    payload: payload,
+    cardType: cardType,
+    assetId: skillCardAssetId(card),
+    sessionId: card['session_id'] as String?,
+    spec: skill == null ? null : specs[skill],
+  );
+}
+
 /// The universal render_spec-driven card (mirrors the web SkillCard). Resolves
 /// its spec from the registry (asset cards) or synthesizes one (event/contact/
 /// task), then renders the layout the spec asks for.
@@ -79,13 +171,7 @@ class _SkillCardState extends ConsumerState<SkillCard> {
       card['skill_name'] == 'todo';
 
   String? get _assetId {
-    final type = card['card_type'] as String?;
-    final id = switch (type) {
-      'event' => card['event_id'] ?? card['id'] ?? card['asset_id'],
-      'contact' => card['contact_id'] ?? card['asset_id'] ?? card['id'],
-      _ => card['asset_id'] ?? card['id'],
-    };
-    return id as String?;
+    return skillCardAssetId(card);
   }
 
   @override
@@ -162,7 +248,7 @@ class _SkillCardState extends ConsumerState<SkillCard> {
     if (_deleted) return const SizedBox.shrink();
     final eu = context.eu;
     final specs = ref.watch(renderSpecsProvider).valueOrNull ?? const {};
-    var data = _resolve(specs);
+    var data = resolveSkillCardData(card, specs);
     if (widget.layoutOverride != null) {
       data = data.copyWith(layout: widget.layoutOverride);
     }
@@ -170,28 +256,18 @@ class _SkillCardState extends ConsumerState<SkillCard> {
     data = data.copyWith(domain: card['domain'] as String?); // §8 domain chip
 
     final type = card['card_type'] as String?;
-    final isEntity = type == 'event' || type == 'contact' || type == 'task';
-    final payload = isEntity
-        ? card
-        : ((card['payload'] as Map?)?.cast<String, dynamic>() ?? const {});
     final cardType = type ?? (card['user_skill_name'] as String?) ?? 'asset';
-    // The skill's own spec drives the detail sheet's field labels + formats.
-    final skill = card['user_skill_name'] as String?;
-    final spec = skill != null ? specs[skill] : null;
 
     final canToggle = data.checkDone != null && _assetId != null;
     final body = GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap:
           widget.onTap ??
-          () => showAssetDetail(
+          () => showSkillCardDetail(
             context,
-            data: data,
-            payload: payload,
-            cardType: cardType,
-            assetId: _assetId,
-            sessionId: card['session_id'] as String?,
-            spec: spec,
+            card: card,
+            specs: specs,
+            resolvedData: data,
           ),
       child: _CardBody(data, onToggleCheck: canToggle ? _toggle : null),
     );
@@ -356,66 +432,6 @@ class _SkillCardState extends ConsumerState<SkillCard> {
     } catch (_) {
       if (mounted) setState(() => _doneOverride = !next); // revert on failure
     }
-  }
-
-  CardData _resolve(Map<String, RenderSpec> specs) {
-    // Pre-built card: agent/flash messages persist fully-rendered cards
-    // (icon/title/subtitle/accent_color/meta_fields). Use them as-is instead
-    // of re-resolving from a render_spec (we have no payload for these).
-    if (card.containsKey('accent_color') || card.containsKey('meta_fields')) {
-      return _prebuilt();
-    }
-    final type = card['card_type'] as String?;
-    if (type == 'event' || type == 'contact' || type == 'task') {
-      return buildCard(
-        payload: card,
-        spec: synthesizeSpec(type!),
-        displayName: type,
-      );
-    }
-    final skill = card['user_skill_name'] as String?;
-    final payload =
-        (card['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
-    final spec = skill != null ? specs[skill] : null;
-    return buildCard(
-      payload: payload,
-      spec: spec ?? synthesizeSpec(skill ?? 'misc'),
-      displayName: skill ?? '资产',
-    );
-  }
-
-  CardData _prebuilt() {
-    final meta = <({String value, String? format})>[];
-    for (final m
-        in ((card['meta_fields'] as List?) ?? const []).whereType<Map>()) {
-      final v = m['value']?.toString() ?? '';
-      if (v.isNotEmpty) meta.add((value: v, format: m['format'] as String?));
-    }
-    // Checkable cards (todo) expose a "check" action → always carry a bool
-    // checkDone so the corner checkbox renders and can be toggled. Non-check
-    // cards keep checkDone null (emoji icon, no checkbox).
-    final actions = ((card['actions'] as List?) ?? const [])
-        .whereType<String>()
-        .toSet();
-    final payload =
-        (card['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
-    final eventSummary = card['card_type'] == 'event'
-        ? eventCardSummary({...card, ...payload})
-        : '';
-    final done = todoPayloadIsDone(card) || todoPayloadIsDone(payload);
-    final checkable = _isTodoCard || actions.contains('check');
-    return CardData(
-      layout:
-          (card['card_layout'] ?? card['layout']) as String? ?? 'horizontal',
-      icon: card['icon'] as String? ?? '•',
-      accentColor: card['accent_color'] as String? ?? 'gray',
-      title: card['title'] as String? ?? '资产',
-      subtitle: eventSummary.isNotEmpty
-          ? eventSummary
-          : card['subtitle'] as String? ?? '',
-      metaFields: eventSummary.isNotEmpty ? const [] : meta,
-      checkDone: checkable ? done : null,
-    );
   }
 }
 

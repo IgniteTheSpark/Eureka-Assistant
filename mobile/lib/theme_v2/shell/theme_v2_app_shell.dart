@@ -4,12 +4,12 @@ import '../../app_shell.dart' show scheduleShellStartupSurface;
 import '../../data_revision.dart';
 import '../../pages/calendar_page.dart' show calendarHome;
 import '../../pages/device_pairing_page.dart';
-import '../../pages/library_page.dart';
 import '../../pages/notifications_page.dart';
 import '../../pages/today_page.dart';
 import '../../theme/app_theme.dart';
 import '../calendar/theme_v2_calendar_page.dart';
 import '../foundation/theme_v2_theme.dart';
+import '../library/theme_v2_library_page.dart';
 import 'device_status_summary.dart';
 import 'theme_v2_floating_dock.dart';
 import 'theme_v2_global_top_nav.dart';
@@ -99,7 +99,7 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
         [
           ThemeV2PageScaffold(body: TodayPage(active: _index == 0)),
           const ThemeV2PageScaffold(body: ThemeV2CalendarPage()),
-          const ThemeV2PageScaffold(body: LibraryPage()),
+          const ThemeV2PageScaffold(body: ThemeV2LibraryPage()),
         ];
   }
 
