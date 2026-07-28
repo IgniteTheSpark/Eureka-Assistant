@@ -10,6 +10,10 @@ import '../render/render_spec.dart';
 import '../theme/app_theme.dart';
 import '../theme/domains.dart';
 import '../theme/eureka_colors.dart';
+import '../theme_v2/calendar/calendar_controller.dart';
+import '../theme_v2/calendar/calendar_models.dart';
+import '../theme_v2/calendar/calendar_mode_state.dart';
+import '../theme_v2/calendar/calendar_time_layout.dart';
 import '../timeline/timeline.dart';
 import '../widgets/skeleton_loader.dart';
 import 'create_asset.dart';
@@ -139,29 +143,6 @@ class CalendarPage extends StatefulWidget {
   State<CalendarPage> createState() => _CalendarPageState();
 }
 
-class _CalData {
-  final List<TimelineItem> items;
-  final Map<String, SkillMeta> skills;
-  final Map<DateTime, List<TimelineItem>> byDay;
-  _CalData(this.items, this.skills) : byDay = _bucket(items);
-
-  static Map<DateTime, List<TimelineItem>> _bucket(List<TimelineItem> items) {
-    final m = <DateTime, List<TimelineItem>>{};
-    for (final it in items) {
-      final d = DateTime(
-        it.effectiveAt.year,
-        it.effectiveAt.month,
-        it.effectiveAt.day,
-      );
-      m.putIfAbsent(d, () => []).add(it);
-    }
-    for (final v in m.values) {
-      v.sort((a, b) => a.effectiveAt.compareTo(b.effectiveAt));
-    }
-    return m;
-  }
-}
-
 /// Bumped by the shell when the 今天 tab is (re)selected → the calendar resets
 /// to 流(timeline) and the stream jumps to today (默认「流 · 今天」).
 final ValueNotifier<int> calendarHome = ValueNotifier<int>(0);
@@ -172,11 +153,11 @@ class _CalendarPageState extends State<CalendarPage> {
   // `dataRevision` so a data change always re-fetches, and it survives
   // hot-reload (no initState-registered listener to miss).
   int _loadedRev = -1;
-  Future<_CalData>? _future;
-  _CalData?
+  Future<CalendarData>? _future;
+  CalendarData?
   _lastData; // keep last data on screen during a refetch (no spinner flash)
 
-  Future<_CalData> _futureFor(int rev) {
+  Future<CalendarData> _futureFor(int rev) {
     if (rev != _loadedRev || _future == null) {
       _loadedRev = rev;
       _future = _load();
@@ -184,28 +165,27 @@ class _CalendarPageState extends State<CalendarPage> {
     return _future!;
   }
 
-  // START_CAL_MODE lets a build boot into a specific calendar mode for
-  // screenshot/visual verification (timeline | month | year). Default = 流
-  // (timeline · 今天) — the home view (产品决策 2026-06).
-  String _mode = const String.fromEnvironment(
-    'START_CAL_MODE',
-    defaultValue: 'timeline',
+  // Pure state owns START_CAL_MODE parsing and the single Flow/Month/Year mode.
+  final CalendarController _calendarController = CalendarController(
+    modeState: CalendarModeState.fromStartDefine(),
   );
+  String get _mode => _calendarController.legacyModeValue;
   late DateTime _focusMonth = DateTime(
     DateTime.now().year,
     DateTime.now().month,
   );
 
   // 流/月/年 are swipeable (PageView) + tappable (segmented), kept in sync.
-  static const _modes = ['timeline', 'month', 'year'];
-  int get _modeIndex => _modes.indexOf(_mode).clamp(0, 2);
-  late final PageController _pager = PageController(initialPage: _modeIndex);
+  late final PageController _pager = PageController(
+    initialPage: _calendarController.horizontalIndex,
+  );
 
   void _switchMode(String m, {bool animate = true}) {
-    if (m == _mode && !animate) return;
-    setState(() => _mode = m);
-    final i = _modes.indexOf(m);
-    if (i >= 0 && _pager.hasClients && animate) {
+    final changed = _calendarController.selectMode(CalendarModeState.parse(m));
+    if (!changed && !animate) return;
+    setState(() {});
+    final i = _calendarController.horizontalIndex;
+    if (_pager.hasClients && animate) {
       _pager.animateToPage(
         i,
         duration: const Duration(milliseconds: 260),
@@ -214,9 +194,12 @@ class _CalendarPageState extends State<CalendarPage> {
     }
   }
 
-  Future<_CalData> _load() async {
+  Future<CalendarData> _load() async {
     final r = await Future.wait([fetchTimeline(_api), fetchSkills(_api)]);
-    return _CalData(r[0] as List<TimelineItem>, r[1] as Map<String, SkillMeta>);
+    return CalendarData(
+      r[0] as List<TimelineItem>,
+      r[1] as Map<String, SkillMeta>,
+    );
   }
 
   void _refresh() => bumpData(); // global bump → revision changes → re-fetch
@@ -280,7 +263,7 @@ class _CalendarPageState extends State<CalendarPage> {
             Expanded(
               child: ValueListenableBuilder<int>(
                 valueListenable: dataRevision,
-                builder: (context, rev, _) => FutureBuilder<_CalData>(
+                builder: (context, rev, _) => FutureBuilder<CalendarData>(
                   future: _futureFor(rev),
                   builder: (ctx, snap) {
                     if (snap.hasData) _lastData = snap.data;
@@ -311,7 +294,9 @@ class _CalendarPageState extends State<CalendarPage> {
                     // Swipeable 流/月/年 (synced with the segmented control).
                     return PageView(
                       controller: _pager,
-                      onPageChanged: (i) => setState(() => _mode = _modes[i]),
+                      onPageChanged: (i) => setState(
+                        () => _calendarController.setHorizontalIndex(i),
+                      ),
                       children: [
                         _TimelineView(data: data),
                         _MonthView(
@@ -408,7 +393,7 @@ String streamMonthLabel(DateTime day) => '${day.year}年${day.month}月';
 /// future. The forward window grows as you near the bottom, so it never ends.
 /// Empty stretches collapse into a thin separator so the stream stays scannable.
 class _TimelineView extends StatefulWidget {
-  final _CalData data;
+  final CalendarData data;
   const _TimelineView({required this.data});
 
   @override
@@ -3021,25 +3006,31 @@ class _DayDetailPageState extends State<DayDetailPage> {
     // 只把代表项放进列布局(渲染时换成计数 chip);事件 / 单条待办照旧。
     final clusters = <String, List<TimelineItem>>{}; // repId → 同点待办们
     final layout = <TimelineItem>[];
-    final byMin = <int, List<TimelineItem>>{};
-    for (final it in timed) {
-      if (it.kind != 'event' && it.skillName == 'todo') {
-        byMin.putIfAbsent(_startMin(it), () => []).add(it);
-      } else {
-        layout.add(it);
+    final records = timed.map(CalendarRecord.fromTimeline).toList();
+    final bands = buildCalendarTodoBands(records);
+    final bandForTodo = <String, CalendarTodoBand>{
+      for (final band in bands)
+        for (final todo in band.todos) todo.id: band,
+    };
+    for (final record in records) {
+      final band = bandForTodo[record.id];
+      if (band == null) {
+        layout.add(record.item);
+      } else if (record.id == band.todos.first.id) {
+        final todos = band.todos.map((todo) => todo.item).toList();
+        clusters[record.id] = todos;
+        layout.add(record.item);
       }
     }
-    byMin.forEach((_, todos) {
-      if (todos.length > 1) clusters[todos.first.id] = todos;
-      layout.add(todos.first);
-    });
     // §B 手风琴:每个「展开」的计数 chip 在它的时刻插入 N*行高 的真实高度;pushAt(y) =
     // y 之上所有展开 chip 的插入量之和 → 加到每个元素的 top,把下方内容整体下推、不悬浮覆盖。
     final expansions = <(double, double)>[]; // (baseTop, extraHeight)
     clusters.forEach((repId, todos) {
       if (_expandedClusters.contains(repId)) {
         expansions.add((
-          _startMin(todos.first) / 60.0 * _kHourHeight,
+          calendarStartMinute(CalendarRecord.fromTimeline(todos.first)) /
+              60.0 *
+              _kHourHeight,
           todos.length * _kClusterRowH,
         ));
       }
@@ -3055,7 +3046,12 @@ class _DayDetailPageState extends State<DayDetailPage> {
     final gridHeight =
         baseGridHeight + expansions.fold<double>(0.0, (a, e) => a + e.$2);
     // 重叠规则:同时段事件/待办等分成并列列(google-calendar 式)。grid 占满 body 宽。
-    final cols = _eventColumns(layout);
+    final cols = <String, (int, int)>{
+      for (final slot in layoutCalendarTime(
+        layout.map(CalendarRecord.fromTimeline),
+      ))
+        slot.id: (slot.columnIndex, slot.columnCount),
+    };
     const leftPad = 62.0, gap = 3.0;
     final avail = (MediaQuery.sizeOf(context).width - leftPad - 12.0).clamp(
       40.0,
@@ -3116,7 +3112,11 @@ class _DayDetailPageState extends State<DayDetailPage> {
                       leftPad: leftPad,
                       avail: avail,
                       gap: gap,
-                      topOffset: pushAt(_startMin(it) / 60.0 * _kHourHeight),
+                      topOffset: pushAt(
+                        calendarStartMinute(CalendarRecord.fromTimeline(it)) /
+                            60.0 *
+                            _kHourHeight,
+                      ),
                     )
                   : _eventBlock(
                       eu,
@@ -3127,7 +3127,11 @@ class _DayDetailPageState extends State<DayDetailPage> {
                       leftPad: leftPad,
                       avail: avail,
                       gap: gap,
-                      topOffset: pushAt(_startMin(it) / 60.0 * _kHourHeight),
+                      topOffset: pushAt(
+                        calendarStartMinute(CalendarRecord.fromTimeline(it)) /
+                            60.0 *
+                            _kHourHeight,
+                      ),
                     ),
             // "now" line — only on today
             if (isToday)
@@ -3175,65 +3179,6 @@ class _DayDetailPageState extends State<DayDetailPage> {
     );
   }
 
-  static int _startMin(TimelineItem it) =>
-      it.effectiveAt.hour * 60 + it.effectiveAt.minute;
-  static int _endMin(TimelineItem it) {
-    final s = _startMin(it);
-    var e = it.endAt != null ? it.endAt!.hour * 60 + it.endAt!.minute : s + 30;
-    if (e <= s) e = s + 30;
-    return e;
-  }
-
-  // 重叠规则:把事件按重叠 cluster 分配并列列(每列内不重叠),返回每条的
-  // (列序号, 该 cluster 的总列数)。一个 cluster 等分成 N 列。
-  Map<String, (int, int)> _eventColumns(List<TimelineItem> events) {
-    final sorted = [...events]
-      ..sort((a, b) {
-        final c = _startMin(a).compareTo(_startMin(b));
-        return c != 0 ? c : _endMin(b).compareTo(_endMin(a));
-      });
-    final out = <String, (int, int)>{};
-    final cluster = <TimelineItem>[];
-    var clusterEnd = -1;
-
-    void flush() {
-      if (cluster.isEmpty) return;
-      final colEnds =
-          <int>[]; // end-min of the last event placed in each column
-      final colOf = <String, int>{};
-      for (final e in cluster) {
-        final s = _startMin(e);
-        var placed = -1;
-        for (var i = 0; i < colEnds.length; i++) {
-          if (colEnds[i] <= s) {
-            placed = i;
-            break;
-          }
-        }
-        if (placed == -1) {
-          placed = colEnds.length;
-          colEnds.add(0);
-        }
-        colEnds[placed] = _endMin(e);
-        colOf[e.id] = placed;
-      }
-      final count = colEnds.length;
-      for (final e in cluster) {
-        out[e.id] = (colOf[e.id] ?? 0, count);
-      }
-      cluster.clear();
-      clusterEnd = -1;
-    }
-
-    for (final e in sorted) {
-      if (cluster.isNotEmpty && _startMin(e) >= clusterEnd) flush();
-      cluster.add(e);
-      if (_endMin(e) > clusterEnd) clusterEnd = _endMin(e);
-    }
-    flush();
-    return out;
-  }
-
   Widget _eventBlock(
     EurekaColors eu,
     TimelineItem it,
@@ -3245,12 +3190,9 @@ class _DayDetailPageState extends State<DayDetailPage> {
     required double gap,
     double topOffset = 0,
   }) {
-    final start = it.effectiveAt;
-    final startMin = start.hour * 60 + start.minute;
-    var endMin = it.endAt != null
-        ? it.endAt!.hour * 60 + it.endAt!.minute
-        : startMin + 30;
-    if (endMin <= startMin) endMin = startMin + 30;
+    final record = CalendarRecord.fromTimeline(it);
+    final startMin = calendarStartMinute(record);
+    final endMin = calendarEndMinute(record);
     final top = startMin / 60.0 * _kHourHeight + topOffset;
     final rawH = (endMin - startMin) / 60.0 * _kHourHeight;
     final height = rawH < 24 ? 24.0 : rawH;
@@ -3350,7 +3292,11 @@ class _DayDetailPageState extends State<DayDetailPage> {
   }) {
     final repId = todos.first.id;
     final expanded = _expandedClusters.contains(repId);
-    final top = _startMin(todos.first) / 60.0 * _kHourHeight + topOffset;
+    final top =
+        calendarStartMinute(CalendarRecord.fromTimeline(todos.first)) /
+            60.0 *
+            _kHourHeight +
+        topOffset;
     final colW = (avail - gap * (count - 1)) / count;
     final left = leftPad + col * (colW + gap);
     final accent = eu.accentBlue;
