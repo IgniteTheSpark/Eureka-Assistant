@@ -1,3 +1,5 @@
+import 'package:eureka/pet/floating_mascot.dart'
+    show mascotSuppressed, releaseMascotSuppress;
 import 'package:eureka/theme_v2/calendar/calendar_manual_record_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -5,6 +7,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'calendar_test_fixtures.dart';
 
 void main() {
+  setUp(() => mascotSuppressed.value = 0);
+  tearDown(() {
+    while (mascotSuppressed.value > 0) {
+      releaseMascotSuppress();
+    }
+  });
+
   const options = [
     CalendarSkillOption.event(),
     CalendarSkillOption.asset(
@@ -97,6 +106,37 @@ void main() {
 
     expect(loads, 2);
     expect(find.bySemanticsLabel('手动记录：咖啡记录'), findsWidgets);
+  });
+
+  testWidgets('modal picker suppresses and then restores the global mascot', (
+    tester,
+  ) async {
+    Future<CalendarSkillOption?>? result;
+    await tester.pumpWidget(
+      calendarTestHost(
+        Builder(
+          builder: (context) => TextButton(
+            onPressed: () {
+              result = showCalendarManualRecordPicker(
+                context,
+                effectiveDate: DateTime(2026, 7, 3),
+                loader: () async => options,
+              );
+            },
+            child: const Text('打开'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('打开'));
+    await tester.pump();
+    expect(mascotSuppressed.value, 1);
+
+    await tester.tap(find.bySemanticsLabel('关闭手动记录'));
+    await tester.pumpAndSettle();
+    expect(await result, isNull);
+    expect(mascotSuppressed.value, 0);
   });
 
   test('parsing excludes disabled, deprecated, and non-record Skills', () {

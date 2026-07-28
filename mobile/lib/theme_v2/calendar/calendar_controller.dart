@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import 'calendar_mode_state.dart';
 
 typedef CalendarDraftMutation =
@@ -26,7 +28,9 @@ class CalendarController {
   DateTime? _selectedDate;
   CalendarInlineDraft? _inlineDraft;
   bool _confirming = false;
-  CalendarSurface _surface = CalendarSurface.overview;
+  final ValueNotifier<CalendarSurface> surfaceListenable = ValueNotifier(
+    CalendarSurface.overview,
+  );
 
   CalendarController({CalendarModeState? modeState, DateTime? selectedDate})
     : _modeState = modeState ?? CalendarModeState(),
@@ -38,7 +42,7 @@ class CalendarController {
   DateTime? get selectedDate => _selectedDate;
   CalendarInlineDraft? get inlineDraft => _inlineDraft;
   bool get isConfirmingDraft => _confirming;
-  CalendarSurface get surface => _surface;
+  CalendarSurface get surface => surfaceListenable.value;
 
   bool selectMode(CalendarMode mode) => _modeState.select(mode);
 
@@ -62,29 +66,29 @@ class CalendarController {
 
   void openDay(DateTime date) {
     changeDate(date);
-    _surface = CalendarSurface.dayDetail;
+    surfaceListenable.value = CalendarSurface.dayDetail;
   }
 
   void openSchedule() {
     if (_selectedDate == null) return;
-    _surface = CalendarSurface.schedule;
+    surfaceListenable.value = CalendarSurface.schedule;
   }
 
   void backToDay() {
     if (_selectedDate == null) {
-      _surface = CalendarSurface.overview;
+      surfaceListenable.value = CalendarSurface.overview;
       return;
     }
-    _surface = CalendarSurface.dayDetail;
+    surfaceListenable.value = CalendarSurface.dayDetail;
   }
 
   void backToOverview() {
-    _surface = CalendarSurface.overview;
+    surfaceListenable.value = CalendarSurface.overview;
     _inlineDraft = null;
   }
 
   bool back() {
-    switch (_surface) {
+    switch (surface) {
       case CalendarSurface.schedule:
         backToDay();
         return true;
@@ -109,6 +113,10 @@ class CalendarController {
     } finally {
       _confirming = false;
     }
+  }
+
+  void dispose() {
+    surfaceListenable.dispose();
   }
 
   static DateTime _dayOnly(DateTime date) =>

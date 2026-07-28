@@ -4,6 +4,8 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 
 import '../../api/api_client.dart';
+import '../../pet/floating_mascot.dart'
+    show mascotSuppressed, releaseMascotSuppress;
 import '../foundation/theme_v2_motion.dart';
 import '../foundation/theme_v2_semantics.dart';
 import '../foundation/theme_v2_theme.dart';
@@ -117,62 +119,68 @@ Future<CalendarSkillOption?> showCalendarManualRecordPicker(
   BuildContext context, {
   required DateTime effectiveDate,
   required CalendarSkillLoader loader,
-}) {
+}) async {
   final duration = ThemeV2Motion.duration(context, ThemeV2MotionToken.standard);
-  return showGeneralDialog<CalendarSkillOption>(
-    context: context,
-    barrierDismissible: false,
-    barrierLabel: '手动记录',
-    barrierColor: Colors.transparent,
-    transitionDuration: duration,
-    pageBuilder: (dialogContext, _, _) {
-      return Material(
-        type: MaterialType.transparency,
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: ExcludeSemantics(
-                child: ClipRect(
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-                    child: ColoredBox(
-                      color: Colors.black.withValues(alpha: 0.28),
+  mascotSuppressed.value++;
+  try {
+    return await showGeneralDialog<CalendarSkillOption>(
+      context: context,
+      barrierDismissible: false,
+      barrierLabel: '手动记录',
+      barrierColor: Colors.transparent,
+      transitionDuration: duration,
+      pageBuilder: (dialogContext, _, _) {
+        return Material(
+          type: MaterialType.transparency,
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: ExcludeSemantics(
+                  child: ClipRect(
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+                      child: ColoredBox(
+                        color: Colors.black.withValues(alpha: 0.28),
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-            Align(
-              alignment: Alignment.bottomCenter,
-              child: CalendarManualRecordPicker(
-                effectiveDate: effectiveDate,
-                loader: loader,
-                onSelected: (option) => Navigator.of(dialogContext).pop(option),
-                onClose: () => Navigator.of(dialogContext).pop(),
+              Align(
+                alignment: Alignment.bottomCenter,
+                child: CalendarManualRecordPicker(
+                  effectiveDate: effectiveDate,
+                  loader: loader,
+                  onSelected: (option) =>
+                      Navigator.of(dialogContext).pop(option),
+                  onClose: () => Navigator.of(dialogContext).pop(),
+                ),
               ),
-            ),
-          ],
-        ),
-      );
-    },
-    transitionBuilder: (_, animation, _, child) {
-      final curved = CurvedAnimation(
-        parent: animation,
-        curve: ThemeV2Motion.easeFluid,
-        reverseCurve: Curves.easeIn,
-      );
-      return FadeTransition(
-        opacity: curved,
-        child: SlideTransition(
-          position: Tween(
-            begin: const Offset(0, 1),
-            end: Offset.zero,
-          ).animate(curved),
-          child: child,
-        ),
-      );
-    },
-  );
+            ],
+          ),
+        );
+      },
+      transitionBuilder: (_, animation, _, child) {
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: ThemeV2Motion.easeFluid,
+          reverseCurve: Curves.easeIn,
+        );
+        return FadeTransition(
+          opacity: curved,
+          child: SlideTransition(
+            position: Tween(
+              begin: const Offset(0, 1),
+              end: Offset.zero,
+            ).animate(curved),
+            child: child,
+          ),
+        );
+      },
+    );
+  } finally {
+    releaseMascotSuppress();
+  }
 }
 
 class CalendarManualRecordPicker extends StatefulWidget {

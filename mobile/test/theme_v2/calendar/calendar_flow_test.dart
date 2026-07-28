@@ -213,6 +213,114 @@ void main() {
     );
   });
 
+  testWidgets('rich Flow days grow to keep their final record visible', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      calendarTestHost(
+        CalendarFlowView(
+          data: calendarHandoffOverviewData(),
+          controller: CalendarController(),
+          today: DateTime(2026, 7, 3),
+          onOpenDay: (_) {},
+          onRequestManualRecord: (_) {},
+          onOpenRecord: (_) {},
+          onOpenFlash: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final day = find.byKey(const ValueKey('calendar-day-content-2026-07-03'));
+    final finalRecord = find.byKey(
+      const ValueKey('calendar-record-handoff-note'),
+    );
+    expect(finalRecord, findsOneWidget);
+    expect(
+      tester.getBottomRight(finalRecord).dy,
+      lessThanOrEqualTo(tester.getBottomRight(day).dy),
+    );
+  });
+
+  testWidgets('refresh preserves the visible Flow day and intra-day offset', (
+    tester,
+  ) async {
+    final initial = calendarFixtureData();
+    final data = ValueNotifier(initial);
+    addTearDown(data.dispose);
+    await tester.pumpWidget(
+      calendarTestHost(
+        ValueListenableBuilder<CalendarData>(
+          valueListenable: data,
+          builder: (_, value, _) => CalendarFlowView(
+            data: value,
+            controller: CalendarController(),
+            today: DateTime(2026, 7, 3),
+            onOpenDay: (_) {},
+            onRequestManualRecord: (_) {},
+            onOpenRecord: (_) {},
+            onOpenFlash: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    var list = tester.widget<ListView>(
+      find.byKey(const ValueKey('calendar-flow-scroll')),
+    );
+    list.controller!.jumpTo(list.controller!.offset + 100);
+    await tester.pump();
+    final beforeRefresh = list.controller!.offset;
+
+    data.value = CalendarData([
+      ...initial.items,
+      for (var index = 0; index < 4; index++)
+        calendarFixtureItem(
+          id: 'historic-$index',
+          at: DateTime(2026, 7, 2, 9 + index),
+        ),
+    ], initial.skills);
+    await tester.pump();
+    await tester.pump();
+
+    list = tester.widget<ListView>(
+      find.byKey(const ValueKey('calendar-flow-scroll')),
+    );
+    expect(list.controller!.offset, closeTo(beforeRefresh + 124, 0.01));
+    expect(find.bySemanticsLabel('7月3日，打开日期'), findsOneWidget);
+  });
+
+  testWidgets('non-sticky Flow dates keep Flash as an independent action', (
+    tester,
+  ) async {
+    DateTime? opened;
+    await tester.pumpWidget(
+      calendarTestHost(
+        CalendarFlowView(
+          data: calendarHandoffOverviewData(),
+          controller: CalendarController(),
+          today: DateTime(2026, 7, 3),
+          onOpenDay: (_) {},
+          onRequestManualRecord: (_) {},
+          onOpenRecord: (_) {},
+          onOpenFlash: (day) => opened = day,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final nextDayFlash = find.bySemanticsLabel('7月4日，2 条闪念，查看闪念');
+    expect(nextDayFlash, findsOneWidget);
+    await tester.drag(
+      find.byKey(const ValueKey('calendar-flow-scroll')),
+      const Offset(0, -220),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(nextDayFlash);
+    expect(opened, DateTime(2026, 7, 4));
+  });
+
   testWidgets('watermark follows progressive vertical scroll', (tester) async {
     await tester.pumpWidget(
       calendarTestHost(

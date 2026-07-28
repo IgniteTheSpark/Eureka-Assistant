@@ -94,10 +94,12 @@ void main() {
     final safePadding = tester.widget<Padding>(
       find.byKey(ThemeV2FloatingDock.safeAreaPaddingKey),
     );
-    expect(safePadding.padding, const EdgeInsets.fromLTRB(12, 0, 12, 36));
+    expect(safePadding.padding, const EdgeInsets.only(bottom: 36));
+    final dock = find.byKey(ThemeV2FloatingDock.dockKey);
+    expect(tester.getSize(dock).width, 169);
     expect(
-      tester.getSize(find.byKey(ThemeV2FloatingDock.dockKey)).width,
-      lessThanOrEqualTo(336),
+      tester.getCenter(dock).dx,
+      tester.getCenter(find.byType(ThemeV2FloatingDock)).dx,
     );
     for (final label in ['今日', '日历', '资产']) {
       final size = tester.getSize(find.bySemanticsLabel(label));

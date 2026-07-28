@@ -1,9 +1,13 @@
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:eureka/theme_v2/calendar/calendar_controller.dart';
+import 'package:eureka/theme_v2/calendar/calendar_manual_record_picker.dart';
 import 'package:eureka/theme_v2/calendar/calendar_mode_state.dart';
-import 'package:eureka/theme_v2/calendar/calendar_schedule_grid.dart';
+import 'package:eureka/theme_v2/calendar/calendar_models.dart';
 import 'package:eureka/theme_v2/calendar/theme_v2_calendar_page.dart';
+import 'package:eureka/theme_v2/shell/theme_v2_floating_dock.dart';
+import 'package:eureka/theme_v2/shell/theme_v2_page_scaffold.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -12,6 +16,7 @@ import 'calendar_test_fixtures.dart';
 
 void main() {
   const surface = ValueKey('calendar-golden-surface');
+  final today = DateTime(2026, 7, 3);
 
   setUpAll(() async {
     await (FontLoader(
@@ -33,81 +38,171 @@ void main() {
     }
   });
 
+  Widget calendarPage({
+    required CalendarController controller,
+    required CalendarData data,
+  }) {
+    return ThemeV2CalendarPage(
+      controller: controller,
+      today: today,
+      initialData: data,
+      onOpenRecord: (_) {},
+      onCreateDraft: (_) async {},
+      onOpenDraftEditor: (_) {},
+    );
+  }
+
+  Widget withCalendarDock(Widget child, {bool showDock = true}) {
+    return ThemeV2PageScaffold(
+      showTopNav: false,
+      showDock: showDock,
+      body: child,
+      dock: ThemeV2FloatingDock(
+        selectedIndex: 1,
+        onDestinationSelected: (_) {},
+      ),
+    );
+  }
+
+  Widget manualPickerState(Brightness brightness) {
+    final base = withCalendarDock(
+      calendarPage(
+        controller: CalendarController(),
+        data: calendarHandoffOverviewData(),
+      ),
+    );
+    return Stack(
+      children: [
+        Positioned.fill(child: base),
+        Positioned.fill(
+          child: ClipRect(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+              child: ColoredBox(
+                color: Colors.black.withValues(
+                  alpha: brightness == Brightness.dark ? 0.38 : 0.28,
+                ),
+              ),
+            ),
+          ),
+        ),
+        Align(
+          alignment: Alignment.bottomCenter,
+          child: CalendarManualRecordPicker(
+            effectiveDate: today,
+            loader: () async => const [
+              CalendarSkillOption.event(),
+              CalendarSkillOption.asset(
+                name: 'todo',
+                displayName: '待办',
+                icon: '✅',
+                userSkillId: 'todo',
+              ),
+              CalendarSkillOption.asset(
+                name: 'note',
+                displayName: '笔记',
+                icon: '📝',
+                userSkillId: 'note',
+              ),
+              CalendarSkillOption.contact(
+                displayName: '联系人',
+                icon: '📇',
+                userSkillId: 'contact',
+              ),
+              CalendarSkillOption.asset(
+                name: 'running',
+                displayName: '跑步训练',
+                icon: '🏃',
+                userSkillId: 'running',
+              ),
+              CalendarSkillOption.asset(
+                name: 'coffee',
+                displayName: '咖啡记录',
+                icon: '☕',
+                userSkillId: 'coffee',
+              ),
+            ],
+            onSelected: (_) {},
+            onClose: () {},
+          ),
+        ),
+      ],
+    );
+  }
+
   Future<void> pumpGolden(
     WidgetTester tester, {
     required Widget child,
     required Brightness brightness,
-    Size size = calendarFixtureSize,
   }) async {
     tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = size;
+    tester.view.physicalSize = calendarFixtureSize;
     addTearDown(tester.view.resetDevicePixelRatio);
     addTearDown(tester.view.resetPhysicalSize);
     await tester.pumpWidget(
       calendarTestHost(
         RepaintBoundary(key: surface, child: child),
         brightness: brightness,
-        size: size,
       ),
     );
     await tester.pumpAndSettle();
   }
 
-  ThemeV2CalendarPage page(CalendarMode mode) => ThemeV2CalendarPage(
-    controller: CalendarController(
-      modeState: CalendarModeState(initialMode: mode),
-    ),
-    today: DateTime(2026, 7, 3),
-    initialData: calendarFixtureData(),
-    onOpenDay: (_) {},
-    onOpenRecord: (_) {},
-    onCreateDraft: (_) async {},
-    onOpenDraftEditor: (_) {},
-  );
-
   for (final brightness in Brightness.values) {
     final suffix = brightness == Brightness.light ? 'light' : 'dark';
 
-    testWidgets('flow 411 $suffix', (tester) async {
-      await pumpGolden(
-        tester,
-        child: page(CalendarMode.flow),
-        brightness: brightness,
-      );
-      await expectLater(
-        find.byKey(surface),
-        matchesGoldenFile('goldens/calendar-flow-411-$suffix.png'),
-      );
-    });
-
-    testWidgets('expanded schedule 411 $suffix', (tester) async {
-      final data = calendarFixtureData();
+    testWidgets('Flow resting 411 $suffix', (tester) async {
       await pumpGolden(
         tester,
         brightness: brightness,
-        child: CalendarScheduleGrid(
-          day: DateTime(2026, 7, 3),
-          records: data.records,
-          skills: data.skills,
-          controller: CalendarController(),
-          onOpenRecord: (_) {},
-          onCreateDraft: (_) async {},
-          onOpenDraftEditor: (_) {},
+        child: withCalendarDock(
+          calendarPage(
+            controller: CalendarController(),
+            data: calendarHandoffOverviewData(),
+          ),
         ),
       );
-      await tester.tap(find.bySemanticsLabel('展开 2 个待办'));
-      await tester.pumpAndSettle();
       await expectLater(
         find.byKey(surface),
-        matchesGoldenFile('goldens/calendar-schedule-expanded-411-$suffix.png'),
+        matchesGoldenFile('goldens/calendar-flow-resting-411-$suffix.png'),
       );
     });
 
-    testWidgets('month 411 $suffix', (tester) async {
+    testWidgets('Flow sticky threshold 411 $suffix', (tester) async {
       await pumpGolden(
         tester,
-        child: page(CalendarMode.month),
         brightness: brightness,
+        child: withCalendarDock(
+          calendarPage(
+            controller: CalendarController(),
+            data: calendarHandoffOverviewData(),
+          ),
+        ),
+      );
+      final scroll = tester.widget<ListView>(
+        find.byKey(const ValueKey('calendar-flow-scroll')),
+      );
+      scroll.controller!.jumpTo(scroll.controller!.offset + 112);
+      await tester.pump();
+      await expectLater(
+        find.byKey(surface),
+        matchesGoldenFile('goldens/calendar-flow-threshold-411-$suffix.png'),
+      );
+    });
+
+    testWidgets('Month 411 $suffix', (tester) async {
+      await pumpGolden(
+        tester,
+        brightness: brightness,
+        child: withCalendarDock(
+          calendarPage(
+            controller: CalendarController(
+              modeState: CalendarModeState(initialMode: CalendarMode.month),
+              selectedDate: today,
+            ),
+            data: calendarHandoffOverviewData(),
+          ),
+        ),
       );
       await expectLater(
         find.byKey(surface),
@@ -115,30 +210,137 @@ void main() {
       );
     });
 
-    testWidgets('year 411 $suffix', (tester) async {
+    testWidgets('Year 411 $suffix', (tester) async {
       await pumpGolden(
         tester,
-        child: page(CalendarMode.year),
         brightness: brightness,
+        child: withCalendarDock(
+          calendarPage(
+            controller: CalendarController(
+              modeState: CalendarModeState(initialMode: CalendarMode.year),
+            ),
+            data: calendarHandoffOverviewData(),
+          ),
+        ),
       );
       await expectLater(
         find.byKey(surface),
         matchesGoldenFile('goldens/calendar-year-411-$suffix.png'),
       );
     });
-  }
 
-  testWidgets('flow 360 light', (tester) async {
-    const narrow = Size(360, 800);
-    await pumpGolden(
-      tester,
-      child: page(CalendarMode.flow),
-      brightness: Brightness.light,
-      size: narrow,
-    );
-    await expectLater(
-      find.byKey(surface),
-      matchesGoldenFile('goldens/calendar-flow-360-light.png'),
-    );
-  });
+    testWidgets('Day populated 411 $suffix', (tester) async {
+      final controller = CalendarController()..openDay(today);
+      await pumpGolden(
+        tester,
+        brightness: brightness,
+        child: withCalendarDock(
+          calendarPage(
+            controller: controller,
+            data: calendarHandoffOverviewData(),
+          ),
+        ),
+      );
+      await expectLater(
+        find.byKey(surface),
+        matchesGoldenFile('goldens/calendar-day-populated-411-$suffix.png'),
+      );
+    });
+
+    testWidgets('Day Asset empty 411 $suffix', (tester) async {
+      final controller = CalendarController()..openDay(today);
+      await pumpGolden(
+        tester,
+        brightness: brightness,
+        child: withCalendarDock(
+          calendarPage(
+            controller: controller,
+            data: calendarHandoffAssetEmptyData(),
+          ),
+        ),
+      );
+      await expectLater(
+        find.byKey(surface),
+        matchesGoldenFile('goldens/calendar-day-asset-empty-411-$suffix.png'),
+      );
+    });
+
+    testWidgets('Schedule default 411 $suffix', (tester) async {
+      final controller = CalendarController()
+        ..openDay(today)
+        ..openSchedule();
+      await pumpGolden(
+        tester,
+        brightness: brightness,
+        child: withCalendarDock(
+          calendarPage(
+            controller: controller,
+            data: calendarHandoffScheduleData(),
+          ),
+          showDock: false,
+        ),
+      );
+      await expectLater(
+        find.byKey(surface),
+        matchesGoldenFile('goldens/calendar-schedule-default-411-$suffix.png'),
+      );
+    });
+
+    testWidgets('Schedule Todo expanded 411 $suffix', (tester) async {
+      final controller = CalendarController()
+        ..openDay(today)
+        ..openSchedule();
+      await pumpGolden(
+        tester,
+        brightness: brightness,
+        child: withCalendarDock(
+          calendarPage(
+            controller: controller,
+            data: calendarHandoffScheduleData(),
+          ),
+          showDock: false,
+        ),
+      );
+      await tester.tap(find.bySemanticsLabel('展开 3 个待办'));
+      await tester.pumpAndSettle();
+      await expectLater(
+        find.byKey(surface),
+        matchesGoldenFile('goldens/calendar-schedule-expanded-411-$suffix.png'),
+      );
+    });
+
+    testWidgets('Schedule inline draft 411 $suffix', (tester) async {
+      final controller = CalendarController()
+        ..openDay(today)
+        ..openSchedule()
+        ..tapEmptyTime(DateTime(2026, 7, 3, 16));
+      await pumpGolden(
+        tester,
+        brightness: brightness,
+        child: withCalendarDock(
+          calendarPage(
+            controller: controller,
+            data: calendarHandoffScheduleData(),
+          ),
+          showDock: false,
+        ),
+      );
+      await expectLater(
+        find.byKey(surface),
+        matchesGoldenFile('goldens/calendar-schedule-draft-411-$suffix.png'),
+      );
+    });
+
+    testWidgets('Manual Record Picker 411 $suffix', (tester) async {
+      await pumpGolden(
+        tester,
+        brightness: brightness,
+        child: manualPickerState(brightness),
+      );
+      await expectLater(
+        find.byKey(surface),
+        matchesGoldenFile('goldens/calendar-manual-picker-411-$suffix.png'),
+      );
+    });
+  }
 }

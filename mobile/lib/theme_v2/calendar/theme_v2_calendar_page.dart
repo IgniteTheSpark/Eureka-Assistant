@@ -9,12 +9,10 @@ import '../../pages/day_flash_view.dart';
 import '../../render/render_spec.dart';
 import '../../timeline/timeline.dart';
 import '../foundation/theme_v2_motion.dart';
-import '../foundation/theme_v2_semantics.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
 import '../foundation/theme_v2_typography.dart';
 import '../shell/theme_v2_async_state.dart';
-import 'calendar_components.dart';
 import 'calendar_controller.dart';
 import 'calendar_day_detail.dart';
 import 'calendar_editor_router.dart';
@@ -61,6 +59,7 @@ class ThemeV2CalendarPage extends StatefulWidget {
 class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
   ApiClient? _api;
   ApiClient get _apiClient => _api ??= ApiClient();
+  late final bool _ownsController = widget.controller == null;
   late final CalendarController _controller =
       widget.controller ??
       CalendarController(modeState: CalendarModeState.fromStartDefine());
@@ -250,6 +249,7 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
     calendarHome.removeListener(_goHome);
     _pages?.dispose();
     _api?.close();
+    if (_ownsController) _controller.dispose();
     super.dispose();
   }
 

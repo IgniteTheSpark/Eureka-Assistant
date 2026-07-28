@@ -182,5 +182,27 @@ void main() {
       expect(controller.inlineDraft, isNull);
       expect(controller.surface, CalendarSurface.dayDetail);
     });
+
+    test('publishes surface changes for shell chrome visibility', () {
+      final controller = CalendarController();
+      final surfaces = <CalendarSurface>[];
+      controller.surfaceListenable.addListener(
+        () => surfaces.add(controller.surfaceListenable.value),
+      );
+
+      controller
+        ..openDay(DateTime(2026, 7, 3))
+        ..openSchedule()
+        ..backToDay()
+        ..backToOverview();
+
+      expect(surfaces, const [
+        CalendarSurface.dayDetail,
+        CalendarSurface.schedule,
+        CalendarSurface.dayDetail,
+        CalendarSurface.overview,
+      ]);
+      controller.dispose();
+    });
   });
 }

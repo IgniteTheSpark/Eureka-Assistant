@@ -73,7 +73,7 @@ class CalendarStickyDateRail extends StatelessWidget {
                                 ),
                           ),
                           Text(
-                            '${_weekday(day)} · $itemCount 项',
+                            _weekday(day),
                             maxLines: 1,
                             style: Theme.of(context).textTheme.labelSmall
                                 ?.copyWith(color: tokens.muted, fontSize: 9),

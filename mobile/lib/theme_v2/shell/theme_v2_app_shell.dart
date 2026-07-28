@@ -8,6 +8,7 @@ import '../../pages/calendar_page.dart' show calendarHome;
 import '../../pages/device_pairing_page.dart';
 import '../../pages/today_page.dart';
 import '../../theme/app_theme.dart';
+import '../calendar/calendar_controller.dart';
 import '../calendar/theme_v2_calendar_page.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../inbox/reka_inbox_controller.dart';
@@ -31,6 +32,7 @@ class ThemeV2AppShell extends StatefulWidget {
     this.onDevicePressed,
     this.onNotificationsPressed,
     this.inboxController,
+    this.calendarController,
     this.initialIndex = const int.fromEnvironment('START_TAB', defaultValue: 0),
     this.showStartupOverlays = true,
   });
@@ -40,6 +42,7 @@ class ThemeV2AppShell extends StatefulWidget {
   final VoidCallback? onDevicePressed;
   final VoidCallback? onNotificationsPressed;
   final RekaInboxController? inboxController;
+  final CalendarController? calendarController;
   final int initialIndex;
 
   /// Test seam only. Production keeps START_OVERLAY and morning briefing on.
@@ -55,6 +58,9 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
   late final RekaInboxController _inboxController =
       widget.inboxController ?? RekaInboxController();
   late final bool _ownsInboxController = widget.inboxController == null;
+  late final CalendarController _calendarController =
+      widget.calendarController ?? CalendarController();
+  late final bool _ownsCalendarController = widget.calendarController == null;
 
   @override
   void initState() {
@@ -62,6 +68,7 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
     assert(widget.pages == null || widget.pages!.length == 3);
     WidgetsBinding.instance.addObserver(this);
     _inboxController.addListener(_onInboxChanged);
+    _calendarController.surfaceListenable.addListener(_onCalendarChanged);
     if (_inboxController.status == RekaInboxStatus.idle) {
       unawaited(_inboxController.load(includeOffers: false));
     }
@@ -72,11 +79,17 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
   void dispose() {
     _inboxController.removeListener(_onInboxChanged);
     if (_ownsInboxController) _inboxController.dispose();
+    _calendarController.surfaceListenable.removeListener(_onCalendarChanged);
+    if (_ownsCalendarController) _calendarController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
   void _onInboxChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _onCalendarChanged() {
     if (mounted) setState(() {});
   }
 
@@ -133,9 +146,10 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
     return widget.pages ??
         [
           ThemeV2PageScaffold(body: TodayPage(active: _index == 0)),
-          const ThemeV2PageScaffold(
-            body: ThemeV2CalendarPage(),
+          ThemeV2PageScaffold(
+            body: ThemeV2CalendarPage(controller: _calendarController),
             showTopNav: false,
+            showDock: _calendarController.surface != CalendarSurface.schedule,
           ),
           const ThemeV2PageScaffold(body: ThemeV2LibraryPage()),
         ];

@@ -19,6 +19,7 @@ TimelineItem calendarFixtureItem({
   bool hasClockTime = false,
   bool hasScheduledTime = false,
   String period = '',
+  Map<String, dynamic> payload = const {},
 }) {
   return TimelineItem(
     kind: kind,
@@ -28,6 +29,7 @@ TimelineItem calendarFixtureItem({
     subtitle: '',
     skillName: skillName,
     sessionId: null,
+    payload: payload,
     derived: const {},
     endAt: endAt,
     allDay: allDay,
@@ -35,6 +37,187 @@ TimelineItem calendarFixtureItem({
     hasScheduledTime: hasScheduledTime,
     period: period,
   );
+}
+
+CalendarData calendarHandoffOverviewData() {
+  final day = DateTime(2026, 7, 3);
+  final items = <TimelineItem>[
+    calendarFixtureItem(
+      id: 'handoff-online',
+      title: '线上复盘会',
+      at: DateTime(2026, 7, 3, 9),
+      endAt: DateTime(2026, 7, 3, 10),
+    ),
+    calendarFixtureItem(
+      id: 'handoff-client',
+      title: '客户要求拜访',
+      at: DateTime(2026, 7, 3, 9, 30),
+      endAt: DateTime(2026, 7, 3, 10, 30),
+    ),
+    calendarFixtureItem(
+      id: 'handoff-water',
+      title: '奶 · 150 ml',
+      at: DateTime(2026, 7, 3, 10),
+      kind: 'asset',
+      skillName: 'health',
+      hasClockTime: true,
+    ),
+    calendarFixtureItem(
+      id: 'handoff-tennis',
+      title: '网球比赛',
+      at: DateTime(2026, 7, 3, 11),
+      kind: 'asset',
+      skillName: 'sport',
+      hasClockTime: true,
+    ),
+    calendarFixtureItem(
+      id: 'handoff-training',
+      title: '培训',
+      at: DateTime(2026, 7, 3, 15),
+      kind: 'asset',
+      skillName: 'training',
+      hasClockTime: true,
+    ),
+    calendarFixtureItem(
+      id: 'handoff-discussion',
+      title: '小型讨论会',
+      at: DateTime(2026, 7, 3, 15, 30),
+      endAt: DateTime(2026, 7, 3, 16, 30),
+    ),
+    calendarFixtureItem(
+      id: 'handoff-shopping',
+      title: '35.2 · 买菜',
+      at: DateTime(2026, 7, 3, 16),
+      kind: 'asset',
+      skillName: 'shopping',
+      period: '下午',
+    ),
+    calendarFixtureItem(
+      id: 'handoff-interview',
+      title: '线上面试',
+      at: DateTime(2026, 7, 3, 20),
+      endAt: DateTime(2026, 7, 3, 21),
+    ),
+    calendarFixtureItem(
+      id: 'handoff-note',
+      title: '整理今日纪要',
+      at: DateTime(2026, 7, 3, 21),
+      kind: 'asset',
+      skillName: 'note',
+      period: '晚上',
+    ),
+    for (var index = 0; index < 5; index++)
+      calendarFixtureItem(
+        id: 'handoff-flash-$index',
+        title: '闪念 ${index + 1}',
+        at: day.add(Duration(hours: 12, seconds: index)),
+        kind: 'input_turn',
+      ),
+    calendarFixtureItem(
+      id: 'handoff-next-training',
+      title: '周末训练',
+      at: DateTime(2026, 7, 4, 9),
+      kind: 'asset',
+      skillName: 'sport',
+      hasClockTime: true,
+    ),
+    calendarFixtureItem(
+      id: 'handoff-next-reading',
+      title: '整理阅读清单',
+      at: DateTime(2026, 7, 4, 15, 30),
+      kind: 'asset',
+      skillName: 'note',
+      hasClockTime: true,
+    ),
+    for (var index = 0; index < 2; index++)
+      calendarFixtureItem(
+        id: 'handoff-next-flash-$index',
+        title: '次日闪念 ${index + 1}',
+        at: DateTime(2026, 7, 4, 12, 0, index),
+        kind: 'input_turn',
+      ),
+  ];
+  return CalendarData(items, const {
+    'health': SkillMeta('🥛', '健康', 'blue'),
+    'sport': SkillMeta('🎾', '运动', 'green'),
+    'training': SkillMeta('🎓', '培训', 'purple'),
+    'shopping': SkillMeta('🛒', '购物', 'gray'),
+    'note': SkillMeta('📚', '笔记', 'amber'),
+  });
+}
+
+CalendarData calendarHandoffScheduleData() {
+  final day = DateTime(2026, 7, 3);
+  final items = <TimelineItem>[
+    calendarFixtureItem(
+      id: 'release',
+      title: '🚀 产品发布日',
+      at: day,
+      allDay: true,
+    ),
+    calendarFixtureItem(
+      id: 'schedule-online',
+      title: '线上复盘会',
+      at: DateTime(2026, 7, 3, 9),
+      endAt: DateTime(2026, 7, 3, 10),
+    ),
+    calendarFixtureItem(
+      id: 'schedule-client',
+      title: '客户拜访',
+      at: DateTime(2026, 7, 3, 9, 30),
+      endAt: DateTime(2026, 7, 3, 10, 30),
+    ),
+    calendarFixtureItem(
+      id: 'schedule-tennis',
+      title: '网球比赛',
+      at: DateTime(2026, 7, 3, 11),
+      endAt: DateTime(2026, 7, 3, 12, 30),
+    ),
+    calendarFixtureItem(
+      id: 'schedule-discussion',
+      title: '小型讨论会',
+      at: DateTime(2026, 7, 3, 14),
+      endAt: DateTime(2026, 7, 3, 16),
+    ),
+    calendarFixtureItem(
+      id: 'schedule-training',
+      title: '培训',
+      at: DateTime(2026, 7, 3, 14, 30),
+      endAt: DateTime(2026, 7, 3, 15, 30),
+    ),
+    for (var index = 0; index < 3; index++)
+      calendarFixtureItem(
+        id: 'schedule-todo-$index',
+        title: const ['确认计划', '补充记录', '回复合作方'][index],
+        at: DateTime(2026, 7, 3, 15, 0, index),
+        kind: 'asset',
+        skillName: 'todo',
+        hasScheduledTime: true,
+      ),
+    for (var index = 0; index < 5; index++)
+      calendarFixtureItem(
+        id: 'schedule-unscheduled-$index',
+        title: const ['准备发布材料', '回复合作方', '整理演示备注', '更新看板', '确认名单'][index],
+        at: day.add(Duration(minutes: index)),
+        kind: 'asset',
+        skillName: 'todo',
+        payload: {'status': index == 0 ? 'done' : 'pending'},
+      ),
+  ];
+  return CalendarData(items, const {'todo': SkillMeta('✅', '待办', 'green')});
+}
+
+CalendarData calendarHandoffAssetEmptyData() {
+  final day = DateTime(2026, 7, 3);
+  return CalendarData([
+    for (var index = 0; index < 5; index++)
+      calendarFixtureItem(
+        id: 'empty-flash-$index',
+        title: '闪念 ${index + 1}',
+        at: day.add(Duration(hours: 12, seconds: index)),
+        kind: 'input_turn',
+      ),
+  ], const {});
 }
 
 CalendarData calendarFixtureData() {

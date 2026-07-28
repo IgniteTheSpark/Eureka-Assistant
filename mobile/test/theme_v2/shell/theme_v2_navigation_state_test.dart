@@ -1,11 +1,13 @@
 import 'package:eureka/theme/app_theme.dart';
 import 'package:eureka/theme/eureka_colors.dart';
 import 'package:eureka/theme/theme_controller.dart';
+import 'package:eureka/theme_v2/calendar/calendar_controller.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_tokens.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_typography.dart';
 import 'package:eureka/theme_v2/calendar/theme_v2_calendar_page.dart';
 import 'package:eureka/theme_v2/shell/device_status_summary.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_app_shell.dart';
+import 'package:eureka/theme_v2/shell/theme_v2_floating_dock.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_page_scaffold.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -166,6 +168,31 @@ void main() {
     await tester.pump();
 
     expect(find.byType(ThemeV2CalendarPage), findsOneWidget);
+  });
+
+  testWidgets('Schedule hides the dock and Day Detail restores it', (
+    tester,
+  ) async {
+    final controller = CalendarController()
+      ..openDay(DateTime(2026, 7, 3))
+      ..openSchedule();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      _ThemeHost(
+        child: ThemeV2AppShell(
+          initialIndex: 1,
+          showStartupOverlays: false,
+          calendarController: controller,
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(find.byKey(ThemeV2FloatingDock.dockKey), findsNothing);
+
+    controller.backToDay();
+    await tester.pump();
+    expect(find.byKey(ThemeV2FloatingDock.dockKey), findsOneWidget);
   });
 }
 

@@ -27,45 +27,39 @@ class ThemeV2FloatingDock extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bottom = MediaQuery.paddingOf(context).bottom;
-    final availableWidth =
-        (MediaQuery.sizeOf(context).width - (ThemeV2Spacing.md * 2))
-            .clamp(0, 420)
-            .toDouble();
     final tokens = context.themeV2;
-    return Padding(
-      key: safeAreaPaddingKey,
-      padding: EdgeInsets.fromLTRB(
-        ThemeV2Spacing.md,
-        0,
-        ThemeV2Spacing.md,
-        bottom + ThemeV2Spacing.md,
-      ),
-      child: SizedBox(
-        width: availableWidth,
-        child: Material(
-          key: dockKey,
-          elevation: 8,
-          shadowColor: Colors.black.withValues(alpha: 0.22),
-          color: tokens.surface.withValues(alpha: 0.96),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(ThemeV2Radii.pill),
-            side: BorderSide(color: tokens.border),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: SizedBox(
-            height: 60,
-            child: Row(
-              children: [
-                for (var index = 0; index < _destinations.length; index++)
-                  Expanded(
-                    child: _DockDestination(
-                      icon: _destinations[index].icon,
-                      label: _destinations[index].label,
-                      selected: selectedIndex == index,
-                      onPressed: () => onDestinationSelected(index),
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: Padding(
+        key: safeAreaPaddingKey,
+        padding: EdgeInsets.only(bottom: bottom + ThemeV2Spacing.md),
+        child: SizedBox(
+          width: 169,
+          child: Material(
+            key: dockKey,
+            elevation: 8,
+            shadowColor: Colors.black.withValues(alpha: 0.22),
+            color: const Color(0xFF101319).withValues(alpha: 0.98),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(ThemeV2Radii.pill),
+              side: BorderSide(color: tokens.border),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: SizedBox(
+              height: 60,
+              child: Row(
+                children: [
+                  for (var index = 0; index < _destinations.length; index++)
+                    Expanded(
+                      child: _DockDestination(
+                        icon: _destinations[index].icon,
+                        label: _destinations[index].label,
+                        selected: selectedIndex == index,
+                        onPressed: () => onDestinationSelected(index),
+                      ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -100,28 +94,7 @@ class _DockDestination extends StatelessWidget {
         child: ThemeV2HitTarget(
           child: InkWell(
             onTap: onPressed,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: ThemeV2Spacing.xs,
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(icon, size: 20, color: color),
-                  const SizedBox(height: 2),
-                  Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.fade,
-                    softWrap: false,
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: color,
-                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            child: Center(child: Icon(icon, size: 20, color: color)),
           ),
         ),
       ),
