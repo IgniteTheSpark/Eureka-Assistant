@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import '../../api/api_client.dart';
 import '../../data_revision.dart';
 import '../../pages/calendar_page.dart';
-import '../../pages/create_asset.dart' show showCreateMenu;
 import '../../pages/day_flash_view.dart';
 import '../../timeline/timeline.dart';
 import '../foundation/theme_v2_motion.dart';
@@ -16,7 +15,9 @@ import '../shell/theme_v2_async_state.dart';
 import 'calendar_components.dart';
 import 'calendar_controller.dart';
 import 'calendar_day_detail.dart';
+import 'calendar_editor_router.dart';
 import 'calendar_flow_view.dart';
+import 'calendar_manual_record_picker.dart';
 import 'calendar_mode_state.dart';
 import 'calendar_models.dart';
 import 'calendar_month_view.dart';
@@ -147,7 +148,17 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
       callback(day);
       return;
     }
-    showCreateMenu(context, presetDate: day);
+    unawaited(_pickManualRecordSkill(day));
+  }
+
+  Future<void> _pickManualRecordSkill(DateTime day) async {
+    final option = await showCalendarManualRecordPicker(
+      context,
+      effectiveDate: day,
+      loader: () => fetchCalendarSkillOptions(_apiClient),
+    );
+    if (option == null || !mounted) return;
+    await openCalendarSkillEditor(context, option, day);
   }
 
   void _openFlash(DateTime day) {

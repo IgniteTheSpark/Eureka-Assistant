@@ -3,7 +3,11 @@ import 'dart:convert';
 
 import 'package:eureka/api/api_client.dart';
 import 'package:eureka/pages/calendar_page.dart';
+import 'package:eureka/pages/create_asset.dart';
+import 'package:eureka/render/asset_detail_sheet.dart';
 import 'package:eureka/theme_v2/calendar/calendar_controller.dart';
+import 'package:eureka/theme_v2/calendar/calendar_editor_router.dart';
+import 'package:eureka/theme_v2/calendar/calendar_manual_record_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -12,6 +16,44 @@ import 'package:http/testing.dart';
 import 'calendar_test_fixtures.dart';
 
 void main() {
+  test('system and Asset Skills retain their established editor pages', () {
+    final date = DateTime(2026, 7, 3);
+
+    final event = calendarEditorPageForSkill(
+      const CalendarSkillOption.event(),
+      date,
+    );
+    final contact = calendarEditorPageForSkill(
+      const CalendarSkillOption.contact(
+        displayName: '联系人',
+        icon: '📇',
+        userSkillId: 'contact-id',
+      ),
+      date,
+    );
+    final asset = calendarEditorPageForSkill(
+      const CalendarSkillOption.asset(
+        name: 'running',
+        displayName: '跑步训练',
+        icon: '🏃',
+        userSkillId: 'running-id',
+        payloadSchema: {
+          'distance': {'type': 'number', 'label': '距离'},
+        },
+      ),
+      date,
+    );
+
+    expect(event, isA<EventForm>());
+    expect((event as EventForm).presetDate, date);
+    expect(contact, isA<ContactForm>());
+    expect(asset, isA<AssetEditPage>());
+    expect((asset as AssetEditPage).cardType, 'running');
+    expect(asset.displayName, '跑步训练');
+    expect(asset.presetDate, date);
+    expect(asset.isCreate, isTrue);
+  });
+
   testWidgets('editing a created event fetches its complete existing record', (
     tester,
   ) async {
