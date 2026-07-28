@@ -133,7 +133,10 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
     return widget.pages ??
         [
           ThemeV2PageScaffold(body: TodayPage(active: _index == 0)),
-          const ThemeV2PageScaffold(body: ThemeV2CalendarPage()),
+          const ThemeV2PageScaffold(
+            body: ThemeV2CalendarPage(),
+            showTopNav: false,
+          ),
           const ThemeV2PageScaffold(body: ThemeV2LibraryPage()),
         ];
   }
