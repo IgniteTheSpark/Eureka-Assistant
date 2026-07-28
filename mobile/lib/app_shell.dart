@@ -25,6 +25,19 @@ class AppShell extends StatefulWidget {
   State<AppShell> createState() => _AppShellState();
 }
 
+/// Theme V2's initial shell boundary.
+///
+/// This baseline intentionally delegates to the established shell while
+/// subsequent Theme V2 tasks replace surfaces behind this boundary. Keeping it
+/// separate lets the rollout happen at the app root without sprinkling flags
+/// through individual pages.
+class ThemeV2AppShell extends StatelessWidget {
+  const ThemeV2AppShell({super.key});
+
+  @override
+  Widget build(BuildContext context) => const AppShell();
+}
+
 /// Observes pushes/pops over the shell so the calendar can reset to 流·今天 when
 /// a pushed page (chat / detail / report) is popped back to it. Registered in
 /// main.dart's navigatorObservers.
