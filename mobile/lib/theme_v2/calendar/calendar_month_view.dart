@@ -294,29 +294,45 @@ class _MonthCell extends StatelessWidget {
                 height: 31,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: today
-                      ? tokens.foreground
-                      : selected
-                      ? tokens.accentSoft
-                      : Colors.transparent,
+                  color: selected ? tokens.accentSoft : Colors.transparent,
                   borderRadius: BorderRadius.circular(ThemeV2Radii.sm),
-                  border: selected && !today
+                  border: selected
                       ? Border.all(color: tokens.accent)
+                      : today
+                      ? Border.all(color: tokens.foreground)
                       : null,
                 ),
-                child: Text(
-                  '${day.day}',
-                  style: ThemeV2Typography.mono(
-                    fontSize: 10,
-                    color: today
-                        ? tokens.background
-                        : !inMonth
-                        ? tokens.muted.withValues(alpha: 0.45)
-                        : selected
-                        ? tokens.accent
-                        : tokens.foreground,
-                    fontWeight: FontWeight.w700,
-                  ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      day.day.toString().padLeft(2, '0'),
+                      style: ThemeV2Typography.mono(
+                        fontSize: 10,
+                        color: !inMonth
+                            ? tokens.muted.withValues(alpha: 0.45)
+                            : selected
+                            ? tokens.accent
+                            : tokens.foreground,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    if (count > 0)
+                      Container(
+                        key: ValueKey(
+                          'calendar-month-activity-${calendarDayKey(day)}',
+                        ),
+                        width: 4,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: selected ? tokens.accent : tokens.muted,
+                          shape: BoxShape.circle,
+                        ),
+                      )
+                    else
+                      const SizedBox(height: 4),
+                  ],
                 ),
               ),
             ),
@@ -343,6 +359,11 @@ class _ProgressiveDaySummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
+    final records = items
+        .where((item) => item.kind != 'input_turn')
+        .map(CalendarRecord.fromTimeline)
+        .toList(growable: false);
+    final flashCount = items.where((item) => item.kind == 'input_turn').length;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(ThemeV2Spacing.md),
@@ -354,14 +375,48 @@ class _ProgressiveDaySummary extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            day.day.toString().padLeft(2, '0'),
-            style: Theme.of(
-              context,
-            ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w700),
+          Row(
+            children: [
+              Text(
+                day.day.toString().padLeft(2, '0'),
+                style: Theme.of(context).textTheme.headlineLarge?.copyWith(
+                  color: tokens.foreground,
+                  fontWeight: FontWeight.w500,
+                  letterSpacing: -1,
+                ),
+              ),
+              const SizedBox(width: ThemeV2Spacing.sm),
+              Text(
+                '${_weekday(day)} · ${records.length} 条记录',
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: tokens.muted),
+              ),
+              const Spacer(),
+              if (flashCount > 0)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: ThemeV2Spacing.md,
+                    vertical: ThemeV2Spacing.xs,
+                  ),
+                  decoration: BoxDecoration(
+                    color: tokens.accentSoft,
+                    borderRadius: BorderRadius.circular(ThemeV2Radii.pill),
+                    border: Border.all(color: tokens.accent),
+                  ),
+                  child: Text(
+                    '⚡ 闪念 $flashCount',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: tokens.accent,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+            ],
           ),
+          const SizedBox(height: ThemeV2Spacing.sm),
           Expanded(
-            child: items.isEmpty
+            child: records.isEmpty
                 ? Center(
                     child: Text(
                       '这一天没有记录',
@@ -370,12 +425,11 @@ class _ProgressiveDaySummary extends StatelessWidget {
                   )
                 : ListView(
                     children: [
-                      for (final item in items)
+                      for (final record in records)
                         CalendarRecordRow(
-                          record: CalendarRecord.fromTimeline(item),
+                          record: record,
                           skills: skills,
-                          onTap: () =>
-                              onOpenRecord(CalendarRecord.fromTimeline(item)),
+                          onTap: () => onOpenRecord(record),
                         ),
                     ],
                   ),
@@ -384,4 +438,7 @@ class _ProgressiveDaySummary extends StatelessWidget {
       ),
     );
   }
+
+  static String _weekday(DateTime day) =>
+      const ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日'][day.weekday - 1];
 }

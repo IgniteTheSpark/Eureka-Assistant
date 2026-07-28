@@ -71,6 +71,7 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
       _pages ??= PageController(initialPage: _controller.horizontalIndex);
   int _flowRevision = 0;
   Future<CalendarData>? _future;
+  CalendarData? _lastData;
   int _loadedRevision = -1;
   int _retry = 0;
 
@@ -110,7 +111,7 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
     if (pages != null && pages.hasClients) {
       final duration = ThemeV2Motion.duration(
         context,
-        ThemeV2MotionToken.standard,
+        ThemeV2MotionToken.fluid,
       );
       if (duration == Duration.zero) {
         pages.jumpToPage(mode.index);
@@ -255,64 +256,64 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
   @override
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
-    return ColoredBox(
-      color: tokens.background,
-      child: Column(
-        children: [
-          if (_controller.surface == CalendarSurface.overview)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                ThemeV2Spacing.lg,
-                ThemeV2Spacing.sm,
-                ThemeV2Spacing.sm,
-                ThemeV2Spacing.sm,
-              ),
-              child: Row(
-                children: [
-                  CalendarModeControl(
-                    mode: _controller.mode,
-                    onSelected: _selectMode,
-                  ),
-                  const Spacer(),
-                  ThemeV2IconButton(
-                    semanticLabel: '刷新日历',
-                    icon: Icons.refresh,
-                    color: tokens.muted,
-                    onPressed: () => setState(() => _retry++),
-                  ),
-                ],
-              ),
-            ),
-          Expanded(
-            child: widget.initialData != null
-                ? _dataBody(widget.initialData!)
-                : ValueListenableBuilder<int>(
-                    valueListenable: dataRevision,
-                    builder: (context, revision, _) {
-                      return FutureBuilder<CalendarData>(
-                        future: _futureFor(revision),
-                        builder: (context, snapshot) {
-                          if (snapshot.hasError) {
-                            return _structuralState(
-                              ThemeV2AsyncState.error(
-                                title: '日历加载失败',
-                                message: '${snapshot.error}',
-                                onRetry: () => setState(() => _retry++),
+    return PopScope(
+      canPop: _controller.surface == CalendarSurface.overview,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _controller.back()) setState(() {});
+      },
+      child: ColoredBox(
+        color: tokens.background,
+        child: widget.initialData != null
+            ? _dataBody(widget.initialData!)
+            : ValueListenableBuilder<int>(
+                valueListenable: dataRevision,
+                builder: (context, revision, _) {
+                  return FutureBuilder<CalendarData>(
+                    future: _futureFor(revision),
+                    builder: (context, snapshot) {
+                      if (snapshot.hasData) _lastData = snapshot.data;
+                      final data =
+                          snapshot.data ??
+                          _lastData ??
+                          CalendarData(const [], const {});
+                      final content = _dataBody(data);
+                      if (snapshot.hasError) {
+                        return Stack(
+                          children: [
+                            Positioned.fill(child: content),
+                            Positioned.fill(
+                              child: _structuralState(
+                                ThemeV2AsyncState.error(
+                                  title: '日历加载失败',
+                                  message: '${snapshot.error}',
+                                  onRetry: () => setState(() => _retry++),
+                                ),
                               ),
-                            );
-                          }
-                          if (!snapshot.hasData) {
-                            return _structuralState(
-                              const ThemeV2AsyncState.loading(label: '正在加载日历'),
-                            );
-                          }
-                          return _dataBody(snapshot.data!);
-                        },
-                      );
+                            ),
+                          ],
+                        );
+                      }
+                      if (!snapshot.hasData && _lastData == null) {
+                        return Stack(
+                          children: [
+                            Positioned.fill(child: content),
+                            Positioned.fill(
+                              child: IgnorePointer(
+                                child: _structuralState(
+                                  const ThemeV2AsyncState.loading(
+                                    label: '正在加载日历',
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        );
+                      }
+                      return content;
                     },
-                  ),
-          ),
-        ],
+                  );
+                },
+              ),
       ),
     );
   }
@@ -398,22 +399,7 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
         ),
       ],
     );
-    if (data.items.isNotEmpty) return pages;
-    return Stack(
-      children: [
-        Positioned.fill(child: pages),
-        Positioned.fill(
-          child: IgnorePointer(
-            child: _structuralState(
-              const ThemeV2AsyncState.empty(
-                title: '还没有日历记录',
-                message: '选择日期即可创建第一条日程。',
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
+    return pages;
   }
 }
 

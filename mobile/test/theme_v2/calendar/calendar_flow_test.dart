@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui' show Tristate;
 
+import 'package:eureka/data_revision.dart' show bumpData;
 import 'package:eureka/pages/calendar_page.dart' show calendarHome;
 import 'package:eureka/pages/day_flash_view.dart';
 import 'package:eureka/theme_v2/calendar/calendar_controller.dart';
@@ -8,6 +9,7 @@ import 'package:eureka/theme_v2/calendar/calendar_day_detail.dart';
 import 'package:eureka/theme_v2/calendar/calendar_flow_view.dart';
 import 'package:eureka/theme_v2/calendar/calendar_mode_state.dart';
 import 'package:eureka/theme_v2/calendar/calendar_models.dart';
+import 'package:eureka/theme_v2/calendar/calendar_month_view.dart';
 import 'package:eureka/theme_v2/calendar/calendar_schedule_grid.dart';
 import 'package:eureka/theme_v2/calendar/calendar_sticky_date_rail.dart';
 import 'package:eureka/theme_v2/calendar/calendar_year_view.dart';
@@ -107,6 +109,9 @@ void main() {
     await tester.pumpWidget(
       calendarTestHost(
         ThemeV2CalendarPage(
+          controller: CalendarController(
+            modeState: CalendarModeState(initialMode: CalendarMode.month),
+          ),
           today: DateTime(2026, 7, 3),
           initialData: calendarFixtureData(),
           onOpenDay: (_) {},
@@ -117,9 +122,6 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.bySemanticsLabel('月视图'));
-    await tester.pumpAndSettle();
-
     await tester.tap(find.byKey(const ValueKey('calendar-record-event-a')));
     expect(openedId, 'event-a');
   });
@@ -266,7 +268,7 @@ void main() {
     expect(tester.getTopLeft(rail).dy, lessThan(initialTop));
   });
 
-  testWidgets('segmented control and horizontal swipe share one mode state', (
+  testWidgets('horizontal swipe moves through one shared scale state', (
     tester,
   ) async {
     final controller = CalendarController();
@@ -285,7 +287,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.bySemanticsLabel('月视图'));
+    await tester.drag(
+      find.byKey(const ValueKey('calendar-mode-pages')),
+      const Offset(-350, 0),
+    );
     await tester.pumpAndSettle();
     expect(controller.mode, CalendarMode.month);
     expect(find.byKey(const ValueKey('calendar-month-view')), findsOneWidget);
@@ -358,6 +363,9 @@ void main() {
     await tester.pumpWidget(
       calendarTestHost(
         ThemeV2CalendarPage(
+          controller: CalendarController(
+            modeState: CalendarModeState(initialMode: CalendarMode.month),
+          ),
           today: DateTime(2026, 7, 3),
           initialData: calendarFixtureData(),
           onOpenDay: (_) {},
@@ -370,8 +378,6 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.bySemanticsLabel('月视图'));
-    await tester.pumpAndSettle();
     expect(
       find.byKey(const ValueKey('calendar-month-2026-06-29')),
       findsOneWidget,
@@ -382,7 +388,10 @@ void main() {
     );
     expect(tester.takeException(), isNull);
 
-    await tester.tap(find.bySemanticsLabel('年视图'));
+    await tester.drag(
+      find.byKey(const ValueKey('calendar-mode-pages')),
+      const Offset(-350, 0),
+    );
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('calendar-year-2026-12')), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -420,6 +429,224 @@ void main() {
     );
   });
 
+  testWidgets('Month and Year expose real progressive activity summaries', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      calendarTestHost(
+        CalendarYearView(
+          focusMonth: DateTime(2026, 7),
+          data: calendarFixtureData(),
+          today: DateTime(2026, 7, 3),
+          onSelectMonth: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('calendar-year-summary')), findsOneWidget);
+    expect(find.text('7月概览'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('calendar-year-summary-records')),
+        matching: find.text('8 条'),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.pumpWidget(
+      calendarTestHost(
+        CalendarMonthView(
+          month: DateTime(2026, 7),
+          data: calendarFixtureData(),
+          controller: CalendarController(selectedDate: DateTime(2026, 7, 3)),
+          today: DateTime(2026, 7, 3),
+          onOpenDay: (_) {},
+          onOpenRecord: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('calendar-month-activity-2026-07-03')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+    'month selection updates real summary before opening Day Detail',
+    (tester) async {
+      DateTime? opened;
+      await tester.pumpWidget(
+        calendarTestHost(
+          ThemeV2CalendarPage(
+            controller: CalendarController(
+              modeState: CalendarModeState(initialMode: CalendarMode.month),
+            ),
+            today: DateTime(2026, 7, 3),
+            initialData: calendarFixtureData(),
+            onOpenDay: (day) => opened = day,
+            onOpenRecord: (_) {},
+            onCreateDraft: (_) async {},
+            onOpenDraftEditor: (_) {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final july4 = find.byKey(const ValueKey('calendar-month-2026-07-04'));
+      await tester.tap(july4);
+      await tester.pump();
+
+      expect(find.text('周末训练'), findsOneWidget);
+      expect(opened, isNull);
+      expect(find.textContaining('再次点击'), findsNothing);
+
+      await tester.tap(july4);
+      await tester.pump();
+      expect(opened, DateTime(2026, 7, 4));
+    },
+  );
+
+  testWidgets('year month selection changes focus month and scale', (
+    tester,
+  ) async {
+    final controller = CalendarController(
+      modeState: CalendarModeState(initialMode: CalendarMode.year),
+    );
+    await tester.pumpWidget(
+      calendarTestHost(
+        ThemeV2CalendarPage(
+          controller: controller,
+          today: DateTime(2026, 7, 3),
+          initialData: calendarFixtureData(),
+          onOpenDay: (_) {},
+          onOpenRecord: (_) {},
+          onCreateDraft: (_) async {},
+          onOpenDraftEditor: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('calendar-year-2026-12')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('12月概览'), findsOneWidget);
+    expect(controller.mode, CalendarMode.year);
+    await tester.tap(find.text('查看月度 ›'));
+    await tester.pumpAndSettle();
+
+    expect(controller.mode, CalendarMode.month);
+    expect(find.text('2026年12月'), findsOneWidget);
+  });
+
+  testWidgets('refresh keeps Year, selected date, and mounted scale pages', (
+    tester,
+  ) async {
+    final refreshGate = Completer<CalendarData>();
+    var calls = 0;
+    Future<CalendarData> load() {
+      calls++;
+      if (calls == 1) return Future.value(calendarFixtureData());
+      return refreshGate.future;
+    }
+
+    final controller = CalendarController(
+      modeState: CalendarModeState(initialMode: CalendarMode.year),
+      selectedDate: DateTime(2026, 7, 4),
+    );
+    await tester.pumpWidget(
+      calendarTestHost(
+        ThemeV2CalendarPage(
+          controller: controller,
+          today: DateTime(2026, 7, 3),
+          dataLoader: load,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    bumpData();
+    await tester.pump();
+
+    expect(controller.mode, CalendarMode.year);
+    expect(controller.selectedDate, DateTime(2026, 7, 4));
+    expect(find.byKey(const ValueKey('calendar-mode-pages')), findsOneWidget);
+    expect(find.byKey(const ValueKey('calendar-year-view')), findsOneWidget);
+
+    refreshGate.complete(calendarFixtureData());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('Android back unwinds Schedule then Day Detail locally', (
+    tester,
+  ) async {
+    final controller = CalendarController()
+      ..openDay(DateTime(2026, 7, 3))
+      ..openSchedule();
+    await tester.pumpWidget(
+      calendarTestHost(
+        ThemeV2CalendarPage(
+          controller: controller,
+          today: DateTime(2026, 7, 3),
+          initialData: calendarFixtureData(),
+          onOpenRecord: (_) {},
+          onCreateDraft: (_) async {},
+          onOpenDraftEditor: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(CalendarScheduleGrid), findsOneWidget);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(controller.surface, CalendarSurface.dayDetail);
+    expect(find.byType(CalendarDayDetail), findsOneWidget);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(controller.surface, CalendarSurface.overview);
+    expect(find.byKey(const ValueKey('calendar-flow-content')), findsOneWidget);
+  });
+
+  testWidgets('initial loading keeps Calendar scales mounted', (tester) async {
+    final gate = Completer<CalendarData>();
+    await tester.pumpWidget(
+      calendarTestHost(
+        ThemeV2CalendarPage(
+          today: DateTime(2026, 7, 3),
+          dataLoader: () => gate.future,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('calendar-mode-pages')), findsOneWidget);
+    expect(find.byKey(const ValueKey('calendar-flow-content')), findsOneWidget);
+    expect(find.text('正在加载日历'), findsOneWidget);
+
+    gate.complete(calendarFixtureData());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('an empty Calendar remains interactive without global teaching', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      calendarTestHost(
+        ThemeV2CalendarPage(
+          today: DateTime(2026, 7, 3),
+          initialData: CalendarData(const [], const {}),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('calendar-flow-content')), findsOneWidget);
+    expect(find.text('还没有日历记录'), findsNothing);
+    expect(find.text('选择日期即可创建第一条日程。'), findsNothing);
+  });
+
   testWidgets('loading, error, retry, and empty retain calendar structure', (
     tester,
   ) async {
@@ -438,13 +665,13 @@ void main() {
       ),
     );
     await tester.pump();
-    expect(find.bySemanticsLabel('流视图'), findsOneWidget);
+    expect(find.byKey(const ValueKey('calendar-mode-pages')), findsOneWidget);
     expect(find.text('正在加载日历'), findsOneWidget);
 
     gate.completeError(StateError('offline'));
     await tester.pumpAndSettle();
     expect(find.text('日历加载失败'), findsOneWidget);
-    expect(find.bySemanticsLabel('流视图'), findsOneWidget);
+    expect(find.byKey(const ValueKey('calendar-mode-pages')), findsOneWidget);
 
     await tester.tap(find.bySemanticsLabel('重试'));
     await tester.pumpAndSettle();
@@ -452,8 +679,8 @@ void main() {
 
     await tester.tap(find.bySemanticsLabel('重试'));
     await tester.pumpAndSettle();
-    expect(find.text('还没有日历记录'), findsOneWidget);
-    expect(find.bySemanticsLabel('流视图'), findsOneWidget);
+    expect(find.text('还没有日历记录'), findsNothing);
+    expect(find.byKey(const ValueKey('calendar-mode-pages')), findsOneWidget);
     expect(
       find.byKey(const ValueKey('calendar-date-2026-07-03')),
       findsOneWidget,
