@@ -3,6 +3,8 @@ import 'calendar_mode_state.dart';
 typedef CalendarDraftMutation =
     Future<void> Function(CalendarInlineDraft draft);
 
+enum CalendarSurface { overview, dayDetail, schedule }
+
 class CalendarInlineDraft {
   final DateTime startAt;
   final DateTime endAt;
@@ -24,6 +26,7 @@ class CalendarController {
   DateTime? _selectedDate;
   CalendarInlineDraft? _inlineDraft;
   bool _confirming = false;
+  CalendarSurface _surface = CalendarSurface.overview;
 
   CalendarController({CalendarModeState? modeState, DateTime? selectedDate})
     : _modeState = modeState ?? CalendarModeState(),
@@ -35,6 +38,7 @@ class CalendarController {
   DateTime? get selectedDate => _selectedDate;
   CalendarInlineDraft? get inlineDraft => _inlineDraft;
   bool get isConfirmingDraft => _confirming;
+  CalendarSurface get surface => _surface;
 
   bool selectMode(CalendarMode mode) => _modeState.select(mode);
 
@@ -54,6 +58,42 @@ class CalendarController {
     if (_selectedDate == next) return;
     _selectedDate = next;
     _inlineDraft = null;
+  }
+
+  void openDay(DateTime date) {
+    changeDate(date);
+    _surface = CalendarSurface.dayDetail;
+  }
+
+  void openSchedule() {
+    if (_selectedDate == null) return;
+    _surface = CalendarSurface.schedule;
+  }
+
+  void backToDay() {
+    if (_selectedDate == null) {
+      _surface = CalendarSurface.overview;
+      return;
+    }
+    _surface = CalendarSurface.dayDetail;
+  }
+
+  void backToOverview() {
+    _surface = CalendarSurface.overview;
+    _inlineDraft = null;
+  }
+
+  bool back() {
+    switch (_surface) {
+      case CalendarSurface.schedule:
+        backToDay();
+        return true;
+      case CalendarSurface.dayDetail:
+        backToOverview();
+        return true;
+      case CalendarSurface.overview:
+        return false;
+    }
   }
 
   Future<bool> confirmInlineDraft(CalendarDraftMutation mutation) async {

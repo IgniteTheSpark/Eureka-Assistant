@@ -18,11 +18,40 @@ String calendarTimeLabel(DateTime time) =>
     '${time.minute.toString().padLeft(2, '0')}';
 
 String calendarDistanceLabel(DateTime day, DateTime today) {
-  final distance = calendarDayOf(day).difference(calendarDayOf(today)).inDays;
-  if (distance == 0) return 'TODAY';
-  return distance > 0
-      ? '+$distance DAY${distance == 1 ? '' : 'S'}'
-      : '$distance DAYS';
+  final target = calendarDayOf(day);
+  final origin = calendarDayOf(today);
+  if (target == origin) return 'TODAY';
+
+  final later = target.isAfter(origin);
+  final earlierDate = later ? origin : target;
+  final laterDate = later ? target : origin;
+  final months = _completeCalendarMonths(earlierDate, laterDate);
+  final String unit;
+  final int value;
+  if (months >= 12) {
+    value = months ~/ 12;
+    unit = 'YEAR';
+  } else if (months >= 1) {
+    value = months;
+    unit = 'MONTH';
+  } else {
+    final days = laterDate.difference(earlierDate).inDays;
+    if (days >= 7) {
+      value = days ~/ 7;
+      unit = 'WEEK';
+    } else {
+      value = days;
+      unit = 'DAY';
+    }
+  }
+  final plural = value == 1 ? '' : 'S';
+  return '$value $unit$plural ${later ? 'LATER' : 'AGO'}';
+}
+
+int _completeCalendarMonths(DateTime earlier, DateTime later) {
+  var months = (later.year - earlier.year) * 12 + later.month - earlier.month;
+  if (later.day < earlier.day) months--;
+  return months.clamp(0, 1 << 30);
 }
 
 class CalendarModeControl extends StatelessWidget {

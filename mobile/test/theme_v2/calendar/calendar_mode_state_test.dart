@@ -144,4 +144,43 @@ void main() {
       expect(await first, isTrue);
     });
   });
+
+  group('CalendarController local surfaces', () {
+    test('opens Day Detail without changing the selected scale', () {
+      final controller = CalendarController(
+        modeState: CalendarModeState(initialMode: CalendarMode.month),
+      );
+
+      controller.openDay(DateTime(2026, 7, 3, 17));
+
+      expect(controller.mode, CalendarMode.month);
+      expect(controller.surface, CalendarSurface.dayDetail);
+      expect(controller.selectedDate, DateTime(2026, 7, 3));
+    });
+
+    test('Schedule backs into Day Detail and then overview', () {
+      final controller = CalendarController()
+        ..openDay(DateTime(2026, 7, 3))
+        ..openSchedule();
+
+      expect(controller.surface, CalendarSurface.schedule);
+      expect(controller.back(), isTrue);
+      expect(controller.surface, CalendarSurface.dayDetail);
+      expect(controller.back(), isTrue);
+      expect(controller.surface, CalendarSurface.overview);
+      expect(controller.back(), isFalse);
+    });
+
+    test('changing Day Detail date clears an inline Schedule draft', () {
+      final controller = CalendarController()
+        ..openDay(DateTime(2026, 7, 3))
+        ..tapEmptyTime(DateTime(2026, 7, 3, 16));
+
+      controller.openDay(DateTime(2026, 7, 4));
+
+      expect(controller.selectedDate, DateTime(2026, 7, 4));
+      expect(controller.inlineDraft, isNull);
+      expect(controller.surface, CalendarSurface.dayDetail);
+    });
+  });
 }

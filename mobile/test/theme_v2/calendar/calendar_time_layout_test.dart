@@ -1,4 +1,5 @@
 import 'package:eureka/theme_v2/calendar/calendar_models.dart';
+import 'package:eureka/theme_v2/calendar/calendar_components.dart';
 import 'package:eureka/theme_v2/calendar/calendar_time_layout.dart';
 import 'package:eureka/timeline/timeline.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -110,6 +111,62 @@ void main() {
       );
       expect(identical(data.records.single.item, sourceItem), isTrue);
       expect(() => data.items.add(sourceItem), throwsUnsupportedError);
+    });
+
+    test('keeps asset and flash counts independent for a local day', () {
+      final day = DateTime(2026, 7, 3);
+      final flash = item(id: 'flash', at: day, kind: 'input_turn');
+      final asset = item(
+        id: 'asset',
+        at: day.add(const Duration(hours: 9)),
+        kind: 'asset',
+        skillName: 'notes',
+        hasClockTime: true,
+      );
+      final data = CalendarData([flash, asset], const {});
+
+      expect(data.day(day).assetCount, 1);
+      expect(data.day(day).flashCount, 1);
+      expect(data.day(day).assets.single.id, 'asset');
+      expect(data.day(day).flashes.single.id, 'flash');
+
+      final flashOnly = CalendarData([flash], const {}).day(day);
+      expect(flashOnly.assetCount, 0);
+      expect(flashOnly.flashCount, 1);
+    });
+  });
+
+  group('calendarDistanceLabel', () {
+    final today = DateTime(2026, 7, 30);
+
+    test('uses natural day and week copy with correct plurality', () {
+      expect(calendarDistanceLabel(today, today), 'TODAY');
+      expect(
+        calendarDistanceLabel(DateTime(2026, 7, 31), today),
+        '1 DAY LATER',
+      );
+      expect(calendarDistanceLabel(DateTime(2026, 7, 28), today), '2 DAYS AGO');
+      expect(calendarDistanceLabel(DateTime(2026, 7, 23), today), '1 WEEK AGO');
+      expect(
+        calendarDistanceLabel(DateTime(2026, 7, 15), today),
+        '2 WEEKS AGO',
+      );
+    });
+
+    test('uses stable calendar month and year units', () {
+      expect(
+        calendarDistanceLabel(DateTime(2026, 8, 30), today),
+        '1 MONTH LATER',
+      );
+      expect(
+        calendarDistanceLabel(DateTime(2026, 5, 30), today),
+        '2 MONTHS AGO',
+      );
+      expect(calendarDistanceLabel(DateTime(2025, 7, 30), today), '1 YEAR AGO');
+      expect(
+        calendarDistanceLabel(DateTime(2028, 7, 30), today),
+        '2 YEARS LATER',
+      );
     });
   });
 

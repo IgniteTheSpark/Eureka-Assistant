@@ -76,6 +76,21 @@ Map<DateTime, List<TimelineItem>> bucketCalendarItems(
   );
 }
 
+class CalendarDayData {
+  const CalendarDayData({
+    required this.day,
+    required this.assets,
+    required this.flashes,
+  });
+
+  final DateTime day;
+  final List<CalendarRecord> assets;
+  final List<TimelineItem> flashes;
+
+  int get assetCount => assets.length;
+  int get flashCount => flashes.length;
+}
+
 /// Shared Calendar payload used by the legacy adapter and Theme V2 surfaces.
 class CalendarData {
   final List<TimelineItem> items;
@@ -104,6 +119,22 @@ class CalendarData {
     required this.byDay,
     required this.records,
   });
+
+  CalendarDayData day(DateTime date) {
+    final localDay = calendarDayOf(date);
+    final dayItems = byDay[localDay] ?? const <TimelineItem>[];
+    return CalendarDayData(
+      day: localDay,
+      assets: List<CalendarRecord>.unmodifiable(
+        dayItems
+            .where((item) => item.kind != 'input_turn')
+            .map(CalendarRecord.fromTimeline),
+      ),
+      flashes: List<TimelineItem>.unmodifiable(
+        dayItems.where((item) => item.kind == 'input_turn'),
+      ),
+    );
+  }
 }
 
 /// A collapsed representation of scheduled todos sharing one visible due
