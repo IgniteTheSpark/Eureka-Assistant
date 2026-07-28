@@ -3,6 +3,11 @@ import 'package:flutter/material.dart';
 abstract final class ThemeV2Typography {
   static const primaryFont = 'Geist';
   static const monoFont = 'Geist Mono';
+  static const fallbackFonts = <String>[
+    'PingFang SC',
+    'Noto Sans CJK SC',
+    'sans-serif',
+  ];
 
   static TextTheme textTheme({
     required Brightness brightness,
@@ -13,6 +18,7 @@ abstract final class ThemeV2Typography {
         : Typography.material2021().black;
     return base.apply(
       fontFamily: primaryFont,
+      fontFamilyFallback: fallbackFonts,
       bodyColor: foreground,
       displayColor: foreground,
     );
@@ -27,6 +33,7 @@ abstract final class ThemeV2Typography {
   }) {
     return TextStyle(
       fontFamily: monoFont,
+      fontFamilyFallback: fallbackFonts,
       fontSize: fontSize,
       color: color,
       fontWeight: fontWeight,

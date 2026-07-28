@@ -42,13 +42,17 @@ int calendarEndMinute(CalendarRecord record) {
 /// Adjacent records do not overlap. A bridging record keeps a transitive
 /// cluster together, and every entry exposes the final width denominator.
 List<CalendarTimeLayoutEntry> layoutCalendarTime(
-  Iterable<CalendarRecord> records,
-) {
+  Iterable<CalendarRecord> records, {
+  Map<String, int> endMinuteOverrides = const {},
+}) {
+  int effectiveEnd(CalendarRecord record) =>
+      endMinuteOverrides[record.id] ?? calendarEndMinute(record);
+
   final sorted = records.where((record) => record.isTimed).toList()
     ..sort((a, b) {
       final start = calendarStartMinute(a).compareTo(calendarStartMinute(b));
       if (start != 0) return start;
-      final end = calendarEndMinute(b).compareTo(calendarEndMinute(a));
+      final end = effectiveEnd(b).compareTo(effectiveEnd(a));
       if (end != 0) return end;
       final id = a.id.compareTo(b.id);
       if (id != 0) return id;
@@ -76,7 +80,7 @@ List<CalendarTimeLayoutEntry> layoutCalendarTime(
         column = columnEnds.length;
         columnEnds.add(0);
       }
-      columnEnds[column] = calendarEndMinute(record);
+      columnEnds[column] = effectiveEnd(record);
       columnOf[record] = column;
     }
 
@@ -85,7 +89,7 @@ List<CalendarTimeLayoutEntry> layoutCalendarTime(
         CalendarTimeLayoutEntry(
           record: record,
           startMinute: calendarStartMinute(record),
-          endMinute: calendarEndMinute(record),
+          endMinute: effectiveEnd(record),
           columnIndex: columnOf[record]!,
           columnCount: columnEnds.length,
         ),
@@ -100,7 +104,7 @@ List<CalendarTimeLayoutEntry> layoutCalendarTime(
       flush();
     }
     cluster.add(record);
-    final end = calendarEndMinute(record);
+    final end = effectiveEnd(record);
     if (end > clusterEnd) clusterEnd = end;
   }
   flush();

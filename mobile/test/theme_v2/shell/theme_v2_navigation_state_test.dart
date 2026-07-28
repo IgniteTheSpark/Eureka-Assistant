@@ -3,6 +3,7 @@ import 'package:eureka/theme/eureka_colors.dart';
 import 'package:eureka/theme/theme_controller.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_tokens.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_typography.dart';
+import 'package:eureka/theme_v2/calendar/theme_v2_calendar_page.dart';
 import 'package:eureka/theme_v2/shell/device_status_summary.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_app_shell.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_page_scaffold.dart';
@@ -152,6 +153,19 @@ void main() {
       find.textContaining('accent:${ThemeV2Tokens.dark.accent}'),
       findsOneWidget,
     );
+  });
+
+  testWidgets('production shell mounts the Theme V2 calendar surface', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const _ThemeHost(
+        child: ThemeV2AppShell(initialIndex: 1, showStartupOverlays: false),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byType(ThemeV2CalendarPage), findsOneWidget);
   });
 }
 

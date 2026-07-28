@@ -1,0 +1,563 @@
+import 'package:flutter/material.dart';
+
+import '../../timeline/timeline.dart';
+import '../foundation/theme_v2_semantics.dart';
+import '../foundation/theme_v2_theme.dart';
+import '../foundation/theme_v2_tokens.dart';
+import '../foundation/theme_v2_typography.dart';
+import 'calendar_components.dart';
+import 'calendar_controller.dart';
+import 'calendar_inline_draft.dart';
+import 'calendar_models.dart';
+import 'calendar_time_layout.dart';
+
+class CalendarScheduleGrid extends StatefulWidget {
+  const CalendarScheduleGrid({
+    super.key,
+    required this.day,
+    required this.records,
+    required this.skills,
+    required this.controller,
+    required this.onOpenRecord,
+    required this.onCreateDraft,
+    required this.onOpenDraftEditor,
+  });
+
+  final DateTime day;
+  final List<CalendarRecord> records;
+  final Map<String, SkillMeta> skills;
+  final CalendarController controller;
+  final ValueChanged<CalendarRecord> onOpenRecord;
+  final CalendarDraftMutation onCreateDraft;
+  final ValueChanged<CalendarInlineDraft> onOpenDraftEditor;
+
+  @override
+  State<CalendarScheduleGrid> createState() => _CalendarScheduleGridState();
+}
+
+class _CalendarScheduleGridState extends State<CalendarScheduleGrid> {
+  static const _startHour = 0;
+  static const _endHour = 24;
+  static const _hourHeight = 64.0;
+  static const _timeWidth = 54.0;
+  static const _columnGap = 4.0;
+  static const _expandedRowHeight = 44.0;
+  // 15 minutes at 64 logical pixels per hour.
+  static const _collapsedBandHeight = _hourHeight / 4;
+  final Set<DateTime> _expandedBands = {};
+  CalendarInlineDraft? _displayedDraft;
+  late final ScrollController _scroll = ScrollController(
+    initialScrollOffset: 8 * _hourHeight,
+  );
+
+  bool _sameDay(DateTime time) =>
+      time.year == widget.day.year &&
+      time.month == widget.day.month &&
+      time.day == widget.day.day;
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dayRecords = widget.records.where(
+      (record) => _sameDay(record.effectiveAt),
+    );
+    final timed = dayRecords.where((record) => record.isTimed).toList();
+    final untimed = dayRecords
+        .where((record) => record.timing == CalendarRecordTiming.untimed)
+        .toList();
+    final allDay = dayRecords
+        .where((record) => record.timing == CalendarRecordTiming.allDay)
+        .toList();
+    final bands = buildCalendarTodoBands(timed);
+    final bandById = <String, CalendarTodoBand>{
+      for (final band in bands)
+        for (final todo in band.todos) todo.id: band,
+    };
+    final layoutRecords = <CalendarRecord>[
+      for (final record in timed)
+        if (bandById[record.id] == null ||
+            bandById[record.id]!.todos.first.id == record.id)
+          record,
+    ];
+    final layout = layoutCalendarTime(
+      layoutRecords,
+      endMinuteOverrides: {
+        for (final band in bands)
+          band.todos.first.id:
+              _minuteOfDay(band.startAt) + band.collapsedDuration.inMinutes,
+      },
+    );
+    final expansions = <(int, double)>[
+      for (final band in bands)
+        if (_expandedBands.contains(band.startAt))
+          (
+            _minuteOfDay(band.startAt),
+            ThemeV2Sizes.minTouchTarget -
+                _collapsedBandHeight +
+                band.todos.length * _expandedRowHeight,
+          ),
+    ];
+    final baseHeight = (_endHour - _startHour) * _hourHeight;
+    final totalHeight =
+        baseHeight +
+        expansions.fold<double>(0, (sum, expansion) => sum + expansion.$2);
+    final activeDraft = widget.controller.inlineDraft;
+    if (activeDraft != null) _displayedDraft = activeDraft;
+
+    return ColoredBox(
+      color: context.themeV2.background,
+      child: Column(
+        children: [
+          if (allDay.isNotEmpty || untimed.isNotEmpty)
+            _TopTray(allDay: allDay, untimed: untimed),
+          Expanded(
+            child: SingleChildScrollView(
+              key: const ValueKey('calendar-schedule-scroll'),
+              controller: _scroll,
+              padding: const EdgeInsets.only(bottom: 96),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final available = (constraints.maxWidth - _timeWidth).clamp(
+                    80.0,
+                    double.infinity,
+                  );
+                  return SizedBox(
+                    height: totalHeight,
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        for (var hour = _startHour; hour < _endHour; hour++)
+                          _HourSlot(
+                            day: widget.day,
+                            hour: hour,
+                            top:
+                                (hour - _startHour) * _hourHeight +
+                                _pushAt(hour * 60, expansions),
+                            height: _hourHeight,
+                            onTap: () => _createAt(
+                              DateTime(
+                                widget.day.year,
+                                widget.day.month,
+                                widget.day.day,
+                                hour,
+                              ),
+                            ),
+                          ),
+                        for (final entry in layout)
+                          if (bandById[entry.id] case final band?)
+                            _TodoBandBlock(
+                              band: band,
+                              expanded: _expandedBands.contains(band.startAt),
+                              top:
+                                  _topForMinute(entry.startMinute) +
+                                  _pushAt(entry.startMinute, expansions),
+                              left:
+                                  _timeWidth +
+                                  entry.columnIndex *
+                                      ((available -
+                                                  _columnGap *
+                                                      (entry.columnCount - 1)) /
+                                              entry.columnCount +
+                                          _columnGap),
+                              width:
+                                  (available -
+                                      _columnGap * (entry.columnCount - 1)) /
+                                  entry.columnCount,
+                              expandedRowHeight: _expandedRowHeight,
+                              collapsedHeight: _collapsedBandHeight,
+                              onToggle: () => setState(() {
+                                if (!_expandedBands.add(band.startAt)) {
+                                  _expandedBands.remove(band.startAt);
+                                }
+                              }),
+                              onOpenRecord: widget.onOpenRecord,
+                            )
+                          else
+                            _TimedRecordBlock(
+                              entry: entry,
+                              top:
+                                  _topForMinute(entry.startMinute) +
+                                  _pushAt(entry.startMinute, expansions),
+                              left:
+                                  _timeWidth +
+                                  entry.columnIndex *
+                                      ((available -
+                                                  _columnGap *
+                                                      (entry.columnCount - 1)) /
+                                              entry.columnCount +
+                                          _columnGap),
+                              width:
+                                  (available -
+                                      _columnGap * (entry.columnCount - 1)) /
+                                  entry.columnCount,
+                              height:
+                                  (entry.endMinute - entry.startMinute) /
+                                  60 *
+                                  _hourHeight,
+                              onTap: () => widget.onOpenRecord(entry.record),
+                            ),
+                        if (_displayedDraft case final draft?)
+                          Positioned(
+                            top:
+                                _topForMinute(_minuteOfDay(draft.startAt)) +
+                                _pushAt(
+                                  _minuteOfDay(draft.startAt),
+                                  expansions,
+                                ),
+                            left: _timeWidth,
+                            width: available,
+                            child: CalendarInlineDraftView(
+                              key: ValueKey(
+                                'calendar-inline-${draft.startAt.toIso8601String()}',
+                              ),
+                              controller: widget.controller,
+                              onCreate: widget.onCreateDraft,
+                              onOpenEditor: widget.onOpenDraftEditor,
+                              onChanged: () => setState(() {}),
+                            ),
+                          ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _createAt(DateTime start) {
+    widget.controller.tapEmptyTime(start);
+    setState(() => _displayedDraft = widget.controller.inlineDraft);
+  }
+
+  double _topForMinute(int minute) =>
+      (minute - _startHour * 60) / 60 * _hourHeight;
+
+  double _pushAt(int minute, List<(int, double)> expansions) {
+    var push = 0.0;
+    for (final expansion in expansions) {
+      if (expansion.$1 < minute) push += expansion.$2;
+    }
+    return push;
+  }
+
+  int _minuteOfDay(DateTime time) => time.hour * 60 + time.minute;
+}
+
+class _HourSlot extends StatelessWidget {
+  const _HourSlot({
+    required this.day,
+    required this.hour,
+    required this.top,
+    required this.height,
+    required this.onTap,
+  });
+
+  final DateTime day;
+  final int hour;
+  final double top;
+  final double height;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.themeV2;
+    final key =
+        'calendar-empty-slot-${calendarDayKey(day)}-'
+        '${hour.toString().padLeft(2, '0')}00';
+    return Positioned(
+      top: top,
+      left: 0,
+      right: 0,
+      height: height,
+      child: Semantics(
+        label: '${hour.toString().padLeft(2, '0')}:00 空白时间，创建日程',
+        button: true,
+        onTap: onTap,
+        child: ExcludeSemantics(
+          child: GestureDetector(
+            key: ValueKey(key),
+            behavior: HitTestBehavior.opaque,
+            onTap: onTap,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                border: Border(top: BorderSide(color: tokens.border)),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.only(top: ThemeV2Spacing.xs),
+                child: Text(
+                  '${hour.toString().padLeft(2, '0')}:00',
+                  style: ThemeV2Typography.mono(
+                    fontSize: 9,
+                    color: tokens.muted,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TimedRecordBlock extends StatelessWidget {
+  const _TimedRecordBlock({
+    required this.entry,
+    required this.top,
+    required this.left,
+    required this.width,
+    required this.height,
+    required this.onTap,
+  });
+
+  final CalendarTimeLayoutEntry entry;
+  final double top;
+  final double left;
+  final double width;
+  final double height;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.themeV2;
+    final visualHeight = height.clamp(1.0, double.infinity);
+    final hitHeight = visualHeight.clamp(
+      ThemeV2Sizes.minTouchTarget,
+      double.infinity,
+    );
+    return Positioned(
+      top: top,
+      left: left,
+      width: width,
+      height: hitHeight,
+      child: Semantics(
+        label: entry.record.item.title,
+        button: true,
+        onTap: onTap,
+        child: ExcludeSemantics(
+          child: InkWell(
+            onTap: onTap,
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: Container(
+                key: ValueKey('calendar-grid-record-${entry.id}'),
+                width: double.infinity,
+                height: visualHeight,
+                padding: const EdgeInsets.all(ThemeV2Spacing.sm),
+                decoration: BoxDecoration(
+                  color: tokens.surface,
+                  borderRadius: BorderRadius.circular(ThemeV2Radii.sm),
+                  border: Border.all(color: tokens.accent),
+                ),
+                child: Text(
+                  entry.record.item.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: tokens.foreground,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TodoBandBlock extends StatelessWidget {
+  const _TodoBandBlock({
+    required this.band,
+    required this.expanded,
+    required this.top,
+    required this.left,
+    required this.width,
+    required this.expandedRowHeight,
+    required this.collapsedHeight,
+    required this.onToggle,
+    required this.onOpenRecord,
+  });
+
+  final CalendarTodoBand band;
+  final bool expanded;
+  final double top;
+  final double left;
+  final double width;
+  final double expandedRowHeight;
+  final double collapsedHeight;
+  final VoidCallback onToggle;
+  final ValueChanged<CalendarRecord> onOpenRecord;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.themeV2;
+    return Positioned(
+      top: expanded
+          ? top
+          : top - (ThemeV2Sizes.minTouchTarget - collapsedHeight),
+      left: left,
+      width: width,
+      height: expanded
+          ? ThemeV2Sizes.minTouchTarget + band.todos.length * expandedRowHeight
+          : ThemeV2Sizes.minTouchTarget,
+      child: OverflowBox(
+        // Grow the collapsed hit target upward from the true 15-minute band,
+        // keeping later scheduled records' hit regions unambiguous.
+        alignment: expanded ? Alignment.topCenter : Alignment.bottomCenter,
+        minHeight: ThemeV2Sizes.minTouchTarget,
+        maxHeight: expanded
+            ? ThemeV2Sizes.minTouchTarget +
+                  band.todos.length * expandedRowHeight
+            : ThemeV2Sizes.minTouchTarget,
+        child: Container(
+          decoration: BoxDecoration(
+            color: expanded ? tokens.accentSoft : null,
+            gradient: expanded
+                ? null
+                : LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.transparent,
+                      Colors.transparent,
+                      tokens.accentSoft,
+                      tokens.accentSoft,
+                    ],
+                    stops: [
+                      0,
+                      1 - collapsedHeight / ThemeV2Sizes.minTouchTarget,
+                      1 - collapsedHeight / ThemeV2Sizes.minTouchTarget,
+                      1,
+                    ],
+                  ),
+            borderRadius: BorderRadius.circular(ThemeV2Radii.sm),
+          ),
+          child: Column(
+            children: [
+              Semantics(
+                key: ValueKey(
+                  'calendar-grid-todo-band-${calendarDayKey(band.startAt)}-'
+                  '${band.startAt.hour.toString().padLeft(2, '0')}'
+                  '${band.startAt.minute.toString().padLeft(2, '0')}',
+                ),
+                label: '${expanded ? '收起' : '展开'} ${band.todos.length} 个待办',
+                button: true,
+                onTap: onToggle,
+                child: ExcludeSemantics(
+                  child: ThemeV2HitTarget(
+                    child: InkWell(
+                      onTap: onToggle,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: ThemeV2Spacing.sm,
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '${band.todos.length} 个待办',
+                                style: Theme.of(context).textTheme.labelSmall
+                                    ?.copyWith(
+                                      color: tokens.accent,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                              ),
+                            ),
+                            Icon(
+                              expanded ? Icons.expand_less : Icons.expand_more,
+                              size: 16,
+                              color: tokens.accent,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              if (expanded)
+                for (final todo in band.todos)
+                  SizedBox(
+                    height: expandedRowHeight,
+                    child: InkWell(
+                      onTap: () => onOpenRecord(todo),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: ThemeV2Spacing.sm,
+                          ),
+                          child: Text(
+                            todo.item.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.labelSmall
+                                ?.copyWith(color: tokens.foreground),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TopTray extends StatelessWidget {
+  const _TopTray({required this.allDay, required this.untimed});
+
+  final List<CalendarRecord> allDay;
+  final List<CalendarRecord> untimed;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.themeV2;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(
+        ThemeV2Spacing.lg,
+        0,
+        ThemeV2Spacing.lg,
+        ThemeV2Spacing.sm,
+      ),
+      padding: const EdgeInsets.all(ThemeV2Spacing.md),
+      decoration: BoxDecoration(
+        color: tokens.surface,
+        borderRadius: BorderRadius.circular(ThemeV2Radii.md),
+        border: Border.all(color: tokens.border),
+      ),
+      child: Row(
+        children: [
+          if (allDay.isNotEmpty)
+            Expanded(
+              child: Text(
+                '全天 · ${allDay.length}',
+                style: TextStyle(color: tokens.foreground),
+              ),
+            ),
+          if (untimed.isNotEmpty)
+            Expanded(
+              child: Text(
+                '待安排 · ${untimed.length}',
+                textAlign: TextAlign.end,
+                style: TextStyle(color: tokens.foreground),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}

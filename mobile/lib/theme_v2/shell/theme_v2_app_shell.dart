@@ -2,12 +2,13 @@ import 'package:flutter/material.dart';
 
 import '../../app_shell.dart' show scheduleShellStartupSurface;
 import '../../data_revision.dart';
-import '../../pages/calendar_page.dart';
+import '../../pages/calendar_page.dart' show calendarHome;
 import '../../pages/device_pairing_page.dart';
 import '../../pages/library_page.dart';
 import '../../pages/notifications_page.dart';
 import '../../pages/today_page.dart';
 import '../../theme/app_theme.dart';
+import '../calendar/theme_v2_calendar_page.dart';
 import '../foundation/theme_v2_theme.dart';
 import 'device_status_summary.dart';
 import 'theme_v2_floating_dock.dart';
@@ -18,7 +19,7 @@ import 'theme_v2_page_scaffold.dart';
 ///
 /// Page bodies are injectable so shell behavior can be tested without mounting
 /// network- or device-heavy production pages. The production defaults keep the
-/// mature Today, Calendar, and Library implementations alive during migration.
+/// mature Today and Library implementations alive during migration.
 class ThemeV2AppShell extends StatefulWidget {
   const ThemeV2AppShell({
     super.key,
@@ -97,7 +98,7 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
     return widget.pages ??
         [
           ThemeV2PageScaffold(body: TodayPage(active: _index == 0)),
-          const ThemeV2PageScaffold(body: CalendarPage()),
+          const ThemeV2PageScaffold(body: ThemeV2CalendarPage()),
           const ThemeV2PageScaffold(body: LibraryPage()),
         ];
   }

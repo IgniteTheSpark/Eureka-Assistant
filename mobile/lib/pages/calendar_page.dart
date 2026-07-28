@@ -103,6 +103,73 @@ Future<void> _openTimelineItem(
   }
 }
 
+/// Theme V2 adapter for the mature Calendar record-detail dispatcher.
+///
+/// The legacy route, render-spec lookup and asset/event/session behavior remain
+/// owned by this file so the redesigned view does not duplicate them.
+Future<void> openCalendarTimelineItem(
+  BuildContext context,
+  TimelineItem item,
+  Map<String, SkillMeta> skills,
+) => _openTimelineItem(context, item, skills);
+
+/// Theme V2 adapter for the existing full-day Calendar route.
+void openCalendarDayDetail(BuildContext context, DateTime day) {
+  Navigator.of(
+    context,
+  ).push(MaterialPageRoute(builder: (_) => DayDetailPage(day: day)));
+}
+
+/// Hands a 30-minute inline draft to the existing event editor and waits for
+/// its established mutation. Existing events are fetched before opening
+/// because [EventForm] intentionally initializes from the supplied record.
+///
+/// A dismissed editor is a normal nullable result. The caller decides whether
+/// a cancelled create should remain available for retry.
+Future<String?> openCalendarInlineDraftEditor(
+  BuildContext context,
+  CalendarInlineDraft draft, {
+  String? eventId,
+  ApiClient? api,
+}) async {
+  ApiClient? ownedApi;
+  final client = api ?? (eventId == null ? null : (ownedApi = ApiClient()));
+  try {
+    final Map<String, dynamic> existing;
+    if (eventId == null) {
+      existing = {
+        'start_at': draft.startAt.toIso8601String(),
+        'end_at': draft.endAt.toIso8601String(),
+        'all_day': 0,
+      };
+    } else {
+      final response = await client!.getJson('/api/events/$eventId');
+      final raw = response is Map ? (response['event'] ?? response) : null;
+      if (raw is! Map) {
+        throw StateError('event response missing event');
+      }
+      existing = Map<String, dynamic>.from(raw);
+    }
+    if (!context.mounted) return null;
+
+    final dynamic result = await Navigator.of(context).push<dynamic>(
+      MaterialPageRoute(
+        builder: (_) =>
+            EventForm(eventId: eventId, existing: existing, api: api),
+      ),
+    );
+    if (result == null) return null;
+    if (eventId != null) return eventId;
+    final dynamic createdId = result is Map ? result['event_id'] : null;
+    if (createdId is String && createdId.isNotEmpty) {
+      return createdId;
+    }
+    throw StateError('event editor result missing event_id');
+  } finally {
+    ownedApi?.close();
+  }
+}
+
 /// Minimal CardData for the detail-sheet hero, from the timeline item's
 /// backend-computed title/subtitle + the kind's icon/accent.
 CardData _timelineCardData(TimelineItem item, Map<String, SkillMeta> skills) {

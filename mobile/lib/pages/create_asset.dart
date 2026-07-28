@@ -574,6 +574,7 @@ class _EventFormState extends State<EventForm> {
           _isEdit
               ? true
               : <String, dynamic>{
+                  'event_id': savedEventId,
                   'user_skill_name': 'event',
                   'display_name': '事件',
                   'icon': '📅',

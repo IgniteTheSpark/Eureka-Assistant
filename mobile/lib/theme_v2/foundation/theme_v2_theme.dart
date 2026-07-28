@@ -27,6 +27,7 @@ ThemeData buildThemeV2Theme(Brightness brightness) {
     scaffoldBackgroundColor: tokens.background,
     colorScheme: scheme,
     fontFamily: ThemeV2Typography.primaryFont,
+    fontFamilyFallback: ThemeV2Typography.fallbackFonts,
     textTheme: ThemeV2Typography.textTheme(
       brightness: brightness,
       foreground: tokens.foreground,
