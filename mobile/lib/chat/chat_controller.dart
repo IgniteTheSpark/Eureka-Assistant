@@ -75,6 +75,7 @@ class ChatController extends ChangeNotifier {
   /// The session currently being reconcile-polled (a turn was still generating
   /// when we loaded it). Prevents overlapping poll loops.
   String? _pollingSession;
+  int? _pollingRevision;
 
   @override
   void dispose() {
@@ -289,7 +290,7 @@ class ChatController extends ChangeNotifier {
     // §1.5.1.3 batch A — a turn may still be generating server-side (we left
     // mid-generation and came back). Its agent message is `running` → shown as
     // 「分析中…」; poll until it lands, then auto-render the reply/cards.
-    if (_hasPending(raw)) _reconcilePending(id);
+    if (_hasPending(raw)) _reconcilePending(id, revision);
   }
 
   /// Rebuild [messages] from a /messages payload. Agent messages with
@@ -362,14 +363,18 @@ class ChatController extends ChangeNotifier {
   /// Reconcile a session that had an in-flight turn on load: poll the message
   /// log until the running turn lands (or a timeout), then rebuild + render the
   /// reply/cards. Stops if the user switches sessions or the controller dies.
-  Future<void> _reconcilePending(String id) async {
-    if (_pollingSession == id) return; // already polling this one
+  Future<void> _reconcilePending(String id, int revision) async {
+    if (_pollingSession == id && _pollingRevision == revision) {
+      return; // already polling this exact history generation
+    }
     _pollingSession = id;
+    _pollingRevision = revision;
     final deadline = DateTime.now().add(_reconcileTimeout);
     var settled = false;
     try {
       while (!_disposed &&
           sessionId == id &&
+          revision == _sessionLoadRevision &&
           DateTime.now().isBefore(deadline)) {
         var remaining = deadline.difference(DateTime.now());
         if (remaining <= Duration.zero) break;
@@ -377,14 +382,14 @@ class ChatController extends ChangeNotifier {
             ? _reconcileInterval
             : remaining;
         await Future<void>.delayed(delay);
-        if (_disposed || sessionId != id) break;
+        if (!_isCurrentReconciliation(id, revision)) break;
         remaining = deadline.difference(DateTime.now());
         if (remaining <= Duration.zero) break;
         final res = await _api
             .getJson('/api/sessions/$id/messages')
             .timeout(remaining);
         final raw = (res is Map ? res['messages'] : null) as List? ?? const [];
-        if (_disposed || sessionId != id) break;
+        if (!_isCurrentReconciliation(id, revision)) break;
         if (!_hasPending(raw)) {
           _applyMessages(raw); // turn landed → reply + cards now present
           streaming = false;
@@ -397,20 +402,29 @@ class ChatController extends ChangeNotifier {
         }
       }
     } catch (_) {
-      _markReconcileFailure(id);
+      _markReconcileFailure(id, revision);
     } finally {
       if (!settled &&
-          !_disposed &&
-          sessionId == id &&
+          _isCurrentReconciliation(id, revision) &&
           !DateTime.now().isBefore(deadline)) {
-        _markReconcileFailure(id);
+        _markReconcileFailure(id, revision);
       }
-      if (_pollingSession == id) _pollingSession = null;
+      if (_pollingSession == id && _pollingRevision == revision) {
+        _pollingSession = null;
+        _pollingRevision = null;
+      }
     }
   }
 
-  void _markReconcileFailure(String id) {
-    if (_disposed || sessionId != id) return;
+  bool _isCurrentReconciliation(String id, int revision) =>
+      !_disposed &&
+      sessionId == id &&
+      revision == _sessionLoadRevision &&
+      _pollingSession == id &&
+      _pollingRevision == revision;
+
+  void _markReconcileFailure(String id, int revision) {
+    if (!_isCurrentReconciliation(id, revision)) return;
     for (final message in messages) {
       if (!message.isUser) message.streaming = false;
     }

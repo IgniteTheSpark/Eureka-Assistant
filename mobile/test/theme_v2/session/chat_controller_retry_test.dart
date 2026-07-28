@@ -459,6 +459,81 @@ void main() {
     expect(controller.error, isNotNull);
   });
 
+  test(
+    'an obsolete durable poll cannot poison a reloaded same-id session',
+    () async {
+      var aMessageLoads = 0;
+      final obsoletePoll = Completer<http.Response>();
+      final api = ApiClient(
+        client: MockClient((request) async {
+          final path = request.url.path;
+          if (path == '/api/sessions/a/messages') {
+            aMessageLoads++;
+            if (aMessageLoads == 1) {
+              return http.Response.bytes(
+                utf8.encode(
+                  jsonEncode({
+                    'messages': [
+                      {'id': 'a-running', 'role': 'agent', 'status': 'running'},
+                    ],
+                  }),
+                ),
+                200,
+              );
+            }
+            if (aMessageLoads == 2) return obsoletePoll.future;
+            return http.Response.bytes(
+              utf8.encode(
+                jsonEncode({
+                  'messages': [
+                    {
+                      'id': 'a-done',
+                      'role': 'agent',
+                      'status': 'done',
+                      'text': 'A 已完成',
+                    },
+                  ],
+                }),
+              ),
+              200,
+            );
+          }
+          if (path == '/api/sessions/b/messages') {
+            return http.Response.bytes(
+              utf8.encode(jsonEncode({'messages': const []})),
+              200,
+            );
+          }
+          return http.Response(jsonEncode({'session': {}}), 200);
+        }),
+        baseUrl: 'http://test',
+        enableLogging: false,
+      );
+      final controller = ChatController(
+        api: api,
+        reconcileInterval: const Duration(milliseconds: 1),
+        reconcileTimeout: const Duration(milliseconds: 100),
+      );
+      addTearDown(() {
+        controller.dispose();
+        api.close();
+      });
+
+      await controller.loadSession('a');
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      expect(aMessageLoads, 2);
+      await controller.loadSession('b');
+      await controller.loadSession('a');
+      obsoletePoll.complete(http.Response('offline', 503));
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+
+      expect(controller.sessionId, 'a');
+      expect(controller.messages.single.text, 'A 已完成');
+      expect(controller.streaming, isFalse);
+      expect(controller.error, isNull);
+    },
+  );
+
   test('attached context labels become controller-owned state', () async {
     final api = ApiClient(
       client: MockClient((request) async {
