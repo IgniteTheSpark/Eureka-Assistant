@@ -60,7 +60,6 @@ class PinnedConfiguration extends StatelessWidget {
             LibraryPinnedMosaic(
               containers: controller.pinnedContainers,
               configure: true,
-              onTap: (_) {},
               onRemove: (container) => controller.removePinned(container.id),
               onMoveBackward: (container) {
                 final index = controller.pinnedContainers.indexWhere(

@@ -252,7 +252,7 @@ class LibraryPinnedMosaic extends StatelessWidget {
   const LibraryPinnedMosaic({
     super.key,
     required this.containers,
-    required this.onTap,
+    this.onTap,
     this.onLongPress,
     this.configure = false,
     this.onRemove,
@@ -261,7 +261,7 @@ class LibraryPinnedMosaic extends StatelessWidget {
   });
 
   final List<LibraryContainer> containers;
-  final LibraryContainerCallback onTap;
+  final LibraryContainerCallback? onTap;
   final VoidCallback? onLongPress;
   final bool configure;
   final LibraryContainerCallback? onRemove;
@@ -335,7 +335,7 @@ class LibraryPinnedMosaic extends StatelessWidget {
     final tile = _LibraryPinnedTile(
       container: container,
       index: index,
-      onTap: () => onTap(container),
+      onTap: onTap == null ? null : () => onTap!(container),
       onLongPress: configure ? null : onLongPress,
       configure: configure,
       onRemove: onRemove == null ? null : () => onRemove!(container),
@@ -385,7 +385,7 @@ class _LibraryPinnedTile extends StatelessWidget {
   const _LibraryPinnedTile({
     required this.container,
     required this.index,
-    required this.onTap,
+    this.onTap,
     required this.configure,
     this.onLongPress,
     this.onRemove,
@@ -394,7 +394,7 @@ class _LibraryPinnedTile extends StatelessWidget {
 
   final LibraryContainer container;
   final int index;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   final VoidCallback? onLongPress;
   final bool configure;
   final VoidCallback? onRemove;
@@ -411,8 +411,8 @@ class _LibraryPinnedTile extends StatelessWidget {
     final compact = index >= 3;
     return Semantics(
       label:
-          '${container.label}，${container.count} 条${configure ? '，长按拖动排序' : ''}',
-      button: true,
+          '${container.label}，${container.count} 条${configure ? '，可拖动排序，也可使用移动和移除按钮' : ''}',
+      button: onTap != null,
       onTap: onTap,
       onLongPress: onLongPress,
       child: ExcludeSemantics(

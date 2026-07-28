@@ -328,7 +328,7 @@ class _SourceFailure {
 }
 
 abstract interface class LibraryPinnedStore {
-  Future<List<String>> load();
+  Future<List<String>?> load();
   Future<void> save(List<String> ids);
 }
 
@@ -338,9 +338,9 @@ class SharedPreferencesLibraryPinnedStore implements LibraryPinnedStore {
   static const _key = 'theme_v2.library.pinned_order';
 
   @override
-  Future<List<String>> load() async {
+  Future<List<String>?> load() async {
     final preferences = await SharedPreferences.getInstance();
-    return preferences.getStringList(_key) ?? const [];
+    return preferences.getStringList(_key);
   }
 
   @override
@@ -366,8 +366,11 @@ class LibraryController extends ChangeNotifier {
   String _query = '';
   String? _errorMessage;
   String? _pinSaveError;
+  List<String> _confirmedPinnedIds = const [];
+  Future<void> _pinSaveTail = Future<void>.value();
   int _pinSaveRevision = 0;
   int _loadRevision = 0;
+  bool _disposed = false;
 
   LibraryStatus get status => _status;
   LibrarySnapshot? get snapshot => _snapshot;
@@ -420,25 +423,30 @@ class LibraryController extends ChangeNotifier {
   bool get canPinMore => _pinnedIds.length < 6;
 
   Future<void> load() async {
+    if (_disposed) return;
     final revision = ++_loadRevision;
     _status = LibraryStatus.loading;
     _errorMessage = null;
-    notifyListeners();
+    _notifyListeners();
     try {
       final snapshot = await repository.load();
-      if (revision != _loadRevision) return;
-      List<String> persisted;
+      if (!_isCurrentLoad(revision)) return;
+      await _pinSaveTail;
+      if (!_isCurrentLoad(revision)) return;
+      List<String>? persisted;
       try {
         persisted = await pinnedStore.load();
       } catch (error) {
-        persisted = const [];
+        persisted = null;
         _pinSaveError = '无法读取常驻配置：$error';
       }
-      if (revision != _loadRevision) return;
+      if (!_isCurrentLoad(revision)) return;
       _snapshot = snapshot;
-      final restored = _sanitizePinned(persisted);
       final defaults = snapshot.containers.map((item) => item.id);
-      _pinnedIds = _sanitizePinned([...restored, ...defaults]).take(6).toList();
+      _pinnedIds = persisted == null
+          ? _sanitizePinned(defaults)
+          : _sanitizePinned(persisted);
+      _confirmedPinnedIds = List<String>.of(_pinnedIds);
       _status = snapshot.failedSources.isNotEmpty
           ? LibraryStatus.partial
           : snapshot.containers.isEmpty
@@ -455,32 +463,40 @@ class LibraryController extends ChangeNotifier {
       _errorMessage = error.toString();
       _status = LibraryStatus.error;
     }
-    notifyListeners();
+    _notifyListeners();
   }
 
   Future<void> retry() => load();
 
   void setQuery(String value) {
-    if (_query == value) return;
+    if (_disposed || _query == value) return;
     _query = value;
-    notifyListeners();
+    _notifyListeners();
   }
 
   Future<bool> replacePinned(Iterable<String> ids) async {
-    final previous = List<String>.of(_pinnedIds);
+    if (_disposed) return false;
     final next = _sanitizePinned(ids);
     final revision = ++_pinSaveRevision;
     _pinnedIds = next;
     _pinSaveError = null;
-    notifyListeners();
+    _notifyListeners();
+    final save = _pinSaveTail.then((_) async {
+      await pinnedStore.save(List<String>.of(next));
+      _confirmedPinnedIds = List<String>.of(next);
+    });
+    _pinSaveTail = save.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
     try {
-      await pinnedStore.save(next);
+      await save;
       return true;
     } catch (error) {
-      if (revision == _pinSaveRevision) {
-        _pinnedIds = previous;
+      if (!_disposed && revision == _pinSaveRevision) {
+        _pinnedIds = List<String>.of(_confirmedPinnedIds);
         _pinSaveError = '保存失败，已恢复原配置：$error';
-        notifyListeners();
+        _notifyListeners();
       }
       return false;
     }
@@ -505,7 +521,7 @@ class LibraryController extends ChangeNotifier {
   Future<bool> addPinned(String id) {
     if (!canPinMore) {
       _pinSaveError = '最多常驻 6 个容器，请先移除一个';
-      notifyListeners();
+      _notifyListeners();
       return Future.value(false);
     }
     return replacePinned([..._pinnedIds, id]);
@@ -518,5 +534,19 @@ class LibraryController extends ChangeNotifier {
       for (final id in ids)
         if (available.contains(id) && seen.add(id)) id,
     ].take(6).toList();
+  }
+
+  bool _isCurrentLoad(int revision) => !_disposed && revision == _loadRevision;
+
+  void _notifyListeners() {
+    if (!_disposed) notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _loadRevision++;
+    _pinSaveRevision++;
+    super.dispose();
   }
 }

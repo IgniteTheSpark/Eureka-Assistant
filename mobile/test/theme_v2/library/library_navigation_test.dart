@@ -8,6 +8,7 @@ import 'package:eureka/render/skill_card.dart';
 import 'package:eureka/theme/app_theme.dart';
 import 'package:eureka/theme/eureka_colors.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
+import 'package:eureka/theme_v2/foundation/theme_v2_tokens.dart';
 import 'package:eureka/theme_v2/library/container_index.dart';
 import 'package:eureka/theme_v2/library/library_controller.dart';
 import 'package:eureka/theme_v2/library/library_hub.dart';
@@ -279,6 +280,18 @@ void main() {
         tester.getSize(find.bySemanticsLabel('移除 待办')).width,
         greaterThanOrEqualTo(44),
       );
+      final tileSemantics = tester
+          .widgetList<Semantics>(
+            find.ancestor(
+              of: find.byKey(const ValueKey('library-pinned-tile-todo')),
+              matching: find.byType(Semantics),
+            ),
+          )
+          .singleWhere(
+            (widget) => widget.properties.label == '待办，5 条，可拖动排序，也可使用移动和移除按钮',
+          );
+      expect(tileSemantics.properties.button, isFalse);
+      expect(tileSemantics.properties.onTap, isNull);
 
       await tester.tap(find.bySemanticsLabel('移除 待办'));
       await tester.pumpAndSettle();
@@ -456,6 +469,70 @@ void main() {
     expect(find.byKey(const ValueKey('library-create-skill')), findsOneWidget);
   });
 
+  testWidgets('pushed routes retain the originating Theme V2 material theme', (
+    tester,
+  ) async {
+    final controller = await _controller();
+    final brightness = ValueNotifier(Brightness.light);
+    addTearDown(brightness.dispose);
+    await _pumpSizedWidget(
+      tester,
+      ProviderScope(
+        overrides: [renderSpecsProvider.overrideWith((ref) async => const {})],
+        child: ValueListenableBuilder<Brightness>(
+          valueListenable: brightness,
+          builder: (context, value, _) {
+            final legacyTheme = ThemeData(brightness: value).copyWith(
+              textTheme: ThemeData(
+                brightness: value,
+              ).textTheme.apply(fontFamily: 'LegacyFont'),
+            );
+            return MaterialApp(
+              theme: legacyTheme,
+              home: Theme(
+                data: buildThemeV2Theme(value),
+                child: Scaffold(
+                  body: SafeArea(
+                    child: ThemeV2LibraryPage(
+                      controller: controller,
+                      autoLoad: false,
+                      onOpenContainer: (_) {},
+                      onCreateSkill: () {},
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+
+    await tester.tap(find.bySemanticsLabel('打开资产容器索引'));
+    await tester.pumpAndSettle();
+
+    final routeTheme = Theme.of(tester.element(find.byType(ContainerIndex)));
+    final lightThemeV2 = buildThemeV2Theme(Brightness.light);
+    expect(
+      routeTheme.textTheme.bodyMedium?.fontFamily,
+      lightThemeV2.textTheme.bodyMedium?.fontFamily,
+    );
+    expect(routeTheme.textTheme.bodyMedium?.fontFamily, isNot('LegacyFont'));
+    expect(routeTheme.extension<ThemeV2Tokens>(), isNotNull);
+
+    brightness.value = Brightness.dark;
+    await tester.pumpAndSettle();
+
+    final darkRouteTheme = Theme.of(
+      tester.element(find.byType(ContainerIndex)),
+    );
+    expect(darkRouteTheme.brightness, Brightness.dark);
+    expect(
+      darkRouteTheme.extension<ThemeV2Tokens>()?.background,
+      ThemeV2Tokens.dark.background,
+    );
+  });
+
   testWidgets(
     'Theme V2 shell mounts the V2 library while legacy page is absent',
     (tester) async {
@@ -524,13 +601,21 @@ Future<void> _pumpHost(
   Widget child, {
   Size size = const Size(411, 960),
 }) async {
+  await _pumpSizedWidget(tester, _host(child, size: size), size: size);
+}
+
+Future<void> _pumpSizedWidget(
+  WidgetTester tester,
+  Widget child, {
+  Size size = const Size(411, 960),
+}) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = size;
   addTearDown(() {
     tester.view.resetPhysicalSize();
     tester.view.resetDevicePixelRatio();
   });
-  await tester.pumpWidget(_host(child, size: size));
+  await tester.pumpWidget(child);
 }
 
 Widget _host(Widget child, {Size size = const Size(411, 960)}) {

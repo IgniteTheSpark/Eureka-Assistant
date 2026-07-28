@@ -29,9 +29,6 @@ void main() {
         expect(controller.pinnedContainers.map((item) => item.id), [
           'notes',
           'todo',
-          'tennis',
-          'event',
-          'contact',
         ]);
         expect(controller.snapshot?.assetTotal, 9);
         expect(controller.snapshot?.containerCount, 5);
@@ -40,7 +37,7 @@ void main() {
     );
 
     test(
-      'expired persisted pins are topped up from currently available containers',
+      'expired persisted pins are removed without adding unselected defaults',
       () async {
         final controller = LibraryController(
           repository: _FakeRepository(_snapshot()),
@@ -49,13 +46,30 @@ void main() {
 
         await controller.load();
 
-        expect(controller.pinnedContainers.map((item) => item.id), [
-          'notes',
-          'todo',
-          'tennis',
-          'event',
-          'contact',
-        ]);
+        expect(controller.pinnedContainers.map((item) => item.id), ['notes']);
+      },
+    );
+
+    test(
+      'removed and explicitly empty pin selections survive reload',
+      () async {
+        final store = _MemoryPinnedStore();
+        final first = LibraryController(
+          repository: _FakeRepository(_snapshot()),
+          pinnedStore: store,
+        );
+        await first.load();
+
+        expect(first.pinnedContainers, isNotEmpty);
+        await first.replacePinned(const []);
+
+        final reloaded = LibraryController(
+          repository: _FakeRepository(_snapshot()),
+          pinnedStore: store,
+        );
+        await reloaded.load();
+
+        expect(reloaded.pinnedContainers, isEmpty);
       },
     );
 
@@ -140,6 +154,35 @@ void main() {
       },
     );
 
+    test('dispose invalidates a pending aggregate load', () async {
+      final repository = _OverlappingRepository();
+      final controller = LibraryController(
+        repository: repository,
+        pinnedStore: _MemoryPinnedStore(),
+      );
+
+      final load = controller.load();
+      controller.dispose();
+      repository.first.complete(_snapshot());
+
+      await expectLater(load, completes);
+    });
+
+    test('dispose invalidates a pending failed pin save', () async {
+      final store = _PendingPinnedStore();
+      final controller = LibraryController(
+        repository: _FakeRepository(_snapshot()),
+        pinnedStore: store,
+      );
+      await controller.load();
+
+      final save = controller.replacePinned(['notes', 'todo']);
+      controller.dispose();
+      store.pending.completeError(StateError('permission denied'));
+
+      await expectLater(save, completion(isFalse));
+    });
+
     test('zero containers is an explicit empty state', () async {
       final controller = LibraryController(
         repository: _FakeRepository(const LibrarySnapshot()),
@@ -179,9 +222,6 @@ void main() {
       expect(controller.pinnedContainers.map((item) => item.id), [
         'todo',
         'notes',
-        'tennis',
-        'event',
-        'contact',
       ]);
       expect(controller.pinSaveError, isNotNull);
       expect(store.savedOrders, isEmpty);
@@ -241,6 +281,55 @@ void main() {
         expect(store.savedOrders, isEmpty);
       },
     );
+
+    test(
+      'pin saves serialize and two failures roll back to disk state',
+      () async {
+        final store = _ControlledPinnedStore(['todo', 'notes']);
+        final controller = LibraryController(
+          repository: _FakeRepository(_snapshot()),
+          pinnedStore: store,
+        );
+        await controller.load();
+
+        final first = controller.replacePinned(['notes', 'todo']);
+        final second = controller.replacePinned(['notes']);
+        await Future<void>.delayed(Duration.zero);
+        expect(store.pending, hasLength(1));
+
+        store.pending[0].completeError(StateError('first failed'));
+        await expectLater(first, completion(isFalse));
+        await Future<void>.delayed(Duration.zero);
+        expect(store.pending, hasLength(2));
+
+        store.pending[1].completeError(StateError('second failed'));
+        await expectLater(second, completion(isFalse));
+        expect(controller.pinnedContainers.map((item) => item.id), [
+          'todo',
+          'notes',
+        ]);
+      },
+    );
+
+    test('an old failed pin save cannot overwrite a newer success', () async {
+      final store = _ControlledPinnedStore(['todo', 'notes']);
+      final controller = LibraryController(
+        repository: _FakeRepository(_snapshot()),
+        pinnedStore: store,
+      );
+      await controller.load();
+
+      final first = controller.replacePinned(['notes', 'todo']);
+      final second = controller.replacePinned(['notes']);
+      await Future<void>.delayed(Duration.zero);
+      store.pending[0].completeError(StateError('first failed'));
+      await expectLater(first, completion(isFalse));
+      await Future<void>.delayed(Duration.zero);
+
+      store.pending[1].complete();
+      await expectLater(second, completion(isTrue));
+      expect(controller.pinnedContainers.map((item) => item.id), ['notes']);
+    });
   });
 
   group('LibrarySnapshot aggregation', () {
@@ -471,14 +560,16 @@ class _SequenceRepository implements LibraryRepository {
 }
 
 class _MemoryPinnedStore implements LibraryPinnedStore {
-  _MemoryPinnedStore([this.initial = const []]);
+  _MemoryPinnedStore([List<String>? initial])
+    : value = initial == null ? null : List.of(initial);
 
-  final List<String> initial;
+  List<String>? value;
   final List<List<String>> savedOrders = [];
   bool failNextSave = false;
 
   @override
-  Future<List<String>> load() async => List.of(initial);
+  Future<List<String>?> load() async =>
+      value == null ? null : List<String>.of(value!);
 
   @override
   Future<void> save(List<String> ids) async {
@@ -486,8 +577,37 @@ class _MemoryPinnedStore implements LibraryPinnedStore {
       failNextSave = false;
       throw StateError('permission denied');
     }
-    savedOrders.add(List.of(ids));
+    final saved = List<String>.of(ids);
+    value = saved;
+    savedOrders.add(saved);
   }
+}
+
+class _ControlledPinnedStore implements LibraryPinnedStore {
+  _ControlledPinnedStore(this.initial);
+
+  final List<String> initial;
+  final List<Completer<void>> pending = [];
+
+  @override
+  Future<List<String>> load() async => List.of(initial);
+
+  @override
+  Future<void> save(List<String> ids) {
+    final completer = Completer<void>();
+    pending.add(completer);
+    return completer.future;
+  }
+}
+
+class _PendingPinnedStore implements LibraryPinnedStore {
+  final pending = Completer<void>();
+
+  @override
+  Future<List<String>> load() async => const [];
+
+  @override
+  Future<void> save(List<String> ids) => pending.future;
 }
 
 class _OverlappingRepository implements LibraryRepository {

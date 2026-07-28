@@ -8,6 +8,7 @@ import '../../pages/entity_list_page.dart';
 import '../../pages/report_list_page.dart';
 import '../../pages/report_viewer_page.dart';
 import '../../render/skill_card.dart';
+import '../../theme/app_theme.dart';
 import '../../timeline/timeline.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../foundation/theme_v2_theme.dart';
@@ -161,12 +162,30 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
   }
 
   void _pushLibraryRoute(Widget child) {
+    final originLegacyTheme = Theme.of(context).extension<EurekaTheme>();
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (routeContext) => Scaffold(
-          backgroundColor: routeContext.themeV2.background,
-          body: SafeArea(child: child),
-        ),
+        builder: (routeContext) {
+          final ambientTheme = Theme.of(routeContext);
+          var routeTheme = buildThemeV2Theme(ambientTheme.brightness);
+          final legacyTheme =
+              ambientTheme.extension<EurekaTheme>() ?? originLegacyTheme;
+          if (legacyTheme != null) {
+            routeTheme = routeTheme.copyWith(
+              extensions: [...routeTheme.extensions.values, legacyTheme],
+            );
+          }
+          final routeTokens = ThemeV2Tokens.forBrightness(
+            ambientTheme.brightness,
+          );
+          return Theme(
+            data: routeTheme,
+            child: Scaffold(
+              backgroundColor: routeTokens.background,
+              body: SafeArea(child: child),
+            ),
+          );
+        },
       ),
     );
   }
