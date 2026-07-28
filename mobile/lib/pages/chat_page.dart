@@ -5,12 +5,14 @@ import '../chat/chat_card.dart';
 import '../chat/chat_controller.dart';
 import '../chat/chat_models.dart';
 import '../chat/markdown_text.dart';
+import '../config.dart';
 import '../render/skill_card.dart';
 import '../theme/app_theme.dart';
 import '../api/api_client.dart';
 import '../theme/eureka_colors.dart';
 import '../widgets/asset_picker.dart';
 import '../widgets/toast.dart';
+import '../theme_v2/session/theme_v2_session_page.dart';
 
 /// Agent chat surface — streams POST /api/chat over SSE, renders the agent's
 /// markdown text + created cards, and offers 沉淀为资产 on pure Q&A answers.
@@ -28,6 +30,12 @@ class ChatPage extends StatefulWidget {
   /// Force a brand-new, empty conversation (no resume, no anchor, no context).
   /// Used by the REKA 「新建对话」 action so it never inherits the last thread.
   final bool startBlank;
+
+  /// Test seam for the app-root compile-time rollout decision.
+  ///
+  /// Production callers leave this null and follow [AppConfig.themeV2].
+  final bool? themeV2Override;
+
   const ChatPage({
     super.key,
     this.boundSessionId,
@@ -35,6 +43,7 @@ class ChatPage extends StatefulWidget {
     this.subjectId,
     this.subjectLabel,
     this.startBlank = false,
+    this.themeV2Override,
   });
 
   @override
@@ -43,6 +52,7 @@ class ChatPage extends StatefulWidget {
 
 class _ChatPageState extends State<ChatPage> {
   final _chat = ChatController();
+  late final ChatControllerSessionAdapter _themeV2Controller;
   final List<({String id, String label})> _context = [];
   // The anchored subject (🔗 常驻关联资产). Mutable so 新建对话 can clear it — the
   // widget param is immutable, so we mirror it here and drive the chip/header
@@ -62,6 +72,7 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void initState() {
     super.initState();
+    _themeV2Controller = ChatControllerSessionAdapter(_chat);
     _anchorLabel = widget.subjectLabel;
     _chat.addListener(_onChange);
     if (widget.startBlank) {
@@ -150,6 +161,7 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void dispose() {
     _chat.removeListener(_onChange);
+    _themeV2Controller.dispose();
     _chat.dispose();
     _input.dispose();
     _scroll.dispose();
@@ -305,6 +317,16 @@ class _ChatPageState extends State<ChatPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.themeV2Override ?? AppConfig.themeV2) {
+      return ThemeV2SessionPage(
+        controller: _themeV2Controller,
+        initializeController: false,
+        subjectLabel: _anchorLabel,
+        emptyOpener: _hintOpener,
+        emptyStarters: _hintStarters,
+        onNewConversation: _newConversation,
+      );
+    }
     final eu = context.eu;
     final msgs = _chat.messages;
     return Scaffold(
@@ -371,7 +393,7 @@ class _ChatPageState extends State<ChatPage> {
                       padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                       itemCount: msgs.length,
                       itemBuilder: (_, i) {
-                        final child = _Bubble(
+                        final child = ChatMessageBubble(
                           msgs[i],
                           onPrecipitate: (skill) =>
                               _precipitate(msgs[i], skill),
@@ -454,10 +476,13 @@ class _ChatPageState extends State<ChatPage> {
   }
 }
 
-class _Bubble extends StatelessWidget {
+/// Shared mature chat renderer used by both the legacy and Theme V2 session
+/// chrome. It keeps markdown, streamed text, tool results, cards and
+/// precipitate actions in one implementation while the surrounding UI migrates.
+class ChatMessageBubble extends StatelessWidget {
   final ChatMessage m;
   final Future<void> Function(String skill)? onPrecipitate;
-  const _Bubble(this.m, {this.onPrecipitate});
+  const ChatMessageBubble(this.m, {super.key, this.onPrecipitate});
 
   @override
   Widget build(BuildContext context) {
@@ -551,7 +576,14 @@ class _Bubble extends StatelessWidget {
         }
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 2),
-          child: MarkdownText(text),
+          child: MarkdownText(
+            text,
+            baseStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: eu.text,
+              fontSize: 14,
+              height: 1.4,
+            ),
+          ),
         );
       case ToolCallPart(:final name):
         // Only the in-flight call (last part of a streaming msg) shows a spinner;
@@ -763,7 +795,13 @@ class _StreamingTextState extends State<_StreamingText>
   @override
   Widget build(BuildContext context) {
     final eu = context.eu;
-    final base = TextStyle(color: eu.text, fontSize: 14, height: 1.4);
+    final base =
+        Theme.of(context).textTheme.bodyMedium?.copyWith(
+          color: eu.text,
+          fontSize: 14,
+          height: 1.4,
+        ) ??
+        TextStyle(color: eu.text, fontSize: 14, height: 1.4);
     return RichText(
       text: TextSpan(
         style: base,

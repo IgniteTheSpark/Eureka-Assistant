@@ -10,6 +10,9 @@ import '../data_revision.dart';
 import 'chat_models.dart';
 import 'recent_session.dart';
 
+typedef ChatTurnStream =
+    Stream<SseEvent> Function(String path, Map<String, dynamic> body);
+
 /// Persists the last active chat session so the Agent entry resumes it (web
 /// parity: `eureka:active_chat_session`). Cleared on 新对话 / logout.
 const _kActiveSession = 'eureka:active_chat_session';
@@ -18,6 +21,11 @@ const _kActiveSession = 'eureka:active_chat_session';
 /// frames (meta / token / tool_call / tool_result / error / done) into the
 /// streaming agent message. Mirrors the web `useChat.applyFrame`.
 class ChatController extends ChangeNotifier {
+  ChatController({ApiClient? api, ChatTurnStream? turnStream})
+    : _api = api ?? ApiClient(),
+      _ownsApi = api == null,
+      _turnStream = turnStream ?? ((path, body) => postSse(path, body));
+
   final List<ChatMessage> messages = [];
   bool streaming = false;
   String? sessionId;
@@ -36,7 +44,12 @@ class ChatController extends ChangeNotifier {
   /// rail repopulates when reopening a history session (codex r2).
   List<({String id, String label})> contextAssets = [];
 
-  final ApiClient _api = ApiClient();
+  final ApiClient _api;
+  final bool _ownsApi;
+  final ChatTurnStream _turnStream;
+
+  String? _retryableUserText;
+  ChatMessage? _failedAgent;
 
   /// True once disposed — guards the durable-turn poll loop from notifying a
   /// dead controller (§1.5.1.3).
@@ -49,8 +62,12 @@ class ChatController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
-    _api.close();
+    if (_ownsApi) _api.close();
     super.dispose();
+  }
+
+  void _notify() {
+    if (!_disposed) notifyListeners();
   }
 
   static Future<void> _persistActive(String? id) async {
@@ -89,9 +106,11 @@ class ChatController extends ChangeNotifier {
     subjectId = null;
     contextAssets = [];
     error = null;
+    _retryableUserText = null;
+    _failedAgent = null;
     _persistActive(null);
     RecentSessionStore.clear();
-    notifyListeners();
+    _notify();
   }
 
   /// A human-readable header title: the session's stored title, else the first
@@ -159,6 +178,9 @@ class ChatController extends ChangeNotifier {
   /// Load + replay a session's history into [messages]. [title] (when passed
   /// from the sidebar row) drives the readable header.
   Future<void> loadSession(String id, {String? title}) async {
+    error = null;
+    _retryableUserText = null;
+    _failedAgent = null;
     if (title != null) sessionTitle = title;
     final res = await _api.getJson('/api/sessions/$id/messages');
     final raw = (res is Map ? res['messages'] : null) as List? ?? const [];
@@ -194,7 +216,7 @@ class ChatController extends ChangeNotifier {
     }
     _persistActive(id);
     RecentSessionStore.save(id: id, type: 'chat');
-    notifyListeners();
+    _notify();
     // §1.5.1.3 batch A — a turn may still be generating server-side (we left
     // mid-generation and came back). Its agent message is `running` → shown as
     // 「分析中…」; poll until it lands, then auto-render the reply/cards.
@@ -279,7 +301,7 @@ class ChatController extends ChangeNotifier {
         if (_disposed || sessionId != id) break;
         if (!_hasPending(raw)) {
           _applyMessages(raw); // turn landed → reply + cards now present
-          notifyListeners();
+          _notify();
           bumpData(); // a turn may have created assets → refresh other surfaces
           break;
         }
@@ -343,10 +365,28 @@ class ChatController extends ChangeNotifier {
     });
   }
 
-  Future<void> send(String text) async {
+  Future<void> send(String text) => _sendTurn(text, appendUserMessage: true);
+
+  /// Replays the most recent failed turn without appending another user row.
+  ///
+  /// The failed assistant response remains in the transcript, but its obsolete
+  /// error chip is removed before the retry starts. A second failure simply
+  /// becomes the next retry target.
+  Future<void> retryLastFailedTurn() async {
+    final text = _retryableUserText;
+    if (text == null || text.isEmpty || streaming) return;
+    _failedAgent?.parts.removeWhere((part) => part is ErrorPart);
+    await _sendTurn(text, appendUserMessage: false);
+  }
+
+  Future<void> _sendTurn(String text, {required bool appendUserMessage}) async {
     final t = text.trim();
     if (t.isEmpty || streaming) return;
     error = null;
+    if (appendUserMessage) {
+      _retryableUserText = null;
+      _failedAgent = null;
+    }
 
     // Lazy subject binding: a discuss thread only becomes a real session now,
     // on the first message. (/api/chat has no subject param, so the bound
@@ -357,19 +397,19 @@ class ChatController extends ChangeNotifier {
     }
 
     final stamp = DateTime.now().microsecondsSinceEpoch;
-    messages.add(ChatMessage.user('u-$stamp', t));
+    if (appendUserMessage) messages.add(ChatMessage.user('u-$stamp', t));
     final agent = ChatMessage.agent('a-$stamp');
     messages.add(agent);
     streaming = true;
-    notifyListeners();
+    _notify();
 
     try {
-      await for (final ev in postSse('/api/chat', {
+      await for (final ev in _turnStream('/api/chat', {
         'user_text': t,
         'session_id': sessionId ?? '',
       })) {
         _apply(agent, ev);
-        notifyListeners();
+        _notify();
       }
     } catch (e) {
       agent.parts.add(ErrorPart(e.toString()));
@@ -377,7 +417,14 @@ class ChatController extends ChangeNotifier {
     } finally {
       agent.streaming = false;
       streaming = false;
-      notifyListeners();
+      if (error == null) {
+        _retryableUserText = null;
+        _failedAgent = null;
+      } else {
+        _retryableUserText = t;
+        _failedAgent = agent;
+      }
+      _notify();
       // A turn may have created/updated assets (todo, event, …) via tools —
       // refresh every other surface (library / calendar / category lists).
       bumpData();
@@ -407,9 +454,9 @@ class ChatController extends ChangeNotifier {
           ToolResultPart(ev.json['name'] as String? ?? '?', resp),
         );
       case 'error':
-        agent.parts.add(
-          ErrorPart(ev.json['message'] as String? ?? 'stream error'),
-        );
+        final message = ev.json['message'] as String? ?? 'stream error';
+        agent.parts.add(ErrorPart(message));
+        error = message;
       case 'done':
         agent.elapsedMs = (ev.json['elapsed_ms'] as num?)?.toInt();
         agent.tokens = (ev.json['total_tokens'] as num?)?.toInt();
