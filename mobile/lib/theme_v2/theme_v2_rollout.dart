@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 
 import '../app_shell.dart';
 import '../config.dart';
+import 'shell/theme_v2_app_shell.dart';
 
 /// The app-root shell boundary for the staged Theme V2 migration.
 ///

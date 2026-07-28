@@ -25,24 +25,46 @@ class AppShell extends StatefulWidget {
   State<AppShell> createState() => _AppShellState();
 }
 
-/// Theme V2's initial shell boundary.
-///
-/// This baseline intentionally delegates to the established shell while
-/// subsequent Theme V2 tasks replace surfaces behind this boundary. Keeping it
-/// separate lets the rollout happen at the app root without sprinkling flags
-/// through individual pages.
-class ThemeV2AppShell extends StatelessWidget {
-  const ThemeV2AppShell({super.key});
-
-  @override
-  Widget build(BuildContext context) => const AppShell();
-}
-
 /// Observes pushes/pops over the shell so the calendar can reset to 流·今天 when
 /// a pushed page (chat / detail / report) is popped back to it. Registered in
 /// main.dart's navigatorObservers.
 final RouteObserver<PageRoute<dynamic>> shellRouteObserver =
     RouteObserver<PageRoute<dynamic>>();
+
+/// Preserves the established screenshot overlays and morning-briefing gate for
+/// both shell implementations.
+void scheduleShellStartupSurface(BuildContext context) {
+  const overlay = String.fromEnvironment('START_OVERLAY');
+  if (overlay == 'notifications') {
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => const NotificationsPage())),
+    );
+  } else if (overlay == 'flash') {
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => showFlashSheet(context),
+    );
+  } else if (overlay == 'create') {
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => showCreateMenu(context),
+    );
+  } else if (overlay == 'addskill') {
+    WidgetsBinding.instance.addPostFrameCallback((_) => showAddSkill(context));
+  } else if (overlay == 'device') {
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => const DevicePairingPage())),
+    );
+  } else {
+    // §14.6 晨间简报 — 中午前的第一次打开进沉浸式「早安」页(每天一次、可滑走、
+    // 失败静默)。放 else 里:截图验证用的 START_OVERLAY 启动不被它抢路由。
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => maybeShowMorningBriefing(),
+    );
+  }
+}
 
 class _AppShellState extends State<AppShell>
     with WidgetsBindingObserver, RouteAware {
@@ -64,39 +86,9 @@ class _AppShellState extends State<AppShell>
     // complements the per-pop DataRefreshObserver and the SSE bumps.
     WidgetsBinding.instance.addObserver(this);
     // START_OVERLAY lets a build boot straight into a tap-gated surface for
-    // screenshot verification (notifications | flash).
-    const overlay = String.fromEnvironment('START_OVERLAY');
-    if (overlay == 'notifications') {
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) => Navigator.of(
-          context,
-        ).push(MaterialPageRoute(builder: (_) => const NotificationsPage())),
-      );
-    } else if (overlay == 'flash') {
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) => showFlashSheet(context),
-      );
-    } else if (overlay == 'create') {
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) => showCreateMenu(context),
-      );
-    } else if (overlay == 'addskill') {
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) => showAddSkill(context),
-      );
-    } else if (overlay == 'device') {
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) => Navigator.of(
-          context,
-        ).push(MaterialPageRoute(builder: (_) => const DevicePairingPage())),
-      );
-    } else {
-      // §14.6 晨间简报 — 中午前的第一次打开进沉浸式「早安」页(每天一次、可滑走、
-      // 失败静默)。放 else 里:截图验证用的 START_OVERLAY 启动不被它抢路由。
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) => maybeShowMorningBriefing(),
-      );
-    }
+    // screenshot verification (notifications | flash). With no explicit
+    // overlay, retain the established morning-briefing gate.
+    scheduleShellStartupSurface(context);
   }
 
   @override

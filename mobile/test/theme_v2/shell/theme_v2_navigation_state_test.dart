@@ -1,0 +1,233 @@
+import 'package:eureka/theme/app_theme.dart';
+import 'package:eureka/theme/eureka_colors.dart';
+import 'package:eureka/theme/theme_controller.dart';
+import 'package:eureka/theme_v2/foundation/theme_v2_tokens.dart';
+import 'package:eureka/theme_v2/foundation/theme_v2_typography.dart';
+import 'package:eureka/theme_v2/shell/device_status_summary.dart';
+import 'package:eureka/theme_v2/shell/theme_v2_app_shell.dart';
+import 'package:eureka/theme_v2/shell/theme_v2_page_scaffold.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+void main() {
+  setUp(() => themeModeNotifier.value = ThemeMode.light);
+  tearDown(() => themeModeNotifier.value = ThemeMode.light);
+
+  testWidgets('tab and controller state survive tab and theme changes', (
+    tester,
+  ) async {
+    final todayController = ValueNotifier<int>(0);
+    final calendarController = ValueNotifier<int>(0);
+    final libraryController = ValueNotifier<int>(0);
+    addTearDown(todayController.dispose);
+    addTearDown(calendarController.dispose);
+    addTearDown(libraryController.dispose);
+
+    await tester.pumpWidget(
+      _ThemeHost(
+        child: ThemeV2AppShell(
+          showStartupOverlays: false,
+          deviceStatus: const DeviceStatusSummary.disconnected(),
+          pages: [
+            ThemeV2PageScaffold(
+              key: ValueKey('today-page'),
+              body: _StateProbe(name: 'today', controller: todayController),
+            ),
+            ThemeV2PageScaffold(
+              key: ValueKey('calendar-page'),
+              body: _StateProbe(
+                name: 'calendar',
+                controller: calendarController,
+              ),
+            ),
+            ThemeV2PageScaffold(
+              key: ValueKey('library-page'),
+              body: _StateProbe(name: 'library', controller: libraryController),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('today increment'));
+    await tester.pump();
+    expect(find.text('today state 1 controller 1'), findsOneWidget);
+
+    await tester.tap(find.bySemanticsLabel('日历'));
+    await tester.pump();
+    await tester.tap(find.text('calendar increment'));
+    await tester.pump();
+    expect(find.text('calendar state 1 controller 1'), findsOneWidget);
+
+    await tester.tap(find.bySemanticsLabel('资产'));
+    await tester.pump();
+    await tester.tap(find.text('library increment'));
+    await tester.pump();
+    expect(find.text('library state 1 controller 1'), findsOneWidget);
+
+    await tester.tap(find.bySemanticsLabel('切换到夜间'));
+    await tester.pumpAndSettle();
+    expect(themeModeNotifier.value, ThemeMode.dark);
+    expect(find.text('library state 1 controller 1'), findsOneWidget);
+
+    await tester.tap(find.bySemanticsLabel('今日'));
+    await tester.pump();
+    expect(find.text('today state 1 controller 1'), findsOneWidget);
+
+    await tester.tap(find.bySemanticsLabel('日历'));
+    await tester.pump();
+    expect(find.text('calendar state 1 controller 1'), findsOneWidget);
+  });
+
+  testWidgets('page scaffold declares nav dock and keyboard inset policy', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const _ThemeHost(
+        child: ThemeV2AppShell(
+          showStartupOverlays: false,
+          pages: [
+            ThemeV2PageScaffold(
+              showTopNav: false,
+              showDock: false,
+              resizeToAvoidBottomInset: false,
+              body: Text('immersive page'),
+            ),
+            ThemeV2PageScaffold(body: Text('calendar')),
+            ThemeV2PageScaffold(body: Text('library')),
+          ],
+        ),
+      ),
+    );
+
+    expect(find.text('immersive page'), findsOneWidget);
+    expect(find.bySemanticsLabel('UReka logo'), findsNothing);
+    expect(find.bySemanticsLabel('今日'), findsNothing);
+    expect(
+      tester
+          .widget<Scaffold>(
+            find.descendant(
+              of: find.byType(ThemeV2PageScaffold),
+              matching: find.byType(Scaffold),
+            ),
+          )
+          .resizeToAvoidBottomInset,
+      isFalse,
+    );
+  });
+
+  testWidgets('real shell installs Theme V2 typography and tokens once', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const _ThemeHost(
+        child: ThemeV2AppShell(
+          showStartupOverlays: false,
+          pages: [
+            ThemeV2PageScaffold(body: _ThemeProbe()),
+            ThemeV2PageScaffold(body: Text('calendar')),
+            ThemeV2PageScaffold(body: Text('library')),
+          ],
+        ),
+      ),
+    );
+
+    expect(
+      find.textContaining('font:${ThemeV2Typography.primaryFont}'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('accent:${ThemeV2Tokens.light.accent}'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.bySemanticsLabel('切换到夜间'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining('font:${ThemeV2Typography.primaryFont}'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('accent:${ThemeV2Tokens.dark.accent}'),
+      findsOneWidget,
+    );
+  });
+}
+
+class _ThemeHost extends StatelessWidget {
+  const _ThemeHost({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return MediaQuery(
+      data: const MediaQueryData(
+        size: Size(411, 960),
+        devicePixelRatio: 1,
+        disableAnimations: true,
+        textScaler: TextScaler.noScaling,
+      ),
+      child: ValueListenableBuilder<ThemeMode>(
+        valueListenable: themeModeNotifier,
+        builder: (context, mode, child) => MaterialApp(
+          theme: buildEurekaTheme(EurekaColors.light),
+          darkTheme: buildEurekaTheme(EurekaColors.dark),
+          themeMode: mode,
+          home: child,
+        ),
+        child: child,
+      ),
+    );
+  }
+}
+
+class _StateProbe extends StatefulWidget {
+  const _StateProbe({required this.name, required this.controller});
+
+  final String name;
+  final ValueNotifier<int> controller;
+
+  @override
+  State<_StateProbe> createState() => _StateProbeState();
+}
+
+class _StateProbeState extends State<_StateProbe> {
+  var count = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ValueListenableBuilder<int>(
+            valueListenable: widget.controller,
+            builder: (_, controllerValue, _) =>
+                Text('${widget.name} state $count controller $controllerValue'),
+          ),
+          TextButton(
+            onPressed: () {
+              setState(() => count++);
+              widget.controller.value++;
+            },
+            child: Text('${widget.name} increment'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ThemeProbe extends StatelessWidget {
+  const _ThemeProbe();
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      'font:${Theme.of(context).textTheme.bodyMedium?.fontFamily}\n'
+      'accent:${ThemeV2Tokens.of(context).accent}',
+    );
+  }
+}

@@ -23,14 +23,11 @@ class USkeleton extends StatefulWidget {
 
 class _USkeletonState extends State<USkeleton>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1300),
-  )..repeat();
+  AnimationController? _controller;
 
   @override
   void dispose() {
-    _controller.dispose();
+    _controller?.dispose();
     super.dispose();
   }
 
@@ -57,14 +54,18 @@ class _USkeletonState extends State<USkeleton>
 
     if (reduceMotion) return ExcludeSemantics(child: shape);
 
+    final controller = _controller ??= AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1300),
+    )..repeat();
     return ExcludeSemantics(
       child: AnimatedBuilder(
-        animation: _controller,
+        animation: controller,
         builder: (context, child) {
           return ShaderMask(
             blendMode: BlendMode.srcATop,
             shaderCallback: (rect) {
-              final slide = _controller.value * 2.4 - 1.2;
+              final slide = controller.value * 2.4 - 1.2;
               return LinearGradient(
                 begin: Alignment.centerLeft,
                 end: Alignment.centerRight,
