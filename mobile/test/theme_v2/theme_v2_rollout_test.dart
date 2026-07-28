@@ -9,6 +9,11 @@ void main() {
   testWidgets('compile-time Theme V2 config selects the app root shell', (
     tester,
   ) async {
+    const expectedThemeV2 = bool.fromEnvironment(
+      'THEME_V2',
+      defaultValue: false,
+    );
+
     await tester.pumpWidget(
       const ThemeV2TestApp(
         child: AppRootShell(
@@ -18,13 +23,14 @@ void main() {
       ),
     );
 
+    expect(AppConfig.themeV2, expectedThemeV2);
     expect(
       find.text('production theme v2 shell'),
-      AppConfig.themeV2 ? findsOneWidget : findsNothing,
+      expectedThemeV2 ? findsOneWidget : findsNothing,
     );
     expect(
       find.text('production legacy shell'),
-      AppConfig.themeV2 ? findsNothing : findsOneWidget,
+      expectedThemeV2 ? findsNothing : findsOneWidget,
     );
   });
 
