@@ -143,6 +143,10 @@ class CalendarPage extends StatefulWidget {
   State<CalendarPage> createState() => _CalendarPageState();
 }
 
+@visibleForTesting
+PageController createCalendarPageController(CalendarController controller) =>
+    PageController(initialPage: controller.horizontalIndex);
+
 /// Bumped by the shell when the 今天 tab is (re)selected → the calendar resets
 /// to 流(timeline) and the stream jumps to today (默认「流 · 今天」).
 final ValueNotifier<int> calendarHome = ValueNotifier<int>(0);
@@ -176,17 +180,18 @@ class _CalendarPageState extends State<CalendarPage> {
   );
 
   // 流/月/年 are swipeable (PageView) + tappable (segmented), kept in sync.
-  late final PageController _pager = PageController(
-    initialPage: _calendarController.horizontalIndex,
-  );
+  PageController? _pager;
+  PageController get _pageController =>
+      _pager ??= createCalendarPageController(_calendarController);
 
   void _switchMode(String m, {bool animate = true}) {
     final changed = _calendarController.selectMode(CalendarModeState.parse(m));
     if (!changed && !animate) return;
     setState(() {});
     final i = _calendarController.horizontalIndex;
-    if (_pager.hasClients && animate) {
-      _pager.animateToPage(
+    final pager = _pager;
+    if (pager != null && pager.hasClients && animate) {
+      pager.animateToPage(
         i,
         duration: const Duration(milliseconds: 260),
         curve: Curves.easeOut,
@@ -217,7 +222,7 @@ class _CalendarPageState extends State<CalendarPage> {
   @override
   void dispose() {
     calendarHome.removeListener(_goHome);
-    _pager.dispose();
+    _pager?.dispose();
     _api.close();
     super.dispose();
   }
@@ -293,7 +298,7 @@ class _CalendarPageState extends State<CalendarPage> {
                     }
                     // Swipeable 流/月/年 (synced with the segmented control).
                     return PageView(
-                      controller: _pager,
+                      controller: _pageController,
                       onPageChanged: (i) => setState(
                         () => _calendarController.setHorizontalIndex(i),
                       ),

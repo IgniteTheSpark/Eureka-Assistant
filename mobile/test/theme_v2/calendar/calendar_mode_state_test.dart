@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:eureka/pages/calendar_page.dart';
 import 'package:eureka/theme_v2/calendar/calendar_controller.dart';
 import 'package:eureka/theme_v2/calendar/calendar_mode_state.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -31,6 +32,18 @@ void main() {
       state.setHorizontalIndex(99);
       expect(state.mode, CalendarMode.flow);
       expect(state.legacyValue, 'timeline');
+    });
+
+    test('a reset before pager creation supplies the current initial page', () {
+      final controller = CalendarController(
+        modeState: CalendarModeState(initialMode: CalendarMode.year),
+      );
+
+      controller.selectMode(CalendarMode.flow);
+      final pager = createCalendarPageController(controller);
+      addTearDown(pager.dispose);
+
+      expect(pager.initialPage, 0);
     });
   });
 

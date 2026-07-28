@@ -30,8 +30,11 @@ int calendarEndMinute(CalendarRecord record) {
   if (endAt == null || !endAt.isAfter(record.effectiveAt)) {
     return start + calendarFallbackDuration.inMinutes;
   }
-  final duration = endAt.difference(record.effectiveAt).inMinutes;
-  return start + (duration > 0 ? duration : calendarFallbackDuration.inMinutes);
+  final durationMicros = endAt.difference(record.effectiveAt).inMicroseconds;
+  final durationMinutes =
+      (durationMicros + Duration.microsecondsPerMinute - 1) ~/
+      Duration.microsecondsPerMinute;
+  return start + durationMinutes;
 }
 
 /// Assigns stable Google-Calendar-style columns within overlap clusters.

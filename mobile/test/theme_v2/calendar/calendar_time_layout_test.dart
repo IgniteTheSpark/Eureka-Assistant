@@ -86,6 +86,31 @@ void main() {
       ]);
       expect(data.byDay.containsKey(DateTime(2026, 7, 1)), isFalse);
     });
+
+    test('materializes a one-shot iterable exactly once', () {
+      var iterations = 0;
+      final at = DateTime(2026, 7, 9, 11);
+      final sourceItem = item(id: 'one-shot', at: at);
+
+      Iterable<TimelineItem> oneShot() sync* {
+        iterations++;
+        if (iterations > 1) {
+          throw StateError('CalendarData iterated its source more than once');
+        }
+        yield sourceItem;
+      }
+
+      final data = CalendarData(oneShot(), const {});
+
+      expect(iterations, 1);
+      expect(data.items, [sourceItem]);
+      expect(
+        identical(data.byDay[DateTime(2026, 7, 9)]!.single, sourceItem),
+        isTrue,
+      );
+      expect(identical(data.records.single.item, sourceItem), isTrue);
+      expect(() => data.items.add(sourceItem), throwsUnsupportedError);
+    });
   });
 
   group('CalendarRecord classification', () {
@@ -176,6 +201,39 @@ void main() {
         const Duration(minutes: 30),
       });
     });
+
+    test('gives a positive sub-minute event a one-minute UI slot', () {
+      final start = DateTime(2026, 7, 9, 10, 0, 30);
+      final slot = layoutCalendarTime([
+        record(
+          id: 'sub-minute',
+          at: start,
+          endAt: DateTime(2026, 7, 9, 10, 0, 45),
+        ),
+      ]).single;
+
+      expect(slot.startMinute, 10 * 60);
+      expect(slot.endMinute, 10 * 60 + 1);
+      expect(slot.duration, const Duration(minutes: 1));
+    });
+
+    test(
+      'rounds a positive non-aligned duration up to its visible end minute',
+      () {
+        final start = DateTime(2026, 7, 9, 10, 0, 30);
+        final slot = layoutCalendarTime([
+          record(
+            id: 'half-hour',
+            at: start,
+            endAt: DateTime(2026, 7, 9, 10, 30),
+          ),
+        ]).single;
+
+        expect(slot.startMinute, 10 * 60);
+        expect(slot.endMinute, 10 * 60 + 30);
+        expect(slot.duration, const Duration(minutes: 30));
+      },
+    );
 
     test('excludes untimed records from overlap layout', () {
       final at = DateTime(2026, 7, 9, 10);

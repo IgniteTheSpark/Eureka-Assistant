@@ -83,13 +83,27 @@ class CalendarData {
   final Map<DateTime, List<TimelineItem>> byDay;
   final List<CalendarRecord> records;
 
-  CalendarData(Iterable<TimelineItem> items, Map<String, SkillMeta> skills)
-    : items = List<TimelineItem>.unmodifiable(items),
-      skills = Map<String, SkillMeta>.unmodifiable(skills),
-      byDay = bucketCalendarItems(items),
-      records = List<CalendarRecord>.unmodifiable(
-        items.map(CalendarRecord.fromTimeline),
-      );
+  factory CalendarData(
+    Iterable<TimelineItem> items,
+    Map<String, SkillMeta> skills,
+  ) {
+    final snapshot = List<TimelineItem>.unmodifiable(items);
+    return CalendarData._(
+      items: snapshot,
+      skills: Map<String, SkillMeta>.unmodifiable(skills),
+      byDay: bucketCalendarItems(snapshot),
+      records: List<CalendarRecord>.unmodifiable(
+        snapshot.map(CalendarRecord.fromTimeline),
+      ),
+    );
+  }
+
+  const CalendarData._({
+    required this.items,
+    required this.skills,
+    required this.byDay,
+    required this.records,
+  });
 }
 
 /// A collapsed representation of scheduled todos sharing one visible due
