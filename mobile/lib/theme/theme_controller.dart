@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import 'app_theme.dart';
+import '../theme_v2/foundation/theme_v2_semantics.dart';
+import '../theme_v2/foundation/theme_v2_tokens.dart';
 
 /// App-wide theme mode. The app defaults to light; the header
 /// sun/moon toggle flips it. Kept as a global ValueNotifier so any surface can
@@ -21,16 +23,22 @@ class ThemeToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final eu = context.eu;
+    final theme = Theme.of(context);
+    final legacy = theme.extension<EurekaTheme>();
+    final v2 = theme.extension<ThemeV2Tokens>();
     return ValueListenableBuilder<ThemeMode>(
       valueListenable: themeModeNotifier,
       builder: (_, mode, child) {
         final dark = mode == ThemeMode.dark;
-        return IconButton(
-          tooltip: dark ? '切换到日间' : '切换到夜间',
+        return ThemeV2IconButton(
+          semanticLabel: dark ? '切换到日间' : '切换到夜间',
           onPressed: toggleThemeMode,
-          icon: Icon(dark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
-              color: onDark ? Colors.white70 : eu.textMid),
+          icon: dark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+          color: onDark
+              ? Colors.white70
+              : legacy?.colors.textMid ??
+                    v2?.muted ??
+                    theme.colorScheme.onSurfaceVariant,
         );
       },
     );

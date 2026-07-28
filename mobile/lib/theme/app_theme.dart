@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../theme_v2/foundation/theme_v2_tokens.dart';
 import 'eureka_colors.dart';
 
 /// ThemeExtension that carries the full Eureka palette so widgets can read any
@@ -45,7 +46,7 @@ ThemeData buildEurekaTheme(EurekaColors c) {
     brightness: c.brightness,
     scaffoldBackgroundColor: c.bg,
     colorScheme: scheme,
-    extensions: [EurekaTheme(c)],
+    extensions: [EurekaTheme(c), ThemeV2Tokens.forBrightness(c.brightness)],
     fontFamily: GoogleFonts.manrope().fontFamily,
     textTheme: textTheme,
   );

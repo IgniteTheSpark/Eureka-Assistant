@@ -113,6 +113,7 @@ flutter:
 
   assets:
     - assets/logo/
+    - assets/fonts/OFL.txt
     # GSAP (GreenSock) — injected into the report WebView for entrance motion (§6.6).
     # pixel.js + mascot.js (§9 球球 pet engine) live here too.
     - assets/js/
@@ -122,6 +123,26 @@ flutter:
     # Offer card (the speech-balloon emote fits the "Reka 帮你 递给你" framing).
     - assets/emotes/pixel-balloon/
     - assets/emotes/pixel-flat/
+
+  fonts:
+    - family: Geist
+      fonts:
+        - asset: assets/fonts/Geist/Geist-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Geist/Geist-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Geist/Geist-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Geist/Geist-Bold.ttf
+          weight: 700
+    - family: Geist Mono
+      fonts:
+        - asset: assets/fonts/GeistMono/GeistMono-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/GeistMono/GeistMono-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/GeistMono/GeistMono-Bold.ttf
+          weight: 700
 
   # To add assets to your application, add an assets section, like this:
   # assets:
