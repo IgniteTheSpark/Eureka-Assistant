@@ -7,10 +7,12 @@ import 'package:eureka/theme/app_theme.dart';
 import 'package:eureka/theme/eureka_colors.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_tokens.dart';
 import 'package:eureka/theme_v2/session/session_history_drawer.dart';
+import 'package:eureka/theme_v2/session/session_transcript.dart';
 import 'package:eureka/theme_v2/session/theme_v2_session_page.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_floating_dock.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_global_top_nav.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -239,6 +241,177 @@ void main() {
     }
   });
 
+  testWidgets('transcript actions expose 44px button targets', (tester) async {
+    final message = _assistant(
+      '这是一段足够长、可以沉淀为资产的回复内容',
+      parts: [
+        const ToolResultPart('tool_query_asset', {
+          'assets': [
+            {
+              'asset_id': 'asset-1',
+              'user_skill_name': 'notes',
+              'payload': {'title': '查询结果'},
+            },
+          ],
+        }),
+        const TextPart('这是一段足够长、可以沉淀为资产的回复内容'),
+      ],
+    );
+    await _pumpSession(
+      tester,
+      controller: FakeSessionController(messages: [message]),
+    );
+
+    for (final label in ['查询资产 · 找到 1 项', '沉淀为资产']) {
+      final target = find.bySemanticsLabel(label);
+      expect(target, findsOneWidget);
+      final size = tester.getSize(target);
+      expect(size.height, greaterThanOrEqualTo(44));
+      expect(
+        tester
+            .getSemantics(target)
+            .getSemanticsData()
+            .hasAction(SemanticsAction.tap),
+        isTrue,
+      );
+    }
+  });
+
+  testWidgets('token-only transcript growth follows the bottom', (
+    tester,
+  ) async {
+    final messages = [
+      for (var i = 0; i < 18; i++) _assistant('第 $i 条较长的历史回复，用来制造可滚动的会话内容。'),
+    ];
+    final streaming = _assistant('开始', streaming: true);
+    messages.add(streaming);
+    final controller = FakeSessionController(
+      messages: messages,
+      streaming: true,
+    );
+    await _pumpSession(
+      tester,
+      controller: controller,
+      size: const Size(360, 640),
+    );
+
+    final scrollable = tester.state<ScrollableState>(
+      find.descendant(
+        of: find.byType(SessionTranscript),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    scrollable.position.jumpTo(scrollable.position.maxScrollExtent);
+    streaming
+      ..parts[0] = TextPart('开始${List.filled(30, '持续增长的流式内容').join()}')
+      ..text = '持续增长的流式内容';
+    controller.notifyListeners();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+
+    expect(
+      scrollable.position.pixels,
+      closeTo(scrollable.position.maxScrollExtent, 3),
+    );
+  });
+
+  testWidgets(
+    'only the latest concurrent history selection closes the drawer',
+    (tester) async {
+      final loadA = Completer<void>();
+      final loadB = Completer<void>();
+      final controller = FakeSessionController(
+        sessions: [
+          SessionInfo('a', '会话 A', DateTime(2026, 7, 23)),
+          SessionInfo('b', '会话 B', DateTime(2026, 7, 24)),
+        ],
+        loadCompleters: {'a': loadA, 'b': loadB},
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildEurekaTheme(EurekaColors.light),
+          home: Builder(
+            builder: (context) => TextButton(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => ThemeV2SessionPage(
+                      controller: controller,
+                      initializeController: false,
+                      initialHistoryOpen: true,
+                    ),
+                  ),
+                );
+              },
+              child: const Text('打开 Session'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('打开 Session'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('会话 A'));
+      await tester.pump();
+      await tester.tap(find.text('会话 B'));
+      await tester.pump();
+
+      loadB.complete();
+      await tester.pumpAndSettle();
+      loadA.complete();
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ThemeV2SessionPage), findsOneWidget);
+    },
+  );
+
+  testWidgets('new conversation invalidates an unfinished history selection', (
+    tester,
+  ) async {
+    final pendingLoad = Completer<void>();
+    final controller = FakeSessionController(
+      sessions: [SessionInfo('a', '会话 A', DateTime(2026, 7, 23))],
+      loadCompleters: {'a': pendingLoad},
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildEurekaTheme(EurekaColors.light),
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => ThemeV2SessionPage(
+                    controller: controller,
+                    initializeController: false,
+                    initialHistoryOpen: true,
+                  ),
+                ),
+              );
+            },
+            child: const Text('打开 Session'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开 Session'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('会话 A'));
+    await tester.pump();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(SessionHistoryDrawer),
+        matching: find.text('新会话'),
+      ),
+    );
+    pendingLoad.complete();
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ThemeV2SessionPage), findsOneWidget);
+    expect(controller.resetCount, 1);
+  });
+
   testWidgets('ChatPage keeps its constructor and selects the V2 route once', (
     tester,
   ) async {
@@ -364,6 +537,7 @@ class FakeSessionController extends ChangeNotifier
     List<SessionInfo>? sessions,
     List<({String id, String label})>? contextAssets,
     this.loadCompleter,
+    this.loadCompleters,
     this.listFailuresRemaining = 0,
   }) : messages = messages ?? [],
        sessions = sessions ?? [],
@@ -389,6 +563,7 @@ class FakeSessionController extends ChangeNotifier
 
   final List<SessionInfo> sessions;
   final Completer<void>? loadCompleter;
+  final Map<String, Completer<void>>? loadCompleters;
   int listFailuresRemaining;
   int listCallCount = 0;
   final List<String> loadedSessionIds = [];
@@ -396,7 +571,10 @@ class FakeSessionController extends ChangeNotifier
   int resetCount = 0;
 
   @override
-  Future<bool> attachContexts(List<String> assetIds) async => true;
+  Future<bool> attachContexts(
+    List<String> assetIds, {
+    Map<String, String> labels = const {},
+  }) async => true;
 
   @override
   Future<void> bindSubject(String type, String id) async {}
@@ -410,6 +588,7 @@ class FakeSessionController extends ChangeNotifier
   @override
   Future<void> loadSession(String id, {String? title}) async {
     await loadCompleter?.future;
+    await loadCompleters?[id]?.future;
     loadedSessionIds.add(id);
     sessionId = id;
     notifyListeners();

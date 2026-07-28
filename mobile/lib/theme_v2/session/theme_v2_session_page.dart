@@ -76,7 +76,10 @@ abstract interface class ThemeV2SessionController implements Listenable {
   Future<void> send(String text);
   Future<void> retryLastFailedTurn();
   Future<void> precipitate(String text, String skill);
-  Future<bool> attachContexts(List<String> assetIds);
+  Future<bool> attachContexts(
+    List<String> assetIds, {
+    Map<String, String> labels,
+  });
   void reset();
 }
 
@@ -113,8 +116,10 @@ class ChatControllerSessionAdapter extends ChangeNotifier
   List<({String id, String label})> get contextAssets => chat.contextAssets;
 
   @override
-  Future<bool> attachContexts(List<String> assetIds) =>
-      chat.attachContexts(assetIds);
+  Future<bool> attachContexts(
+    List<String> assetIds, {
+    Map<String, String> labels = const {},
+  }) => chat.attachContexts(assetIds, labels: labels);
 
   @override
   Future<void> bindSubject(String type, String id) =>
@@ -201,7 +206,7 @@ class _ThemeV2SessionPageState extends State<ThemeV2SessionPage> {
   late bool _historyOpen = widget.initialHistoryOpen;
   late String? _subjectLabel = widget.subjectLabel;
   final List<({String id, String label})> _contexts = [];
-  String? _lastSessionId;
+  var _sessionSelectionRevision = 0;
 
   @override
   void initState() {
@@ -217,7 +222,6 @@ class _ThemeV2SessionPageState extends State<ThemeV2SessionPage> {
       _controller = _ownedAdapter!;
     }
     _contexts.addAll(_controller.contextAssets);
-    _lastSessionId = _controller.sessionId;
     _controller.addListener(_onControllerChanged);
     if (widget.initializeController) _initialize();
     if (widget.initialHistoryOpen) {
@@ -250,13 +254,9 @@ class _ThemeV2SessionPageState extends State<ThemeV2SessionPage> {
   void _onControllerChanged() {
     if (!mounted) return;
     final restored = _controller.contextAssets;
-    final sessionChanged = _lastSessionId != _controller.sessionId;
-    if (sessionChanged || restored.isNotEmpty) {
-      _contexts
-        ..clear()
-        ..addAll(restored);
-    }
-    _lastSessionId = _controller.sessionId;
+    _contexts
+      ..clear()
+      ..addAll(restored);
     setState(() {});
   }
 
@@ -272,16 +272,10 @@ class _ThemeV2SessionPageState extends State<ThemeV2SessionPage> {
     if (picked == null || picked.isEmpty) return;
     final ok = await _controller.attachContexts(
       picked.map((asset) => asset.id).toList(),
+      labels: {for (final asset in picked) asset.id: asset.title},
     );
     if (!mounted) return;
-    if (ok) {
-      setState(() {
-        for (final asset in picked) {
-          if (_contexts.any((context) => context.id == asset.id)) continue;
-          _contexts.add((id: asset.id, label: asset.title));
-        }
-      });
-    } else {
+    if (!ok) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('添加资产失败，请重试')));
@@ -297,6 +291,7 @@ class _ThemeV2SessionPageState extends State<ThemeV2SessionPage> {
   }
 
   void _newConversation() {
+    _sessionSelectionRevision++;
     _contexts.clear();
     _subjectLabel = null;
     final callback = widget.onNewConversation;
@@ -310,19 +305,20 @@ class _ThemeV2SessionPageState extends State<ThemeV2SessionPage> {
   }
 
   Future<void> _selectSession(SessionInfo session) async {
+    final revision = ++_sessionSelectionRevision;
     try {
       await _controller.loadSession(session.id, title: session.title);
     } catch (_) {
-      if (mounted) {
+      if (mounted && revision == _sessionSelectionRevision) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('会话加载失败，请重试')));
       }
       return;
     }
-    if (!mounted) return;
+    if (!mounted || revision != _sessionSelectionRevision) return;
     _subjectLabel = null;
-    Navigator.of(context).pop();
+    if (_historyOpen) Navigator.of(context).pop();
   }
 
   void _back() {

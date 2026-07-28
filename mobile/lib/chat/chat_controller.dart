@@ -21,10 +21,16 @@ const _kActiveSession = 'eureka:active_chat_session';
 /// frames (meta / token / tool_call / tool_result / error / done) into the
 /// streaming agent message. Mirrors the web `useChat.applyFrame`.
 class ChatController extends ChangeNotifier {
-  ChatController({ApiClient? api, ChatTurnStream? turnStream})
-    : _api = api ?? ApiClient(),
-      _ownsApi = api == null,
-      _turnStream = turnStream ?? ((path, body) => postSse(path, body));
+  ChatController({
+    ApiClient? api,
+    ChatTurnStream? turnStream,
+    Duration reconcileInterval = const Duration(milliseconds: 1500),
+    Duration reconcileTimeout = const Duration(seconds: 150),
+  }) : _reconcileInterval = reconcileInterval,
+       _reconcileTimeout = reconcileTimeout,
+       _api = api ?? ApiClient(),
+       _ownsApi = api == null,
+       _turnStream = turnStream ?? ((path, body) => postSse(path, body));
 
   final List<ChatMessage> messages = [];
   bool streaming = false;
@@ -47,9 +53,20 @@ class ChatController extends ChangeNotifier {
   final ApiClient _api;
   final bool _ownsApi;
   final ChatTurnStream _turnStream;
+  final Duration _reconcileInterval;
+  final Duration _reconcileTimeout;
 
   String? _retryableUserText;
   ChatMessage? _failedAgent;
+  StreamSubscription<SseEvent>? _activeTurnSubscription;
+  Completer<void>? _activeTurnCompleter;
+  ChatMessage? _activeAgent;
+  var _turnRevision = 0;
+  var _sessionLoadRevision = 0;
+  String? _pendingSessionId;
+  Future<String?>? _ensureSessionFuture;
+  String? _reconcileRetrySessionId;
+  final Set<String> _deletedSessionIds = {};
 
   /// True once disposed — guards the durable-turn poll loop from notifying a
   /// dead controller (§1.5.1.3).
@@ -62,6 +79,9 @@ class ChatController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _sessionLoadRevision++;
+    _ensureSessionFuture = null;
+    _cancelActiveTurn(notify: false);
     if (_ownsApi) _api.close();
     super.dispose();
   }
@@ -86,10 +106,13 @@ class ChatController extends ChangeNotifier {
   /// Resume the last active session (Agent entry with no bound subject). No-op
   /// if none persisted or it no longer loads (deleted / other user → empty).
   Future<void> resumeLast() async {
+    final revision = _sessionLoadRevision;
     try {
       final sp = await SharedPreferences.getInstance();
       final id = sp.getString(_kActiveSession);
-      if (id != null && id.isNotEmpty) await loadSession(id);
+      if (revision == _sessionLoadRevision && id != null && id.isNotEmpty) {
+        await loadSession(id);
+      }
     } catch (_) {
       /* stay on a blank chat */
     }
@@ -99,7 +122,12 @@ class ChatController extends ChangeNotifier {
   /// the attached context assets — a deliberately-new conversation must carry no
   /// context from the previous one.
   void reset() {
+    _sessionLoadRevision++;
+    _pendingSessionId = null;
+    _ensureSessionFuture = null;
+    _cancelActiveTurn(notify: false);
     messages.clear();
+    streaming = false;
     sessionId = null;
     sessionTitle = null;
     subjectType = null;
@@ -108,6 +136,7 @@ class ChatController extends ChangeNotifier {
     error = null;
     _retryableUserText = null;
     _failedAgent = null;
+    _reconcileRetrySessionId = null;
     _persistActive(null);
     RecentSessionStore.clear();
     _notify();
@@ -130,6 +159,10 @@ class ChatController extends ChangeNotifier {
   /// Bind a subject (asset/event/contact) without creating a session. If a
   /// thread for this subject already exists, peek it (查不建) and replay it.
   Future<void> bindSubject(String type, String id) async {
+    final revision = ++_sessionLoadRevision;
+    _pendingSessionId = null;
+    _ensureSessionFuture = null;
+    _cancelActiveTurn(notify: false);
     subjectType = type;
     subjectId = id;
     try {
@@ -140,6 +173,11 @@ class ChatController extends ChangeNotifier {
         'peek_only': true,
       });
       final sid = (res is Map ? res['session_id'] : null) as String?;
+      if (revision != _sessionLoadRevision ||
+          subjectType != type ||
+          subjectId != id) {
+        return;
+      }
       if (sid != null && sid.isNotEmpty) await loadSession(sid);
     } catch (_) {
       // no existing thread — stay empty until the first send creates one
@@ -166,11 +204,17 @@ class ChatController extends ChangeNotifier {
   /// (the backend detaches them); only the conversation is removed. Resets the
   /// view if the deleted session was the active one.
   Future<bool> deleteSession(String id) async {
+    _deletedSessionIds.add(id);
     try {
+      if (_pendingSessionId == id) {
+        _sessionLoadRevision++;
+        _pendingSessionId = null;
+      }
       await _api.deleteJson('/api/sessions/$id');
       if (sessionId == id) reset();
       return true;
     } catch (_) {
+      _deletedSessionIds.remove(id);
       return false;
     }
   }
@@ -178,42 +222,67 @@ class ChatController extends ChangeNotifier {
   /// Load + replay a session's history into [messages]. [title] (when passed
   /// from the sidebar row) drives the readable header.
   Future<void> loadSession(String id, {String? title}) async {
-    error = null;
-    _retryableUserText = null;
-    _failedAgent = null;
-    if (title != null) sessionTitle = title;
-    final res = await _api.getJson('/api/sessions/$id/messages');
-    final raw = (res is Map ? res['messages'] : null) as List? ?? const [];
-    _applyMessages(raw);
-    sessionId = id;
+    if (_deletedSessionIds.contains(id)) return;
+    final revision = ++_sessionLoadRevision;
+    _pendingSessionId = id;
+    _ensureSessionFuture = null;
+
+    late final List raw;
+    try {
+      final res = await _api.getJson('/api/sessions/$id/messages');
+      raw = (res is Map ? res['messages'] : null) as List? ?? const [];
+    } catch (_) {
+      if (revision == _sessionLoadRevision) _pendingSessionId = null;
+      rethrow;
+    }
+    if (revision != _sessionLoadRevision ||
+        _pendingSessionId != id ||
+        _deletedSessionIds.contains(id)) {
+      return;
+    }
+
     // Restore the attached context assets so the chip rail isn't empty after
     // reopening a history session (codex r2). Best-effort — a failure just
     // leaves no chips, same as before.
+    Map? session;
     try {
       final s = await _api.getJson('/api/sessions/$id');
-      final sess = (s is Map ? s['session'] : null) as Map?;
-      // Adopt the session's stored title (e.g. 「6月13日 闪念」) when the caller
-      // didn't pass one. resumeLast() has only the id, so without this the
-      // header falls back to the first user line in displayTitle and a resumed
-      // flash/capture session looks like a stray 「今天吃饭120块钱」 duplicate.
-      if (title == null) {
-        final st = (sess?['title'] as String?)?.trim();
-        if (st != null && st.isNotEmpty) sessionTitle = st;
-      }
-      final ca = (sess?['context_assets'] as List?) ?? const [];
-      contextAssets = ca
-          .whereType<Map>()
-          .map(
-            (m) => (
-              id: m['id'] as String? ?? '',
-              label: m['label'] as String? ?? '资产',
-            ),
-          )
-          .where((c) => c.id.isNotEmpty)
-          .toList();
+      session = (s is Map ? s['session'] : null) as Map?;
     } catch (_) {
-      contextAssets = [];
+      session = null;
     }
+    if (revision != _sessionLoadRevision ||
+        _pendingSessionId != id ||
+        _deletedSessionIds.contains(id)) {
+      return;
+    }
+
+    _cancelActiveTurn(notify: false);
+    final restoredContexts = ((session?['context_assets'] as List?) ?? const [])
+        .whereType<Map>()
+        .map(
+          (m) => (
+            id: m['id'] as String? ?? '',
+            label: m['label'] as String? ?? '资产',
+          ),
+        )
+        .where((context) => context.id.isNotEmpty)
+        .toList();
+    final storedTitle = (session?['title'] as String?)?.trim();
+
+    messages
+      ..clear()
+      ..addAll(_messagesFrom(raw));
+    sessionId = id;
+    sessionTitle =
+        title ?? ((storedTitle?.isNotEmpty ?? false) ? storedTitle : null);
+    contextAssets = restoredContexts;
+    error = null;
+    _retryableUserText = null;
+    _failedAgent = null;
+    _reconcileRetrySessionId = null;
+    streaming = _hasPending(raw);
+    _pendingSessionId = null;
     _persistActive(id);
     RecentSessionStore.save(id: id, type: 'chat');
     _notify();
@@ -226,12 +295,12 @@ class ChatController extends ChangeNotifier {
   /// Rebuild [messages] from a /messages payload. Agent messages with
   /// status='running' (§1.5.1.3) replay as a 「分析中…」 placeholder (streaming
   /// + empty parts), which the durable-turn poll later fills.
-  void _applyMessages(List raw) {
-    messages.clear();
+  List<ChatMessage> _messagesFrom(List raw) {
+    final restored = <ChatMessage>[];
     for (final mm in raw.whereType<Map>()) {
       final m = mm.cast<String, dynamic>();
       if (m['role'] == 'user') {
-        messages.add(
+        restored.add(
           ChatMessage.user(
             m['id'] as String? ?? 'u',
             m['text'] as String? ?? '',
@@ -272,9 +341,16 @@ class ChatController extends ChangeNotifier {
         }
         final el = m['elapsed_ms'];
         if (el is num) msg.elapsedMs = el.toInt();
-        messages.add(msg);
+        restored.add(msg);
       }
     }
+    return restored;
+  }
+
+  void _applyMessages(List raw) {
+    messages
+      ..clear()
+      ..addAll(_messagesFrom(raw));
   }
 
   /// Any agent turn still generating server-side?
@@ -289,35 +365,80 @@ class ChatController extends ChangeNotifier {
   Future<void> _reconcilePending(String id) async {
     if (_pollingSession == id) return; // already polling this one
     _pollingSession = id;
-    final deadline = DateTime.now().add(const Duration(seconds: 150));
+    final deadline = DateTime.now().add(_reconcileTimeout);
+    var settled = false;
     try {
       while (!_disposed &&
           sessionId == id &&
           DateTime.now().isBefore(deadline)) {
-        await Future<void>.delayed(const Duration(milliseconds: 1500));
+        var remaining = deadline.difference(DateTime.now());
+        if (remaining <= Duration.zero) break;
+        final delay = _reconcileInterval.compareTo(remaining) < 0
+            ? _reconcileInterval
+            : remaining;
+        await Future<void>.delayed(delay);
         if (_disposed || sessionId != id) break;
-        final res = await _api.getJson('/api/sessions/$id/messages');
+        remaining = deadline.difference(DateTime.now());
+        if (remaining <= Duration.zero) break;
+        final res = await _api
+            .getJson('/api/sessions/$id/messages')
+            .timeout(remaining);
         final raw = (res is Map ? res['messages'] : null) as List? ?? const [];
         if (_disposed || sessionId != id) break;
         if (!_hasPending(raw)) {
           _applyMessages(raw); // turn landed → reply + cards now present
+          streaming = false;
+          error = null;
+          _reconcileRetrySessionId = null;
+          settled = true;
           _notify();
           bumpData(); // a turn may have created assets → refresh other surfaces
           break;
         }
       }
     } catch (_) {
-      /* best-effort; stop polling on error */
+      _markReconcileFailure(id);
     } finally {
+      if (!settled &&
+          !_disposed &&
+          sessionId == id &&
+          !DateTime.now().isBefore(deadline)) {
+        _markReconcileFailure(id);
+      }
       if (_pollingSession == id) _pollingSession = null;
     }
+  }
+
+  void _markReconcileFailure(String id) {
+    if (_disposed || sessionId != id) return;
+    for (final message in messages) {
+      if (!message.isUser) message.streaming = false;
+    }
+    streaming = false;
+    error = '会话生成状态同步失败，请重试';
+    _reconcileRetrySessionId = id;
+    _notify();
   }
 
   /// Ensure a session exists so context can be attached / a subject bound before
   /// the first message. Binds the pending subject if one is set (so the created
   /// session is the subject's thread, not an orphan blank one).
-  Future<String?> ensureSession() async {
-    if (sessionId != null) return sessionId;
+  Future<String?> ensureSession() {
+    if (sessionId != null) return Future<String?>.value(sessionId);
+    final pending = _ensureSessionFuture;
+    if (pending != null) return pending;
+    final revision = _sessionLoadRevision;
+    late final Future<String?> tracked;
+    tracked = _createSession(revision).whenComplete(() {
+      if (identical(_ensureSessionFuture, tracked)) {
+        _ensureSessionFuture = null;
+      }
+    });
+    _ensureSessionFuture = tracked;
+    return tracked;
+  }
+
+  Future<String?> _createSession(int revision) async {
     try {
       final body = <String, dynamic>{'session_type': 'chat'};
       if (subjectType != null && subjectId != null) {
@@ -325,7 +446,9 @@ class ChatController extends ChangeNotifier {
         body['subject_id'] = subjectId;
       }
       final res = await _api.postJson('/api/sessions', body);
-      sessionId = (res is Map ? res['session_id'] : null) as String?;
+      if (_disposed || revision != _sessionLoadRevision) return sessionId;
+      final created = (res is Map ? res['session_id'] : null) as String?;
+      sessionId ??= created;
       return sessionId;
     } catch (_) {
       return null;
@@ -334,12 +457,28 @@ class ChatController extends ChangeNotifier {
 
   /// Attach one or more assets as context to the current session in a single
   /// PATCH (web's 添加资产 flow; picker is multi-select).
-  Future<bool> attachContexts(List<String> assetIds) async {
+  Future<bool> attachContexts(
+    List<String> assetIds, {
+    Map<String, String> labels = const {},
+  }) async {
     if (assetIds.isEmpty) return true;
     final sid = await ensureSession();
     if (sid == null) return false;
     try {
       await _api.patchJson('/api/sessions/$sid/context', {'add': assetIds});
+      if (sessionId != sid) return true;
+      final byId = {
+        for (final context in contextAssets) context.id: context.label,
+      };
+      for (final id in assetIds) {
+        byId[id] = labels[id]?.trim().isNotEmpty == true
+            ? labels[id]!.trim()
+            : byId[id] ?? '资产';
+      }
+      contextAssets = [
+        for (final entry in byId.entries) (id: entry.key, label: entry.value),
+      ];
+      _notify();
       return true;
     } catch (_) {
       return false;
@@ -347,7 +486,10 @@ class ChatController extends ChangeNotifier {
   }
 
   /// Attach a single asset as context (convenience wrapper).
-  Future<bool> attachContext(String assetId) => attachContexts([assetId]);
+  Future<bool> attachContext(String assetId, {String? label}) => attachContexts(
+    [assetId],
+    labels: label == null ? const {} : {assetId: label},
+  );
 
   /// 沉淀为资产 — turn a Q&A answer into an asset of [skill] (todo/notes/idea/
   /// misc), linked to this session. Throws on failure so the UI can show it.
@@ -373,6 +515,18 @@ class ChatController extends ChangeNotifier {
   /// error chip is removed before the retry starts. A second failure simply
   /// becomes the next retry target.
   Future<void> retryLastFailedTurn() async {
+    final reconcileId = _reconcileRetrySessionId;
+    if (reconcileId != null && reconcileId.isNotEmpty && !streaming) {
+      try {
+        await loadSession(reconcileId, title: sessionTitle);
+      } catch (_) {
+        if (!_disposed && sessionId == reconcileId) {
+          error = '会话生成状态同步失败，请重试';
+          _notify();
+        }
+      }
+      return;
+    }
     final text = _retryableUserText;
     if (text == null || text.isEmpty || streaming) return;
     _failedAgent?.parts.removeWhere((part) => part is ErrorPart);
@@ -382,6 +536,10 @@ class ChatController extends ChangeNotifier {
   Future<void> _sendTurn(String text, {required bool appendUserMessage}) async {
     final t = text.trim();
     if (t.isEmpty || streaming) return;
+    _sessionLoadRevision++;
+    _pendingSessionId = null;
+    _ensureSessionFuture = null;
+    final revision = ++_turnRevision;
     error = null;
     if (appendUserMessage) {
       _retryableUserText = null;
@@ -392,31 +550,39 @@ class ChatController extends ChangeNotifier {
     // on the first message. (/api/chat has no subject param, so the bound
     // session must exist before the turn; plain chats let the backend create
     // it via the SSE `meta` frame.)
+    streaming = true;
+    _notify();
     if (sessionId == null && subjectType != null && subjectId != null) {
       await ensureSession();
     }
+    if (revision != _turnRevision || _disposed) return;
 
     final stamp = DateTime.now().microsecondsSinceEpoch;
     if (appendUserMessage) messages.add(ChatMessage.user('u-$stamp', t));
     final agent = ChatMessage.agent('a-$stamp');
     messages.add(agent);
-    streaming = true;
+    _activeAgent = agent;
     _notify();
 
-    try {
-      await for (final ev in _turnStream('/api/chat', {
-        'user_text': t,
-        'session_id': sessionId ?? '',
-      })) {
-        _apply(agent, ev);
-        _notify();
+    final completer = Completer<void>();
+    _activeTurnCompleter = completer;
+    var finalized = false;
+    void finalize({Object? failure}) {
+      if (finalized) return;
+      finalized = true;
+      if (revision != _turnRevision || _disposed) {
+        if (!completer.isCompleted) completer.complete();
+        return;
       }
-    } catch (e) {
-      agent.parts.add(ErrorPart(e.toString()));
-      error = e.toString();
-    } finally {
+      if (failure != null) {
+        agent.parts.add(ErrorPart(failure.toString()));
+        error = failure.toString();
+      }
       agent.streaming = false;
       streaming = false;
+      _activeTurnSubscription = null;
+      _activeTurnCompleter = null;
+      _activeAgent = null;
       if (error == null) {
         _retryableUserText = null;
         _failedAgent = null;
@@ -425,9 +591,52 @@ class ChatController extends ChangeNotifier {
         _failedAgent = agent;
       }
       _notify();
-      // A turn may have created/updated assets (todo, event, …) via tools —
-      // refresh every other surface (library / calendar / category lists).
       bumpData();
+      if (!completer.isCompleted) completer.complete();
+    }
+
+    try {
+      final stream = _turnStream('/api/chat', {
+        'user_text': t,
+        'session_id': sessionId ?? '',
+      });
+      late final StreamSubscription<SseEvent> subscription;
+      subscription = stream.listen(
+        (event) {
+          if (revision != _turnRevision || _disposed) return;
+          _apply(agent, event);
+          _notify();
+        },
+        onError: (Object failure, StackTrace _) => finalize(failure: failure),
+        onDone: finalize,
+        cancelOnError: true,
+      );
+      if (revision != _turnRevision || _disposed) {
+        unawaited(subscription.cancel());
+        finalize();
+      } else {
+        _activeTurnSubscription = subscription;
+      }
+    } catch (e) {
+      finalize(failure: e);
+    }
+    await completer.future;
+  }
+
+  void _cancelActiveTurn({required bool notify}) {
+    _turnRevision++;
+    final subscription = _activeTurnSubscription;
+    _activeTurnSubscription = null;
+    if (subscription != null) unawaited(subscription.cancel());
+    final agent = _activeAgent;
+    _activeAgent = null;
+    if (agent != null) agent.streaming = false;
+    final completer = _activeTurnCompleter;
+    _activeTurnCompleter = null;
+    if (completer != null && !completer.isCompleted) completer.complete();
+    if (subscription != null || agent != null) {
+      streaming = false;
+      if (notify) _notify();
     }
   }
 

@@ -102,13 +102,12 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   void _onChange() {
-    // Restore the context chip rail after a history session loads (codex r2 —
-    // was empty on reopen). Seeds once: manual attaches make _context non-empty.
-    if (_context.isEmpty && _chat.contextAssets.isNotEmpty) {
-      _context.addAll(
-        _chat.contextAssets.map((c) => (id: c.id, label: c.label)),
-      );
-    }
+    // The controller owns the context snapshot for both restored history and
+    // newly attached assets, so every notification produces one deduplicated
+    // rail instead of layering a second local copy on top.
+    _context
+      ..clear()
+      ..addAll(_chat.contextAssets);
     setState(() {});
     _scrollToEnd();
   }
@@ -283,14 +282,11 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> _addContext() async {
     final picked = await _showAssetPicker();
     if (picked == null || picked.isEmpty) return;
-    final ok = await _chat.attachContexts(picked.map((a) => a.id).toList());
-    if (ok && mounted) {
-      setState(() {
-        for (final a in picked) {
-          _context.add((id: a.id, label: a.title));
-        }
-      });
-    } else if (mounted) {
+    final ok = await _chat.attachContexts(
+      picked.map((a) => a.id).toList(),
+      labels: {for (final asset in picked) asset.id: asset.title},
+    );
+    if (!ok && mounted) {
       showToast(context, '添加失败', error: true);
     }
   }
@@ -844,39 +840,55 @@ class _CollapsibleQueryResultState extends State<_CollapsibleQueryResult> {
   Widget build(BuildContext context) {
     final eu = context.eu;
     final n = widget.cards.length;
+    final semanticLabel = '${widget.label} · 找到 $n 项';
+    void toggle() => setState(() => _open = !_open);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          GestureDetector(
-            onTap: n == 0 ? null : () => setState(() => _open = !_open),
-            behavior: HitTestBehavior.opaque,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: eu.textLo.withValues(alpha: 0.10),
+          Semantics(
+            label: semanticLabel,
+            button: n > 0,
+            enabled: n > 0,
+            toggled: n > 0 ? _open : null,
+            onTap: n == 0 ? null : toggle,
+            excludeSemantics: true,
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: n == 0 ? null : toggle,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: eu.textLo.withValues(alpha: 0.24)),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.search_rounded, size: 13, color: eu.textLo),
-                  const SizedBox(width: 5),
-                  Text(
-                    '${widget.label} · 找到 $n 项',
-                    style: TextStyle(color: eu.textLo, fontSize: 12),
-                  ),
-                  if (n > 0) ...[
-                    const SizedBox(width: 4),
-                    Icon(
-                      _open ? Icons.expand_less : Icons.chevron_right,
-                      size: 15,
-                      color: eu.textLo,
+                child: Container(
+                  constraints: const BoxConstraints(minHeight: 44),
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  decoration: BoxDecoration(
+                    color: eu.textLo.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: eu.textLo.withValues(alpha: 0.24),
                     ),
-                  ],
-                ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.search_rounded, size: 13, color: eu.textLo),
+                      const SizedBox(width: 5),
+                      Text(
+                        semanticLabel,
+                        style: TextStyle(color: eu.textLo, fontSize: 12),
+                      ),
+                      if (n > 0) ...[
+                        const SizedBox(width: 4),
+                        Icon(
+                          _open ? Icons.expand_less : Icons.chevron_right,
+                          size: 15,
+                          color: eu.textLo,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
               ),
             ),
           ),
@@ -905,6 +917,7 @@ class _PrecipitateMenuState extends State<_PrecipitateMenu> {
 
   String _state = 'idle'; // idle | saving | done | error
   String _label = '';
+  final _menuKey = GlobalKey<PopupMenuButtonState<String>>();
 
   Future<void> _pick(String skill, String label) async {
     setState(() => _state = 'saving');
@@ -945,42 +958,53 @@ class _PrecipitateMenuState extends State<_PrecipitateMenu> {
     final isError = _state == 'error';
     return Padding(
       padding: const EdgeInsets.only(top: 4),
-      child: PopupMenuButton<String>(
+      child: Semantics(
+        label: isError ? '沉淀失败，重试' : '沉淀为资产',
+        button: true,
         enabled: _state != 'saving',
-        onSelected: (v) {
-          final t = _types.firstWhere((e) => e.$1 == v);
-          _pick(t.$1, t.$3);
-        },
-        itemBuilder: (_) => [
-          for (final t in _types)
-            PopupMenuItem(value: t.$1, child: Text('${t.$2} ${t.$3}')),
-        ],
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: isError ? eu.accentRed : eu.border),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                _state == 'saving'
-                    ? Icons.hourglass_empty
-                    : Icons.bookmark_border,
-                size: 13,
-                color: isError ? eu.accentRed : eu.textLo,
-              ),
-              const SizedBox(width: 4),
-              Text(
-                isError ? '沉淀失败,重试' : '沉淀为资产',
-                style: TextStyle(
+        onTap: _state == 'saving'
+            ? null
+            : () => _menuKey.currentState?.showButtonMenu(),
+        excludeSemantics: true,
+        child: PopupMenuButton<String>(
+          key: _menuKey,
+          enabled: _state != 'saving',
+          onSelected: (v) {
+            final t = _types.firstWhere((e) => e.$1 == v);
+            _pick(t.$1, t.$3);
+          },
+          itemBuilder: (_) => [
+            for (final t in _types)
+              PopupMenuItem(value: t.$1, child: Text('${t.$2} ${t.$3}')),
+          ],
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 44),
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: isError ? eu.accentRed : eu.border),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  _state == 'saving'
+                      ? Icons.hourglass_empty
+                      : Icons.bookmark_border,
+                  size: 13,
                   color: isError ? eu.accentRed : eu.textLo,
-                  fontSize: 12,
                 ),
-              ),
-              Icon(Icons.arrow_drop_down, size: 16, color: eu.textLo),
-            ],
+                const SizedBox(width: 4),
+                Text(
+                  isError ? '沉淀失败,重试' : '沉淀为资产',
+                  style: TextStyle(
+                    color: isError ? eu.accentRed : eu.textLo,
+                    fontSize: 12,
+                  ),
+                ),
+                Icon(Icons.arrow_drop_down, size: 16, color: eu.textLo),
+              ],
+            ),
           ),
         ),
       ),

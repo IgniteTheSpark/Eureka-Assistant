@@ -37,30 +37,94 @@ class SessionTranscript extends StatefulWidget {
 class _SessionTranscriptState extends State<SessionTranscript> {
   final _scrollController = ScrollController();
   var _lastMessageCount = 0;
+  late String _lastContentSignature;
+  var _scrollScheduled = false;
 
   @override
   void initState() {
     super.initState();
     _lastMessageCount = widget.messages.length;
+    _lastContentSignature = _contentSignature();
   }
 
   @override
   void didUpdateWidget(covariant SessionTranscript oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.messages.length != _lastMessageCount ||
-        widget.analyzing != oldWidget.analyzing) {
+    final signature = _contentSignature();
+    final contentChanged = signature != _lastContentSignature;
+    _lastContentSignature = signature;
+    final structuralChange =
+        widget.messages.length != _lastMessageCount ||
+        widget.analyzing != oldWidget.analyzing;
+    final wasFollowingTail =
+        !_scrollController.hasClients ||
+        _scrollController.position.maxScrollExtent -
+                _scrollController.position.pixels <=
+            72;
+    if (structuralChange || (contentChanged && wasFollowingTail)) {
       _lastMessageCount = widget.messages.length;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || !_scrollController.hasClients) return;
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: MediaQuery.disableAnimationsOf(context)
-              ? Duration.zero
-              : const Duration(milliseconds: 160),
-          curve: Curves.easeOutCubic,
-        );
-      });
+      _scheduleTailFollow();
     }
+  }
+
+  String _contentSignature() {
+    final buffer = StringBuffer()
+      ..write(widget.analyzing)
+      ..write('|')
+      ..write(widget.error);
+    for (final message in widget.messages) {
+      buffer
+        ..write('|')
+        ..write(message.id)
+        ..write(':')
+        ..write(message.streaming)
+        ..write(':')
+        ..write(message.text.length)
+        ..write(':')
+        ..write(message.parts.length);
+      for (final part in message.parts) {
+        switch (part) {
+          case TextPart(:final text):
+            buffer
+              ..write('t')
+              ..write(text.length);
+          case ToolCallPart(:final name):
+            buffer
+              ..write('c')
+              ..write(name);
+          case ToolResultPart(:final name, :final response):
+            buffer
+              ..write('r')
+              ..write(name)
+              ..write(response.length);
+          case ErrorPart(:final message):
+            buffer
+              ..write('e')
+              ..write(message);
+          case CardsPart(:final cards):
+            buffer
+              ..write('a')
+              ..write(cards.length);
+        }
+      }
+    }
+    return buffer.toString();
+  }
+
+  void _scheduleTailFollow() {
+    if (_scrollScheduled) return;
+    _scrollScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollScheduled = false;
+      if (!mounted || !_scrollController.hasClients) return;
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: MediaQuery.disableAnimationsOf(context)
+            ? Duration.zero
+            : const Duration(milliseconds: 160),
+        curve: Curves.easeOutCubic,
+      );
+    });
   }
 
   @override
