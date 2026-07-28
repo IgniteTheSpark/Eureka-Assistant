@@ -11,7 +11,6 @@ import 'auth/auth_controller.dart';
 import 'ble_flash/ble_flash_manager.dart';
 import 'ble_flash/ble_flash_overlay.dart';
 import 'ble_flash/flash_file_workflow.dart';
-import 'config.dart';
 import 'ring/ring_capture_service.dart';
 import 'ring/ring_connection.dart';
 import 'data_revision.dart';
@@ -240,11 +239,7 @@ class _PostAuthGateState extends State<_PostAuthGate> {
             onDone: () => setState(() => _onboardingDone = true),
           );
         }
-        return ThemeV2Rollout(
-          enabled: AppConfig.themeV2,
-          legacyShell: const AppShell(),
-          themeV2Shell: const ThemeV2AppShell(),
-        );
+        return const AppRootShell();
       },
     );
   }

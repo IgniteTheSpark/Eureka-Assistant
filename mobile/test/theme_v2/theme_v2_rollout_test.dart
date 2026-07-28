@@ -1,3 +1,4 @@
+import 'package:eureka/config.dart';
 import 'package:eureka/theme_v2/theme_v2_rollout.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -5,6 +6,28 @@ import 'package:flutter_test/flutter_test.dart';
 import 'theme_v2_test_app.dart';
 
 void main() {
+  testWidgets('compile-time Theme V2 config selects the app root shell', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const ThemeV2TestApp(
+        child: AppRootShell(
+          legacyShell: Text('production legacy shell'),
+          themeV2Shell: Text('production theme v2 shell'),
+        ),
+      ),
+    );
+
+    expect(
+      find.text('production theme v2 shell'),
+      AppConfig.themeV2 ? findsOneWidget : findsNothing,
+    );
+    expect(
+      find.text('production legacy shell'),
+      AppConfig.themeV2 ? findsNothing : findsOneWidget,
+    );
+  });
+
   testWidgets('Theme V2 flag selects the Theme V2 shell', (tester) async {
     await tester.pumpWidget(
       const ThemeV2TestApp(
