@@ -13,11 +13,13 @@ class ThemeV2GlobalTopNav extends StatelessWidget {
     required this.deviceStatus,
     required this.onDevicePressed,
     required this.onNotificationsPressed,
+    this.unreadNotificationCount = 0,
   });
 
   final DeviceStatusSummary deviceStatus;
   final VoidCallback onDevicePressed;
   final VoidCallback onNotificationsPressed;
+  final int unreadNotificationCount;
 
   @override
   Widget build(BuildContext context) {
@@ -63,11 +65,59 @@ class ThemeV2GlobalTopNav extends StatelessWidget {
                 ),
                 const SizedBox(width: ThemeV2Spacing.xs),
                 const _ThemeV2ThemeToggle(),
-                ThemeV2IconButton(
-                  semanticLabel: '通知',
-                  icon: Icons.notifications_none_outlined,
-                  color: tokens.muted,
-                  onPressed: onNotificationsPressed,
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    ThemeV2IconButton(
+                      semanticLabel: unreadNotificationCount > 0
+                          ? '通知，$unreadNotificationCount 条未读'
+                          : '通知',
+                      icon: Icons.notifications_none_outlined,
+                      color: tokens.muted,
+                      onPressed: onNotificationsPressed,
+                    ),
+                    if (unreadNotificationCount > 0)
+                      Positioned(
+                        right: 1,
+                        top: 2,
+                        child: IgnorePointer(
+                          child: ExcludeSemantics(
+                            child: Container(
+                              constraints: const BoxConstraints(
+                                minWidth: 16,
+                                minHeight: 16,
+                              ),
+                              alignment: Alignment.center,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: tokens.critical,
+                                borderRadius: BorderRadius.circular(
+                                  ThemeV2Radii.pill,
+                                ),
+                                border: Border.all(
+                                  color: tokens.background,
+                                  width: 1.5,
+                                ),
+                              ),
+                              child: Text(
+                                unreadNotificationCount > 99
+                                    ? '99+'
+                                    : '$unreadNotificationCount',
+                                style: Theme.of(context).textTheme.labelSmall
+                                    ?.copyWith(
+                                      color: tokens.background,
+                                      fontSize: 8,
+                                      height: 1,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ],
             );

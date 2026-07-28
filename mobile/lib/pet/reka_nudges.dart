@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../api/api_client.dart';
+import '../data_revision.dart';
 
 /// §14.7 主动 REKA nudge — one proactive prompt surfaced on the floating ball.
 @immutable
@@ -10,7 +11,9 @@ class RekaNudge {
   final String body; // expanded copy in the action bubble
   final String ref; // skill machine_name (cta=log) / entity id
   final String cta; // 'log' | 'synthesize' | 'research' | 'view'
-  final String kind; // offer|consumption_summary|quiz|briefing|overdue|habit_reminder|…
+
+  /// offer|consumption_summary|quiz|briefing|overdue|habit_reminder|…
+  final String kind;
   final String status;
   const RekaNudge({
     required this.id,
@@ -21,6 +24,16 @@ class RekaNudge {
     this.kind = '',
     this.status = 'delivered',
   });
+
+  RekaNudge copyWith({String? status}) => RekaNudge(
+    id: id,
+    text: text,
+    body: body,
+    ref: ref,
+    cta: cta,
+    kind: kind,
+    status: status ?? this.status,
+  );
 
   static RekaNudge? fromJson(Map j) {
     final id = j['id'] as String?;
@@ -63,6 +76,16 @@ class RekaNudges extends ChangeNotifier {
   int bobSignal = 0;
 
   bool _loaded = false;
+  final Map<String, int> _outcomeRevisions = {};
+  ({String id, String status, bool committed})? _latestOutcome;
+  int _outcomeSignal = 0;
+
+  /// Last optimistic/rollback outcome applied to the shared Home/Inbox cache.
+  /// Consumers use the monotonically delivered ChangeNotifier event, not this
+  /// value as durable history.
+  ({String id, String status, bool committed})? get latestOutcome =>
+      _latestOutcome;
+  int get outcomeSignal => _outcomeSignal;
 
   /// Drop all per-user nudge state on logout so the previous account's nudges
   /// don't leak onto the next user's REKA (peek chip / pending feed).
@@ -71,6 +94,9 @@ class RekaNudges extends ChangeNotifier {
     _offers.clear();
     peek = null;
     _loaded = false;
+    _outcomeRevisions.clear();
+    _latestOutcome = null;
+    _outcomeSignal++;
     notifyListeners();
   }
 
@@ -88,10 +114,9 @@ class RekaNudges extends ChangeNotifier {
       if (list == null) return;
       _offers
         ..clear()
-        ..addAll(list
-            .whereType<Map>()
-            .map(RekaNudge.fromJson)
-            .whereType<RekaNudge>());
+        ..addAll(
+          list.whereType<Map>().map(RekaNudge.fromJson).whereType<RekaNudge>(),
+        );
       notifyListeners();
     } catch (_) {
       // best-effort — the offer screen degrades to its empty state on failure.
@@ -119,7 +144,9 @@ class RekaNudges extends ChangeNotifier {
       if (list == null) return;
       _pending
         ..clear()
-        ..addAll(list.whereType<Map>().map(RekaNudge.fromJson).whereType<RekaNudge>());
+        ..addAll(
+          list.whereType<Map>().map(RekaNudge.fromJson).whereType<RekaNudge>(),
+        );
       final want = peekId ?? peek?.id;
       if (want != null) {
         final i = _pending.indexWhere((x) => x.id == want);
@@ -162,20 +189,88 @@ class RekaNudges extends ChangeNotifier {
 
   /// Report an outcome (§14.7) and update local state. acted/dismissed remove
   /// the nudge from the pending set; seen keeps it (just no longer "new").
-  Future<void> outcome(String id, String status) async {
-    if (status == 'acted' || status == 'dismissed') {
-      _pending.removeWhere((x) => x.id == id);
-      _offers.removeWhere((x) => x.id == id); // keep the PULL deck in sync too
-      if (peek?.id == id) peek = null;
-      notifyListeners();
-    }
-    final api = ApiClient();
+  Future<bool> outcome(String id, String status, {ApiClient? api}) async {
+    final revision = (_outcomeRevisions[id] ?? 0) + 1;
+    _outcomeRevisions[id] = revision;
+    final pendingIndex = _pending.indexWhere((item) => item.id == id);
+    final offerIndex = _offers.indexWhere((item) => item.id == id);
+    final previousPending = pendingIndex < 0 ? null : _pending[pendingIndex];
+    final previousOffer = offerIndex < 0 ? null : _offers[offerIndex];
+    final previousPeek = peek?.id == id ? peek : null;
+    _applyLocalOutcome(id, status);
+    final client = api ?? ApiClient();
     try {
-      await api.postJson('/api/nudges/$id/outcome', {'status': status});
+      await client.postJson('/api/nudges/$id/outcome', {'status': status});
+      _publishOutcome(id, status, committed: true);
+      notifyListeners();
+      bumpData();
+      return true;
     } catch (_) {
-      // offline → the server marks it ignored at day end; acceptable v1 drift
+      if (_outcomeRevisions[id] == revision) {
+        _restoreOutcome(
+          id: id,
+          pending: previousPending,
+          pendingIndex: pendingIndex,
+          offer: previousOffer,
+          offerIndex: offerIndex,
+          previousPeek: previousPeek,
+        );
+      }
+      return false;
     } finally {
-      api.close();
+      if (api == null) client.close();
     }
+  }
+
+  void _applyLocalOutcome(String id, String status) {
+    final terminal = status == 'acted' || status == 'dismissed';
+    if (terminal) {
+      _pending.removeWhere((item) => item.id == id);
+      _offers.removeWhere((item) => item.id == id);
+      if (peek?.id == id) peek = null;
+    } else {
+      for (var index = 0; index < _pending.length; index++) {
+        if (_pending[index].id == id) {
+          _pending[index] = _pending[index].copyWith(status: status);
+        }
+      }
+      for (var index = 0; index < _offers.length; index++) {
+        if (_offers[index].id == id) {
+          _offers[index] = _offers[index].copyWith(status: status);
+        }
+      }
+      if (peek?.id == id) peek = peek!.copyWith(status: status);
+    }
+    _publishOutcome(id, status, committed: false);
+    notifyListeners();
+  }
+
+  void _restoreOutcome({
+    required String id,
+    required RekaNudge? pending,
+    required int pendingIndex,
+    required RekaNudge? offer,
+    required int offerIndex,
+    required RekaNudge? previousPeek,
+  }) {
+    _pending.removeWhere((item) => item.id == id);
+    _offers.removeWhere((item) => item.id == id);
+    if (pending != null) {
+      _pending.insert(pendingIndex.clamp(0, _pending.length), pending);
+    }
+    if (offer != null) {
+      _offers.insert(offerIndex.clamp(0, _offers.length), offer);
+    }
+    if (peek?.id == id || previousPeek != null) peek = previousPeek;
+    final restored = pending?.status ?? offer?.status;
+    if (restored != null) {
+      _publishOutcome(id, restored, committed: true);
+    }
+    notifyListeners();
+  }
+
+  void _publishOutcome(String id, String status, {required bool committed}) {
+    _latestOutcome = (id: id, status: status, committed: committed);
+    _outcomeSignal++;
   }
 }

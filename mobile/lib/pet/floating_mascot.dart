@@ -239,7 +239,7 @@ class _FloatingMascotState extends State<FloatingMascot>
   }
 
   void _nudgeAct(RekaNudge n) {
-    _nudges.outcome(n.id, 'acted');
+    if (n.status != 'acted') _nudges.outcome(n.id, 'acted');
     setState(() => _nudgeExpanded = false);
     // [记一笔] → 同 radial「快创」的 REKA bubble(一键开记录流)
     if (_menuOpen) _activeClose?.call();
@@ -255,7 +255,7 @@ class _FloatingMascotState extends State<FloatingMascot>
   /// §14.5 Type B offer 接受 = 一键即做:标 acted → 直接进 REKA 洞察生成
   /// (prefillWish 跳过输入,显进度 → 出报告),用户不用打字。
   void _nudgeSynthesize(RekaNudge n) {
-    _nudges.outcome(n.id, 'acted');
+    if (n.status != 'acted') _nudges.outcome(n.id, 'acted');
     setState(() => _nudgeExpanded = false);
     if (_menuOpen) _activeClose?.call();
     final anchor = _anchorRect();
@@ -319,7 +319,7 @@ class _FloatingMascotState extends State<FloatingMascot>
   // NOTE: the backend doesn't emit cta='view' yet (reserved); this wires it up so
   // the swipe opens the entity instead of mis-routing to 快记 the day it ships.
   void _nudgeView(RekaNudge n) {
-    _nudges.outcome(n.id, 'acted');
+    if (n.status != 'acted') _nudges.outcome(n.id, 'acted');
     setState(() => _nudgeExpanded = false);
     final ref = n.ref;
     if (ref.isEmpty) return;

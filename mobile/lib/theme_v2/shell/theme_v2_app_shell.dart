@@ -1,14 +1,17 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../app_shell.dart' show scheduleShellStartupSurface;
 import '../../data_revision.dart';
 import '../../pages/calendar_page.dart' show calendarHome;
 import '../../pages/device_pairing_page.dart';
-import '../../pages/notifications_page.dart';
 import '../../pages/today_page.dart';
 import '../../theme/app_theme.dart';
 import '../calendar/theme_v2_calendar_page.dart';
 import '../foundation/theme_v2_theme.dart';
+import '../inbox/reka_inbox_controller.dart';
+import '../inbox/reka_inbox_page.dart';
 import '../library/theme_v2_library_page.dart';
 import 'device_status_summary.dart';
 import 'theme_v2_floating_dock.dart';
@@ -27,6 +30,7 @@ class ThemeV2AppShell extends StatefulWidget {
     this.deviceStatus = const DeviceStatusSummary.disconnected(),
     this.onDevicePressed,
     this.onNotificationsPressed,
+    this.inboxController,
     this.initialIndex = const int.fromEnvironment('START_TAB', defaultValue: 0),
     this.showStartupOverlays = true,
   });
@@ -35,6 +39,7 @@ class ThemeV2AppShell extends StatefulWidget {
   final DeviceStatusSummary deviceStatus;
   final VoidCallback? onDevicePressed;
   final VoidCallback? onNotificationsPressed;
+  final RekaInboxController? inboxController;
   final int initialIndex;
 
   /// Test seam only. Production keeps START_OVERLAY and morning briefing on.
@@ -47,19 +52,32 @@ class ThemeV2AppShell extends StatefulWidget {
 class _ThemeV2AppShellState extends State<ThemeV2AppShell>
     with WidgetsBindingObserver {
   late int _index = widget.initialIndex.clamp(0, 2);
+  late final RekaInboxController _inboxController =
+      widget.inboxController ?? RekaInboxController();
+  late final bool _ownsInboxController = widget.inboxController == null;
 
   @override
   void initState() {
     super.initState();
     assert(widget.pages == null || widget.pages!.length == 3);
     WidgetsBinding.instance.addObserver(this);
+    _inboxController.addListener(_onInboxChanged);
+    if (_inboxController.status == RekaInboxStatus.idle) {
+      unawaited(_inboxController.load(includeOffers: false));
+    }
     if (widget.showStartupOverlays) scheduleShellStartupSurface(context);
   }
 
   @override
   void dispose() {
+    _inboxController.removeListener(_onInboxChanged);
+    if (_ownsInboxController) _inboxController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  void _onInboxChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
@@ -89,9 +107,26 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
       callback();
       return;
     }
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => const NotificationsPage()));
+    final originLegacyTheme = Theme.of(context).extension<EurekaTheme>();
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (routeContext) {
+          final ambientTheme = Theme.of(routeContext);
+          var routeTheme = buildThemeV2Theme(ambientTheme.brightness);
+          final legacyTheme =
+              ambientTheme.extension<EurekaTheme>() ?? originLegacyTheme;
+          if (legacyTheme != null) {
+            routeTheme = routeTheme.copyWith(
+              extensions: [...routeTheme.extensions.values, legacyTheme],
+            );
+          }
+          return Theme(
+            data: routeTheme,
+            child: RekaInboxPage(controller: _inboxController),
+          );
+        },
+      ),
+    );
   }
 
   List<ThemeV2PageScaffold> _pages() {
@@ -122,6 +157,7 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
     final activePage = pages[_index];
     final topNav = ThemeV2GlobalTopNav(
       deviceStatus: widget.deviceStatus,
+      unreadNotificationCount: _inboxController.unreadCount,
       onDevicePressed: () => _openDevice(context),
       onNotificationsPressed: () => _openNotifications(context),
     );
