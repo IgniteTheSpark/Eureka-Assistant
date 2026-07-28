@@ -54,6 +54,7 @@ void main() {
       tester.getSize(find.byType(ThemeV2HitTarget)),
       const Size.square(44),
     );
+    expect(tester.widget<Icon>(find.byType(Icon)).size, 20);
     expect(find.bySemanticsLabel('切换主题'), findsOneWidget);
     expect(
       tester.getSemantics(find.bySemanticsLabel('切换主题')),
@@ -71,7 +72,7 @@ void main() {
     semantics.dispose();
   });
 
-  testWidgets('legacy theme toggle keeps its existing control color', (
+  testWidgets('legacy theme toggle keeps its existing color and geometry', (
     tester,
   ) async {
     ThemeV2Tokens? attachedTokens;
@@ -98,6 +99,16 @@ void main() {
       ),
     );
     expect(icon.color, EurekaColors.light.textMid);
+    expect(icon.size, 24);
+    expect(
+      tester.getSize(
+        find.descendant(
+          of: find.byType(ThemeToggle),
+          matching: find.byType(ThemeV2HitTarget),
+        ),
+      ),
+      const Size.square(48),
+    );
   });
 
   testWidgets('theme toggling preserves navigator and page state', (

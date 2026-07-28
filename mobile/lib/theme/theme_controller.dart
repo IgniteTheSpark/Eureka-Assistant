@@ -34,6 +34,8 @@ class ThemeToggle extends StatelessWidget {
           semanticLabel: dark ? '切换到日间' : '切换到夜间',
           onPressed: toggleThemeMode,
           icon: dark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+          controlSize: legacy == null ? ThemeV2Sizes.minTouchTarget : 48,
+          iconSize: legacy == null ? 20 : 24,
           color: onDark
               ? Colors.white70
               : legacy?.colors.textMid ??
