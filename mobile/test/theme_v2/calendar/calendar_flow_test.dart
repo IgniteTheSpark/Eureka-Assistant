@@ -4,6 +4,7 @@ import 'dart:ui' show Tristate;
 import 'package:eureka/pages/calendar_page.dart' show calendarHome;
 import 'package:eureka/pages/day_flash_view.dart';
 import 'package:eureka/theme_v2/calendar/calendar_controller.dart';
+import 'package:eureka/theme_v2/calendar/calendar_day_detail.dart';
 import 'package:eureka/theme_v2/calendar/calendar_flow_view.dart';
 import 'package:eureka/theme_v2/calendar/calendar_mode_state.dart';
 import 'package:eureka/theme_v2/calendar/calendar_models.dart';
@@ -326,33 +327,30 @@ void main() {
     expect(find.text('TODAY'), findsOneWidget);
   });
 
-  testWidgets(
-    'first populated date tap opens the current Calendar child route',
-    (tester) async {
-      await tester.pumpWidget(
-        calendarTestHost(
-          ThemeV2CalendarPage(
-            today: DateTime(2026, 7, 3),
-            initialData: calendarFixtureData(),
-            onOpenRecord: (_) {},
-            onCreateDraft: (_) async {},
-            onOpenDraftEditor: (_) {},
-          ),
+  testWidgets('first populated date tap opens Theme V2 Day Detail', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      calendarTestHost(
+        ThemeV2CalendarPage(
+          today: DateTime(2026, 7, 3),
+          initialData: calendarFixtureData(),
+          onOpenRecord: (_) {},
+          onCreateDraft: (_) async {},
+          onOpenDraftEditor: (_) {},
         ),
-      );
-      await tester.pumpAndSettle();
+      ),
+    );
+    await tester.pumpAndSettle();
 
-      final today = find.byKey(const ValueKey('calendar-date-2026-07-03'));
-      await tester.tap(today);
-      await tester.pumpAndSettle();
+    final today = find.byKey(const ValueKey('calendar-date-2026-07-03'));
+    await tester.tap(today);
+    await tester.pumpAndSettle();
 
-      expect(find.byType(CalendarScheduleGrid), findsOneWidget);
-      expect(
-        find.byKey(const ValueKey('calendar-empty-slot-2026-07-03-0000')),
-        findsOneWidget,
-      );
-    },
-  );
+    expect(find.byType(CalendarDayDetail), findsOneWidget);
+    expect(find.byType(CalendarScheduleGrid), findsNothing);
+    expect(find.text('7 项记录'), findsOneWidget);
+  });
 
   testWidgets('month and year derive responsive cells at 360px', (
     tester,

@@ -68,7 +68,6 @@ class _CalendarFlowViewState extends State<CalendarFlowView> {
     final dayData = widget.data.day(day);
     widget.controller.changeDate(day);
     if (dayData.assetCount + dayData.flashCount > 0) {
-      widget.controller.openDay(day);
       _manualConfirmationDay = null;
       widget.onOpenDay(day);
       return;

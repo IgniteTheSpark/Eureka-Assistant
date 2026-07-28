@@ -15,6 +15,7 @@ import '../foundation/theme_v2_tokens.dart';
 import '../shell/theme_v2_async_state.dart';
 import 'calendar_components.dart';
 import 'calendar_controller.dart';
+import 'calendar_day_detail.dart';
 import 'calendar_flow_view.dart';
 import 'calendar_mode_state.dart';
 import 'calendar_models.dart';
@@ -124,20 +125,10 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
     final callback = widget.onOpenDay;
     if (callback != null) {
       callback(day);
-    } else {
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => _CalendarScheduleRoute(
-            day: day,
-            data: _currentData,
-            controller: _controller,
-            onOpenRecord: _openRecord,
-            onCreateDraft: _createDraft,
-            onOpenDraftEditor: _openDraftEditor,
-          ),
-        ),
-      );
+      return;
     }
+    _controller.openDay(day);
+    setState(() {});
   }
 
   void _openRecord(CalendarRecord record) {
@@ -186,6 +177,7 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
     if (!mounted) return;
     _controller
       ..changeDate(_today)
+      ..backToOverview()
       ..selectMode(CalendarMode.flow);
     setState(() {
       _focusMonth = DateTime(_today.year, _today.month);
@@ -321,6 +313,30 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
   Widget _dataBody(CalendarData data) {
     _currentSkills = data.skills;
     _currentData = data;
+    final selectedDate = _controller.selectedDate;
+    if (_controller.surface == CalendarSurface.dayDetail &&
+        selectedDate != null) {
+      return CalendarDayDetail(
+        dayData: data.day(selectedDate),
+        skills: data.skills,
+        onBack: () => setState(_controller.backToOverview),
+        onOpenSchedule: () => setState(_controller.openSchedule),
+        onOpenFlash: () => _openFlash(selectedDate),
+        onManualRecord: () => _requestManualRecord(selectedDate),
+        onOpenRecord: _openRecord,
+      );
+    }
+    if (_controller.surface == CalendarSurface.schedule &&
+        selectedDate != null) {
+      return _CalendarScheduleRoute(
+        day: selectedDate,
+        data: data,
+        controller: _controller,
+        onOpenRecord: _openRecord,
+        onCreateDraft: _createDraft,
+        onOpenDraftEditor: _openDraftEditor,
+      );
+    }
     final pages = PageView(
       key: const ValueKey('calendar-mode-pages'),
       controller: _pageController,
