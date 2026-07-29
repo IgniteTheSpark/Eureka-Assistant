@@ -512,7 +512,13 @@ async def chat(req: ChatRequest, user_id: str = Depends(get_current_user_id)):
         # Durable turn: land the user message NOW (leaving never loses input) and
         # a running agent placeholder (the in-flight marker a returning client
         # renders as 「分析中…」 and reconciles against).
-        await persist_user_message(db, session_id, user_id, req.user_text)
+        await persist_user_message(
+            db,
+            session_id,
+            user_id,
+            req.user_text,
+            input_turn_id=input_turn_id,
+        )
         placeholder = await create_pending_agent_message(db, session_id, user_id)
         turn_id = str(placeholder.id)
 

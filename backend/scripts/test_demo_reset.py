@@ -133,7 +133,13 @@ async def _seed_workspace(db, user_id: str, user_skill_id: uuid.UUID, tag: str) 
             ),
             EventAttendee(event_id=event.id, contact_id=contact.id, role="attendee"),
             EventFile(event_id=event.id, file_id=file.id, kind="attachment"),
-            Message(session_id=session.id, user_id=user_id, role="user", text=tag),
+            Message(
+                session_id=session.id,
+                input_turn_id=turn.id,
+                user_id=user_id,
+                role="user",
+                text=tag,
+            ),
             Task(
                 user_id=user_id,
                 user_text=tag,

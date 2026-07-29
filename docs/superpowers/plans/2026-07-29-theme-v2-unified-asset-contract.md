@@ -27,7 +27,8 @@
 ### Task 1: Persist Explicit Message-to-Input-Turn Provenance
 
 **Files:**
-- Create: `backend/db/migrations/versions/0030_unified_asset_provenance.py`
+- Import: `backend/db/migrations/versions/0030_eureka_user_id.py`
+- Create: `backend/db/migrations/versions/0031_unified_asset_provenance.py`
 - Modify: `backend/db/models.py`
 - Modify: `backend/core/session_service.py`
 - Modify: `backend/core/flash_service.py`
@@ -143,7 +144,7 @@ Expected: all scripts exit 0.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add backend/db/migrations/versions/0030_unified_asset_provenance.py backend/db/models.py backend/core/session_service.py backend/core/flash_service.py backend/api/chat.py backend/api/sessions.py backend/scripts/test_unified_asset_provenance.py
+git add backend/db/migrations/versions/0030_eureka_user_id.py backend/db/migrations/versions/0031_unified_asset_provenance.py backend/db/models.py backend/core/session_service.py backend/core/flash_service.py backend/api/chat.py backend/api/sessions.py backend/scripts/test_unified_asset_provenance.py
 git commit -m "feat(assets): persist exact input turn provenance"
 ```
 

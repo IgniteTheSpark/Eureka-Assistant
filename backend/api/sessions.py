@@ -502,6 +502,7 @@ async def get_session_messages(
         "messages": [
             {
                 "id":          str(m.id),
+                "input_turn_id": str(m.input_turn_id) if m.input_turn_id else None,
                 "role":        m.role,
                 "text":        m.text,
                 "tool_call":   m.tool_call,

@@ -135,6 +135,9 @@ class User(Base):
     # §13.1 — stable 百智 (100wiser) identity ↔ Eureka user mapping. Unique so one
     # 百智 account = one Eureka user; null for email-registered users.
     baizhi_user_id = Column(String(64), unique=True, nullable=True, index=True)
+    # Embedded EurekaMind host-app identity. The shared local database already
+    # carries this relation through migration 0030_eureka_user_id.
+    eureka_user_id = Column(String(100), unique=True, nullable=True, index=True)
     # Small JSON prefs bag (§14.8). v1: {"nudges_enabled": bool} — the「球球提醒」
     # master switch, default ON (absent = enabled; this audience won't opt in).
     prefs         = Column(JSON)
@@ -352,6 +355,7 @@ class Asset(Base):
     # report's native action bar dedupes against it ("已加 ✓").
     source_report_id     = Column(GUID())
     created_at           = Column(TIMESTAMPTZ, default=_utcnow)
+    updated_at           = Column(TIMESTAMPTZ, default=_utcnow, onupdate=_utcnow)
 
     __table_args__ = (
         Index("idx_assets_user",          "user_id", "created_at"),
@@ -402,6 +406,7 @@ class Contact(Base):
     # ("联系人 ×1"). Other entities (asset/event) already carry this FK.
     source_input_turn_id = Column(GUID(), ForeignKey("input_turns.id"))
     created_at = Column(TIMESTAMPTZ, default=_utcnow)
+    updated_at = Column(TIMESTAMPTZ, default=_utcnow, onupdate=_utcnow)
 
     __table_args__ = (
         Index("idx_contacts_name", "user_id", "name"),
@@ -488,6 +493,7 @@ class Message(Base):
 
     id          = Column(GUID(), primary_key=True, default=uuid.uuid4)
     session_id  = Column(GUID(), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
+    input_turn_id = Column(GUID(), ForeignKey("input_turns.id"))
     user_id     = Column(String(50), nullable=False, server_default="default")
     role        = Column(String(10), nullable=False)        # user | agent | tool
     text        = Column(Text, nullable=False, default="")   # MySQL TEXT can't take a server_default
@@ -503,6 +509,7 @@ class Message(Base):
 
     __table_args__ = (
         Index("idx_messages_session", "session_id", "created_at"),
+        Index("idx_messages_input_turn", "user_id", "input_turn_id"),
     )
 
 

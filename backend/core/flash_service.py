@@ -210,7 +210,13 @@ async def _process_flash_text_unlocked(
                 language=language,
             )
             input_turn_id = str(turn.id)
-            await persist_user_message(db, session_id, user_id, text)
+            await persist_user_message(
+                db,
+                session_id,
+                user_id,
+                text,
+                input_turn_id=input_turn_id,
+            )
             logger.info(
                 "%s process_flash_text input persisted user=%s recording=%s session=%s input_turn=%s",
                 LOG_TAG,

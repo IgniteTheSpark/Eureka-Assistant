@@ -521,6 +521,8 @@ async def persist_user_message(
     session_id: str,
     user_id: str,
     user_text: str,
+    *,
+    input_turn_id: str,
 ) -> Message:
     """
     Persist just the user side of a turn (role='user'). Used by Flash so the
@@ -529,6 +531,7 @@ async def persist_user_message(
     """
     msg = Message(
         session_id=uuid.UUID(session_id),
+        input_turn_id=uuid.UUID(input_turn_id),
         user_id=user_id,
         role="user",
         text=user_text,
