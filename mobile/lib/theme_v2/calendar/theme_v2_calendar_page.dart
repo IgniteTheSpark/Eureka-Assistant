@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
-import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
@@ -24,6 +22,7 @@ import 'calendar_mode_state.dart';
 import 'calendar_models.dart';
 import 'calendar_month_view.dart';
 import 'calendar_schedule_grid.dart';
+import 'calendar_scale_droplet.dart';
 import 'calendar_year_view.dart';
 
 typedef CalendarDataLoader = Future<CalendarData> Function();
@@ -598,7 +597,13 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
             valueListenable: _scaleDragFeedback,
             builder: (context, feedback, _) {
               if (feedback == null) return const SizedBox.shrink();
-              return _CalendarScaleDragIndicator(feedback: feedback);
+              return CalendarScaleDragIndicator(
+                targetLabel: _calendarScaleLabel(feedback.target),
+                onRightEdge: feedback.onRightEdge,
+                shapeProgress: feedback.shapeProgress,
+                labelProgress: feedback.labelProgress,
+                centerY: feedback.centerY,
+              );
             },
           ),
         ),
@@ -644,215 +649,6 @@ class _CalendarScaleDragFeedback {
   final double shapeProgress;
   final double labelProgress;
   final double? centerY;
-}
-
-class _CalendarScaleDragIndicator extends StatelessWidget {
-  const _CalendarScaleDragIndicator({required this.feedback});
-
-  final _CalendarScaleDragFeedback feedback;
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.themeV2;
-    final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    final width = reduceMotion
-        ? 64.0
-        : ui.lerpDouble(48, 103, feedback.shapeProgress)!;
-    final height = reduceMotion
-        ? 40.0
-        : ui.lerpDouble(72, 105, feedback.shapeProgress)!;
-    final label = _calendarScaleLabel(feedback.target);
-
-    return IgnorePointer(
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final desiredCenterY = feedback.centerY ?? constraints.maxHeight / 2;
-          final minCenterY = height / 2 + 12;
-          final unclampedMaxCenterY = constraints.maxHeight - height / 2 - 12;
-          final maxCenterY = math.max(minCenterY, unclampedMaxCenterY);
-          final centerY = desiredCenterY
-              .clamp(minCenterY, maxCenterY)
-              .toDouble();
-
-          return Stack(
-            children: [
-              AnimatedPositioned(
-                duration: reduceMotion
-                    ? Duration.zero
-                    : const Duration(milliseconds: 70),
-                curve: Curves.easeOutCubic,
-                top: centerY - height / 2,
-                left: feedback.onRightEdge ? null : 0,
-                right: feedback.onRightEdge ? 0 : null,
-                width: width,
-                height: height,
-                child: SizedBox(
-                  key: const ValueKey('calendar-scale-drag-indicator'),
-                  width: width,
-                  height: height,
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      if (!reduceMotion)
-                        Positioned.fill(
-                          child: CustomPaint(
-                            key: const ValueKey('calendar-scale-drag-droplet'),
-                            painter: _CalendarScaleDropletPainter(
-                              onRightEdge: feedback.onRightEdge,
-                              fill: tokens.surface.withValues(alpha: 0.95),
-                              border: tokens.border,
-                              tension: tokens.accent.withValues(alpha: 0.58),
-                              shadow: tokens.foreground.withValues(alpha: 0.08),
-                            ),
-                          ),
-                        )
-                      else if (feedback.labelProgress > 0)
-                        DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: tokens.surface.withValues(alpha: 0.95),
-                            border: Border.all(color: tokens.border),
-                            borderRadius: BorderRadius.horizontal(
-                              left: feedback.onRightEdge
-                                  ? const Radius.circular(ThemeV2Radii.md)
-                                  : Radius.zero,
-                              right: feedback.onRightEdge
-                                  ? Radius.zero
-                                  : const Radius.circular(ThemeV2Radii.md),
-                            ),
-                          ),
-                          child: const SizedBox.expand(),
-                        ),
-                      if (feedback.labelProgress > 0)
-                        Opacity(
-                          opacity: feedback.labelProgress,
-                          child: Padding(
-                            padding: EdgeInsets.only(
-                              left: feedback.onRightEdge ? 14 : 4,
-                              right: feedback.onRightEdge ? 4 : 14,
-                            ),
-                            child: Text(
-                              label,
-                              style: Theme.of(context).textTheme.titleMedium
-                                  ?.copyWith(
-                                    color: tokens.foreground,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _CalendarScaleDropletPainter extends CustomPainter {
-  const _CalendarScaleDropletPainter({
-    required this.onRightEdge,
-    required this.fill,
-    required this.border,
-    required this.tension,
-    required this.shadow,
-  });
-
-  final bool onRightEdge;
-  final Color fill;
-  final Color border;
-  final Color tension;
-  final Color shadow;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    canvas.save();
-    if (!onRightEdge) {
-      canvas
-        ..translate(size.width, 0)
-        ..scale(-1, 1);
-    }
-
-    final width = size.width;
-    final height = size.height;
-    final droplet = Path()
-      ..moveTo(width, 0)
-      ..cubicTo(
-        width * 0.78,
-        0,
-        width * 0.84,
-        height * 0.18,
-        width * 0.62,
-        height * 0.23,
-      )
-      ..cubicTo(
-        width * 0.31,
-        height * 0.29,
-        width * 0.18,
-        height * 0.38,
-        width * 0.15,
-        height * 0.5,
-      )
-      ..cubicTo(
-        width * 0.18,
-        height * 0.62,
-        width * 0.31,
-        height * 0.71,
-        width * 0.62,
-        height * 0.77,
-      )
-      ..cubicTo(
-        width * 0.84,
-        height * 0.82,
-        width * 0.78,
-        height,
-        width,
-        height,
-      )
-      ..close();
-
-    canvas.drawShadow(droplet, shadow, 5, true);
-    canvas.drawPath(droplet, Paint()..color = fill);
-    canvas.drawPath(
-      droplet,
-      Paint()
-        ..color = border
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1,
-    );
-
-    final tensionLine = Path()
-      ..moveTo(width - 10, height * 0.24)
-      ..cubicTo(
-        width - 2,
-        height * 0.36,
-        width - 2,
-        height * 0.64,
-        width - 10,
-        height * 0.76,
-      );
-    canvas.drawPath(
-      tensionLine,
-      Paint()
-        ..color = tension
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5
-        ..strokeCap = StrokeCap.round,
-    );
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(_CalendarScaleDropletPainter oldDelegate) {
-    return oldDelegate.onRightEdge != onRightEdge ||
-        oldDelegate.fill != fill ||
-        oldDelegate.border != border ||
-        oldDelegate.tension != tension ||
-        oldDelegate.shadow != shadow;
-  }
 }
 
 class _CalendarScaleConfirmation extends StatelessWidget {

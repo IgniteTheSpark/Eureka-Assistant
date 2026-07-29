@@ -877,6 +877,50 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets('scale droplet uses clipped frosted glass', (tester) async {
+    await tester.pumpWidget(
+      calendarTestHost(
+        ThemeV2CalendarPage(
+          controller: CalendarController(),
+          today: DateTime(2026, 7, 3),
+          initialData: calendarFixtureData(),
+          onOpenDay: (_) {},
+          onOpenRecord: (_) {},
+          onCreateDraft: (_) async {},
+          onOpenDraftEditor: (_) {},
+        ),
+        disableAnimations: false,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final pages = find.byKey(const ValueKey('calendar-mode-pages'));
+    final pageRect = tester.getRect(pages);
+    final gesture = await tester.startGesture(
+      Offset(pageRect.center.dx, pageRect.top + 160),
+    );
+    await gesture.moveBy(const Offset(-60, 0));
+    await tester.pump();
+
+    final droplet = find.byKey(const ValueKey('calendar-scale-drag-droplet'));
+    expect(droplet, findsOneWidget);
+    expect(
+      find.descendant(of: droplet, matching: find.byType(BackdropFilter)),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('calendar-scale-drag-glass')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('calendar-scale-drag-repaint-boundary')),
+      findsOneWidget,
+    );
+
+    await gesture.cancel();
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('reduced motion keeps the edge label without droplet morphing', (
     tester,
   ) async {
