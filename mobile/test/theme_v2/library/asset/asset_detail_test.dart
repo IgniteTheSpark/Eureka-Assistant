@@ -11,6 +11,44 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 void main() {
+  testWidgets('half detail is 576 high and keeps source above sticky actions', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(411, 960);
+    addTearDown(tester.view.reset);
+    final controller = AssetDetailController(
+      data: buildCard(
+        payload: const {'title': '随记', 'body': '正文'},
+        spec: _spec,
+        displayName: 'notes',
+      ),
+      payload: const {'title': '随记', 'body': '正文'},
+      cardType: 'notes',
+      assetId: null,
+      userSkillId: 'skill-notes',
+      sessionId: 'session-source',
+      spec: _spec,
+    );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(_host(ThemeV2AssetDetailSurface(controller)));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getSize(find.byKey(const ValueKey('theme-v2-asset-sheet'))).height,
+      576,
+    );
+    final source = find.byKey(const ValueKey('asset-detail-source'));
+    final actions = find.byKey(const ValueKey('asset-detail-actions'));
+    expect(source, findsOneWidget);
+    expect(actions, findsOneWidget);
+    expect(
+      tester.getBottomLeft(source).dy,
+      lessThan(tester.getTopLeft(actions).dy),
+    );
+  });
+
   testWidgets(
     'sheet expands in place with one hydration, draft and scroll position',
     (tester) async {

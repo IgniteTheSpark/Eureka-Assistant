@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../../api/api_client.dart';
@@ -7,6 +9,7 @@ import '../../foundation/theme_v2_semantics.dart';
 import '../../foundation/theme_v2_theme.dart';
 import '../../foundation/theme_v2_tokens.dart';
 import '../../foundation/theme_v2_typography.dart';
+import 'asset_detail_content.dart';
 import 'asset_detail_presentation.dart';
 import 'asset_editor.dart';
 
@@ -114,10 +117,13 @@ class _ThemeV2AssetDetailSurfaceState extends State<ThemeV2AssetDetailSurface> {
       ),
     );
     final routeHeight = MediaQuery.sizeOf(context).height;
-    final result = SizedBox(
-      width: double.infinity,
-      height: full ? routeHeight : routeHeight * 0.68,
-      child: surface,
+    final result = Align(
+      alignment: Alignment.bottomCenter,
+      child: SizedBox(
+        width: double.infinity,
+        height: full ? routeHeight : math.min(576, routeHeight),
+        child: surface,
+      ),
     );
     return PopScope(
       canPop: !(controller.editing && controller.draft.isDirty),
@@ -302,106 +308,57 @@ class _DetailBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tokens = context.themeV2;
-    final fields = [
-      ...controller.spec.schemaFields,
-      for (final key in controller.payload.keys)
-        if (!controller.spec.schemaFields.contains(key)) key,
-    ];
-    return ListView(
-      key: const ValueKey('theme-v2-asset-detail-scroll'),
-      controller: controller.scrollController,
-      padding: const EdgeInsets.fromLTRB(
-        ThemeV2Spacing.xl,
-        ThemeV2Spacing.sm,
-        ThemeV2Spacing.xl,
-        ThemeV2Spacing.xl,
-      ),
+    return Column(
       children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 46,
-              height: 46,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: tokens.accentSoft,
-                borderRadius: BorderRadius.circular(ThemeV2Radii.md),
-              ),
-              child: Text(
-                controller.data.icon,
-                style: const TextStyle(fontSize: 20),
-              ),
-            ),
-            const SizedBox(width: ThemeV2Spacing.md),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    controller.data.title,
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  if (controller.data.subtitle.isNotEmpty)
-                    Text(
-                      controller.data.subtitle,
-                      style: Theme.of(
-                        context,
-                      ).textTheme.bodySmall?.copyWith(color: tokens.accent),
-                    ),
-                ],
-              ),
-            ),
-          ],
+        Expanded(child: AssetDetailContent(controller: controller)),
+        if (controller.sourceLabel case final source?)
+          AssetDetailSourceBar(label: source),
+        _DetailActions(
+          controller: controller,
+          onEdit: onEdit,
+          onDelete: onDelete,
         ),
-        const SizedBox(height: ThemeV2Spacing.xl),
-        if (controller.loadState == AssetDetailLoadState.error)
-          Padding(
-            padding: const EdgeInsets.only(bottom: ThemeV2Spacing.md),
-            child: Text(
-              controller.errorMessage ?? '内容加载失败',
-              style: TextStyle(color: tokens.critical),
-            ),
-          ),
-        for (final field in fields)
-          if (controller.payload[field] != null &&
-              '${controller.payload[field]}'.trim().isNotEmpty)
-            _SchemaField(
-              label: controller.spec.fieldLabels[field] ?? field,
-              value: applyFormat(
-                controller.payload[field],
-                controller.spec.formatForField(field),
-              ),
-              long: controller.spec.longFields.contains(field),
-            ),
-        const SizedBox(height: ThemeV2Spacing.lg),
-        Wrap(
-          spacing: ThemeV2Spacing.sm,
-          runSpacing: ThemeV2Spacing.sm,
+      ],
+    );
+  }
+}
+
+class _DetailActions extends StatelessWidget {
+  const _DetailActions({
+    required this.controller,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final AssetDetailController controller;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.themeV2;
+    return Material(
+      key: const ValueKey('asset-detail-actions'),
+      color: tokens.surface,
+      child: Container(
+        width: double.infinity,
+        padding: EdgeInsets.fromLTRB(
+          ThemeV2Spacing.xl,
+          ThemeV2Spacing.sm,
+          ThemeV2Spacing.xl,
+          MediaQuery.paddingOf(context).bottom + ThemeV2Spacing.md,
+        ),
+        decoration: BoxDecoration(
+          border: Border(top: BorderSide(color: tokens.border)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            ThemeV2HitTarget(
-              child: FilledButton.icon(
-                key: const ValueKey('asset-detail-edit'),
-                onPressed: controller.assetId == null ? null : onEdit,
-                icon: const Icon(Icons.edit_outlined),
-                label: const Text('编辑'),
-              ),
-            ),
-            if (controller.assetId != null)
-              ThemeV2HitTarget(
-                child: OutlinedButton.icon(
-                  key: const ValueKey('asset-detail-delete'),
-                  onPressed: controller.busy ? null : onDelete,
-                  icon: Icon(Icons.delete_outline, color: tokens.critical),
-                  label: const Text('删除'),
-                ),
-              ),
-            if (controller.cardType == 'todo')
-              ThemeV2HitTarget(
-                child: OutlinedButton.icon(
+            if (controller.cardType == 'todo') ...[
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  key: const ValueKey('asset-detail-toggle-todo'),
                   onPressed: controller.busy ? null : controller.toggleTodo,
                   icon: Icon(
                     controller.isDone ? Icons.undo : Icons.check_circle_outline,
@@ -409,48 +366,33 @@ class _DetailBody extends StatelessWidget {
                   label: Text(controller.isDone ? '撤销完成' : '标记完成'),
                 ),
               ),
+              const SizedBox(height: ThemeV2Spacing.sm),
+            ],
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    key: const ValueKey('asset-detail-edit'),
+                    onPressed: controller.assetId == null ? null : onEdit,
+                    icon: const Icon(Icons.edit_outlined),
+                    label: const Text('编辑'),
+                  ),
+                ),
+                if (controller.assetId != null) ...[
+                  const SizedBox(width: ThemeV2Spacing.sm),
+                  ThemeV2HitTarget(
+                    child: IconButton.outlined(
+                      key: const ValueKey('asset-detail-delete'),
+                      onPressed: controller.busy ? null : onDelete,
+                      icon: Icon(Icons.delete_outline, color: tokens.critical),
+                      tooltip: '删除',
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ],
         ),
-      ],
-    );
-  }
-}
-
-class _SchemaField extends StatelessWidget {
-  const _SchemaField({
-    required this.label,
-    required this.value,
-    required this.long,
-  });
-
-  final String label;
-  final String value;
-  final bool long;
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.themeV2;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: ThemeV2Spacing.lg),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label.toUpperCase(),
-            style: ThemeV2Typography.mono(
-              fontSize: 8,
-              color: tokens.muted,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: ThemeV2Spacing.xs),
-          SelectableText(
-            value,
-            style: Theme.of(
-              context,
-            ).textTheme.bodyMedium?.copyWith(height: long ? 1.55 : 1.3),
-          ),
-        ],
       ),
     );
   }

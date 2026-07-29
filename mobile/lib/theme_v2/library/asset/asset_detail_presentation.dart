@@ -56,6 +56,15 @@ class AssetDetailController extends ChangeNotifier {
   CardData get data => _data;
   Map<String, dynamic> get payload => Map.unmodifiable(_payload);
   bool get isDone => todoPayloadIsDone(_payload);
+  String? get sourceLabel {
+    final explicit =
+        _payload['source_label']?.toString().trim() ??
+        _payload['source']?.toString().trim() ??
+        '';
+    if (explicit.isNotEmpty) return explicit;
+    final session = sessionId?.trim() ?? '';
+    return session.isEmpty ? null : '来自闪念';
+  }
 
   Future<void> hydrate() => _hydration ??= _hydrateOnce();
 
