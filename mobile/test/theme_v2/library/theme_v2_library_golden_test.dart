@@ -79,23 +79,28 @@ void main() {
           theme: theme.copyWith(
             extensions: [...theme.extensions.values, EurekaTheme(legacy)],
           ),
-          home: RepaintBoundary(
-            key: surface,
-            child: ThemeV2PageScaffold(
-              showTopNav: navigation.chrome.topNav,
-              showDock: navigation.chrome.dock,
-              topNav: ThemeV2GlobalTopNav(
-                deviceStatus: const DeviceStatusSummary.disconnected(),
-                onDevicePressed: () {},
-                onNotificationsPressed: () {},
-              ),
-              dock: ThemeV2FloatingDock(
-                selectedIndex: 2,
-                onDestinationSelected: (_) {},
-              ),
-              body: ColoredBox(
-                color: ThemeV2Tokens.forBrightness(brightness).background,
-                child: builder(controller),
+          home: MediaQuery(
+            data: MediaQueryData.fromView(
+              tester.view,
+            ).copyWith(disableAnimations: true),
+            child: RepaintBoundary(
+              key: surface,
+              child: ThemeV2PageScaffold(
+                showTopNav: navigation.chrome.topNav,
+                showDock: navigation.chrome.dock,
+                topNav: ThemeV2GlobalTopNav(
+                  deviceStatus: const DeviceStatusSummary.disconnected(),
+                  onDevicePressed: () {},
+                  onNotificationsPressed: () {},
+                ),
+                dock: ThemeV2FloatingDock(
+                  selectedIndex: 2,
+                  onDestinationSelected: (_) {},
+                ),
+                body: ColoredBox(
+                  color: ThemeV2Tokens.forBrightness(brightness).background,
+                  child: builder(controller),
+                ),
               ),
             ),
           ),
