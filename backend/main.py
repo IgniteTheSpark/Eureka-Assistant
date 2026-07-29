@@ -57,6 +57,7 @@ from api.skills import router as skills_router
 from api.input_turns import router as input_turns_router
 from api.files import router as files_router
 from api.assets import router as assets_router
+from api.asset_details import router as asset_details_router
 from api.sessions import router as sessions_router
 from api.contacts import router as contacts_router
 from api.cards import router as cards_router
@@ -137,6 +138,7 @@ app.include_router(skills_router,      prefix="/api", tags=["skills"])
 app.include_router(input_turns_router, prefix="/api", tags=["input-turns"])
 app.include_router(files_router,       prefix="/api", tags=["files"])
 app.include_router(assets_router,      prefix="/api", tags=["assets"])
+app.include_router(asset_details_router, prefix="/api", tags=["asset-details"])
 app.include_router(sessions_router,    prefix="/api", tags=["sessions"])
 app.include_router(contacts_router,    prefix="/api", tags=["contacts"])
 app.include_router(cards_router,       prefix="/api", tags=["cards"])
