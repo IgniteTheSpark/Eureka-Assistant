@@ -29,11 +29,25 @@ def test_calendar_does_not_treat_capture_time_as_todo_schedule() -> None:
     assert "effectiveAt.hour" not in body
 
 
-def test_todo_editor_has_a_strict_business_field_allowlist() -> None:
-    source = _read("mobile/lib/render/asset_detail_sheet.dart")
-    assert "_todoEditableFields" in source
-    assert "{'title', 'due_date', 'content'}" in source
-    assert "widget.cardType == 'todo'" in source
+def test_todo_editor_uses_the_canonical_theme_v2_schema() -> None:
+    page = _read(
+        "mobile/lib/theme_v2/asset_detail/theme_v2_asset_edit_page.dart"
+    )
+    presentation = _read(
+        "mobile/lib/theme_v2/library/asset/asset_detail_presentation.dart"
+    )
+    endpoint = _read("backend/api/asset_details.py")
+    assert "renderSpecFromAssetDetailModel(model)" in page
+    assert "AssetEditorRouter" in page
+    assert (
+        "schemaFields: [for (final field in model.fields) field.id]"
+        in presentation
+    )
+    assert "fields = _field_rows(user_skill.payload_schema)" in endpoint
+    assert "_assert_known_fields(body.values_patch, set(schema))" in endpoint
+    assert not (
+        ROOT / "mobile/lib/render/asset_detail_sheet.dart"
+    ).exists()
 
 
 def test_todo_payload_metadata_is_normalized_at_write_boundary() -> None:
@@ -46,6 +60,6 @@ def test_todo_payload_metadata_is_normalized_at_write_boundary() -> None:
 if __name__ == "__main__":
     test_timeline_exposes_user_scheduled_time()
     test_calendar_does_not_treat_capture_time_as_todo_schedule()
-    test_todo_editor_has_a_strict_business_field_allowlist()
+    test_todo_editor_uses_the_canonical_theme_v2_schema()
     test_todo_payload_metadata_is_normalized_at_write_boundary()
     print("ok - todo surface contract")
