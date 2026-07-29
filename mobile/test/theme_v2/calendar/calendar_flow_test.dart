@@ -106,6 +106,76 @@ void main() {
     expect(requested, DateTime(2026, 7, 3));
   });
 
+  testWidgets(
+    'empty date keeps its placeholder and confirmation equally sized',
+    (tester) async {
+      await tester.pumpWidget(
+        calendarTestHost(
+          CalendarFlowView(
+            data: CalendarData(const [], const {}),
+            controller: CalendarController(),
+            today: DateTime(2026, 7, 3),
+            onOpenDay: (_) {},
+            onRequestManualRecord: (_) {},
+            onOpenRecord: (_) {},
+            onOpenFlash: (_) {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final placeholder = find.byKey(
+        const ValueKey('calendar-empty-hatch-2026-07-03'),
+      );
+      expect(placeholder, findsOneWidget);
+      final placeholderSize = tester.getSize(placeholder);
+      expect(placeholderSize.height, 58);
+
+      final nextDayTop = tester
+          .getTopLeft(find.byKey(const ValueKey('calendar-date-2026-07-04')))
+          .dy;
+      final followingDayTop = tester
+          .getTopLeft(find.byKey(const ValueKey('calendar-date-2026-07-05')))
+          .dy;
+      expect(followingDayTop - nextDayTop, 150);
+
+      await tester.tap(find.byKey(const ValueKey('calendar-date-2026-07-03')));
+      await tester.pump();
+
+      final confirmation = find.byKey(
+        const ValueKey('calendar-empty-confirmation-card-2026-07-03'),
+      );
+      expect(tester.getSize(confirmation).height, placeholderSize.height);
+    },
+  );
+
+  for (final brightness in Brightness.values) {
+    testWidgets('empty date paints gray hatching in ${brightness.name}', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        calendarTestHost(
+          CalendarFlowView(
+            data: CalendarData(const [], const {}),
+            controller: CalendarController(),
+            today: DateTime(2026, 7, 3),
+            onOpenDay: (_) {},
+            onRequestManualRecord: (_) {},
+            onOpenRecord: (_) {},
+            onOpenFlash: (_) {},
+          ),
+          brightness: brightness,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final hatch = tester.widget<CustomPaint>(
+        find.byKey(const ValueKey('calendar-empty-hatch-paint-2026-07-03')),
+      );
+      expect(hatch.painter, isNotNull);
+    });
+  }
+
   testWidgets('record tap uses the injected detail callback', (tester) async {
     String? openedId;
     await tester.pumpWidget(
@@ -515,11 +585,22 @@ void main() {
     final list = tester.widget<ListView>(scrollFinder);
     final initialOffset = list.controller!.offset;
     final halfViewport = list.controller!.position.viewportDimension / 2;
-    list.controller!.jumpTo(initialOffset + 6 * 180 + 90 - halfViewport);
+    final emptyDayExtent =
+        tester
+            .getTopLeft(find.byKey(const ValueKey('calendar-date-2026-07-05')))
+            .dy -
+        tester
+            .getTopLeft(find.byKey(const ValueKey('calendar-date-2026-07-04')))
+            .dy;
+    list.controller!.jumpTo(
+      initialOffset + 6 * emptyDayExtent + emptyDayExtent / 2 - halfViewport,
+    );
     await tester.pump();
     expect(find.bySemanticsLabel('回到今天'), findsNothing);
 
-    list.controller!.jumpTo(initialOffset + 7 * 180 + 90 - halfViewport);
+    list.controller!.jumpTo(
+      initialOffset + 7 * emptyDayExtent + emptyDayExtent / 2 - halfViewport,
+    );
     await tester.pump();
 
     final returnToday = find.bySemanticsLabel('回到今天');
@@ -534,7 +615,7 @@ void main() {
     );
     expect(
       viewportCenter,
-      inInclusiveRange(todayContent.top, todayContent.bottom),
+      closeTo(todayContent.top - 76 + emptyDayExtent / 2, 0.01),
     );
   });
 

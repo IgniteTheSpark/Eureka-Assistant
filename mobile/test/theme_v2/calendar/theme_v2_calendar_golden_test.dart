@@ -168,6 +168,27 @@ void main() {
       );
     });
 
+    testWidgets('Flow empty date 411 $suffix', (tester) async {
+      await pumpGolden(
+        tester,
+        brightness: brightness,
+        child: withCalendarDock(
+          calendarPage(
+            controller: CalendarController(),
+            data: CalendarData(const [], const {}),
+          ),
+        ),
+      );
+      expect(
+        find.byKey(const ValueKey('calendar-empty-hatch-2026-07-03')),
+        findsOneWidget,
+      );
+      await expectLater(
+        find.byKey(surface),
+        matchesGoldenFile('goldens/calendar-flow-empty-411-$suffix.png'),
+      );
+    });
+
     testWidgets('Flow sticky threshold 411 $suffix', (tester) async {
       await pumpGolden(
         tester,
@@ -355,6 +376,10 @@ void main() {
           showDock: false,
         ),
       );
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('calendar-inline-draft')),
+      );
+      await tester.pumpAndSettle();
       await expectLater(
         find.byKey(surface),
         matchesGoldenFile('goldens/calendar-schedule-draft-411-$suffix.png'),

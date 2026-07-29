@@ -41,6 +41,7 @@ class _CalendarFlowViewState extends State<CalendarFlowView> {
   static const _pastDays = 3650;
   static const _futureDays = 3650;
   static const _dayCount = _pastDays + _futureDays + 1;
+  static const _emptyDayExtent = 150.0;
   static const _minimumDayExtent = 180.0;
 
   late List<double> _dayExtents;
@@ -95,6 +96,7 @@ class _CalendarFlowViewState extends State<CalendarFlowView> {
       if (!record.isTimed) untimedCount++;
       bands.add(_flowBandFor(record));
     }
+    if (assetCount == 0) return _emptyDayExtent;
     return math.max(
       _minimumDayExtent,
       128 + assetCount * 44 + bands.length * 28 + untimedCount * 20,
@@ -599,7 +601,8 @@ class _FlowDay extends StatelessWidget {
             left: 84,
             right: ThemeV2Spacing.lg,
             top: 76,
-            bottom: ThemeV2Spacing.lg,
+            bottom: records.isEmpty ? null : ThemeV2Spacing.lg,
+            height: records.isEmpty ? _flowEmptyContentHeight : null,
             child: GestureDetector(
               key: ValueKey('calendar-day-content-${calendarDayKey(day)}'),
               behavior: HitTestBehavior.opaque,
@@ -622,7 +625,7 @@ class _FlowDay extends StatelessWidget {
                               day: day,
                               onTap: onRequestManualRecord,
                             )
-                          : const SizedBox.expand()
+                          : _EmptyDayHatch(day: day)
                     : ListView(
                         physics: const NeverScrollableScrollPhysics(),
                         padding: EdgeInsets.zero,
@@ -756,6 +759,63 @@ class _FlowBandSection extends StatelessWidget {
   }
 }
 
+const _flowEmptyContentHeight = 58.0;
+
+class _EmptyDayHatch extends StatelessWidget {
+  const _EmptyDayHatch({required this.day});
+
+  final DateTime day;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.themeV2;
+    final brightness = Theme.of(context).brightness;
+    return Container(
+      key: ValueKey('calendar-empty-hatch-${calendarDayKey(day)}'),
+      decoration: BoxDecoration(
+        color: tokens.surface.withValues(alpha: 0.5),
+        border: Border.all(color: tokens.border),
+        borderRadius: BorderRadius.circular(ThemeV2Radii.md),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: CustomPaint(
+        key: ValueKey('calendar-empty-hatch-paint-${calendarDayKey(day)}'),
+        painter: _DiagonalHatchPainter(
+          tokens.muted.withValues(
+            alpha: brightness == Brightness.dark ? 0.16 : 0.12,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DiagonalHatchPainter extends CustomPainter {
+  const _DiagonalHatchPainter(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 1
+      ..style = PaintingStyle.stroke;
+    const gap = 9.0;
+    for (var x = 0.0; x < size.width + size.height; x += gap) {
+      canvas.drawLine(
+        Offset(x, 0),
+        Offset(x - size.height, size.height),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DiagonalHatchPainter oldDelegate) =>
+      oldDelegate.color != color;
+}
+
 class _ManualRecordConfirmation extends StatelessWidget {
   const _ManualRecordConfirmation({required this.day, required this.onTap});
 
@@ -773,55 +833,62 @@ class _ManualRecordConfirmation extends StatelessWidget {
         button: true,
         onTap: onTap,
         child: ExcludeSemantics(
-          child: Material(
-            color: tokens.surface,
-            borderRadius: BorderRadius.circular(ThemeV2Radii.md),
-            child: InkWell(
-              key: ValueKey('calendar-empty-manual-${calendarDayKey(day)}'),
-              onTap: onTap,
+          child: SizedBox(
+            key: ValueKey(
+              'calendar-empty-confirmation-card-${calendarDayKey(day)}',
+            ),
+            width: double.infinity,
+            height: _flowEmptyContentHeight,
+            child: Material(
+              color: tokens.surface,
               borderRadius: BorderRadius.circular(ThemeV2Radii.md),
-              child: Container(
-                constraints: const BoxConstraints(
-                  minHeight: ThemeV2Sizes.minTouchTarget,
-                ),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: ThemeV2Spacing.md,
-                  vertical: ThemeV2Spacing.sm,
-                ),
-                decoration: BoxDecoration(
-                  border: Border.all(color: tokens.border),
-                  borderRadius: BorderRadius.circular(ThemeV2Radii.md),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.add_circle_outline,
-                      size: 18,
-                      color: tokens.accent,
-                    ),
-                    const SizedBox(width: ThemeV2Spacing.sm),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            '${day.month}月${day.day}日 · 暂无记录',
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(color: tokens.foreground),
-                          ),
-                          Text(
-                            '手动记录',
-                            style: Theme.of(context).textTheme.labelSmall
-                                ?.copyWith(
-                                  color: tokens.accent,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                          ),
-                        ],
+              child: InkWell(
+                key: ValueKey('calendar-empty-manual-${calendarDayKey(day)}'),
+                onTap: onTap,
+                borderRadius: BorderRadius.circular(ThemeV2Radii.md),
+                child: Container(
+                  constraints: const BoxConstraints(
+                    minHeight: ThemeV2Sizes.minTouchTarget,
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: ThemeV2Spacing.md,
+                    vertical: ThemeV2Spacing.sm,
+                  ),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: tokens.border),
+                    borderRadius: BorderRadius.circular(ThemeV2Radii.md),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.add_circle_outline,
+                        size: 18,
+                        color: tokens.accent,
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: ThemeV2Spacing.sm),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              '${day.month}月${day.day}日 · 暂无记录',
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(color: tokens.foreground),
+                            ),
+                            Text(
+                              '手动记录',
+                              style: Theme.of(context).textTheme.labelSmall
+                                  ?.copyWith(
+                                    color: tokens.accent,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),

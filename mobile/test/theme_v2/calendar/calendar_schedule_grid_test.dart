@@ -108,6 +108,38 @@ void main() {
     );
   });
 
+  testWidgets('flash originals never enter the unscheduled todo tray', (
+    tester,
+  ) async {
+    final day = DateTime(2026, 7, 3);
+    final scheduleRecords = [
+      CalendarRecord.fromTimeline(
+        calendarFixtureItem(
+          id: 'flash-original',
+          title: '这是闪念原文',
+          at: day,
+          kind: 'input_turn',
+        ),
+      ),
+      ...records([
+        (
+          id: 'actual-todo',
+          title: '真正的未排期待办',
+          at: day,
+          kind: 'todo',
+          timed: false,
+        ),
+      ]),
+    ];
+
+    await tester.pumpWidget(grid(records: scheduleRecords));
+    await tester.pumpAndSettle();
+
+    expect(find.text('未排期待办 · 1'), findsOneWidget);
+    expect(find.text('真正的未排期待办'), findsOneWidget);
+    expect(find.text('这是闪念原文'), findsNothing);
+  });
+
   testWidgets(
     'meeting training and same-minute todo band remain three blocks',
     (tester) async {
@@ -163,10 +195,15 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.bySemanticsLabel('展开 2 个待办'));
+    final band = find.bySemanticsLabel('展开 2 个待办');
+    await tester.ensureVisible(band);
+    await tester.pumpAndSettle();
+    await tester.tap(band);
     await tester.pumpAndSettle();
 
-    await tester.tap(find.bySemanticsLabel('完成待办：确认计划'));
+    final checkbox = find.bySemanticsLabel('完成待办：确认计划');
+    await tester.ensureVisible(checkbox);
+    await tester.tap(checkbox);
     await tester.pump();
 
     expect(toggled?.id, 'todo-a');
@@ -193,7 +230,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.bySemanticsLabel('完成待办：单个日程待办'));
+    final checkbox = find.bySemanticsLabel('完成待办：单个日程待办');
+    await tester.ensureVisible(checkbox);
+    await tester.tap(checkbox);
     await tester.pump();
 
     expect(toggled?.id, 'solo-todo');
@@ -223,11 +262,14 @@ void main() {
     final laterFinder = find.byKey(
       const ValueKey('calendar-grid-record-later-event'),
     );
+    final band = find.bySemanticsLabel('展开 2 个待办');
+    await tester.ensureVisible(band);
+    await tester.pumpAndSettle();
     final collapsedTop = tester.getTopLeft(laterFinder).dy;
 
     expect(find.text('2 个待办'), findsOneWidget);
     expect(find.text('回访客户'), findsNothing);
-    await tester.tap(find.bySemanticsLabel('展开 2 个待办'));
+    await tester.tap(band);
     await tester.pumpAndSettle();
 
     expect(find.text('回访客户'), findsOneWidget);
@@ -264,7 +306,7 @@ void main() {
       find.byKey(const ValueKey('calendar-grid-record-adjacent-event')),
     );
     final semantic = tester.getRect(find.bySemanticsLabel('十五分钟后开始'));
-    expect(visual.height, closeTo(16, 0.01));
+    expect(visual.height, closeTo(22, 0.01));
     expect(semantic.height, greaterThanOrEqualTo(44));
   });
 
@@ -282,6 +324,10 @@ void main() {
       find.byKey(const ValueKey('calendar-empty-slot-2026-07-03-2300')),
       findsOneWidget,
     );
+    expect(
+      find.byKey(const ValueKey('calendar-empty-slot-2026-07-03-2330')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('empty slot creates a 30-minute inline draft', (tester) async {
@@ -297,6 +343,35 @@ void main() {
     expect(controller.inlineDraft?.startAt, DateTime(2026, 7, 3, 12));
     expect(controller.inlineDraft?.endAt, DateTime(2026, 7, 3, 12, 30));
     expect(find.byKey(const ValueKey('calendar-inline-draft')), findsOneWidget);
+  });
+
+  testWidgets('lower half-hour has its own 44px draft target', (tester) async {
+    final controller = CalendarController();
+    await tester.pumpWidget(grid(controller: controller, records: const []));
+    await tester.pumpAndSettle();
+
+    final upper = find.byKey(
+      const ValueKey('calendar-empty-slot-2026-07-03-1400'),
+    );
+    final lower = find.byKey(
+      const ValueKey('calendar-empty-slot-2026-07-03-1430'),
+    );
+    await tester.ensureVisible(lower);
+    expect(upper, findsOneWidget);
+    expect(lower, findsOneWidget);
+    expect(tester.getRect(upper).height, greaterThanOrEqualTo(44));
+    expect(tester.getRect(lower).height, greaterThanOrEqualTo(44));
+    expect(
+      tester.getRect(upper).bottom,
+      closeTo(tester.getRect(lower).top, 0.01),
+    );
+
+    await tester.tap(lower);
+    await tester.pump();
+
+    expect(controller.inlineDraft?.startAt, DateTime(2026, 7, 3, 14, 30));
+    expect(controller.inlineDraft?.endAt, DateTime(2026, 7, 3, 15));
+    expect(find.text('14:30–15:00'), findsOneWidget);
   });
 
   testWidgets('inline draft shows its explicit start and end time', (

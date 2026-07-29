@@ -41,7 +41,8 @@ class CalendarScheduleGrid extends StatefulWidget {
 class _CalendarScheduleGridState extends State<CalendarScheduleGrid> {
   static const _startHour = 0;
   static const _endHour = 24;
-  static const _hourHeight = 64.0;
+  static const _hourHeight = 88.0;
+  static const _halfHourHeight = _hourHeight / 2;
   static const _timeWidth = 54.0;
   static const _columnGap = 4.0;
   static const _expandedRowHeight = 44.0;
@@ -71,7 +72,10 @@ class _CalendarScheduleGridState extends State<CalendarScheduleGrid> {
     );
     final timed = dayRecords.where((record) => record.isTimed).toList();
     final untimed = dayRecords
-        .where((record) => record.timing == CalendarRecordTiming.untimed)
+        .where(
+          (record) =>
+              record.isTodo && record.timing == CalendarRecordTiming.untimed,
+        )
         .toList();
     final allDay = dayRecords
         .where((record) => record.timing == CalendarRecordTiming.allDay)
@@ -140,22 +144,30 @@ class _CalendarScheduleGridState extends State<CalendarScheduleGrid> {
                       clipBehavior: Clip.none,
                       children: [
                         for (var hour = _startHour; hour < _endHour; hour++)
-                          _HourSlot(
-                            day: widget.day,
-                            hour: hour,
-                            top:
-                                (hour - _startHour) * _hourHeight +
-                                _pushAt(hour * 60, expansions),
-                            height: _hourHeight,
-                            onTap: () => _createAt(
-                              DateTime(
+                          for (final minute in const [0, 30])
+                            _TimeSlot(
+                              startAt: DateTime(
                                 widget.day.year,
                                 widget.day.month,
                                 widget.day.day,
                                 hour,
+                                minute,
+                              ),
+                              top:
+                                  _topForMinute(hour * 60 + minute) +
+                                  _pushAt(hour * 60 + minute, expansions),
+                              height: _halfHourHeight,
+                              isHourBoundary: minute == 0,
+                              onTap: () => _createAt(
+                                DateTime(
+                                  widget.day.year,
+                                  widget.day.month,
+                                  widget.day.day,
+                                  hour,
+                                  minute,
+                                ),
                               ),
                             ),
-                          ),
                         for (final entry in layout)
                           if (bandById[entry.id] case final band?)
                             _TodoBandBlock(
@@ -264,34 +276,38 @@ class _CalendarScheduleGridState extends State<CalendarScheduleGrid> {
   int _minuteOfDay(DateTime time) => time.hour * 60 + time.minute;
 }
 
-class _HourSlot extends StatelessWidget {
-  const _HourSlot({
-    required this.day,
-    required this.hour,
+class _TimeSlot extends StatelessWidget {
+  const _TimeSlot({
+    required this.startAt,
     required this.top,
     required this.height,
+    required this.isHourBoundary,
     required this.onTap,
   });
 
-  final DateTime day;
-  final int hour;
+  final DateTime startAt;
   final double top;
   final double height;
+  final bool isHourBoundary;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
+    final label =
+        '${startAt.hour.toString().padLeft(2, '0')}:'
+        '${startAt.minute.toString().padLeft(2, '0')}';
     final key =
-        'calendar-empty-slot-${calendarDayKey(day)}-'
-        '${hour.toString().padLeft(2, '0')}00';
+        'calendar-empty-slot-${calendarDayKey(startAt)}-'
+        '${startAt.hour.toString().padLeft(2, '0')}'
+        '${startAt.minute.toString().padLeft(2, '0')}';
     return Positioned(
       top: top,
       left: 0,
       right: 0,
       height: height,
       child: Semantics(
-        label: '${hour.toString().padLeft(2, '0')}:00 空白时间，创建日程',
+        label: '$label 空白时间，创建日程',
         button: true,
         onTap: onTap,
         child: ExcludeSemantics(
@@ -301,15 +317,23 @@ class _HourSlot extends StatelessWidget {
             onTap: onTap,
             child: DecoratedBox(
               decoration: BoxDecoration(
-                border: Border(top: BorderSide(color: tokens.border)),
+                border: Border(
+                  top: BorderSide(
+                    color: isHourBoundary
+                        ? tokens.border
+                        : tokens.border.withValues(alpha: 0.55),
+                  ),
+                ),
               ),
               child: Padding(
                 padding: const EdgeInsets.only(top: ThemeV2Spacing.xs),
                 child: Text(
-                  '${hour.toString().padLeft(2, '0')}:00',
+                  label,
                   style: ThemeV2Typography.mono(
-                    fontSize: 9,
-                    color: tokens.muted,
+                    fontSize: isHourBoundary ? 9 : 8,
+                    color: tokens.muted.withValues(
+                      alpha: isHourBoundary ? 1 : 0.68,
+                    ),
                   ),
                 ),
               ),
