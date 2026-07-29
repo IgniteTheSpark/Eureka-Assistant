@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../foundation/theme_v2_semantics.dart';
@@ -299,7 +301,7 @@ class _Metric extends StatelessWidget {
   }
 }
 
-class LibraryPinnedMosaic extends StatelessWidget {
+class LibraryPinnedMosaic extends StatefulWidget {
   const LibraryPinnedMosaic({
     super.key,
     required this.containers,
@@ -318,6 +320,62 @@ class LibraryPinnedMosaic extends StatelessWidget {
   final LibraryContainerCallback? onRemove;
   final LibraryContainerCallback? onMoveBackward;
   final void Function(int oldIndex, int newIndex)? onDrop;
+
+  @override
+  State<LibraryPinnedMosaic> createState() => _LibraryPinnedMosaicState();
+}
+
+class _LibraryPinnedMosaicState extends State<LibraryPinnedMosaic>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _wiggleController;
+  var _motionEnabled = false;
+  int? _draggingIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _wiggleController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 880),
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncMotion();
+  }
+
+  @override
+  void didUpdateWidget(covariant LibraryPinnedMosaic oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _syncMotion();
+  }
+
+  void _syncMotion() {
+    final enabled =
+        widget.configure && !MediaQuery.disableAnimationsOf(context);
+    if (_motionEnabled == enabled) return;
+    _motionEnabled = enabled;
+    if (enabled) {
+      _wiggleController.repeat();
+    } else {
+      _wiggleController
+        ..stop()
+        ..value = 0;
+    }
+  }
+
+  void _setDragging(int? index) {
+    if (!mounted || _draggingIndex == index) return;
+    setState(() => _draggingIndex = index);
+  }
+
+  @override
+  void dispose() {
+    _wiggleController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -344,15 +402,15 @@ class LibraryPinnedMosaic extends StatelessWidget {
             children: [
               for (
                 var index = 0;
-                index < containers.length && index < slots.length;
+                index < widget.containers.length && index < slots.length;
                 index++
               )
                 Positioned.fromRect(
                   rect: slots[index],
                   child: _MosaicDropSlot(
                     index: index,
-                    onDrop: onDrop,
-                    child: _draggableTile(containers[index], index),
+                    onDrop: widget.onDrop,
+                    child: _draggableTile(widget.containers[index], index),
                   ),
                 ),
             ],
@@ -363,26 +421,83 @@ class LibraryPinnedMosaic extends StatelessWidget {
   }
 
   Widget _draggableTile(LibraryContainerSummary container, int index) {
-    final tile = _LibraryPinnedTile(
+    Widget tile() => _LibraryPinnedTile(
       container: container,
       index: index,
-      onTap: onTap == null ? null : () => onTap!(container),
-      onLongPress: configure ? null : onLongPress,
-      configure: configure,
-      onRemove: onRemove == null ? null : () => onRemove!(container),
-      onMoveBackward: onMoveBackward == null
+      onTap: widget.onTap == null ? null : () => widget.onTap!(container),
+      onLongPress: widget.configure ? null : widget.onLongPress,
+      configure: widget.configure,
+      onRemove: widget.onRemove == null
           ? null
-          : () => onMoveBackward!(container),
+          : () => widget.onRemove!(container),
+      onMoveBackward: widget.onMoveBackward == null
+          ? null
+          : () => widget.onMoveBackward!(container),
     );
-    if (!configure || onDrop == null) return tile;
+
+    final count = math.max(widget.containers.length, 1);
+    final offset = index / count;
+    final phase = Tween<double>(
+      begin: offset,
+      end: 1 + offset,
+    ).animate(_wiggleController);
+    Widget wigglingTile({required bool active}) => PinnedTileWiggle(
+      active: active && _motionEnabled,
+      phase: phase,
+      transformKey: ValueKey('library-pinned-wiggle-${container.id}'),
+      child: tile(),
+    );
+
+    if (!widget.configure || widget.onDrop == null) {
+      return wigglingTile(active: widget.configure);
+    }
     return LongPressDraggable<int>(
       data: index,
+      onDragStarted: () => _setDragging(index),
+      onDragEnd: (_) => _setDragging(null),
       feedback: Material(
         color: Colors.transparent,
-        child: SizedBox(width: 140, height: 70, child: tile),
+        child: SizedBox(width: 140, height: 70, child: tile()),
       ),
-      childWhenDragging: Opacity(opacity: 0.28, child: tile),
-      child: tile,
+      childWhenDragging: Opacity(
+        opacity: 0.28,
+        child: wigglingTile(active: false),
+      ),
+      child: wigglingTile(active: _draggingIndex != index),
+    );
+  }
+}
+
+class PinnedTileWiggle extends AnimatedWidget {
+  const PinnedTileWiggle({
+    super.key,
+    required this.active,
+    required this.phase,
+    required this.child,
+    this.transformKey,
+  }) : super(listenable: phase);
+
+  final bool active;
+  final Animation<double> phase;
+  final Widget child;
+  final Key? transformKey;
+
+  @override
+  Widget build(BuildContext context) {
+    final transform = Matrix4.identity();
+    if (active && !MediaQuery.disableAnimationsOf(context)) {
+      final cycle = phase.value * math.pi * 2;
+      final radians = math.sin(cycle) * (.6 * math.pi / 180);
+      final dy = math.cos(cycle);
+      transform
+        ..translateByDouble(0, dy, 0, 1)
+        ..rotateZ(radians);
+    }
+    return Transform(
+      key: transformKey,
+      alignment: Alignment.center,
+      transform: transform,
+      child: child,
     );
   }
 }

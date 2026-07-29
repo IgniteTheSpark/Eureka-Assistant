@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/library/create_skill_action.dart';
 import 'package:eureka/theme_v2/library/library_components.dart';
@@ -90,6 +92,73 @@ void main() {
       1,
     );
     await reducedGesture.up();
+  });
+
+  testWidgets('configure mode uses bounded staggered micro-motion', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _host(
+        SizedBox(
+          width: 375,
+          child: LibraryPinnedMosaic(containers: _containers, configure: true),
+        ),
+      ),
+    );
+
+    final firstFinder = find.byKey(
+      const ValueKey('library-pinned-wiggle-todo'),
+    );
+    final secondFinder = find.byKey(
+      const ValueKey('library-pinned-wiggle-notes'),
+    );
+    final firstBefore = tester.widget<Transform>(firstFinder).transform;
+    final secondBefore = tester.widget<Transform>(secondFinder).transform;
+    expect(firstBefore, isNot(equals(secondBefore)));
+
+    await tester.pump(const Duration(milliseconds: 170));
+    final firstAfter = tester.widget<Transform>(firstFinder).transform;
+    expect(firstAfter, isNot(equals(firstBefore)));
+    _expectBoundedWiggle(firstAfter);
+    _expectBoundedWiggle(tester.widget<Transform>(secondFinder).transform);
+
+    await tester.pumpWidget(
+      _host(
+        SizedBox(
+          width: 375,
+          child: LibraryPinnedMosaic(containers: _containers),
+        ),
+      ),
+    );
+    expect(
+      tester
+          .widget<Transform>(
+            find.byKey(const ValueKey('library-pinned-wiggle-todo')),
+          )
+          .transform,
+      Matrix4.identity(),
+    );
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('Reduce Motion keeps configure tiles static without a ticker', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _host(
+        SizedBox(
+          width: 375,
+          child: LibraryPinnedMosaic(containers: _containers, configure: true),
+        ),
+        disableAnimations: true,
+      ),
+    );
+
+    final finder = find.byKey(const ValueKey('library-pinned-wiggle-todo'));
+    expect(tester.widget<Transform>(finder).transform, Matrix4.identity());
+    await tester.pump(const Duration(seconds: 2));
+    expect(tester.widget<Transform>(finder).transform, Matrix4.identity());
+    expect(tester.binding.transientCallbackCount, 0);
   });
 
   testWidgets('container row variants keep canonical heights and semantics', (
@@ -187,6 +256,14 @@ Widget _host(Widget child, {bool disableAnimations = false}) => MaterialApp(
     child: Scaffold(body: Center(child: child)),
   ),
 );
+
+void _expectBoundedWiggle(Matrix4 transform) {
+  final storage = transform.storage;
+  final radians = math.atan2(storage[1], storage[0]);
+  expect(radians.abs(), lessThanOrEqualTo(.6 * math.pi / 180 + .000001));
+  expect(storage[12].abs(), lessThanOrEqualTo(1));
+  expect(storage[13].abs(), lessThanOrEqualTo(1));
+}
 
 const _containers = [
   LibraryContainerSummary(
