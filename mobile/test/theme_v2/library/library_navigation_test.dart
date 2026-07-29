@@ -10,6 +10,7 @@ import 'package:eureka/theme_v2/foundation/theme_v2_tokens.dart';
 import 'package:eureka/theme_v2/asset/asset_card.dart';
 import 'package:eureka/theme_v2/library/asset/asset_list_page.dart';
 import 'package:eureka/theme_v2/library/container_index.dart';
+import 'package:eureka/theme_v2/library/library_components.dart';
 import 'package:eureka/theme_v2/library/library_controller.dart';
 import 'package:eureka/theme_v2/library/library_hub.dart';
 import 'package:eureka/theme_v2/library/library_models.dart';
@@ -318,7 +319,7 @@ void main() {
     expect(find.text('完成配置'), findsOneWidget);
   });
 
-  testWidgets('container index searches and separates system from custom', (
+  testWidgets('container index matches canonical hierarchy and geometry', (
     tester,
   ) async {
     final controller = await _controller();
@@ -333,44 +334,134 @@ void main() {
       ),
     );
 
+    expect(find.text('资产容器'), findsOneWidget);
+    expect(find.textContaining('LIBRARY /'), findsNothing);
+    expect(find.text('你正在使用的容器'), findsNothing);
     expect(find.text('系统容器'), findsOneWidget);
     expect(find.text('自定义技能'), findsOneWidget);
-    expect(find.text('网球记录'), findsOneWidget);
-
-    await tester.enterText(
-      find.byKey(const ValueKey('library-container-search')),
-      '网球',
-    );
-    await tester.pump();
-    expect(find.text('待办'), findsNothing);
-    expect(find.text('网球记录'), findsOneWidget);
-  });
-
-  testWidgets('all containers shows three stats and grouped rows', (
-    tester,
-  ) async {
-    final controller = await _controller();
-    await _pumpHost(
-      tester,
-      AllContainers(
-        controller: controller,
-        onBack: () {},
-        onOpenContainer: (_) {},
-        onCreateSkill: () {},
-      ),
-    );
-
-    expect(find.byKey(const ValueKey('library-all-stats')), findsOneWidget);
-    expect(find.text('容器'), findsOneWidget);
-    expect(find.text('资产'), findsOneWidget);
-    expect(find.text('自定义'), findsOneWidget);
+    expect(find.byType(LibrarySystemContainerCard), findsNWidgets(4));
+    expect(find.byType(LibraryCustomContainerRow), findsNWidgets(3));
+    expect(find.text('查看全部容器'), findsNothing);
     expect(
-      find.byKey(const ValueKey('library-container-search')),
+      tester.getSize(find.byKey(const ValueKey('library-index-search'))).height,
+      44,
+    );
+    expect(
+      find.byKey(const ValueKey('library-create-skill-compact')),
       findsOneWidget,
     );
-    expect(find.text('系统容器'), findsOneWidget);
-    expect(find.text('自定义技能'), findsOneWidget);
   });
+
+  testWidgets(
+    'container index search clears and does not leak into all query',
+    (tester) async {
+      final controller = await _controller();
+      await _pumpHost(
+        tester,
+        ContainerIndex(
+          controller: controller,
+          onBack: () {},
+          onOpenContainer: (_) {},
+          onOpenAllContainers: () {},
+          onCreateSkill: () {},
+        ),
+      );
+
+      await tester.enterText(
+        find.byKey(const ValueKey('library-index-search')),
+        '网球',
+      );
+      await tester.pump();
+      expect(find.text('网球记录'), findsOneWidget);
+      expect(find.text('待办'), findsNothing);
+      expect(controller.indexQuery, '网球');
+      expect(controller.allQuery, isEmpty);
+
+      await tester.tap(find.byTooltip('清除搜索'));
+      await tester.pump();
+      expect(find.text('待办'), findsOneWidget);
+
+      expect(find.text('网球记录'), findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(const ValueKey('library-index-search')),
+        '不存在',
+      );
+      await tester.pump();
+      expect(find.text('没有匹配的容器'), findsOneWidget);
+      await tester.tap(find.text('清除搜索'));
+      await tester.pump();
+      expect(find.text('待办'), findsOneWidget);
+
+      controller.setIndexQuery('网球');
+      await _pumpHost(
+        tester,
+        AllContainers(
+          controller: controller,
+          onBack: () {},
+          onOpenContainer: (_) {},
+          onCreateSkill: () {},
+        ),
+      );
+      expect(find.text('待办'), findsOneWidget);
+      expect(controller.indexQuery, '网球');
+      expect(controller.allQuery, isEmpty);
+      await tester.enterText(
+        find.byKey(const ValueKey('library-all-search')),
+        '事件',
+      );
+      await tester.pump();
+      expect(controller.indexQuery, '网球');
+      expect(controller.allQuery, '事件');
+      expect(find.text('待办'), findsNothing);
+    expect(find.text('事件'), findsNWidgets(2));
+    },
+  );
+
+  testWidgets(
+    'all containers uses native directory rows and reachable footer',
+    (tester) async {
+      final controller = await _controller();
+      var backed = 0;
+      await _pumpHost(
+        tester,
+        AllContainers(
+          controller: controller,
+          onBack: () => backed++,
+          onOpenContainer: (_) {},
+          onCreateSkill: () {},
+        ),
+      );
+
+      expect(find.byKey(const ValueKey('library-all-stats')), findsOneWidget);
+      expect(find.text('容器'), findsOneWidget);
+      expect(find.text('资产'), findsOneWidget);
+      expect(find.text('自定义'), findsOneWidget);
+      expect(find.textContaining('LIBRARY /'), findsNothing);
+      expect(find.text('查找并管理所有记录入口'), findsNothing);
+      expect(
+        tester.getSize(find.byKey(const ValueKey('library-all-search'))).height,
+        42,
+      );
+      expect(find.byType(LibraryDirectoryRow), findsNWidgets(7));
+      expect(tester.getSize(find.byType(LibraryDirectoryRow).first).height, 54);
+      expect(tester.getSize(find.byTooltip('返回')), const Size(44, 44));
+      await tester.tap(find.byTooltip('返回'));
+      expect(backed, 1);
+
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('library-create-skill-compact')),
+        320,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(
+        find.byKey(const ValueKey('library-create-skill-compact')),
+        findsOneWidget,
+      );
+      expect(find.text('系统容器'), findsOneWidget);
+      expect(find.text('自定义技能'), findsOneWidget);
+    },
+  );
 
   testWidgets(
     'configure reuses mosaic and exposes reorder remove and add actions',
@@ -713,6 +804,24 @@ Future<LibraryController> _controller({int recentCount = 1}) async {
             totalCount: 3,
             isSystem: false,
             userSkillId: 's-tennis',
+          ),
+          LibraryContainerSummary(
+            id: 'expense',
+            label: '消费账本',
+            mark: '¥',
+            type: LibraryContainerType.custom,
+            totalCount: 2,
+            isSystem: false,
+            userSkillId: 's-expense',
+          ),
+          LibraryContainerSummary(
+            id: 'reading',
+            label: '阅读摘录',
+            mark: '书',
+            type: LibraryContainerType.custom,
+            totalCount: 1,
+            isSystem: false,
+            userSkillId: 's-reading',
           ),
         ],
         recentAssets: [

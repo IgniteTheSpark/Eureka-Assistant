@@ -3,10 +3,11 @@ import 'package:flutter/material.dart';
 import '../foundation/theme_v2_semantics.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
-import '../foundation/theme_v2_typography.dart';
 import 'create_skill_action.dart';
 import 'library_components.dart';
 import 'library_controller.dart';
+import 'library_models.dart';
+import 'library_states.dart';
 
 class ContainerIndex extends StatelessWidget {
   const ContainerIndex({
@@ -28,49 +29,37 @@ class ContainerIndex extends StatelessWidget {
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: controller,
-      builder: (context, _) => ListView(
-        padding: const EdgeInsets.fromLTRB(
-          ThemeV2Spacing.lg,
-          ThemeV2Spacing.sm,
-          ThemeV2Spacing.lg,
-          ThemeV2Spacing.xl,
-        ),
-        children: [
-          LibraryScreenHeader(
-            kicker: 'LIBRARY / CONTAINERS',
-            title: '资产容器',
-            subtitle: '你正在使用的容器',
-            onBack: onBack,
-          ),
-          const SizedBox(height: ThemeV2Spacing.lg),
-          LibrarySearchField(
-            value: controller.indexQuery,
-            onChanged: controller.setIndexQuery,
-          ),
-          const SizedBox(height: ThemeV2Spacing.lg),
-          _ContainerGroups(
-            controller: controller,
-            onOpenContainer: onOpenContainer,
-          ),
-          const SizedBox(height: ThemeV2Spacing.lg),
-          Semantics(
-            label: '打开全部容器',
-            button: true,
-            onTap: onOpenAllContainers,
-            child: ExcludeSemantics(
-              child: ThemeV2HitTarget(
-                child: OutlinedButton.icon(
-                  onPressed: onOpenAllContainers,
-                  icon: const Icon(Icons.grid_view_outlined),
-                  label: const Text('查看全部容器'),
-                ),
-              ),
+      builder: (context, _) {
+        final system = controller.indexSystemContainers;
+        final custom = controller.indexCustomContainers;
+        return ListView(
+          key: const PageStorageKey('theme-v2-library-container-index'),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 112),
+          children: [
+            _DirectoryTitle(title: '资产容器', onBack: onBack),
+            const SizedBox(height: 16),
+            LibrarySearchField(
+              fieldKey: const ValueKey('library-index-search'),
+              value: controller.indexQuery,
+              onChanged: controller.setIndexQuery,
             ),
-          ),
-          const SizedBox(height: ThemeV2Spacing.md),
-          CreateSkillAction(onPressed: onCreateSkill),
-        ],
-      ),
+            const SizedBox(height: 20),
+            if (system.isEmpty && custom.isEmpty)
+              _DirectoryEmptyState(
+                hasQuery: controller.indexQuery.trim().isNotEmpty,
+                onClear: controller.clearIndexQuery,
+              )
+            else
+              _IndexGroups(
+                system: system,
+                custom: custom,
+                onOpenContainer: onOpenContainer,
+              ),
+            const SizedBox(height: 24),
+            CreateSkillAction.compact(onPressed: onCreateSkill),
+          ],
+        );
+      },
     );
   }
 }
@@ -96,38 +85,38 @@ class AllContainers extends StatelessWidget {
       builder: (context, _) {
         final overview = controller.overview;
         return ListView(
-          padding: const EdgeInsets.fromLTRB(
-            ThemeV2Spacing.lg,
-            ThemeV2Spacing.sm,
-            ThemeV2Spacing.lg,
-            ThemeV2Spacing.xl,
-          ),
+          key: const PageStorageKey('theme-v2-library-all-containers'),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
           children: [
-            LibraryScreenHeader(
-              kicker: 'LIBRARY / DIRECTORY',
-              title: '全部容器',
-              subtitle: '查找并管理所有记录入口',
-              onBack: onBack,
+            _DirectoryTitle(title: '全部容器', onBack: onBack),
+            const SizedBox(height: 16),
+            LibraryMetricStrip(
+              containerCount: overview?.containerCount ?? 0,
+              assetCount: overview?.totalAssetCount ?? 0,
+              customCount: overview?.customContainerCount ?? 0,
             ),
-            const SizedBox(height: ThemeV2Spacing.lg),
-            _AllContainerStats(
-              containers: overview?.containerCount ?? 0,
-              assets: overview?.totalAssetCount ?? 0,
-              custom: overview?.customContainerCount ?? 0,
-            ),
-            const SizedBox(height: ThemeV2Spacing.md),
+            const SizedBox(height: 18),
             LibrarySearchField(
+              fieldKey: const ValueKey('library-all-search'),
+              height: 42,
               value: controller.allQuery,
               onChanged: controller.setAllQuery,
             ),
-            const SizedBox(height: ThemeV2Spacing.lg),
-            _ContainerGroups(
-              controller: controller,
-              onOpenContainer: onOpenContainer,
-              useAllQuery: true,
-            ),
-            const SizedBox(height: ThemeV2Spacing.lg),
-            CreateSkillAction(onPressed: onCreateSkill),
+            const SizedBox(height: 20),
+            if (controller.allSystemContainers.isEmpty &&
+                controller.allCustomContainers.isEmpty)
+              _DirectoryEmptyState(
+                hasQuery: controller.allQuery.trim().isNotEmpty,
+                onClear: controller.clearAllQuery,
+              )
+            else
+              _AllGroups(
+                system: controller.allSystemContainers,
+                custom: controller.allCustomContainers,
+                onOpenContainer: onOpenContainer,
+              ),
+            const SizedBox(height: 24),
+            CreateSkillAction.compact(onPressed: onCreateSkill),
           ],
         );
       },
@@ -135,87 +124,33 @@ class AllContainers extends StatelessWidget {
   }
 }
 
-class _AllContainerStats extends StatelessWidget {
-  const _AllContainerStats({
-    required this.containers,
-    required this.assets,
-    required this.custom,
-  });
+class _DirectoryTitle extends StatelessWidget {
+  const _DirectoryTitle({required this.title, required this.onBack});
 
-  final int containers;
-  final int assets;
-  final int custom;
+  final String title;
+  final VoidCallback onBack;
 
   @override
   Widget build(BuildContext context) {
-    final tokens = context.themeV2;
-    return Row(
-      key: const ValueKey('library-all-stats'),
-      children: [
-        Expanded(
-          child: _DirectoryStat(
-            value: '$containers',
-            label: '容器',
-            tokens: tokens,
-          ),
-        ),
-        const SizedBox(width: ThemeV2Spacing.sm),
-        Expanded(
-          child: _DirectoryStat(value: '$assets', label: '资产', tokens: tokens),
-        ),
-        const SizedBox(width: ThemeV2Spacing.sm),
-        Expanded(
-          child: _DirectoryStat(
-            value: '$custom',
-            label: '自定义',
-            tokens: tokens,
-            emphasized: true,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _DirectoryStat extends StatelessWidget {
-  const _DirectoryStat({
-    required this.value,
-    required this.label,
-    required this.tokens,
-    this.emphasized = false,
-  });
-
-  final String value;
-  final String label;
-  final ThemeV2Tokens tokens;
-  final bool emphasized;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 66,
-      padding: const EdgeInsets.all(ThemeV2Spacing.md),
-      decoration: BoxDecoration(
-        color: emphasized ? tokens.accentSoft : tokens.surface,
-        borderRadius: BorderRadius.circular(ThemeV2Radii.md),
-        border: Border.all(color: emphasized ? tokens.accent : tokens.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
+    return SizedBox(
+      height: ThemeV2Sizes.minTouchTarget,
+      child: Row(
         children: [
-          Text(
-            value,
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+          ThemeV2IconButton(
+            semanticLabel: '返回',
+            icon: Icons.arrow_back,
+            color: context.themeV2.foreground,
+            onPressed: onBack,
           ),
-          Text(
-            label,
-            style: ThemeV2Typography.mono(
-              fontSize: 8,
-              color: tokens.muted,
-              fontWeight: FontWeight.w700,
+          const SizedBox(width: 4),
+          Expanded(
+            child: Text(
+              title,
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                color: context.themeV2.foreground,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -.5,
+              ),
             ),
           ),
         ],
@@ -224,65 +159,96 @@ class _DirectoryStat extends StatelessWidget {
   }
 }
 
-class _ContainerGroups extends StatelessWidget {
-  const _ContainerGroups({
-    required this.controller,
+class _IndexGroups extends StatelessWidget {
+  const _IndexGroups({
+    required this.system,
+    required this.custom,
     required this.onOpenContainer,
-    this.useAllQuery = false,
   });
 
-  final LibraryController controller;
+  final List<LibraryContainerSummary> system;
+  final List<LibraryContainerSummary> custom;
   final LibraryContainerCallback onOpenContainer;
-  final bool useAllQuery;
 
   @override
   Widget build(BuildContext context) {
-    final system = useAllQuery
-        ? controller.allSystemContainers
-        : controller.indexSystemContainers;
-    final custom = useAllQuery
-        ? controller.allCustomContainers
-        : controller.indexCustomContainers;
-    final query = useAllQuery ? controller.allQuery : controller.indexQuery;
-    if (system.isEmpty && custom.isEmpty) {
-      return Container(
-        height: 120,
-        alignment: Alignment.center,
-        child: Text(
-          query.isEmpty ? '还没有容器' : '没有匹配的容器',
-          style: Theme.of(
-            context,
-          ).textTheme.bodyMedium?.copyWith(color: context.themeV2.muted),
-        ),
-      );
-    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (system.isNotEmpty) ...[
           const LibrarySectionLabel(label: '系统容器'),
-          const SizedBox(height: ThemeV2Spacing.sm),
+          const SizedBox(height: 8),
           for (final item in system) ...[
-            LibraryContainerRow(
+            LibrarySystemContainerCard(
               container: item,
               onTap: () => onOpenContainer(item),
             ),
-            const SizedBox(height: ThemeV2Spacing.sm),
+            const SizedBox(height: 6),
           ],
         ],
         if (custom.isNotEmpty) ...[
-          const SizedBox(height: ThemeV2Spacing.md),
+          if (system.isNotEmpty) const SizedBox(height: 16),
           const LibrarySectionLabel(label: '自定义技能'),
-          const SizedBox(height: ThemeV2Spacing.sm),
-          for (final item in custom) ...[
-            LibraryContainerRow(
+          const SizedBox(height: 8),
+          for (final item in custom)
+            LibraryCustomContainerRow(
               container: item,
               onTap: () => onOpenContainer(item),
             ),
-            const SizedBox(height: ThemeV2Spacing.sm),
-          ],
         ],
       ],
     );
   }
+}
+
+class _AllGroups extends StatelessWidget {
+  const _AllGroups({
+    required this.system,
+    required this.custom,
+    required this.onOpenContainer,
+  });
+
+  final List<LibraryContainerSummary> system;
+  final List<LibraryContainerSummary> custom;
+  final LibraryContainerCallback onOpenContainer;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (system.isNotEmpty) ...[
+          const LibrarySectionLabel(label: '系统容器'),
+          const SizedBox(height: 8),
+          for (final item in system)
+            LibraryDirectoryRow(
+              container: item,
+              onTap: () => onOpenContainer(item),
+            ),
+        ],
+        if (custom.isNotEmpty) ...[
+          if (system.isNotEmpty) const SizedBox(height: 18),
+          const LibrarySectionLabel(label: '自定义技能'),
+          const SizedBox(height: 8),
+          for (final item in custom)
+            LibraryDirectoryRow(
+              container: item,
+              onTap: () => onOpenContainer(item),
+            ),
+        ],
+      ],
+    );
+  }
+}
+
+class _DirectoryEmptyState extends StatelessWidget {
+  const _DirectoryEmptyState({required this.hasQuery, required this.onClear});
+
+  final bool hasQuery;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) => hasQuery
+      ? LibraryStateView.emptySearch(onClear: onClear)
+      : const LibraryStateView.empty(title: '还没有容器', message: '创建技能后，容器会出现在这里');
 }

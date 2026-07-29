@@ -182,18 +182,20 @@ class LibrarySearchField extends StatelessWidget {
     required this.onChanged,
     this.height = 44,
     this.hintText = '搜索容器',
+    this.fieldKey,
   });
 
   final String value;
   final ValueChanged<String> onChanged;
   final double height;
   final String hintText;
+  final Key? fieldKey;
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
     return SizedBox(
-      key: const ValueKey('library-container-search'),
+      key: fieldKey ?? const ValueKey('library-container-search'),
       height: height,
       child: TextFormField(
         key: ValueKey('library-container-search-input-$value'),
