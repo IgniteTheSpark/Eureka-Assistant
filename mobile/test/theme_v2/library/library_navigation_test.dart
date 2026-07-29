@@ -53,6 +53,11 @@ void main() {
       navigation.chrome,
       const LibraryChromeSpec(topNav: false, dock: true),
     );
+    navigation.open(LibrarySurface.assetContainer);
+    expect(
+      navigation.chrome,
+      const LibraryChromeSpec(topNav: true, dock: true),
+    );
     navigation.home();
     expect(navigation.surface, LibrarySurface.hub);
     expect(navigation.canPop, isFalse);
@@ -232,13 +237,16 @@ void main() {
   });
 
   testWidgets(
-    'default V2 container route opens schema asset list with V2 theme',
+    'default V2 container opens in Library and keeps canonical chrome',
     (tester) async {
       final controller = await _controller();
+      final navigation = LibraryNavigationController();
+      addTearDown(navigation.dispose);
       await _pumpHost(
         tester,
         ThemeV2LibraryPage(
           controller: controller,
+          navigation: navigation,
           autoLoad: false,
           onCreateSkill: () {},
         ),
@@ -249,6 +257,11 @@ void main() {
 
       expect(find.byType(ThemeV2AssetListPage), findsOneWidget);
       expect(find.byType(CategoryDetailPage), findsNothing);
+      expect(navigation.surface, LibrarySurface.assetContainer);
+      expect(
+        navigation.chrome,
+        const LibraryChromeSpec(topNav: true, dock: true),
+      );
       final routeTheme = Theme.of(
         tester.element(find.byType(ThemeV2AssetListPage)),
       );
@@ -337,8 +350,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(ThemeV2SkillWizardSheet), findsOneWidget);
-    expect(find.text('想记录点什么？'), findsOneWidget);
-    await tester.tap(find.bySemanticsLabel('关闭新技能'));
+    expect(find.byKey(const ValueKey('skill-describe-step')), findsOneWidget);
+    await tester.tap(find.bySemanticsLabel('关闭 Skill Builder'));
     await tester.pumpAndSettle();
   });
 

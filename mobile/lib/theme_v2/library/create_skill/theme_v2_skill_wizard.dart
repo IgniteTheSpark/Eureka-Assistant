@@ -2,10 +2,15 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../render/render_spec.dart';
+import '../../asset/asset_card.dart';
+import '../../asset/asset_card_display.dart';
+import '../../asset/card_field_selection.dart';
 import '../../foundation/theme_v2_semantics.dart';
 import '../../foundation/theme_v2_theme.dart';
 import '../../foundation/theme_v2_tokens.dart';
 import '../../foundation/theme_v2_typography.dart';
+import 'skill_configuration_repository.dart';
 import 'skill_wizard_controller.dart';
 
 const themeV2SkillSuggestions = ['跑步训练记录', '读书笔记', '每天喝水量', '面试复盘'];
@@ -13,14 +18,25 @@ const themeV2SkillSuggestions = ['跑步训练记录', '读书笔记', '每天�
 class ThemeV2SkillWizardSheet extends StatefulWidget {
   const ThemeV2SkillWizardSheet({
     super.key,
-    required this.controller,
+    required SkillWizardController this.controller,
     this.onClose,
     this.onComplete,
-  });
+  }) : configurationController = null;
 
-  final SkillWizardController controller;
+  const ThemeV2SkillWizardSheet.configuration({
+    super.key,
+    required SkillCardConfigurationController controller,
+    this.onClose,
+    this.onComplete,
+  }) : controller = null,
+       configurationController = controller;
+
+  final SkillWizardController? controller;
+  final SkillCardConfigurationController? configurationController;
   final VoidCallback? onClose;
   final VoidCallback? onComplete;
+
+  bool get isConfiguration => configurationController != null;
 
   @override
   State<ThemeV2SkillWizardSheet> createState() =>
@@ -29,8 +45,19 @@ class ThemeV2SkillWizardSheet extends StatefulWidget {
 
 class _ThemeV2SkillWizardSheetState extends State<ThemeV2SkillWizardSheet> {
   late final TextEditingController _description = TextEditingController(
-    text: widget.controller.description,
+    text: widget.controller?.description ?? '',
   );
+
+  Listenable get _listenable =>
+      widget.configurationController ?? widget.controller!;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.configurationController != null) {
+      unawaited(widget.configurationController!.load());
+    }
+  }
 
   @override
   void dispose() {
@@ -47,8 +74,17 @@ class _ThemeV2SkillWizardSheetState extends State<ThemeV2SkillWizardSheet> {
     }
   }
 
-  Future<void> _confirm() async {
-    if (!await widget.controller.confirm() || !mounted) return;
+  Future<void> _confirmCreation() async {
+    if (!await widget.controller!.confirm() || !mounted) return;
+    _complete();
+  }
+
+  Future<void> _saveConfiguration() async {
+    if (!await widget.configurationController!.save() || !mounted) return;
+    _complete();
+  }
+
+  void _complete() {
     final callback = widget.onComplete;
     if (callback != null) {
       callback();
@@ -60,63 +96,42 @@ class _ThemeV2SkillWizardSheetState extends State<ThemeV2SkillWizardSheet> {
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: widget.controller,
+      animation: _listenable,
       builder: (context, _) {
-        final controller = widget.controller;
         final media = MediaQuery.of(context);
-        final maxHeight = media.size.height * 0.85;
+        final stage = widget.isConfiguration
+            ? SkillWizardStage.card
+            : widget.controller!.stage;
         return AnimatedPadding(
           duration: media.disableAnimations
               ? Duration.zero
               : const Duration(milliseconds: 160),
           curve: Curves.easeOutCubic,
           padding: EdgeInsets.only(bottom: media.viewInsets.bottom),
-          child: Material(
-            key: const ValueKey('skill-wizard-sheet'),
-            color: context.themeV2.surface,
-            clipBehavior: Clip.antiAlias,
-            shape: const RoundedRectangleBorder(
-              borderRadius: BorderRadius.vertical(
-                top: Radius.circular(ThemeV2Radii.lg),
-              ),
-            ),
-            child: SafeArea(
-              top: false,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(maxHeight: maxHeight),
+          child: SizedBox(
+            width: double.infinity,
+            height: media.size.height,
+            child: Material(
+              key: const ValueKey('skill-wizard-sheet'),
+              color: context.themeV2.background,
+              child: SafeArea(
                 child: Column(
-                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    const SizedBox(height: ThemeV2Spacing.sm),
-                    Container(
-                      width: 38,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: context.themeV2.border,
-                        borderRadius: BorderRadius.circular(ThemeV2Radii.pill),
-                      ),
+                    _WizardHeader(
+                      title: widget.isConfiguration
+                          ? 'Card Display Settings'
+                          : '创建新 Skill',
+                      stage: stage,
+                      canGoBack:
+                          !widget.isConfiguration &&
+                          stage != SkillWizardStage.describe,
+                      onBack: widget.controller?.goBack,
+                      onClose: _close,
                     ),
-                    _WizardHeader(stage: controller.stage, onClose: _close),
-                    Flexible(
-                      child: SingleChildScrollView(
-                        padding: const EdgeInsets.fromLTRB(
-                          ThemeV2Spacing.xl,
-                          0,
-                          ThemeV2Spacing.xl,
-                          ThemeV2Spacing.xl,
-                        ),
-                        child: switch (controller.stage) {
-                          SkillWizardStage.describe => _buildDescribe(
-                            controller,
-                          ),
-                          SkillWizardStage.questions => _buildQuestions(
-                            controller,
-                          ),
-                          SkillWizardStage.preview => _buildPreview(controller),
-                          SkillWizardStage.complete => const SizedBox.shrink(),
-                        },
-                      ),
-                    ),
+                    _WizardProgress(stage: stage),
+                    const SizedBox(height: ThemeV2Spacing.md),
+                    Expanded(child: _buildBody(stage)),
+                    _buildFooter(stage),
                   ],
                 ),
               ),
@@ -127,193 +142,402 @@ class _ThemeV2SkillWizardSheetState extends State<ThemeV2SkillWizardSheet> {
     );
   }
 
+  Widget _buildBody(SkillWizardStage stage) {
+    if (widget.isConfiguration) return _buildConfigurationCard();
+    final controller = widget.controller!;
+    return switch (stage) {
+      SkillWizardStage.describe => _buildDescribe(controller),
+      SkillWizardStage.fields => _buildFields(controller),
+      SkillWizardStage.card => _buildCreationCard(controller),
+    };
+  }
+
   Widget _buildDescribe(SkillWizardController controller) {
     final tokens = context.themeV2;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        TextField(
-          key: const ValueKey('skill-wizard-description'),
-          controller: _description,
-          autofocus: true,
-          minLines: 3,
-          maxLines: 5,
-          onChanged: controller.setDescription,
-          style: TextStyle(color: tokens.foreground, fontSize: 13, height: 1.4),
-          decoration: _inputDecoration('用一句话描述你想记录的内容，例如「记录每次跑步的距离、配速和感受」'),
-        ),
-        const SizedBox(height: ThemeV2Spacing.md),
-        Wrap(
-          spacing: ThemeV2Spacing.sm,
-          runSpacing: ThemeV2Spacing.sm,
-          children: [
-            for (final suggestion in themeV2SkillSuggestions)
-              _SuggestionChip(
-                label: suggestion,
-                onPressed: () {
-                  _description.text = suggestion;
-                  _description.selection = TextSelection.collapsed(
-                    offset: suggestion.length,
-                  );
-                  controller.setDescription(suggestion);
-                },
-              ),
-          ],
-        ),
-        const SizedBox(height: ThemeV2Spacing.lg),
-        Row(
-          children: [
-            Icon(Icons.auto_awesome, size: 15, color: tokens.accent),
-            const SizedBox(width: ThemeV2Spacing.sm),
-            Expanded(
-              child: Text(
-                'AI 会自动设计字段、图标和卡片结构',
-                style: TextStyle(color: tokens.muted, fontSize: 11),
-              ),
-            ),
-          ],
-        ),
-        _error(controller.errorMessage),
-        const SizedBox(height: ThemeV2Spacing.xl),
-        _FooterActions(
-          secondaryLabel: '取消',
-          onSecondary: controller.busy ? null : _close,
-          primaryLabel: controller.busy ? '设计中…' : 'AI 生成',
-          primarySemanticLabel: 'AI 生成技能',
-          busy: controller.busy,
-          onPrimary: controller.busy
-              ? null
-              : () => unawaited(controller.generate()),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildQuestions(SkillWizardController controller) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        for (final question in controller.questions) ...[
+    return SingleChildScrollView(
+      key: const ValueKey('skill-describe-step'),
+      padding: const EdgeInsets.fromLTRB(
+        ThemeV2Spacing.xl,
+        0,
+        ThemeV2Spacing.xl,
+        ThemeV2Spacing.xl,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
           Text(
-            question.prompt,
-            style: TextStyle(
-              color: context.themeV2.foreground,
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
+            '描述你想长期记录的内容',
+            style: Theme.of(
+              context,
+            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: ThemeV2Spacing.xs),
+          Text(
+            'AI 会先生成字段，你仍可在下一步完整修改。',
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: tokens.muted),
+          ),
+          const SizedBox(height: ThemeV2Spacing.lg),
+          TextField(
+            key: const ValueKey('skill-wizard-description'),
+            controller: _description,
+            autofocus: true,
+            minLines: 4,
+            maxLines: 7,
+            onChanged: controller.setDescription,
+            decoration: _inputDecoration('例如：记录每次跑步的距离、配速、地点和感受'),
+          ),
+          const SizedBox(height: ThemeV2Spacing.md),
+          Wrap(
+            spacing: ThemeV2Spacing.sm,
+            runSpacing: ThemeV2Spacing.sm,
+            children: [
+              for (final suggestion in themeV2SkillSuggestions)
+                _SuggestionChip(
+                  label: suggestion,
+                  onPressed: () {
+                    _description.text = suggestion;
+                    _description.selection = TextSelection.collapsed(
+                      offset: suggestion.length,
+                    );
+                    controller.setDescription(suggestion);
+                  },
+                ),
+            ],
+          ),
+          if (controller.questions.isNotEmpty) ...[
+            const SizedBox(height: ThemeV2Spacing.xl),
+            Text(
+              '再补充一点',
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: ThemeV2Spacing.md),
+            for (final question in controller.questions)
+              _ClarificationQuestion(
+                question: question,
+                value: controller.answerFor(question.key),
+                onChanged: (value) => controller.answer(question.key, value),
+              ),
+          ],
+          const SizedBox(height: ThemeV2Spacing.xl),
+          Container(
+            padding: const EdgeInsets.all(ThemeV2Spacing.md),
+            decoration: BoxDecoration(
+              color: tokens.accentSoft,
+              borderRadius: BorderRadius.circular(ThemeV2Radii.md),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.auto_awesome, size: 18, color: tokens.accent),
+                const SizedBox(width: ThemeV2Spacing.sm),
+                Expanded(
+                  child: Text(
+                    '描述使用场景与希望回看的信息，比只写一个名词更容易得到好字段。',
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodySmall?.copyWith(color: tokens.muted),
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: ThemeV2Spacing.sm),
-          if (question.options.isNotEmpty)
-            Wrap(
-              spacing: ThemeV2Spacing.sm,
-              runSpacing: ThemeV2Spacing.sm,
-              children: [
-                for (final option in question.options)
-                  _SuggestionChip(
-                    label: option,
-                    selected: controller.answerFor(question.key) == option,
-                    onPressed: () => controller.answer(question.key, option),
-                  ),
-              ],
-            )
-          else
-            TextFormField(
-              key: ValueKey('skill-question-${question.key}'),
-              initialValue: controller.answerFor(question.key),
-              onChanged: (value) => controller.answer(question.key, value),
-              style: TextStyle(color: context.themeV2.foreground),
-              decoration: _inputDecoration(question.placeholder),
-            ),
-          const SizedBox(height: ThemeV2Spacing.lg),
+          _error(controller.errorMessage),
         ],
-        _error(controller.errorMessage),
-        _FooterActions(
-          secondaryLabel: '重新描述',
-          onSecondary: controller.busy ? null : controller.backToDescribe,
-          primaryLabel: controller.busy ? '设计中…' : '生成预览',
-          primarySemanticLabel: '生成技能预览',
-          busy: controller.busy,
-          onPrimary: controller.busy
-              ? null
-              : () => unawaited(controller.generate()),
-        ),
-      ],
+      ),
     );
   }
 
-  Widget _buildPreview(SkillWizardController controller) {
-    final tokens = context.themeV2;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          '预览',
-          style: ThemeV2Typography.mono(
-            color: tokens.muted,
-            fontSize: 9,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 1.2,
+  Widget _buildFields(SkillWizardController controller) {
+    return SingleChildScrollView(
+      key: const ValueKey('skill-fields-step'),
+      padding: const EdgeInsets.fromLTRB(
+        ThemeV2Spacing.xl,
+        0,
+        ThemeV2Spacing.xl,
+        ThemeV2Spacing.xl,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '定义字段',
+            style: Theme.of(
+              context,
+            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: ThemeV2Spacing.xs),
+          Text(
+            '名称、类型、含义与顺序会直接成为 Skill 的数据结构。',
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: context.themeV2.muted),
+          ),
+          const SizedBox(height: ThemeV2Spacing.lg),
+          Row(
+            children: [
+              SizedBox(
+                width: 66,
+                child: TextFormField(
+                  key: const ValueKey('skill-icon'),
+                  initialValue: controller.icon,
+                  maxLength: 2,
+                  textAlign: TextAlign.center,
+                  onChanged: controller.setIcon,
+                  decoration: _inputDecoration('✦').copyWith(counterText: ''),
+                ),
+              ),
+              const SizedBox(width: ThemeV2Spacing.sm),
+              Expanded(
+                child: TextFormField(
+                  key: const ValueKey('skill-name'),
+                  initialValue: controller.displayName,
+                  onChanged: controller.setDisplayName,
+                  decoration: _inputDecoration('Skill 名称'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: ThemeV2Spacing.lg),
+          ReorderableListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            buildDefaultDragHandles: false,
+            itemCount: controller.fields.length,
+            onReorderItem: controller.moveField,
+            itemBuilder: (context, index) {
+              final field = controller.fields[index];
+              return _SkillFieldEditor(
+                key: ValueKey('skill-field-${field.id}'),
+                field: field,
+                index: index,
+                onChanged:
+                    ({
+                      String? key,
+                      String? label,
+                      String? type,
+                      String? meaning,
+                      bool? required,
+                    }) => controller.updateField(
+                      field.id,
+                      key: key,
+                      label: label,
+                      type: type,
+                      meaning: meaning,
+                      required: required,
+                    ),
+                onRemove: () => controller.removeField(field.id),
+              );
+            },
+          ),
+          OutlinedButton.icon(
+            key: const ValueKey('skill-add-field'),
+            onPressed: controller.addField,
+            icon: const Icon(Icons.add),
+            label: const Text('添加字段'),
+          ),
+          _error(controller.errorMessage),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCreationCard(SkillWizardController controller) {
+    final selection = controller.cardSelection!;
+    final renderSpec = controller.composeRenderSpec();
+    return _cardStep(
+      preview: _preview(
+        displayName: controller.displayName,
+        schema: controller.payloadSchema,
+        renderSpec: renderSpec,
+        samplePayload: controller.samplePayload,
+        config: selection.config,
+      ),
+      selector: selection,
+      errorMessage: controller.errorMessage,
+    );
+  }
+
+  Widget _buildConfigurationCard() {
+    final controller = widget.configurationController!;
+    if (controller.state == SkillConfigurationState.loading ||
+        controller.state == SkillConfigurationState.idle) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (controller.state == SkillConfigurationState.error) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(ThemeV2Spacing.xl),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(controller.errorMessage ?? '展示设置加载失败'),
+              const SizedBox(height: ThemeV2Spacing.md),
+              OutlinedButton(
+                onPressed: controller.load,
+                child: const Text('重试'),
+              ),
+            ],
           ),
         ),
-        const SizedBox(height: ThemeV2Spacing.sm),
-        _GeneratedSkillCard(controller: controller),
-        const SizedBox(height: ThemeV2Spacing.lg),
-        Row(
-          children: [
-            SizedBox(
-              width: 68,
-              child: TextFormField(
-                key: const ValueKey('skill-icon'),
-                initialValue: controller.icon,
-                maxLength: 2,
-                textAlign: TextAlign.center,
-                onChanged: controller.setIcon,
-                decoration: _inputDecoration('✨').copyWith(counterText: ''),
-              ),
+      );
+    }
+    final skill = controller.skill!;
+    final selection = controller.selection!;
+    return _cardStep(
+      preview: _preview(
+        displayName: skill.displayName,
+        schema: skill.payloadSchema,
+        renderSpec: skill.renderSpec,
+        samplePayload: skill.samplePayload,
+        config: selection.config,
+      ),
+      selector: selection,
+      errorMessage: controller.errorMessage,
+    );
+  }
+
+  Widget _cardStep({
+    required AssetCardViewData preview,
+    required CardFieldSelectionController selector,
+    required String? errorMessage,
+  }) {
+    return SingleChildScrollView(
+      key: const ValueKey('skill-card-step'),
+      padding: const EdgeInsets.fromLTRB(
+        ThemeV2Spacing.xl,
+        0,
+        ThemeV2Spacing.xl,
+        ThemeV2Spacing.xl,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '卡片展示',
+            style: Theme.of(
+              context,
+            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: ThemeV2Spacing.xs),
+          Text(
+            '选择一个主字段，再按开启顺序加入最多三个次字段。',
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: context.themeV2.muted),
+          ),
+          const SizedBox(height: ThemeV2Spacing.lg),
+          KeyedSubtree(
+            key: const ValueKey('skill-card-preview'),
+            child: ThemeV2AssetCard(
+              variant: AssetCardVariant.richCard,
+              data: preview,
+              height: 98,
             ),
+          ),
+          const SizedBox(height: ThemeV2Spacing.xl),
+          CardFieldSelector(controller: selector),
+          _error(errorMessage),
+        ],
+      ),
+    );
+  }
+
+  AssetCardViewData _preview({
+    required String displayName,
+    required Map<String, dynamic> schema,
+    required Map<String, dynamic> renderSpec,
+    required Map<String, dynamic> samplePayload,
+    required CardDisplayConfig config,
+  }) {
+    final spec = RenderSpec.fromJson(
+      config.applyToRenderSpec(renderSpec),
+    ).withSchema(schema);
+    return AssetCardViewData.fromPayload(
+      payload: samplePayload,
+      display: config,
+      spec: spec,
+      skillLabel: displayName,
+    );
+  }
+
+  Widget _buildFooter(SkillWizardStage stage) {
+    final tokens = context.themeV2;
+    Widget actions;
+    if (widget.isConfiguration) {
+      final controller = widget.configurationController!;
+      actions = SizedBox(
+        width: double.infinity,
+        child: FilledButton(
+          key: const ValueKey('skill-card-save'),
+          onPressed: controller.busy ? null : _saveConfiguration,
+          child: Text(controller.busy ? '保存中…' : '保存展示设置'),
+        ),
+      );
+    } else {
+      final controller = widget.controller!;
+      actions = switch (stage) {
+        SkillWizardStage.describe => SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            key: const ValueKey('skill-describe-generate'),
+            onPressed: controller.busy
+                ? null
+                : () => unawaited(controller.generate()),
+            icon: controller.busy
+                ? const SizedBox.square(
+                    dimension: 15,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.auto_awesome),
+            label: Text(controller.busy ? '生成中…' : '下一步：生成字段'),
+          ),
+        ),
+        SkillWizardStage.fields => Row(
+          children: [
+            TextButton(onPressed: controller.goBack, child: const Text('上一步')),
             const SizedBox(width: ThemeV2Spacing.sm),
             Expanded(
-              child: TextFormField(
-                key: const ValueKey('skill-name'),
-                initialValue: controller.displayName,
-                onChanged: controller.setDisplayName,
-                style: TextStyle(
-                  color: tokens.foreground,
-                  fontWeight: FontWeight.w600,
-                ),
-                decoration: _inputDecoration('技能名称'),
+              child: FilledButton(
+                key: const ValueKey('skill-fields-next'),
+                onPressed: controller.goToCard,
+                child: const Text('下一步：卡片展示'),
               ),
             ),
           ],
         ),
-        const SizedBox(height: ThemeV2Spacing.lg),
-        Text(
-          '字段',
-          style: ThemeV2Typography.mono(
-            color: tokens.muted,
-            fontSize: 9,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 1.2,
-          ),
+        SkillWizardStage.card => Row(
+          children: [
+            TextButton(onPressed: controller.goBack, child: const Text('上一步')),
+            const SizedBox(width: ThemeV2Spacing.sm),
+            Expanded(
+              child: FilledButton(
+                key: const ValueKey('skill-card-confirm'),
+                onPressed: controller.busy ? null : _confirmCreation,
+                child: Text(controller.busy ? '创建中…' : '创建 Skill'),
+              ),
+            ),
+          ],
         ),
-        const SizedBox(height: ThemeV2Spacing.sm),
-        for (final field in controller.fields)
-          _PreviewFieldRow(
-            field: field,
-            slot: controller.slotOf(field.key),
-            onSlot: (slot) => controller.assignSlot(field.key, slot),
-          ),
-        _error(controller.errorMessage),
-        const SizedBox(height: ThemeV2Spacing.lg),
-        _FooterActions(
-          secondaryLabel: '重新描述',
-          onSecondary: controller.busy ? null : controller.backToDescribe,
-          primaryLabel: controller.busy ? '创建中…' : '创建技能',
-          primarySemanticLabel: '创建技能',
-          busy: controller.busy,
-          onPrimary: controller.busy ? null : () => unawaited(_confirm()),
+      };
+    }
+    return Material(
+      color: tokens.background,
+      child: Container(
+        padding: EdgeInsets.fromLTRB(
+          ThemeV2Spacing.xl,
+          ThemeV2Spacing.md,
+          ThemeV2Spacing.xl,
+          ThemeV2Spacing.md + MediaQuery.paddingOf(context).bottom,
         ),
-      ],
+        decoration: BoxDecoration(
+          border: Border(top: BorderSide(color: tokens.border)),
+        ),
+        child: actions,
+      ),
     );
   }
 
@@ -338,7 +562,7 @@ class _ThemeV2SkillWizardSheetState extends State<ThemeV2SkillWizardSheet> {
       hintText: hint,
       hintStyle: TextStyle(color: tokens.muted, fontSize: 12),
       filled: true,
-      fillColor: tokens.background,
+      fillColor: tokens.surface,
       contentPadding: const EdgeInsets.symmetric(
         horizontal: ThemeV2Spacing.md,
         vertical: ThemeV2Spacing.md,
@@ -359,71 +583,275 @@ class _ThemeV2SkillWizardSheetState extends State<ThemeV2SkillWizardSheet> {
 }
 
 class _WizardHeader extends StatelessWidget {
-  const _WizardHeader({required this.stage, required this.onClose});
+  const _WizardHeader({
+    required this.title,
+    required this.stage,
+    required this.canGoBack,
+    required this.onBack,
+    required this.onClose,
+  });
 
+  final String title;
   final SkillWizardStage stage;
+  final bool canGoBack;
+  final VoidCallback? onBack;
   final VoidCallback onClose;
 
   @override
   Widget build(BuildContext context) {
-    final tokens = context.themeV2;
-    final title = switch (stage) {
-      SkillWizardStage.describe => '想记录点什么？',
-      SkillWizardStage.questions => '再补充几点',
-      SkillWizardStage.preview => '确认技能',
-      SkillWizardStage.complete => '创建完成',
-    };
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        ThemeV2Spacing.xl,
-        ThemeV2Spacing.xl,
-        ThemeV2Spacing.sm,
-        ThemeV2Spacing.lg,
+    return SizedBox(
+      height: 64,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: ThemeV2Spacing.md),
+        child: Row(
+          children: [
+            if (canGoBack)
+              ThemeV2IconButton(
+                semanticLabel: '上一步',
+                icon: Icons.arrow_back,
+                onPressed: onBack,
+              )
+            else
+              const SizedBox(width: ThemeV2Sizes.minTouchTarget),
+            Expanded(
+              child: Text(
+                title,
+                textAlign: TextAlign.center,
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              ),
+            ),
+            ThemeV2IconButton(
+              semanticLabel: '关闭 Skill Builder',
+              icon: Icons.close,
+              onPressed: onClose,
+            ),
+          ],
+        ),
       ),
+    );
+  }
+}
+
+class _WizardProgress extends StatelessWidget {
+  const _WizardProgress({required this.stage});
+
+  final SkillWizardStage stage;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.themeV2;
+    final active = stage.index;
+    const labels = ['Describe', 'Fields', 'Card'];
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: ThemeV2Spacing.xl),
       child: Row(
         children: [
-          Container(
-            width: ThemeV2Sizes.minTouchTarget,
-            height: ThemeV2Sizes.minTouchTarget,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: tokens.accentSoft,
-              borderRadius: BorderRadius.circular(ThemeV2Radii.md),
-              border: Border.all(color: tokens.accent),
+          for (var index = 0; index < labels.length; index++) ...[
+            if (index > 0) const SizedBox(width: ThemeV2Spacing.sm),
+            Expanded(
+              child: Column(
+                children: [
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    height: 3,
+                    decoration: BoxDecoration(
+                      color: index <= active ? tokens.accent : tokens.border,
+                      borderRadius: BorderRadius.circular(ThemeV2Radii.pill),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    labels[index],
+                    style: ThemeV2Typography.mono(
+                      fontSize: 8,
+                      color: index == active ? tokens.accent : tokens.muted,
+                      fontWeight: index == active
+                          ? FontWeight.w700
+                          : FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
             ),
-            child: Icon(Icons.auto_awesome, size: 19, color: tokens.accent),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ClarificationQuestion extends StatelessWidget {
+  const _ClarificationQuestion({
+    required this.question,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final SkillWizardQuestion question;
+  final String value;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: ThemeV2Spacing.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            question.prompt,
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
           ),
-          const SizedBox(width: ThemeV2Spacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          const SizedBox(height: ThemeV2Spacing.sm),
+          if (question.options.isNotEmpty)
+            Wrap(
+              spacing: ThemeV2Spacing.sm,
+              runSpacing: ThemeV2Spacing.sm,
               children: [
-                Text(
-                  '新技能 · AI 设计',
-                  style: ThemeV2Typography.mono(
-                    color: tokens.accent,
-                    fontSize: 9,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 1.4,
+                for (final option in question.options)
+                  _SuggestionChip(
+                    label: option,
+                    selected: value == option,
+                    onPressed: () => onChanged(option),
                   ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  title,
-                  style: TextStyle(
-                    color: tokens.foreground,
-                    fontSize: 21,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
               ],
+            )
+          else
+            TextFormField(
+              key: ValueKey('skill-question-${question.key}'),
+              initialValue: value,
+              onChanged: onChanged,
+              decoration: InputDecoration(hintText: question.placeholder),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+typedef _FieldChanged =
+    void Function({
+      String? key,
+      String? label,
+      String? type,
+      String? meaning,
+      bool? required,
+    });
+
+class _SkillFieldEditor extends StatelessWidget {
+  const _SkillFieldEditor({
+    super.key,
+    required this.field,
+    required this.index,
+    required this.onChanged,
+    required this.onRemove,
+  });
+
+  static const _types = [
+    'string',
+    'number',
+    'date',
+    'datetime',
+    'boolean',
+    'array',
+  ];
+
+  final SkillDraftField field;
+  final int index;
+  final _FieldChanged onChanged;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.themeV2;
+    final currentType = _types.contains(field.type) ? field.type : 'string';
+    return Container(
+      margin: const EdgeInsets.only(bottom: ThemeV2Spacing.md),
+      padding: const EdgeInsets.all(ThemeV2Spacing.md),
+      decoration: BoxDecoration(
+        color: tokens.surface,
+        borderRadius: BorderRadius.circular(ThemeV2Radii.lg),
+        border: Border.all(color: tokens.border),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              ReorderableDragStartListener(
+                index: index,
+                child: Icon(Icons.drag_indicator, color: tokens.muted),
+              ),
+              const SizedBox(width: ThemeV2Spacing.sm),
+              Expanded(
+                child: Text(
+                  'FIELD ${index + 1}',
+                  style: ThemeV2Typography.mono(
+                    fontSize: 9,
+                    color: tokens.muted,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              IconButton(
+                onPressed: onRemove,
+                icon: Icon(Icons.close, color: tokens.muted),
+                tooltip: '删除字段',
+              ),
+            ],
           ),
-          ThemeV2IconButton(
-            semanticLabel: '关闭新技能',
-            icon: Icons.close,
-            color: tokens.muted,
-            onPressed: onClose,
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  key: ValueKey('skill-field-label-${field.id}'),
+                  initialValue: field.label,
+                  onChanged: (value) => onChanged(label: value),
+                  decoration: const InputDecoration(labelText: '名称'),
+                ),
+              ),
+              const SizedBox(width: ThemeV2Spacing.sm),
+              Expanded(
+                child: TextFormField(
+                  key: ValueKey('skill-field-key-${field.id}'),
+                  initialValue: field.key,
+                  onChanged: (value) => onChanged(key: value),
+                  decoration: const InputDecoration(labelText: 'Key'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: ThemeV2Spacing.sm),
+          DropdownButtonFormField<String>(
+            key: ValueKey('skill-field-type-${field.id}'),
+            initialValue: currentType,
+            decoration: const InputDecoration(labelText: '类型'),
+            items: [
+              for (final type in _types)
+                DropdownMenuItem(value: type, child: Text(type)),
+            ],
+            onChanged: (value) {
+              if (value != null) onChanged(type: value);
+            },
+          ),
+          const SizedBox(height: ThemeV2Spacing.sm),
+          TextFormField(
+            key: ValueKey('skill-field-meaning-${field.id}'),
+            initialValue: field.meaning,
+            onChanged: (value) => onChanged(meaning: value),
+            decoration: const InputDecoration(labelText: '含义'),
+          ),
+          Row(
+            children: [
+              const Expanded(child: Text('必填')),
+              Switch(
+                value: field.required,
+                onChanged: (value) => onChanged(required: value),
+              ),
+            ],
           ),
         ],
       ),
@@ -445,279 +873,16 @@ class _SuggestionChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
-    return Semantics(
-      button: true,
-      selected: selected,
-      label: label,
-      onTap: onPressed,
-      child: ExcludeSemantics(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(
-            minHeight: ThemeV2Sizes.minTouchTarget,
-          ),
-          child: ActionChip(
-            label: Text(label),
-            onPressed: onPressed,
-            backgroundColor: selected ? tokens.accentSoft : tokens.background,
-            side: BorderSide(color: selected ? tokens.accent : tokens.border),
-            labelStyle: TextStyle(
-              color: selected ? tokens.accent : tokens.muted,
-              fontSize: 11,
-              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-            ),
-          ),
-        ),
+    return ActionChip(
+      label: Text(label),
+      onPressed: onPressed,
+      backgroundColor: selected ? tokens.accentSoft : tokens.surface,
+      side: BorderSide(color: selected ? tokens.accent : tokens.border),
+      labelStyle: TextStyle(
+        color: selected ? tokens.accent : tokens.muted,
+        fontSize: 11,
+        fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
       ),
-    );
-  }
-}
-
-class _GeneratedSkillCard extends StatelessWidget {
-  const _GeneratedSkillCard({required this.controller});
-
-  final SkillWizardController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.themeV2;
-    final primary = controller.fields
-        .where(
-          (field) => controller.slotOf(field.key) == SkillFieldSlot.primary,
-        )
-        .map((field) => field.label)
-        .firstOrNull;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(ThemeV2Spacing.md),
-      decoration: BoxDecoration(
-        color: tokens.background,
-        borderRadius: BorderRadius.circular(ThemeV2Radii.md),
-        border: Border.all(color: tokens.border),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: ThemeV2Sizes.minTouchTarget,
-            height: ThemeV2Sizes.minTouchTarget,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: tokens.accentSoft,
-              borderRadius: BorderRadius.circular(ThemeV2Radii.md),
-            ),
-            child: Text(controller.icon, style: const TextStyle(fontSize: 18)),
-          ),
-          const SizedBox(width: ThemeV2Spacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  controller.displayName,
-                  style: TextStyle(
-                    color: tokens.foreground,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: ThemeV2Spacing.xs),
-                Text(
-                  primary ?? 'AI 生成字段结构',
-                  style: TextStyle(color: tokens.muted, fontSize: 10),
-                ),
-              ],
-            ),
-          ),
-          Icon(Icons.arrow_outward, color: tokens.accent, size: 18),
-        ],
-      ),
-    );
-  }
-}
-
-class _PreviewFieldRow extends StatelessWidget {
-  const _PreviewFieldRow({
-    required this.field,
-    required this.slot,
-    required this.onSlot,
-  });
-
-  final SkillPreviewField field;
-  final SkillFieldSlot slot;
-  final ValueChanged<SkillFieldSlot> onSlot;
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.themeV2;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: ThemeV2Spacing.md),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      field.label,
-                      style: TextStyle(
-                        color: tokens.foreground,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      field.key,
-                      style: ThemeV2Typography.mono(
-                        color: tokens.muted,
-                        fontSize: 8,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Text(
-                _slotLabel(slot),
-                style: TextStyle(
-                  color: tokens.accent,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: ThemeV2Spacing.sm),
-          Wrap(
-            spacing: ThemeV2Spacing.xs,
-            runSpacing: ThemeV2Spacing.xs,
-            children: [
-              for (final option in SkillFieldSlot.values)
-                _SlotChip(
-                  label: _slotLabel(option),
-                  selected: slot == option,
-                  onPressed: () => onSlot(option),
-                ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  static String _slotLabel(SkillFieldSlot slot) => switch (slot) {
-    SkillFieldSlot.primary => '主',
-    SkillFieldSlot.secondary => '副',
-    SkillFieldSlot.info => '信息',
-    SkillFieldSlot.hidden => '隐藏',
-  };
-}
-
-class _SlotChip extends StatelessWidget {
-  const _SlotChip({
-    required this.label,
-    required this.selected,
-    required this.onPressed,
-  });
-
-  final String label;
-  final bool selected;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.themeV2;
-    return Semantics(
-      button: true,
-      selected: selected,
-      label: '字段位置 $label',
-      onTap: onPressed,
-      child: ExcludeSemantics(
-        child: InkWell(
-          onTap: onPressed,
-          borderRadius: BorderRadius.circular(ThemeV2Radii.sm),
-          child: Container(
-            constraints: const BoxConstraints(
-              minWidth: ThemeV2Sizes.minTouchTarget,
-              minHeight: ThemeV2Sizes.minTouchTarget,
-            ),
-            alignment: Alignment.center,
-            padding: const EdgeInsets.symmetric(horizontal: ThemeV2Spacing.sm),
-            decoration: BoxDecoration(
-              color: selected ? tokens.accentSoft : tokens.background,
-              borderRadius: BorderRadius.circular(ThemeV2Radii.sm),
-              border: Border.all(
-                color: selected ? tokens.accent : tokens.border,
-              ),
-            ),
-            child: Text(
-              label,
-              style: TextStyle(
-                color: selected ? tokens.accent : tokens.muted,
-                fontSize: 10,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _FooterActions extends StatelessWidget {
-  const _FooterActions({
-    required this.secondaryLabel,
-    required this.onSecondary,
-    required this.primaryLabel,
-    required this.primarySemanticLabel,
-    required this.busy,
-    required this.onPrimary,
-  });
-
-  final String secondaryLabel;
-  final VoidCallback? onSecondary;
-  final String primaryLabel;
-  final String primarySemanticLabel;
-  final bool busy;
-  final VoidCallback? onPrimary;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.end,
-      children: [
-        SizedBox(
-          height: ThemeV2Sizes.minTouchTarget,
-          child: TextButton(
-            onPressed: onSecondary,
-            child: Text(secondaryLabel),
-          ),
-        ),
-        const SizedBox(width: ThemeV2Spacing.sm),
-        Semantics(
-          label: primarySemanticLabel,
-          button: true,
-          enabled: onPrimary != null,
-          onTap: onPrimary,
-          child: ExcludeSemantics(
-            child: SizedBox(
-              height: ThemeV2Sizes.minTouchTarget,
-              child: FilledButton.icon(
-                onPressed: onPrimary,
-                icon: busy
-                    ? const SizedBox.square(
-                        dimension: 15,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.auto_awesome, size: 17),
-                label: Text(primaryLabel),
-              ),
-            ),
-          ),
-        ),
-      ],
     );
   }
 }

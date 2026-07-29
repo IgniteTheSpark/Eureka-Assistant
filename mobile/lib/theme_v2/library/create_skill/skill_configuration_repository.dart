@@ -1,0 +1,240 @@
+import 'package:flutter/foundation.dart';
+
+import '../../../api/api_client.dart';
+import '../../asset/asset_card_display.dart';
+import '../../asset/card_field_selection.dart';
+
+@immutable
+class ConfigurableSkill {
+  const ConfigurableSkill({
+    required this.userSkillId,
+    required this.name,
+    required this.displayName,
+    required this.payloadSchema,
+    required this.renderSpec,
+    required this.samplePayload,
+  });
+
+  factory ConfigurableSkill.fromJson(Map<String, dynamic> json) {
+    final schema =
+        (json['payload_schema'] as Map?)?.cast<String, dynamic>() ??
+        const <String, dynamic>{};
+    return ConfigurableSkill(
+      userSkillId:
+          json['user_skill_id']?.toString() ?? json['id']?.toString() ?? '',
+      name: json['name']?.toString() ?? '',
+      displayName:
+          json['display_name']?.toString() ??
+          json['name']?.toString() ??
+          'Skill',
+      payloadSchema: Map.unmodifiable(schema),
+      renderSpec: Map.unmodifiable(
+        (json['render_spec'] as Map?)?.cast<String, dynamic>() ??
+            const <String, dynamic>{},
+      ),
+      samplePayload: Map.unmodifiable(_samplePayload(schema)),
+    );
+  }
+
+  final String userSkillId;
+  final String name;
+  final String displayName;
+  final Map<String, dynamic> payloadSchema;
+  final Map<String, dynamic> renderSpec;
+  final Map<String, dynamic> samplePayload;
+
+  static Map<String, dynamic> _samplePayload(Map<String, dynamic> schema) {
+    return {
+      for (final entry in schema.entries)
+        if ((entry.value as Map?)?['type']?.toString() != 'uuid')
+          entry.key: _sampleValue(
+            (entry.value as Map?)?.cast<String, dynamic>() ?? const {},
+          ),
+    };
+  }
+
+  static dynamic _sampleValue(Map<String, dynamic> metadata) {
+    final values = metadata['enum'];
+    if (values is List && values.isNotEmpty) return values.first;
+    return switch (metadata['type']?.toString()) {
+      'number' || 'numeric' || 'integer' => 42,
+      'date' => '2026-07-29',
+      'datetime' => '2026-07-29T14:00:00+08:00',
+      'boolean' => true,
+      'array' => const ['示例'],
+      _ => '示例',
+    };
+  }
+}
+
+abstract interface class SkillConfigurationRepository {
+  Future<ConfigurableSkill> load(String userSkillId);
+
+  Future<void> saveCardDisplay(
+    String userSkillId,
+    CardDisplayConfig config,
+    Map<String, dynamic> originalRenderSpec,
+  );
+}
+
+class ApiSkillConfigurationRepository implements SkillConfigurationRepository {
+  ApiSkillConfigurationRepository([ApiClient? api])
+    : _api = api ?? ApiClient(),
+      _ownsApi = api == null;
+
+  final ApiClient _api;
+  final bool _ownsApi;
+
+  @override
+  Future<ConfigurableSkill> load(String userSkillId) async {
+    final response = await _api.getJson('/api/skills');
+    final rows = (response is Map ? response['skills'] : null) as List? ?? [];
+    for (final raw in rows.whereType<Map>()) {
+      final row = raw.cast<String, dynamic>();
+      final id =
+          row['user_skill_id']?.toString() ?? row['id']?.toString() ?? '';
+      if (id == userSkillId) return ConfigurableSkill.fromJson(row);
+    }
+    throw StateError('找不到这个 Skill');
+  }
+
+  @override
+  Future<void> saveCardDisplay(
+    String userSkillId,
+    CardDisplayConfig config,
+    Map<String, dynamic> originalRenderSpec,
+  ) async {
+    await _api.patchJson('/api/skills/$userSkillId', {
+      'render_spec': config.applyToRenderSpec(originalRenderSpec),
+    });
+  }
+
+  void dispose() {
+    if (_ownsApi) _api.close();
+  }
+}
+
+enum SkillConfigurationState { idle, loading, ready, error, saving, saved }
+
+class SkillCardConfigurationController extends ChangeNotifier {
+  SkillCardConfigurationController({
+    required this.repository,
+    required this.userSkillId,
+    this.disposeRepository = false,
+  });
+
+  final SkillConfigurationRepository repository;
+  final String userSkillId;
+  final bool disposeRepository;
+
+  SkillConfigurationState _state = SkillConfigurationState.idle;
+  ConfigurableSkill? _skill;
+  CardFieldSelectionController? _selection;
+  String? _errorMessage;
+  bool _disposed = false;
+
+  SkillConfigurationState get state => _state;
+  ConfigurableSkill? get skill => _skill;
+  CardFieldSelectionController? get selection => _selection;
+  String? get errorMessage => _errorMessage;
+  bool get busy =>
+      _state == SkillConfigurationState.loading ||
+      _state == SkillConfigurationState.saving;
+
+  Future<void> load() async {
+    if (_state != SkillConfigurationState.idle &&
+        _state != SkillConfigurationState.error) {
+      return;
+    }
+    _state = SkillConfigurationState.loading;
+    _errorMessage = null;
+    _notify();
+    try {
+      final skill = await repository.load(userSkillId);
+      if (_disposed) return;
+      _skill = skill;
+      _replaceSelection(skill);
+      _state = SkillConfigurationState.ready;
+    } catch (error) {
+      if (_disposed) return;
+      _state = SkillConfigurationState.error;
+      _errorMessage = '展示设置加载失败：$error';
+    }
+    _notify();
+  }
+
+  Future<bool> save() async {
+    final skill = _skill;
+    final selection = _selection;
+    if (skill == null ||
+        selection == null ||
+        _state == SkillConfigurationState.saving) {
+      return false;
+    }
+    _state = SkillConfigurationState.saving;
+    _errorMessage = null;
+    _notify();
+    try {
+      await repository.saveCardDisplay(
+        userSkillId,
+        selection.config,
+        skill.renderSpec,
+      );
+      if (_disposed) return false;
+      _state = SkillConfigurationState.saved;
+      _notify();
+      return true;
+    } catch (error) {
+      if (_disposed) return false;
+      _state = SkillConfigurationState.ready;
+      _errorMessage = '展示设置保存失败：$error';
+      _notify();
+      return false;
+    }
+  }
+
+  void _replaceSelection(ConfigurableSkill skill) {
+    _selection?.removeListener(_selectionChanged);
+    _selection?.dispose();
+    final fields = <CardSelectableField>[];
+    for (final entry in skill.payloadSchema.entries) {
+      final metadata = entry.value is Map
+          ? (entry.value as Map).cast<String, dynamic>()
+          : const <String, dynamic>{};
+      if (metadata['type']?.toString() == 'uuid') continue;
+      fields.add(
+        CardSelectableField(
+          id: entry.key,
+          label: metadata['label']?.toString() ?? entry.key,
+          type: metadata['type']?.toString() ?? 'string',
+        ),
+      );
+    }
+    if (fields.isEmpty) throw StateError('这个 Skill 没有可展示字段');
+    CardDisplayConfig config;
+    try {
+      config = CardDisplayConfig.fromRenderSpec(skill.renderSpec);
+    } on FormatException {
+      config = CardDisplayConfig(primaryFieldId: fields.first.id);
+    }
+    _selection = CardFieldSelectionController(fields: fields, config: config)
+      ..addListener(_selectionChanged);
+  }
+
+  void _selectionChanged() => _notify();
+
+  void _notify() {
+    if (!_disposed) notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _selection?.removeListener(_selectionChanged);
+    _selection?.dispose();
+    if (disposeRepository && repository is ApiSkillConfigurationRepository) {
+      (repository as ApiSkillConfigurationRepository).dispose();
+    }
+    super.dispose();
+  }
+}

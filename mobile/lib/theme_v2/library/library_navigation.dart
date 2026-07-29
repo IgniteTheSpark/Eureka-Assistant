@@ -1,6 +1,12 @@
 import 'package:flutter/foundation.dart';
 
-enum LibrarySurface { hub, containerIndex, allContainers, pinnedConfiguration }
+enum LibrarySurface {
+  hub,
+  containerIndex,
+  allContainers,
+  pinnedConfiguration,
+  assetContainer,
+}
 
 @immutable
 class LibraryChromeSpec {
@@ -27,8 +33,12 @@ class LibraryNavigationController extends ChangeNotifier {
   bool get canPop => _stack.length > 1;
 
   LibraryChromeSpec get chrome => switch (surface) {
-    LibrarySurface.hub || LibrarySurface.containerIndex =>
-      const LibraryChromeSpec(topNav: true, dock: true),
+    LibrarySurface.hub ||
+    LibrarySurface.containerIndex ||
+    LibrarySurface.assetContainer => const LibraryChromeSpec(
+      topNav: true,
+      dock: true,
+    ),
     LibrarySurface.allContainers => const LibraryChromeSpec(
       topNav: true,
       dock: false,

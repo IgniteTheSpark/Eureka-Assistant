@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../data_revision.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
+import 'create_skill/skill_configuration_repository.dart';
 import 'create_skill/skill_wizard_controller.dart';
 import 'create_skill/theme_v2_skill_wizard.dart';
 
@@ -130,12 +131,47 @@ Future<void> showThemeV2CreateSkillLaunch(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
+    enableDrag: false,
+    isDismissible: false,
     backgroundColor: Colors.transparent,
     barrierColor: Colors.black.withValues(alpha: .32),
     builder: (sheetContext) => ThemeV2SkillWizardSheet(
       controller: controller,
       onClose: () => Navigator.of(sheetContext).pop(),
       onComplete: () => Navigator.of(sheetContext).pop(),
+    ),
+  );
+  controller.dispose();
+}
+
+Future<void> showThemeV2SkillConfigurationLaunch(
+  BuildContext context, {
+  required String userSkillId,
+  SkillConfigurationRepository? repository,
+  VoidCallback? onSaved,
+}) async {
+  final usesProductionRepository = repository == null;
+  final controller = SkillCardConfigurationController(
+    repository: repository ?? ApiSkillConfigurationRepository(),
+    userSkillId: userSkillId,
+    disposeRepository: usesProductionRepository,
+  );
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    enableDrag: false,
+    isDismissible: false,
+    backgroundColor: Colors.transparent,
+    barrierColor: Colors.black.withValues(alpha: .32),
+    builder: (sheetContext) => ThemeV2SkillWizardSheet.configuration(
+      controller: controller,
+      onClose: () => Navigator.of(sheetContext).pop(),
+      onComplete: () {
+        bumpData();
+        onSaved?.call();
+        Navigator.of(sheetContext).pop();
+      },
     ),
   );
   controller.dispose();

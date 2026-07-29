@@ -254,7 +254,7 @@ class AssetRecordAdapter {
       return CardDisplayConfig(
         primaryFieldId: primary,
         secondaryFieldIds: [
-          if (spec.secondaryField case final field?) field,
+          ?spec.secondaryField,
           for (final meta in spec.metaFields) meta.field,
         ],
       );

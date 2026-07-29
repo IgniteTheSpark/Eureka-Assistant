@@ -26,6 +26,9 @@ class ThemeV2AssetListPage extends StatefulWidget {
     this.api,
     this.autoLoad = true,
     this.today,
+    this.onConfigureCard,
+    this.onBack,
+    this.contentBottomPadding = 112,
   }) : source = AssetListSource.assets,
        title = null,
        cardType = null,
@@ -39,6 +42,9 @@ class ThemeV2AssetListPage extends StatefulWidget {
     this.api,
     this.autoLoad = true,
     this.today,
+    this.onConfigureCard,
+    this.onBack,
+    this.contentBottomPadding = 112,
   }) : source = AssetListSource.entities,
        meta = null,
        skillName = null,
@@ -56,6 +62,9 @@ class ThemeV2AssetListPage extends StatefulWidget {
   final ApiClient? api;
   final bool autoLoad;
   final DateTime Function()? today;
+  final VoidCallback? onConfigureCard;
+  final VoidCallback? onBack;
+  final double contentBottomPadding;
 
   @override
   State<ThemeV2AssetListPage> createState() => _ThemeV2AssetListPageState();
@@ -159,8 +168,8 @@ class _ThemeV2AssetListPageState extends State<ThemeV2AssetListPage> {
               ThemeV2Spacing.lg,
               ThemeV2Spacing.sm,
               ThemeV2Spacing.lg,
-              112,
-            ),
+              0,
+            ).copyWith(bottom: widget.contentBottomPadding),
             children: [
               _ListHeader(
                 icon: widget.meta?.icon ?? _entityIcon(widget.cardType),
@@ -168,6 +177,8 @@ class _ThemeV2AssetListPageState extends State<ThemeV2AssetListPage> {
                 count: _controller.isTodo
                     ? _controller.countFor(TodoAssetFilter.all)
                     : records.length,
+                onConfigureCard: widget.onConfigureCard,
+                onBack: widget.onBack,
               ),
               if (_controller.isTodo) ...[
                 const SizedBox(height: ThemeV2Spacing.lg),
@@ -361,10 +372,7 @@ class _AssetListRepository implements AssetContainerRepository {
     final responses = await Future.wait<Object?>([
       api.getJson(
         '/api/assets',
-        query: {
-          'user_skill_name': skillName,
-          if (cursor != null) 'cursor': cursor,
-        },
+        query: {'user_skill_name': skillName, 'cursor': ?cursor},
       ),
       _fetchSpecsSafely(),
     ]);
@@ -544,11 +552,15 @@ class _ListHeader extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.count,
+    this.onConfigureCard,
+    this.onBack,
   });
 
   final String icon;
   final String title;
   final int count;
+  final VoidCallback? onConfigureCard;
+  final VoidCallback? onBack;
 
   @override
   Widget build(BuildContext context) {
@@ -561,7 +573,7 @@ class _ListHeader extends StatelessWidget {
             ThemeV2IconButton(
               semanticLabel: '返回资产库',
               icon: Icons.arrow_back,
-              onPressed: () => Navigator.of(context).maybePop(),
+              onPressed: onBack ?? () => Navigator.of(context).maybePop(),
             ),
             const SizedBox(width: ThemeV2Spacing.sm),
             Container(
@@ -583,6 +595,12 @@ class _ListHeader extends StatelessWidget {
                 ),
               ),
             ),
+            if (onConfigureCard != null)
+              ThemeV2IconButton(
+                semanticLabel: 'Card Display Settings',
+                icon: Icons.tune,
+                onPressed: onConfigureCard,
+              ),
           ],
         ),
         const SizedBox(height: ThemeV2Spacing.xs),
@@ -673,16 +691,13 @@ Map<String, dynamic> _renderMap(RenderSpec spec) => {
   'card_layout': spec.cardLayout,
   'icon': spec.icon,
   'accent_color': spec.accentColor,
-  if (spec.primaryField case final field?) 'primary_field': field,
-  if (spec.primaryFormat case final format?) 'primary_format': format,
-  if (spec.secondaryField case final field?) 'secondary_field': field,
-  if (spec.secondaryFormat case final format?) 'secondary_format': format,
+  'primary_field': ?spec.primaryField,
+  'primary_format': ?spec.primaryFormat,
+  'secondary_field': ?spec.secondaryField,
+  'secondary_format': ?spec.secondaryFormat,
   'meta_fields': [
     for (final meta in spec.metaFields)
-      {
-        'field': meta.field,
-        if (meta.format case final format?) 'format': format,
-      },
+      {'field': meta.field, 'format': ?meta.format},
   ],
 };
 

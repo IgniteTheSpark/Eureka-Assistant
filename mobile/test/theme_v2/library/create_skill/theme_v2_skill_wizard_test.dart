@@ -1,12 +1,14 @@
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
+import 'package:eureka/theme_v2/asset/asset_card_display.dart';
 import 'package:eureka/theme_v2/library/create_skill_action.dart';
+import 'package:eureka/theme_v2/library/create_skill/skill_configuration_repository.dart';
 import 'package:eureka/theme_v2/library/create_skill/skill_wizard_controller.dart';
 import 'package:eureka/theme_v2/library/create_skill/theme_v2_skill_wizard.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('Library launch opens the V2 describe wizard without a bridge', (
+  testWidgets('Library launch opens the V2 three-step builder directly', (
     tester,
   ) async {
     final repository = _WidgetRepository();
@@ -33,71 +35,91 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(ThemeV2SkillWizardSheet), findsOneWidget);
-    expect(find.text('想记录点什么？'), findsOneWidget);
-    expect(find.text('开始描述'), findsNothing);
+    expect(find.text('Describe'), findsOneWidget);
+    expect(find.text('Fields'), findsOneWidget);
+    expect(find.text('Card'), findsOneWidget);
+    expect(find.byKey(const ValueKey('skill-describe-step')), findsOneWidget);
   });
 
-  testWidgets('wizard starts directly on the describe sheet', (tester) async {
-    final repository = _WidgetRepository();
-    final controller = SkillWizardController(repository: repository);
-    addTearDown(controller.dispose);
-    await _pump(tester, controller);
-
-    expect(find.text('想记录点什么？'), findsOneWidget);
-    expect(find.text('开始描述'), findsNothing);
-    expect(
-      find.byKey(const ValueKey('skill-wizard-description')),
-      findsOneWidget,
-    );
-    expect(find.bySemanticsLabel('AI 生成技能'), findsOneWidget);
-  });
-
-  testWidgets('suggestion generates preview and confirm creates once', (
-    tester,
-  ) async {
-    final repository = _WidgetRepository();
-    final controller = SkillWizardController(repository: repository);
-    addTearDown(controller.dispose);
-    await _pump(tester, controller);
-
-    await tester.tap(find.text('跑步训练记录'));
-    await tester.tap(find.bySemanticsLabel('AI 生成技能'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('确认技能'), findsOneWidget);
-    expect(find.text('跑步记录'), findsWidgets);
-    expect(find.text('跑步日期'), findsOneWidget);
-    expect(find.text('occurred_date'), findsOneWidget);
-    expect(find.bySemanticsLabel('创建技能'), findsOneWidget);
-
-    await tester.ensureVisible(find.bySemanticsLabel('创建技能'));
-    await tester.tap(find.bySemanticsLabel('创建技能'));
-    await tester.pumpAndSettle();
-    expect(repository.confirmBodies, hasLength(1));
-  });
-
-  testWidgets('questions remain in the same sheet and preserve the prompt', (
+  testWidgets('Describe clarification stays in the same visible step', (
     tester,
   ) async {
     final repository = _WidgetRepository(clarifyFirst: true);
     final controller = SkillWizardController(repository: repository);
     addTearDown(controller.dispose);
-    await _pump(tester, controller);
+    await _pump(tester, ThemeV2SkillWizardSheet(controller: controller));
 
     await tester.enterText(
       find.byKey(const ValueKey('skill-wizard-description')),
       '记录训练',
     );
-    await tester.tap(find.bySemanticsLabel('AI 生成技能'));
+    await tester.tap(find.byKey(const ValueKey('skill-describe-generate')));
     await tester.pumpAndSettle();
-    expect(find.text('再补充几点'), findsOneWidget);
+
+    expect(find.byKey(const ValueKey('skill-describe-step')), findsOneWidget);
     expect(find.text('多久记录一次？'), findsOneWidget);
+    expect(find.text('Questions'), findsNothing);
 
     await tester.tap(find.text('每天'));
-    await tester.tap(find.bySemanticsLabel('生成技能预览'));
+    await tester.tap(find.byKey(const ValueKey('skill-describe-generate')));
     await tester.pumpAndSettle();
-    expect(find.text('确认技能'), findsOneWidget);
-    expect(controller.description, '记录训练');
+    expect(find.byKey(const ValueKey('skill-fields-step')), findsOneWidget);
+  });
+
+  testWidgets('Fields edits schema then Card creates with shared selector', (
+    tester,
+  ) async {
+    final repository = _WidgetRepository();
+    final controller = SkillWizardController(repository: repository);
+    addTearDown(controller.dispose);
+    await _pump(tester, ThemeV2SkillWizardSheet(controller: controller));
+
+    await tester.tap(find.text('跑步训练记录'));
+    await tester.tap(find.byKey(const ValueKey('skill-describe-generate')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('skill-fields-step')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('skill-field-occurred_date')),
+      findsOneWidget,
+    );
+    await tester.ensureVisible(find.byKey(const ValueKey('skill-add-field')));
+    await tester.tap(find.byKey(const ValueKey('skill-add-field')));
+    await tester.pump();
+    expect(controller.fields, hasLength(4));
+
+    await tester.tap(find.byKey(const ValueKey('skill-fields-next')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('skill-card-step')), findsOneWidget);
+    expect(find.byKey(const ValueKey('card-field-distance')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('skill-card-confirm')));
+    await tester.pumpAndSettle();
+    expect(repository.confirmBodies, hasLength(1));
+  });
+
+  testWidgets('existing-skill configuration opens directly at Card', (
+    tester,
+  ) async {
+    final repository = _ConfigurationRepository();
+    final controller = SkillCardConfigurationController(
+      repository: repository,
+      userSkillId: 'skill-running',
+    );
+    addTearDown(controller.dispose);
+    await _pump(
+      tester,
+      ThemeV2SkillWizardSheet.configuration(controller: controller),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('skill-card-step')), findsOneWidget);
+    expect(find.byKey(const ValueKey('skill-fields-step')), findsNothing);
+    expect(find.byKey(const ValueKey('skill-card-save')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('skill-card-save')));
+    await tester.pumpAndSettle();
+    expect(repository.saved, isTrue);
   });
 
   testWidgets('360px keyboard and large text do not overflow', (tester) async {
@@ -105,7 +127,7 @@ void main() {
     addTearDown(controller.dispose);
     await _pump(
       tester,
-      controller,
+      ThemeV2SkillWizardSheet(controller: controller),
       size: const Size(360, 800),
       textScaler: const TextScaler.linear(1.5),
       viewInsets: const EdgeInsets.only(bottom: 260),
@@ -180,17 +202,48 @@ class _WidgetRepository implements SkillWizardRepository {
   }
 }
 
+class _ConfigurationRepository implements SkillConfigurationRepository {
+  bool saved = false;
+
+  @override
+  Future<ConfigurableSkill> load(String userSkillId) async {
+    return const ConfigurableSkill(
+      userSkillId: 'skill-running',
+      name: 'running_log',
+      displayName: '跑步记录',
+      payloadSchema: {
+        'distance': {'type': 'number', 'label': '距离'},
+        'date': {'type': 'date', 'label': '日期'},
+      },
+      renderSpec: {
+        'icon': '🏃',
+        'primary_field': 'distance',
+        'secondary_field': 'date',
+      },
+      samplePayload: {'distance': 5.2, 'date': '2026-07-29'},
+    );
+  }
+
+  @override
+  Future<void> saveCardDisplay(
+    String userSkillId,
+    CardDisplayConfig config,
+    Map<String, dynamic> originalRenderSpec,
+  ) async {
+    saved = true;
+  }
+}
+
 Future<void> _pump(
   WidgetTester tester,
-  SkillWizardController controller, {
+  Widget child, {
   Size size = const Size(411, 960),
   TextScaler textScaler = TextScaler.noScaling,
   EdgeInsets viewInsets = EdgeInsets.zero,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = size;
-  addTearDown(tester.view.resetDevicePixelRatio);
-  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.reset);
   await tester.pumpWidget(
     MediaQuery(
       data: MediaQueryData(
@@ -202,10 +255,7 @@ Future<void> _pump(
       child: MaterialApp(
         theme: buildThemeV2Theme(Brightness.light),
         home: Scaffold(
-          body: Align(
-            alignment: Alignment.bottomCenter,
-            child: ThemeV2SkillWizardSheet(controller: controller),
-          ),
+          body: Align(alignment: Alignment.bottomCenter, child: child),
         ),
       ),
     ),

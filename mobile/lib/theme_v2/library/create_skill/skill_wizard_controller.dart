@@ -1,8 +1,10 @@
 import 'package:flutter/foundation.dart';
 
 import '../../../api/api_client.dart';
+import '../../asset/asset_card_display.dart';
+import '../../asset/card_field_selection.dart';
 
-enum SkillWizardStage { describe, questions, preview, complete }
+enum SkillWizardStage { describe, fields, card }
 
 enum SkillFieldSlot { primary, secondary, info, hidden }
 
@@ -36,20 +38,67 @@ class SkillWizardQuestion {
 }
 
 @immutable
-class SkillPreviewField {
-  const SkillPreviewField({
+class SkillDraftField {
+  const SkillDraftField({
+    required this.id,
     required this.key,
     required this.label,
     required this.type,
+    required this.meaning,
+    required this.required,
+    this.metadata = const {},
   });
 
+  final String id;
   final String key;
   final String label;
   final String type;
+  final String meaning;
+  final bool required;
+  final Map<String, dynamic> metadata;
+
+  SkillDraftField copyWith({
+    String? key,
+    String? label,
+    String? type,
+    String? meaning,
+    bool? required,
+  }) {
+    return SkillDraftField(
+      id: id,
+      key: key ?? this.key,
+      label: label ?? this.label,
+      type: type ?? this.type,
+      meaning: meaning ?? this.meaning,
+      required: required ?? this.required,
+      metadata: metadata,
+    );
+  }
+
+  Map<String, dynamic> toSchemaJson() {
+    final output = Map<String, dynamic>.from(metadata)
+      ..['type'] = type
+      ..['label'] = label;
+    output.remove('meaning');
+    if (meaning.trim().isEmpty) {
+      output.remove('description');
+    } else {
+      output['description'] = meaning.trim();
+    }
+    if (required) {
+      output['required'] = true;
+    } else {
+      output.remove('required');
+    }
+    return output;
+  }
 }
+
+typedef SkillPreviewField = SkillDraftField;
 
 abstract interface class SkillWizardRepository {
   Future<Map<String, dynamic>> draft(Map<String, dynamic> body);
+
   Future<void> confirm(Map<String, dynamic> body);
 }
 
@@ -93,33 +142,45 @@ class SkillWizardController extends ChangeNotifier {
 
   SkillWizardStage _stage = SkillWizardStage.describe;
   bool _busy = false;
+  bool _completed = false;
   String _description = '';
   String? _errorMessage;
   List<SkillWizardQuestion> _questions = const [];
   final Map<String, String> _answers = {};
   Map<String, dynamic>? _draft;
-  List<SkillPreviewField> _fields = const [];
+  final List<SkillDraftField> _fields = [];
+  final Map<String, dynamic> _hiddenSchema = {};
+  Map<String, dynamic> _originalRenderSpec = {};
+  Map<String, dynamic> _samplePayload = {};
+  List<dynamic> _chatStarters = const [];
   String _displayName = '';
   String _icon = '•';
-  String _layout = 'horizontal';
-  String _accent = 'neutral';
-  String? _primary;
-  String? _secondary;
-  final List<String> _info = [];
-  final Map<String, String?> _formats = {};
+  CardFieldSelectionController? _cardSelection;
   int _generationRevision = 0;
+  int _newFieldRevision = 0;
   bool _disposed = false;
 
   SkillWizardStage get stage => _stage;
   bool get busy => _busy;
+  bool get completed => _completed;
   String get description => _description;
   String? get errorMessage => _errorMessage;
   List<SkillWizardQuestion> get questions => _questions;
   Map<String, String> get answers => Map.unmodifiable(_answers);
-  List<SkillPreviewField> get fields => _fields;
+  List<SkillDraftField> get fields => List.unmodifiable(_fields);
   String get displayName => _displayName;
   String get icon => _icon;
-  Map<String, dynamic>? get draft => _draft;
+  Map<String, dynamic>? get draft =>
+      _draft == null ? null : Map.unmodifiable(_draft!);
+  Map<String, dynamic> get samplePayload => Map.unmodifiable(_samplePayload);
+  CardFieldSelectionController? get cardSelection => _cardSelection;
+
+  Map<String, dynamic> get payloadSchema {
+    return {
+      ..._hiddenSchema,
+      for (final field in _fields) field.key: field.toSchemaJson(),
+    };
+  }
 
   void setDescription(String value) {
     if (_description == value) return;
@@ -137,11 +198,14 @@ class SkillWizardController extends ChangeNotifier {
   String answerFor(String key) => _answers[key] ?? '';
 
   void setDisplayName(String value) {
+    if (_displayName == value) return;
     _displayName = value;
+    _errorMessage = null;
     _notify();
   }
 
   void setIcon(String value) {
+    if (_icon == value) return;
     _icon = value;
     _notify();
   }
@@ -158,7 +222,7 @@ class SkillWizardController extends ChangeNotifier {
     _errorMessage = null;
     _notify();
     final body = <String, dynamic>{'description': description};
-    if (_stage == SkillWizardStage.questions) {
+    if (_questions.isNotEmpty) {
       body['answers'] = [
         for (final question in _questions)
           {'key': question.key, 'value': answerFor(question.key).trim()},
@@ -169,8 +233,8 @@ class SkillWizardController extends ChangeNotifier {
       if (!_isCurrent(revision)) return false;
       final rawDraft = response['draft'];
       if (rawDraft is Map) {
-        _initializePreview(rawDraft.cast<String, dynamic>());
-        _stage = SkillWizardStage.preview;
+        _initializeDraft(rawDraft.cast<String, dynamic>());
+        _stage = SkillWizardStage.fields;
         _busy = false;
         _notify();
         return true;
@@ -186,7 +250,7 @@ class SkillWizardController extends ChangeNotifier {
         _answers.removeWhere(
           (key, _) => !_questions.any((question) => question.key == key),
         );
-        _stage = SkillWizardStage.questions;
+        _stage = SkillWizardStage.describe;
         _busy = false;
         _notify();
         return true;
@@ -212,64 +276,146 @@ class SkillWizardController extends ChangeNotifier {
     _notify();
   }
 
-  SkillFieldSlot slotOf(String key) {
-    if (_primary == key) return SkillFieldSlot.primary;
-    if (_secondary == key) return SkillFieldSlot.secondary;
-    if (_info.contains(key)) return SkillFieldSlot.info;
-    return SkillFieldSlot.hidden;
+  void goBack() {
+    switch (_stage) {
+      case SkillWizardStage.describe:
+        return;
+      case SkillWizardStage.fields:
+        backToDescribe();
+      case SkillWizardStage.card:
+        _stage = SkillWizardStage.fields;
+        _errorMessage = null;
+        _notify();
+    }
   }
 
-  void assignSlot(String key, SkillFieldSlot slot) {
-    if (!_fields.any((field) => field.key == key)) return;
-    final current = slotOf(key);
-    if (slot == SkillFieldSlot.info &&
-        current != SkillFieldSlot.info &&
-        _info.length >= 3) {
-      _errorMessage = '信息字段最多选择 3 个';
-      _notify();
-      return;
-    }
-    if (_primary == key) _primary = null;
-    if (_secondary == key) _secondary = null;
-    _info.remove(key);
-    switch (slot) {
-      case SkillFieldSlot.primary:
-        _primary = key;
-      case SkillFieldSlot.secondary:
-        _secondary = key;
-      case SkillFieldSlot.info:
-        _info.add(key);
-      case SkillFieldSlot.hidden:
-        break;
+  void updateField(
+    String id, {
+    String? key,
+    String? label,
+    String? type,
+    String? meaning,
+    bool? required,
+  }) {
+    final index = _fieldIndex(id);
+    if (index < 0) return;
+    final previous = _fields[index];
+    final next = previous.copyWith(
+      key: key?.trim(),
+      label: label,
+      type: type,
+      meaning: meaning,
+      required: required,
+    );
+    _fields[index] = next;
+    if (next.key != previous.key) {
+      if (_samplePayload.containsKey(previous.key)) {
+        final value = _samplePayload.remove(previous.key);
+        _samplePayload[next.key] = value;
+      }
+      _rebuildSelection(rename: {previous.key: next.key});
     }
     _errorMessage = null;
     _notify();
   }
 
+  SkillDraftField addField({
+    String? key,
+    String label = '新字段',
+    String type = 'string',
+    String meaning = '',
+    bool required = false,
+  }) {
+    final revision = ++_newFieldRevision;
+    final normalizedKey = key?.trim().isNotEmpty == true
+        ? key!.trim()
+        : 'field_$revision';
+    final field = SkillDraftField(
+      id: 'new-$revision',
+      key: normalizedKey,
+      label: label,
+      type: type,
+      meaning: meaning,
+      required: required,
+    );
+    _fields.add(field);
+    _rebuildSelection();
+    _errorMessage = null;
+    _notify();
+    return field;
+  }
+
+  void removeField(String id) {
+    final index = _fieldIndex(id);
+    if (index < 0) return;
+    final removed = _fields.removeAt(index);
+    _samplePayload.remove(removed.key);
+    _rebuildSelection();
+    _errorMessage = null;
+    _notify();
+  }
+
+  void moveField(int oldIndex, int newIndex) {
+    if (oldIndex < 0 ||
+        oldIndex >= _fields.length ||
+        newIndex < 0 ||
+        newIndex >= _fields.length ||
+        oldIndex == newIndex) {
+      return;
+    }
+    final field = _fields.removeAt(oldIndex);
+    _fields.insert(newIndex, field);
+    _notify();
+  }
+
+  bool goToCard() {
+    if (_stage != SkillWizardStage.fields || !_validateFields()) return false;
+    _stage = SkillWizardStage.card;
+    _errorMessage = null;
+    _notify();
+    return true;
+  }
+
+  SkillFieldSlot slotOf(String key) {
+    final selection = _cardSelection;
+    if (selection == null) return SkillFieldSlot.hidden;
+    if (selection.config.primaryFieldId == key) return SkillFieldSlot.primary;
+    final index = selection.config.secondaryFieldIds.indexOf(key);
+    if (index == 0) return SkillFieldSlot.secondary;
+    if (index > 0) return SkillFieldSlot.info;
+    return SkillFieldSlot.hidden;
+  }
+
+  void assignSlot(String key, SkillFieldSlot slot) {
+    final selection = _cardSelection;
+    if (selection == null) return;
+    final selected = selection.config.secondaryFieldIds.contains(key);
+    switch (slot) {
+      case SkillFieldSlot.primary:
+        selection.selectPrimary(key);
+      case SkillFieldSlot.secondary:
+      case SkillFieldSlot.info:
+        if (!selected) selection.toggleSecondary(key);
+      case SkillFieldSlot.hidden:
+        if (selected) selection.toggleSecondary(key);
+    }
+  }
+
   Map<String, dynamic> composeRenderSpec() {
-    return {
-      'card_layout': _layout,
+    final source = <String, dynamic>{
+      ..._originalRenderSpec,
       'icon': _icon.trim().isEmpty ? '•' : _icon.trim(),
-      'accent_color': _accent,
-      if (_primary != null) 'primary_field': _primary,
-      if (_primary != null && _formats[_primary] != null)
-        'primary_format': _formats[_primary],
-      if (_secondary != null) 'secondary_field': _secondary,
-      if (_secondary != null && _formats[_secondary] != null)
-        'secondary_format': _formats[_secondary],
-      'meta_fields': [
-        for (final field in _info)
-          {
-            'field': field,
-            if (_formats[field] != null) 'format': _formats[field],
-          },
-      ],
     };
+    return _cardSelection?.config.applyToRenderSpec(source) ?? source;
   }
 
   Future<bool> confirm() async {
     final currentDraft = _draft;
-    if (_stage != SkillWizardStage.preview || currentDraft == null || _busy) {
+    if (_stage != SkillWizardStage.card ||
+        currentDraft == null ||
+        _busy ||
+        _completed ||
+        !_validateFields()) {
       return false;
     }
     _busy = true;
@@ -281,14 +427,13 @@ class SkillWizardController extends ChangeNotifier {
         'display_name': _displayName.trim().isEmpty
             ? currentDraft['display_name']
             : _displayName.trim(),
-        'payload_schema': currentDraft['payload_schema'],
+        'payload_schema': payloadSchema,
         'render_spec': composeRenderSpec(),
-        if (currentDraft['chat_starters'] is List)
-          'chat_starters': currentDraft['chat_starters'],
+        if (_chatStarters.isNotEmpty) 'chat_starters': _chatStarters,
       });
       if (_disposed) return false;
       _busy = false;
-      _stage = SkillWizardStage.complete;
+      _completed = true;
       _notify();
       onCreated?.call();
       return true;
@@ -301,62 +446,144 @@ class SkillWizardController extends ChangeNotifier {
     }
   }
 
-  void _initializePreview(Map<String, dynamic> draft) {
-    _draft = Map.unmodifiable(draft);
+  bool _validateFields() {
+    if (_fields.isEmpty) {
+      _errorMessage = '至少需要一个字段';
+      _notify();
+      return false;
+    }
+    final keys = <String>{};
+    for (final field in _fields) {
+      if (field.key.trim().isEmpty || field.label.trim().isEmpty) {
+        _errorMessage = '字段名称和 key 不能为空';
+        _notify();
+        return false;
+      }
+      if (!keys.add(field.key.trim())) {
+        _errorMessage = '字段 key 不能重复';
+        _notify();
+        return false;
+      }
+      if (field.type.trim().isEmpty) {
+        _errorMessage = '字段类型不能为空';
+        _notify();
+        return false;
+      }
+    }
+    return true;
+  }
+
+  int _fieldIndex(String id) =>
+      _fields.indexWhere((field) => field.id == id || field.key == id);
+
+  void _initializeDraft(Map<String, dynamic> draft) {
+    _draft = Map<String, dynamic>.from(draft);
     final schema =
         (draft['payload_schema'] as Map?)?.cast<String, dynamic>() ??
         const <String, dynamic>{};
-    final renderSpec =
+    _originalRenderSpec =
         (draft['render_spec'] as Map?)?.cast<String, dynamic>() ??
-        const <String, dynamic>{};
+        <String, dynamic>{};
+    _samplePayload =
+        (draft['sample_payload'] as Map?)?.cast<String, dynamic>() ??
+        <String, dynamic>{};
+    _chatStarters = List<dynamic>.from(
+      draft['chat_starters'] as List? ?? const [],
+    );
     _displayName =
         draft['display_name']?.toString() ?? draft['name']?.toString() ?? '新技能';
-    _icon = renderSpec['icon']?.toString() ?? '•';
-    _layout = renderSpec['card_layout']?.toString() ?? 'horizontal';
-    _accent = 'neutral';
-    _primary = renderSpec['primary_field']?.toString();
-    _secondary = renderSpec['secondary_field']?.toString();
-    _info
-      ..clear()
-      ..addAll(
-        (renderSpec['meta_fields'] as List? ?? const [])
-            .whereType<Map>()
-            .map((meta) => meta['field']?.toString() ?? '')
-            .where((field) => field.isNotEmpty)
-            .take(3),
-      );
-    _formats.clear();
-    if (_primary case final key?) {
-      _formats[key] = renderSpec['primary_format']?.toString();
-    }
-    if (_secondary case final key?) {
-      _formats[key] = renderSpec['secondary_format']?.toString();
-    }
-    for (final meta
-        in (renderSpec['meta_fields'] as List? ?? const []).whereType<Map>()) {
-      final key = meta['field']?.toString();
-      if (key != null && key.isNotEmpty) {
-        _formats[key] = meta['format']?.toString();
+    _icon = _originalRenderSpec['icon']?.toString() ?? '•';
+    _hiddenSchema.clear();
+    _fields.clear();
+    for (final entry in schema.entries) {
+      final metadata = entry.value is Map
+          ? (entry.value as Map).cast<String, dynamic>()
+          : <String, dynamic>{};
+      if (metadata['type']?.toString() == 'uuid') {
+        _hiddenSchema[entry.key] = Map<String, dynamic>.from(metadata);
+        continue;
       }
+      final label = metadata['label']?.toString().trim() ?? '';
+      _fields.add(
+        SkillDraftField(
+          id: entry.key,
+          key: entry.key,
+          label: label.isEmpty ? entry.key : label,
+          type: metadata['type']?.toString() ?? 'string',
+          meaning:
+              metadata['description']?.toString() ??
+              metadata['meaning']?.toString() ??
+              '',
+          required: metadata['required'] == true,
+          metadata: Map.unmodifiable(metadata),
+        ),
+      );
     }
-    _fields = List.unmodifiable(
-      schema.entries
-          .where((entry) {
-            final metadata = entry.value;
-            return metadata is! Map || metadata['type']?.toString() != 'uuid';
-          })
-          .map((entry) {
-            final metadata = entry.value is Map
-                ? (entry.value as Map).cast<String, dynamic>()
-                : const <String, dynamic>{};
-            final label = metadata['label']?.toString().trim();
-            return SkillPreviewField(
-              key: entry.key,
-              label: label == null || label.isEmpty ? entry.key : label,
-              type: metadata['type']?.toString() ?? 'string',
-            );
-          }),
+    _replaceSelection(_initialDisplayConfig());
+    _questions = const [];
+    _answers.clear();
+    _completed = false;
+  }
+
+  CardDisplayConfig _initialDisplayConfig() {
+    if (_fields.isEmpty) {
+      return CardDisplayConfig(primaryFieldId: 'title');
+    }
+    try {
+      return CardDisplayConfig.fromRenderSpec(_originalRenderSpec);
+    } on FormatException {
+      return CardDisplayConfig(primaryFieldId: _fields.first.key);
+    }
+  }
+
+  void _rebuildSelection({Map<String, String> rename = const {}}) {
+    if (_fields.isEmpty) {
+      _cardSelection?.removeListener(_selectionChanged);
+      _cardSelection?.dispose();
+      _cardSelection = null;
+      return;
+    }
+    final previous = _cardSelection?.config ?? _initialDisplayConfig();
+    final available = _fields.map((field) => field.key).toSet();
+    String mapped(String value) => rename[value] ?? value;
+    final mappedPrimary = mapped(previous.primaryFieldId);
+    final primary = available.contains(mappedPrimary)
+        ? mappedPrimary
+        : _fields.first.key;
+    _replaceSelection(
+      CardDisplayConfig(
+        primaryFieldId: primary,
+        secondaryFieldIds: previous.secondaryFieldIds
+            .map(mapped)
+            .where(available.contains),
+      ),
     );
+  }
+
+  void _replaceSelection(CardDisplayConfig config) {
+    _cardSelection?.removeListener(_selectionChanged);
+    _cardSelection?.dispose();
+    if (_fields.isEmpty) {
+      _cardSelection = null;
+      return;
+    }
+    _cardSelection = CardFieldSelectionController(
+      fields: [
+        for (final field in _fields)
+          CardSelectableField(
+            id: field.key,
+            label: field.label,
+            type: field.type,
+          ),
+      ],
+      config: config,
+    )..addListener(_selectionChanged);
+  }
+
+  void _selectionChanged() {
+    if (_disposed) return;
+    _errorMessage = _cardSelection?.errorMessage;
+    _notify();
   }
 
   bool _isCurrent(int revision) =>
@@ -370,6 +597,8 @@ class SkillWizardController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _generationRevision++;
+    _cardSelection?.removeListener(_selectionChanged);
+    _cardSelection?.dispose();
     if (disposeRepository && repository is ApiSkillWizardRepository) {
       (repository as ApiSkillWizardRepository).dispose();
     }

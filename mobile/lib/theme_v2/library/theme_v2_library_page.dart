@@ -4,7 +4,6 @@ import '../../api/api_client.dart';
 import '../../data_revision.dart';
 import '../../render/render_spec.dart';
 import '../../render/skill_card.dart';
-import '../../theme/app_theme.dart';
 import '../../timeline/timeline.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../foundation/theme_v2_theme.dart';
@@ -52,6 +51,7 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
   late final LibraryNavigationController _navigation;
   late final bool _ownsNavigation;
   final PageStorageBucket _pageStorageBucket = PageStorageBucket();
+  LibraryContainerSummary? _selectedContainer;
 
   @override
   void initState() {
@@ -179,39 +179,11 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
       onDone: _navigation.back,
       onCreateSkill: widget.onCreateSkill ?? _openCreateSkill,
     ),
+    LibrarySurface.assetContainer => _assetContainerSurface(),
   };
 
   void _handlePop(bool didPop, Object? result) {
     if (!didPop) _navigation.back();
-  }
-
-  void _pushLibraryRoute(Widget child) {
-    final originLegacyTheme = Theme.of(context).extension<EurekaTheme>();
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (routeContext) {
-          final ambientTheme = Theme.of(routeContext);
-          var routeTheme = buildThemeV2Theme(ambientTheme.brightness);
-          final legacyTheme =
-              ambientTheme.extension<EurekaTheme>() ?? originLegacyTheme;
-          if (legacyTheme != null) {
-            routeTheme = routeTheme.copyWith(
-              extensions: [...routeTheme.extensions.values, legacyTheme],
-            );
-          }
-          final routeTokens = ThemeV2Tokens.forBrightness(
-            ambientTheme.brightness,
-          );
-          return Theme(
-            data: routeTheme,
-            child: Scaffold(
-              backgroundColor: routeTokens.background,
-              body: SafeArea(child: child),
-            ),
-          );
-        },
-      ),
-    );
   }
 
   void _openCreateSkill() {
@@ -239,24 +211,33 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
   }
 
   void _openContainer(LibraryContainerSummary container) {
+    _selectedContainer = container;
+    _navigation.open(LibrarySurface.assetContainer);
+  }
+
+  Widget _assetContainerSurface() {
+    final container = _selectedContainer;
+    if (container == null) {
+      return const SizedBox.shrink();
+    }
     switch (container.type) {
       case LibraryContainerType.event:
-        _pushLibraryRoute(
-          ThemeV2AssetListPage.entities(
-            title: '事件档案',
-            cardType: 'event',
-            initialEntities: const [],
-            api: _detailApi,
-          ),
+        return ThemeV2AssetListPage.entities(
+          title: '事件档案',
+          cardType: 'event',
+          initialEntities: const [],
+          api: _detailApi,
+          onBack: _navigation.back,
+          contentBottomPadding: ThemeV2Spacing.lg,
         );
       case LibraryContainerType.contact:
-        _pushLibraryRoute(
-          ThemeV2AssetListPage.entities(
-            title: '人物索引',
-            cardType: 'contact',
-            initialEntities: const [],
-            api: _detailApi,
-          ),
+        return ThemeV2AssetListPage.entities(
+          title: '人物索引',
+          cardType: 'contact',
+          initialEntities: const [],
+          api: _detailApi,
+          onBack: _navigation.back,
+          contentBottomPadding: ThemeV2Spacing.lg,
         );
       case LibraryContainerType.todo:
       case LibraryContainerType.notes:
@@ -267,14 +248,22 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
           'gray',
           container.userSkillId,
         );
-        _pushLibraryRoute(
-          ThemeV2AssetListPage.assets(
-            meta: meta,
-            skillName: container.id,
-            initialAssets: const [],
-            specs: ref.read(renderSpecsProvider).valueOrNull ?? const {},
-            api: _detailApi,
-          ),
+        return ThemeV2AssetListPage.assets(
+          meta: meta,
+          skillName: container.id,
+          initialAssets: const [],
+          specs: ref.read(renderSpecsProvider).valueOrNull ?? const {},
+          api: _detailApi,
+          onBack: _navigation.back,
+          contentBottomPadding: ThemeV2Spacing.lg,
+          onConfigureCard:
+              container.type == LibraryContainerType.custom &&
+                  container.userSkillId != null
+              ? () => showThemeV2SkillConfigurationLaunch(
+                  context,
+                  userSkillId: container.userSkillId!,
+                )
+              : null,
         );
     }
   }

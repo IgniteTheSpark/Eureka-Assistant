@@ -253,6 +253,27 @@ void main() {
     expect(requests, ['GET /api/events/e1']);
   });
 
+  testWidgets('custom asset list exposes Card Display configuration', (
+    tester,
+  ) async {
+    var configured = false;
+    await tester.pumpWidget(
+      _host(
+        ThemeV2AssetListPage.assets(
+          meta: const SkillMeta('🎾', '网球记录', 'gray', 'skill-tennis'),
+          skillName: 'tennis',
+          initialAssets: const [],
+          specs: const {},
+          autoLoad: false,
+          onConfigureCard: () => configured = true,
+        ),
+      ),
+    );
+
+    await tester.tap(find.bySemanticsLabel('Card Display Settings'));
+    expect(configured, isTrue);
+  });
+
   testWidgets('custom asset list refreshes its schema before editing', (
     tester,
   ) async {
