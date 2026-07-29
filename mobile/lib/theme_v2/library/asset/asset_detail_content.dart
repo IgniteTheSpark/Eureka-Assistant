@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../../../render/render_spec.dart';
+import '../../asset_detail/asset_text_value.dart';
 import '../../foundation/theme_v2_theme.dart';
 import '../../foundation/theme_v2_tokens.dart';
 import '../../foundation/theme_v2_typography.dart';
 import 'asset_detail_presentation.dart';
-import 'asset_long_text.dart';
 
 class AssetDetailContent extends StatelessWidget {
   const AssetDetailContent({super.key, required this.controller});
@@ -84,9 +84,7 @@ class AssetDetailContent extends StatelessWidget {
                 controller.payload[field],
                 controller.spec.formatForField(field),
               ),
-              long:
-                  controller.spec.longFields.contains(field) ||
-                  _isDomainLongField(controller.cardType, field),
+              markdown: controller.spec.longFields.contains(field),
               full: full,
               onExpand: controller.expand,
             ),
@@ -148,14 +146,14 @@ class _AssetDetailField extends StatelessWidget {
   const _AssetDetailField({
     required this.label,
     required this.value,
-    required this.long,
+    required this.markdown,
     required this.full,
     required this.onExpand,
   });
 
   final String label;
   final String value;
-  final bool long;
+  final bool markdown;
   final bool full;
   final VoidCallback onExpand;
 
@@ -175,15 +173,12 @@ class _AssetDetailField extends StatelessWidget {
             ),
           ),
           const SizedBox(height: ThemeV2Spacing.xs),
-          if (long)
-            AssetLongText(text: value, expanded: full, onExpand: onExpand)
-          else
-            SelectableText(
-              value,
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(height: 1.3),
-            ),
+          AssetTextValue(
+            text: value,
+            markdown: markdown,
+            full: full,
+            onExpand: onExpand,
+          ),
         ],
       ),
     );
@@ -233,11 +228,6 @@ List<String> _orderedFields(AssetDetailController controller) {
 
 bool _hasValue(dynamic value) =>
     value != null && value.toString().trim().isNotEmpty;
-
-bool _isDomainLongField(String cardType, String field) =>
-    (cardType == 'notes' || cardType == 'note') &&
-        (field == 'body' || field == 'content') ||
-    field == 'notes';
 
 String _fieldLabel(String field) =>
     const {

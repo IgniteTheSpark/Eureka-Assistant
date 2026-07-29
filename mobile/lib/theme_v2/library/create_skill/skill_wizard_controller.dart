@@ -46,6 +46,7 @@ class SkillDraftField {
     required this.type,
     required this.meaning,
     required this.required,
+    required this.long,
     this.metadata = const {},
   });
 
@@ -55,6 +56,7 @@ class SkillDraftField {
   final String type;
   final String meaning;
   final bool required;
+  final bool long;
   final Map<String, dynamic> metadata;
 
   SkillDraftField copyWith({
@@ -63,6 +65,7 @@ class SkillDraftField {
     String? type,
     String? meaning,
     bool? required,
+    bool? long,
   }) {
     return SkillDraftField(
       id: id,
@@ -71,6 +74,7 @@ class SkillDraftField {
       type: type ?? this.type,
       meaning: meaning ?? this.meaning,
       required: required ?? this.required,
+      long: long ?? this.long,
       metadata: metadata,
     );
   }
@@ -78,17 +82,14 @@ class SkillDraftField {
   Map<String, dynamic> toSchemaJson() {
     final output = Map<String, dynamic>.from(metadata)
       ..['type'] = type
-      ..['label'] = label;
+      ..['label'] = label
+      ..['required'] = required
+      ..['long'] = long;
     output.remove('meaning');
     if (meaning.trim().isEmpty) {
       output.remove('description');
     } else {
       output['description'] = meaning.trim();
-    }
-    if (required) {
-      output['required'] = true;
-    } else {
-      output.remove('required');
     }
     return output;
   }
@@ -296,6 +297,7 @@ class SkillWizardController extends ChangeNotifier {
     String? type,
     String? meaning,
     bool? required,
+    bool? long,
   }) {
     final index = _fieldIndex(id);
     if (index < 0) return;
@@ -306,6 +308,7 @@ class SkillWizardController extends ChangeNotifier {
       type: type,
       meaning: meaning,
       required: required,
+      long: long ?? (type != null && type != 'string' ? false : null),
     );
     _fields[index] = next;
     if (next.key != previous.key) {
@@ -325,6 +328,7 @@ class SkillWizardController extends ChangeNotifier {
     String type = 'string',
     String meaning = '',
     bool required = false,
+    bool long = false,
   }) {
     final revision = ++_newFieldRevision;
     final normalizedKey = key?.trim().isNotEmpty == true
@@ -337,6 +341,7 @@ class SkillWizardController extends ChangeNotifier {
       type: type,
       meaning: meaning,
       required: required,
+      long: long,
     );
     _fields.add(field);
     _rebuildSelection();
@@ -515,6 +520,7 @@ class SkillWizardController extends ChangeNotifier {
               metadata['meaning']?.toString() ??
               '',
           required: metadata['required'] == true,
+          long: metadata['long'] == true,
           metadata: Map.unmodifiable(metadata),
         ),
       );

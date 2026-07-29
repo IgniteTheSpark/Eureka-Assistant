@@ -321,6 +321,7 @@ class _ThemeV2SkillWizardSheetState extends State<ThemeV2SkillWizardSheet> {
                       String? type,
                       String? meaning,
                       bool? required,
+                      bool? long,
                     }) => controller.updateField(
                       field.id,
                       key: key,
@@ -328,6 +329,7 @@ class _ThemeV2SkillWizardSheetState extends State<ThemeV2SkillWizardSheet> {
                       type: type,
                       meaning: meaning,
                       required: required,
+                      long: long,
                     ),
                 onRemove: () => controller.removeField(field.id),
               );
@@ -740,6 +742,7 @@ typedef _FieldChanged =
       String? type,
       String? meaning,
       bool? required,
+      bool? long,
     });
 
 class _SkillFieldEditor extends StatelessWidget {
@@ -751,14 +754,15 @@ class _SkillFieldEditor extends StatelessWidget {
     required this.onRemove,
   });
 
-  static const _types = [
-    'string',
-    'number',
-    'date',
-    'datetime',
-    'boolean',
-    'array',
-  ];
+  static const _types = {
+    'string': '短文本',
+    'markdown': 'Markdown 长文本',
+    'number': '数字',
+    'date': '日期',
+    'datetime': '日期时间',
+    'boolean': '布尔值',
+    'array': '列表',
+  };
 
   final SkillDraftField field;
   final int index;
@@ -768,7 +772,9 @@ class _SkillFieldEditor extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
-    final currentType = _types.contains(field.type) ? field.type : 'string';
+    final currentType = field.long
+        ? 'markdown'
+        : (_types.containsKey(field.type) ? field.type : 'string');
     return Container(
       margin: const EdgeInsets.only(bottom: ThemeV2Spacing.md),
       padding: const EdgeInsets.all(ThemeV2Spacing.md),
@@ -830,11 +836,16 @@ class _SkillFieldEditor extends StatelessWidget {
             initialValue: currentType,
             decoration: const InputDecoration(labelText: '类型'),
             items: [
-              for (final type in _types)
-                DropdownMenuItem(value: type, child: Text(type)),
+              for (final entry in _types.entries)
+                DropdownMenuItem(value: entry.key, child: Text(entry.value)),
             ],
             onChanged: (value) {
-              if (value != null) onChanged(type: value);
+              if (value == null) return;
+              if (value == 'markdown') {
+                onChanged(type: 'string', long: true);
+              } else {
+                onChanged(type: value, long: false);
+              }
             },
           ),
           const SizedBox(height: ThemeV2Spacing.sm),

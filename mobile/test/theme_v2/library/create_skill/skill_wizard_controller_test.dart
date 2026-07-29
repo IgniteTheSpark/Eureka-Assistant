@@ -110,6 +110,7 @@ void main() {
         'label': '公里',
         'description': '总距离',
         'required': true,
+        'long': false,
       });
       expect(controller.samplePayload['kilometers'], 5.2);
       expect(controller.samplePayload.containsKey('distance'), isFalse);

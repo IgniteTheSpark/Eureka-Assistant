@@ -4,6 +4,7 @@ import '../../asset/asset_card.dart';
 import '../../asset/asset_card_display.dart';
 import '../../foundation/theme_v2_tokens.dart';
 import '../../../render/render_spec.dart';
+import '../../asset_detail/markdown_field_editor.dart';
 
 class AssetEditorDraft extends ChangeNotifier {
   AssetEditorDraft({required Map<String, dynamic> payload, required this.spec})
@@ -245,20 +246,27 @@ class _EditorField extends StatelessWidget {
       );
     }
     final long = draft.isLong(field);
+    if (long) {
+      return MarkdownFieldEditor(
+        key: ValueKey('asset-editor-$field'),
+        label: label,
+        controller: draft.controllerFor(field),
+        errorText: draft.errors[field],
+      );
+    }
     return TextField(
       key: ValueKey('asset-editor-$field'),
       controller: draft.controllerFor(field),
-      minLines: long ? 5 : 1,
-      maxLines: long ? null : 1,
+      minLines: 1,
+      maxLines: 1,
       keyboardType: switch (draft.typeFor(field)) {
         'number' ||
         'numeric' => const TextInputType.numberWithOptions(decimal: true),
         'datetime' || 'date' => TextInputType.datetime,
-        _ => long ? TextInputType.multiline : TextInputType.text,
+        _ => TextInputType.text,
       },
       decoration: InputDecoration(
         labelText: label,
-        alignLabelWithHint: long,
         errorText: draft.errors[field],
       ),
     );

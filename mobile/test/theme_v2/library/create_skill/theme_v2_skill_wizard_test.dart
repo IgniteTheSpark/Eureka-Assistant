@@ -98,6 +98,28 @@ void main() {
     expect(repository.confirmBodies, hasLength(1));
   });
 
+  testWidgets('Fields can author explicit Markdown long text', (tester) async {
+    final repository = _WidgetRepository();
+    final controller = SkillWizardController(repository: repository);
+    addTearDown(controller.dispose);
+    await _pump(tester, ThemeV2SkillWizardSheet(controller: controller));
+
+    await tester.tap(find.text('跑步训练记录'));
+    await tester.tap(find.byKey(const ValueKey('skill-describe-generate')));
+    await tester.pumpAndSettle();
+
+    final type = find.byKey(const ValueKey('skill-field-type-notes'));
+    await tester.ensureVisible(type);
+    await tester.tap(type);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Markdown 长文本').last);
+    await tester.pumpAndSettle();
+
+    expect(controller.payloadSchema['notes'], containsPair('type', 'string'));
+    expect(controller.payloadSchema['notes'], containsPair('long', true));
+    expect(controller.payloadSchema['notes'], containsPair('required', false));
+  });
+
   testWidgets('existing-skill configuration opens directly at Card', (
     tester,
   ) async {
@@ -174,9 +196,24 @@ class _WidgetRepository implements SkillWizardRepository {
         'name': 'running_log',
         'display_name': '跑步记录',
         'payload_schema': {
-          'occurred_date': {'type': 'date', 'label': '跑步日期'},
-          'distance': {'type': 'number', 'label': '距离'},
-          'notes': {'type': 'string', 'label': '备注'},
+          'occurred_date': {
+            'type': 'date',
+            'label': '跑步日期',
+            'required': true,
+            'long': false,
+          },
+          'distance': {
+            'type': 'number',
+            'label': '距离',
+            'required': false,
+            'long': false,
+          },
+          'notes': {
+            'type': 'string',
+            'label': '备注',
+            'required': false,
+            'long': false,
+          },
         },
         'render_spec': {
           'icon': '🏃',
@@ -212,8 +249,18 @@ class _ConfigurationRepository implements SkillConfigurationRepository {
       name: 'running_log',
       displayName: '跑步记录',
       payloadSchema: {
-        'distance': {'type': 'number', 'label': '距离'},
-        'date': {'type': 'date', 'label': '日期'},
+        'distance': {
+          'type': 'number',
+          'label': '距离',
+          'required': false,
+          'long': false,
+        },
+        'date': {
+          'type': 'date',
+          'label': '日期',
+          'required': false,
+          'long': false,
+        },
       },
       renderSpec: {
         'icon': '🏃',
