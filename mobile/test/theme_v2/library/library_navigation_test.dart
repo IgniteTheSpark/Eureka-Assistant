@@ -594,6 +594,7 @@ void main() {
       tester.getSize(find.byKey(const ValueKey('library-pinned-done'))),
       const Size(72, 44),
     );
+    expect(tester.widget<Text>(find.text('完成配置')).maxLines, 1);
     await tester.tap(find.text('完成配置'));
     expect(done, 1);
   });

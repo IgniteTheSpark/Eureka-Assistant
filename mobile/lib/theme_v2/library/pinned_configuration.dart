@@ -149,7 +149,15 @@ class _ConfigurationHeader extends StatelessWidget {
             height: ThemeV2Sizes.minTouchTarget,
             child: TextButton(
               onPressed: onDone,
-              child: Text(saving ? '保存中' : '完成配置'),
+              style: TextButton.styleFrom(padding: EdgeInsets.zero),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  saving ? '保存中' : '完成配置',
+                  maxLines: 1,
+                  softWrap: false,
+                ),
+              ),
             ),
           ),
         ],
