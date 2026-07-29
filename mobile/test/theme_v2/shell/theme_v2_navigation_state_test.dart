@@ -8,6 +8,7 @@ import 'package:eureka/theme_v2/calendar/theme_v2_calendar_page.dart';
 import 'package:eureka/theme_v2/shell/device_status_summary.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_app_shell.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_floating_dock.dart';
+import 'package:eureka/theme_v2/shell/theme_v2_global_top_nav.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_page_scaffold.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -168,6 +169,7 @@ void main() {
     await tester.pump();
 
     expect(find.byType(ThemeV2CalendarPage), findsOneWidget);
+    expect(find.byType(ThemeV2GlobalTopNav), findsOneWidget);
   });
 
   testWidgets('Schedule hides the dock and Day Detail restores it', (
@@ -189,10 +191,12 @@ void main() {
     );
     await tester.pump();
     expect(find.byKey(ThemeV2FloatingDock.dockKey), findsNothing);
+    expect(find.byType(ThemeV2GlobalTopNav), findsOneWidget);
 
     controller.backToDay();
     await tester.pump();
     expect(find.byKey(ThemeV2FloatingDock.dockKey), findsOneWidget);
+    expect(find.byType(ThemeV2GlobalTopNav), findsOneWidget);
   });
 }
 

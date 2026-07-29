@@ -73,8 +73,11 @@ class _CalendarMonthViewState extends State<CalendarMonthView> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          const SizedBox(
+            key: ValueKey('calendar-month-top-gap'),
+            height: ThemeV2Spacing.xs,
+          ),
           _ProgressiveHeader(
-            kicker: 'CALENDAR / MONTH',
             title: '${_month.year}年${_month.month}月',
             onPrevious: () => _moveMonth(-1),
             onToday: () {
@@ -146,14 +149,12 @@ class _CalendarMonthViewState extends State<CalendarMonthView> {
 
 class _ProgressiveHeader extends StatelessWidget {
   const _ProgressiveHeader({
-    required this.kicker,
     required this.title,
     required this.onPrevious,
     required this.onToday,
     required this.onNext,
   });
 
-  final String kicker;
   final String title;
   final VoidCallback onPrevious;
   final VoidCallback onToday;
@@ -168,14 +169,6 @@ class _ProgressiveHeader extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                kicker,
-                style: ThemeV2Typography.mono(
-                  fontSize: 8,
-                  color: tokens.accent,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
               Text(
                 title,
                 style: Theme.of(context).textTheme.headlineMedium?.copyWith(

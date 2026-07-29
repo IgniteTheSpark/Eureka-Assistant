@@ -692,6 +692,177 @@ void main() {
     expect(find.byKey(const ValueKey('calendar-flow-content')), findsOneWidget);
   });
 
+  testWidgets('overview scales stay headerless with a small top gap', (
+    tester,
+  ) async {
+    final controller = CalendarController(
+      modeState: CalendarModeState(initialMode: CalendarMode.month),
+    );
+    await tester.pumpWidget(
+      calendarTestHost(
+        ThemeV2CalendarPage(
+          controller: controller,
+          today: DateTime(2026, 7, 3),
+          initialData: calendarFixtureData(),
+          onOpenDay: (_) {},
+          onOpenRecord: (_) {},
+          onCreateDraft: (_) async {},
+          onOpenDraftEditor: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('CALENDAR / MONTH'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('calendar-month-top-gap')),
+      findsOneWidget,
+    );
+
+    await tester.drag(
+      find.byKey(const ValueKey('calendar-mode-pages')),
+      const Offset(-350, 0),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('CALENDAR / YEAR'), findsNothing);
+    expect(find.byKey(const ValueKey('calendar-year-top-gap')), findsOneWidget);
+  });
+
+  testWidgets('horizontal drag reveals the target scale in an edge droplet', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      calendarTestHost(
+        ThemeV2CalendarPage(
+          controller: CalendarController(),
+          today: DateTime(2026, 7, 3),
+          initialData: calendarFixtureData(),
+          onOpenDay: (_) {},
+          onOpenRecord: (_) {},
+          onCreateDraft: (_) async {},
+          onOpenDraftEditor: (_) {},
+        ),
+        disableAnimations: false,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final pages = find.byKey(const ValueKey('calendar-mode-pages'));
+    final gesture = await tester.startGesture(tester.getCenter(pages));
+    await gesture.moveBy(const Offset(-8, 0));
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('calendar-scale-drag-indicator')),
+      findsNothing,
+    );
+
+    await gesture.moveBy(const Offset(-42, 0));
+    await tester.pump();
+    await gesture.moveBy(const Offset(-10, 0));
+    await tester.pump();
+
+    final indicator = find.byKey(
+      const ValueKey('calendar-scale-drag-indicator'),
+    );
+    expect(indicator, findsOneWidget);
+    expect(
+      find.descendant(of: indicator, matching: find.text('月览')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('calendar-scale-drag-droplet')),
+      findsOneWidget,
+    );
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(indicator, findsNothing);
+  });
+
+  testWidgets('reduced motion keeps the edge label without droplet morphing', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      calendarTestHost(
+        ThemeV2CalendarPage(
+          controller: CalendarController(),
+          today: DateTime(2026, 7, 3),
+          initialData: calendarFixtureData(),
+          onOpenDay: (_) {},
+          onOpenRecord: (_) {},
+          onCreateDraft: (_) async {},
+          onOpenDraftEditor: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final pages = find.byKey(const ValueKey('calendar-mode-pages'));
+    final gesture = await tester.startGesture(tester.getCenter(pages));
+    await gesture.moveBy(const Offset(-50, 0));
+    await tester.pump();
+    await gesture.moveBy(const Offset(-10, 0));
+    await tester.pump();
+
+    final indicator = find.byKey(
+      const ValueKey('calendar-scale-drag-indicator'),
+    );
+    expect(indicator, findsOneWidget);
+    expect(
+      find.descendant(of: indicator, matching: find.text('月览')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('calendar-scale-drag-droplet')),
+      findsNothing,
+    );
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('a completed scale switch briefly confirms the new view', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      calendarTestHost(
+        ThemeV2CalendarPage(
+          controller: CalendarController(),
+          today: DateTime(2026, 7, 3),
+          initialData: calendarFixtureData(),
+          onOpenDay: (_) {},
+          onOpenRecord: (_) {},
+          onCreateDraft: (_) async {},
+          onOpenDraftEditor: (_) {},
+        ),
+        disableAnimations: false,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(
+      find.byKey(const ValueKey('calendar-mode-pages')),
+      const Offset(-350, 0),
+    );
+    for (var frame = 0; frame < 30; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+
+    final confirmation = find.byKey(
+      const ValueKey('calendar-scale-confirmation'),
+    );
+    expect(confirmation, findsOneWidget);
+    expect(
+      find.descendant(of: confirmation, matching: find.text('月览')),
+      findsOneWidget,
+    );
+
+    await tester.pump(const Duration(milliseconds: 1100));
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(confirmation, findsNothing);
+  });
+
   testWidgets('vertical Flow intent does not trigger a scale switch', (
     tester,
   ) async {

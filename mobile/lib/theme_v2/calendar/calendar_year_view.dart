@@ -75,20 +75,16 @@ class _CalendarYearViewState extends State<CalendarYearView> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          const SizedBox(
+            key: ValueKey('calendar-year-top-gap'),
+            height: ThemeV2Spacing.xs,
+          ),
           Row(
             children: [
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'CALENDAR / YEAR',
-                      style: ThemeV2Typography.mono(
-                        fontSize: 8,
-                        color: tokens.accent,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
                     Text(
                       '$_year',
                       style: Theme.of(context).textTheme.headlineMedium

@@ -148,7 +148,6 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
           ThemeV2PageScaffold(body: TodayPage(active: _index == 0)),
           ThemeV2PageScaffold(
             body: ThemeV2CalendarPage(controller: _calendarController),
-            showTopNav: false,
             showDock: _calendarController.surface != CalendarSurface.schedule,
           ),
           const ThemeV2PageScaffold(body: ThemeV2LibraryPage()),

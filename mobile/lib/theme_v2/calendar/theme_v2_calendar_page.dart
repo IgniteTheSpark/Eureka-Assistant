@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
@@ -71,6 +72,14 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
   PageController? _pages;
   PageController get _pageController =>
       _pages ??= PageController(initialPage: _pageIndex);
+  final ValueNotifier<_CalendarScaleDragFeedback?> _scaleDragFeedback =
+      ValueNotifier(null);
+  final ValueNotifier<CalendarMode?> _scaleConfirmation = ValueNotifier(null);
+  Timer? _scaleConfirmationTimer;
+  Timer? _scaleSettleTimer;
+  int? _scaleDragOriginPage;
+  Offset? _scalePointerOrigin;
+  Axis? _scalePointerAxis;
   int _flowRevision = 0;
   Future<CalendarData>? _future;
   CalendarData? _lastData;
@@ -127,6 +136,114 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
         );
       }
     }
+  }
+
+  bool _handleScaleScroll(ScrollNotification notification) {
+    if (notification.metrics.axis != Axis.horizontal) return false;
+
+    final originPage = _scaleDragOriginPage;
+    if (originPage == null) return false;
+
+    if (notification is ScrollUpdateNotification) {
+      if (_scalePointerOrigin == null) {
+        final metrics = notification.metrics;
+        final page = metrics.pixels / metrics.viewportDimension;
+        final displacement = (page - originPage) * metrics.viewportDimension;
+        _updateScaleDragFeedback(displacement);
+      }
+      return false;
+    }
+
+    if (notification is ScrollEndNotification) {
+      _scaleDragOriginPage = null;
+      _scaleDragFeedback.value = null;
+    }
+    return false;
+  }
+
+  void _handleScalePointerDown(PointerDownEvent event) {
+    _scaleSettleTimer?.cancel();
+    _scalePointerOrigin = event.position;
+    _scalePointerAxis = null;
+    _scaleDragOriginPage = _pageIndex;
+    _scaleDragFeedback.value = null;
+  }
+
+  void _handleScalePointerMove(PointerMoveEvent event) {
+    final origin = _scalePointerOrigin;
+    if (origin == null) return;
+    final delta = event.position - origin;
+    final horizontal = delta.dx.abs();
+    final vertical = delta.dy.abs();
+    if (_scalePointerAxis == null && (horizontal > 12 || vertical > 12)) {
+      _scalePointerAxis = horizontal > vertical
+          ? Axis.horizontal
+          : Axis.vertical;
+    }
+    if (_scalePointerAxis == Axis.horizontal) {
+      // Page coordinates move opposite to the finger.
+      _updateScaleDragFeedback(-delta.dx);
+    }
+  }
+
+  void _handleScalePointerUp(PointerUpEvent event) {
+    final originPage = _scaleDragOriginPage;
+    final completedHorizontalDrag =
+        _scalePointerAxis == Axis.horizontal && originPage != null;
+    _scalePointerOrigin = null;
+    if (!completedHorizontalDrag) {
+      _scaleDragOriginPage = null;
+      _scaleDragFeedback.value = null;
+    } else {
+      _scaleSettleTimer?.cancel();
+      _scaleSettleTimer = Timer(const Duration(milliseconds: 320), () {
+        if (!mounted) return;
+        _scaleDragOriginPage = null;
+        _scaleDragFeedback.value = null;
+        if (_pageIndex != originPage) {
+          _showScaleConfirmation(
+            CalendarMode.values[_pageIndex % CalendarMode.values.length],
+          );
+        }
+      });
+    }
+    _scalePointerAxis = null;
+  }
+
+  void _handleScalePointerCancel(PointerCancelEvent event) {
+    _scaleSettleTimer?.cancel();
+    _scalePointerOrigin = null;
+    _scalePointerAxis = null;
+    _scaleDragOriginPage = null;
+    _scaleDragFeedback.value = null;
+  }
+
+  void _updateScaleDragFeedback(double displacement) {
+    final originPage = _scaleDragOriginPage;
+    final distance = displacement.abs();
+    if (originPage == null || distance <= 12) {
+      _scaleDragFeedback.value = null;
+      return;
+    }
+
+    final direction = displacement > 0 ? 1 : -1;
+    final targetPage = originPage + direction;
+    _scaleDragFeedback.value = _CalendarScaleDragFeedback(
+      target: CalendarMode.values[targetPage % CalendarMode.values.length],
+      onRightEdge: direction > 0,
+      shapeProgress: ((distance - 12) / 26).clamp(0, 1),
+      labelProgress: ((distance - 30) / 8).clamp(0, 1),
+    );
+  }
+
+  void _showScaleConfirmation(CalendarMode mode) {
+    _scaleConfirmationTimer?.cancel();
+    _scaleConfirmation.value = mode;
+    _scaleConfirmationTimer = Timer(const Duration(milliseconds: 920), () {
+      if (mounted && _scaleConfirmation.value == mode) {
+        _scaleConfirmation.value = null;
+      }
+    });
   }
 
   int _nearestPageForMode(CalendarMode mode) {
@@ -297,6 +414,10 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
   @override
   void dispose() {
     calendarHome.removeListener(_goHome);
+    _scaleConfirmationTimer?.cancel();
+    _scaleSettleTimer?.cancel();
+    _scaleDragFeedback.dispose();
+    _scaleConfirmation.dispose();
     _pages?.dispose();
     _api?.close();
     if (_ownsController) _controller.dispose();
@@ -451,9 +572,299 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
             ),
           },
     );
-    return pages;
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: _handleScalePointerDown,
+            onPointerMove: _handleScalePointerMove,
+            onPointerUp: _handleScalePointerUp,
+            onPointerCancel: _handleScalePointerCancel,
+            child: NotificationListener<ScrollNotification>(
+              onNotification: _handleScaleScroll,
+              child: pages,
+            ),
+          ),
+        ),
+        Positioned.fill(
+          child: ValueListenableBuilder<_CalendarScaleDragFeedback?>(
+            valueListenable: _scaleDragFeedback,
+            builder: (context, feedback, _) {
+              if (feedback == null) return const SizedBox.shrink();
+              return _CalendarScaleDragIndicator(feedback: feedback);
+            },
+          ),
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          top: ThemeV2Spacing.md,
+          child: IgnorePointer(
+            child: ValueListenableBuilder<CalendarMode?>(
+              valueListenable: _scaleConfirmation,
+              builder: (context, mode, _) {
+                return AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 120),
+                  reverseDuration: const Duration(milliseconds: 180),
+                  child: mode == null
+                      ? const SizedBox.shrink()
+                      : Center(
+                          key: ValueKey('calendar-scale-confirmation-$mode'),
+                          child: _CalendarScaleConfirmation(mode: mode),
+                        ),
+                );
+              },
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }
+
+@immutable
+class _CalendarScaleDragFeedback {
+  const _CalendarScaleDragFeedback({
+    required this.target,
+    required this.onRightEdge,
+    required this.shapeProgress,
+    required this.labelProgress,
+  });
+
+  final CalendarMode target;
+  final bool onRightEdge;
+  final double shapeProgress;
+  final double labelProgress;
+}
+
+class _CalendarScaleDragIndicator extends StatelessWidget {
+  const _CalendarScaleDragIndicator({required this.feedback});
+
+  final _CalendarScaleDragFeedback feedback;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.themeV2;
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final width = reduceMotion
+        ? 64.0
+        : ui.lerpDouble(48, 103, feedback.shapeProgress)!;
+    final height = reduceMotion
+        ? 40.0
+        : ui.lerpDouble(72, 105, feedback.shapeProgress)!;
+    final label = _calendarScaleLabel(feedback.target);
+
+    return IgnorePointer(
+      child: Align(
+        alignment: feedback.onRightEdge
+            ? Alignment.centerRight
+            : Alignment.centerLeft,
+        child: SizedBox(
+          key: const ValueKey('calendar-scale-drag-indicator'),
+          width: width,
+          height: height,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              if (!reduceMotion)
+                Positioned.fill(
+                  child: CustomPaint(
+                    key: const ValueKey('calendar-scale-drag-droplet'),
+                    painter: _CalendarScaleDropletPainter(
+                      onRightEdge: feedback.onRightEdge,
+                      fill: tokens.surface.withValues(alpha: 0.95),
+                      border: tokens.border,
+                      tension: tokens.accent.withValues(alpha: 0.58),
+                      shadow: tokens.foreground.withValues(alpha: 0.08),
+                    ),
+                  ),
+                )
+              else if (feedback.labelProgress > 0)
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: tokens.surface.withValues(alpha: 0.95),
+                    border: Border.all(color: tokens.border),
+                    borderRadius: BorderRadius.horizontal(
+                      left: feedback.onRightEdge
+                          ? const Radius.circular(ThemeV2Radii.md)
+                          : Radius.zero,
+                      right: feedback.onRightEdge
+                          ? Radius.zero
+                          : const Radius.circular(ThemeV2Radii.md),
+                    ),
+                  ),
+                  child: const SizedBox.expand(),
+                ),
+              if (feedback.labelProgress > 0)
+                Opacity(
+                  opacity: feedback.labelProgress,
+                  child: Padding(
+                    padding: EdgeInsets.only(
+                      left: feedback.onRightEdge ? 14 : 4,
+                      right: feedback.onRightEdge ? 4 : 14,
+                    ),
+                    child: Text(
+                      label,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: tokens.foreground,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CalendarScaleDropletPainter extends CustomPainter {
+  const _CalendarScaleDropletPainter({
+    required this.onRightEdge,
+    required this.fill,
+    required this.border,
+    required this.tension,
+    required this.shadow,
+  });
+
+  final bool onRightEdge;
+  final Color fill;
+  final Color border;
+  final Color tension;
+  final Color shadow;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.save();
+    if (!onRightEdge) {
+      canvas
+        ..translate(size.width, 0)
+        ..scale(-1, 1);
+    }
+
+    final width = size.width;
+    final height = size.height;
+    final droplet = Path()
+      ..moveTo(width, 0)
+      ..cubicTo(
+        width * 0.78,
+        0,
+        width * 0.84,
+        height * 0.18,
+        width * 0.62,
+        height * 0.23,
+      )
+      ..cubicTo(
+        width * 0.31,
+        height * 0.29,
+        width * 0.18,
+        height * 0.38,
+        width * 0.15,
+        height * 0.5,
+      )
+      ..cubicTo(
+        width * 0.18,
+        height * 0.62,
+        width * 0.31,
+        height * 0.71,
+        width * 0.62,
+        height * 0.77,
+      )
+      ..cubicTo(
+        width * 0.84,
+        height * 0.82,
+        width * 0.78,
+        height,
+        width,
+        height,
+      )
+      ..close();
+
+    canvas.drawShadow(droplet, shadow, 5, true);
+    canvas.drawPath(droplet, Paint()..color = fill);
+    canvas.drawPath(
+      droplet,
+      Paint()
+        ..color = border
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1,
+    );
+
+    final tensionLine = Path()
+      ..moveTo(width - 10, height * 0.24)
+      ..cubicTo(
+        width - 2,
+        height * 0.36,
+        width - 2,
+        height * 0.64,
+        width - 10,
+        height * 0.76,
+      );
+    canvas.drawPath(
+      tensionLine,
+      Paint()
+        ..color = tension
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5
+        ..strokeCap = StrokeCap.round,
+    );
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_CalendarScaleDropletPainter oldDelegate) {
+    return oldDelegate.onRightEdge != onRightEdge ||
+        oldDelegate.fill != fill ||
+        oldDelegate.border != border ||
+        oldDelegate.tension != tension ||
+        oldDelegate.shadow != shadow;
+  }
+}
+
+class _CalendarScaleConfirmation extends StatelessWidget {
+  const _CalendarScaleConfirmation({required this.mode});
+
+  final CalendarMode mode;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.themeV2;
+    return Container(
+      key: const ValueKey('calendar-scale-confirmation'),
+      width: 72,
+      height: 32,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: tokens.surface.withValues(alpha: 0.95),
+        border: Border.all(color: tokens.border),
+        borderRadius: BorderRadius.circular(ThemeV2Radii.sm),
+        boxShadow: [
+          BoxShadow(
+            color: tokens.foreground.withValues(alpha: 0.08),
+            offset: const Offset(0, 3),
+            blurRadius: 10,
+          ),
+        ],
+      ),
+      child: Text(
+        _calendarScaleLabel(mode),
+        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+          color: tokens.foreground,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+String _calendarScaleLabel(CalendarMode mode) => switch (mode) {
+  CalendarMode.flow => '流览',
+  CalendarMode.month => '月览',
+  CalendarMode.year => '年览',
+};
 
 class _CalendarScheduleRoute extends StatelessWidget {
   const _CalendarScheduleRoute({

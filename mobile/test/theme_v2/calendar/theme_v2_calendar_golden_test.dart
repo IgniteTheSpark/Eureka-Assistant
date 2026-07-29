@@ -6,7 +6,9 @@ import 'package:eureka/theme_v2/calendar/calendar_manual_record_picker.dart';
 import 'package:eureka/theme_v2/calendar/calendar_mode_state.dart';
 import 'package:eureka/theme_v2/calendar/calendar_models.dart';
 import 'package:eureka/theme_v2/calendar/theme_v2_calendar_page.dart';
+import 'package:eureka/theme_v2/shell/device_status_summary.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_floating_dock.dart';
+import 'package:eureka/theme_v2/shell/theme_v2_global_top_nav.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_page_scaffold.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -54,9 +56,13 @@ void main() {
 
   Widget withCalendarDock(Widget child, {bool showDock = true}) {
     return ThemeV2PageScaffold(
-      showTopNav: false,
       showDock: showDock,
       body: child,
+      topNav: ThemeV2GlobalTopNav(
+        deviceStatus: const DeviceStatusSummary.disconnected(),
+        onDevicePressed: () {},
+        onNotificationsPressed: () {},
+      ),
       dock: ThemeV2FloatingDock(
         selectedIndex: 1,
         onDestinationSelected: (_) {},
@@ -134,6 +140,7 @@ void main() {
     WidgetTester tester, {
     required Widget child,
     required Brightness brightness,
+    bool disableAnimations = true,
   }) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = calendarFixtureSize;
@@ -143,6 +150,7 @@ void main() {
       calendarTestHost(
         RepaintBoundary(key: surface, child: child),
         brightness: brightness,
+        disableAnimations: disableAnimations,
       ),
     );
     await tester.pumpAndSettle();
@@ -166,6 +174,40 @@ void main() {
         find.byKey(surface),
         matchesGoldenFile('goldens/calendar-flow-resting-411-$suffix.png'),
       );
+    });
+
+    testWidgets('Flow drag toward Month 411 $suffix', (tester) async {
+      await pumpGolden(
+        tester,
+        brightness: brightness,
+        disableAnimations: false,
+        child: withCalendarDock(
+          calendarPage(
+            controller: CalendarController(),
+            data: calendarHandoffOverviewData(),
+          ),
+        ),
+      );
+      final pages = find.byKey(const ValueKey('calendar-mode-pages'));
+      final gesture = await tester.startGesture(tester.getCenter(pages));
+      await gesture.moveBy(const Offset(-8, 0));
+      await tester.pump();
+      await gesture.moveBy(const Offset(-42, 0));
+      await tester.pump();
+      await gesture.moveBy(const Offset(-10, 0));
+      await tester.pump();
+
+      expect(
+        find.byKey(const ValueKey('calendar-scale-drag-droplet')),
+        findsOneWidget,
+      );
+      await expectLater(
+        find.byKey(surface),
+        matchesGoldenFile('goldens/calendar-flow-drag-month-411-$suffix.png'),
+      );
+
+      await gesture.up();
+      await tester.pumpAndSettle();
     });
 
     testWidgets('Flow empty date 411 $suffix', (tester) async {
