@@ -125,7 +125,7 @@ void main() {
         'todo',
         'notes',
       ]);
-      expect(controller.pinSaveError, isNotNull);
+      expect(controller.pinSaveError, contains('保存失败，已恢复原配置'));
       expect(controller.isSavingPins, isFalse);
     });
 

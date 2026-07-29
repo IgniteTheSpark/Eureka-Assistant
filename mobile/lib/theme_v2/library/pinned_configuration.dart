@@ -1,145 +1,254 @@
 import 'package:flutter/material.dart';
 
-import '../foundation/theme_v2_semantics.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
+import 'create_skill_action.dart';
 import 'library_components.dart';
 import 'library_controller.dart';
-import 'library_models.dart';
+import 'library_states.dart';
 
 class PinnedConfiguration extends StatelessWidget {
   const PinnedConfiguration({
     super.key,
     required this.controller,
     required this.onDone,
+    this.onCreateSkill,
   });
 
   final LibraryController controller;
   final VoidCallback onDone;
+  final VoidCallback? onCreateSkill;
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: controller,
-      builder: (context, _) => ListView(
-        padding: const EdgeInsets.fromLTRB(
-          ThemeV2Spacing.lg,
-          ThemeV2Spacing.sm,
-          ThemeV2Spacing.lg,
-          ThemeV2Spacing.xl,
-        ),
-        children: [
-          LibraryScreenHeader(
-            kicker: 'LIBRARY / PINNED',
-            title: '资产库',
-            subtitle: '长按拖动常驻容器，或使用箭头调整顺序',
-            onBack: onDone,
-          ),
-          const SizedBox(height: ThemeV2Spacing.lg),
-          LibrarySectionLabel(
-            label:
-                'CONFIGURE SIGNALS / ${controller.pinnedContainers.length.toString().padLeft(2, '0')}',
-            trailing: Semantics(
-              label: '完成配置',
-              button: true,
-              onTap: onDone,
-              child: ExcludeSemantics(
-                child: ThemeV2HitTarget(
-                  child: TextButton.icon(
-                    onPressed: onDone,
-                    icon: const Icon(Icons.check, size: 17),
-                    label: const Text('完成配置'),
-                  ),
-                ),
+      builder: (context, _) {
+        final saving = controller.isSavingPins;
+        return ListView(
+          key: const PageStorageKey('theme-v2-library-pinned-configuration'),
+          padding: const EdgeInsets.fromLTRB(18, 12, 18, 112),
+          children: [
+            _ConfigurationHeader(
+              saving: saving,
+              onDone: saving ? null : onDone,
+            ),
+            const SizedBox(height: 16),
+            _ConfigurationSummary(
+              count: controller.pinnedContainers.length,
+              saving: saving,
+            ),
+            const SizedBox(height: 22),
+            LibrarySectionLabel(
+              label:
+                  'CONFIGURE / '
+                  '${controller.pinnedContainers.length.toString().padLeft(2, '0')}'
+                  ' · 长按拖动',
+            ),
+            const SizedBox(height: 10),
+            if (controller.pinnedContainers.isEmpty)
+              const LibraryStateView.empty(
+                title: '还没有常驻容器',
+                message: '从下方选择要固定在资产库首页的容器',
+              )
+            else
+              LibraryPinnedMosaic(
+                containers: controller.pinnedContainers,
+                configure: true,
+                onRemove: saving
+                    ? null
+                    : (container) => controller.removePinned(container.id),
+                onMoveBackward: saving
+                    ? null
+                    : (container) => _moveBackward(controller, container.id),
+                onDrop: saving ? null : controller.movePinned,
               ),
+            if (saving) ...[
+              const SizedBox(height: ThemeV2Spacing.sm),
+              const _PersistenceFeedback.saving(),
+            ] else if (controller.pinSaveError case final error?) ...[
+              const SizedBox(height: ThemeV2Spacing.sm),
+              _PersistenceFeedback.error(error),
+            ],
+            const SizedBox(height: 22),
+            CreateSkillAction.configuration(
+              onPressed:
+                  onCreateSkill ?? () => showThemeV2CreateSkillLaunch(context),
             ),
-          ),
-          const SizedBox(height: ThemeV2Spacing.sm),
-          if (controller.pinnedContainers.isEmpty)
-            _NoPinned(controller: controller)
-          else
-            LibraryPinnedMosaic(
-              containers: controller.pinnedContainers,
-              configure: true,
-              onRemove: (container) => controller.removePinned(container.id),
-              onMoveBackward: (container) {
-                final index = controller.pinnedContainers.indexWhere(
-                  (item) => item.id == container.id,
-                );
-                if (index >= 0 &&
-                    index < controller.pinnedContainers.length - 1) {
-                  controller.movePinned(index, index + 1);
-                }
-              },
-              onDrop: controller.movePinned,
-            ),
-          if (controller.pinSaveError case final error?) ...[
-            const SizedBox(height: ThemeV2Spacing.sm),
-            Text(
-              error,
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: context.themeV2.critical),
-            ),
-          ],
-          const SizedBox(height: ThemeV2Spacing.xl),
-          LibrarySectionLabel(
-            label: '可用容器',
-            trailing: Text(
-              controller.canPinMore ? '点击加入' : '已达上限',
-              style: Theme.of(
-                context,
-              ).textTheme.labelSmall?.copyWith(color: context.themeV2.muted),
-            ),
-          ),
-          const SizedBox(height: ThemeV2Spacing.sm),
-          if (!controller.canPinMore)
-            Padding(
-              padding: const EdgeInsets.only(bottom: ThemeV2Spacing.sm),
-              child: Text(
-                '最多常驻 6 个容器，请先移除一个。',
+            const SizedBox(height: 24),
+            LibrarySectionLabel(
+              label: '可用容器',
+              trailing: Text(
+                controller.canPinMore ? '最多 6 个' : '已达上限',
                 style: Theme.of(
                   context,
-                ).textTheme.bodySmall?.copyWith(color: context.themeV2.muted),
+                ).textTheme.labelSmall?.copyWith(color: context.themeV2.muted),
               ),
             ),
-          if (controller.availableToPin.isEmpty)
-            _AllPinned(canPinMore: controller.canPinMore)
-          else
-            Wrap(
-              spacing: ThemeV2Spacing.sm,
-              runSpacing: ThemeV2Spacing.sm,
-              children: [
-                for (final container in controller.availableToPin)
-                  _AvailableContainer(
-                    container: container,
-                    enabled: controller.canPinMore,
-                    onAdd: () => controller.addPinned(container.id),
-                  ),
+            const SizedBox(height: 10),
+            if (controller.availableToPin.isEmpty)
+              _AllPinned(canPinMore: controller.canPinMore)
+            else
+              for (final container in controller.availableToPin) ...[
+                LibraryAvailableContainerTile(
+                  container: container,
+                  enabled: controller.canPinMore && !saving,
+                  disabledLabel: saving
+                      ? '加入 ${container.label}，正在保存当前配置'
+                      : '加入 ${container.label}，已达到六个常驻容器上限',
+                  onTap: () {
+                    if (!controller.isSavingPins) {
+                      controller.addPinned(container.id);
+                    }
+                  },
+                ),
+                const SizedBox(height: 8),
               ],
+          ],
+        );
+      },
+    );
+  }
+
+  void _moveBackward(LibraryController controller, String id) {
+    if (controller.isSavingPins) return;
+    final index = controller.pinnedContainers.indexWhere(
+      (container) => container.id == id,
+    );
+    if (index >= 0 && index < controller.pinnedContainers.length - 1) {
+      controller.movePinned(index, index + 1);
+    }
+  }
+}
+
+class _ConfigurationHeader extends StatelessWidget {
+  const _ConfigurationHeader({required this.saving, required this.onDone});
+
+  final bool saving;
+  final VoidCallback? onDone;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: ThemeV2Sizes.minTouchTarget,
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              '资产库',
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                color: context.themeV2.foreground,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -.8,
+              ),
             ),
+          ),
+          SizedBox(
+            key: const ValueKey('library-pinned-done'),
+            width: 72,
+            height: ThemeV2Sizes.minTouchTarget,
+            child: TextButton(
+              onPressed: onDone,
+              child: Text(saving ? '保存中' : '完成配置'),
+            ),
+          ),
         ],
       ),
     );
   }
 }
 
-class _NoPinned extends StatelessWidget {
-  const _NoPinned({required this.controller});
+class _ConfigurationSummary extends StatelessWidget {
+  const _ConfigurationSummary({required this.count, required this.saving});
 
-  final LibraryController controller;
+  final int count;
+  final bool saving;
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.themeV2;
     return Container(
-      height: 120,
-      alignment: Alignment.center,
+      key: const ValueKey('library-pinned-summary'),
+      height: 54,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
       decoration: BoxDecoration(
-        color: context.themeV2.surface,
+        color: tokens.surface,
+        border: Border.all(color: tokens.border),
         borderRadius: BorderRadius.circular(ThemeV2Radii.lg),
-        border: Border.all(color: context.themeV2.border),
       ),
-      child: const Text('从下方选择常驻容器'),
+      child: Row(
+        children: [
+          Text(
+            '$count',
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            '个常驻容器',
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: tokens.muted),
+          ),
+          const Spacer(),
+          Icon(
+            saving ? Icons.sync : Icons.check_circle_outline,
+            size: 17,
+            color: saving ? tokens.muted : tokens.accent,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            saving ? '正在确认' : '自动保存',
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: tokens.muted),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+enum _PersistenceKind { saving, error }
+
+class _PersistenceFeedback extends StatelessWidget {
+  const _PersistenceFeedback.saving()
+    : kind = _PersistenceKind.saving,
+      message = '正在保存配置…';
+
+  const _PersistenceFeedback.error(this.message)
+    : kind = _PersistenceKind.error;
+
+  final _PersistenceKind kind;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final error = kind == _PersistenceKind.error;
+    final tokens = context.themeV2;
+    return Semantics(
+      label: message,
+      liveRegion: true,
+      child: ExcludeSemantics(
+        child: Container(
+          key: ValueKey('library-pinned-${kind.name}'),
+          constraints: const BoxConstraints(minHeight: 42),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: error
+                ? tokens.critical.withValues(alpha: .08)
+                : tokens.accentSoft,
+            borderRadius: BorderRadius.circular(ThemeV2Radii.md),
+          ),
+          child: Text(
+            message,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: error ? tokens.critical : tokens.muted,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -151,55 +260,9 @@ class _AllPinned extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 72,
-      alignment: Alignment.center,
-      child: Text(
-        canPinMore ? '所有可用容器都已加入' : '移除一个容器后可继续添加',
-        style: Theme.of(
-          context,
-        ).textTheme.bodySmall?.copyWith(color: context.themeV2.muted),
-      ),
-    );
-  }
-}
-
-class _AvailableContainer extends StatelessWidget {
-  const _AvailableContainer({
-    required this.container,
-    required this.enabled,
-    required this.onAdd,
-  });
-
-  final LibraryContainerSummary container;
-  final bool enabled;
-  final VoidCallback onAdd;
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.themeV2;
-    return Semantics(
-      label: '加入 ${container.label}',
-      button: true,
-      enabled: enabled,
-      onTap: enabled ? onAdd : null,
-      child: ExcludeSemantics(
-        child: ThemeV2HitTarget(
-          child: OutlinedButton.icon(
-            onPressed: enabled ? onAdd : null,
-            icon: Icon(libraryContainerIcon(container), size: 17),
-            label: Text(container.label),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: tokens.foreground,
-              side: BorderSide(color: tokens.border),
-              minimumSize: const Size(
-                ThemeV2Sizes.minTouchTarget,
-                ThemeV2Sizes.minTouchTarget,
-              ),
-            ),
-          ),
-        ),
-      ),
+    return LibraryStateView.empty(
+      title: canPinMore ? '所有可用容器都已加入' : '已固定 6 个容器',
+      message: canPinMore ? null : '移除一个容器后可继续添加',
     );
   }
 }

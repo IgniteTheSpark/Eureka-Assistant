@@ -743,18 +743,20 @@ class LibraryAvailableContainerTile extends StatelessWidget {
     required this.container,
     required this.enabled,
     required this.onTap,
+    this.disabledLabel,
   });
 
   final LibraryContainerSummary container;
   final bool enabled;
   final VoidCallback onTap;
+  final String? disabledLabel;
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
     final label = enabled
-        ? '加入${container.label}'
-        : '无法加入${container.label}，常驻容器最多 6 个';
+        ? '加入 ${container.label}'
+        : disabledLabel ?? '无法加入${container.label}，常驻容器最多 6 个';
     return Semantics(
       label: label,
       button: true,

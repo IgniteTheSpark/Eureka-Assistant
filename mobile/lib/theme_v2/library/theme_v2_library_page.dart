@@ -174,6 +174,7 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
     LibrarySurface.pinnedConfiguration => PinnedConfiguration(
       controller: _controller,
       onDone: _navigation.back,
+      onCreateSkill: widget.onCreateSkill ?? _openCreateSkill,
     ),
   };
 

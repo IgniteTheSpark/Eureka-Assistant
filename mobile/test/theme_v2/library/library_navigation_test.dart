@@ -414,7 +414,7 @@ void main() {
       expect(controller.indexQuery, '网球');
       expect(controller.allQuery, '事件');
       expect(find.text('待办'), findsNothing);
-    expect(find.text('事件'), findsNWidgets(2));
+      expect(find.text('事件'), findsNWidgets(2));
     },
   );
 
@@ -508,6 +508,159 @@ void main() {
       expect(find.bySemanticsLabel('加入 待办'), findsOneWidget);
     },
   );
+
+  testWidgets('pinned configuration matches canonical hierarchy and copy', (
+    tester,
+  ) async {
+    final controller = await _controller();
+    var done = 0;
+    await _pumpHost(
+      tester,
+      PinnedConfiguration(controller: controller, onDone: () => done++),
+    );
+
+    expect(find.text('资产库'), findsOneWidget);
+    expect(find.textContaining('LIBRARY /'), findsNothing);
+    expect(find.textContaining('长按拖动常驻容器'), findsNothing);
+    expect(find.text('CONFIGURE / 05 · 长按拖动'), findsOneWidget);
+    expect(find.text('01'), findsOneWidget);
+    expect(find.textContaining('/ A'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('library-create-skill-configuration')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const PageStorageKey('theme-v2-library-pinned-configuration')),
+      findsOneWidget,
+    );
+    expect(
+      tester.getSize(find.byKey(const ValueKey('library-pinned-done'))),
+      const Size(72, 44),
+    );
+    await tester.tap(find.text('完成配置'));
+    expect(done, 1);
+  });
+
+  testWidgets('six pinned containers disable the remaining add tile', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    final controller = await _controller(
+      pinnedStore: _Store(const [
+        'todo',
+        'notes',
+        'event',
+        'contact',
+        'tennis',
+        'expense',
+      ]),
+    );
+    await _pumpHost(
+      tester,
+      PinnedConfiguration(controller: controller, onDone: () {}),
+    );
+
+    final add = find.bySemanticsLabel('加入 阅读摘录，已达到六个常驻容器上限');
+    expect(add, findsOneWidget);
+    expect(
+      tester.getSemantics(add),
+      matchesSemantics(
+        label: '加入 阅读摘录，已达到六个常驻容器上限',
+        isButton: true,
+        isEnabled: false,
+        hasEnabledState: true,
+        hasTapAction: false,
+      ),
+    );
+    semantics.dispose();
+  });
+
+  testWidgets('pinned configuration preserves its vertical position', (
+    tester,
+  ) async {
+    final controller = await _controller();
+    final bucket = PageStorageBucket();
+    Widget surface() => PageStorage(
+      bucket: bucket,
+      child: PinnedConfiguration(controller: controller, onDone: () {}),
+    );
+
+    await _pumpHost(tester, surface(), size: const Size(411, 480));
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, -320));
+    await tester.pumpAndSettle();
+    final before = tester
+        .state<ScrollableState>(find.byType(Scrollable).first)
+        .position
+        .pixels;
+    expect(before, greaterThan(0));
+
+    await _pumpHost(tester, surface(), size: const Size(411, 480));
+    final restored = tester
+        .state<ScrollableState>(find.byType(Scrollable).first)
+        .position
+        .pixels;
+    expect(restored, closeTo(before, 1));
+  });
+
+  testWidgets('pending pinned save locks duplicate controls', (tester) async {
+    final store = _PendingStore(const [
+      'todo',
+      'notes',
+      'tennis',
+      'event',
+      'contact',
+    ]);
+    final controller = await _controller(pinnedStore: store);
+    await _pumpHost(
+      tester,
+      PinnedConfiguration(controller: controller, onDone: () {}),
+    );
+
+    await tester.tap(find.bySemanticsLabel('移除 待办'));
+    await tester.pump();
+    expect(controller.isSavingPins, isTrue);
+    expect(find.text('正在保存配置…'), findsOneWidget);
+    final locked = tester.getSemantics(find.bySemanticsLabel('移除 笔记'));
+    expect(
+      locked,
+      matchesSemantics(
+        label: '移除 笔记',
+        isButton: true,
+        isEnabled: false,
+        hasEnabledState: true,
+        hasTapAction: false,
+      ),
+    );
+    await tester.tap(find.bySemanticsLabel('移除 笔记'));
+    await tester.pump();
+    expect(store.saved, hasLength(1));
+
+    store.pending.single.complete();
+    await tester.pumpAndSettle();
+    expect(controller.isSavingPins, isFalse);
+  });
+
+  testWidgets('failed pinned save restores the mosaic and explains failure', (
+    tester,
+  ) async {
+    final store = _Store(const ['todo', 'notes', 'tennis', 'event', 'contact'])
+      ..failNext = true;
+    final controller = await _controller(pinnedStore: store);
+    await _pumpHost(
+      tester,
+      PinnedConfiguration(controller: controller, onDone: () {}),
+    );
+
+    await tester.tap(find.bySemanticsLabel('移除 待办'));
+    await tester.pumpAndSettle();
+
+    expect(controller.pinnedContainers.map((item) => item.id).first, 'todo');
+    expect(find.textContaining('保存失败，已恢复原配置'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('library-pinned-tile-todo')),
+      findsOneWidget,
+    );
+  });
 
   testWidgets('configure long press drag reorders the shared mosaic', (
     tester,
@@ -754,7 +907,10 @@ void main() {
   );
 }
 
-Future<LibraryController> _controller({int recentCount = 1}) async {
+Future<LibraryController> _controller({
+  int recentCount = 1,
+  LibraryPinnedStore? pinnedStore,
+}) async {
   final now = DateTime(2026, 7, 28, 12);
   final controller = LibraryController(
     repository: _Repository(
@@ -857,7 +1013,7 @@ Future<LibraryController> _controller({int recentCount = 1}) async {
         totalAssetCount: 12,
       ),
     ),
-    pinnedStore: _Store(),
+    pinnedStore: pinnedStore ?? _Store(),
   );
   await controller.load();
   return controller;
@@ -955,11 +1111,39 @@ class _RefreshRepository implements LibraryRepository {
 }
 
 class _Store implements LibraryPinnedStore {
-  List<String> value = const ['todo', 'notes', 'tennis', 'event', 'contact'];
+  _Store([this.value = const ['todo', 'notes', 'tennis', 'event', 'contact']]);
+
+  List<String> value;
+  bool failNext = false;
 
   @override
   Future<List<String>> load() async => value;
 
   @override
-  Future<void> save(List<String> ids) async => value = List.of(ids);
+  Future<void> save(List<String> ids) async {
+    if (failNext) {
+      failNext = false;
+      throw StateError('save denied');
+    }
+    value = List.of(ids);
+  }
+}
+
+class _PendingStore implements LibraryPinnedStore {
+  _PendingStore(this.value);
+
+  List<String> value;
+  final List<List<String>> saved = [];
+  final List<Completer<void>> pending = [];
+
+  @override
+  Future<List<String>> load() async => List.of(value);
+
+  @override
+  Future<void> save(List<String> ids) {
+    saved.add(List.of(ids));
+    final completer = Completer<void>();
+    pending.add(completer);
+    return completer.future;
+  }
 }
