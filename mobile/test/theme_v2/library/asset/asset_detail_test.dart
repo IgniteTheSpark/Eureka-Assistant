@@ -50,7 +50,7 @@ void main() {
   });
 
   testWidgets(
-    'sheet expands in place with one hydration, draft and scroll position',
+    'editing expands in place with one hydration, draft and scroll position',
     (tester) async {
       var hydrationRequests = 0;
       final api = ApiClient(
@@ -109,9 +109,6 @@ void main() {
       await tester.pump();
       controller.scrollController.jumpTo(180);
       final before = controller.scrollController.offset;
-
-      await tester.tap(find.byKey(const ValueKey('asset-detail-expand')));
-      await tester.pumpAndSettle();
 
       expect(
         find.byKey(const ValueKey('theme-v2-asset-full-page')),

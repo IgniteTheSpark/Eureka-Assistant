@@ -4,6 +4,7 @@ import '../../../api/api_client.dart';
 import '../../../data_revision.dart';
 import '../../../render/render_spec.dart';
 import 'asset_editor.dart';
+import 'asset_editors.dart';
 
 enum AssetDetailPresentationKind { bottomSheet, fullPage }
 
@@ -28,7 +29,10 @@ class AssetDetailController extends ChangeNotifier {
        _ownsApi = api == null,
        _data = data,
        _payload = Map<String, dynamic>.from(payload),
-       spec = spec ?? synthesizeSpec(cardType),
+       spec = themeV2AssetEditorSpec(
+         cardType,
+         spec ?? synthesizeSpec(cardType),
+       ),
        presentation = initialAssetDetailPresentation(cardType) {
     draft = AssetEditorDraft(payload: _payload, spec: this.spec);
   }

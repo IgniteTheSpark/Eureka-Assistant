@@ -3,7 +3,6 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../../api/api_client.dart';
-import '../../../pages/create_asset.dart' show ContactForm, EventForm;
 import '../../../render/render_spec.dart';
 import '../../foundation/theme_v2_semantics.dart';
 import '../../foundation/theme_v2_theme.dart';
@@ -11,7 +10,7 @@ import '../../foundation/theme_v2_tokens.dart';
 import '../../foundation/theme_v2_typography.dart';
 import 'asset_detail_content.dart';
 import 'asset_detail_presentation.dart';
-import 'asset_editor.dart';
+import 'asset_editors.dart';
 
 Future<void> showThemeV2AssetDetail(
   BuildContext context, {
@@ -102,7 +101,8 @@ class _ThemeV2AssetDetailSurfaceState extends State<ThemeV2AssetDetailSurface> {
           _DetailHeader(controller: controller, onClose: _requestClose),
           Expanded(
             child: controller.editing
-                ? ThemeV2AssetEditor(
+                ? AssetEditorRouter(
+                    cardType: controller.cardType,
                     draft: controller.draft,
                     scrollController: controller.scrollController,
                     onSave: controller.saveDraft,
@@ -162,24 +162,10 @@ class _ThemeV2AssetDetailSurfaceState extends State<ThemeV2AssetDetailSurface> {
   }
 
   Future<void> _beginEditing() async {
-    if (controller.cardType != 'event' && controller.cardType != 'contact') {
-      controller.beginEditing();
-      return;
-    }
     await controller.hydrate();
     if (!mounted || controller.assetId == null) return;
-    final editor = controller.cardType == 'event'
-        ? EventForm(eventId: controller.assetId, existing: controller.payload)
-        : ContactForm(
-            contactId: controller.assetId,
-            existing: controller.payload,
-          );
-    final changed = await Navigator.of(
-      context,
-    ).push<bool>(MaterialPageRoute(builder: (_) => editor));
-    if (changed == true && mounted) {
-      Navigator.of(context).maybePop();
-    }
+    controller.expand();
+    controller.beginEditing();
   }
 
   Future<void> _confirmDelete() async {

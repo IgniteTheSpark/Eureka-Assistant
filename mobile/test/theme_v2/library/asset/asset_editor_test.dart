@@ -1,10 +1,77 @@
 import 'package:eureka/render/render_spec.dart';
+import 'package:eureka/theme_v2/asset/asset_card.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/library/asset/asset_editor.dart';
+import 'package:eureka/theme_v2/library/asset/asset_editors.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('system asset kinds expose their dedicated editor fields', (
+    tester,
+  ) async {
+    final draft = AssetEditorDraft(
+      payload: const {'title': '设计评审'},
+      spec: themeV2AssetEditorSpec('event', synthesizeSpec('event')),
+    );
+    addTearDown(draft.dispose);
+
+    await tester.pumpWidget(
+      _host(
+        AssetEditorRouter(
+          cardType: 'event',
+          draft: draft,
+          onSave: (_) async {},
+        ),
+      ),
+    );
+
+    expect(find.byKey(const ValueKey('asset-editor-start_at')), findsOneWidget);
+    expect(find.byKey(const ValueKey('asset-editor-end_at')), findsOneWidget);
+    expect(find.byKey(const ValueKey('asset-editor-location')), findsOneWidget);
+    expect(find.byType(ThemeV2AssetCard), findsOneWidget);
+  });
+
+  testWidgets('draft title updates the sticky shared-card preview', (
+    tester,
+  ) async {
+    final draft = AssetEditorDraft(
+      payload: const {'title': '旧标题', 'body': '正文'},
+      spec: themeV2AssetEditorSpec(
+        'notes',
+        const RenderSpec(
+          cardLayout: 'horizontal',
+          icon: '✍️',
+          accentColor: 'amber',
+          primaryField: 'title',
+        ),
+      ),
+    );
+    addTearDown(draft.dispose);
+
+    await tester.pumpWidget(
+      _host(
+        AssetEditorRouter(
+          cardType: 'notes',
+          draft: draft,
+          onSave: (_) async {},
+        ),
+      ),
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('asset-editor-title')),
+      '新的随记标题',
+    );
+    await tester.pump();
+
+    final preview = find.byKey(const ValueKey('asset-editor-preview'));
+    expect(preview, findsOneWidget);
+    expect(
+      find.descendant(of: preview, matching: find.text('新的随记标题')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets(
     'required schema fields block save and unknown types stay editable',
     (tester) async {

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../asset/asset_card.dart';
+import '../../asset/asset_card_display.dart';
 import '../../foundation/theme_v2_tokens.dart';
 import '../../../render/render_spec.dart';
 
@@ -120,12 +122,14 @@ class ThemeV2AssetEditor extends StatelessWidget {
     required this.onSave,
     this.scrollController,
     this.showActions = true,
+    this.previewLabel = '资产',
   });
 
   final AssetEditorDraft draft;
   final Future<void> Function(Map<String, dynamic> payload) onSave;
   final ScrollController? scrollController;
   final bool showActions;
+  final String previewLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -136,32 +140,87 @@ class ThemeV2AssetEditor extends StatelessWidget {
         key: const ValueKey('asset-editor-keyboard-padding'),
         duration: const Duration(milliseconds: 160),
         padding: EdgeInsets.only(bottom: inset + ThemeV2Spacing.lg),
-        child: ListView(
-          controller: scrollController,
-          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-          padding: const EdgeInsets.fromLTRB(
-            ThemeV2Spacing.xl,
-            ThemeV2Spacing.md,
-            ThemeV2Spacing.xl,
-            ThemeV2Spacing.xl,
-          ),
+        child: Column(
           children: [
-            for (final field in draft.fields) ...[
-              _EditorField(draft: draft, field: field),
-              const SizedBox(height: ThemeV2Spacing.lg),
-            ],
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                ThemeV2Spacing.xl,
+                ThemeV2Spacing.sm,
+                ThemeV2Spacing.xl,
+                ThemeV2Spacing.md,
+              ),
+              child: KeyedSubtree(
+                key: const ValueKey('asset-editor-preview'),
+                child: ThemeV2AssetCard(
+                  variant: AssetCardVariant.richCard,
+                  data: _previewData(),
+                  height: 86,
+                ),
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                controller: scrollController,
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                padding: const EdgeInsets.fromLTRB(
+                  ThemeV2Spacing.xl,
+                  0,
+                  ThemeV2Spacing.xl,
+                  ThemeV2Spacing.lg,
+                ),
+                children: [
+                  for (final field in draft.fields) ...[
+                    _EditorField(draft: draft, field: field),
+                    const SizedBox(height: ThemeV2Spacing.lg),
+                  ],
+                ],
+              ),
+            ),
             if (showActions)
-              FilledButton(
-                key: const ValueKey('asset-editor-save'),
-                onPressed: () async {
-                  if (!draft.validate()) return;
-                  await onSave(draft.payload);
-                },
-                child: const Text('保存'),
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: ThemeV2Spacing.xl,
+                ),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    key: const ValueKey('asset-editor-save'),
+                    onPressed: () async {
+                      if (!draft.validate()) return;
+                      await onSave(draft.payload);
+                    },
+                    child: const Text('保存'),
+                  ),
+                ),
               ),
           ],
         ),
       ),
+    );
+  }
+
+  AssetCardViewData _previewData() {
+    final fields = draft.fields;
+    final primary =
+        draft.spec.primaryField ??
+        fields.firstOrNull ??
+        draft.payload.keys.firstOrNull ??
+        'title';
+    final secondary = <String>[
+      if (draft.spec.secondaryField case final field?)
+        if (field.trim().isNotEmpty) field,
+      for (final meta in draft.spec.metaFields)
+        if (meta.field.trim().isNotEmpty) meta.field,
+    ];
+    return AssetCardViewData.fromPayload(
+      payload: draft.payload,
+      display: CardDisplayConfig(
+        primaryFieldId: primary,
+        secondaryFieldIds: secondary,
+      ),
+      spec: draft.spec,
+      skillLabel: previewLabel,
     );
   }
 }
