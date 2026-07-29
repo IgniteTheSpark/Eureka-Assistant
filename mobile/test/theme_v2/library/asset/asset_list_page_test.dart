@@ -155,13 +155,15 @@ void main() {
         enableLogging: false,
         client: MockClient((request) async {
           requests.add('${request.method} ${request.url.path}');
-          return _jsonResponse({
-            'asset': {
-              'id': 'a1',
-              'user_skill_name': 'notes',
-              'payload': {'title': '完整随记'},
-            },
-          });
+          return _jsonResponse(
+            _assetDetailEnvelope(
+              id: 'a1',
+              skillName: 'notes',
+              displayName: '随记',
+              values: const {'title': '完整随记'},
+              fields: const [('title', '标题')],
+            ),
+          );
         }),
       );
       addTearDown(api.close);
@@ -202,7 +204,7 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('设定目标'), findsNothing);
-      expect(requests, ['GET /api/assets/a1']);
+      expect(requests, ['GET /api/asset-details/asset/a1']);
     },
   );
 
@@ -215,14 +217,7 @@ void main() {
       enableLogging: false,
       client: MockClient((request) async {
         requests.add('${request.method} ${request.url.path}');
-        return _jsonResponse({
-          'event': {
-            'event_id': 'e1',
-            'title': '设计评审',
-            'start_at': '2026-07-28T15:00:00+08:00',
-            'end_at': '2026-07-28T16:00:00+08:00',
-          },
-        });
+        return _jsonResponse(_eventDetailEnvelope('e1'));
       }),
     );
     addTearDown(api.close);
@@ -250,7 +245,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('theme-v2-asset-sheet')), findsOneWidget);
-    expect(requests, ['GET /api/events/e1']);
+    expect(requests, ['GET /api/asset-details/event/e1']);
   });
 
   testWidgets('custom asset list exposes Card Display configuration', (
@@ -306,15 +301,16 @@ void main() {
             ],
           });
         }
-        if (request.url.path == '/api/assets/a1') {
-          return _jsonResponse({
-            'asset': {
-              'id': 'a1',
-              'user_skill_id': 'skill-tennis',
-              'user_skill_name': 'tennis_match',
-              'payload': {'opponent': 'Alex'},
-            },
-          });
+        if (request.url.path == '/api/asset-details/asset/a1') {
+          return _jsonResponse(
+            _assetDetailEnvelope(
+              id: 'a1',
+              skillName: 'tennis_match',
+              displayName: '网球对局簿',
+              values: const {'opponent': 'Alex'},
+              fields: const [('opponent', '对手'), ('result', '赛果')],
+            ),
+          );
         }
         return _jsonResponse({
           'assets': [
@@ -366,3 +362,94 @@ http.Response _jsonResponse(Object body) => http.Response.bytes(
   200,
   headers: const {'content-type': 'application/json; charset=utf-8'},
 );
+
+Map<String, dynamic> _assetDetailEnvelope({
+  required String id,
+  required String skillName,
+  required String displayName,
+  required Map<String, dynamic> values,
+  required List<(String, String)> fields,
+}) => {
+  'entity': {'kind': 'asset', 'id': id, 'version': 'version-1'},
+  'skill': {
+    'id': 'skill-$skillName',
+    'machine_name': skillName,
+    'display_name': displayName,
+    'icon': skillName == 'notes' ? '✍️' : '🎾',
+  },
+  'fields': [
+    for (var index = 0; index < fields.length; index++)
+      {
+        'id': fields[index].$1,
+        'label': fields[index].$2,
+        'type': 'string',
+        'required': index == 0,
+        'long': false,
+        'order': index,
+      },
+  ],
+  'values': values,
+  'display': {
+    'primary_field_id': fields.first.$1,
+    'secondary_field_ids': [for (final field in fields.skip(1)) field.$1],
+  },
+  'source': {
+    'kind': 'manual',
+    'label': '手动创建',
+    'session_id': null,
+    'input_turn_id': null,
+  },
+  'capabilities': {'editable': true, 'deletable': true},
+};
+
+Map<String, dynamic> _eventDetailEnvelope(String id) => {
+  'entity': {'kind': 'event', 'id': id, 'version': 'version-1'},
+  'skill': {
+    'id': null,
+    'machine_name': 'event',
+    'display_name': '事件',
+    'icon': '▣',
+  },
+  'fields': [
+    {
+      'id': 'title',
+      'label': '标题',
+      'type': 'string',
+      'required': true,
+      'long': false,
+      'order': 0,
+    },
+    {
+      'id': 'start_at',
+      'label': '开始',
+      'type': 'datetime',
+      'required': true,
+      'long': false,
+      'order': 1,
+    },
+    {
+      'id': 'end_at',
+      'label': '结束',
+      'type': 'datetime',
+      'required': false,
+      'long': false,
+      'order': 2,
+    },
+  ],
+  'values': {
+    'title': '设计评审',
+    'start_at': '2026-07-28T15:00:00+08:00',
+    'end_at': '2026-07-28T16:00:00+08:00',
+  },
+  'display': {
+    'primary_field_id': 'title',
+    'secondary_field_ids': ['start_at'],
+  },
+  'source': {
+    'kind': 'manual',
+    'label': '手动创建',
+    'session_id': null,
+    'input_turn_id': null,
+  },
+  'capabilities': {'editable': true, 'deletable': true},
+};

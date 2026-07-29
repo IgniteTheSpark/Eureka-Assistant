@@ -6,12 +6,14 @@ import '../../../data_revision.dart';
 import '../../../render/render_spec.dart';
 import '../../../timeline/timeline.dart';
 import '../../asset/asset_card.dart';
+import '../../asset_detail/asset_detail_repository.dart';
+import '../../asset_detail/asset_entity_ref.dart';
+import '../../asset_detail/open_asset_detail.dart';
 import '../../foundation/theme_v2_semantics.dart';
 import '../../foundation/theme_v2_theme.dart';
 import '../../foundation/theme_v2_tokens.dart';
 import '../../foundation/theme_v2_typography.dart';
 import 'asset_container_controller.dart';
-import 'asset_detail_sheet.dart';
 import 'asset_record.dart';
 
 enum AssetListSource { assets, entities }
@@ -310,23 +312,15 @@ class _ThemeV2AssetListPageState extends State<ThemeV2AssetListPage> {
   }
 
   Future<void> _open(AssetRecordViewModel record) async {
-    final spec =
-        _specs[record.containerId] ?? synthesizeSpec(record.containerId);
-    final data = buildCard(
-      payload: record.payload,
-      spec: spec,
-      displayName: record.containerId,
-    ).copyWith(domain: record.domain);
-    await showThemeV2AssetDetail(
+    final kind = switch (record.kind) {
+      AssetRecordKind.event => AssetEntityKind.event,
+      AssetRecordKind.contact => AssetEntityKind.contact,
+      _ => AssetEntityKind.asset,
+    };
+    await openAssetDetail(
       context,
-      api: _api,
-      data: data,
-      payload: record.payload,
-      cardType: record.containerId,
-      assetId: record.id,
-      userSkillId: record.userSkillId ?? widget.meta?.userSkillId,
-      sessionId: record.sessionId,
-      spec: spec,
+      AssetEntityRef(kind: kind, id: record.id),
+      repository: ApiAssetDetailRepository(_api),
     );
   }
 }

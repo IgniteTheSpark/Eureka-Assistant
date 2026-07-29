@@ -2,13 +2,14 @@ import 'package:flutter/material.dart';
 
 import '../../api/api_client.dart';
 import '../../data_revision.dart';
-import '../../render/render_spec.dart';
 import '../../render/skill_card.dart';
 import '../../timeline/timeline.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../asset_detail/asset_detail_repository.dart';
+import '../asset_detail/asset_entity_ref.dart';
+import '../asset_detail/open_asset_detail.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
-import 'asset/asset_detail_sheet.dart';
 import 'asset/asset_list_page.dart';
 import 'container_index.dart';
 import 'create_skill_action.dart';
@@ -191,22 +192,10 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
   }
 
   Future<void> _openRecent(LibraryRecentAsset item) async {
-    final specs = ref.read(renderSpecsProvider).valueOrNull ?? const {};
-    final card = item.detailCard;
-    final payload =
-        (card['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
-    final cardType = (card['user_skill_name'] as String?) ?? item.skillName;
-    final skill = card['user_skill_name'] as String?;
-    await showThemeV2AssetDetail(
+    await openAssetDetail(
       context,
-      api: _detailApi,
-      data: resolveSkillCardData(card, specs),
-      payload: payload,
-      cardType: cardType,
-      assetId: skillCardAssetId(card),
-      userSkillId: card['user_skill_id'] as String?,
-      sessionId: card['session_id'] as String?,
-      spec: skill == null ? synthesizeSpec(cardType) : specs[skill],
+      AssetEntityRef(kind: AssetEntityKind.asset, id: item.id),
+      repository: ApiAssetDetailRepository(_detailApi),
     );
   }
 

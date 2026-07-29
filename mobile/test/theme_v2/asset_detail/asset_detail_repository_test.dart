@@ -1,0 +1,138 @@
+import 'dart:convert';
+
+import 'package:eureka/api/api_client.dart';
+import 'package:eureka/theme_v2/asset_detail/asset_detail_model.dart';
+import 'package:eureka/theme_v2/asset_detail/asset_detail_repository.dart';
+import 'package:eureka/theme_v2/asset_detail/asset_entity_ref.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+
+void main() {
+  test('repository loads one normalized canonical detail envelope', () async {
+    final requests = <String>[];
+    final api = ApiClient(
+      baseUrl: 'http://localhost',
+      enableLogging: false,
+      client: MockClient((request) async {
+        requests.add('${request.method} ${request.url.path}');
+        return http.Response(
+          jsonEncode(_detailJson()),
+          200,
+          headers: const {'content-type': 'application/json; charset=utf-8'},
+        );
+      }),
+    );
+    addTearDown(api.close);
+    final repository = ApiAssetDetailRepository(api);
+
+    final model = await repository.load(
+      const AssetEntityRef(kind: AssetEntityKind.asset, id: 'asset-1'),
+    );
+
+    expect(model.ref.kind, AssetEntityKind.asset);
+    expect(model.version, 'version-1');
+    expect(model.skill.displayName, '宝贝饮食');
+    expect(model.fields.map((field) => field.id), ['meal', 'remark']);
+    expect(model.fields.last.long, isTrue);
+    expect(model.values['remark'], startsWith('# 晚餐'));
+    expect(model.display.primaryFieldId, 'meal');
+    expect(model.source.kind, AssetDetailSourceKind.flash);
+    expect(model.source.sessionId, 'session-1');
+    expect(model.source.inputTurnId, 'turn-2');
+    expect(model.source.canOpen, isTrue);
+    expect(model.capabilities.editable, isTrue);
+    expect(requests, ['GET /api/asset-details/asset/asset-1']);
+  });
+
+  test(
+    'save carries the authoritative version and returns the next model',
+    () async {
+      final requests = <http.Request>[];
+      final api = ApiClient(
+        baseUrl: 'http://localhost',
+        enableLogging: false,
+        client: MockClient((request) async {
+          requests.add(request);
+          return http.Response(
+            jsonEncode(_detailJson(version: 'version-2', remark: '已保存')),
+            200,
+            headers: const {'content-type': 'application/json; charset=utf-8'},
+          );
+        }),
+      );
+      addTearDown(api.close);
+      final repository = ApiAssetDetailRepository(api);
+      final current = AssetDetailModel.fromJson(_detailJson());
+
+      final saved = await repository.save(current, const {'remark': '已保存'});
+
+      expect(saved.version, 'version-2');
+      expect(saved.values['remark'], '已保存');
+      expect(requests.single.method, 'PUT');
+      expect(requests.single.url.path, '/api/asset-details/asset/asset-1');
+      expect(jsonDecode(requests.single.body), {
+        'expected_version': 'version-1',
+        'values_patch': {'remark': '已保存'},
+      });
+    },
+  );
+
+  test('manual source is static', () {
+    final json = _detailJson();
+    json['source'] = {
+      'kind': 'manual',
+      'label': '手动创建',
+      'session_id': null,
+      'input_turn_id': null,
+    };
+
+    final model = AssetDetailModel.fromJson(json);
+
+    expect(model.source.kind, AssetDetailSourceKind.manual);
+    expect(model.source.canOpen, isFalse);
+  });
+}
+
+Map<String, dynamic> _detailJson({
+  String version = 'version-1',
+  String remark = '# 晚餐\n\n- 主动吃',
+}) => {
+  'entity': {'kind': 'asset', 'id': 'asset-1', 'version': version},
+  'skill': {
+    'id': 'skill-1',
+    'machine_name': 'baby_meal',
+    'display_name': '宝贝饮食',
+    'icon': '🍼',
+  },
+  'fields': [
+    {
+      'id': 'remark',
+      'label': '备注',
+      'type': 'string',
+      'required': false,
+      'long': true,
+      'order': 1,
+    },
+    {
+      'id': 'meal',
+      'label': '饮食',
+      'type': 'string',
+      'required': true,
+      'long': false,
+      'order': 0,
+    },
+  ],
+  'values': {'meal': '小米粥', 'remark': remark},
+  'display': {
+    'primary_field_id': 'meal',
+    'secondary_field_ids': ['remark'],
+  },
+  'source': {
+    'kind': 'flash',
+    'label': '来自闪念',
+    'session_id': 'session-1',
+    'input_turn_id': 'turn-2',
+  },
+  'capabilities': {'editable': true, 'deletable': true},
+};

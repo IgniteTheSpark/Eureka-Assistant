@@ -1,114 +1,109 @@
 import 'package:flutter/material.dart';
 
-import '../../../api/api_client.dart';
 import '../../../data_revision.dart';
 import '../../../render/render_spec.dart';
+import '../../asset_detail/asset_detail_model.dart';
+import '../../asset_detail/asset_detail_repository.dart';
+import '../../asset_detail/asset_entity_ref.dart';
 import 'asset_editor.dart';
-import 'asset_editors.dart';
 
 enum AssetDetailPresentationKind { bottomSheet, fullPage }
 
 enum AssetDetailLoadState { loading, ready, error }
 
-/// Asset type never decides its chrome. Every detail enters through the same
-/// bottom-sheet surface and may then expand without replacing its state.
-AssetDetailPresentationKind initialAssetDetailPresentation(String _) =>
+AssetDetailPresentationKind initialAssetDetailPresentation([Object? _]) =>
     AssetDetailPresentationKind.bottomSheet;
 
 class AssetDetailController extends ChangeNotifier {
-  AssetDetailController({
-    ApiClient? api,
-    required CardData data,
-    required Map<String, dynamic> payload,
-    required this.cardType,
-    required this.assetId,
-    required this.userSkillId,
-    required RenderSpec? spec,
-    this.sessionId,
-  }) : _api = api ?? ApiClient(),
-       _ownsApi = api == null,
-       _data = data,
-       _payload = Map<String, dynamic>.from(payload),
-       spec = themeV2AssetEditorSpec(
-         cardType,
-         spec ?? synthesizeSpec(cardType),
-       ),
-       presentation = initialAssetDetailPresentation(cardType) {
-    draft = AssetEditorDraft(payload: _payload, spec: this.spec);
-  }
+  AssetDetailController({required this.repository, required this.ref})
+    : presentation = initialAssetDetailPresentation();
 
-  final ApiClient _api;
-  final bool _ownsApi;
-  final String cardType;
-  final String? assetId;
-  final String? userSkillId;
-  final String? sessionId;
-  final RenderSpec spec;
+  final AssetDetailRepository repository;
+  final AssetEntityRef ref;
   final ScrollController scrollController = ScrollController();
 
   AssetDetailPresentationKind presentation;
   AssetDetailLoadState loadState = AssetDetailLoadState.loading;
-  late AssetEditorDraft draft;
-  CardData _data;
-  Map<String, dynamic> _payload;
+  AssetDetailModel? _detail;
+  RenderSpec? _spec;
+  CardData? _data;
+  AssetEditorDraft? _draft;
   Future<void>? _hydration;
   bool editing = false;
   bool busy = false;
   bool _disposed = false;
   String? errorMessage;
 
-  CardData get data => _data;
-  Map<String, dynamic> get payload => Map.unmodifiable(_payload);
-  bool get isDone => todoPayloadIsDone(_payload);
-  String? get sourceLabel {
-    final explicit =
-        _payload['source_label']?.toString().trim() ??
-        _payload['source']?.toString().trim() ??
-        '';
-    if (explicit.isNotEmpty) return explicit;
-    final session = sessionId?.trim() ?? '';
-    return session.isEmpty ? null : '来自闪念';
-  }
+  AssetDetailModel? get detail => _detail;
+  String get assetId => ref.id;
+  String get cardType => _detail?.skill.machineName ?? ref.kind.name;
+  String get skillDisplayName =>
+      _detail?.skill.displayName ?? ref.kind.name.toUpperCase();
+  String? get userSkillId => _detail?.skill.id;
+  String? get sessionId => _detail?.source.sessionId;
+  String? get inputTurnId => _detail?.source.inputTurnId;
+  String? get sourceLabel => _detail?.source.label;
+  bool get sourceCanOpen => _detail?.source.canOpen ?? false;
+  bool get canEdit =>
+      loadState == AssetDetailLoadState.ready &&
+      (_detail?.capabilities.editable ?? false);
+  bool get canDelete =>
+      loadState == AssetDetailLoadState.ready &&
+      (_detail?.capabilities.deletable ?? false);
+
+  RenderSpec get spec => _spec ?? synthesizeSpec(cardType);
+  AssetEditorDraft get draft => _draft!;
+  Map<String, dynamic> get payload =>
+      Map.unmodifiable(_detail?.values ?? const {});
+  CardData get data =>
+      _data ??
+      CardData(
+        layout: 'horizontal',
+        icon: '•',
+        accentColor: 'gray',
+        title: skillDisplayName,
+        subtitle: '',
+        metaFields: const [],
+      );
+  bool get isDone => todoPayloadIsDone(payload);
 
   Future<void> hydrate() => _hydration ??= _hydrateOnce();
 
+  Future<void> retry() {
+    _hydration = null;
+    loadState = AssetDetailLoadState.loading;
+    errorMessage = null;
+    _notify();
+    return hydrate();
+  }
+
   Future<void> _hydrateOnce() async {
-    final id = assetId;
-    if (id == null || id.isEmpty || cardType == 'task') {
-      loadState = AssetDetailLoadState.ready;
-      _notify();
-      return;
-    }
     try {
-      final response = await _api.getJson(_detailPath(id));
-      final raw = switch (cardType) {
-        'event' => response is Map ? (response['event'] ?? response) : null,
-        'contact' => response is Map ? (response['contact'] ?? response) : null,
-        _ => response is Map ? response['asset'] : null,
-      };
-      final map = raw is Map ? raw.cast<String, dynamic>() : null;
-      final hydrated = cardType == 'event' || cardType == 'contact'
-          ? map
-          : (map?['payload'] as Map?)?.cast<String, dynamic>();
-      if (_disposed || hydrated == null) return;
-      _payload = Map<String, dynamic>.from(hydrated);
-      _data = buildCard(
-        payload: _payload,
-        spec: spec,
-        displayName: cardType,
-      ).copyWith(domain: map?['domain'] as String? ?? _data.domain);
-      if (!draft.isDirty) {
-        draft.dispose();
-        draft = AssetEditorDraft(payload: _payload, spec: spec);
-      }
+      final loaded = await repository.load(ref);
+      if (_disposed) return;
+      _applyModel(loaded, replaceDraft: true);
       loadState = AssetDetailLoadState.ready;
       errorMessage = null;
-    } catch (error) {
+    } catch (_) {
       if (_disposed) return;
       loadState = AssetDetailLoadState.error;
-      errorMessage = '完整内容暂时无法加载，当前显示缓存内容';
+      errorMessage = '完整内容暂时无法加载';
     }
     _notify();
+  }
+
+  void _applyModel(AssetDetailModel model, {required bool replaceDraft}) {
+    _detail = model;
+    _spec = _specFromModel(model);
+    _data = buildCard(
+      payload: model.values,
+      spec: _spec,
+      displayName: model.skill.machineName,
+    );
+    if (replaceDraft) {
+      _draft?.dispose();
+      _draft = AssetEditorDraft(payload: model.values, spec: _spec!);
+    }
   }
 
   void expand() {
@@ -138,58 +133,34 @@ class AssetDetailController extends ChangeNotifier {
   }
 
   void beginEditing() {
+    if (!canEdit || _draft == null) return;
     editing = true;
     _notify();
   }
 
   void cancelEditing() {
     editing = false;
+    _draft?.dispose();
+    final current = _detail;
+    if (current != null) {
+      _draft = AssetEditorDraft(payload: current.values, spec: spec);
+    }
     _notify();
   }
 
   Future<void> saveDraft(Map<String, dynamic> next) async {
-    final id = assetId;
-    if (id == null || busy) return;
+    final current = _detail;
+    if (current == null || busy) return;
     busy = true;
     _notify();
     try {
-      switch (cardType) {
-        case 'event':
-          await _api.putJson('/api/events/$id', next);
-        case 'contact':
-          await _api.putJson('/api/contacts/$id', next);
-        default:
-          await _api.putJson('/api/assets/$id', {'payload_patch': next});
-      }
-      _payload = Map<String, dynamic>.from(next);
-      _data = buildCard(
-        payload: _payload,
-        spec: spec,
-        displayName: cardType,
-      ).copyWith(domain: _data.domain);
-      draft.acceptSaved();
+      final saved = await repository.save(current, next);
+      if (_disposed) return;
+      _applyModel(saved, replaceDraft: true);
       editing = false;
       bumpData();
-    } finally {
-      busy = false;
-      _notify();
-    }
-  }
-
-  Future<void> toggleTodo() async {
-    final id = assetId;
-    if (id == null || busy) return;
-    final next = !isDone;
-    busy = true;
-    _payload = {..._payload, 'status': next ? 'done' : 'pending'};
-    _notify();
-    try {
-      await _api.putJson('/api/assets/$id', {
-        'payload_patch': {'status': next ? 'done' : 'pending'},
-      });
-      bumpData();
-    } catch (_) {
-      _payload = {..._payload, 'status': next ? 'pending' : 'done'};
+    } catch (error) {
+      errorMessage = error.toString();
       rethrow;
     } finally {
       busy = false;
@@ -197,13 +168,17 @@ class AssetDetailController extends ChangeNotifier {
     }
   }
 
-  Future<void> delete() async {
-    final id = assetId;
-    if (id == null || busy) return;
+  Future<void> toggleTodo() async {
+    final current = _detail;
+    if (current == null || busy) return;
     busy = true;
     _notify();
     try {
-      await _api.deleteJson(_detailPath(id));
+      final saved = await repository.save(current, {
+        'status': isDone ? 'pending' : 'done',
+      });
+      if (_disposed) return;
+      _applyModel(saved, replaceDraft: true);
       bumpData();
     } finally {
       busy = false;
@@ -211,11 +186,18 @@ class AssetDetailController extends ChangeNotifier {
     }
   }
 
-  String _detailPath(String id) => switch (cardType) {
-    'event' => '/api/events/$id',
-    'contact' => '/api/contacts/$id',
-    _ => '/api/assets/$id',
-  };
+  Future<void> delete() async {
+    if (busy || !canDelete) return;
+    busy = true;
+    _notify();
+    try {
+      await repository.delete(ref);
+      bumpData();
+    } finally {
+      busy = false;
+      _notify();
+    }
+  }
 
   void _notify() {
     if (!_disposed) notifyListeners();
@@ -224,9 +206,45 @@ class AssetDetailController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
-    draft.dispose();
+    _draft?.dispose();
     scrollController.dispose();
-    if (_ownsApi) _api.close();
     super.dispose();
   }
+}
+
+RenderSpec _specFromModel(AssetDetailModel model) {
+  final secondary = model.display.secondaryFieldIds;
+  return RenderSpec(
+    cardLayout: model.fields.any((field) => field.long)
+        ? 'stacked'
+        : 'horizontal',
+    icon: model.skill.icon,
+    accentColor: switch (model.ref.kind) {
+      AssetEntityKind.event => 'purple',
+      AssetEntityKind.contact => 'neutral',
+      AssetEntityKind.asset =>
+        model.skill.machineName == 'todo' ? 'blue' : 'gray',
+    },
+    primaryField: model.display.primaryFieldId,
+    secondaryField: secondary.firstOrNull,
+    metaFields: [
+      for (final field in secondary.skip(1)) MetaFieldSpec(field, null),
+    ],
+    actions: [
+      if (model.skill.machineName == 'todo') 'check',
+      if (model.capabilities.editable) 'edit',
+      if (model.capabilities.deletable) 'delete',
+    ],
+    fieldLabels: {for (final field in model.fields) field.id: field.label},
+    schemaFields: [for (final field in model.fields) field.id],
+    longFields: {
+      for (final field in model.fields)
+        if (field.long) field.id,
+    },
+    fieldTypes: {for (final field in model.fields) field.id: field.type},
+    requiredFields: {
+      for (final field in model.fields)
+        if (field.required) field.id,
+    },
+  );
 }

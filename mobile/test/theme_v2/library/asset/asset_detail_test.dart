@@ -1,7 +1,9 @@
 import 'dart:convert';
 
 import 'package:eureka/api/api_client.dart';
-import 'package:eureka/render/render_spec.dart';
+import 'package:eureka/theme_v2/asset_detail/asset_detail_model.dart';
+import 'package:eureka/theme_v2/asset_detail/asset_detail_repository.dart';
+import 'package:eureka/theme_v2/asset_detail/asset_entity_ref.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/library/asset/asset_detail_presentation.dart';
 import 'package:eureka/theme_v2/library/asset/asset_detail_sheet.dart';
@@ -17,18 +19,10 @@ void main() {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(411, 960);
     addTearDown(tester.view.reset);
+    final model = AssetDetailModel.fromJson(_assetEnvelope());
     final controller = AssetDetailController(
-      data: buildCard(
-        payload: const {'title': '随记', 'body': '正文'},
-        spec: _spec,
-        displayName: 'notes',
-      ),
-      payload: const {'title': '随记', 'body': '正文'},
-      cardType: 'notes',
-      assetId: null,
-      userSkillId: 'skill-notes',
-      sessionId: 'session-source',
-      spec: _spec,
+      repository: _FakeRepository(model),
+      ref: model.ref,
     );
     addTearDown(controller.dispose);
 
@@ -58,35 +52,13 @@ void main() {
         enableLogging: false,
         client: MockClient((request) async {
           hydrationRequests++;
-          return http.Response(
-            jsonEncode({
-              'asset': {
-                'id': 'asset-1',
-                'user_skill_name': 'notes',
-                'payload': {
-                  'title': '服务端标题',
-                  'body': '服务端长文',
-                  for (var i = 0; i < 12; i++) 'field_$i': 'value $i',
-                },
-              },
-            }),
-            200,
-          );
+          return _jsonResponse(_assetEnvelope(manyFields: true));
         }),
       );
       addTearDown(api.close);
       final controller = AssetDetailController(
-        api: api,
-        data: buildCard(
-          payload: const {'title': '卡片标题'},
-          spec: _spec,
-          displayName: 'notes',
-        ),
-        payload: const {'title': '卡片标题'},
-        cardType: 'notes',
-        assetId: 'asset-1',
-        userSkillId: 'skill-1',
-        spec: _spec,
+        repository: ApiAssetDetailRepository(api),
+        ref: const AssetEntityRef(kind: AssetEntityKind.asset, id: 'asset-1'),
       );
       addTearDown(controller.dispose);
 
@@ -130,7 +102,7 @@ void main() {
     },
   );
 
-  testWidgets('detail exposes delete and entity mutations use typed paths', (
+  testWidgets('detail saves through canonical path and deletes typed entity', (
     tester,
   ) async {
     final requests = <String>[];
@@ -140,30 +112,14 @@ void main() {
       client: MockClient((request) async {
         requests.add('${request.method} ${request.url.path}');
         if (request.method == 'DELETE') return http.Response('', 200);
-        return http.Response.bytes(
-          utf8.encode(
-            jsonEncode({
-              'event': {'event_id': 'event-1', 'title': '评审'},
-            }),
-          ),
-          200,
-          headers: const {'content-type': 'application/json; charset=utf-8'},
-        );
+        final title = request.method == 'PUT' ? '新标题' : '评审';
+        return _jsonResponse(_eventEnvelope(title: title));
       }),
     );
     addTearDown(api.close);
     final controller = AssetDetailController(
-      api: api,
-      data: buildCard(
-        payload: const {'title': '评审'},
-        spec: synthesizeSpec('event'),
-        displayName: 'event',
-      ),
-      payload: const {'title': '评审'},
-      cardType: 'event',
-      assetId: 'event-1',
-      userSkillId: null,
-      spec: synthesizeSpec('event'),
+      repository: ApiAssetDetailRepository(api),
+      ref: const AssetEntityRef(kind: AssetEntityKind.event, id: 'event-1'),
     );
     addTearDown(controller.dispose);
 
@@ -178,37 +134,106 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(requests, [
-      'GET /api/events/event-1',
-      'PUT /api/events/event-1',
+      'GET /api/asset-details/event/event-1',
+      'PUT /api/asset-details/event/event-1',
       'DELETE /api/events/event-1',
     ]);
   });
 }
 
-const _spec = RenderSpec(
-  cardLayout: 'horizontal',
-  icon: '✍️',
-  accentColor: 'amber',
-  primaryField: 'title',
-  schemaFields: [
-    'title',
-    'body',
-    'field_0',
-    'field_1',
-    'field_2',
-    'field_3',
-    'field_4',
-    'field_5',
-    'field_6',
-    'field_7',
-    'field_8',
-    'field_9',
-    'field_10',
-    'field_11',
-  ],
-  fieldLabels: {'title': '标题', 'body': '正文'},
-  longFields: {'body'},
-  requiredFields: {'title'},
+class _FakeRepository implements AssetDetailRepository {
+  const _FakeRepository(this.model);
+
+  final AssetDetailModel model;
+
+  @override
+  Future<AssetDetailModel> load(AssetEntityRef ref) async => model;
+
+  @override
+  Future<AssetDetailModel> save(
+    AssetDetailModel current,
+    Map<String, dynamic> valuesPatch,
+  ) async => current;
+
+  @override
+  Future<void> delete(AssetEntityRef ref) async {}
+}
+
+Map<String, dynamic> _assetEnvelope({bool manyFields = false}) {
+  final fields = <Map<String, dynamic>>[
+    _field('title', '标题', order: 0, required: true),
+    _field('body', '正文', order: 1, long: true),
+    if (manyFields)
+      for (var i = 0; i < 12; i++) _field('field_$i', '字段 $i', order: i + 2),
+  ];
+  return {
+    'entity': {'kind': 'asset', 'id': 'asset-1', 'version': 'version-1'},
+    'skill': {
+      'id': 'skill-1',
+      'machine_name': 'notes',
+      'display_name': '随记',
+      'icon': '✍️',
+    },
+    'fields': fields,
+    'values': {
+      'title': '服务端标题',
+      'body': '服务端长文',
+      if (manyFields)
+        for (var i = 0; i < 12; i++) 'field_$i': 'value $i',
+    },
+    'display': {
+      'primary_field_id': 'title',
+      'secondary_field_ids': ['body'],
+    },
+    'source': {
+      'kind': 'manual',
+      'label': '手动创建',
+      'session_id': null,
+      'input_turn_id': null,
+    },
+    'capabilities': {'editable': true, 'deletable': true},
+  };
+}
+
+Map<String, dynamic> _eventEnvelope({required String title}) => {
+  'entity': {'kind': 'event', 'id': 'event-1', 'version': 'version-1'},
+  'skill': {
+    'id': null,
+    'machine_name': 'event',
+    'display_name': '事件',
+    'icon': '▣',
+  },
+  'fields': [_field('title', '标题', order: 0, required: true)],
+  'values': {'title': title},
+  'display': {'primary_field_id': 'title', 'secondary_field_ids': <String>[]},
+  'source': {
+    'kind': 'manual',
+    'label': '手动创建',
+    'session_id': null,
+    'input_turn_id': null,
+  },
+  'capabilities': {'editable': true, 'deletable': true},
+};
+
+Map<String, dynamic> _field(
+  String id,
+  String label, {
+  required int order,
+  bool required = false,
+  bool long = false,
+}) => {
+  'id': id,
+  'label': label,
+  'type': 'string',
+  'required': required,
+  'long': long,
+  'order': order,
+};
+
+http.Response _jsonResponse(Object body) => http.Response.bytes(
+  utf8.encode(jsonEncode(body)),
+  200,
+  headers: const {'content-type': 'application/json; charset=utf-8'},
 );
 
 Widget _host(Widget child) => MaterialApp(

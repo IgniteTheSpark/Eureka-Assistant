@@ -2,8 +2,6 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../../../api/api_client.dart';
-import '../../../render/render_spec.dart';
 import '../../foundation/theme_v2_semantics.dart';
 import '../../foundation/theme_v2_theme.dart';
 import '../../foundation/theme_v2_tokens.dart';
@@ -11,48 +9,6 @@ import '../../foundation/theme_v2_typography.dart';
 import 'asset_detail_content.dart';
 import 'asset_detail_presentation.dart';
 import 'asset_editors.dart';
-
-Future<void> showThemeV2AssetDetail(
-  BuildContext context, {
-  required CardData data,
-  required Map<String, dynamic> payload,
-  required String cardType,
-  String? assetId,
-  String? userSkillId,
-  String? sessionId,
-  RenderSpec? spec,
-  ApiClient? api,
-}) async {
-  final controller = AssetDetailController(
-    api: api,
-    data: data,
-    payload: payload,
-    cardType: cardType,
-    assetId: assetId,
-    userSkillId: userSkillId,
-    sessionId: sessionId,
-    spec: spec,
-  );
-  try {
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      isDismissible: false,
-      enableDrag: false,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) {
-        final routeTheme = buildThemeV2Theme(Theme.of(sheetContext).brightness);
-        return Theme(
-          data: routeTheme,
-          child: ThemeV2AssetDetailSurface(controller),
-        );
-      },
-    );
-  } finally {
-    controller.dispose();
-  }
-}
 
 class ThemeV2AssetDetailSurface extends StatefulWidget {
   const ThemeV2AssetDetailSurface(this.controller, {super.key});
@@ -163,7 +119,7 @@ class _ThemeV2AssetDetailSurfaceState extends State<ThemeV2AssetDetailSurface> {
 
   Future<void> _beginEditing() async {
     await controller.hydrate();
-    if (!mounted || controller.assetId == null) return;
+    if (!mounted || !controller.canEdit) return;
     controller.expand();
     controller.beginEditing();
   }
@@ -249,7 +205,7 @@ class _DetailHeader extends StatelessWidget {
                   ),
                 Expanded(
                   child: Text(
-                    controller.cardType.toUpperCase(),
+                    controller.skillDisplayName,
                     textAlign: TextAlign.center,
                     style: ThemeV2Typography.mono(
                       fontSize: 9,
@@ -298,7 +254,10 @@ class _DetailBody extends StatelessWidget {
       children: [
         Expanded(child: AssetDetailContent(controller: controller)),
         if (controller.sourceLabel case final source?)
-          AssetDetailSourceBar(label: source),
+          AssetDetailSourceBar(
+            label: source,
+            onOpen: controller.sourceCanOpen ? () {} : null,
+          ),
         _DetailActions(
           controller: controller,
           onEdit: onEdit,
@@ -340,7 +299,8 @@ class _DetailActions extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (controller.cardType == 'todo') ...[
+            if (controller.cardType == 'todo' &&
+                controller.loadState == AssetDetailLoadState.ready) ...[
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
@@ -359,12 +319,12 @@ class _DetailActions extends StatelessWidget {
                 Expanded(
                   child: FilledButton.icon(
                     key: const ValueKey('asset-detail-edit'),
-                    onPressed: controller.assetId == null ? null : onEdit,
+                    onPressed: controller.canEdit ? onEdit : null,
                     icon: const Icon(Icons.edit_outlined),
                     label: const Text('编辑'),
                   ),
                 ),
-                if (controller.assetId != null) ...[
+                if (controller.canDelete) ...[
                   const SizedBox(width: ThemeV2Spacing.sm),
                   ThemeV2HitTarget(
                     child: IconButton.outlined(
