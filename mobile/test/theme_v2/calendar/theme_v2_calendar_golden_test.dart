@@ -156,6 +156,22 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  Future<TestGesture> revealDropletAt(
+    WidgetTester tester,
+    Finder pages, {
+    required double dyFromTop,
+  }) async {
+    final rect = tester.getRect(pages);
+    final gesture = await tester.startGesture(
+      Offset(rect.center.dx, rect.top + dyFromTop),
+    );
+    await gesture.moveBy(const Offset(-50, 0));
+    await tester.pump();
+    await gesture.moveBy(const Offset(-10, 0));
+    await tester.pump();
+    return gesture;
+  }
+
   for (final brightness in Brightness.values) {
     final suffix = brightness == Brightness.light ? 'light' : 'dark';
 
@@ -176,7 +192,9 @@ void main() {
       );
     });
 
-    testWidgets('Flow drag toward Month 411 $suffix', (tester) async {
+    testWidgets('Flow drag toward Month at upper origin 411 $suffix', (
+      tester,
+    ) async {
       await pumpGolden(
         tester,
         brightness: brightness,
@@ -189,13 +207,7 @@ void main() {
         ),
       );
       final pages = find.byKey(const ValueKey('calendar-mode-pages'));
-      final gesture = await tester.startGesture(tester.getCenter(pages));
-      await gesture.moveBy(const Offset(-8, 0));
-      await tester.pump();
-      await gesture.moveBy(const Offset(-42, 0));
-      await tester.pump();
-      await gesture.moveBy(const Offset(-10, 0));
-      await tester.pump();
+      final gesture = await revealDropletAt(tester, pages, dyFromTop: 150);
 
       expect(
         find.byKey(const ValueKey('calendar-scale-drag-droplet')),
@@ -204,6 +216,42 @@ void main() {
       await expectLater(
         find.byKey(surface),
         matchesGoldenFile('goldens/calendar-flow-drag-month-411-$suffix.png'),
+      );
+
+      await gesture.up();
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('Flow drag toward Month at lower origin 411 $suffix', (
+      tester,
+    ) async {
+      await pumpGolden(
+        tester,
+        brightness: brightness,
+        disableAnimations: false,
+        child: withCalendarDock(
+          calendarPage(
+            controller: CalendarController(),
+            data: calendarHandoffOverviewData(),
+          ),
+        ),
+      );
+      final pages = find.byKey(const ValueKey('calendar-mode-pages'));
+      final gesture = await revealDropletAt(
+        tester,
+        pages,
+        dyFromTop: tester.getSize(pages).height - 150,
+      );
+
+      expect(
+        find.byKey(const ValueKey('calendar-scale-drag-droplet')),
+        findsOneWidget,
+      );
+      await expectLater(
+        find.byKey(surface),
+        matchesGoldenFile(
+          'goldens/calendar-flow-drag-month-lower-411-$suffix.png',
+        ),
       );
 
       await gesture.up();
