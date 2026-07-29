@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../api/api_client.dart';
 import '../../data_revision.dart';
-import '../../pages/report_list_page.dart';
-import '../../pages/report_viewer_page.dart';
 import '../../render/render_spec.dart';
 import '../../render/skill_card.dart';
 import '../../theme/app_theme.dart';
@@ -20,6 +18,8 @@ import 'create_skill_action.dart';
 import 'library_components.dart';
 import 'library_controller.dart';
 import 'library_hub.dart';
+import 'library_models.dart';
+import 'library_repository.dart';
 import 'pinned_configuration.dart';
 
 class ThemeV2LibraryPage extends ConsumerStatefulWidget {
@@ -36,7 +36,7 @@ class ThemeV2LibraryPage extends ConsumerStatefulWidget {
   final LibraryController? controller;
   final bool autoLoad;
   final LibraryContainerCallback? onOpenContainer;
-  final ValueChanged<LibraryRecentItem>? onOpenRecent;
+  final ValueChanged<LibraryRecentAsset>? onOpenRecent;
   final VoidCallback? onCreateSkill;
   final ValueChanged<SetGoalIntent>? onSetGoal;
 
@@ -88,8 +88,8 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
       animation: _controller,
       builder: (context, _) {
         final status = _controller.status;
-        final hasSnapshot = _controller.snapshot != null;
-        if (status == LibraryStatus.loading && !hasSnapshot) {
+        final hasOverview = _controller.overview != null;
+        if (status == LibraryStatus.loading && !hasOverview) {
           return const ColoredBox(
             color: Colors.transparent,
             child: ThemeV2AsyncState.loading(label: '正在加载资产库'),
@@ -199,38 +199,12 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
     showThemeV2CreateSkillLaunch(context);
   }
 
-  Future<void> _openRecent(LibraryRecentItem item) async {
-    if (item.containerId == 'report') {
-      try {
-        final response = await _detailApi.getJson('/api/reports/${item.id}');
-        final report = (response is Map ? response['report'] : null) as Map?;
-        if (!mounted || report == null) return;
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => ReportViewerPage(
-              title: report['title'] as String? ?? item.title,
-              html: report['html'] as String? ?? '',
-              reportId: report['id'] as String? ?? item.id,
-            ),
-          ),
-        );
-      } catch (_) {
-        if (!mounted) return;
-        Navigator.of(
-          context,
-        ).push(MaterialPageRoute(builder: (_) => const ReportListPage()));
-      }
-      return;
-    }
+  Future<void> _openRecent(LibraryRecentAsset item) async {
     final specs = ref.read(renderSpecsProvider).valueOrNull ?? const {};
-    final card = item.card;
-    final type = card['card_type'] as String?;
-    final isEntity = type == 'event' || type == 'contact' || type == 'task';
-    final payload = isEntity
-        ? card
-        : ((card['payload'] as Map?)?.cast<String, dynamic>() ?? const {});
-    final cardType =
-        type ?? (card['user_skill_name'] as String?) ?? item.containerId;
+    final card = item.detailCard;
+    final payload =
+        (card['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final cardType = (card['user_skill_name'] as String?) ?? item.skillName;
     final skill = card['user_skill_name'] as String?;
     await showThemeV2AssetDetail(
       context,
@@ -246,47 +220,42 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
     );
   }
 
-  void _openContainer(LibraryContainer container) {
-    final snapshot = _controller.snapshot;
-    switch (container.kind) {
-      case LibraryContainerKind.event:
+  void _openContainer(LibraryContainerSummary container) {
+    switch (container.type) {
+      case LibraryContainerType.event:
         _pushLibraryRoute(
           ThemeV2AssetListPage.entities(
             title: '事件档案',
             cardType: 'event',
-            initialEntities: snapshot?.events ?? const [],
+            initialEntities: const [],
             api: _detailApi,
             onSetGoal: widget.onSetGoal,
           ),
         );
-      case LibraryContainerKind.contact:
+      case LibraryContainerType.contact:
         _pushLibraryRoute(
           ThemeV2AssetListPage.entities(
             title: '人物索引',
             cardType: 'contact',
-            initialEntities: snapshot?.contacts ?? const [],
+            initialEntities: const [],
             api: _detailApi,
             onSetGoal: widget.onSetGoal,
           ),
         );
-      case LibraryContainerKind.report:
-        Navigator.of(
-          context,
-        ).push(MaterialPageRoute(builder: (_) => const ReportListPage()));
-      case LibraryContainerKind.asset:
-      case LibraryContainerKind.external:
-        final meta =
-            snapshot?.skills[container.id] ??
-            SkillMeta(container.icon, container.label);
+      case LibraryContainerType.todo:
+      case LibraryContainerType.notes:
+      case LibraryContainerType.custom:
+        final meta = SkillMeta(
+          container.mark,
+          container.label,
+          'gray',
+          container.userSkillId,
+        );
         _pushLibraryRoute(
           ThemeV2AssetListPage.assets(
             meta: meta,
             skillName: container.id,
-            initialAssets:
-                snapshot?.assets
-                    .where((asset) => asset.skillName == container.id)
-                    .toList() ??
-                const [],
+            initialAssets: const [],
             specs: ref.read(renderSpecsProvider).valueOrNull ?? const {},
             api: _detailApi,
             onSetGoal: widget.onSetGoal,

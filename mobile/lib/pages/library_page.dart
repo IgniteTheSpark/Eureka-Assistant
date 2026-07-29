@@ -11,7 +11,6 @@ import '../render/skill_card.dart';
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
 import '../theme/ureka_tokens.dart';
-import '../theme_v2/library/library_controller.dart';
 import '../timeline/timeline.dart';
 import '../widgets/quiet_surface.dart';
 import '../widgets/skeleton_loader.dart';
@@ -83,18 +82,11 @@ const _activeCap = 9;
 
 class _LibraryPageState extends State<LibraryPage> {
   final _api = ApiClient();
-  late final ApiLibraryRepository _repository;
   // Revision-keyed fetch: build() re-subscribes to `dataRevision` every frame
   // via ValueListenableBuilder, so a data change always re-fetches — and unlike
   // an initState-registered listener, this survives hot-reload (build re-runs).
   int _loadedRev = -1;
   Future<_LibData>? _future;
-
-  @override
-  void initState() {
-    super.initState();
-    _repository = ApiLibraryRepository(_api);
-  }
 
   Future<_LibData> _futureFor(int rev) {
     if (rev != _loadedRev || _future == null) {
@@ -105,15 +97,45 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   Future<_LibData> _load() async {
-    final snapshot = await _repository.load();
+    final values = await Future.wait<Object>([
+      fetchAssets(_api, limit: 50),
+      fetchSkills(_api),
+      _fetchLegacyRows('/api/events', 'events'),
+      _fetchLegacyRows('/api/contacts', 'contacts'),
+      _fetchLegacyRows('/api/reports', 'reports'),
+      _fetchLegacyCounts(),
+    ]);
     return _LibData(
-      snapshot.assets,
-      snapshot.skills,
-      snapshot.events,
-      snapshot.contacts,
-      snapshot.reports,
-      snapshot.assetCounts,
+      values[0] as List<AssetItem>,
+      values[1] as Map<String, SkillMeta>,
+      values[2] as List<Map<String, dynamic>>,
+      values[3] as List<Map<String, dynamic>>,
+      values[4] as List<Map<String, dynamic>>,
+      values[5] as Map<String, int>,
     );
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchLegacyRows(
+    String path,
+    String key,
+  ) async {
+    final response = await _api.getJson(path);
+    final rows = (response is Map ? response[key] : null) as List? ?? const [];
+    return rows
+        .whereType<Map>()
+        .map((row) => row.cast<String, dynamic>())
+        .toList(growable: false);
+  }
+
+  Future<Map<String, int>> _fetchLegacyCounts() async {
+    final response = await _api.getJson('/api/assets/counts');
+    final counts =
+        (response is Map ? response['counts'] : null) as Map? ?? const {};
+    return {
+      for (final entry in counts.entries)
+        if (entry.value is num)
+          entry.key.toString(): (entry.value as num).toInt(),
+    };
   }
 
   void _refresh() => bumpData(); // global bump → revision changes → re-fetch

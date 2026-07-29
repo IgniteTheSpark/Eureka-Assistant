@@ -1,8 +1,6 @@
 import 'dart:async';
 
-import 'package:eureka/assets/assets.dart';
 import 'package:eureka/pages/category_detail_page.dart';
-import 'package:eureka/pages/entity_list_page.dart';
 import 'package:eureka/pages/library_page.dart';
 import 'package:eureka/render/skill_card.dart';
 import 'package:eureka/theme/app_theme.dart';
@@ -13,10 +11,11 @@ import 'package:eureka/theme_v2/library/asset/asset_list_page.dart';
 import 'package:eureka/theme_v2/library/container_index.dart';
 import 'package:eureka/theme_v2/library/library_controller.dart';
 import 'package:eureka/theme_v2/library/library_hub.dart';
+import 'package:eureka/theme_v2/library/library_models.dart';
+import 'package:eureka/theme_v2/library/library_repository.dart';
 import 'package:eureka/theme_v2/library/pinned_configuration.dart';
 import 'package:eureka/theme_v2/library/theme_v2_library_page.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_app_shell.dart';
-import 'package:eureka/timeline/timeline.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -87,7 +86,7 @@ void main() {
   });
 
   testWidgets(
-    'recent asset event contact and report cells preserve navigation intent',
+    'recent cells contain assets only and preserve navigation intent',
     (tester) async {
       final controller = await _controller();
       final opened = <String>[];
@@ -100,23 +99,24 @@ void main() {
           onOpenAllContainers: () {},
           onConfigurePinned: () {},
           onCreateSkill: () {},
-          onOpenRecent: (item) => opened.add(item.containerId),
+          onOpenRecent: (item) => opened.add(item.skillName),
         ),
       );
 
-      for (final id in ['todo', 'event', 'contact', 'report']) {
-        await tester.tap(
-          find.byKey(
-            ValueKey(switch (id) {
-              'todo' => 'library-recent-todo-a1',
-              'event' => 'library-recent-event-e1',
-              'contact' => 'library-recent-contact-c1',
-              _ => 'library-recent-report-r1',
-            }),
-          ),
-        );
-      }
-      expect(opened, ['todo', 'event', 'contact', 'report']);
+      await tester.tap(find.byKey(const ValueKey('library-recent-todo-a1')));
+      expect(opened, ['todo']);
+      expect(
+        find.byKey(const ValueKey('library-recent-event-e1')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('library-recent-contact-c1')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('library-recent-report-r1')),
+        findsNothing,
+      );
     },
   );
 
@@ -171,46 +171,32 @@ void main() {
     },
   );
 
-  testWidgets(
-    'default recent asset and event open direct detail not container lists',
-    (tester) async {
-      final controller = await _controller();
-      await _pumpHost(
-        tester,
-        ThemeV2LibraryPage(
-          controller: controller,
-          autoLoad: false,
-          onOpenContainer: (_) {},
-          onCreateSkill: () {},
-        ),
-      );
+  testWidgets('default recent asset opens direct detail not a container list', (
+    tester,
+  ) async {
+    final controller = await _controller();
+    await _pumpHost(
+      tester,
+      ThemeV2LibraryPage(
+        controller: controller,
+        autoLoad: false,
+        onOpenContainer: (_) {},
+        onCreateSkill: () {},
+      ),
+    );
 
-      await tester.tap(find.byKey(const ValueKey('library-recent-todo-a1')));
-      await tester.pumpAndSettle();
-      expect(
-        find.byKey(const ValueKey('theme-v2-asset-sheet')),
-        findsOneWidget,
-      );
-      expect(find.byType(CategoryDetailPage), findsNothing);
-      final close = find.byKey(const ValueKey('asset-detail-close'));
-      final logicalHeight =
-          tester.view.physicalSize.height / tester.view.devicePixelRatio;
-      expect(tester.getCenter(close).dy, lessThan(logicalHeight));
-      await tester.tap(close);
-      await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('theme-v2-asset-sheet')), findsNothing);
-
-      final event = find.byKey(const ValueKey('library-recent-event-e1'));
-      await tester.ensureVisible(event);
-      await tester.tap(event);
-      await tester.pumpAndSettle();
-      expect(
-        find.byKey(const ValueKey('theme-v2-asset-sheet')),
-        findsOneWidget,
-      );
-      expect(find.byType(EntityListPage), findsNothing);
-    },
-  );
+    await tester.tap(find.byKey(const ValueKey('library-recent-todo-a1')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('theme-v2-asset-sheet')), findsOneWidget);
+    expect(find.byType(CategoryDetailPage), findsNothing);
+    final close = find.byKey(const ValueKey('asset-detail-close'));
+    final logicalHeight =
+        tester.view.physicalSize.height / tester.view.devicePixelRatio;
+    expect(tester.getCenter(close).dy, lessThan(logicalHeight));
+    await tester.tap(close);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('theme-v2-asset-sheet')), findsNothing);
+  });
 
   testWidgets('page routes hub to index all containers and pinned configure', (
     tester,
@@ -401,7 +387,7 @@ void main() {
   testWidgets('initial loading presents one structural state before the hub', (
     tester,
   ) async {
-    final pending = Completer<LibrarySnapshot>();
+    final pending = Completer<LibraryOverview>();
     final controller = LibraryController(
       repository: _PendingRepository(pending),
       pinnedStore: _Store(),
@@ -419,7 +405,7 @@ void main() {
     expect(find.byType(LibraryHub), findsNothing);
     expect(find.text('正在加载资产库'), findsOneWidget);
 
-    pending.complete((await _controller()).snapshot!);
+    pending.complete((await _controller()).overview!);
     await tester.pumpAndSettle();
     expect(find.text('正在加载资产库'), findsNothing);
     expect(find.text('资产库'), findsOneWidget);
@@ -428,9 +414,9 @@ void main() {
   testWidgets('offline state exposes one retry action then restores the hub', (
     tester,
   ) async {
-    final ready = (await _controller()).snapshot!;
+    final ready = (await _controller()).overview!;
     final repository = _SequenceRepository([
-      const LibraryLoadFailure.offline(),
+      const LibraryLoadFailure('网络不可用', isOffline: true),
       ready,
     ]);
     final controller = LibraryController(
@@ -458,9 +444,9 @@ void main() {
   });
 
   testWidgets('refresh keeps the populated hub interactive', (tester) async {
-    final pending = Completer<LibrarySnapshot>();
+    final pending = Completer<LibraryOverview>();
     final repository = _RefreshRepository(
-      initial: (await _controller()).snapshot!,
+      initial: (await _controller()).overview!,
       refresh: pending,
     );
     final controller = LibraryController(
@@ -494,7 +480,7 @@ void main() {
     tester,
   ) async {
     final controller = LibraryController(
-      repository: _Repository(const LibrarySnapshot()),
+      repository: _Repository(LibraryOverview()),
       pinnedStore: _Store(),
     );
     await controller.load();
@@ -595,42 +581,71 @@ Future<LibraryController> _controller() async {
   final now = DateTime(2026, 7, 28, 12);
   final controller = LibraryController(
     repository: _Repository(
-      LibrarySnapshot(
-        assets: [
-          AssetItem(
-            id: 'a1',
-            skillName: 'todo',
-            payload: const {'title': '提交重构'},
-            createdAt: now,
+      LibraryOverview(
+        systemContainers: const [
+          LibraryContainerSummary(
+            id: 'todo',
+            label: '待办',
+            mark: '📋',
+            type: LibraryContainerType.todo,
+            totalCount: 5,
+            isSystem: true,
+            userSkillId: 's-todo',
+          ),
+          LibraryContainerSummary(
+            id: 'notes',
+            label: '笔记',
+            mark: '✍️',
+            type: LibraryContainerType.notes,
+            totalCount: 4,
+            isSystem: true,
+            userSkillId: 's-notes',
+          ),
+          LibraryContainerSummary(
+            id: 'event',
+            label: '事件',
+            mark: '📅',
+            type: LibraryContainerType.event,
+            totalCount: 0,
+            isSystem: true,
+          ),
+          LibraryContainerSummary(
+            id: 'contact',
+            label: '联系人',
+            mark: '👤',
+            type: LibraryContainerType.contact,
+            totalCount: 0,
+            isSystem: true,
           ),
         ],
-        skills: const {
-          'todo': SkillMeta('📋', '待办', 'blue', 's-todo'),
-          'notes': SkillMeta('✍️', '笔记', 'amber', 's-notes'),
-          'tennis': SkillMeta('🎾', '网球记录', 'green', 's-tennis'),
-        },
-        events: [
-          {
-            'event_id': 'e1',
-            'title': '评审',
-            'created_at': '2026-07-28T11:00:00',
-          },
+        customContainers: const [
+          LibraryContainerSummary(
+            id: 'tennis',
+            label: '网球记录',
+            mark: '🎾',
+            type: LibraryContainerType.custom,
+            totalCount: 3,
+            isSystem: false,
+            userSkillId: 's-tennis',
+          ),
         ],
-        contacts: [
-          {'id': 'c1', 'name': '小王', 'created_at': '2026-07-28T10:00:00'},
+        recentAssets: [
+          LibraryRecentAsset(
+            id: 'a1',
+            skillName: 'todo',
+            skillLabel: '待办',
+            mark: '📋',
+            primaryValue: '提交重构',
+            createdAt: now,
+            detailCard: const {
+              'asset_id': 'a1',
+              'user_skill_id': 's-todo',
+              'user_skill_name': 'todo',
+              'payload': {'title': '提交重构'},
+            },
+          ),
         ],
-        reports: [
-          {'id': 'r1', 'title': '日报', 'created_at': '2026-07-28T09:00:00'},
-        ],
-        assetCounts: const {'todo': 5, 'notes': 4, 'tennis': 3},
-        availableSources: const {
-          'assets',
-          'skills',
-          'events',
-          'contacts',
-          'reports',
-          'counts',
-        },
+        totalAssetCount: 12,
       ),
     ),
     pinnedStore: _Store(),
@@ -686,20 +701,20 @@ Widget _host(Widget child, {Size size = const Size(411, 960)}) {
 }
 
 class _Repository implements LibraryRepository {
-  _Repository(this.snapshot);
-  final LibrarySnapshot snapshot;
+  _Repository(this.overview);
+  final LibraryOverview overview;
 
   @override
-  Future<LibrarySnapshot> load() async => snapshot;
+  Future<LibraryOverview> loadOverview() async => overview;
 }
 
 class _PendingRepository implements LibraryRepository {
   _PendingRepository(this.pending);
 
-  final Completer<LibrarySnapshot> pending;
+  final Completer<LibraryOverview> pending;
 
   @override
-  Future<LibrarySnapshot> load() => pending.future;
+  Future<LibraryOverview> loadOverview() => pending.future;
 }
 
 class _SequenceRepository implements LibraryRepository {
@@ -709,22 +724,22 @@ class _SequenceRepository implements LibraryRepository {
   int index = 0;
 
   @override
-  Future<LibrarySnapshot> load() async {
+  Future<LibraryOverview> loadOverview() async {
     final result = results[index++];
     if (result is LibraryLoadFailure) throw result;
-    return result as LibrarySnapshot;
+    return result as LibraryOverview;
   }
 }
 
 class _RefreshRepository implements LibraryRepository {
   _RefreshRepository({required this.initial, required this.refresh});
 
-  final LibrarySnapshot initial;
-  final Completer<LibrarySnapshot> refresh;
+  final LibraryOverview initial;
+  final Completer<LibraryOverview> refresh;
   int loadCount = 0;
 
   @override
-  Future<LibrarySnapshot> load() {
+  Future<LibraryOverview> loadOverview() {
     loadCount += 1;
     return loadCount == 1 ? Future.value(initial) : refresh.future;
   }

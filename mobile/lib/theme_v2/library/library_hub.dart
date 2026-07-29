@@ -7,6 +7,7 @@ import '../foundation/theme_v2_typography.dart';
 import 'create_skill_action.dart';
 import 'library_components.dart';
 import 'library_controller.dart';
+import 'library_models.dart';
 
 class LibraryHub extends StatelessWidget {
   const LibraryHub({
@@ -26,14 +27,14 @@ class LibraryHub extends StatelessWidget {
   final VoidCallback onOpenAllContainers;
   final VoidCallback onConfigurePinned;
   final VoidCallback onCreateSkill;
-  final ValueChanged<LibraryRecentItem>? onOpenRecent;
+  final ValueChanged<LibraryRecentAsset>? onOpenRecent;
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
-        final snapshot = controller.snapshot;
+        final overview = controller.overview;
         return ListView(
           key: const PageStorageKey('theme-v2-library-hub'),
           padding: const EdgeInsets.fromLTRB(
@@ -44,18 +45,18 @@ class LibraryHub extends StatelessWidget {
           ),
           children: [
             LibraryScreenHeader(
-              kicker: 'LIBRARY / ${snapshot?.containerCount ?? 0} CONTAINERS',
+              kicker: 'LIBRARY / ${overview?.containerCount ?? 0} CONTAINERS',
               title: '资产库',
-              subtitle: snapshot == null
+              subtitle: overview == null
                   ? '你的记录，按使用方式组织。'
-                  : '${snapshot.containerCount} 个容器 · '
-                        '${snapshot.activeSignalCount} 个活跃信号',
+                  : '${overview.containerCount} 个容器 · '
+                        '${overview.customContainerCount} 个自定义技能',
               onKickerTap: onOpenContainerIndex,
             ),
             const SizedBox(height: ThemeV2Spacing.lg),
             _LibraryStatsEntry(
-              assetCount: snapshot?.assetTotal ?? 0,
-              containerCount: snapshot?.containerCount ?? 0,
+              assetCount: overview?.totalAssetCount ?? 0,
+              containerCount: overview?.containerCount ?? 0,
               onTap: onOpenAllContainers,
             ),
             if (controller.statusMessage case final status?) ...[
@@ -90,7 +91,7 @@ class LibraryHub extends StatelessWidget {
             LibrarySectionLabel(
               label: '最近生成',
               trailing: Text(
-                '${snapshot?.recentItems.length ?? 0}',
+                '${overview?.recentAssets.length ?? 0}',
                 style: ThemeV2Typography.mono(
                   fontSize: 9,
                   color: context.themeV2.muted,
@@ -100,7 +101,7 @@ class LibraryHub extends StatelessWidget {
             ),
             const SizedBox(height: ThemeV2Spacing.sm),
             _RecentItems(
-              items: snapshot?.recentItems ?? const [],
+              items: overview?.recentAssets ?? const [],
               onOpen: onOpenRecent,
             ),
           ],
@@ -269,8 +270,8 @@ class _EmptyPinned extends StatelessWidget {
 class _RecentItems extends StatelessWidget {
   const _RecentItems({required this.items, this.onOpen});
 
-  final List<LibraryRecentItem> items;
-  final ValueChanged<LibraryRecentItem>? onOpen;
+  final List<LibraryRecentAsset> items;
+  final ValueChanged<LibraryRecentAsset>? onOpen;
 
   @override
   Widget build(BuildContext context) {
@@ -302,12 +303,12 @@ class _RecentItems extends StatelessWidget {
         itemBuilder: (context, index) {
           final item = items[index];
           return Semantics(
-            label: '打开最近资产 ${item.title}',
+            label: '打开最近资产 ${item.primaryValue}',
             button: true,
             onTap: onOpen == null ? null : () => onOpen!(item),
             child: ExcludeSemantics(
               child: Material(
-                key: ValueKey('library-recent-${item.containerId}-${item.id}'),
+                key: ValueKey('library-recent-${item.skillName}-${item.id}'),
                 color: tokens.surface,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(ThemeV2Radii.md),
@@ -323,13 +324,13 @@ class _RecentItems extends StatelessWidget {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(
-                          _recentIcon(item.containerId),
+                          _recentIcon(item.skillName),
                           color: tokens.accent,
                           size: 18,
                         ),
                         const SizedBox(height: ThemeV2Spacing.xs),
                         Text(
-                          _time(item.effectiveAt),
+                          _time(item.createdAt),
                           style: ThemeV2Typography.mono(
                             fontSize: 7.5,
                             color: tokens.muted,

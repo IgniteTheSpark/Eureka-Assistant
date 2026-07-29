@@ -5,6 +5,7 @@ import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
 import 'library_components.dart';
 import 'library_controller.dart';
+import 'library_models.dart';
 
 class PinnedConfiguration extends StatelessWidget {
   const PinnedConfiguration({
@@ -170,7 +171,7 @@ class _AvailableContainer extends StatelessWidget {
     required this.onAdd,
   });
 
-  final LibraryContainer container;
+  final LibraryContainerSummary container;
   final bool enabled;
   final VoidCallback onAdd;
 

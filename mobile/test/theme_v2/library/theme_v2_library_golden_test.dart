@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:eureka/assets/assets.dart';
 import 'package:eureka/render/skill_card.dart';
 import 'package:eureka/theme/app_theme.dart';
 import 'package:eureka/theme/eureka_colors.dart';
@@ -9,8 +8,9 @@ import 'package:eureka/theme_v2/foundation/theme_v2_tokens.dart';
 import 'package:eureka/theme_v2/library/container_index.dart';
 import 'package:eureka/theme_v2/library/library_controller.dart';
 import 'package:eureka/theme_v2/library/library_hub.dart';
+import 'package:eureka/theme_v2/library/library_models.dart';
+import 'package:eureka/theme_v2/library/library_repository.dart';
 import 'package:eureka/theme_v2/library/pinned_configuration.dart';
-import 'package:eureka/timeline/timeline.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -174,60 +174,95 @@ void main() {
 
 Future<LibraryController> _fixtureController() async {
   final now = DateTime(2026, 7, 28, 21, 34);
-  final snapshot = LibrarySnapshot(
-    assets: [
-      AssetItem(
+  final overview = LibraryOverview(
+    systemContainers: const [
+      LibraryContainerSummary(
+        id: 'todo',
+        label: '待办',
+        mark: '📋',
+        type: LibraryContainerType.todo,
+        totalCount: 48,
+        isSystem: true,
+        userSkillId: 's-todo',
+      ),
+      LibraryContainerSummary(
+        id: 'notes',
+        label: '笔记',
+        mark: '✍️',
+        type: LibraryContainerType.notes,
+        totalCount: 16,
+        isSystem: true,
+        userSkillId: 's-notes',
+      ),
+      LibraryContainerSummary(
+        id: 'event',
+        label: '事件',
+        mark: '📅',
+        type: LibraryContainerType.event,
+        totalCount: 1,
+        isSystem: true,
+      ),
+      LibraryContainerSummary(
+        id: 'contact',
+        label: '联系人',
+        mark: '👤',
+        type: LibraryContainerType.contact,
+        totalCount: 1,
+        isSystem: true,
+      ),
+    ],
+    customContainers: const [
+      LibraryContainerSummary(
+        id: 'tennis',
+        label: '网球记录',
+        mark: '🎾',
+        type: LibraryContainerType.custom,
+        totalCount: 9,
+        isSystem: false,
+        userSkillId: 's-tennis',
+      ),
+      LibraryContainerSummary(
+        id: 'expense',
+        label: '消费账本',
+        mark: '💰',
+        type: LibraryContainerType.custom,
+        totalCount: 27,
+        isSystem: false,
+        userSkillId: 's-expense',
+      ),
+    ],
+    recentAssets: [
+      LibraryRecentAsset(
         id: 'a1',
         skillName: 'todo',
-        payload: const {'title': '提交 UI 重构'},
+        skillLabel: '待办',
+        mark: '📋',
+        primaryValue: '提交 UI 重构',
         createdAt: now,
+        detailCard: const {
+          'asset_id': 'a1',
+          'user_skill_name': 'todo',
+          'payload': {'title': '提交 UI 重构'},
+        },
       ),
-      AssetItem(
+      LibraryRecentAsset(
         id: 'a2',
         skillName: 'notes',
-        payload: const {'content': '资产库交互记录'},
+        skillLabel: '笔记',
+        mark: '✍️',
+        primaryValue: '资产库交互记录',
         createdAt: now.subtract(const Duration(minutes: 16)),
+        detailCard: const {
+          'asset_id': 'a2',
+          'user_skill_name': 'notes',
+          'payload': {'content': '资产库交互记录'},
+        },
       ),
     ],
-    skills: const {
-      'todo': SkillMeta('📋', '待办', 'blue', 's-todo'),
-      'notes': SkillMeta('✍️', '笔记', 'amber', 's-notes'),
-      'tennis': SkillMeta('🎾', '网球记录', 'green', 's-tennis'),
-      'expense': SkillMeta('💰', '消费账本', 'green', 's-expense'),
-    },
-    events: [
-      {
-        'event_id': 'e1',
-        'title': '设计评审',
-        'created_at': now.subtract(const Duration(hours: 2)).toIso8601String(),
-      },
-    ],
-    contacts: [
-      {
-        'id': 'c1',
-        'name': '王小明',
-        'created_at': now.subtract(const Duration(hours: 3)).toIso8601String(),
-      },
-    ],
-    reports: [
-      {
-        'id': 'r1',
-        'title': '周报',
-        'created_at': now.subtract(const Duration(days: 1)).toIso8601String(),
-      },
-    ],
-    assetCounts: const {'todo': 48, 'notes': 16, 'tennis': 9, 'expense': 27},
-    availableSources: const {
-      'assets',
-      'skills',
-      'events',
-      'contacts',
-      'reports',
-      'counts',
-    },
+    totalAssetCount: 100,
   );
   final controller = LibraryController(
-    repository: _GoldenRepository(snapshot),
+    repository: _GoldenRepository(overview),
     pinnedStore: const _GoldenPinnedStore(),
   );
   await controller.load();
@@ -235,12 +270,12 @@ Future<LibraryController> _fixtureController() async {
 }
 
 class _GoldenRepository implements LibraryRepository {
-  const _GoldenRepository(this.snapshot);
+  const _GoldenRepository(this.overview);
 
-  final LibrarySnapshot snapshot;
+  final LibraryOverview overview;
 
   @override
-  Future<LibrarySnapshot> load() async => snapshot;
+  Future<LibraryOverview> loadOverview() async => overview;
 }
 
 class _GoldenPinnedStore implements LibraryPinnedStore {

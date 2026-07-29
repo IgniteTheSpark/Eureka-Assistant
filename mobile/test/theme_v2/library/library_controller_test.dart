@@ -1,647 +1,387 @@
 import 'dart:async';
-import 'dart:convert';
 
-import 'package:eureka/api/api_client.dart';
-import 'package:eureka/assets/assets.dart';
-import 'package:eureka/render/skill_card.dart';
 import 'package:eureka/theme_v2/library/library_controller.dart';
-import 'package:eureka/timeline/timeline.dart';
+import 'package:eureka/theme_v2/library/library_models.dart';
+import 'package:eureka/theme_v2/library/library_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:http/http.dart' as http;
-import 'package:http/testing.dart';
 
 void main() {
   group('LibraryController', () {
-    test(
-      'loads one aggregate snapshot and restores persisted pinned order',
-      () async {
-        final repository = _FakeRepository(_snapshot());
-        final store = _MemoryPinnedStore(['notes', 'todo']);
-        final controller = LibraryController(
-          repository: repository,
-          pinnedStore: store,
-        );
-
-        await controller.load();
-
-        expect(repository.loadCount, 1);
-        expect(controller.status, LibraryStatus.ready);
-        expect(controller.pinnedContainers.map((item) => item.id), [
-          'notes',
-          'todo',
-        ]);
-        expect(controller.snapshot?.assetTotal, 9);
-        expect(controller.snapshot?.containerCount, 5);
-        expect(controller.snapshot?.activeSignalCount, 1);
-      },
-    );
-
-    test(
-      'expired persisted pins are removed without adding unselected defaults',
-      () async {
-        final controller = LibraryController(
-          repository: _FakeRepository(_snapshot()),
-          pinnedStore: _MemoryPinnedStore(['missing', 'notes']),
-        );
-
-        await controller.load();
-
-        expect(controller.pinnedContainers.map((item) => item.id), ['notes']);
-      },
-    );
-
-    test(
-      'removed and explicitly empty pin selections survive reload',
-      () async {
-        final store = _MemoryPinnedStore();
-        final first = LibraryController(
-          repository: _FakeRepository(_snapshot()),
-          pinnedStore: store,
-        );
-        await first.load();
-
-        expect(first.pinnedContainers, isNotEmpty);
-        await first.replacePinned(const []);
-
-        final reloaded = LibraryController(
-          repository: _FakeRepository(_snapshot()),
-          pinnedStore: store,
-        );
-        await reloaded.load();
-
-        expect(reloaded.pinnedContainers, isEmpty);
-      },
-    );
-
-    test(
-      'keeps successful sources visible when aggregate load is partial',
-      () async {
-        final controller = LibraryController(
-          repository: _FakeRepository(
-            _snapshot(failedSources: const {'contacts', 'reports'}),
-          ),
-          pinnedStore: _MemoryPinnedStore(),
-        );
-
-        await controller.load();
-
-        expect(controller.status, LibraryStatus.partial);
-        expect(controller.snapshot?.failedSources, {'contacts', 'reports'});
-        expect(controller.containers, isNotEmpty);
-        expect(controller.statusMessage, contains('部分内容'));
-      },
-    );
-
-    test(
-      'keeps partial state when every successful source is currently empty',
-      () async {
-        final controller = LibraryController(
-          repository: _FakeRepository(
-            const LibrarySnapshot(
-              failedSources: {'assets', 'skills'},
-              availableSources: {'reports'},
-            ),
-          ),
-          pinnedStore: _MemoryPinnedStore(),
-        );
-
-        await controller.load();
-
-        expect(controller.status, LibraryStatus.partial);
-        expect(controller.containers, isEmpty);
-        expect(controller.statusMessage, contains('部分内容'));
-      },
-    );
-
-    test('shows offline error and retry replaces it with fresh data', () async {
-      final repository = _SequenceRepository([
-        const LibraryLoadFailure.offline(),
-        _snapshot(),
-      ]);
+    test('loads one overview and restores a sanitized pinned order', () async {
+      final repository = _Repository(_overview());
       final controller = LibraryController(
         repository: repository,
-        pinnedStore: _MemoryPinnedStore(),
+        pinnedStore: _PinnedStore(
+          initial: ['notes', 'missing', 'todo', 'todo'],
+        ),
       );
 
       await controller.load();
-      expect(controller.status, LibraryStatus.offline);
-      expect(controller.containers, isEmpty);
 
-      await controller.retry();
+      expect(repository.loadCount, 1);
       expect(controller.status, LibraryStatus.ready);
-      expect(controller.containers, isNotEmpty);
-      expect(repository.loadCount, 2);
+      expect(controller.overview?.totalAssetCount, 7);
+      expect(controller.pinnedContainers.map((item) => item.id), [
+        'notes',
+        'todo',
+      ]);
     });
 
     test(
-      'stale overlapping load cannot replace a newer retry response',
+      'a missing preference uses defaults but an empty one stays empty',
       () async {
-        final repository = _OverlappingRepository();
-        final controller = LibraryController(
-          repository: repository,
-          pinnedStore: _MemoryPinnedStore(),
+        final defaults = LibraryController(
+          repository: _Repository(_overview()),
+          pinnedStore: _PinnedStore(),
         );
+        await defaults.load();
+        expect(defaults.pinnedContainers, hasLength(5));
 
-        final first = controller.load();
-        final second = controller.retry();
-        repository.second.complete(_snapshot());
-        await second;
-        repository.first.complete(const LibrarySnapshot());
-        await first;
-
-        expect(controller.status, LibraryStatus.ready);
-        expect(controller.containers, isNotEmpty);
+        final empty = LibraryController(
+          repository: _Repository(_overview()),
+          pinnedStore: _PinnedStore(initial: const []),
+        );
+        await empty.load();
+        expect(empty.pinnedContainers, isEmpty);
       },
     );
 
-    test('dispose invalidates a pending aggregate load', () async {
-      final repository = _OverlappingRepository();
-      final controller = LibraryController(
-        repository: repository,
-        pinnedStore: _MemoryPinnedStore(),
+    test(
+      'directory queries are independent and clear without reload',
+      () async {
+        final repository = _Repository(_overview());
+        final controller = LibraryController(
+          repository: repository,
+          pinnedStore: _PinnedStore(),
+        );
+        await controller.load();
+
+        controller.setIndexQuery('网球');
+        expect(controller.indexCustomContainers.map((item) => item.id), [
+          'tennis',
+        ]);
+        expect(controller.allSystemContainers, hasLength(4));
+
+        controller.setAllQuery('事件');
+        expect(controller.allSystemContainers.map((item) => item.id), [
+          'event',
+        ]);
+        expect(controller.indexQuery, '网球');
+
+        controller.clearIndexQuery();
+        expect(controller.indexCustomContainers, hasLength(1));
+        expect(repository.loadCount, 1);
+      },
+    );
+
+    test('partial empty and offline loads expose distinct states', () async {
+      final partial = LibraryController(
+        repository: _Repository(
+          _overview(
+            failedSources: const [
+              LibrarySourceFailure(source: 'events', isOffline: true),
+            ],
+          ),
+        ),
+        pinnedStore: _PinnedStore(),
       );
+      await partial.load();
+      expect(partial.status, LibraryStatus.partial);
+      expect(partial.statusMessage, contains('部分内容'));
 
-      final load = controller.load();
-      controller.dispose();
-      repository.first.complete(_snapshot());
+      final empty = LibraryController(
+        repository: _Repository(_emptyOverview()),
+        pinnedStore: _PinnedStore(),
+      );
+      await empty.load();
+      expect(empty.status, LibraryStatus.empty);
 
-      await expectLater(load, completes);
+      final offline = LibraryController(
+        repository: _SequenceRepository([
+          const LibraryLoadFailure('网络不可用', isOffline: true),
+          _overview(),
+        ]),
+        pinnedStore: _PinnedStore(),
+      );
+      await offline.load();
+      expect(offline.status, LibraryStatus.offline);
+      await offline.retry();
+      expect(offline.status, LibraryStatus.ready);
     });
 
-    test('dispose invalidates a pending failed pin save', () async {
-      final store = _PendingPinnedStore();
-      final controller = LibraryController(
-        repository: _FakeRepository(_snapshot()),
-        pinnedStore: store,
-      );
-      await controller.load();
+    test('failed pinned save restores the latest confirmed order', () async {
+      final store = _PinnedStore(initial: ['todo', 'notes'])..failNext = true;
+      final controller = await _loadedController(store: store);
 
-      final save = controller.replacePinned(['notes', 'todo']);
-      controller.dispose();
-      store.pending.completeError(StateError('permission denied'));
+      final saving = controller.replacePinned(['notes', 'todo']);
+      expect(controller.pinnedContainers.map((item) => item.id), [
+        'notes',
+        'todo',
+      ]);
+      expect(controller.isSavingPins, isTrue);
 
-      await expectLater(save, completion(isFalse));
-    });
-
-    test('zero containers is an explicit empty state', () async {
-      final controller = LibraryController(
-        repository: _FakeRepository(const LibrarySnapshot()),
-        pinnedStore: _MemoryPinnedStore(),
-      );
-
-      await controller.load();
-
-      expect(controller.status, LibraryStatus.empty);
-      expect(controller.pinnedContainers, isEmpty);
-    });
-
-    test('query filters both system and custom container groups', () async {
-      final controller = LibraryController(
-        repository: _FakeRepository(_snapshot()),
-        pinnedStore: _MemoryPinnedStore(),
-      );
-      await controller.load();
-
-      controller.setQuery('网球');
-
-      expect(controller.systemContainers, isEmpty);
-      expect(controller.customContainers.map((item) => item.id), ['tennis']);
-    });
-
-    test('failed pinned persistence rolls optimistic order back', () async {
-      final store = _MemoryPinnedStore(['todo', 'notes'])..failNextSave = true;
-      final controller = LibraryController(
-        repository: _FakeRepository(_snapshot()),
-        pinnedStore: store,
-      );
-      await controller.load();
-
-      final saved = await controller.replacePinned(['notes', 'todo']);
-
-      expect(saved, isFalse);
+      expect(await saving, isFalse);
       expect(controller.pinnedContainers.map((item) => item.id), [
         'todo',
         'notes',
       ]);
       expect(controller.pinSaveError, isNotNull);
-      expect(store.savedOrders, isEmpty);
-    });
-
-    test('successful pinned reorder persists sanitized full order', () async {
-      final store = _MemoryPinnedStore(['todo', 'notes']);
-      final controller = LibraryController(
-        repository: _FakeRepository(_snapshot()),
-        pinnedStore: store,
-      );
-      await controller.load();
-
-      final saved = await controller.replacePinned([
-        'notes',
-        'missing',
-        'todo',
-        'notes',
-      ]);
-
-      expect(saved, isTrue);
-      expect(store.savedOrders.single, ['notes', 'todo']);
-      expect(controller.pinnedContainers.map((item) => item.id), [
-        'notes',
-        'todo',
-      ]);
+      expect(controller.isSavingPins, isFalse);
     });
 
     test(
-      'pinned domain caps persisted configuration at six containers',
+      'optimistic pin saves serialize and preserve the newest order',
       () async {
-        final store = _MemoryPinnedStore();
+        final store = _PendingPinnedStore(['todo', 'notes']);
         final controller = LibraryController(
-          repository: _FakeRepository(
-            LibrarySnapshot(
-              skills: const {
-                'one': SkillMeta('1', 'One', 'gray', '1'),
-                'two': SkillMeta('2', 'Two', 'gray', '2'),
-                'three': SkillMeta('3', 'Three', 'gray', '3'),
-                'four': SkillMeta('4', 'Four', 'gray', '4'),
-                'five': SkillMeta('5', 'Five', 'gray', '5'),
-                'six': SkillMeta('6', 'Six', 'gray', '6'),
-                'seven': SkillMeta('7', 'Seven', 'gray', '7'),
-              },
-              availableSources: const {'skills'},
-            ),
-          ),
-          pinnedStore: store,
-        );
-        await controller.load();
-
-        final saved = await controller.addPinned('seven');
-
-        expect(saved, isFalse);
-        expect(controller.pinnedContainers, hasLength(6));
-        expect(controller.pinSaveError, contains('最多'));
-        expect(store.savedOrders, isEmpty);
-      },
-    );
-
-    test(
-      'pin saves serialize and two failures roll back to disk state',
-      () async {
-        final store = _ControlledPinnedStore(['todo', 'notes']);
-        final controller = LibraryController(
-          repository: _FakeRepository(_snapshot()),
+          repository: _Repository(_overview()),
           pinnedStore: store,
         );
         await controller.load();
 
         final first = controller.replacePinned(['notes', 'todo']);
-        final second = controller.replacePinned(['notes']);
+        final second = controller.replacePinned(['event', 'notes']);
         await Future<void>.delayed(Duration.zero);
-        expect(store.pending, hasLength(1));
 
-        store.pending[0].completeError(StateError('first failed'));
-        await expectLater(first, completion(isFalse));
-        await Future<void>.delayed(Duration.zero);
-        expect(store.pending, hasLength(2));
-
-        store.pending[1].completeError(StateError('second failed'));
-        await expectLater(second, completion(isFalse));
+        expect(store.saved, [
+          ['notes', 'todo'],
+        ]);
         expect(controller.pinnedContainers.map((item) => item.id), [
-          'todo',
+          'event',
+          'notes',
+        ]);
+
+        store.pending.removeAt(0).complete();
+        await Future<void>.delayed(Duration.zero);
+        expect(store.saved, [
+          ['notes', 'todo'],
+          ['event', 'notes'],
+        ]);
+        store.pending.removeAt(0).complete();
+
+        expect(await first, isTrue);
+        expect(await second, isTrue);
+        expect(controller.isSavingPins, isFalse);
+        expect(controller.pinnedContainers.map((item) => item.id), [
+          'event',
           'notes',
         ]);
       },
     );
 
-    test('an old failed pin save cannot overwrite a newer success', () async {
-      final store = _ControlledPinnedStore(['todo', 'notes']);
+    test('pins are unique valid and capped at six', () async {
+      final overview = LibraryOverview(
+        systemContainers: _systemContainers(),
+        customContainers: [
+          _summary('one', LibraryContainerType.custom, system: false),
+          _summary('two', LibraryContainerType.custom, system: false),
+          _summary('three', LibraryContainerType.custom, system: false),
+        ],
+      );
+      final store = _PinnedStore(initial: const []);
       final controller = LibraryController(
-        repository: _FakeRepository(_snapshot()),
+        repository: _Repository(overview),
         pinnedStore: store,
       );
       await controller.load();
 
-      final first = controller.replacePinned(['notes', 'todo']);
-      final second = controller.replacePinned(['notes']);
-      await Future<void>.delayed(Duration.zero);
-      store.pending[0].completeError(StateError('first failed'));
-      await expectLater(first, completion(isFalse));
-      await Future<void>.delayed(Duration.zero);
-
-      store.pending[1].complete();
-      await expectLater(second, completion(isTrue));
-      expect(controller.pinnedContainers.map((item) => item.id), ['notes']);
-    });
-  });
-
-  group('LibrarySnapshot aggregation', () {
-    test(
-      'preserves assets skills events contacts and reports in one model',
-      () {
-        final snapshot = _snapshot();
-
-        expect(snapshot.assets, hasLength(2));
-        expect(snapshot.skills.keys, containsAll(['todo', 'notes', 'tennis']));
-        expect(snapshot.events, hasLength(1));
-        expect(snapshot.contacts, hasLength(1));
-        expect(snapshot.reports, hasLength(1));
-        expect(snapshot.recentItems.map((item) => item.containerId), [
-          'report',
-          'contact',
-          'event',
-          'notes',
+      expect(
+        await controller.replacePinned([
           'todo',
-        ]);
-        expect(
-          snapshot.recentItems
-              .singleWhere((item) => item.containerId == 'event')
-              .id,
-          'e1',
-        );
-      },
-    );
+          'notes',
+          'event',
+          'contact',
+          'one',
+          'two',
+          'three',
+          'one',
+          'missing',
+        ]),
+        isTrue,
+      );
+      expect(controller.pinnedContainers, hasLength(6));
+      expect(await controller.addPinned('three'), isFalse);
+      expect(controller.pinSaveError, contains('最多'));
+    });
 
-    test(
-      'shared card resolution preserves domain for direct recent detail',
-      () {
-        final card = resolveSkillCardData(const {
-          'asset_id': 'a1',
-          'user_skill_name': 'todo',
-          'payload': {'title': '任务'},
-          'domain': '工作',
-        }, const {});
-
-        expect(card.domain, '工作');
-      },
-    );
-
-    test('recent events use start_at rather than record creation time', () {
-      final snapshot = LibrarySnapshot(
-        assets: [
-          AssetItem(
-            id: 'a1',
-            skillName: 'notes',
-            payload: const {'title': '资产'},
-            createdAt: DateTime(2026, 7, 29),
-          ),
-        ],
-        events: const [
-          {
-            'event_id': 'e1',
-            'title': '未来评审',
-            'start_at': '2026-07-30T10:00:00+08:00',
-            'created_at': '2026-07-20T10:00:00+08:00',
-          },
-        ],
+    test('a stale load cannot replace a newer retry', () async {
+      final repository = _OverlappingRepository();
+      final controller = LibraryController(
+        repository: repository,
+        pinnedStore: _PinnedStore(),
       );
 
-      expect(snapshot.recentItems.first.containerId, 'event');
-      expect(snapshot.recentItems.first.effectiveAt.day, 30);
+      final first = controller.load();
+      final second = controller.retry();
+      repository.second.complete(_overview());
+      await second;
+      repository.first.complete(_emptyOverview());
+      await first;
+
+      expect(controller.status, LibraryStatus.ready);
+      expect(controller.overview?.customContainers, hasLength(1));
+    });
+
+    test('dispose invalidates pending loads and saves', () async {
+      final repository = _OverlappingRepository();
+      final store = _PendingPinnedStore(['todo']);
+      final controller = LibraryController(
+        repository: repository,
+        pinnedStore: store,
+      );
+
+      final load = controller.load();
+      controller.dispose();
+      repository.first.complete(_overview());
+      await expectLater(load, completes);
+
+      final loaded = await _loadedController(
+        store: _PinnedStore(initial: ['todo']),
+      );
+      loaded.dispose();
+      expect(await loaded.replacePinned(['notes']), isFalse);
     });
   });
-
-  test(
-    'API adapter requests each mature source once with real entity shapes',
-    () async {
-      final calls = <String, int>{};
-      final client = MockClient((request) async {
-        final path = request.url.path;
-        calls.update(path, (count) => count + 1, ifAbsent: () => 1);
-        final body = switch (path) {
-          '/api/assets' => {
-            'assets': [
-              {
-                'id': 'a1',
-                'user_skill_name': 'todo',
-                'payload': {'title': '任务'},
-                'created_at': '2026-07-28T12:00:00',
-              },
-            ],
-          },
-          '/api/skills' => {
-            'skills': [
-              {
-                'name': 'todo',
-                'display_name': '待办',
-                'user_skill_id': 's1',
-                'enabled': 1,
-                'render_spec': {'icon': '📋', 'accent_color': 'blue'},
-              },
-            ],
-          },
-          '/api/events' => {
-            'events': [
-              {
-                'event_id': 'e1',
-                'title': '评审',
-                'created_at': '2026-07-28T11:00:00',
-              },
-            ],
-          },
-          '/api/contacts' => {
-            'contacts': [
-              {'id': 'c1', 'name': '小王', 'created_at': '2026-07-28T10:00:00'},
-            ],
-          },
-          '/api/reports' => {
-            'reports': [
-              {'id': 'r1', 'title': '周报', 'created_at': '2026-07-28T09:00:00'},
-            ],
-          },
-          '/api/assets/counts' => {
-            'counts': {'todo': 7},
-          },
-          _ => throw StateError('unexpected $path'),
-        };
-        return http.Response.bytes(
-          utf8.encode(jsonEncode(body)),
-          200,
-          headers: const {'content-type': 'application/json; charset=utf-8'},
-        );
-      });
-      final api = ApiClient(
-        client: client,
-        baseUrl: 'https://library.test',
-        enableLogging: false,
-      );
-      addTearDown(api.close);
-
-      final snapshot = await ApiLibraryRepository(api).load();
-
-      expect(calls, containsPair('/api/assets', 1));
-      expect(calls.values, everyElement(1));
-      expect(calls, hasLength(6));
-      expect(snapshot.assetTotal, 7);
-      expect(snapshot.skills.keys, contains('todo'));
-      expect(
-        snapshot.availableSources,
-        containsAll(['skills', 'events', 'contacts']),
-      );
-      expect(snapshot.containerCount, 3);
-      expect(
-        snapshot.recentItems
-            .singleWhere((item) => item.containerId == 'event')
-            .id,
-        'e1',
-      );
-      expect(
-        snapshot.recentItems.map((item) => item.containerId),
-        contains('report'),
-      );
-      expect(
-        snapshot.containers.map((item) => item.id),
-        isNot(contains('report')),
-      );
-    },
-  );
 }
 
-LibrarySnapshot _snapshot({Set<String> failedSources = const {}}) {
-  final now = DateTime(2026, 7, 28, 12);
-  return LibrarySnapshot(
-    assets: [
-      AssetItem(
-        id: 'a1',
-        skillName: 'todo',
-        payload: const {'title': '提交重构'},
-        createdAt: now.subtract(const Duration(minutes: 8)),
-      ),
-      AssetItem(
-        id: 'a2',
-        skillName: 'notes',
-        payload: const {'content': '交互记录'},
-        createdAt: now.subtract(const Duration(minutes: 6)),
-      ),
-    ],
-    skills: const {
-      'todo': SkillMeta('📋', '待办', 'blue', 's-todo'),
-      'notes': SkillMeta('✍️', '笔记', 'amber', 's-notes'),
-      'tennis': SkillMeta('🎾', '网球记录', 'green', 's-tennis'),
-    },
-    events: [
-      {
-        'event_id': 'e1',
-        'title': '设计评审',
-        'created_at': now
-            .subtract(const Duration(minutes: 4))
-            .toIso8601String(),
-      },
-    ],
-    contacts: [
-      {
-        'id': 'c1',
-        'name': '王小明',
-        'created_at': now
-            .subtract(const Duration(minutes: 2))
-            .toIso8601String(),
-      },
-    ],
-    reports: [
-      {
-        'id': 'r1',
-        'title': '周报',
-        'created_at': now
-            .subtract(const Duration(minutes: 1))
-            .toIso8601String(),
-      },
-    ],
-    assetCounts: const {'todo': 4, 'notes': 3, 'tennis': 2},
-    failedSources: failedSources,
-    availableSources: {
-      'assets',
-      'skills',
-      'events',
-      'contacts',
-      'reports',
-      'counts',
-    }..removeAll(failedSources),
-  );
-}
+class _Repository implements LibraryRepository {
+  _Repository(this.value);
 
-class _FakeRepository implements LibraryRepository {
-  _FakeRepository(this.snapshot);
-
-  final LibrarySnapshot snapshot;
+  final LibraryOverview value;
   int loadCount = 0;
 
   @override
-  Future<LibrarySnapshot> load() async {
+  Future<LibraryOverview> loadOverview() async {
     loadCount++;
-    return snapshot;
+    return value;
   }
 }
 
 class _SequenceRepository implements LibraryRepository {
-  _SequenceRepository(this.results);
+  _SequenceRepository(this.values);
 
-  final List<Object> results;
-  int loadCount = 0;
+  final List<Object> values;
 
   @override
-  Future<LibrarySnapshot> load() async {
-    final result = results[loadCount++];
-    if (result is LibraryLoadFailure) throw result;
-    return result as LibrarySnapshot;
+  Future<LibraryOverview> loadOverview() async {
+    final value = values.removeAt(0);
+    if (value is LibraryOverview) return value;
+    throw value;
   }
 }
 
-class _MemoryPinnedStore implements LibraryPinnedStore {
-  _MemoryPinnedStore([List<String>? initial])
-    : value = initial == null ? null : List.of(initial);
+class _OverlappingRepository implements LibraryRepository {
+  final first = Completer<LibraryOverview>();
+  final second = Completer<LibraryOverview>();
+  var loadCount = 0;
 
-  List<String>? value;
-  final List<List<String>> savedOrders = [];
-  bool failNextSave = false;
+  @override
+  Future<LibraryOverview> loadOverview() {
+    loadCount++;
+    return loadCount == 1 ? first.future : second.future;
+  }
+}
+
+class _PinnedStore implements LibraryPinnedStore {
+  _PinnedStore({this.initial});
+
+  final List<String>? initial;
+  bool failNext = false;
+  final List<List<String>> saved = [];
 
   @override
   Future<List<String>?> load() async =>
-      value == null ? null : List<String>.of(value!);
+      initial == null ? null : List.of(initial!);
 
   @override
   Future<void> save(List<String> ids) async {
-    if (failNextSave) {
-      failNextSave = false;
-      throw StateError('permission denied');
+    if (failNext) {
+      failNext = false;
+      throw StateError('save denied');
     }
-    final saved = List<String>.of(ids);
-    value = saved;
-    savedOrders.add(saved);
+    saved.add(List.of(ids));
   }
 }
 
-class _ControlledPinnedStore implements LibraryPinnedStore {
-  _ControlledPinnedStore(this.initial);
+class _PendingPinnedStore implements LibraryPinnedStore {
+  _PendingPinnedStore(this.initial);
 
   final List<String> initial;
+  final List<List<String>> saved = [];
   final List<Completer<void>> pending = [];
 
   @override
-  Future<List<String>> load() async => List.of(initial);
+  Future<List<String>?> load() async => List.of(initial);
 
   @override
   Future<void> save(List<String> ids) {
+    saved.add(List.of(ids));
     final completer = Completer<void>();
     pending.add(completer);
     return completer.future;
   }
 }
 
-class _PendingPinnedStore implements LibraryPinnedStore {
-  final pending = Completer<void>();
+LibraryContainerSummary _summary(
+  String id,
+  LibraryContainerType type, {
+  int total = 1,
+  bool system = true,
+}) => LibraryContainerSummary(
+  id: id,
+  label: switch (id) {
+    'todo' => '待办',
+    'notes' => '随记',
+    'event' => '事件',
+    'contact' => '联系人',
+    'tennis' => '网球',
+    _ => id,
+  },
+  mark: '•',
+  type: type,
+  totalCount: total,
+  isSystem: system,
+);
 
-  @override
-  Future<List<String>> load() async => const [];
+List<LibraryContainerSummary> _systemContainers({int total = 1}) => [
+  _summary('todo', LibraryContainerType.todo, total: total),
+  _summary('notes', LibraryContainerType.notes, total: total),
+  _summary('event', LibraryContainerType.event, total: total),
+  _summary('contact', LibraryContainerType.contact, total: total),
+];
 
-  @override
-  Future<void> save(List<String> ids) => pending.future;
-}
+LibraryOverview _overview({
+  List<LibrarySourceFailure> failedSources = const [],
+}) => LibraryOverview(
+  systemContainers: _systemContainers(),
+  customContainers: [
+    _summary('tennis', LibraryContainerType.custom, total: 3, system: false),
+  ],
+  recentAssets: [
+    LibraryRecentAsset(
+      id: 'asset-1',
+      skillName: 'tennis',
+      skillLabel: '网球',
+      mark: '🎾',
+      primaryValue: '正手训练',
+      createdAt: DateTime(2026, 7, 29),
+      detailCard: const {},
+    ),
+  ],
+  totalAssetCount: 7,
+  failedSources: failedSources,
+);
 
-class _OverlappingRepository implements LibraryRepository {
-  final first = Completer<LibrarySnapshot>();
-  final second = Completer<LibrarySnapshot>();
-  int _calls = 0;
+LibraryOverview _emptyOverview() =>
+    LibraryOverview(systemContainers: _systemContainers(total: 0));
 
-  @override
-  Future<LibrarySnapshot> load() {
-    _calls++;
-    return _calls == 1 ? first.future : second.future;
-  }
+Future<LibraryController> _loadedController({
+  required LibraryPinnedStore store,
+}) async {
+  final controller = LibraryController(
+    repository: _Repository(_overview()),
+    pinnedStore: store,
+  );
+  await controller.load();
+  return controller;
 }

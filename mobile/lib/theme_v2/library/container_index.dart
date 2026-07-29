@@ -44,8 +44,8 @@ class ContainerIndex extends StatelessWidget {
           ),
           const SizedBox(height: ThemeV2Spacing.lg),
           LibrarySearchField(
-            value: controller.query,
-            onChanged: controller.setQuery,
+            value: controller.indexQuery,
+            onChanged: controller.setIndexQuery,
           ),
           const SizedBox(height: ThemeV2Spacing.lg),
           _ContainerGroups(
@@ -94,7 +94,7 @@ class AllContainers extends StatelessWidget {
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
-        final snapshot = controller.snapshot;
+        final overview = controller.overview;
         return ListView(
           padding: const EdgeInsets.fromLTRB(
             ThemeV2Spacing.lg,
@@ -111,19 +111,20 @@ class AllContainers extends StatelessWidget {
             ),
             const SizedBox(height: ThemeV2Spacing.lg),
             _AllContainerStats(
-              containers: snapshot?.containerCount ?? 0,
-              assets: snapshot?.assetTotal ?? 0,
-              custom: snapshot?.customContainerCount ?? 0,
+              containers: overview?.containerCount ?? 0,
+              assets: overview?.totalAssetCount ?? 0,
+              custom: overview?.customContainerCount ?? 0,
             ),
             const SizedBox(height: ThemeV2Spacing.md),
             LibrarySearchField(
-              value: controller.query,
-              onChanged: controller.setQuery,
+              value: controller.allQuery,
+              onChanged: controller.setAllQuery,
             ),
             const SizedBox(height: ThemeV2Spacing.lg),
             _ContainerGroups(
               controller: controller,
               onOpenContainer: onOpenContainer,
+              useAllQuery: true,
             ),
             const SizedBox(height: ThemeV2Spacing.lg),
             CreateSkillAction(onPressed: onCreateSkill),
@@ -227,21 +228,28 @@ class _ContainerGroups extends StatelessWidget {
   const _ContainerGroups({
     required this.controller,
     required this.onOpenContainer,
+    this.useAllQuery = false,
   });
 
   final LibraryController controller;
   final LibraryContainerCallback onOpenContainer;
+  final bool useAllQuery;
 
   @override
   Widget build(BuildContext context) {
-    final system = controller.systemContainers;
-    final custom = controller.customContainers;
+    final system = useAllQuery
+        ? controller.allSystemContainers
+        : controller.indexSystemContainers;
+    final custom = useAllQuery
+        ? controller.allCustomContainers
+        : controller.indexCustomContainers;
+    final query = useAllQuery ? controller.allQuery : controller.indexQuery;
     if (system.isEmpty && custom.isEmpty) {
       return Container(
         height: 120,
         alignment: Alignment.center,
         child: Text(
-          controller.query.isEmpty ? '还没有容器' : '没有匹配的容器',
+          query.isEmpty ? '还没有容器' : '没有匹配的容器',
           style: Theme.of(
             context,
           ).textTheme.bodyMedium?.copyWith(color: context.themeV2.muted),

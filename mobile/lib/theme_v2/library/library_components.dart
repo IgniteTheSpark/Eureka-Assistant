@@ -4,21 +4,18 @@ import '../foundation/theme_v2_semantics.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
 import '../foundation/theme_v2_typography.dart';
-import 'library_controller.dart';
+import 'library_models.dart';
 
-typedef LibraryContainerCallback = void Function(LibraryContainer container);
+typedef LibraryContainerCallback =
+    void Function(LibraryContainerSummary container);
 
-IconData libraryContainerIcon(LibraryContainer container) =>
-    switch (container.kind) {
-      LibraryContainerKind.event => Icons.calendar_today_outlined,
-      LibraryContainerKind.contact => Icons.person_outline,
-      LibraryContainerKind.report => Icons.insights_outlined,
-      LibraryContainerKind.external => Icons.link_outlined,
-      LibraryContainerKind.asset when container.id == 'todo' =>
-        Icons.checklist_outlined,
-      LibraryContainerKind.asset when container.id == 'notes' =>
-        Icons.notes_outlined,
-      LibraryContainerKind.asset => Icons.auto_awesome_mosaic_outlined,
+IconData libraryContainerIcon(LibraryContainerSummary container) =>
+    switch (container.type) {
+      LibraryContainerType.event => Icons.calendar_today_outlined,
+      LibraryContainerType.contact => Icons.person_outline,
+      LibraryContainerType.todo => Icons.checklist_outlined,
+      LibraryContainerType.notes => Icons.notes_outlined,
+      LibraryContainerType.custom => Icons.auto_awesome_mosaic_outlined,
     };
 
 class LibraryScreenHeader extends StatelessWidget {
@@ -180,14 +177,14 @@ class LibraryContainerRow extends StatelessWidget {
     required this.onTap,
   });
 
-  final LibraryContainer container;
+  final LibraryContainerSummary container;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
     return Semantics(
-      label: '打开 ${container.label}，${container.count} 条',
+      label: '打开 ${container.label}，${container.totalCount} 条',
       button: true,
       onTap: onTap,
       child: ExcludeSemantics(
@@ -228,7 +225,7 @@ class LibraryContainerRow extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      '${container.count}',
+                      '${container.totalCount}',
                       style: ThemeV2Typography.mono(
                         fontSize: 9,
                         color: tokens.muted,
@@ -260,7 +257,7 @@ class LibraryPinnedMosaic extends StatelessWidget {
     this.onDrop,
   });
 
-  final List<LibraryContainer> containers;
+  final List<LibraryContainerSummary> containers;
   final LibraryContainerCallback? onTap;
   final VoidCallback? onLongPress;
   final bool configure;
@@ -329,7 +326,7 @@ class LibraryPinnedMosaic extends StatelessWidget {
 
   Widget _draggableTile(
     BuildContext context,
-    LibraryContainer container,
+    LibraryContainerSummary container,
     int index,
   ) {
     final tile = _LibraryPinnedTile(
@@ -392,7 +389,7 @@ class _LibraryPinnedTile extends StatelessWidget {
     this.onMoveBackward,
   });
 
-  final LibraryContainer container;
+  final LibraryContainerSummary container;
   final int index;
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
@@ -411,7 +408,7 @@ class _LibraryPinnedTile extends StatelessWidget {
     final compact = index >= 3;
     return Semantics(
       label:
-          '${container.label}，${container.count} 条${configure ? '，可拖动排序，也可使用移动和移除按钮' : ''}',
+          '${container.label}，${container.totalCount} 条${configure ? '，可拖动排序，也可使用移动和移除按钮' : ''}',
       button: onTap != null,
       onTap: onTap,
       onLongPress: onLongPress,
@@ -469,7 +466,7 @@ class _LibraryPinnedTile extends StatelessWidget {
                           ],
                         )
                       : Text(
-                          '${container.count}',
+                          '${container.totalCount}',
                           style: ThemeV2Typography.mono(
                             fontSize: featured ? 12 : 9,
                             color: featured ? tokens.accent : tokens.muted,
