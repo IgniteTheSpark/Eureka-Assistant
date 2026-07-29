@@ -68,10 +68,7 @@ class CardDisplayConfig {
     }
     output['meta_fields'] = [
       for (final field in secondaryFieldIds.skip(1))
-        {
-          'field': field,
-          if (formats[field] case final format?) 'format': format,
-        },
+        {'field': field, 'format': ?formats[field]},
     ];
     return output;
   }
