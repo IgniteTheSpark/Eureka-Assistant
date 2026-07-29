@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 
 import '../api/api_client.dart';
 import '../data_revision.dart';
-import '../render/asset_detail_sheet.dart';
 import '../render/day_render.dart';
 import '../render/render_spec.dart';
 import '../theme/app_theme.dart';
@@ -14,6 +13,8 @@ import '../theme_v2/calendar/calendar_controller.dart';
 import '../theme_v2/calendar/calendar_models.dart';
 import '../theme_v2/calendar/calendar_mode_state.dart';
 import '../theme_v2/calendar/calendar_time_layout.dart';
+import '../theme_v2/asset_detail/asset_entity_ref.dart';
+import '../theme_v2/asset_detail/open_asset_detail.dart';
 import '../timeline/timeline.dart';
 import '../widgets/skeleton_loader.dart';
 import 'create_asset.dart';
@@ -40,66 +41,31 @@ void _openFlashSession(BuildContext context, TimelineItem item) {
 Future<void> _openTimelineItem(
   BuildContext context,
   TimelineItem item,
-  Map<String, SkillMeta> skills,
+  Map<String, SkillMeta> _,
 ) async {
   if (item.kind == 'input_turn') {
     _openFlashSession(context, item);
     return;
   }
-  final api = ApiClient();
   try {
-    final (String path, String wrapKey) = switch (item.kind) {
-      'event' => ('/api/events/${item.id}', 'event'),
-      'contact' => ('/api/contacts/${item.id}', 'contact'),
-      _ => ('/api/assets/${item.id}', 'asset'),
-    };
-    final res = await api.getJson(path);
-    final raw = res is Map ? (res[wrapKey] ?? res) : res;
-    final record =
-        (raw as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
-
-    final isAsset = item.kind != 'event' && item.kind != 'contact';
-    // event/contact PUT flat fields → cardType is the kind; assets carry a
-    // payload and are keyed by their skill name (so edit/delete route to /api/assets).
-    final cardType = isAsset ? (item.skillName ?? 'misc') : item.kind;
-    // Pull the skill's render_spec (field labels + full schema) so the detail
-    // sheet + editor show 中文 labels and every field — not English fallbacks /
-    // only-the-present-fields (the timeline path used to pass no spec).
-    RenderSpec? spec;
-    if (isAsset) {
-      try {
-        spec = (await fetchRenderSpecs(api))[cardType];
-      } catch (_) {
-        /* fall back to label dict */
-      }
-    }
-    if (!context.mounted) return;
-
-    final payload = isAsset
-        ? ((record['payload'] as Map?)?.cast<String, dynamic>() ?? const {})
-        : record;
-    final assetId =
-        (record['${item.kind}_id'] ?? record['id'] ?? item.id) as String?;
-    showAssetDetail(
+    final id = item.id.trim();
+    if (id.isEmpty || !context.mounted) return;
+    await openAssetDetail(
       context,
-      // carry the asset's domain so the hero shows the 领域 chip (was empty).
-      data: _timelineCardData(
-        item,
-        skills,
-      ).copyWith(domain: record['domain'] as String?),
-      payload: payload,
-      cardType: cardType,
-      assetId: assetId,
-      sessionId: (record['session_id'] as String?) ?? item.sessionId,
-      spec: spec,
+      AssetEntityRef(
+        kind: switch (item.kind) {
+          'event' => AssetEntityKind.event,
+          'contact' => AssetEntityKind.contact,
+          _ => AssetEntityKind.asset,
+        },
+        id: id,
+      ),
     );
   } catch (_) {
     // Couldn't load the record — fall back to its source session if any.
     if (context.mounted && (item.sessionId?.isNotEmpty ?? false)) {
       _openFlashSession(context, item);
     }
-  } finally {
-    api.close();
   }
 }
 
@@ -168,36 +134,6 @@ Future<String?> openCalendarInlineDraftEditor(
   } finally {
     ownedApi?.close();
   }
-}
-
-/// Minimal CardData for the detail-sheet hero, from the timeline item's
-/// backend-computed title/subtitle + the kind's icon/accent.
-CardData _timelineCardData(TimelineItem item, Map<String, SkillMeta> skills) {
-  final String icon;
-  final String accent;
-  switch (item.kind) {
-    case 'event':
-      icon = '📅';
-      accent = 'purple';
-    case 'contact':
-      icon = '👤';
-      accent = 'neutral';
-    default:
-      final m = resolveMeta(item.skillName ?? 'misc', skills);
-      icon = m.icon;
-      accent = m.accentColor;
-  }
-  return CardData(
-    layout: 'horizontal',
-    icon: icon,
-    accentColor: accent,
-    title: item.title.isEmpty ? '记录' : item.title,
-    subtitle: item.subtitle,
-    metaFields: const [],
-    checkDone: item.skillName == 'todo'
-        ? todoPayloadIsDone(item.payload)
-        : null,
-  );
 }
 
 /// Calendar surface with a 流 / 月 / 年 segmented control over GET /api/timeline.

@@ -4,10 +4,14 @@ import 'dart:convert';
 import 'package:eureka/api/api_client.dart';
 import 'package:eureka/pages/create_asset.dart';
 import 'package:eureka/pages/event_attendees.dart';
-import 'package:eureka/render/asset_detail_sheet.dart';
-import 'package:eureka/render/render_spec.dart';
 import 'package:eureka/theme/app_theme.dart';
 import 'package:eureka/theme/eureka_colors.dart';
+import 'package:eureka/theme_v2/asset_detail/asset_detail_model.dart';
+import 'package:eureka/theme_v2/asset_detail/asset_detail_repository.dart';
+import 'package:eureka/theme_v2/asset_detail/asset_entity_ref.dart';
+import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
+import 'package:eureka/theme_v2/library/asset/asset_detail_presentation.dart';
+import 'package:eureka/theme_v2/library/asset/asset_detail_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -537,30 +541,14 @@ void main() {
         },
       ],
     };
-
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildEurekaTheme(EurekaColors.light),
-        home: Builder(
-          builder: (context) => TextButton(
-            onPressed: () => showAssetDetail(
-              context,
-              data: buildCard(
-                payload: event,
-                spec: synthesizeSpec('event'),
-                displayName: 'event',
-              ),
-              payload: event,
-              cardType: 'event',
-              assetId: 'event-1',
-            ),
-            child: const Text('open'),
-          ),
-        ),
-      ),
+    final repository = _EventDetailRepository(() => event);
+    final controller = AssetDetailController(
+      repository: repository,
+      ref: const AssetEntityRef(kind: AssetEntityKind.event, id: 'event-1'),
     );
+    addTearDown(controller.dispose);
 
-    await tester.tap(find.text('open'));
+    await tester.pumpWidget(_assetDetailHost(controller));
     await tester.pumpAndSettle();
 
     expect(find.text('Kevin'), findsOneWidget);
@@ -605,14 +593,6 @@ void main() {
       baseUrl: 'http://localhost',
       enableLogging: false,
       client: MockClient((request) async {
-        if (request.method == 'GET' &&
-            request.url.path == '/api/events/event-1') {
-          return http.Response(
-            jsonEncode({'event': event()}),
-            200,
-            headers: {'content-type': 'application/json'},
-          );
-        }
         if (request.method == 'GET' && request.url.path == '/api/contacts') {
           operations.add('GET contacts q=${request.url.queryParameters['q']}');
           return http.Response(
@@ -650,32 +630,15 @@ void main() {
       }),
     );
     addTearDown(api.close);
-    final initialEvent = event();
-
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildEurekaTheme(EurekaColors.light),
-        home: Builder(
-          builder: (context) => TextButton(
-            onPressed: () => showAssetDetail(
-              context,
-              data: buildCard(
-                payload: initialEvent,
-                spec: synthesizeSpec('event'),
-                displayName: 'event',
-              ),
-              payload: initialEvent,
-              cardType: 'event',
-              assetId: 'event-1',
-              api: api,
-            ),
-            child: const Text('open'),
-          ),
-        ),
-      ),
+    final repository = _EventDetailRepository(event);
+    final controller = AssetDetailController(
+      repository: repository,
+      ref: const AssetEntityRef(kind: AssetEntityKind.event, id: 'event-1'),
     );
+    addTearDown(controller.dispose);
 
-    await tester.tap(find.text('open'));
+    await tester.pumpWidget(_assetDetailHost(controller, api: api));
+
     await tester.pumpAndSettle();
     await tester.tap(find.text('关联'));
     await tester.pumpAndSettle();
@@ -1629,4 +1592,83 @@ void main() {
     await tester.pumpAndSettle();
     expect(attempts, 2);
   });
+}
+
+class _EventDetailRepository implements AssetDetailRepository {
+  const _EventDetailRepository(this.event);
+
+  final Map<String, dynamic> Function() event;
+
+  @override
+  Future<AssetDetailModel> load(AssetEntityRef ref) async =>
+      AssetDetailModel.fromJson(_eventEnvelope(event()));
+
+  @override
+  Future<AssetDetailModel> save(
+    AssetDetailModel current,
+    Map<String, dynamic> valuesPatch,
+  ) async => current;
+
+  @override
+  Future<void> delete(AssetEntityRef ref) async {}
+}
+
+Map<String, dynamic> _eventEnvelope(Map<String, dynamic> event) => {
+  'entity': {'kind': 'event', 'id': 'event-1', 'version': 'version-1'},
+  'skill': {
+    'id': null,
+    'machine_name': 'event',
+    'display_name': '事件',
+    'icon': '▣',
+  },
+  'fields': [
+    _eventField('title', '标题', 'string', 0, required: true),
+    _eventField('start_at', '开始', 'datetime', 1, required: true),
+    _eventField('end_at', '结束', 'datetime', 2),
+    _eventField('location', '地点', 'string', 3),
+    _eventField('attendees', '参会人', 'array', 4),
+  ],
+  'values': event,
+  'display': {
+    'primary_field_id': 'title',
+    'secondary_field_ids': ['start_at', 'location'],
+  },
+  'source': {
+    'kind': 'manual',
+    'label': '手动创建',
+    'session_id': null,
+    'input_turn_id': null,
+  },
+  'capabilities': {'editable': true, 'deletable': true},
+};
+
+Map<String, dynamic> _eventField(
+  String id,
+  String label,
+  String type,
+  int order, {
+  bool required = false,
+}) => {
+  'id': id,
+  'label': label,
+  'type': type,
+  'required': required,
+  'long': false,
+  'order': order,
+};
+
+Widget _assetDetailHost(AssetDetailController controller, {ApiClient? api}) {
+  final theme = buildThemeV2Theme(Brightness.light);
+  return MaterialApp(
+    theme: buildEurekaTheme(EurekaColors.light),
+    home: Theme(
+      data: theme.copyWith(
+        extensions: [
+          ...theme.extensions.values,
+          EurekaTheme(EurekaColors.light),
+        ],
+      ),
+      child: Scaffold(body: ThemeV2AssetDetailSurface(controller, api: api)),
+    ),
+  );
 }

@@ -2,16 +2,19 @@ import 'package:flutter/material.dart';
 
 import '../api/api_client.dart';
 import '../data_revision.dart';
-import '../render/asset_detail_sheet.dart' show AssetEditPage, MdEditor;
 import '../render/render_spec.dart' show RenderSpec, normalizeTodoSpec;
 import '../render/skill_card.dart' show SkillCard, accentOf;
-import 'event_attendees.dart';
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
+import '../theme_v2/asset_detail/asset_entity_ref.dart';
+import '../theme_v2/asset_detail/markdown_field_editor.dart';
+import '../theme_v2/asset_detail/theme_v2_asset_edit_page.dart';
+import '../theme_v2/foundation/theme_v2_theme.dart';
+import 'event_attendees.dart';
 
 /// Build the field-rendering RenderSpec for a skill from its payload_schema
 /// (schemaFields / types / long / required / labels). Lets 快创 reuse the same
-/// [AssetEditPage] as 编辑 — create is edit with empty data. (The card preview
+/// [ThemeV2AssetEditPage] as 编辑 — create is edit with empty data. (The card preview
 /// resolves its own full spec via the provider; this only drives the inputs.)
 RenderSpec renderSpecForSkill(SkillDef s) {
   final spec = RenderSpec(
@@ -151,14 +154,18 @@ class _CreateMenuState extends State<_CreateMenu> {
                   for (final s in snap.data ?? const <SkillDef>[]) {
                     // contact is a 真身 entity → its dedicated form (socials /
                     // email / notes). Every other asset skill uses the SAME
-                    // AssetEditPage as 编辑 (create = edit with empty data).
+                    // ThemeV2AssetEditPage as 编辑 (create = edit with empty data).
                     final onTap = s.name == 'contact'
                         ? () => _open(const ContactForm())
                         : () => _open(
-                            AssetEditPage(
-                              payload: const {},
-                              cardType: s.name,
-                              title: '',
+                            ThemeV2AssetEditPage(
+                              reference: AssetEntityRef(
+                                kind: AssetEntityKind.asset,
+                                id: 'new:${s.name}',
+                              ),
+                              initialValues: const {},
+                              mode: AssetEditMode.create,
+                              skillName: s.name,
                               spec: renderSpecForSkill(s),
                               displayName: s.displayName,
                               presetDate: widget.presetDate,
@@ -856,7 +863,10 @@ class _EventFormState extends State<EventForm> {
             const SizedBox(height: 14),
             // 描述 supports markdown (same editor as the asset editor) — events
             // often carry agendas / notes that want structure, not a flat field.
-            MdEditor(label: '描述', controller: _desc),
+            Theme(
+              data: buildThemeV2Theme(Theme.of(context).brightness),
+              child: MarkdownFieldEditor(label: '描述', controller: _desc),
+            ),
             const SizedBox(height: 18),
             if (_error != null) ...[
               Text(

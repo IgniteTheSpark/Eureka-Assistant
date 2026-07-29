@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../api/api_client.dart';
+import '../../theme/app_theme.dart';
+import '../../theme/eureka_colors.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../library/asset/asset_detail_presentation.dart';
 import '../library/asset/asset_detail_sheet.dart';
@@ -29,9 +31,17 @@ Future<void> openAssetDetail(
       backgroundColor: Colors.transparent,
       builder: (sheetContext) {
         final routeTheme = buildThemeV2Theme(Theme.of(sheetContext).brightness);
+        final legacyColors = routeTheme.brightness == Brightness.dark
+            ? EurekaColors.dark
+            : EurekaColors.light;
         return Theme(
-          data: routeTheme,
-          child: ThemeV2AssetDetailSurface(controller),
+          data: routeTheme.copyWith(
+            extensions: [
+              ...routeTheme.extensions.values,
+              EurekaTheme(legacyColors),
+            ],
+          ),
+          child: ThemeV2AssetDetailSurface(controller, api: ownedApi),
         );
       },
     );

@@ -5,12 +5,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/api_client.dart';
 import '../data_revision.dart';
-import '../render/asset_detail_sheet.dart' show showAssetDetail;
-import '../render/render_spec.dart' show RenderSpec, buildCard, synthesizeSpec;
-import '../render/skill_card.dart' show renderSpecsProvider;
+import '../render/skill_card.dart' show skillCardEntityRef;
 import '../theme/app_theme.dart'; // context.eu
 import '../theme/domains.dart' show domainColor;
 import '../theme/eureka_colors.dart';
+import '../theme_v2/asset_detail/open_asset_detail.dart';
 import 'card_frame.dart';
 import 'today_data.dart';
 import 'today_palette.dart';
@@ -140,7 +139,9 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
     final now = DateTime.now();
     if (now.isBefore(it.at)) return true; // ⏳ 后开始
     final dur = it.dur;
-    if (dur == null || dur.inSeconds <= 0) return false; // no duration → no end ticking
+    if (dur == null || dur.inSeconds <= 0) {
+      return false; // no duration → no end ticking
+    }
     return now.isBefore(it.at.add(dur)); // 进行中 until end; 已结束 stops it
   }
 
@@ -738,7 +739,10 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
       now.month,
       now.day,
     ).add(Duration(days: days));
-    _reschedule(it, DateTime(day.year, day.month, day.day, tod.hour, tod.minute));
+    _reschedule(
+      it,
+      DateTime(day.year, day.month, day.day, tod.hour, tod.minute),
+    );
   }
 
   Future<void> _pickCustom(ChainItem it) async {
@@ -831,38 +835,11 @@ class _NextActionPanelState extends ConsumerState<NextActionPanel>
     );
   }
 
-  /// Open the same detail sheet a SkillCard tap opens: resolve the skill spec
-  /// from the registry (entities use a synthesized spec), then showAssetDetail.
+  /// Open the same canonical detail a SkillCard tap opens.
   void _openDetail(ChainItem it) {
-    final specs =
-        ref.read(renderSpecsProvider).valueOrNull ??
-        const <String, RenderSpec>{};
-    final card = it.card;
-    final type = card['card_type'] as String?;
-    final isEntity = type == 'event' || type == 'contact' || type == 'task';
-    final payload = isEntity
-        ? card
-        : ((card['payload'] as Map?)?.cast<String, dynamic>() ?? const {});
-    final cardType = type ?? (card['user_skill_name'] as String?) ?? 'asset';
-    final skill = card['user_skill_name'] as String?;
-    final spec = skill != null ? specs[skill] : null;
-    var data = isEntity
-        ? buildCard(
-            payload: card,
-            spec: synthesizeSpec(type!),
-            displayName: type,
-          )
-        : buildCard(payload: payload, spec: spec, displayName: cardType);
-    data = data.copyWith(domain: card['domain'] as String?);
-    showAssetDetail(
-      context,
-      data: data,
-      payload: payload,
-      cardType: cardType,
-      assetId: (card['asset_id'] ?? card['id']) as String?,
-      sessionId: card['session_id'] as String?,
-      spec: spec,
-    );
+    final reference = skillCardEntityRef(it.card);
+    if (reference == null) return;
+    unawaited(openAssetDetail(context, reference));
   }
 
   /// Past-the-last end state. Swipe right returns to the last card; the ↻ pill

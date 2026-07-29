@@ -139,7 +139,8 @@ bool _todoDone(Map<String, dynamic> p) =>
     p['status'] == 'done' || p['done'] == true;
 
 /// A human title for a pool bubble's summary preview (the detail sheet reuses
-/// showAssetDetail for full rendering). Mirrors the timeline's fallback chain
+/// the canonical asset-detail launcher for full rendering). Mirrors the
+/// timeline's fallback chain
 /// minus render_spec.primary_field (which the asset list doesn't carry).
 String _poolTitle(Map<String, dynamic> p, String type) {
   final cand =

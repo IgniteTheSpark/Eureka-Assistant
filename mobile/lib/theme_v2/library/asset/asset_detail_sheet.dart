@@ -2,6 +2,9 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../../api/api_client.dart';
+import '../../../pages/create_asset.dart' show ContactForm, EventForm;
+import '../../asset_detail/asset_entity_ref.dart';
 import '../../foundation/theme_v2_semantics.dart';
 import '../../foundation/theme_v2_theme.dart';
 import '../../foundation/theme_v2_tokens.dart';
@@ -12,9 +15,10 @@ import 'asset_detail_presentation.dart';
 import 'asset_editors.dart';
 
 class ThemeV2AssetDetailSurface extends StatefulWidget {
-  const ThemeV2AssetDetailSurface(this.controller, {super.key});
+  const ThemeV2AssetDetailSurface(this.controller, {super.key, this.api});
 
   final AssetDetailController controller;
+  final ApiClient? api;
 
   @override
   State<ThemeV2AssetDetailSurface> createState() =>
@@ -66,6 +70,7 @@ class _ThemeV2AssetDetailSurfaceState extends State<ThemeV2AssetDetailSurface> {
                   )
                 : _DetailBody(
                     controller: controller,
+                    api: widget.api,
                     onEdit: _beginEditing,
                     onDelete: _confirmDelete,
                   ),
@@ -122,6 +127,25 @@ class _ThemeV2AssetDetailSurfaceState extends State<ThemeV2AssetDetailSurface> {
     await controller.hydrate();
     if (!mounted || !controller.canEdit) return;
     controller.expand();
+    final Widget? dedicatedEditor = switch (controller.ref.kind) {
+      AssetEntityKind.event => EventForm(
+        eventId: controller.assetId,
+        existing: controller.payload,
+        api: widget.api,
+      ),
+      AssetEntityKind.contact => ContactForm(
+        contactId: controller.assetId,
+        existing: controller.payload,
+      ),
+      AssetEntityKind.asset => null,
+    };
+    if (dedicatedEditor != null) {
+      final changed = await Navigator.of(context).push<dynamic>(
+        MaterialPageRoute<dynamic>(builder: (_) => dedicatedEditor),
+      );
+      if (changed == true && mounted) await controller.retry();
+      return;
+    }
     controller.beginEditing();
   }
 
@@ -241,11 +265,13 @@ class _DetailHeader extends StatelessWidget {
 class _DetailBody extends StatelessWidget {
   const _DetailBody({
     required this.controller,
+    required this.api,
     required this.onEdit,
     required this.onDelete,
   });
 
   final AssetDetailController controller;
+  final ApiClient? api;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
@@ -253,7 +279,9 @@ class _DetailBody extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Expanded(child: AssetDetailContent(controller: controller)),
+        Expanded(
+          child: AssetDetailContent(controller: controller, api: api),
+        ),
         if (controller.sourceLabel case final source?)
           AssetDetailSourceBar(
             label: source,

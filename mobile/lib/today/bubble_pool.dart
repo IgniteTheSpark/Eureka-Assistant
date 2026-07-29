@@ -4,14 +4,12 @@ import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 
-import '../render/asset_detail_sheet.dart' show showAssetDetail;
-import '../render/render_spec.dart' show RenderSpec, buildCard, synthesizeSpec;
-import '../render/skill_card.dart' show renderSpecsProvider;
 import '../theme/app_theme.dart'; // context.eu
 import '../theme/domains.dart' show domainColor;
+import '../theme_v2/asset_detail/asset_entity_ref.dart';
+import '../theme_v2/asset_detail/open_asset_detail.dart';
 import '../timeline/timeline.dart' show SkillMeta, resolveMeta;
 import 'bubble_physics.dart';
 import 'today_data.dart';
@@ -114,7 +112,9 @@ class _BubblePoolState extends State<BubblePool>
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      barrierColor: const Color(0x80070B14), // §B4 dim over the highlighted pool
+      barrierColor: const Color(
+        0x80070B14,
+      ), // §B4 dim over the highlighted pool
       builder: (_) =>
           _TypeSheet(type: type, items: items, skills: widget.skills),
     );
@@ -329,7 +329,6 @@ class _BubblePoolState extends State<BubblePool>
       },
     );
   }
-
 }
 
 // NB: the pool bubble glyph + the dashboard category icon/name now resolve a
@@ -337,30 +336,13 @@ class _BubblePoolState extends State<BubblePool>
 // (timeline.dart) — so a CUSTOM skill (e.g. 'running') shows ITS icon/name, not
 // a hardcoded guess. The old glyphForType/typeName maps lived here.
 
-/// Open the SAME global asset-detail sheet the calendar/library use, from a pool
-/// bubble or the dashboard's latest row — builds CardData via buildCard so the
-/// sheet (hero + fields + actions, theme-aware) renders identically. No bespoke
-/// today-page sheet.
+/// Open the canonical detail from a pool bubble or the dashboard's latest row.
 void openAssetSheet(BuildContext context, PoolAsset a) {
-  final specs =
-      ProviderScope.containerOf(
-        context,
-        listen: false,
-      ).read(renderSpecsProvider).valueOrNull ??
-      const <String, RenderSpec>{};
-  final spec = specs[a.type] ?? synthesizeSpec(a.type);
-  final data = buildCard(
-    payload: a.payload,
-    spec: spec,
-    displayName: a.type,
-  ).copyWith(domain: a.domain.isEmpty ? null : a.domain);
-  showAssetDetail(
-    context,
-    data: data,
-    payload: a.payload,
-    cardType: a.type,
-    assetId: a.id,
-    spec: spec,
+  unawaited(
+    openAssetDetail(
+      context,
+      AssetEntityRef(kind: AssetEntityKind.asset, id: a.id),
+    ),
   );
 }
 
@@ -519,7 +501,10 @@ class _TypeSheet extends StatelessWidget {
                       color: p.accent.withValues(alpha: 0.18),
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: Text(meta.icon, style: const TextStyle(fontSize: 16)),
+                    child: Text(
+                      meta.icon,
+                      style: const TextStyle(fontSize: 16),
+                    ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(

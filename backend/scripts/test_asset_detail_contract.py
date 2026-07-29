@@ -19,6 +19,7 @@ from db.models import (
     Asset,
     Contact,
     Event,
+    EventAttendee,
     GlobalSkill,
     InputTurn,
     Session,
@@ -146,6 +147,15 @@ async def test_canonical_detail_envelope() -> None:
                 notes=["负责儿保"],
             )
             db.add_all((manual_asset, flash_asset, event, contact))
+            await db.flush()
+            attendee = EventAttendee(
+                event_id=event.id,
+                contact_id=contact.id,
+                name_raw="王医生",
+            )
+            db.add(attendee)
+            await db.flush()
+            ids["attendee"] = attendee.id
             await db.commit()
             for key, entity in (
                 ("manual_asset", manual_asset),
@@ -282,6 +292,18 @@ async def test_canonical_detail_envelope() -> None:
         assert event_detail["source"]["kind"] == "flash"
         assert event_detail["source"]["input_turn_id"] == str(ids["turn"])
         assert any(field["id"] == "description" and field["long"] for field in event_detail["fields"])
+        assert any(field["id"] == "attendees" and field["type"] == "array" for field in event_detail["fields"])
+        assert event_detail["values"]["attendees"] == [
+            {
+                "id": str(ids["attendee"]),
+                "contact_id": str(ids["contact"]),
+                "name_raw": "王医生",
+                "display_name": "王医生",
+                "role": "attendee",
+                "is_resolved": True,
+                "contact_summary": "儿童医院",
+            }
+        ]
 
         assert contact_detail["entity"]["kind"] == "contact"
         assert contact_detail["source"]["kind"] == "manual"

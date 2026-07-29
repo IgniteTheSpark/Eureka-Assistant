@@ -8,9 +8,10 @@ import '../data_revision.dart';
 import '../theme/app_theme.dart';
 import '../theme/domains.dart';
 import '../theme/eureka_colors.dart';
+import '../theme_v2/asset_detail/asset_entity_ref.dart';
+import '../theme_v2/asset_detail/open_asset_detail.dart';
 import '../theme/ureka_tokens.dart';
 import '../widgets/toast.dart';
-import 'asset_detail_sheet.dart';
 import 'render_spec.dart';
 
 /// Bridges the global [dataRevision] ValueNotifier into Riverpod so providers
@@ -113,28 +114,28 @@ CardData resolveSkillCardData(
   ).copyWith(domain: card['domain'] as String?);
 }
 
+AssetEntityRef? skillCardEntityRef(Map<String, dynamic> card) {
+  final type = card['card_type'] as String?;
+  if (type == 'task') return null;
+  final id = skillCardAssetId(card)?.trim();
+  if (id == null || id.isEmpty) return null;
+  return AssetEntityRef(
+    kind: switch (type) {
+      'event' => AssetEntityKind.event,
+      'contact' => AssetEntityKind.contact,
+      _ => AssetEntityKind.asset,
+    },
+    id: id,
+  );
+}
+
 void showSkillCardDetail(
   BuildContext context, {
   required Map<String, dynamic> card,
-  required Map<String, RenderSpec> specs,
-  CardData? resolvedData,
 }) {
-  final type = card['card_type'] as String?;
-  final isEntity = type == 'event' || type == 'contact' || type == 'task';
-  final payload = isEntity
-      ? card
-      : ((card['payload'] as Map?)?.cast<String, dynamic>() ?? const {});
-  final cardType = type ?? (card['user_skill_name'] as String?) ?? 'asset';
-  final skill = card['user_skill_name'] as String?;
-  showAssetDetail(
-    context,
-    data: resolvedData ?? resolveSkillCardData(card, specs),
-    payload: payload,
-    cardType: cardType,
-    assetId: skillCardAssetId(card),
-    sessionId: card['session_id'] as String?,
-    spec: skill == null ? null : specs[skill],
-  );
+  final reference = skillCardEntityRef(card);
+  if (reference == null) return;
+  unawaited(openAssetDetail(context, reference));
 }
 
 /// The universal render_spec-driven card (mirrors the web SkillCard). Resolves
@@ -261,14 +262,7 @@ class _SkillCardState extends ConsumerState<SkillCard> {
     final canToggle = data.checkDone != null && _assetId != null;
     final body = GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap:
-          widget.onTap ??
-          () => showSkillCardDetail(
-            context,
-            card: card,
-            specs: specs,
-            resolvedData: data,
-          ),
+      onTap: widget.onTap ?? () => showSkillCardDetail(context, card: card),
       child: _CardBody(data, onToggleCheck: canToggle ? _toggle : null),
     );
 

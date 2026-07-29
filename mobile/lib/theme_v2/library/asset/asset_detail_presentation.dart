@@ -94,7 +94,7 @@ class AssetDetailController extends ChangeNotifier {
 
   void _applyModel(AssetDetailModel model, {required bool replaceDraft}) {
     _detail = model;
-    _spec = _specFromModel(model);
+    _spec = renderSpecFromAssetDetailModel(model);
     _data = buildCard(
       payload: model.values,
       spec: _spec,
@@ -214,7 +214,7 @@ class AssetDetailController extends ChangeNotifier {
   }
 }
 
-RenderSpec _specFromModel(AssetDetailModel model) {
+RenderSpec renderSpecFromAssetDetailModel(AssetDetailModel model) {
   final secondary = model.display.secondaryFieldIds;
   return RenderSpec(
     cardLayout: model.fields.any((field) => field.long)

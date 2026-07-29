@@ -14,9 +14,9 @@ import 'pages/report_viewer_page.dart';
 import 'pages/session_detail_page.dart';
 import 'pet/reka_notifications.dart';
 import 'pet/reka_nudges.dart';
-import 'render/asset_detail_sheet.dart';
-import 'render/render_spec.dart';
 import 'theme/app_theme.dart';
+import 'theme_v2/asset_detail/asset_entity_ref.dart';
+import 'theme_v2/asset_detail/open_asset_detail.dart';
 
 /// True while the hardware flash-memo button is held (SSE `listening` event).
 final listeningNotifier = ValueNotifier<bool>(false);
@@ -214,61 +214,20 @@ Future<void> openNotificationTarget(String type, String link) async {
       nav.push(MaterialPageRoute(builder: (_) => const CalendarPage()));
       return;
     }
-    final api = ApiClient();
     try {
-      if (kind == 'evt') {
-        final res = await api.getJson('/api/events/$id');
-        final ev = (res is Map ? (res['event'] ?? res) : null) as Map?;
-        final ctx = navigatorKey.currentContext; // fresh, post-await
-        if (ev == null || ctx == null) return;
-        final card = {'card_type': 'event', ...ev.cast<String, dynamic>()};
-        showAssetDetail(
-          // ignore: use_build_context_synchronously — ctx re-fetched + null-checked above
-          ctx,
-          data: buildCard(
-            payload: card,
-            spec: synthesizeSpec('event'),
-            displayName: 'event',
-          ),
-          payload: card,
-          cardType: 'event',
-          assetId: id,
-        );
-      } else {
-        final res = await api.getJson('/api/assets/$id');
-        final a = (res is Map ? (res['asset'] ?? res) : null) as Map?;
-        if (a == null) return;
-        final am = a.cast<String, dynamic>();
-        final skill = am['user_skill_name'] as String? ?? 'todo';
-        final payload =
-            (am['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
-        RenderSpec? spec;
-        try {
-          spec = (await fetchRenderSpecs(api))[skill];
-        } catch (_) {}
-        final ctx = navigatorKey.currentContext; // fresh, post-await
-        if (ctx == null) return;
-        showAssetDetail(
-          // ignore: use_build_context_synchronously — ctx re-fetched + null-checked above
-          ctx,
-          data: buildCard(
-            payload: payload,
-            spec: spec ?? synthesizeSpec(skill),
-            displayName: skill,
-          ).copyWith(domain: am['domain'] as String?),
-          payload: payload,
-          cardType: skill,
-          assetId: id,
-          sessionId: am['session_id'] as String?,
-          spec: spec,
-        );
-      }
+      final ctx = navigatorKey.currentContext;
+      if (ctx == null) return;
+      await openAssetDetail(
+        ctx,
+        AssetEntityRef(
+          kind: kind == 'evt' ? AssetEntityKind.event : AssetEntityKind.asset,
+          id: id,
+        ),
+      );
     } catch (_) {
       nav.push(
         MaterialPageRoute(builder: (_) => const CalendarPage()),
       ); // fallback
-    } finally {
-      api.close();
     }
     return;
   }

@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../../../api/api_client.dart';
+import '../../../data_revision.dart';
+import '../../../pages/create_asset.dart' show ContactForm;
+import '../../../pages/event_attendees.dart';
 import '../../../render/render_spec.dart';
+import '../../asset_detail/asset_entity_ref.dart';
 import '../../asset_detail/asset_text_value.dart';
 import '../../foundation/theme_v2_theme.dart';
 import '../../foundation/theme_v2_tokens.dart';
@@ -8,9 +13,10 @@ import '../../foundation/theme_v2_typography.dart';
 import 'asset_detail_presentation.dart';
 
 class AssetDetailContent extends StatelessWidget {
-  const AssetDetailContent({super.key, required this.controller});
+  const AssetDetailContent({super.key, required this.controller, this.api});
 
   final AssetDetailController controller;
+  final ApiClient? api;
 
   @override
   Widget build(BuildContext context) {
@@ -78,17 +84,170 @@ class AssetDetailContent extends StatelessWidget {
           ),
         for (final field in fields)
           if (_hasValue(controller.payload[field]))
-            _AssetDetailField(
-              label: controller.spec.fieldLabels[field] ?? _fieldLabel(field),
-              value: applyFormat(
-                controller.payload[field],
-                controller.spec.formatForField(field),
+            if (controller.ref.kind == AssetEntityKind.event &&
+                field == 'attendees' &&
+                controller.payload[field] is List)
+              _EventAttendeesValue(
+                controller: controller,
+                api: api,
+                attendees: controller.payload[field] as List,
+              )
+            else
+              _AssetDetailField(
+                label: controller.spec.fieldLabels[field] ?? _fieldLabel(field),
+                value: applyFormat(
+                  controller.payload[field],
+                  controller.spec.formatForField(field),
+                ),
+                markdown: controller.spec.longFields.contains(field),
+                full: full,
+                onExpand: controller.expand,
               ),
-              markdown: controller.spec.longFields.contains(field),
-              full: full,
-              onExpand: controller.expand,
-            ),
       ],
+    );
+  }
+}
+
+class _EventAttendeesValue extends StatefulWidget {
+  const _EventAttendeesValue({
+    required this.controller,
+    required this.attendees,
+    this.api,
+  });
+
+  final AssetDetailController controller;
+  final List attendees;
+  final ApiClient? api;
+
+  @override
+  State<_EventAttendeesValue> createState() => _EventAttendeesValueState();
+}
+
+class _EventAttendeesValueState extends State<_EventAttendeesValue> {
+  late final ApiClient _api = widget.api ?? ApiClient();
+  late final bool _ownsApi = widget.api == null;
+  var _busy = false;
+
+  List<EventAttendeeDraft> get _attendees => widget.attendees
+      .whereType<Map>()
+      .map(EventAttendeeDraft.fromJson)
+      .where((attendee) => attendee.displayName.isNotEmpty)
+      .toList();
+
+  @override
+  void dispose() {
+    if (_ownsApi) _api.close();
+    super.dispose();
+  }
+
+  Future<Map<String, dynamic>?> _openContactForm(
+    BuildContext context,
+    String initialName,
+  ) async {
+    final receipt = await Navigator.of(context).push<dynamic>(
+      MaterialPageRoute<dynamic>(
+        builder: (_) => ContactForm(
+          existing: initialName.isEmpty ? null : {'name': initialName},
+        ),
+      ),
+    );
+    return receipt is Map ? Map<String, dynamic>.from(receipt) : null;
+  }
+
+  Future<void> _bind(EventAttendeeDraft attendee) async {
+    final attendeeId = attendee.id;
+    if (_busy || attendeeId == null) return;
+    final excludedIds = _attendees
+        .map((item) => item.contactId)
+        .whereType<String>()
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    final selected = await showEventAttendeeSelector(
+      context,
+      api: _api,
+      excludedContactIds: excludedIds,
+      initialQuery: attendee.nameRaw ?? attendee.displayName,
+      singleSelect: true,
+      onCreateContact: _openContactForm,
+    );
+    if (!mounted || selected == null || selected.isEmpty) return;
+    setState(() => _busy = true);
+    try {
+      await _api.patchJson(
+        '/api/events/${widget.controller.assetId}/attendees/$attendeeId',
+        {'contact_id': selected.first.id},
+      );
+      await widget.controller.retry();
+      bumpData();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('关联联系人失败，请重试')));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final attendees = _attendees;
+    if (attendees.isEmpty) return const SizedBox.shrink();
+    final tokens = context.themeV2;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: ThemeV2Spacing.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '参会人',
+            style: ThemeV2Typography.mono(
+              fontSize: 8,
+              color: tokens.muted,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: ThemeV2Spacing.xs),
+          for (final attendee in attendees)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: ThemeV2Spacing.xs),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          attendee.displayName,
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(fontWeight: FontWeight.w700),
+                        ),
+                        if (attendee.contactSummary.isNotEmpty)
+                          Text(
+                            attendee.contactSummary,
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: tokens.muted),
+                          )
+                        else if (!attendee.isResolved)
+                          Text(
+                            '未关联联系人',
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: tokens.muted),
+                          ),
+                      ],
+                    ),
+                  ),
+                  if (!attendee.isResolved && attendee.id != null)
+                    TextButton(
+                      onPressed: _busy ? null : () => _bind(attendee),
+                      child: const Text('关联'),
+                    ),
+                ],
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

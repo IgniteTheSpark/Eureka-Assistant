@@ -4,10 +4,10 @@ import 'package:flutter/material.dart';
 
 import '../api/api_client.dart';
 import '../data_revision.dart';
-import '../render/asset_detail_sheet.dart';
-import '../render/render_spec.dart';
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
+import '../theme_v2/asset_detail/asset_entity_ref.dart';
+import '../theme_v2/asset_detail/open_asset_detail.dart';
 import '../widgets/skeleton_loader.dart';
 import 'session_detail_page.dart';
 
@@ -120,74 +120,19 @@ class _NotificationsPageState extends State<NotificationsPage> {
         final parts = link.split(':');
         final kind = parts.length > 1 ? parts[1] : '';
         final id = parts.length > 2 ? parts[2] : link;
-        if (kind == 'evt') {
-          final res = await _api.getJson('/api/events/$id');
-          final ev = (res is Map ? (res['event'] ?? res) : null) as Map?;
-          if (ev == null || !mounted) return;
-          final card = {'card_type': 'event', ...ev.cast<String, dynamic>()};
-          showAssetDetail(
-            context,
-            data: buildCard(
-              payload: card,
-              spec: synthesizeSpec('event'),
-              displayName: 'event',
-            ),
-            payload: card,
-            cardType: 'event',
-            assetId: id,
-          );
-        } else {
-          final res = await _api.getJson('/api/assets/$id');
-          final a = (res is Map ? (res['asset'] ?? res) : null) as Map?;
-          if (a == null || !mounted) return;
-          final am = a.cast<String, dynamic>();
-          final skill = am['user_skill_name'] as String? ?? 'todo';
-          final payload =
-              (am['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
-          RenderSpec? spec;
-          try {
-            spec = (await fetchRenderSpecs(_api))[skill];
-          } catch (_) {}
-          if (!mounted) return;
-          showAssetDetail(
-            context,
-            data: buildCard(
-              payload: payload,
-              spec: spec ?? synthesizeSpec(skill),
-              displayName: skill,
-            ).copyWith(domain: am['domain'] as String?),
-            payload: payload,
-            cardType: skill,
-            assetId: id,
-            sessionId: am['session_id'] as String?,
-            spec: spec,
-          );
-        }
-      } else if (n.type == 'task_done' || n.type == 'task_failed') {
-        final res = await _api.getJson('/api/assets/$link');
-        final a = ((res is Map ? res['asset'] : null) as Map?)
-            ?.cast<String, dynamic>();
-        if (a == null || !mounted) return;
-        final skill = a['user_skill_name'] as String? ?? 'misc';
-        final payload =
-            (a['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
-        RenderSpec? spec;
-        try {
-          spec = (await fetchRenderSpecs(_api))[skill];
-        } catch (_) {}
-        if (!mounted) return;
-        showAssetDetail(
+        if (id.isEmpty || !mounted) return;
+        await openAssetDetail(
           context,
-          data: buildCard(
-            payload: payload,
-            spec: spec ?? synthesizeSpec(skill),
-            displayName: skill,
-          ).copyWith(domain: a['domain'] as String?),
-          payload: payload,
-          cardType: skill,
-          assetId: link,
-          sessionId: a['session_id'] as String?,
-          spec: spec,
+          AssetEntityRef(
+            kind: kind == 'evt' ? AssetEntityKind.event : AssetEntityKind.asset,
+            id: id,
+          ),
+        );
+      } else if (n.type == 'task_done' || n.type == 'task_failed') {
+        if (!mounted) return;
+        await openAssetDetail(
+          context,
+          AssetEntityRef(kind: AssetEntityKind.asset, id: link),
         );
       }
     } catch (_) {

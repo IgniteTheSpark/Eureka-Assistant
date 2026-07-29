@@ -14,10 +14,12 @@ from api.assets import _resync_asset_fields
 from core.auth import get_current_user_id
 from core.contacts_meta import clean_socials, notes_to_list
 from db.database import AsyncSessionLocal
+from mcp_server.tools import _event_attendee_to_dict
 from db.models import (
     Asset,
     Contact,
     Event,
+    EventAttendee,
     GlobalSkill,
     InputTurn,
     Session,
@@ -41,6 +43,7 @@ _EVENT_FIELDS = (
     ("description", "描述", "string", False, True),
     ("recurrence_rule", "重复", "string", False, False),
     ("status", "状态", "string", False, False),
+    ("attendees", "参会人", "array", False, False),
 )
 
 _CONTACT_FIELDS = (
@@ -152,6 +155,41 @@ def _display(
             str(field_id) for field_id in secondary_ids if str(field_id).strip()
         ][:3],
     }
+
+
+async def _event_attendees(
+    db,
+    event_id: uuid.UUID,
+    user_id: str,
+) -> list[dict]:
+    attendees = (
+        await db.execute(
+            select(EventAttendee)
+            .where(EventAttendee.event_id == event_id)
+            .order_by(EventAttendee.created_at.asc(), EventAttendee.id.asc())
+        )
+    ).scalars().all()
+    contact_ids = {
+        attendee.contact_id for attendee in attendees if attendee.contact_id
+    }
+    contacts_by_id = {}
+    if contact_ids:
+        contacts = (
+            await db.execute(
+                select(Contact).where(
+                    Contact.id.in_(contact_ids),
+                    Contact.user_id == user_id,
+                )
+            )
+        ).scalars().all()
+        contacts_by_id = {contact.id: contact for contact in contacts}
+    return [
+        _event_attendee_to_dict(
+            attendee,
+            contacts_by_id.get(attendee.contact_id),
+        )
+        for attendee in attendees
+    ]
 
 
 async def _source(db, user_id: str, turn_id: uuid.UUID | None) -> dict:
@@ -284,6 +322,7 @@ async def get_asset_detail(
                 "description": event.description,
                 "recurrence_rule": event.recurrence_rule,
                 "status": event.status,
+                "attendees": await _event_attendees(db, event.id, user_id),
             }
             return _envelope(
                 kind=kind,
@@ -407,7 +446,11 @@ async def update_asset_detail(
             if event is None:
                 raise HTTPException(status_code=404, detail="event not found")
             _assert_version(event, body.expected_version)
-            allowed = {field_id for field_id, *_ in _EVENT_FIELDS}
+            allowed = {
+                field_id
+                for field_id, *_ in _EVENT_FIELDS
+                if field_id != "attendees"
+            }
             _assert_known_fields(body.values_patch, allowed)
             for field_id, value in body.values_patch.items():
                 if field_id in {"start_at", "end_at"}:

@@ -4,7 +4,7 @@ import 'dart:convert';
 import 'package:eureka/api/api_client.dart';
 import 'package:eureka/pages/calendar_page.dart';
 import 'package:eureka/pages/create_asset.dart';
-import 'package:eureka/render/asset_detail_sheet.dart';
+import 'package:eureka/theme_v2/asset_detail/theme_v2_asset_edit_page.dart';
 import 'package:eureka/theme_v2/calendar/calendar_controller.dart';
 import 'package:eureka/theme_v2/calendar/calendar_editor_router.dart';
 import 'package:eureka/theme_v2/calendar/calendar_manual_record_picker.dart';
@@ -47,11 +47,11 @@ void main() {
     expect(event, isA<EventForm>());
     expect((event as EventForm).presetDate, date);
     expect(contact, isA<ContactForm>());
-    expect(asset, isA<AssetEditPage>());
-    expect((asset as AssetEditPage).cardType, 'running');
+    expect(asset, isA<ThemeV2AssetEditPage>());
+    expect((asset as ThemeV2AssetEditPage).skillName, 'running');
     expect(asset.displayName, '跑步训练');
     expect(asset.presetDate, date);
-    expect(asset.isCreate, isTrue);
+    expect(asset.mode, AssetEditMode.create);
   });
 
   testWidgets('editing a created event fetches its complete existing record', (

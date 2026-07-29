@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../pages/create_asset.dart';
-import '../../render/asset_detail_sheet.dart';
+import '../asset_detail/asset_entity_ref.dart';
+import '../asset_detail/theme_v2_asset_edit_page.dart';
 import 'calendar_manual_record_picker.dart';
 
 Widget calendarEditorPageForSkill(
@@ -21,10 +22,14 @@ Widget calendarEditorPageForSkill(
         option.accentColor,
         option.payloadSchema,
       );
-      return AssetEditPage(
-        payload: const {},
-        cardType: option.name,
-        title: '',
+      return ThemeV2AssetEditPage(
+        reference: AssetEntityRef(
+          kind: AssetEntityKind.asset,
+          id: 'new:${option.name}',
+        ),
+        initialValues: const {},
+        mode: AssetEditMode.create,
+        skillName: option.name,
         spec: renderSpecForSkill(definition),
         displayName: option.displayName,
         presetDate: effectiveDate,
