@@ -9,7 +9,6 @@ import '../../timeline/timeline.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
-import '../shell/theme_v2_async_state.dart';
 import 'asset/asset_detail_sheet.dart';
 import 'asset/asset_list_page.dart';
 import 'asset/set_goal_action.dart';
@@ -21,6 +20,7 @@ import 'library_hub.dart';
 import 'library_models.dart';
 import 'library_navigation.dart';
 import 'library_repository.dart';
+import 'library_states.dart';
 import 'pinned_configuration.dart';
 
 class ThemeV2LibraryPage extends ConsumerStatefulWidget {
@@ -104,7 +104,7 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
             onPopInvokedWithResult: _handlePop,
             child: const ColoredBox(
               color: Colors.transparent,
-              child: ThemeV2AsyncState.loading(label: '正在加载资产库'),
+              child: LibraryStateView.loading(),
             ),
           );
         }
@@ -114,10 +114,16 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
             onPopInvokedWithResult: _handlePop,
             child: ColoredBox(
               color: context.themeV2.background,
-              child: ThemeV2AsyncState.error(
-                title: status == LibraryStatus.offline ? '当前处于离线状态' : '资产库加载失败',
-                message: _controller.errorMessage,
-                onRetry: _controller.retry,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 16, 18, 112),
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  child: LibraryStateView.error(
+                    offline: status == LibraryStatus.offline,
+                    message: _controller.errorMessage,
+                    onRetry: _controller.retry,
+                  ),
+                ),
               ),
             ),
           );

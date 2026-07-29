@@ -10,12 +10,14 @@ import 'package:eureka/theme_v2/foundation/theme_v2_tokens.dart';
 import 'package:eureka/theme_v2/asset/asset_card.dart';
 import 'package:eureka/theme_v2/library/asset/asset_list_page.dart';
 import 'package:eureka/theme_v2/library/container_index.dart';
+import 'package:eureka/theme_v2/library/create_skill/theme_v2_skill_wizard.dart';
 import 'package:eureka/theme_v2/library/library_components.dart';
 import 'package:eureka/theme_v2/library/library_controller.dart';
 import 'package:eureka/theme_v2/library/library_hub.dart';
 import 'package:eureka/theme_v2/library/library_models.dart';
 import 'package:eureka/theme_v2/library/library_navigation.dart';
 import 'package:eureka/theme_v2/library/library_repository.dart';
+import 'package:eureka/theme_v2/library/library_states.dart';
 import 'package:eureka/theme_v2/library/pinned_configuration.dart';
 import 'package:eureka/theme_v2/library/theme_v2_library_page.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_app_shell.dart';
@@ -283,6 +285,61 @@ void main() {
     await tester.tap(close);
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('theme-v2-asset-sheet')), findsNothing);
+  });
+
+  testWidgets('recent detail closes back to the same hub scroll position', (
+    tester,
+  ) async {
+    final controller = await _controller();
+    await _pumpHost(
+      tester,
+      ThemeV2LibraryPage(controller: controller, autoLoad: false),
+      size: const Size(411, 600),
+    );
+    final hubScroll = find
+        .descendant(
+          of: find.byKey(const PageStorageKey('theme-v2-library-hub')),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('library-recent-a1')),
+      280,
+      scrollable: hubScroll,
+    );
+    final before = tester.state<ScrollableState>(hubScroll).position.pixels;
+
+    await tester.tap(find.byKey(const ValueKey('library-recent-a1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('asset-detail-close')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const PageStorageKey('theme-v2-library-hub')),
+      findsOneWidget,
+    );
+    expect(
+      tester.state<ScrollableState>(hubScroll).position.pixels,
+      closeTo(before, 1),
+    );
+  });
+
+  testWidgets('default create action opens skill builder step one', (
+    tester,
+  ) async {
+    final controller = await _controller();
+    await _pumpHost(
+      tester,
+      ThemeV2LibraryPage(controller: controller, autoLoad: false),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('library-create-skill')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ThemeV2SkillWizardSheet), findsOneWidget);
+    expect(find.text('想记录点什么？'), findsOneWidget);
+    await tester.tap(find.bySemanticsLabel('关闭新技能'));
+    await tester.pumpAndSettle();
   });
 
   testWidgets('page routes hub to index all containers and pinned configure', (
@@ -733,11 +790,13 @@ void main() {
     await tester.pump();
 
     expect(find.byType(LibraryHub), findsNothing);
-    expect(find.text('正在加载资产库'), findsOneWidget);
+    expect(find.byType(LibraryStateView), findsOneWidget);
+    expect(find.byKey(const ValueKey('library-state-loading')), findsOneWidget);
+    expect(find.bySemanticsLabel('正在加载资产库'), findsOneWidget);
 
     pending.complete((await _controller()).overview!);
     await tester.pumpAndSettle();
-    expect(find.text('正在加载资产库'), findsNothing);
+    expect(find.bySemanticsLabel('正在加载资产库'), findsNothing);
     expect(find.text('资产库'), findsOneWidget);
   });
 
@@ -764,6 +823,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(LibraryHub), findsNothing);
+    expect(find.byKey(const ValueKey('library-state-error')), findsOneWidget);
     expect(find.text('当前处于离线状态'), findsOneWidget);
     expect(find.bySemanticsLabel('重试'), findsOneWidget);
 
@@ -771,6 +831,44 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('当前处于离线状态'), findsNothing);
     expect(find.byKey(const ValueKey('library-pinned-mosaic')), findsOneWidget);
+  });
+
+  testWidgets('partial state keeps hub content and exposes retry banner', (
+    tester,
+  ) async {
+    final ready = (await _controller()).overview!;
+    final controller = LibraryController(
+      repository: _Repository(
+        LibraryOverview(
+          systemContainers: ready.systemContainers,
+          customContainers: ready.customContainers,
+          recentAssets: ready.recentAssets,
+          totalAssetCount: ready.totalAssetCount,
+          failedSources: const [
+            LibrarySourceFailure(source: 'events', isOffline: false),
+          ],
+        ),
+      ),
+      pinnedStore: _Store(),
+    );
+    await controller.load();
+    await _pumpHost(
+      tester,
+      ThemeV2LibraryPage(
+        controller: controller,
+        autoLoad: false,
+        onOpenContainer: (_) {},
+        onCreateSkill: () {},
+      ),
+    );
+
+    expect(find.byType(LibraryHub), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('library-partial-banner')),
+      findsOneWidget,
+    );
+    expect(find.text('重试'), findsOneWidget);
+    expect(find.byKey(const ValueKey('library-create-skill')), findsOneWidget);
   });
 
   testWidgets('refresh keeps the populated hub interactive', (tester) async {

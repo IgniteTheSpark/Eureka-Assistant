@@ -498,20 +498,25 @@ class _LibraryPinnedTileState extends State<_LibraryPinnedTile> {
                     ),
                   ),
                 ),
-                Positioned(
-                  right: widget.configure && compact ? 88 : 14,
-                  top: compact ? 17 : 12,
-                  child: Text(
-                    '${widget.container.totalCount}',
-                    style: ThemeV2Typography.mono(
-                      fontSize: compact ? 14 : 18,
-                      color: featured ? tokens.accent : tokens.foreground,
-                      fontWeight: FontWeight.w700,
+                if (!(widget.configure && compact))
+                  Positioned(
+                    right: 14,
+                    top: compact ? 17 : 12,
+                    child: Text(
+                      '${widget.container.totalCount}',
+                      style: ThemeV2Typography.mono(
+                        fontSize: compact ? 14 : 18,
+                        color: featured ? tokens.accent : tokens.foreground,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
-                ),
                 Positioned(
-                  left: compact ? 45 : 14,
+                  left: widget.configure && compact
+                      ? 32
+                      : compact
+                      ? 45
+                      : 14,
                   right: widget.configure && compact ? 92 : 12,
                   bottom: compact ? 17 : 14,
                   child: Text(
@@ -804,86 +809,6 @@ class LibraryAvailableContainerTile extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-/// Transitional name retained until every directory surface is on its
-/// canonical system/custom row variant.
-class LibraryContainerRow extends StatelessWidget {
-  const LibraryContainerRow({
-    super.key,
-    required this.container,
-    required this.onTap,
-  });
-
-  final LibraryContainerSummary container;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => container.isSystem
-      ? LibrarySystemContainerCard(container: container, onTap: onTap)
-      : LibraryCustomContainerRow(container: container, onTap: onTap);
-}
-
-/// Transitional header retained for Asset screens. Library surfaces themselves
-/// use native title/back composition and never render breadcrumbs.
-class LibraryScreenHeader extends StatelessWidget {
-  const LibraryScreenHeader({
-    super.key,
-    required this.kicker,
-    required this.title,
-    required this.subtitle,
-    this.onBack,
-    this.onKickerTap,
-  });
-
-  final String kicker;
-  final String title;
-  final String subtitle;
-  final VoidCallback? onBack;
-  final VoidCallback? onKickerTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (onBack != null)
-          ThemeV2IconButton(
-            semanticLabel: '返回',
-            icon: Icons.arrow_back,
-            color: context.themeV2.muted,
-            onPressed: onBack,
-          ),
-        Semantics(
-          container: true,
-          explicitChildNodes: true,
-          label: onKickerTap == null ? null : '打开资产容器索引',
-          button: onKickerTap != null,
-          onTap: onKickerTap,
-          excludeSemantics: onKickerTap != null,
-          child: InkWell(
-            onTap: onKickerTap,
-            child: Text(
-              title,
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                color: context.themeV2.foreground,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        ),
-        if (subtitle.isNotEmpty) ...[
-          const SizedBox(height: ThemeV2Spacing.xs),
-          Text(
-            subtitle,
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: context.themeV2.muted),
-          ),
-        ],
-      ],
     );
   }
 }

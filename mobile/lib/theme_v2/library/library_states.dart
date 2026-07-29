@@ -27,10 +27,11 @@ class LibraryStateView extends StatelessWidget {
 
   const LibraryStateView.error({
     super.key,
-    this.title = '资产库加载失败',
+    bool offline = false,
     this.message,
     required VoidCallback onRetry,
   }) : _kind = _LibraryStateKind.error,
+       title = offline ? '当前处于离线状态' : '资产库加载失败',
        onAction = onRetry;
 
   final _LibraryStateKind _kind;
@@ -140,6 +141,7 @@ class _LibrarySkeleton extends StatelessWidget {
       ),
     );
     return Semantics(
+      key: const ValueKey('library-state-loading'),
       label: '正在加载资产库',
       liveRegion: true,
       child: ExcludeSemantics(

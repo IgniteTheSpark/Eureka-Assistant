@@ -3,14 +3,20 @@ import 'dart:io';
 import 'package:eureka/render/skill_card.dart';
 import 'package:eureka/theme/app_theme.dart';
 import 'package:eureka/theme/eureka_colors.dart';
+import 'package:eureka/theme/theme_controller.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_tokens.dart';
 import 'package:eureka/theme_v2/library/container_index.dart';
 import 'package:eureka/theme_v2/library/library_controller.dart';
 import 'package:eureka/theme_v2/library/library_hub.dart';
 import 'package:eureka/theme_v2/library/library_models.dart';
+import 'package:eureka/theme_v2/library/library_navigation.dart';
 import 'package:eureka/theme_v2/library/library_repository.dart';
 import 'package:eureka/theme_v2/library/pinned_configuration.dart';
+import 'package:eureka/theme_v2/shell/device_status_summary.dart';
+import 'package:eureka/theme_v2/shell/theme_v2_floating_dock.dart';
+import 'package:eureka/theme_v2/shell/theme_v2_global_top_nav.dart';
+import 'package:eureka/theme_v2/shell/theme_v2_page_scaffold.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -43,6 +49,7 @@ void main() {
     WidgetTester tester, {
     required Widget Function(LibraryController controller) builder,
     required Brightness brightness,
+    required LibrarySurface librarySurface,
     Size size = const Size(411, 960),
   }) async {
     tester.view.devicePixelRatio = 1;
@@ -50,10 +57,21 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     addTearDown(tester.view.resetPhysicalSize);
     final controller = await _fixtureController();
+    addTearDown(controller.dispose);
+    final navigation = LibraryNavigationController();
+    addTearDown(navigation.dispose);
+    if (librarySurface != LibrarySurface.hub) {
+      navigation.open(librarySurface);
+    }
     final theme = buildThemeV2Theme(brightness);
     final legacy = brightness == Brightness.dark
         ? EurekaColors.dark
         : EurekaColors.light;
+    final previousThemeMode = themeModeNotifier.value;
+    themeModeNotifier.value = brightness == Brightness.dark
+        ? ThemeMode.dark
+        : ThemeMode.light;
+    addTearDown(() => themeModeNotifier.value = previousThemeMode);
     await tester.pumpWidget(
       ProviderScope(
         overrides: [renderSpecsProvider.overrideWith((ref) async => const {})],
@@ -61,14 +79,23 @@ void main() {
           theme: theme.copyWith(
             extensions: [...theme.extensions.values, EurekaTheme(legacy)],
           ),
-          home: Scaffold(
-            body: SafeArea(
-              child: RepaintBoundary(
-                key: surface,
-                child: ColoredBox(
-                  color: ThemeV2Tokens.forBrightness(brightness).background,
-                  child: builder(controller),
-                ),
+          home: RepaintBoundary(
+            key: surface,
+            child: ThemeV2PageScaffold(
+              showTopNav: navigation.chrome.topNav,
+              showDock: navigation.chrome.dock,
+              topNav: ThemeV2GlobalTopNav(
+                deviceStatus: const DeviceStatusSummary.disconnected(),
+                onDevicePressed: () {},
+                onNotificationsPressed: () {},
+              ),
+              dock: ThemeV2FloatingDock(
+                selectedIndex: 2,
+                onDestinationSelected: (_) {},
+              ),
+              body: ColoredBox(
+                color: ThemeV2Tokens.forBrightness(brightness).background,
+                child: builder(controller),
               ),
             ),
           ),
@@ -85,6 +112,7 @@ void main() {
       await pumpGolden(
         tester,
         brightness: brightness,
+        librarySurface: LibrarySurface.hub,
         builder: (controller) => LibraryHub(
           controller: controller,
           onOpenContainer: (_) {},
@@ -105,6 +133,7 @@ void main() {
       await pumpGolden(
         tester,
         brightness: brightness,
+        librarySurface: LibrarySurface.containerIndex,
         builder: (controller) => ContainerIndex(
           controller: controller,
           onBack: () {},
@@ -123,6 +152,7 @@ void main() {
       await pumpGolden(
         tester,
         brightness: brightness,
+        librarySurface: LibrarySurface.allContainers,
         builder: (controller) => AllContainers(
           controller: controller,
           onBack: () {},
@@ -140,6 +170,7 @@ void main() {
       await pumpGolden(
         tester,
         brightness: brightness,
+        librarySurface: LibrarySurface.pinnedConfiguration,
         builder: (controller) =>
             PinnedConfiguration(controller: controller, onDone: () {}),
       );
@@ -154,6 +185,7 @@ void main() {
     await pumpGolden(
       tester,
       brightness: Brightness.light,
+      librarySurface: LibrarySurface.hub,
       size: const Size(360, 800),
       builder: (controller) => LibraryHub(
         controller: controller,
@@ -179,7 +211,7 @@ Future<LibraryController> _fixtureController() async {
       LibraryContainerSummary(
         id: 'todo',
         label: '待办',
-        mark: '📋',
+        mark: '待',
         type: LibraryContainerType.todo,
         totalCount: 48,
         isSystem: true,
@@ -188,7 +220,7 @@ Future<LibraryController> _fixtureController() async {
       LibraryContainerSummary(
         id: 'notes',
         label: '笔记',
-        mark: '✍️',
+        mark: '记',
         type: LibraryContainerType.notes,
         totalCount: 16,
         isSystem: true,
@@ -197,7 +229,7 @@ Future<LibraryController> _fixtureController() async {
       LibraryContainerSummary(
         id: 'event',
         label: '事件',
-        mark: '📅',
+        mark: '日',
         type: LibraryContainerType.event,
         totalCount: 1,
         isSystem: true,
@@ -205,7 +237,7 @@ Future<LibraryController> _fixtureController() async {
       LibraryContainerSummary(
         id: 'contact',
         label: '联系人',
-        mark: '👤',
+        mark: '人',
         type: LibraryContainerType.contact,
         totalCount: 1,
         isSystem: true,
@@ -215,7 +247,7 @@ Future<LibraryController> _fixtureController() async {
       LibraryContainerSummary(
         id: 'tennis',
         label: '网球记录',
-        mark: '🎾',
+        mark: '球',
         type: LibraryContainerType.custom,
         totalCount: 9,
         isSystem: false,
@@ -224,11 +256,29 @@ Future<LibraryController> _fixtureController() async {
       LibraryContainerSummary(
         id: 'expense',
         label: '消费账本',
-        mark: '💰',
+        mark: '¥',
         type: LibraryContainerType.custom,
         totalCount: 27,
         isSystem: false,
         userSkillId: 's-expense',
+      ),
+      LibraryContainerSummary(
+        id: 'running',
+        label: '跑步记录',
+        mark: '跑',
+        type: LibraryContainerType.custom,
+        totalCount: 14,
+        isSystem: false,
+        userSkillId: 's-running',
+      ),
+      LibraryContainerSummary(
+        id: 'water',
+        label: '喝水记录',
+        mark: '水',
+        type: LibraryContainerType.custom,
+        totalCount: 32,
+        isSystem: false,
+        userSkillId: 's-water',
       ),
     ],
     recentAssets: [
@@ -236,7 +286,7 @@ Future<LibraryController> _fixtureController() async {
         id: 'a1',
         skillName: 'todo',
         skillLabel: '待办',
-        mark: '📋',
+        mark: '待',
         primaryValue: '提交 UI 重构',
         createdAt: now,
         detailCard: const {
@@ -249,7 +299,7 @@ Future<LibraryController> _fixtureController() async {
         id: 'a2',
         skillName: 'notes',
         skillLabel: '笔记',
-        mark: '✍️',
+        mark: '记',
         primaryValue: '资产库交互记录',
         createdAt: now.subtract(const Duration(minutes: 16)),
         detailCard: const {
