@@ -1,0 +1,233 @@
+import 'dart:convert';
+
+import 'package:eureka/api/api_client.dart';
+import 'package:eureka/theme_v2/library/library_models.dart';
+import 'package:eureka/theme_v2/library/library_repository.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+
+void main() {
+  group('ApiLibraryRepository', () {
+    test(
+      'loads one bounded overview and projects recent asset cards',
+      () async {
+        final calls = <String, int>{};
+        final requestedUris = <Uri>[];
+        final api = _api((request) async {
+          requestedUris.add(request.url);
+          calls.update(
+            request.url.path,
+            (count) => count + 1,
+            ifAbsent: () => 1,
+          );
+          final body = switch (request.url.path) {
+            '/api/assets' => {'assets': _assetRows(55)},
+            '/api/skills' => {
+              'skills': [
+                _skill(
+                  name: 'todo',
+                  label: '待办',
+                  mark: '☑',
+                  primaryField: 'title',
+                ),
+                _skill(
+                  name: 'notes',
+                  label: '随记',
+                  mark: '✎',
+                  primaryField: 'content',
+                ),
+                _skill(
+                  name: 'tennis',
+                  label: '网球',
+                  mark: '🎾',
+                  primaryField: 'headline',
+                ),
+                _skill(
+                  name: 'external_ref',
+                  label: '外部资料',
+                  mark: '↗',
+                  primaryField: 'title',
+                ),
+                _skill(
+                  name: 'qa',
+                  label: '问答',
+                  mark: '?',
+                  primaryField: 'question',
+                ),
+              ],
+            },
+            '/api/events' => {
+              'events': [
+                {'id': 'event-1'},
+              ],
+            },
+            '/api/contacts' => {
+              'contacts': [
+                {'id': 'contact-1'},
+              ],
+            },
+            '/api/assets/counts' => {
+              'counts': {'todo': 48, 'notes': 23, 'tennis': 3},
+            },
+            _ => throw StateError('unexpected ${request.url}'),
+          };
+          return _json(body);
+        });
+        addTearDown(api.close);
+
+        final overview = await ApiLibraryRepository(api).loadOverview();
+
+        expect(calls, hasLength(5));
+        expect(calls.values, everyElement(1));
+        expect(calls['/api/skills'], 1);
+        expect(calls, isNot(contains('/api/reports')));
+        expect(
+          requestedUris
+              .singleWhere((uri) => uri.path == '/api/assets')
+              .queryParameters,
+          {'limit': '50'},
+        );
+        expect(
+          overview.systemContainers.map((container) => container.type),
+          LibraryContainerType.values.where(
+            (type) => type != LibraryContainerType.custom,
+          ),
+        );
+        expect(overview.customContainers.map((container) => container.id), [
+          'tennis',
+        ]);
+        expect(overview.containerCount, 5);
+        expect(overview.customContainerCount, 1);
+        expect(overview.totalAssetCount, 74);
+        expect(overview.recentAssets, hasLength(50));
+        expect(overview.recentAssets.first.id, 'asset-54');
+        expect(overview.recentAssets.first.primaryValue, '自定义主标题 54');
+        expect(overview.recentAssets.first.mark, '🎾');
+        expect(
+          overview.recentAssets.map((asset) => asset.id),
+          isNot(contains(anyOf('event-1', 'contact-1'))),
+        );
+      },
+    );
+
+    test('keeps four system containers when optional sources fail', () async {
+      final api = _api((request) async {
+        if (request.url.path == '/api/events' ||
+            request.url.path == '/api/assets/counts') {
+          return _json({'detail': 'temporarily unavailable'}, statusCode: 503);
+        }
+        final body = switch (request.url.path) {
+          '/api/assets' => {'assets': _assetRows(2)},
+          '/api/skills' => {
+            'skills': [
+              _skill(
+                name: 'tennis',
+                label: '网球',
+                mark: '🎾',
+                primaryField: 'headline',
+              ),
+            ],
+          },
+          '/api/contacts' => {'contacts': <Object>[]},
+          _ => throw StateError('unexpected ${request.url}'),
+        };
+        return _json(body);
+      });
+      addTearDown(api.close);
+
+      final overview = await ApiLibraryRepository(api).loadOverview();
+
+      expect(overview.systemContainers, hasLength(4));
+      expect(
+        overview.systemContainers.map((container) => container.type),
+        LibraryContainerType.values.where(
+          (type) => type != LibraryContainerType.custom,
+        ),
+      );
+      expect(overview.failedSources.map((failure) => failure.source), {
+        'events',
+        'counts',
+      });
+      expect(
+        overview.systemContainers
+            .singleWhere(
+              (container) => container.type == LibraryContainerType.event,
+            )
+            .totalCount,
+        0,
+      );
+      expect(overview.totalAssetCount, 2);
+    });
+
+    test('all offline sources produce a typed offline failure', () async {
+      final api = _api(
+        (request) async => throw http.ClientException('offline', request.url),
+      );
+      addTearDown(api.close);
+
+      await expectLater(
+        ApiLibraryRepository(api).loadOverview(),
+        throwsA(
+          isA<LibraryLoadFailure>().having(
+            (failure) => failure.isOffline,
+            'isOffline',
+            isTrue,
+          ),
+        ),
+      );
+    });
+  });
+}
+
+ApiClient _api(Future<http.Response> Function(http.Request request) handler) =>
+    ApiClient(
+      client: MockClient(handler),
+      baseUrl: 'https://library.test',
+      enableLogging: false,
+    );
+
+http.Response _json(Object body, {int statusCode = 200}) => http.Response.bytes(
+  utf8.encode(jsonEncode(body)),
+  statusCode,
+  headers: const {'content-type': 'application/json; charset=utf-8'},
+);
+
+Map<String, dynamic> _skill({
+  required String name,
+  required String label,
+  required String mark,
+  required String primaryField,
+}) => {
+  'id': 'skill-$name',
+  'name': name,
+  'display_name': label,
+  'enabled': 1,
+  'render_spec': {
+    'icon': mark,
+    'accent_color': 'blue',
+    'primary_field': primaryField,
+    'card_display': {
+      'primary_field_id': primaryField,
+      'secondary_field_ids': <String>[],
+    },
+  },
+  'payload_schema': {
+    primaryField: {'type': 'string', 'label': '主字段'},
+  },
+};
+
+List<Map<String, dynamic>> _assetRows(int count) => [
+  for (var index = 0; index < count; index++)
+    {
+      'id': 'asset-$index',
+      'user_skill_name': 'tennis',
+      'user_skill_id': 'skill-tennis',
+      'payload': {'headline': '自定义主标题 $index'},
+      'created_at': DateTime.utc(
+        2026,
+        7,
+        1,
+      ).add(Duration(minutes: index)).toIso8601String(),
+    },
+];
