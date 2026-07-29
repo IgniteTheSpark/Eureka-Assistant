@@ -201,7 +201,7 @@ void main() {
         find.byKey(const ValueKey('theme-v2-asset-sheet')),
         findsOneWidget,
       );
-      expect(find.text('设定目标'), findsOneWidget);
+      expect(find.text('设定目标'), findsNothing);
       expect(requests, ['GET /api/assets/a1']);
     },
   );

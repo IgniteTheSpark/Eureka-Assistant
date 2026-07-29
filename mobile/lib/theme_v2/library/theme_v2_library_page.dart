@@ -11,7 +11,6 @@ import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
 import 'asset/asset_detail_sheet.dart';
 import 'asset/asset_list_page.dart';
-import 'asset/set_goal_action.dart';
 import 'container_index.dart';
 import 'create_skill_action.dart';
 import 'library_components.dart';
@@ -31,7 +30,6 @@ class ThemeV2LibraryPage extends ConsumerStatefulWidget {
     this.onOpenContainer,
     this.onOpenRecent,
     this.onCreateSkill,
-    this.onSetGoal,
     this.navigation,
   });
 
@@ -40,7 +38,6 @@ class ThemeV2LibraryPage extends ConsumerStatefulWidget {
   final LibraryContainerCallback? onOpenContainer;
   final ValueChanged<LibraryRecentAsset>? onOpenRecent;
   final VoidCallback? onCreateSkill;
-  final ValueChanged<SetGoalIntent>? onSetGoal;
   final LibraryNavigationController? navigation;
 
   @override
@@ -238,7 +235,6 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
       userSkillId: card['user_skill_id'] as String?,
       sessionId: card['session_id'] as String?,
       spec: skill == null ? synthesizeSpec(cardType) : specs[skill],
-      onSetGoal: widget.onSetGoal,
     );
   }
 
@@ -251,7 +247,6 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
             cardType: 'event',
             initialEntities: const [],
             api: _detailApi,
-            onSetGoal: widget.onSetGoal,
           ),
         );
       case LibraryContainerType.contact:
@@ -261,7 +256,6 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
             cardType: 'contact',
             initialEntities: const [],
             api: _detailApi,
-            onSetGoal: widget.onSetGoal,
           ),
         );
       case LibraryContainerType.todo:
@@ -280,7 +274,6 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
             initialAssets: const [],
             specs: ref.read(renderSpecsProvider).valueOrNull ?? const {},
             api: _detailApi,
-            onSetGoal: widget.onSetGoal,
           ),
         );
     }

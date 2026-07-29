@@ -9,9 +9,8 @@ import '../../foundation/theme_v2_tokens.dart';
 import '../../foundation/theme_v2_typography.dart';
 import 'asset_detail_presentation.dart';
 import 'asset_editor.dart';
-import 'set_goal_action.dart';
 
-Future<SetGoalIntent?> showThemeV2AssetDetail(
+Future<void> showThemeV2AssetDetail(
   BuildContext context, {
   required CardData data,
   required Map<String, dynamic> payload,
@@ -21,7 +20,6 @@ Future<SetGoalIntent?> showThemeV2AssetDetail(
   String? sessionId,
   RenderSpec? spec,
   ApiClient? api,
-  ValueChanged<SetGoalIntent>? onSetGoal,
 }) async {
   final controller = AssetDetailController(
     api: api,
@@ -34,7 +32,7 @@ Future<SetGoalIntent?> showThemeV2AssetDetail(
     spec: spec,
   );
   try {
-    return await showModalBottomSheet<SetGoalIntent>(
+    await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
@@ -45,13 +43,7 @@ Future<SetGoalIntent?> showThemeV2AssetDetail(
         final routeTheme = buildThemeV2Theme(Theme.of(sheetContext).brightness);
         return Theme(
           data: routeTheme,
-          child: ThemeV2AssetDetailSurface(
-            controller,
-            onSetGoal: (intent) {
-              onSetGoal?.call(intent);
-              Navigator.of(sheetContext).pop(intent);
-            },
-          ),
+          child: ThemeV2AssetDetailSurface(controller),
         );
       },
     );
@@ -61,10 +53,9 @@ Future<SetGoalIntent?> showThemeV2AssetDetail(
 }
 
 class ThemeV2AssetDetailSurface extends StatefulWidget {
-  const ThemeV2AssetDetailSurface(this.controller, {super.key, this.onSetGoal});
+  const ThemeV2AssetDetailSurface(this.controller, {super.key});
 
   final AssetDetailController controller;
-  final ValueChanged<SetGoalIntent>? onSetGoal;
 
   @override
   State<ThemeV2AssetDetailSurface> createState() =>
@@ -115,7 +106,6 @@ class _ThemeV2AssetDetailSurfaceState extends State<ThemeV2AssetDetailSurface> {
                   )
                 : _DetailBody(
                     controller: controller,
-                    onSetGoal: widget.onSetGoal,
                     onEdit: _beginEditing,
                     onDelete: _confirmDelete,
                   ),
@@ -302,13 +292,11 @@ class _DetailHeader extends StatelessWidget {
 class _DetailBody extends StatelessWidget {
   const _DetailBody({
     required this.controller,
-    required this.onSetGoal,
     required this.onEdit,
     required this.onDelete,
   });
 
   final AssetDetailController controller;
-  final ValueChanged<SetGoalIntent>? onSetGoal;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
@@ -421,16 +409,6 @@ class _DetailBody extends StatelessWidget {
                   label: Text(controller.isDone ? '撤销完成' : '标记完成'),
                 ),
               ),
-            SetGoalAction(
-              state: SetGoalActionState(userSkillId: controller.userSkillId),
-              onIntent: (intent) {
-                if (onSetGoal != null) {
-                  onSetGoal!(intent);
-                } else {
-                  Navigator.of(context).pop(intent);
-                }
-              },
-            ),
           ],
         ),
       ],

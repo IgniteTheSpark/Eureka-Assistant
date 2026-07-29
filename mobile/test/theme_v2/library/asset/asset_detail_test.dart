@@ -5,7 +5,6 @@ import 'package:eureka/render/render_spec.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/library/asset/asset_detail_presentation.dart';
 import 'package:eureka/theme_v2/library/asset/asset_detail_sheet.dart';
-import 'package:eureka/theme_v2/library/asset/set_goal_action.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -61,6 +60,7 @@ void main() {
         findsOneWidget,
       );
       expect(hydrationRequests, 1);
+      expect(find.text('设定目标'), findsNothing);
 
       await tester.tap(find.byKey(const ValueKey('asset-detail-edit')));
       await tester.pumpAndSettle();
@@ -94,21 +94,6 @@ void main() {
       expect(controller.draft.controllerFor('title').text, '未保存草稿');
     },
   );
-
-  test('set goal intent is stable and skill-bound', () {
-    final intent = SetGoalIntent.forSkill('skill-42');
-
-    expect(intent.routeName, '/theme-v2/goals/new');
-    expect(intent.arguments, {'user_skill_id': 'skill-42'});
-  });
-
-  test('set goal explains why an unbindable detail is disabled', () {
-    const action = SetGoalActionState(userSkillId: null);
-
-    expect(action.enabled, isFalse);
-    expect(action.disabledReason, isNotEmpty);
-    expect(action.intent, isNull);
-  });
 
   testWidgets('detail exposes delete and entity mutations use typed paths', (
     tester,

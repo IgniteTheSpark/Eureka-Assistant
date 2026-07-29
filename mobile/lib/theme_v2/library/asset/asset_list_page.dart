@@ -13,7 +13,6 @@ import '../../foundation/theme_v2_typography.dart';
 import 'asset_container_controller.dart';
 import 'asset_detail_sheet.dart';
 import 'asset_record.dart';
-import 'set_goal_action.dart';
 
 enum AssetListSource { assets, entities }
 
@@ -26,7 +25,6 @@ class ThemeV2AssetListPage extends StatefulWidget {
     required this.specs,
     this.api,
     this.autoLoad = true,
-    this.onSetGoal,
     this.today,
   }) : source = AssetListSource.assets,
        title = null,
@@ -40,7 +38,6 @@ class ThemeV2AssetListPage extends StatefulWidget {
     required this.initialEntities,
     this.api,
     this.autoLoad = true,
-    this.onSetGoal,
     this.today,
   }) : source = AssetListSource.entities,
        meta = null,
@@ -58,7 +55,6 @@ class ThemeV2AssetListPage extends StatefulWidget {
   final List<Map<String, dynamic>> initialEntities;
   final ApiClient? api;
   final bool autoLoad;
-  final ValueChanged<SetGoalIntent>? onSetGoal;
   final DateTime Function()? today;
 
   @override
@@ -320,7 +316,6 @@ class _ThemeV2AssetListPageState extends State<ThemeV2AssetListPage> {
       userSkillId: record.userSkillId ?? widget.meta?.userSkillId,
       sessionId: record.sessionId,
       spec: spec,
-      onSetGoal: widget.onSetGoal,
     );
   }
 }
