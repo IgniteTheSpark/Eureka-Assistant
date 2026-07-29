@@ -1,3 +1,4 @@
+import '../../render/render_spec.dart';
 import 'package:flutter/foundation.dart';
 
 @immutable
@@ -121,4 +122,49 @@ class CardDisplayConfig {
       target[key] = format;
     }
   }
+}
+
+@immutable
+class AssetCardViewData {
+  const AssetCardViewData({
+    required this.mark,
+    required this.skillLabel,
+    required this.primaryValue,
+    this.secondaryValues = const [],
+    this.timeLabel,
+  });
+
+  factory AssetCardViewData.fromPayload({
+    required Map<String, dynamic> payload,
+    required CardDisplayConfig display,
+    required RenderSpec? spec,
+    required String skillLabel,
+    String? timeLabel,
+  }) {
+    String formatted(String field) =>
+        applyFormat(payload[field], spec?.formatForField(field)).trim();
+
+    final primary = formatted(display.primaryFieldId);
+    final normalizedSkillLabel = skillLabel.trim();
+    final icon = spec?.icon.trim();
+    final normalizedTime = timeLabel?.trim();
+    return AssetCardViewData(
+      mark: icon == null || icon.isEmpty ? '•' : icon,
+      skillLabel: normalizedSkillLabel,
+      primaryValue: primary.isEmpty ? normalizedSkillLabel : primary,
+      secondaryValues: List.unmodifiable([
+        for (final field in display.secondaryFieldIds)
+          if (formatted(field) case final value when value.isNotEmpty) value,
+      ]),
+      timeLabel: normalizedTime == null || normalizedTime.isEmpty
+          ? null
+          : normalizedTime,
+    );
+  }
+
+  final String mark;
+  final String skillLabel;
+  final String primaryValue;
+  final List<String> secondaryValues;
+  final String? timeLabel;
 }

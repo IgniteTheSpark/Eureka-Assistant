@@ -1,3 +1,4 @@
+import 'package:eureka/render/render_spec.dart';
 import 'package:eureka/theme_v2/asset/asset_card_display.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -77,5 +78,61 @@ void main() {
         expect(output['actions'], ['edit']);
       },
     );
+  });
+
+  group('AssetCardViewData', () {
+    test('projects formatted primary and three nonblank secondary values', () {
+      const spec = RenderSpec(
+        cardLayout: 'horizontal',
+        icon: '🎾',
+        accentColor: 'neutral',
+        primaryField: 'opponent',
+        secondaryField: 'played_at',
+        secondaryFormat: 'absolute_date',
+        metaFields: [
+          MetaFieldSpec('score', null),
+          MetaFieldSpec('venue', null),
+        ],
+      );
+
+      final data = AssetCardViewData.fromPayload(
+        payload: const {
+          'opponent': 'Kevin',
+          'played_at': '2026-07-02',
+          'score': '4–1',
+          'venue': '深云体育公园',
+        },
+        display: CardDisplayConfig(
+          primaryFieldId: 'opponent',
+          secondaryFieldIds: ['played_at', 'score', 'venue'],
+        ),
+        spec: spec,
+        skillLabel: '网球对局',
+        timeLabel: '21:34',
+      );
+
+      expect(data.mark, '🎾');
+      expect(data.primaryValue, 'Kevin');
+      expect(data.secondaryValues, ['7月2日', '4–1', '深云体育公园']);
+      expect(data.timeLabel, '21:34');
+    });
+
+    test('skips blanks and falls back to skill label for primary', () {
+      final data = AssetCardViewData.fromPayload(
+        payload: const {'title': ' ', 'status': null, 'location': '会议室'},
+        display: CardDisplayConfig(
+          primaryFieldId: 'title',
+          secondaryFieldIds: ['status', 'location'],
+        ),
+        spec: null,
+        skillLabel: '事件',
+        timeLabel: ' ',
+      );
+
+      expect(data.mark, '•');
+      expect(data.primaryValue, '事件');
+      expect(data.secondaryValues, ['会议室']);
+      expect(data.timeLabel, isNull);
+    });
   });
 }
