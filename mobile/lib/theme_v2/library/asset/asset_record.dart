@@ -47,6 +47,7 @@ class AssetRecordViewModel {
     required this.fields,
     required this.payload,
     required this.createdAt,
+    DateTime? effectiveAt,
     this.source,
     this.dueAt,
     this.completed = false,
@@ -55,7 +56,7 @@ class AssetRecordViewModel {
     this.domain,
     this.payloadSchema = const {},
     this.renderSpec = const {},
-  });
+  }) : effectiveAt = effectiveAt ?? createdAt;
 
   final String id;
   final String containerId;
@@ -64,6 +65,7 @@ class AssetRecordViewModel {
   final List<AssetRecordField> fields;
   final Map<String, dynamic> payload;
   final DateTime createdAt;
+  final DateTime effectiveAt;
   final AssetSource? source;
   final DateTime? dueAt;
   final bool completed;
@@ -90,6 +92,7 @@ class AssetRecordViewModel {
       fields: List.unmodifiable(fields ?? this.fields),
       payload: Map.unmodifiable(payload ?? this.payload),
       createdAt: createdAt,
+      effectiveAt: effectiveAt,
       source: source ?? this.source,
       dueAt: clearDueAt ? null : (dueAt ?? this.dueAt),
       completed: completed ?? this.completed,
@@ -136,6 +139,7 @@ class AssetRecordAdapter {
       fields: _fieldsFromSpec(asset.payload, spec, payloadSchema),
       payload: Map.unmodifiable(asset.payload),
       createdAt: asset.createdAt,
+      effectiveAt: asset.effectiveAt,
       source: _assetSource(asset),
       dueAt: kind == AssetRecordKind.todo ? _todoDueAt(asset.payload) : null,
       completed: kind == AssetRecordKind.todo
@@ -193,6 +197,7 @@ class AssetRecordAdapter {
       ]),
       payload: Map.unmodifiable(entity),
       createdAt: createdAt,
+      effectiveAt: _date(entity['start_at']) ?? createdAt,
       source: _entitySource(entity),
       domain: entity['domain']?.toString(),
     );
@@ -227,6 +232,7 @@ class AssetRecordAdapter {
       payload: Map.unmodifiable(entity),
       createdAt:
           _date(entity['created_at']) ?? DateTime.fromMillisecondsSinceEpoch(0),
+      effectiveAt: _date(entity['effective_at']) ?? _date(entity['created_at']),
       source: _entitySource(entity),
       domain: entity['domain']?.toString(),
     );
@@ -347,7 +353,8 @@ List<AssetRecordViewModel> sortTodoRecords(
       final dueOrder = aDue.compareTo(bDue);
       if (dueOrder != 0) return dueOrder;
     }
-    return b.createdAt.compareTo(a.createdAt);
+    final createdOrder = b.createdAt.compareTo(a.createdAt);
+    return createdOrder != 0 ? createdOrder : b.id.compareTo(a.id);
   });
   return List.unmodifiable(sorted);
 }

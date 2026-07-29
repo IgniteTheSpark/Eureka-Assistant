@@ -5,11 +5,14 @@ import '../../../assets/assets.dart';
 import '../../../data_revision.dart';
 import '../../../render/render_spec.dart';
 import '../../../timeline/timeline.dart';
+import '../../asset/asset_card.dart';
 import '../../foundation/theme_v2_semantics.dart';
 import '../../foundation/theme_v2_theme.dart';
 import '../../foundation/theme_v2_tokens.dart';
 import '../../foundation/theme_v2_typography.dart';
+import 'asset_container_controller.dart';
 import 'asset_detail_sheet.dart';
+import 'asset_record.dart';
 import 'set_goal_action.dart';
 
 enum AssetListSource { assets, entities }
@@ -24,6 +27,7 @@ class ThemeV2AssetListPage extends StatefulWidget {
     this.api,
     this.autoLoad = true,
     this.onSetGoal,
+    this.today,
   }) : source = AssetListSource.assets,
        title = null,
        cardType = null,
@@ -37,6 +41,7 @@ class ThemeV2AssetListPage extends StatefulWidget {
     this.api,
     this.autoLoad = true,
     this.onSetGoal,
+    this.today,
   }) : source = AssetListSource.entities,
        meta = null,
        skillName = null,
@@ -54,6 +59,7 @@ class ThemeV2AssetListPage extends StatefulWidget {
   final ApiClient? api;
   final bool autoLoad;
   final ValueChanged<SetGoalIntent>? onSetGoal;
+  final DateTime Function()? today;
 
   @override
   State<ThemeV2AssetListPage> createState() => _ThemeV2AssetListPageState();
@@ -61,229 +67,481 @@ class ThemeV2AssetListPage extends StatefulWidget {
 
 class _ThemeV2AssetListPageState extends State<ThemeV2AssetListPage> {
   late final ApiClient _api = widget.api ?? ApiClient();
-  late List<AssetItem> _assets = [...widget.initialAssets];
-  late List<Map<String, dynamic>> _entities = [...widget.initialEntities];
   late Map<String, RenderSpec> _specs = {...widget.specs};
-  bool _loading = false;
-  String? _error;
+  late final _AssetListRepository _repository;
+  late final AssetContainerController _controller;
+  late final ScrollController _scrollController;
 
   @override
   void initState() {
     super.initState();
+    _repository = _AssetListRepository(
+      api: _api,
+      source: widget.source,
+      skillName: widget.skillName,
+      cardType: widget.cardType,
+      label: widget.meta?.label ?? widget.title ?? '资产',
+      specs: _specs,
+      onSpecsChanged: (specs) => _specs = specs,
+    );
+    _controller = AssetContainerController(
+      repository: _repository,
+      containerId: widget.skillName ?? widget.cardType ?? 'assets',
+      today: widget.today,
+      initialRecords: _initialRecords(),
+    );
+    _scrollController = ScrollController(
+      initialScrollOffset: _controller.currentScrollOffset,
+    )..addListener(_rememberScrollOffset);
     if (widget.autoLoad) {
-      dataRevision.addListener(_reload);
-      _reload();
+      dataRevision.addListener(_refresh);
+      _controller.load();
     }
   }
 
   @override
   void dispose() {
-    if (widget.autoLoad) dataRevision.removeListener(_reload);
+    if (widget.autoLoad) dataRevision.removeListener(_refresh);
+    _scrollController
+      ..removeListener(_rememberScrollOffset)
+      ..dispose();
+    _controller.dispose();
     if (widget.api == null) _api.close();
     super.dispose();
   }
 
-  Future<void> _reload() async {
-    if (_loading) return;
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      if (widget.source == AssetListSource.assets) {
-        final responses = await Future.wait<Object?>([
-          _api.getJson(
-            '/api/assets',
-            query: {'user_skill_name': widget.skillName},
-          ),
-          _fetchSpecsSafely(),
-        ]);
-        final response = responses[0];
-        final refreshedSpecs = responses[1] as Map<String, RenderSpec>;
-        final list =
-            (response is Map ? response['assets'] : null) as List? ?? const [];
-        final assets = list
-            .whereType<Map>()
-            .map((item) => AssetItem.fromJson(item.cast<String, dynamic>()))
-            .toList();
-        if (mounted) {
-          setState(() {
-            _assets = assets;
-            _specs = {..._specs, ...refreshedSpecs};
-          });
-        }
-      } else {
-        final type = widget.cardType!;
-        final key = type == 'event' ? 'events' : 'contacts';
-        final response = await _api.getJson('/api/$key');
-        final list =
-            (response is Map ? response[key] : null) as List? ?? const [];
-        final entities = list
-            .whereType<Map>()
-            .map((item) => item.cast<String, dynamic>())
-            .toList();
-        if (mounted) setState(() => _entities = entities);
-      }
-    } catch (_) {
-      if (mounted) setState(() => _error = '内容暂时无法刷新');
-    } finally {
-      if (mounted) setState(() => _loading = false);
+  void _refresh() => _controller.refresh();
+
+  void _rememberScrollOffset() {
+    if (_scrollController.hasClients) {
+      _controller.rememberOffset(_scrollController.offset);
     }
   }
 
-  Future<Map<String, RenderSpec>> _fetchSpecsSafely() async {
-    try {
-      return await fetchRenderSpecs(_api);
-    } catch (_) {
-      return const {};
+  List<AssetRecordViewModel> _initialRecords() {
+    if (widget.source == AssetListSource.entities) {
+      return [
+        for (final entity in widget.initialEntities)
+          if (widget.cardType == 'event')
+            AssetRecordAdapter.event(entity: entity)
+          else
+            AssetRecordAdapter.contact(entity: entity),
+      ];
     }
+    return [
+      for (final asset in widget.initialAssets)
+        _adaptAsset(asset, _specs[asset.skillName]),
+    ];
+  }
+
+  AssetRecordViewModel _adaptAsset(AssetItem asset, RenderSpec? sourceSpec) {
+    final spec = sourceSpec ?? synthesizeSpec(asset.skillName);
+    return AssetRecordAdapter.asset(
+      asset: asset,
+      skillLabel: widget.meta?.label ?? asset.skillName,
+      spec: spec,
+      renderSpec: _renderMap(spec),
+      payloadSchema: _schemaMap(spec),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final tokens = context.themeV2;
-    final records = _records();
-    return ColoredBox(
-      color: tokens.background,
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(
-          ThemeV2Spacing.lg,
-          ThemeV2Spacing.sm,
-          ThemeV2Spacing.lg,
-          ThemeV2Spacing.xl,
-        ),
-        children: [
-          _ListHeader(
-            icon: widget.meta?.icon ?? _entityIcon(widget.cardType),
-            title: widget.meta?.label ?? widget.title ?? '资产',
-            count: records.length,
-          ),
-          if (_loading) ...[
-            const SizedBox(height: ThemeV2Spacing.md),
-            LinearProgressIndicator(
-              minHeight: 2,
-              color: tokens.accent,
-              backgroundColor: tokens.accentSoft,
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        final tokens = context.themeV2;
+        final records = _controller.records;
+        return ColoredBox(
+          color: tokens.background,
+          child: ListView(
+            key: PageStorageKey<String>(
+              'theme-v2-assets-${widget.skillName ?? widget.cardType}',
             ),
-          ],
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.only(top: ThemeV2Spacing.md),
-              child: Row(
-                children: [
-                  Expanded(
+            controller: _scrollController,
+            padding: const EdgeInsets.fromLTRB(
+              ThemeV2Spacing.lg,
+              ThemeV2Spacing.sm,
+              ThemeV2Spacing.lg,
+              112,
+            ),
+            children: [
+              _ListHeader(
+                icon: widget.meta?.icon ?? _entityIcon(widget.cardType),
+                title: widget.meta?.label ?? widget.title ?? '资产',
+                count: _controller.isTodo
+                    ? _controller.countFor(TodoAssetFilter.all)
+                    : records.length,
+              ),
+              if (_controller.isTodo) ...[
+                const SizedBox(height: ThemeV2Spacing.lg),
+                _TodoFilterTabs(
+                  controller: _controller,
+                  onSelected: _selectTodoFilter,
+                ),
+              ],
+              if (_controller.loadState == AssetContainerLoadState.loading ||
+                  _controller.refreshing) ...[
+                const SizedBox(height: ThemeV2Spacing.md),
+                LinearProgressIndicator(
+                  minHeight: 2,
+                  color: tokens.accent,
+                  backgroundColor: tokens.accentSoft,
+                ),
+              ],
+              if (_controller.errorMessage case final message?)
+                Padding(
+                  padding: const EdgeInsets.only(top: ThemeV2Spacing.md),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          message,
+                          style: TextStyle(color: tokens.critical),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: _controller.refresh,
+                        child: const Text('重试'),
+                      ),
+                    ],
+                  ),
+                ),
+              const SizedBox(height: ThemeV2Spacing.lg),
+              if (records.isEmpty)
+                _EmptyList(
+                  label: _emptyLabel(),
+                  icon: widget.meta?.icon ?? _entityIcon(widget.cardType),
+                )
+              else
+                ..._recordWidgets(records),
+              if (_controller.canLoadMore ||
+                  _controller.paginationError != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: ThemeV2Spacing.md),
+                  child: TextButton(
+                    onPressed: _controller.loadingMore
+                        ? null
+                        : _controller.loadMore,
                     child: Text(
-                      _error!,
-                      style: TextStyle(color: tokens.critical),
+                      _controller.paginationError ?? '加载更多',
+                      style: TextStyle(
+                        color: _controller.paginationError == null
+                            ? tokens.accent
+                            : tokens.critical,
+                      ),
                     ),
                   ),
-                  TextButton(onPressed: _reload, child: const Text('重试')),
-                ],
-              ),
-            ),
-          const SizedBox(height: ThemeV2Spacing.lg),
-          if (records.isEmpty)
-            _EmptyList(
-              label: widget.meta?.label ?? widget.title ?? '资产',
-              icon: widget.meta?.icon ?? _entityIcon(widget.cardType),
-            )
-          else
-            for (final record in records) ...[
-              _AssetListRow(record: record, onTap: () => _open(record)),
-              const SizedBox(height: ThemeV2Spacing.sm),
+                ),
             ],
-        ],
-      ),
+          ),
+        );
+      },
     );
   }
 
-  List<_ListRecord> _records() {
-    final records = widget.source == AssetListSource.assets
-        ? [
-            for (final asset in _assets)
-              _ListRecord(
-                id: asset.id,
-                cardType: asset.skillName,
-                title: readableTitle(
-                  asset.payload,
-                  _specs[asset.skillName],
-                  fallback: widget.meta?.label ?? asset.skillName,
-                ),
-                subtitle: _assetSubtitle(asset),
-                effectiveAt: asset.effectiveAt,
-                payload: asset.payload,
-                userSkillId: asset.userSkillId ?? widget.meta?.userSkillId,
-                sessionId: asset.sessionId,
-                spec: _specs[asset.skillName],
-                domain: asset.domain,
-              ),
-          ]
-        : [
-            for (final entity in _entities)
-              _ListRecord(
-                id: _entityId(entity, widget.cardType!),
-                cardType: widget.cardType!,
-                title: _entityTitle(entity),
-                subtitle: widget.cardType == 'event'
-                    ? eventCardSummary(entity)
-                    : _contactSummary(entity),
-                effectiveAt: _entityTime(entity, widget.cardType!),
-                payload: entity,
-                spec: synthesizeSpec(widget.cardType!),
-              ),
-          ];
-    records.sort((a, b) {
-      final effective = b.effectiveAt.compareTo(a.effectiveAt);
-      return effective != 0 ? effective : b.id.compareTo(a.id);
-    });
-    return records;
+  Iterable<Widget> _recordWidgets(List<AssetRecordViewModel> records) sync* {
+    DateTime? previousDate;
+    for (final record in records) {
+      final date = record.dueAt ?? record.effectiveAt;
+      if (!_controller.isTodo || record.dueAt != null) {
+        if (previousDate == null || !_sameDay(previousDate, date)) {
+          yield _DateLabel(date: date);
+          yield const SizedBox(height: ThemeV2Spacing.sm);
+          previousDate = date;
+        }
+      } else if (previousDate != null) {
+        yield const _UnscheduledLabel();
+        yield const SizedBox(height: ThemeV2Spacing.sm);
+        previousDate = null;
+      }
+      yield _AssetRecordRow(
+        record: record,
+        onOpen: () => _open(record),
+        onToggleTodo: record.kind == AssetRecordKind.todo
+            ? () => _toggleTodo(record.id)
+            : null,
+      );
+      yield const SizedBox(height: ThemeV2Spacing.sm);
+    }
   }
 
-  Future<void> _open(_ListRecord record) async {
+  void _selectTodoFilter(TodoAssetFilter filter) {
+    _rememberScrollOffset();
+    _controller.selectTodoFilter(filter);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+      final position = _scrollController.position;
+      _scrollController.jumpTo(
+        _controller.currentScrollOffset.clamp(
+          position.minScrollExtent,
+          position.maxScrollExtent,
+        ),
+      );
+    });
+  }
+
+  Future<void> _toggleTodo(String id) async {
+    try {
+      await _controller.toggleTodo(id);
+      bumpData();
+    } catch (_) {
+      // The controller restores the exact record and exposes an inline error.
+    }
+  }
+
+  String _emptyLabel() {
+    if (!_controller.isTodo) {
+      return widget.meta?.label ?? widget.title ?? '资产';
+    }
+    return switch (_controller.filter) {
+      TodoAssetFilter.all => '待办',
+      TodoAssetFilter.today => '今天的待办',
+      TodoAssetFilter.completed => '已完成待办',
+      TodoAssetFilter.unscheduled => '待安排待办',
+    };
+  }
+
+  Future<void> _open(AssetRecordViewModel record) async {
+    final spec =
+        _specs[record.containerId] ?? synthesizeSpec(record.containerId);
     final data = buildCard(
       payload: record.payload,
-      spec: record.spec,
-      displayName: record.cardType,
+      spec: spec,
+      displayName: record.containerId,
     ).copyWith(domain: record.domain);
     await showThemeV2AssetDetail(
       context,
       api: _api,
       data: data,
       payload: record.payload,
-      cardType: record.cardType,
+      cardType: record.containerId,
       assetId: record.id,
-      userSkillId: record.userSkillId,
+      userSkillId: record.userSkillId ?? widget.meta?.userSkillId,
       sessionId: record.sessionId,
-      spec: record.spec,
+      spec: spec,
       onSetGoal: widget.onSetGoal,
     );
   }
 }
 
-class _ListRecord {
-  const _ListRecord({
-    required this.id,
+class _AssetListRepository implements AssetContainerRepository {
+  _AssetListRepository({
+    required this.api,
+    required this.source,
+    required this.skillName,
     required this.cardType,
-    required this.title,
-    required this.subtitle,
-    required this.effectiveAt,
-    required this.payload,
-    required this.spec,
-    this.userSkillId,
-    this.sessionId,
-    this.domain,
+    required this.label,
+    required Map<String, RenderSpec> specs,
+    required this.onSpecsChanged,
+  }) : _specs = specs;
+
+  final ApiClient api;
+  final AssetListSource source;
+  final String? skillName;
+  final String? cardType;
+  final String label;
+  final ValueChanged<Map<String, RenderSpec>> onSpecsChanged;
+  Map<String, RenderSpec> _specs;
+
+  @override
+  Future<AssetContainerPage> load({String? cursor}) async {
+    if (source == AssetListSource.entities) {
+      final type = cardType!;
+      final key = type == 'event' ? 'events' : 'contacts';
+      final response = await api.getJson('/api/$key');
+      final rows =
+          (response is Map ? response[key] : null) as List? ?? const [];
+      return AssetContainerPage(
+        records: [
+          for (final item in rows.whereType<Map>())
+            if (type == 'event')
+              AssetRecordAdapter.event(entity: item.cast<String, dynamic>())
+            else
+              AssetRecordAdapter.contact(entity: item.cast<String, dynamic>()),
+        ],
+      );
+    }
+
+    final responses = await Future.wait<Object?>([
+      api.getJson(
+        '/api/assets',
+        query: {
+          'user_skill_name': skillName,
+          if (cursor != null) 'cursor': cursor,
+        },
+      ),
+      _fetchSpecsSafely(),
+    ]);
+    final refreshed = responses[1] as Map<String, RenderSpec>;
+    if (refreshed.isNotEmpty) {
+      _specs = {..._specs, ...refreshed};
+      onSpecsChanged(_specs);
+    }
+    final response = responses[0];
+    final rows =
+        (response is Map ? response['assets'] : null) as List? ?? const [];
+    return AssetContainerPage(
+      records: [
+        for (final item in rows.whereType<Map>())
+          _adapt(AssetItem.fromJson(item.cast<String, dynamic>())),
+      ],
+      nextCursor: response is Map ? response['next_cursor']?.toString() : null,
+    );
+  }
+
+  AssetRecordViewModel _adapt(AssetItem asset) {
+    final spec = _specs[asset.skillName] ?? synthesizeSpec(asset.skillName);
+    return AssetRecordAdapter.asset(
+      asset: asset,
+      skillLabel: label,
+      spec: spec,
+      renderSpec: _renderMap(spec),
+      payloadSchema: _schemaMap(spec),
+    );
+  }
+
+  Future<Map<String, RenderSpec>> _fetchSpecsSafely() async {
+    try {
+      return await fetchRenderSpecs(api);
+    } catch (_) {
+      return const {};
+    }
+  }
+
+  @override
+  Future<void> setTodoCompleted(String id, bool completed) {
+    return api.putJson('/api/assets/$id', {
+      'payload_patch': {'status': completed ? 'done' : 'pending'},
+    });
+  }
+}
+
+class _TodoFilterTabs extends StatelessWidget {
+  const _TodoFilterTabs({required this.controller, required this.onSelected});
+
+  final AssetContainerController controller;
+  final ValueChanged<TodoAssetFilter> onSelected;
+
+  static const _items = [
+    (TodoAssetFilter.all, '全部', 'all'),
+    (TodoAssetFilter.today, '今天', 'today'),
+    (TodoAssetFilter.completed, '已完成', 'completed'),
+    (TodoAssetFilter.unscheduled, '待安排', 'unscheduled'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.themeV2;
+    return SizedBox(
+      height: 34,
+      child: Row(
+        children: [
+          for (var index = 0; index < _items.length; index++) ...[
+            if (index > 0) const SizedBox(width: 6),
+            Expanded(
+              child: Material(
+                color: controller.filter == _items[index].$1
+                    ? tokens.foreground
+                    : tokens.surface,
+                shape: StadiumBorder(side: BorderSide(color: tokens.border)),
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  key: ValueKey('todo-filter-${_items[index].$3}'),
+                  onTap: () => onSelected(_items[index].$1),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          _items[index].$2,
+                          maxLines: 1,
+                          overflow: TextOverflow.fade,
+                          style: TextStyle(
+                            color: controller.filter == _items[index].$1
+                                ? tokens.background
+                                : tokens.muted,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${controller.countFor(_items[index].$1)}',
+                        style: ThemeV2Typography.mono(
+                          fontSize: 9,
+                          color: controller.filter == _items[index].$1
+                              ? tokens.background.withValues(alpha: 0.7)
+                              : tokens.muted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _AssetRecordRow extends StatelessWidget {
+  const _AssetRecordRow({
+    required this.record,
+    required this.onOpen,
+    this.onToggleTodo,
   });
 
-  final String id;
-  final String cardType;
-  final String title;
-  final String subtitle;
-  final DateTime effectiveAt;
-  final Map<String, dynamic> payload;
-  final RenderSpec? spec;
-  final String? userSkillId;
-  final String? sessionId;
-  final String? domain;
+  final AssetRecordViewModel record;
+  final VoidCallback onOpen;
+  final VoidCallback? onToggleTodo;
+
+  @override
+  Widget build(BuildContext context) {
+    if (onToggleTodo == null) {
+      return ThemeV2AssetCard(
+        key: ValueKey('asset-record-${record.id}'),
+        variant: AssetCardVariant.richCard,
+        data: record.card,
+        height: record.kind == AssetRecordKind.custom ? 98 : 86,
+        onOpen: onOpen,
+      );
+    }
+    final tokens = context.themeV2;
+    return Row(
+      children: [
+        Semantics(
+          label: record.completed ? '重新打开待办' : '完成待办',
+          button: true,
+          child: ThemeV2HitTarget(
+            child: IconButton(
+              key: ValueKey('todo-complete-${record.id}'),
+              onPressed: onToggleTodo,
+              icon: Icon(
+                record.completed
+                    ? Icons.check_circle
+                    : Icons.radio_button_unchecked,
+                color: record.completed ? tokens.accent : tokens.muted,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: ThemeV2Spacing.xs),
+        Expanded(
+          child: ThemeV2AssetCard(
+            key: ValueKey('asset-record-${record.id}'),
+            variant: AssetCardVariant.richCard,
+            data: record.card,
+            height: 66,
+            onOpen: onOpen,
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class _ListHeader extends StatelessWidget {
@@ -345,73 +603,35 @@ class _ListHeader extends StatelessWidget {
   }
 }
 
-class _AssetListRow extends StatelessWidget {
-  const _AssetListRow({required this.record, required this.onTap});
+class _DateLabel extends StatelessWidget {
+  const _DateLabel({required this.date});
 
-  final _ListRecord record;
-  final VoidCallback onTap;
+  final DateTime date;
 
   @override
   Widget build(BuildContext context) {
-    final tokens = context.themeV2;
-    return Semantics(
-      button: true,
-      label: '打开 ${record.title}',
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(ThemeV2Radii.lg),
-        child: Container(
-          constraints: const BoxConstraints(minHeight: 72),
-          padding: const EdgeInsets.symmetric(
-            horizontal: ThemeV2Spacing.lg,
-            vertical: ThemeV2Spacing.md,
-          ),
-          decoration: BoxDecoration(
-            color: tokens.surface,
-            borderRadius: BorderRadius.circular(ThemeV2Radii.lg),
-            border: Border.all(color: tokens.border),
-          ),
-          child: Row(
-            children: [
-              SizedBox(
-                width: 46,
-                child: Text(
-                  _date(record.effectiveAt),
-                  style: ThemeV2Typography.mono(
-                    fontSize: 9,
-                    color: tokens.accent,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      record.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    if (record.subtitle.isNotEmpty)
-                      Text(
-                        record.subtitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(
-                          context,
-                        ).textTheme.bodySmall?.copyWith(color: tokens.muted),
-                      ),
-                  ],
-                ),
-              ),
-              Icon(Icons.chevron_right, color: tokens.muted),
-            ],
-          ),
-        ),
+    return Text(
+      _date(date),
+      style: ThemeV2Typography.mono(
+        fontSize: 9,
+        color: context.themeV2.muted,
+        fontWeight: FontWeight.w700,
+      ),
+    );
+  }
+}
+
+class _UnscheduledLabel extends StatelessWidget {
+  const _UnscheduledLabel();
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      '待安排',
+      style: ThemeV2Typography.mono(
+        fontSize: 9,
+        color: context.themeV2.muted,
+        fontWeight: FontWeight.w700,
       ),
     );
   }
@@ -427,7 +647,8 @@ class _EmptyList extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
     return Container(
-      height: 230,
+      constraints: const BoxConstraints(minHeight: 120),
+      padding: const EdgeInsets.all(ThemeV2Spacing.xl),
       alignment: Alignment.center,
       decoration: BoxDecoration(
         color: tokens.surface,
@@ -437,8 +658,8 @@ class _EmptyList extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(icon, style: const TextStyle(fontSize: 28)),
-          const SizedBox(height: ThemeV2Spacing.md),
+          Text(icon, style: const TextStyle(fontSize: 24)),
+          const SizedBox(height: ThemeV2Spacing.sm),
           Text(
             '还没有内容',
             style: Theme.of(
@@ -453,42 +674,37 @@ class _EmptyList extends StatelessWidget {
   }
 }
 
+Map<String, dynamic> _renderMap(RenderSpec spec) => {
+  'card_layout': spec.cardLayout,
+  'icon': spec.icon,
+  'accent_color': spec.accentColor,
+  if (spec.primaryField case final field?) 'primary_field': field,
+  if (spec.primaryFormat case final format?) 'primary_format': format,
+  if (spec.secondaryField case final field?) 'secondary_field': field,
+  if (spec.secondaryFormat case final format?) 'secondary_format': format,
+  'meta_fields': [
+    for (final meta in spec.metaFields)
+      {
+        'field': meta.field,
+        if (meta.format case final format?) 'format': format,
+      },
+  ],
+};
+
+Map<String, dynamic> _schemaMap(RenderSpec spec) => {
+  for (final field in spec.schemaFields)
+    field: {
+      'label': spec.fieldLabels[field] ?? field,
+      'type': spec.fieldTypes[field] ?? 'string',
+      if (spec.requiredFields.contains(field)) 'required': true,
+      if (spec.longFields.contains(field)) 'long': true,
+    },
+};
+
 String _date(DateTime date) =>
     '${date.month.toString().padLeft(2, '0')}.${date.day.toString().padLeft(2, '0')}';
 
-String _assetSubtitle(AssetItem asset) {
-  if (asset.period.isNotEmpty) return asset.period;
-  if (asset.occurredAt != null) {
-    final at = asset.occurredAt!;
-    return '${at.hour.toString().padLeft(2, '0')}:${at.minute.toString().padLeft(2, '0')}';
-  }
-  return '';
-}
-
 String _entityIcon(String? cardType) => cardType == 'event' ? '📅' : '👤';
 
-String _entityId(Map<String, dynamic> entity, String cardType) =>
-    (cardType == 'event'
-            ? entity['event_id'] ?? entity['id']
-            : entity['contact_id'] ?? entity['id'])
-        ?.toString() ??
-    '';
-
-String _entityTitle(Map<String, dynamic> entity) =>
-    (entity['title'] ?? entity['name'] ?? entity['display_name'])
-        ?.toString()
-        .trim() ??
-    '未命名';
-
-String _contactSummary(Map<String, dynamic> contact) => [
-  contact['company'],
-  contact['title'],
-].where((value) => value != null && '$value'.trim().isNotEmpty).join(' · ');
-
-DateTime _entityTime(Map<String, dynamic> entity, String cardType) {
-  final raw = cardType == 'event'
-      ? entity['start_at']
-      : entity['effective_at'] ?? entity['created_at'];
-  return DateTime.tryParse(raw?.toString() ?? '')?.toLocal() ??
-      DateTime.fromMillisecondsSinceEpoch(0);
-}
+bool _sameDay(DateTime a, DateTime b) =>
+    a.year == b.year && a.month == b.month && a.day == b.day;

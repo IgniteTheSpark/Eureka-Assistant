@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:eureka/api/api_client.dart';
 import 'package:eureka/assets/assets.dart';
 import 'package:eureka/render/render_spec.dart';
+import 'package:eureka/theme_v2/asset/asset_card.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/library/asset/asset_list_page.dart';
 import 'package:eureka/timeline/timeline.dart';
@@ -12,6 +13,91 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 void main() {
+  testWidgets(
+    'Todo list exposes four counted tabs and keeps unscheduled last',
+    (tester) async {
+      final items = [
+        AssetItem(
+          id: 'open',
+          skillName: 'todo',
+          payload: const {'title': '整理灵感', 'status': 'pending'},
+          createdAt: DateTime(2026, 7, 29, 12),
+        ),
+        AssetItem(
+          id: 'evening',
+          skillName: 'todo',
+          payload: const {
+            'title': '晚间复盘',
+            'status': 'pending',
+            'due_at': '2026-07-29T20:00:00+08:00',
+          },
+          createdAt: DateTime(2026, 7, 29, 11),
+        ),
+        AssetItem(
+          id: 'morning',
+          skillName: 'todo',
+          payload: const {
+            'title': '晨会',
+            'status': 'pending',
+            'due_at': '2026-07-29T09:00:00+08:00',
+          },
+          createdAt: DateTime(2026, 7, 29, 10),
+        ),
+        AssetItem(
+          id: 'done',
+          skillName: 'todo',
+          payload: const {'title': '已完成', 'status': 'done'},
+          createdAt: DateTime(2026, 7, 29, 9),
+        ),
+      ];
+
+      await tester.pumpWidget(
+        _host(
+          ThemeV2AssetListPage.assets(
+            meta: const SkillMeta('✓', '待办', 'gray', 'skill-todo'),
+            skillName: 'todo',
+            initialAssets: items,
+            specs: const {
+              'todo': RenderSpec(
+                cardLayout: 'horizontal',
+                icon: '✓',
+                accentColor: 'gray',
+                primaryField: 'title',
+                secondaryField: 'due_at',
+                schemaFields: ['title', 'due_at', 'status'],
+              ),
+            },
+            autoLoad: false,
+            today: () => DateTime(2026, 7, 29, 12),
+          ),
+        ),
+      );
+
+      expect(find.byKey(const ValueKey('todo-filter-all')), findsOneWidget);
+      expect(find.byKey(const ValueKey('todo-filter-today')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('todo-filter-completed')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('todo-filter-unscheduled')),
+        findsOneWidget,
+      );
+      expect(find.byType(ThemeV2AssetCard), findsNWidgets(4));
+      expect(
+        tester.getTopLeft(find.text('晨会')).dy,
+        lessThan(tester.getTopLeft(find.text('整理灵感')).dy),
+      );
+
+      await tester.tap(find.byKey(const ValueKey('todo-filter-unscheduled')));
+      await tester.pump();
+
+      expect(find.text('整理灵感'), findsOneWidget);
+      expect(find.byKey(const ValueKey('asset-record-morning')), findsNothing);
+      expect(find.byKey(const ValueKey('asset-record-done')), findsNothing);
+    },
+  );
+
   testWidgets('asset list orders and labels records by effectiveAt', (
     tester,
   ) async {
