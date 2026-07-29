@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -163,7 +164,7 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
 
   void _handleScalePointerDown(PointerDownEvent event) {
     _scaleSettleTimer?.cancel();
-    _scalePointerOrigin = event.position;
+    _scalePointerOrigin = event.localPosition;
     _scalePointerAxis = null;
     _scaleDragOriginPage = _pageIndex;
     _scaleDragFeedback.value = null;
@@ -172,7 +173,7 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
   void _handleScalePointerMove(PointerMoveEvent event) {
     final origin = _scalePointerOrigin;
     if (origin == null) return;
-    final delta = event.position - origin;
+    final delta = event.localPosition - origin;
     final horizontal = delta.dx.abs();
     final vertical = delta.dy.abs();
     if (_scalePointerAxis == null && (horizontal > 12 || vertical > 12)) {
@@ -182,7 +183,11 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
     }
     if (_scalePointerAxis == Axis.horizontal) {
       // Page coordinates move opposite to the finger.
-      _updateScaleDragFeedback(-delta.dx);
+      final verticalDisplacement = delta.dy.abs() < 3 ? 0.0 : delta.dy * 0.6;
+      _updateScaleDragFeedback(
+        -delta.dx,
+        centerY: origin.dy + verticalDisplacement,
+      );
     }
   }
 
@@ -218,7 +223,7 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
     _scaleDragFeedback.value = null;
   }
 
-  void _updateScaleDragFeedback(double displacement) {
+  void _updateScaleDragFeedback(double displacement, {double? centerY}) {
     final originPage = _scaleDragOriginPage;
     final distance = displacement.abs();
     if (originPage == null || distance <= 12) {
@@ -233,6 +238,7 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
       onRightEdge: direction > 0,
       shapeProgress: ((distance - 12) / 26).clamp(0, 1),
       labelProgress: ((distance - 30) / 8).clamp(0, 1),
+      centerY: centerY,
     );
   }
 
@@ -630,12 +636,14 @@ class _CalendarScaleDragFeedback {
     required this.onRightEdge,
     required this.shapeProgress,
     required this.labelProgress,
+    required this.centerY,
   });
 
   final CalendarMode target;
   final bool onRightEdge;
   final double shapeProgress;
   final double labelProgress;
+  final double? centerY;
 }
 
 class _CalendarScaleDragIndicator extends StatelessWidget {
@@ -656,66 +664,89 @@ class _CalendarScaleDragIndicator extends StatelessWidget {
     final label = _calendarScaleLabel(feedback.target);
 
     return IgnorePointer(
-      child: Align(
-        alignment: feedback.onRightEdge
-            ? Alignment.centerRight
-            : Alignment.centerLeft,
-        child: SizedBox(
-          key: const ValueKey('calendar-scale-drag-indicator'),
-          width: width,
-          height: height,
-          child: Stack(
-            alignment: Alignment.center,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final desiredCenterY = feedback.centerY ?? constraints.maxHeight / 2;
+          final minCenterY = height / 2 + 12;
+          final unclampedMaxCenterY = constraints.maxHeight - height / 2 - 12;
+          final maxCenterY = math.max(minCenterY, unclampedMaxCenterY);
+          final centerY = desiredCenterY
+              .clamp(minCenterY, maxCenterY)
+              .toDouble();
+
+          return Stack(
             children: [
-              if (!reduceMotion)
-                Positioned.fill(
-                  child: CustomPaint(
-                    key: const ValueKey('calendar-scale-drag-droplet'),
-                    painter: _CalendarScaleDropletPainter(
-                      onRightEdge: feedback.onRightEdge,
-                      fill: tokens.surface.withValues(alpha: 0.95),
-                      border: tokens.border,
-                      tension: tokens.accent.withValues(alpha: 0.58),
-                      shadow: tokens.foreground.withValues(alpha: 0.08),
-                    ),
+              AnimatedPositioned(
+                duration: reduceMotion
+                    ? Duration.zero
+                    : const Duration(milliseconds: 70),
+                curve: Curves.easeOutCubic,
+                top: centerY - height / 2,
+                left: feedback.onRightEdge ? null : 0,
+                right: feedback.onRightEdge ? 0 : null,
+                width: width,
+                height: height,
+                child: SizedBox(
+                  key: const ValueKey('calendar-scale-drag-indicator'),
+                  width: width,
+                  height: height,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      if (!reduceMotion)
+                        Positioned.fill(
+                          child: CustomPaint(
+                            key: const ValueKey('calendar-scale-drag-droplet'),
+                            painter: _CalendarScaleDropletPainter(
+                              onRightEdge: feedback.onRightEdge,
+                              fill: tokens.surface.withValues(alpha: 0.95),
+                              border: tokens.border,
+                              tension: tokens.accent.withValues(alpha: 0.58),
+                              shadow: tokens.foreground.withValues(alpha: 0.08),
+                            ),
+                          ),
+                        )
+                      else if (feedback.labelProgress > 0)
+                        DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: tokens.surface.withValues(alpha: 0.95),
+                            border: Border.all(color: tokens.border),
+                            borderRadius: BorderRadius.horizontal(
+                              left: feedback.onRightEdge
+                                  ? const Radius.circular(ThemeV2Radii.md)
+                                  : Radius.zero,
+                              right: feedback.onRightEdge
+                                  ? Radius.zero
+                                  : const Radius.circular(ThemeV2Radii.md),
+                            ),
+                          ),
+                          child: const SizedBox.expand(),
+                        ),
+                      if (feedback.labelProgress > 0)
+                        Opacity(
+                          opacity: feedback.labelProgress,
+                          child: Padding(
+                            padding: EdgeInsets.only(
+                              left: feedback.onRightEdge ? 14 : 4,
+                              right: feedback.onRightEdge ? 4 : 14,
+                            ),
+                            child: Text(
+                              label,
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(
+                                    color: tokens.foreground,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
-                )
-              else if (feedback.labelProgress > 0)
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: tokens.surface.withValues(alpha: 0.95),
-                    border: Border.all(color: tokens.border),
-                    borderRadius: BorderRadius.horizontal(
-                      left: feedback.onRightEdge
-                          ? const Radius.circular(ThemeV2Radii.md)
-                          : Radius.zero,
-                      right: feedback.onRightEdge
-                          ? Radius.zero
-                          : const Radius.circular(ThemeV2Radii.md),
-                    ),
-                  ),
-                  child: const SizedBox.expand(),
                 ),
-              if (feedback.labelProgress > 0)
-                Opacity(
-                  opacity: feedback.labelProgress,
-                  child: Padding(
-                    padding: EdgeInsets.only(
-                      left: feedback.onRightEdge ? 14 : 4,
-                      right: feedback.onRightEdge ? 4 : 14,
-                    ),
-                    child: Text(
-                      label,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: tokens.foreground,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ),
+              ),
             ],
-          ),
-        ),
+          );
+        },
       ),
     );
   }

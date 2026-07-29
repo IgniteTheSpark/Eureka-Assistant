@@ -780,6 +780,103 @@ void main() {
     expect(indicator, findsNothing);
   });
 
+  testWidgets(
+    'scale droplet starts at gesture Y and follows vertical motion with damping',
+    (tester) async {
+      await tester.pumpWidget(
+        calendarTestHost(
+          ThemeV2CalendarPage(
+            controller: CalendarController(),
+            today: DateTime(2026, 7, 3),
+            initialData: calendarFixtureData(),
+            onOpenDay: (_) {},
+            onOpenRecord: (_) {},
+            onCreateDraft: (_) async {},
+            onOpenDraftEditor: (_) {},
+          ),
+          disableAnimations: false,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final pages = find.byKey(const ValueKey('calendar-mode-pages'));
+      final pageRect = tester.getRect(pages);
+      final origin = Offset(pageRect.center.dx, pageRect.top + 140);
+      final indicator = find.byKey(
+        const ValueKey('calendar-scale-drag-indicator'),
+      );
+      final gesture = await tester.startGesture(origin);
+
+      await gesture.moveBy(const Offset(-60, 0));
+      await tester.pump(const Duration(milliseconds: 90));
+      expect(tester.getCenter(indicator).dy, closeTo(origin.dy, 2));
+
+      final beforeFollow = tester.getCenter(indicator).dy;
+      await gesture.moveBy(const Offset(-4, 50));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 90));
+      final afterFollow = tester.getCenter(indicator).dy;
+      expect(afterFollow - beforeFollow, closeTo(30, 3));
+
+      await gesture.cancel();
+      await tester.pumpAndSettle();
+
+      final jitterGesture = await tester.startGesture(origin);
+      await jitterGesture.moveBy(const Offset(-60, 2));
+      await tester.pump(const Duration(milliseconds: 90));
+      expect(tester.getCenter(indicator).dy, closeTo(origin.dy, 1));
+
+      await jitterGesture.cancel();
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets('scale droplet clamps inside the Calendar viewport', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      calendarTestHost(
+        ThemeV2CalendarPage(
+          controller: CalendarController(),
+          today: DateTime(2026, 7, 3),
+          initialData: calendarFixtureData(),
+          onOpenDay: (_) {},
+          onOpenRecord: (_) {},
+          onCreateDraft: (_) async {},
+          onOpenDraftEditor: (_) {},
+        ),
+        disableAnimations: false,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final pages = find.byKey(const ValueKey('calendar-mode-pages'));
+    final pageRect = tester.getRect(pages);
+    final indicator = find.byKey(
+      const ValueKey('calendar-scale-drag-indicator'),
+    );
+
+    final topGesture = await tester.startGesture(
+      Offset(pageRect.center.dx, pageRect.top + 2),
+    );
+    await topGesture.moveBy(const Offset(-60, 0));
+    await tester.pump(const Duration(milliseconds: 90));
+    expect(tester.getCenter(indicator).dy, closeTo(pageRect.top + 64.5, 2));
+
+    await topGesture.cancel();
+    await tester.pumpAndSettle();
+
+    final bottomGesture = await tester.startGesture(
+      Offset(pageRect.center.dx, pageRect.bottom - 2),
+    );
+    await bottomGesture.moveBy(const Offset(-60, 0));
+    await tester.pump(const Duration(milliseconds: 90));
+    expect(tester.getCenter(indicator).dy, closeTo(pageRect.bottom - 64.5, 2));
+
+    await bottomGesture.cancel();
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('reduced motion keeps the edge label without droplet morphing', (
     tester,
   ) async {
