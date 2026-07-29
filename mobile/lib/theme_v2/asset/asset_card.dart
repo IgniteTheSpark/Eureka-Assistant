@@ -59,7 +59,7 @@ class _ThemeV2AssetCardState extends State<ThemeV2AssetCard> {
     return Semantics(
       button: true,
       enabled: enabled,
-      label: '打开${widget.data.skillLabel}：${widget.data.primaryValue}',
+      label: _semanticLabel(),
       onTap: enabled ? widget.onOpen : null,
       child: ExcludeSemantics(
         child: GestureDetector(
@@ -80,6 +80,25 @@ class _ThemeV2AssetCardState extends State<ThemeV2AssetCard> {
         ),
       ),
     );
+  }
+
+  String _semanticLabel() {
+    final visible = <String>[widget.data.skillLabel, widget.data.primaryValue];
+    if (widget.variant == AssetCardVariant.richCard) {
+      visible.addAll(
+        widget.data.secondaryValues
+            .where((value) => value.trim().isNotEmpty)
+            .take(3),
+      );
+    }
+    final time = widget.data.timeLabel;
+    if ((widget.variant == AssetCardVariant.iconTime ||
+            widget.variant == AssetCardVariant.minimalRow) &&
+        time != null &&
+        time.trim().isNotEmpty) {
+      visible.add(time);
+    }
+    return '打开${visible.first}：${visible.skip(1).join('，')}';
   }
 }
 

@@ -171,6 +171,30 @@ void main() {
     expect(find.text('Kevin'), findsNothing);
   });
 
+  testWidgets(
+    'IconTime semantics include skill primary value and visible time',
+    (tester) async {
+      final semantics = tester.ensureSemantics();
+      await tester.pumpWidget(
+        _host(
+          ThemeV2AssetCard(
+            variant: AssetCardVariant.iconTime,
+            data: const AssetCardViewData(
+              mark: '球',
+              skillLabel: '网球对局',
+              primaryValue: 'Kevin',
+              timeLabel: '19:30',
+            ),
+            onOpen: () {},
+          ),
+        ),
+      );
+
+      expect(find.bySemanticsLabel('打开网球对局：Kevin，19:30'), findsOneWidget);
+      semantics.dispose();
+    },
+  );
+
   testWidgets('enabled card exposes one semantic button and opens on tap', (
     tester,
   ) async {

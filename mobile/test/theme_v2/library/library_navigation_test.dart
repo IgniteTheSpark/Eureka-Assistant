@@ -7,6 +7,7 @@ import 'package:eureka/theme/app_theme.dart';
 import 'package:eureka/theme/eureka_colors.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_tokens.dart';
+import 'package:eureka/theme_v2/asset/asset_card.dart';
 import 'package:eureka/theme_v2/library/asset/asset_list_page.dart';
 import 'package:eureka/theme_v2/library/container_index.dart';
 import 'package:eureka/theme_v2/library/library_controller.dart';
@@ -86,6 +87,69 @@ void main() {
     );
   });
 
+  testWidgets('hub uses canonical title stats and one 50-asset row', (
+    tester,
+  ) async {
+    final controller = await _controller(recentCount: 50);
+    var openedIndex = 0;
+    var openedAll = 0;
+    await _pumpHost(
+      tester,
+      LibraryHub(
+        controller: controller,
+        onOpenContainer: (_) {},
+        onOpenContainerIndex: () => openedIndex++,
+        onOpenAllContainers: () => openedAll++,
+        onConfigurePinned: () {},
+        onCreateSkill: () {},
+      ),
+    );
+
+    expect(find.text('资产库'), findsOneWidget);
+    expect(find.textContaining('LIBRARY /'), findsNothing);
+    expect(find.textContaining('你的记录'), findsNothing);
+    expect(find.text('最近生成'), findsOneWidget);
+    expect(find.text('50'), findsNothing);
+
+    await tester.tap(find.bySemanticsLabel('打开资产容器索引'));
+    await tester.tap(find.bySemanticsLabel('打开全部容器'));
+    expect(openedIndex, 1);
+    expect(openedAll, 1);
+
+    final horizontal = tester.widgetList<Scrollable>(
+      find.descendant(
+        of: find.byKey(const PageStorageKey('theme-v2-library-recent-assets')),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    expect(horizontal, hasLength(1));
+    expect(horizontal.single.axisDirection, AxisDirection.right);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is ThemeV2AssetCard &&
+            widget.variant == AssetCardVariant.iconTime,
+      ),
+      findsWidgets,
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('library-recent-recent-49')),
+      500,
+      scrollable: find.descendant(
+        of: find.byKey(const PageStorageKey('theme-v2-library-recent-assets')),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    expect(
+      find.byKey(const ValueKey('library-recent-recent-49')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('library-recent-recent-50')),
+      findsNothing,
+    );
+  });
+
   testWidgets('hub pinned mosaic is non-uniform and every tile is tappable', (
     tester,
   ) async {
@@ -134,20 +198,11 @@ void main() {
         ),
       );
 
-      await tester.tap(find.byKey(const ValueKey('library-recent-todo-a1')));
+      await tester.tap(find.byKey(const ValueKey('library-recent-a1')));
       expect(opened, ['todo']);
-      expect(
-        find.byKey(const ValueKey('library-recent-event-e1')),
-        findsNothing,
-      );
-      expect(
-        find.byKey(const ValueKey('library-recent-contact-c1')),
-        findsNothing,
-      );
-      expect(
-        find.byKey(const ValueKey('library-recent-report-r1')),
-        findsNothing,
-      );
+      expect(find.byKey(const ValueKey('library-recent-e1')), findsNothing);
+      expect(find.byKey(const ValueKey('library-recent-c1')), findsNothing);
+      expect(find.byKey(const ValueKey('library-recent-r1')), findsNothing);
     },
   );
 
@@ -216,7 +271,7 @@ void main() {
       ),
     );
 
-    await tester.tap(find.byKey(const ValueKey('library-recent-todo-a1')));
+    await tester.tap(find.byKey(const ValueKey('library-recent-a1')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('theme-v2-asset-sheet')), findsOneWidget);
     expect(find.byType(CategoryDetailPage), findsNothing);
@@ -608,7 +663,7 @@ void main() {
   );
 }
 
-Future<LibraryController> _controller() async {
+Future<LibraryController> _controller({int recentCount = 1}) async {
   final now = DateTime(2026, 7, 28, 12);
   final controller = LibraryController(
     repository: _Repository(
@@ -675,6 +730,20 @@ Future<LibraryController> _controller() async {
               'payload': {'title': '提交重构'},
             },
           ),
+          for (var index = 1; index < recentCount; index++)
+            LibraryRecentAsset(
+              id: 'recent-$index',
+              skillName: 'tennis',
+              skillLabel: '网球记录',
+              mark: '🎾',
+              primaryValue: '记录 $index',
+              createdAt: now.subtract(Duration(minutes: index)),
+              detailCard: {
+                'asset_id': 'recent-$index',
+                'user_skill_name': 'tennis',
+                'payload': {'headline': '记录 $index'},
+              },
+            ),
         ],
         totalAssetCount: 12,
       ),

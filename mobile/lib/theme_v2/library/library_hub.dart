@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
 
+import '../asset/asset_card.dart';
+import '../asset/asset_card_display.dart';
 import '../foundation/theme_v2_semantics.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
-import '../foundation/theme_v2_typography.dart';
 import 'create_skill_action.dart';
 import 'library_components.dart';
 import 'library_controller.dart';
 import 'library_models.dart';
+import 'library_states.dart';
 
 class LibraryHub extends StatelessWidget {
   const LibraryHub({
@@ -37,33 +39,28 @@ class LibraryHub extends StatelessWidget {
         final overview = controller.overview;
         return ListView(
           key: const PageStorageKey('theme-v2-library-hub'),
-          padding: const EdgeInsets.fromLTRB(
-            ThemeV2Spacing.lg,
-            ThemeV2Spacing.md,
-            ThemeV2Spacing.lg,
-            ThemeV2Spacing.xl,
-          ),
+          padding: const EdgeInsets.fromLTRB(18, 14, 18, 112),
           children: [
-            LibraryScreenHeader(
-              kicker: 'LIBRARY / ${overview?.containerCount ?? 0} CONTAINERS',
-              title: '资产库',
-              subtitle: overview == null
-                  ? '你的记录，按使用方式组织。'
-                  : '${overview.containerCount} 个容器 · '
-                        '${overview.customContainerCount} 个自定义技能',
-              onKickerTap: onOpenContainerIndex,
+            Text(
+              '资产库',
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                color: context.themeV2.foreground,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -.8,
+              ),
             ),
-            const SizedBox(height: ThemeV2Spacing.lg),
-            _LibraryStatsEntry(
+            const SizedBox(height: 18),
+            LibraryStatsBar(
               assetCount: overview?.totalAssetCount ?? 0,
               containerCount: overview?.containerCount ?? 0,
-              onTap: onOpenAllContainers,
+              onOpenContainerIndex: onOpenContainerIndex,
+              onOpenAllContainers: onOpenAllContainers,
             ),
-            if (controller.statusMessage case final status?) ...[
+            if (controller.statusMessage case final message?) ...[
               const SizedBox(height: ThemeV2Spacing.sm),
-              _StatusBanner(message: status, onRetry: controller.retry),
+              LibraryPartialBanner(message: message, onRetry: controller.retry),
             ],
-            const SizedBox(height: ThemeV2Spacing.lg),
+            const SizedBox(height: ThemeV2Spacing.xl),
             LibrarySectionLabel(
               label:
                   'PINNED / ${controller.pinnedContainers.length.toString().padLeft(2, '0')}',
@@ -76,7 +73,7 @@ class LibraryHub extends StatelessWidget {
                 onPressed: onConfigurePinned,
               ),
             ),
-            const SizedBox(height: ThemeV2Spacing.sm),
+            const SizedBox(height: 10),
             if (controller.pinnedContainers.isEmpty)
               _EmptyPinned(onConfigure: onConfigurePinned)
             else
@@ -86,160 +83,17 @@ class LibraryHub extends StatelessWidget {
                 onLongPress: onConfigurePinned,
               ),
             const SizedBox(height: ThemeV2Spacing.lg),
-            CreateSkillAction(onPressed: onCreateSkill),
+            CreateSkillAction.primary(onPressed: onCreateSkill),
             const SizedBox(height: ThemeV2Spacing.xl),
-            LibrarySectionLabel(
-              label: '最近生成',
-              trailing: Text(
-                '${overview?.recentAssets.length ?? 0}',
-                style: ThemeV2Typography.mono(
-                  fontSize: 9,
-                  color: context.themeV2.muted,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
+            const LibrarySectionLabel(label: '最近生成'),
             const SizedBox(height: ThemeV2Spacing.sm),
-            _RecentItems(
+            _RecentAssets(
               items: overview?.recentAssets ?? const [],
               onOpen: onOpenRecent,
             ),
           ],
         );
       },
-    );
-  }
-}
-
-class _LibraryStatsEntry extends StatelessWidget {
-  const _LibraryStatsEntry({
-    required this.assetCount,
-    required this.containerCount,
-    required this.onTap,
-  });
-
-  final int assetCount;
-  final int containerCount;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.themeV2;
-    return Semantics(
-      label: '打开全部容器',
-      button: true,
-      onTap: onTap,
-      child: ExcludeSemantics(
-        child: Material(
-          key: const ValueKey('library-stats-entry'),
-          color: tokens.surface,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(ThemeV2Radii.lg),
-            side: BorderSide(color: tokens.border),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: onTap,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(
-                minHeight: ThemeV2Sizes.minTouchTarget,
-              ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: ThemeV2Spacing.md,
-                  vertical: ThemeV2Spacing.sm,
-                ),
-                child: Row(
-                  children: [
-                    _Stat(value: '$assetCount', label: '资产'),
-                    const SizedBox(width: ThemeV2Spacing.lg),
-                    _Stat(value: '$containerCount', label: '容器'),
-                    const Spacer(),
-                    Container(width: 1, height: 30, color: tokens.border),
-                    const SizedBox(width: ThemeV2Spacing.lg),
-                    Icon(
-                      Icons.grid_view_outlined,
-                      color: tokens.accent,
-                      size: 18,
-                    ),
-                    const SizedBox(width: ThemeV2Spacing.sm),
-                    Text(
-                      '全部容器',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(width: ThemeV2Spacing.xs),
-                    Icon(Icons.chevron_right, color: tokens.muted, size: 18),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _Stat extends StatelessWidget {
-  const _Stat({required this.value, required this.label});
-
-  final String value;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.themeV2;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          value,
-          style: Theme.of(
-            context,
-          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-        ),
-        Text(
-          label,
-          style: Theme.of(
-            context,
-          ).textTheme.labelSmall?.copyWith(color: tokens.muted),
-        ),
-      ],
-    );
-  }
-}
-
-class _StatusBanner extends StatelessWidget {
-  const _StatusBanner({required this.message, required this.onRetry});
-
-  final String message;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.themeV2;
-    return Material(
-      color: tokens.accentSoft,
-      borderRadius: BorderRadius.circular(ThemeV2Radii.md),
-      child: Padding(
-        padding: const EdgeInsets.only(left: ThemeV2Spacing.md),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                message,
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall?.copyWith(color: tokens.muted),
-              ),
-            ),
-            TextButton(onPressed: onRetry, child: const Text('重试')),
-          ],
-        ),
-      ),
     );
   }
 }
@@ -252,113 +106,76 @@ class _EmptyPinned extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
-    return Material(
-      color: tokens.surface,
-      borderRadius: BorderRadius.circular(ThemeV2Radii.lg),
-      child: InkWell(
-        onTap: onConfigure,
-        borderRadius: BorderRadius.circular(ThemeV2Radii.lg),
-        child: const SizedBox(
-          height: 96,
-          child: Center(child: Text('还没有常驻容器，点击配置')),
+    return Semantics(
+      label: '还没有常驻容器，点击配置',
+      button: true,
+      onTap: onConfigure,
+      child: ExcludeSemantics(
+        child: Material(
+          color: tokens.surface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(ThemeV2Radii.lg),
+            side: BorderSide(color: tokens.border),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onConfigure,
+            child: const SizedBox(
+              height: 96,
+              child: Center(child: Text('还没有常驻容器，点击配置')),
+            ),
+          ),
         ),
       ),
     );
   }
 }
 
-class _RecentItems extends StatelessWidget {
-  const _RecentItems({required this.items, this.onOpen});
+class _RecentAssets extends StatelessWidget {
+  const _RecentAssets({required this.items, this.onOpen});
 
   final List<LibraryRecentAsset> items;
   final ValueChanged<LibraryRecentAsset>? onOpen;
 
   @override
   Widget build(BuildContext context) {
-    final tokens = context.themeV2;
     if (items.isEmpty) {
-      return Container(
-        height: 72,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: tokens.surface,
-          borderRadius: BorderRadius.circular(ThemeV2Radii.md),
-          border: Border.all(color: tokens.border),
-        ),
-        child: Text(
-          '还没有最近生成的资产',
-          style: Theme.of(
-            context,
-          ).textTheme.bodySmall?.copyWith(color: tokens.muted),
-        ),
+      return const LibraryStateView.empty(
+        title: '还没有最近生成的资产',
+        message: '新资产会出现在这里',
       );
     }
+    final visibleItems = items.take(50).toList(growable: false);
     return SizedBox(
       key: const ValueKey('library-recent-items'),
-      height: 62,
+      height: 54,
       child: ListView.separated(
+        key: const PageStorageKey('theme-v2-library-recent-assets'),
         scrollDirection: Axis.horizontal,
-        itemCount: items.take(12).length,
-        separatorBuilder: (_, _) => const SizedBox(width: ThemeV2Spacing.sm),
+        itemCount: visibleItems.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
-          final item = items[index];
-          return Semantics(
-            label: '打开最近资产 ${item.primaryValue}',
-            button: true,
-            onTap: onOpen == null ? null : () => onOpen!(item),
-            child: ExcludeSemantics(
-              child: Material(
-                key: ValueKey('library-recent-${item.skillName}-${item.id}'),
-                color: tokens.surface,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(ThemeV2Radii.md),
-                  side: BorderSide(color: tokens.border),
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: InkWell(
-                  onTap: onOpen == null ? null : () => onOpen!(item),
-                  child: SizedBox(
-                    width: 58,
-                    height: 62,
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          _recentIcon(item.skillName),
-                          color: tokens.accent,
-                          size: 18,
-                        ),
-                        const SizedBox(height: ThemeV2Spacing.xs),
-                        Text(
-                          _time(item.createdAt),
-                          style: ThemeV2Typography.mono(
-                            fontSize: 7.5,
-                            color: tokens.muted,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+          final asset = visibleItems[index];
+          final time = MaterialLocalizations.of(context).formatTimeOfDay(
+            TimeOfDay.fromDateTime(asset.createdAt),
+            alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(context),
+          );
+          return SizedBox(
+            key: ValueKey('library-recent-${asset.id}'),
+            width: 55,
+            child: ThemeV2AssetCard(
+              variant: AssetCardVariant.iconTime,
+              data: AssetCardViewData(
+                mark: asset.mark,
+                skillLabel: asset.skillLabel,
+                primaryValue: asset.primaryValue,
+                timeLabel: time,
               ),
+              onOpen: onOpen == null ? null : () => onOpen!(asset),
             ),
           );
         },
       ),
     );
   }
-
-  IconData _recentIcon(String id) => switch (id) {
-    'event' => Icons.calendar_today_outlined,
-    'contact' => Icons.person_outline,
-    'report' => Icons.insights_outlined,
-    'todo' => Icons.checklist_outlined,
-    'notes' => Icons.notes_outlined,
-    _ => Icons.auto_awesome_mosaic_outlined,
-  };
-
-  String _time(DateTime value) =>
-      '${value.hour.toString().padLeft(2, '0')}:'
-      '${value.minute.toString().padLeft(2, '0')}';
 }
