@@ -29,61 +29,12 @@ from sqlalchemy import select, update as sa_update, delete as sa_delete, func, o
 
 from agents.design_agent import design_skill, clarify_skill
 from core.auth import get_current_user_id
+from core.skill_schema import validate_payload_schema
 from db.database import AsyncSessionLocal
 from db.models import GlobalSkill, UserSkill, Asset, AssetField, Session as DBSession, Task
 
 USER_SKILL_CAP = 30      # how many skills a user may *register*
 ACTIVE_SKILL_CAP = 9     # how many may be *active* (enabled=1) at once
-
-# Common field → 中文 label fallback. The design agent is instructed to emit a
-# `label` per field, but the model sometimes omits it (then the detail/edit show
-# raw English machine names). Backfill known keys at confirm time so stored
-# skills carry labels; unknown keys stay null (the Flutter side has its own
-# fallback dict + machine-name fallback).
-_FIELD_LABEL_FALLBACK = {
-    "book_title": "书名", "author": "作者", "key_insights": "要点", "note": "备注",
-    "notes": "备注", "pages_read": "阅读页数", "time_spent": "用时", "content": "内容",
-    "title": "标题", "name": "名称", "amount": "金额", "category": "分类", "date": "日期",
-    "time": "时间", "location": "地点", "place": "地点", "merchant": "商家",
-    "teacher": "老师", "rating": "评分", "progress": "进度", "duration": "时长",
-    "distance": "距离", "pace": "配速", "mood": "心情", "reps": "次数",
-    "weight": "重量", "summary": "摘要", "description": "描述",
-}
-
-
-def _backfill_labels(payload_schema):
-    """Fill a 中文 label for any known field that lacks one (in place, best-effort)."""
-    if not isinstance(payload_schema, dict):
-        return payload_schema
-    for key, meta in payload_schema.items():
-        if isinstance(meta, dict):
-            label = (meta.get("label") or "").strip()
-            if not label:
-                fb = _FIELD_LABEL_FALLBACK.get(key)
-                if fb:
-                    meta["label"] = fb
-    return payload_schema
-
-
-# Substrings that mark a field key as free-form prose → markdown (`long`). Used to
-# backfill `long` when the design agent omits it (and for older skills).
-_PROSE_KEY_HINTS = (
-    "insight", "summary", "note", "content", "body", "review", "comment",
-    "reflection", "description", "detail", "takeaway", "remark", "thought",
-)
-
-
-def _backfill_long(payload_schema):
-    """Ensure every field declares `long` (free-form markdown). The agent should
-    set it; when missing, infer from the key name + type (string prose → True)."""
-    if not isinstance(payload_schema, dict):
-        return payload_schema
-    for key, meta in payload_schema.items():
-        if isinstance(meta, dict) and "long" not in meta:
-            kl = str(key).lower()
-            meta["long"] = (meta.get("type") == "string") and any(h in kl for h in _PROSE_KEY_HINTS)
-    return payload_schema
-
 
 router = APIRouter()
 
@@ -327,7 +278,7 @@ async def confirm_skill(
             user_id=user_id,
             skill_id=gs.id,
             display_name=req.display_name,
-            payload_schema=_backfill_long(_backfill_labels(req.payload_schema)),
+            payload_schema=validate_payload_schema(req.payload_schema),
             render_spec=req.render_spec,
             queryable_fields=req.queryable_fields,
             chat_starters=req.chat_starters or None,   # §1.5.1 L0(design agent 产出)
@@ -445,7 +396,7 @@ async def promote_skill(
             enabled = 1 if active_now < ACTIVE_SKILL_CAP else 0
             us = UserSkill(
                 user_id=user_id, skill_id=gs.id, display_name=display_name,
-                payload_schema=_backfill_long(_backfill_labels(draft["payload_schema"])),
+                payload_schema=validate_payload_schema(draft["payload_schema"]),
                 render_spec=draft["render_spec"],
                 queryable_fields=draft.get("queryable_fields"),
                 chat_starters=draft.get("chat_starters") or None,

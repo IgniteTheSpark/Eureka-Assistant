@@ -16,6 +16,7 @@ filesystem at import time.
 from pathlib import Path
 
 from google.adk.agents import LlmAgent
+from core.skill_schema import validate_payload_schema
 
 from agents.mcp_toolset import get_mcp_toolset, make_user_id_injector
 from core.llm import FLASH_SKILL_MODEL, FLASH_DISPATCHER_MODEL
@@ -196,6 +197,8 @@ def make_custom_skill_agent(
     tool_create_asset(user_skill_name=<machine_name>, payload=<JSON>,
     session_id=..., source_input_turn_id=...).
     """
+    payload_schema = validate_payload_schema(payload_schema)
+
     # Compact field doc for the prompt.
     fields: list[str] = []
     if isinstance(payload_schema, dict):

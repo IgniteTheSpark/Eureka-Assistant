@@ -11,6 +11,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from sqlalchemy.orm import Session
+from core.skill_schema import validate_payload_schema
 from db.models import GlobalSkill, UserSkill
 # Reuse the shared sync engine (pymysql driver). Building one here from the raw
 # DATABASE_URL (mysql://) would default to the missing MySQLdb C driver.
@@ -51,10 +52,10 @@ USER_SKILL_CONFIGS = [
         "name": "todo",
         "display_name": "待办",
         "payload_schema": {
-            "title":    {"type": "string",   "label": "标题"},
+            "title":    {"type": "string",   "label": "标题", "required": False, "long": False},
             "content":  {"type": "string",   "label": "内容", "required": True, "long": True},
-            "due_date": {"type": "datetime"},
-            "status":   {"type": "string", "enum": ["pending", "done", "pending_confirmation"], "default": "pending"},
+            "due_date": {"type": "datetime", "label": "截止时间", "required": False, "long": False},
+            "status":   {"type": "string", "label": "状态", "required": False, "long": False, "enum": ["pending", "done", "pending_confirmation"], "default": "pending"},
         },
         "queryable_fields": [
             {"field": "due_date", "index_type": "date"},
@@ -83,11 +84,11 @@ USER_SKILL_CONFIGS = [
         # contact 的「真身」在 contacts 表;这个 asset 形态用于在时间流 / 资产库里展示
         # 「最近捕捉到的联系人引用」,payload 指向真实 contact_id。
         "payload_schema": {
-            "contact_id": {"type": "uuid",   "required": True},
-            "name":       {"type": "string", "required": True},
-            "company":    {"type": "string"},
-            "title":      {"type": "string"},
-            "phone":      {"type": "string"},
+            "contact_id": {"type": "uuid",   "label": "联系人", "required": True, "long": False},
+            "name":       {"type": "string", "label": "姓名", "required": True, "long": False},
+            "company":    {"type": "string", "label": "公司", "required": False, "long": False},
+            "title":      {"type": "string", "label": "职位", "required": False, "long": False},
+            "phone":      {"type": "string", "label": "电话", "required": False, "long": False},
         },
         "queryable_fields": [
             {"field": "name",    "index_type": "text"},
@@ -107,12 +108,12 @@ USER_SKILL_CONFIGS = [
         "name": "expense",
         "display_name": "记账",
         "payload_schema": {
-            "amount":      {"type": "number", "required": True},
-            "currency":    {"type": "string", "default": "CNY"},
-            "category":    {"type": "string"},
-            "merchant":    {"type": "string"},
-            "date":        {"type": "date", "label": "日期"},
-            "description": {"type": "string"},
+            "amount":      {"type": "number", "label": "金额", "required": True, "long": False},
+            "currency":    {"type": "string", "label": "币种", "required": False, "long": False, "default": "CNY"},
+            "category":    {"type": "string", "label": "分类", "required": False, "long": False},
+            "merchant":    {"type": "string", "label": "商家", "required": False, "long": False},
+            "date":        {"type": "date", "label": "日期", "required": False, "long": False},
+            "description": {"type": "string", "label": "备注", "required": False, "long": True},
         },
         "queryable_fields": [
             {"field": "amount",   "index_type": "numeric"},
@@ -145,9 +146,9 @@ USER_SKILL_CONFIGS = [
         "name": "notes",
         "display_name": "随记",
         "payload_schema": {
-            "title":   {"type": "string"},
-            "content": {"type": "string", "required": True},
-            "tags":    {"type": "array", "items": "string"},
+            "title":   {"type": "string", "label": "标题", "required": False, "long": False},
+            "content": {"type": "string", "label": "正文", "required": True, "long": True},
+            "tags":    {"type": "array", "label": "标签", "required": False, "long": False, "items": "string"},
         },
         # Tags are queryable so "所有『游戏』相关随记" works (§3.2.1).
         "queryable_fields": [
@@ -184,16 +185,16 @@ USER_SKILL_CONFIGS = [
         "name":         "external_ref",
         "display_name": "外部引用",
         "payload_schema": {
-            "external_system": {"type": "string", "required": True},   # notion | google_calendar | dingtalk | ...
-            "external_id":     {"type": "string"},                     # filled when task completes
-            "external_url":    {"type": "string"},
-            "external_type":   {"type": "string"},                     # page | event | message | issue | ...
-            "title":           {"type": "string"},
-            "summary":         {"type": "string"},
-            "status":          {"type": "string", "enum": ["pending", "running", "done", "failed"], "default": "pending"},
-            "task_id":         {"type": "uuid"},
-            "error":           {"type": "string"},
-            "metadata":        {"type": "object"},
+            "external_system": {"type": "string", "label": "来源系统", "required": True, "long": False},   # notion | google_calendar | dingtalk | ...
+            "external_id":     {"type": "string", "label": "外部 ID", "required": False, "long": False},  # filled when task completes
+            "external_url":    {"type": "string", "label": "外部链接", "required": False, "long": False},
+            "external_type":   {"type": "string", "label": "引用类型", "required": False, "long": False},  # page | event | message | issue | ...
+            "title":           {"type": "string", "label": "标题", "required": False, "long": False},
+            "summary":         {"type": "string", "label": "摘要", "required": False, "long": True},
+            "status":          {"type": "string", "label": "状态", "required": False, "long": False, "enum": ["pending", "running", "done", "failed"], "default": "pending"},
+            "task_id":         {"type": "uuid", "label": "任务", "required": False, "long": False},
+            "error":           {"type": "string", "label": "错误", "required": False, "long": True},
+            "metadata":        {"type": "object", "label": "元数据", "required": False, "long": False},
         },
         "queryable_fields": [
             {"field": "external_system", "index_type": "enum"},
@@ -232,13 +233,18 @@ def seed():
         # ── user_skills for default user ──
         for cfg in USER_SKILL_CONFIGS:
             sk_id = skill_ids[cfg["name"]]
+            payload_schema = (
+                validate_payload_schema(cfg["payload_schema"])
+                if cfg["payload_schema"] is not None
+                else None
+            )
             existing = db.query(UserSkill).filter_by(user_id="default", skill_id=sk_id).first()
             if not existing:
                 obj = UserSkill(
                     user_id="default",
                     skill_id=sk_id,
                     display_name=cfg["display_name"],
-                    payload_schema=cfg["payload_schema"],
+                    payload_schema=payload_schema,
                     render_spec=cfg["render_spec"],
                     queryable_fields=cfg["queryable_fields"],
                     chat_starters=CHAT_STARTERS.get(cfg["name"]),
@@ -246,7 +252,12 @@ def seed():
                 db.add(obj)
                 print(f"  + user_skill: {cfg['name']}")
             else:
-                print(f"  ~ user_skill exists: {cfg['name']}")
+                existing.display_name = cfg["display_name"]
+                existing.payload_schema = payload_schema
+                existing.render_spec = cfg["render_spec"]
+                existing.queryable_fields = cfg["queryable_fields"]
+                existing.chat_starters = CHAT_STARTERS.get(cfg["name"])
+                print(f"  ~ user_skill refreshed: {cfg['name']}")
 
         db.commit()
     print("Seed complete.")

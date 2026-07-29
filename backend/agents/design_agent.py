@@ -21,6 +21,7 @@ import re
 from google.adk.agents import LlmAgent
 
 from core.agent_runner import run_agent
+from core.skill_schema import validate_payload_schema
 from core.llm import DESIGN_AGENT_MODEL
 
 
@@ -143,7 +144,35 @@ RESPONSE_SCHEMA = {
     "properties": {
         "name":         {"type": "string"},
         "display_name": {"type": "string"},
-        "payload_schema": {"type": "object"},
+        "payload_schema": {
+            "type": "object",
+            "additionalProperties": {
+                "type": "object",
+                "required": [
+                    "type",
+                    "long",
+                    "required",
+                    "label",
+                    "description",
+                ],
+                "properties": {
+                    "type": {
+                        "type": "string",
+                        "enum": [
+                            "string",
+                            "number",
+                            "datetime",
+                            "date",
+                            "boolean",
+                        ],
+                    },
+                    "long": {"type": "boolean"},
+                    "required": {"type": "boolean"},
+                    "label": {"type": "string"},
+                    "description": {"type": "string"},
+                },
+            },
+        },
         "render_spec": {
             "type": "object",
             "required": ["card_layout", "icon", "accent_color", "primary_field"],
@@ -204,6 +233,17 @@ def _parse_json_object(text: str) -> dict | None:
     return None
 
 
+def validate_design_draft(draft: dict) -> dict:
+    """Reject incomplete field capabilities instead of guessing from names."""
+    if not isinstance(draft, dict):
+        raise ValueError("design draft must be an object")
+    validated = dict(draft)
+    validated["payload_schema"] = validate_payload_schema(
+        validated.get("payload_schema")
+    )
+    return validated
+
+
 def make_design_agent() -> LlmAgent:
     """Create the design LlmAgent. Stateless — called per /api/skills request."""
     return LlmAgent(
@@ -231,7 +271,7 @@ async def design_skill(description: str, user_id: str = "default") -> dict:
         parsed = _parse_json_object(final_text)
     if parsed is None:
         raise ValueError(f"design agent returned non-JSON: {final_text[:200]!r}")
-    return parsed
+    return validate_design_draft(parsed)
 
 
 # ── Clarifier — guided card flow before generation ────────────────────────────
