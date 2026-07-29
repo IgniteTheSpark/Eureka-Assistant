@@ -14,6 +14,7 @@ import json
 
 from sqlalchemy import delete, func, select
 
+from core import pet as petlib
 from core.demo_reset import reset_demo_workspace
 from core.security import hash_password
 from core.skill_schema import validate_payload_schema
@@ -25,6 +26,7 @@ from db.models import (
     GlobalSkill,
     InputTurn,
     Message,
+    Pet,
     Session,
     User,
     UserSkill,
@@ -44,6 +46,34 @@ def validate_seed_email(email: str) -> str:
             f"refusing destructive seed for {email!r}; only {ALLOWED_EMAIL!r} is allowed"
         )
     return normalized
+
+
+def build_ready_test_pet(user_id: str) -> Pet:
+    """Provision deterministic app state so the contract account opens at Home."""
+    skin = petlib.seeded_skin(user_id)
+    return Pet(
+        user_id=user_id,
+        seed=user_id,
+        name="Reka",
+        skin=skin,
+        emblem="star",
+        emblem_color=petlib.default_emblem_color(skin),
+        equipped={
+            "head": "none",
+            "leftItem": "none",
+            "rightItem": "none",
+            "carrier": "none",
+            "aura": "soft",
+        },
+        unlocked={
+            **petlib.empty_unlocked(),
+            "skin": [skin],
+            "emblem": ["star"],
+        },
+        milestones=petlib.empty_milestones(),
+        spawned=1,
+        onboarding_completed_at=datetime.now(timezone.utc),
+    )
 
 
 async def _resolve_test_user(email: str) -> User:
@@ -130,6 +160,7 @@ async def seed_theme_v2_asset_contract(email: str, *, reset: bool) -> dict:
     async with AsyncSessionLocal() as db:
         async with db.begin():
             deleted = await reset_demo_workspace(db, user_id)
+            db.add(build_ready_test_pet(user_id))
             # This fixture is also the post-migration Skill baseline. Content is
             # already gone, so replacing only this user's Skill rows is safe.
             await db.execute(delete(UserSkill).where(UserSkill.user_id == user_id))

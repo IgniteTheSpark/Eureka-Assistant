@@ -19,7 +19,10 @@ from db.database import AsyncSessionLocal, async_engine
 from db.models import GlobalSkill, User, UserSkill
 from db.seed import USER_SKILL_CONFIGS
 from main import app
-from scripts.seed_theme_v2_asset_contract import validate_seed_email
+from scripts.seed_theme_v2_asset_contract import (
+    build_ready_test_pet,
+    validate_seed_email,
+)
 
 
 def _expect_value_error(callback, expected_text: str) -> None:
@@ -129,6 +132,14 @@ def test_design_draft_validation() -> None:
     assert validated["payload_schema"]["body"]["order"] == 0
 
 
+def test_asset_contract_seed_skips_product_onboarding() -> None:
+    pet = build_ready_test_pet("theme-v2-fixture-user")
+    assert pet.user_id == "theme-v2-fixture-user"
+    assert pet.name == "Reka"
+    assert pet.spawned == 1
+    assert pet.onboarding_completed_at is not None
+
+
 async def test_confirm_preserves_explicit_long() -> None:
     suffix = uuid.uuid4().hex[:12]
     user_id = f"skill-long-{suffix}"
@@ -215,6 +226,7 @@ async def main() -> None:
     try:
         test_schema_validation()
         test_design_draft_validation()
+        test_asset_contract_seed_skips_product_onboarding()
         await test_confirm_preserves_explicit_long()
         print("PASS - Skill long text is explicit, strict, and preserved")
     finally:
