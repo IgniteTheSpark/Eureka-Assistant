@@ -5,6 +5,7 @@ import 'package:eureka/theme_v2/calendar/calendar_controller.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_tokens.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_typography.dart';
 import 'package:eureka/theme_v2/calendar/theme_v2_calendar_page.dart';
+import 'package:eureka/theme_v2/library/library_navigation.dart';
 import 'package:eureka/theme_v2/shell/device_status_summary.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_app_shell.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_floating_dock.dart';
@@ -197,6 +198,47 @@ void main() {
     await tester.pump();
     expect(find.byKey(ThemeV2FloatingDock.dockKey), findsOneWidget);
     expect(find.byType(ThemeV2GlobalTopNav), findsOneWidget);
+  });
+
+  testWidgets('Library surfaces coordinate shell chrome and local back', (
+    tester,
+  ) async {
+    final navigation = LibraryNavigationController();
+    addTearDown(navigation.dispose);
+    await tester.pumpWidget(
+      _ThemeHost(
+        child: ThemeV2AppShell(
+          initialIndex: 2,
+          showStartupOverlays: false,
+          libraryNavigation: navigation,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byType(ThemeV2GlobalTopNav), findsOneWidget);
+    expect(find.byKey(ThemeV2FloatingDock.dockKey), findsOneWidget);
+
+    navigation.open(LibrarySurface.allContainers);
+    await tester.pump();
+    expect(find.byType(ThemeV2GlobalTopNav), findsOneWidget);
+    expect(find.byKey(ThemeV2FloatingDock.dockKey), findsNothing);
+
+    navigation.open(LibrarySurface.pinnedConfiguration);
+    await tester.pump();
+    expect(find.byType(ThemeV2GlobalTopNav), findsNothing);
+    expect(find.byKey(ThemeV2FloatingDock.dockKey), findsOneWidget);
+
+    await tester.binding.handlePopRoute();
+    await tester.pump();
+    expect(navigation.surface, LibrarySurface.allContainers);
+
+    navigation.home();
+    navigation.open(LibrarySurface.containerIndex);
+    await tester.pump();
+    await tester.tap(find.bySemanticsLabel('资产'));
+    await tester.pump();
+    expect(navigation.surface, LibrarySurface.hub);
   });
 }
 

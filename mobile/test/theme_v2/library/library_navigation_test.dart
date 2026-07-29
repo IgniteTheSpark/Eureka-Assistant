@@ -12,6 +12,7 @@ import 'package:eureka/theme_v2/library/container_index.dart';
 import 'package:eureka/theme_v2/library/library_controller.dart';
 import 'package:eureka/theme_v2/library/library_hub.dart';
 import 'package:eureka/theme_v2/library/library_models.dart';
+import 'package:eureka/theme_v2/library/library_navigation.dart';
 import 'package:eureka/theme_v2/library/library_repository.dart';
 import 'package:eureka/theme_v2/library/pinned_configuration.dart';
 import 'package:eureka/theme_v2/library/theme_v2_library_page.dart';
@@ -22,6 +23,36 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('surface stack preserves origin and exposes canonical chrome', () {
+    final navigation = LibraryNavigationController();
+    addTearDown(navigation.dispose);
+
+    expect(navigation.surface, LibrarySurface.hub);
+    expect(
+      navigation.chrome,
+      const LibraryChromeSpec(topNav: true, dock: true),
+    );
+
+    navigation.open(LibrarySurface.containerIndex);
+    navigation.open(LibrarySurface.allContainers);
+    expect(
+      navigation.chrome,
+      const LibraryChromeSpec(topNav: true, dock: false),
+    );
+
+    expect(navigation.back(), isTrue);
+    expect(navigation.surface, LibrarySurface.containerIndex);
+
+    navigation.open(LibrarySurface.pinnedConfiguration);
+    expect(
+      navigation.chrome,
+      const LibraryChromeSpec(topNav: false, dock: true),
+    );
+    navigation.home();
+    expect(navigation.surface, LibrarySurface.hub);
+    expect(navigation.canPop, isFalse);
+  });
 
   testWidgets('hub exposes four distinct IA entry types from controller data', (
     tester,

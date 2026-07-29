@@ -19,6 +19,7 @@ import 'library_components.dart';
 import 'library_controller.dart';
 import 'library_hub.dart';
 import 'library_models.dart';
+import 'library_navigation.dart';
 import 'library_repository.dart';
 import 'pinned_configuration.dart';
 
@@ -31,6 +32,7 @@ class ThemeV2LibraryPage extends ConsumerStatefulWidget {
     this.onOpenRecent,
     this.onCreateSkill,
     this.onSetGoal,
+    this.navigation,
   });
 
   final LibraryController? controller;
@@ -39,6 +41,7 @@ class ThemeV2LibraryPage extends ConsumerStatefulWidget {
   final ValueChanged<LibraryRecentAsset>? onOpenRecent;
   final VoidCallback? onCreateSkill;
   final ValueChanged<SetGoalIntent>? onSetGoal;
+  final LibraryNavigationController? navigation;
 
   @override
   ConsumerState<ThemeV2LibraryPage> createState() => _ThemeV2LibraryPageState();
@@ -49,6 +52,9 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
   final ApiClient _detailApi = ApiClient();
   late final LibraryController _controller;
   late final bool _ownsController;
+  late final LibraryNavigationController _navigation;
+  late final bool _ownsNavigation;
+  final PageStorageBucket _pageStorageBucket = PageStorageBucket();
 
   @override
   void initState() {
@@ -61,6 +67,8 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
     } else {
       _controller = widget.controller!;
     }
+    _ownsNavigation = widget.navigation == null;
+    _navigation = widget.navigation ?? LibraryNavigationController();
     if (widget.autoLoad) {
       dataRevision.addListener(_refresh);
       if (_controller.status == LibraryStatus.idle) {
@@ -76,6 +84,7 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
       _controller.dispose();
       _ownedApi?.close();
     }
+    if (_ownsNavigation) _navigation.dispose();
     _detailApi.close();
     super.dispose();
   }
@@ -85,83 +94,91 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: _controller,
+      animation: Listenable.merge([_controller, _navigation]),
       builder: (context, _) {
         final status = _controller.status;
         final hasOverview = _controller.overview != null;
         if (status == LibraryStatus.loading && !hasOverview) {
-          return const ColoredBox(
-            color: Colors.transparent,
-            child: ThemeV2AsyncState.loading(label: '正在加载资产库'),
+          return PopScope(
+            canPop: !_navigation.canPop,
+            onPopInvokedWithResult: _handlePop,
+            child: const ColoredBox(
+              color: Colors.transparent,
+              child: ThemeV2AsyncState.loading(label: '正在加载资产库'),
+            ),
           );
         }
         if (status == LibraryStatus.offline || status == LibraryStatus.error) {
-          return ColoredBox(
-            color: context.themeV2.background,
-            child: ThemeV2AsyncState.error(
-              title: status == LibraryStatus.offline ? '当前处于离线状态' : '资产库加载失败',
-              message: _controller.errorMessage,
-              onRetry: _controller.retry,
+          return PopScope(
+            canPop: !_navigation.canPop,
+            onPopInvokedWithResult: _handlePop,
+            child: ColoredBox(
+              color: context.themeV2.background,
+              child: ThemeV2AsyncState.error(
+                title: status == LibraryStatus.offline ? '当前处于离线状态' : '资产库加载失败',
+                message: _controller.errorMessage,
+                onRetry: _controller.retry,
+              ),
             ),
           );
         }
 
-        return Stack(
-          children: [
-            Positioned.fill(
-              child: LibraryHub(
-                controller: _controller,
-                onOpenContainer: widget.onOpenContainer ?? _openContainer,
-                onOpenContainerIndex: _openContainerIndex,
-                onOpenAllContainers: _openAllContainers,
-                onConfigurePinned: _openPinnedConfiguration,
-                onCreateSkill: widget.onCreateSkill ?? _openCreateSkill,
-                onOpenRecent: widget.onOpenRecent ?? _openRecent,
-              ),
+        return PopScope(
+          canPop: !_navigation.canPop,
+          onPopInvokedWithResult: _handlePop,
+          child: PageStorage(
+            bucket: _pageStorageBucket,
+            child: Stack(
+              children: [
+                Positioned.fill(child: _activeSurface()),
+                if (status == LibraryStatus.loading)
+                  const Positioned(
+                    top: ThemeV2Spacing.sm,
+                    left: ThemeV2Spacing.xl,
+                    right: ThemeV2Spacing.xl,
+                    child: _LibraryRefreshIndicator(),
+                  ),
+              ],
             ),
-            if (status == LibraryStatus.loading)
-              const Positioned(
-                top: ThemeV2Spacing.sm,
-                left: ThemeV2Spacing.xl,
-                right: ThemeV2Spacing.xl,
-                child: _LibraryRefreshIndicator(),
-              ),
-          ],
+          ),
         );
       },
     );
   }
 
-  void _openContainerIndex() {
-    _pushLibraryRoute(
-      ContainerIndex(
-        controller: _controller,
-        onBack: _pop,
-        onOpenContainer: widget.onOpenContainer ?? _openContainer,
-        onOpenAllContainers: () {
-          Navigator.of(context).pop();
-          _openAllContainers();
-        },
-        onCreateSkill: widget.onCreateSkill ?? _openCreateSkill,
-      ),
-    );
-  }
+  Widget _activeSurface() => switch (_navigation.surface) {
+    LibrarySurface.hub => LibraryHub(
+      controller: _controller,
+      onOpenContainer: widget.onOpenContainer ?? _openContainer,
+      onOpenContainerIndex: () =>
+          _navigation.open(LibrarySurface.containerIndex),
+      onOpenAllContainers: () => _navigation.open(LibrarySurface.allContainers),
+      onConfigurePinned: () =>
+          _navigation.open(LibrarySurface.pinnedConfiguration),
+      onCreateSkill: widget.onCreateSkill ?? _openCreateSkill,
+      onOpenRecent: widget.onOpenRecent ?? _openRecent,
+    ),
+    LibrarySurface.containerIndex => ContainerIndex(
+      controller: _controller,
+      onBack: _navigation.back,
+      onOpenContainer: widget.onOpenContainer ?? _openContainer,
+      onOpenAllContainers: () => _navigation.open(LibrarySurface.allContainers),
+      onCreateSkill: widget.onCreateSkill ?? _openCreateSkill,
+    ),
+    LibrarySurface.allContainers => AllContainers(
+      controller: _controller,
+      onBack: _navigation.back,
+      onOpenContainer: widget.onOpenContainer ?? _openContainer,
+      onCreateSkill: widget.onCreateSkill ?? _openCreateSkill,
+    ),
+    LibrarySurface.pinnedConfiguration => PinnedConfiguration(
+      controller: _controller,
+      onDone: _navigation.back,
+    ),
+  };
 
-  void _openAllContainers() {
-    _pushLibraryRoute(
-      AllContainers(
-        controller: _controller,
-        onBack: _pop,
-        onOpenContainer: widget.onOpenContainer ?? _openContainer,
-        onCreateSkill: widget.onCreateSkill ?? _openCreateSkill,
-      ),
-    );
-  }
-
-  void _openPinnedConfiguration() {
-    _pushLibraryRoute(
-      PinnedConfiguration(controller: _controller, onDone: _pop),
-    );
+  void _handlePop(bool didPop, Object? result) {
+    if (!didPop) _navigation.back();
   }
 
   void _pushLibraryRoute(Widget child) {
@@ -192,8 +209,6 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
       ),
     );
   }
-
-  void _pop() => Navigator.of(context).maybePop();
 
   void _openCreateSkill() {
     showThemeV2CreateSkillLaunch(context);

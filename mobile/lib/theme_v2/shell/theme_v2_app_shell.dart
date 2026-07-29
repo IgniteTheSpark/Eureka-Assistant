@@ -13,6 +13,7 @@ import '../calendar/theme_v2_calendar_page.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../inbox/reka_inbox_controller.dart';
 import '../inbox/reka_inbox_page.dart';
+import '../library/library_navigation.dart';
 import '../library/theme_v2_library_page.dart';
 import 'device_status_summary.dart';
 import 'theme_v2_floating_dock.dart';
@@ -33,6 +34,7 @@ class ThemeV2AppShell extends StatefulWidget {
     this.onNotificationsPressed,
     this.inboxController,
     this.calendarController,
+    this.libraryNavigation,
     this.initialIndex = const int.fromEnvironment('START_TAB', defaultValue: 0),
     this.showStartupOverlays = true,
   });
@@ -43,6 +45,7 @@ class ThemeV2AppShell extends StatefulWidget {
   final VoidCallback? onNotificationsPressed;
   final RekaInboxController? inboxController;
   final CalendarController? calendarController;
+  final LibraryNavigationController? libraryNavigation;
   final int initialIndex;
 
   /// Test seam only. Production keeps START_OVERLAY and morning briefing on.
@@ -61,6 +64,9 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
   late final CalendarController _calendarController =
       widget.calendarController ?? CalendarController();
   late final bool _ownsCalendarController = widget.calendarController == null;
+  late final LibraryNavigationController _libraryNavigation =
+      widget.libraryNavigation ?? LibraryNavigationController();
+  late final bool _ownsLibraryNavigation = widget.libraryNavigation == null;
 
   @override
   void initState() {
@@ -69,6 +75,7 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
     WidgetsBinding.instance.addObserver(this);
     _inboxController.addListener(_onInboxChanged);
     _calendarController.surfaceListenable.addListener(_onCalendarChanged);
+    _libraryNavigation.addListener(_onLibraryChanged);
     if (_inboxController.status == RekaInboxStatus.idle) {
       unawaited(_inboxController.load(includeOffers: false));
     }
@@ -81,6 +88,8 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
     if (_ownsInboxController) _inboxController.dispose();
     _calendarController.surfaceListenable.removeListener(_onCalendarChanged);
     if (_ownsCalendarController) _calendarController.dispose();
+    _libraryNavigation.removeListener(_onLibraryChanged);
+    if (_ownsLibraryNavigation) _libraryNavigation.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -93,6 +102,10 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
     if (mounted) setState(() {});
   }
 
+  void _onLibraryChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) bumpData();
@@ -100,6 +113,7 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
 
   void _selectDestination(int index) {
     if (index == 1 && _index == 1) calendarHome.value++;
+    if (index == 2 && _index == 2) _libraryNavigation.home();
     if (_index != index) setState(() => _index = index);
   }
 
@@ -150,7 +164,11 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
             body: ThemeV2CalendarPage(controller: _calendarController),
             showDock: _calendarController.surface != CalendarSurface.schedule,
           ),
-          const ThemeV2PageScaffold(body: ThemeV2LibraryPage()),
+          ThemeV2PageScaffold(
+            body: ThemeV2LibraryPage(navigation: _libraryNavigation),
+            showTopNav: _libraryNavigation.chrome.topNav,
+            showDock: _libraryNavigation.chrome.dock,
+          ),
         ];
   }
 
