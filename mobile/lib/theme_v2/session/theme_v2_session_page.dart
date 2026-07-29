@@ -176,6 +176,7 @@ class ThemeV2SessionPage extends StatefulWidget {
     this.initialHistoryOpen = false,
     this.emptyOpener,
     this.emptyStarters = const [],
+    this.focusedInputTurnId,
     this.onBack,
     this.onNewConversation,
   });
@@ -190,6 +191,7 @@ class ThemeV2SessionPage extends StatefulWidget {
   final bool initialHistoryOpen;
   final String? emptyOpener;
   final List<String> emptyStarters;
+  final String? focusedInputTurnId;
   final VoidCallback? onBack;
   final VoidCallback? onNewConversation;
 
@@ -406,6 +408,7 @@ class _ThemeV2SessionPageState extends State<ThemeV2SessionPage> {
                 onStarter: (text) => unawaited(_controller.send(text)),
                 emptyOpener: widget.emptyOpener,
                 emptyStarters: widget.emptyStarters,
+                focusedInputTurnId: widget.focusedInputTurnId,
               ),
             ),
             SessionComposer(

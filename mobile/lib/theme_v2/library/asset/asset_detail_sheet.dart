@@ -6,6 +6,7 @@ import '../../foundation/theme_v2_semantics.dart';
 import '../../foundation/theme_v2_theme.dart';
 import '../../foundation/theme_v2_tokens.dart';
 import '../../foundation/theme_v2_typography.dart';
+import '../../session/theme_v2_session_page.dart';
 import 'asset_detail_content.dart';
 import 'asset_detail_presentation.dart';
 import 'asset_editors.dart';
@@ -256,7 +257,9 @@ class _DetailBody extends StatelessWidget {
         if (controller.sourceLabel case final source?)
           AssetDetailSourceBar(
             label: source,
-            onOpen: controller.sourceCanOpen ? () {} : null,
+            onOpen: controller.sourceCanOpen
+                ? () => _openSource(context)
+                : null,
           ),
         _DetailActions(
           controller: controller,
@@ -265,6 +268,21 @@ class _DetailBody extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  Future<void> _openSource(BuildContext context) async {
+    final offset = controller.scrollController.hasClients
+        ? controller.scrollController.offset
+        : 0.0;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => ThemeV2SessionPage(
+          boundSessionId: controller.sessionId!,
+          focusedInputTurnId: controller.inputTurnId!,
+        ),
+      ),
+    );
+    controller.restoreScrollOffset(offset);
   }
 }
 

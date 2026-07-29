@@ -7,6 +7,7 @@ import 'package:eureka/theme_v2/asset_detail/asset_entity_ref.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/library/asset/asset_detail_presentation.dart';
 import 'package:eureka/theme_v2/library/asset/asset_detail_sheet.dart';
+import 'package:eureka/theme_v2/session/theme_v2_session_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -139,6 +140,75 @@ void main() {
       'DELETE /api/events/event-1',
     ]);
   });
+
+  testWidgets(
+    'Flash source opens its exact input turn and preserves detail state on back',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(411, 960);
+      addTearDown(tester.view.reset);
+      final model = AssetDetailModel.fromJson(
+        _assetEnvelope(manyFields: true, flashSource: true),
+      );
+      final controller = AssetDetailController(
+        repository: _FakeRepository(model),
+        ref: model.ref,
+      );
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(_host(ThemeV2AssetDetailSurface(controller)));
+      await tester.pumpAndSettle();
+      controller.expand();
+      await tester.pumpAndSettle();
+      controller.scrollController.jumpTo(
+        controller.scrollController.position.maxScrollExtent / 2,
+      );
+      final offset = controller.scrollController.offset;
+      expect(offset, greaterThan(0));
+
+      await tester.tap(find.byKey(const ValueKey('asset-detail-source')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+
+      final session = tester.widget<ThemeV2SessionPage>(
+        find.byType(ThemeV2SessionPage),
+      );
+      expect(session.boundSessionId, 'session-1');
+      expect(session.focusedInputTurnId, 'turn-2');
+
+      Navigator.of(tester.element(find.byType(ThemeV2SessionPage))).pop();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pump();
+
+      expect(controller.presentation, AssetDetailPresentationKind.fullPage);
+      expect(controller.scrollController.offset, closeTo(offset, 0.5));
+    },
+  );
+
+  testWidgets('manual source is visible but has no navigation semantics', (
+    tester,
+  ) async {
+    final model = AssetDetailModel.fromJson(_assetEnvelope());
+    final controller = AssetDetailController(
+      repository: _FakeRepository(model),
+      ref: model.ref,
+    );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(_host(ThemeV2AssetDetailSurface(controller)));
+    await tester.pumpAndSettle();
+
+    expect(find.text('手动创建'), findsOneWidget);
+    expect(find.byIcon(Icons.chevron_right), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('asset-detail-source')),
+        matching: find.byType(InkWell),
+      ),
+      findsNothing,
+    );
+  });
 }
 
 class _FakeRepository implements AssetDetailRepository {
@@ -159,7 +229,10 @@ class _FakeRepository implements AssetDetailRepository {
   Future<void> delete(AssetEntityRef ref) async {}
 }
 
-Map<String, dynamic> _assetEnvelope({bool manyFields = false}) {
+Map<String, dynamic> _assetEnvelope({
+  bool manyFields = false,
+  bool flashSource = false,
+}) {
   final fields = <Map<String, dynamic>>[
     _field('title', '标题', order: 0, required: true),
     _field('body', '正文', order: 1, long: true),
@@ -186,10 +259,10 @@ Map<String, dynamic> _assetEnvelope({bool manyFields = false}) {
       'secondary_field_ids': ['body'],
     },
     'source': {
-      'kind': 'manual',
-      'label': '手动创建',
-      'session_id': null,
-      'input_turn_id': null,
+      'kind': flashSource ? 'flash' : 'manual',
+      'label': flashSource ? '来自闪念' : '手动创建',
+      'session_id': flashSource ? 'session-1' : null,
+      'input_turn_id': flashSource ? 'turn-2' : null,
     },
     'capabilities': {'editable': true, 'deletable': true},
   };

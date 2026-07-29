@@ -44,6 +44,9 @@ class ChatMessage {
   final String id;
   final bool isUser;
 
+  /// Stable provenance id shared by the user input and assets created from it.
+  String? inputTurnId;
+
   /// User text (user messages) or the concatenated agent text (convenience).
   String text;
 
@@ -54,14 +57,14 @@ class ChatMessage {
   int? elapsedMs;
   int? tokens;
 
-  ChatMessage.user(this.id, this.text)
-      : isUser = true,
-        parts = const [],
-        streaming = false;
+  ChatMessage.user(this.id, this.text, {this.inputTurnId})
+    : isUser = true,
+      parts = const [],
+      streaming = false;
 
-  ChatMessage.agent(this.id)
-      : isUser = false,
-        text = '',
-        parts = <ChatPart>[],
-        streaming = true;
+  ChatMessage.agent(this.id, {this.inputTurnId})
+    : isUser = false,
+      text = '',
+      parts = <ChatPart>[],
+      streaming = true;
 }

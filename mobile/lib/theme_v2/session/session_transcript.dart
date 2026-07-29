@@ -18,6 +18,7 @@ class SessionTranscript extends StatefulWidget {
     required this.onStarter,
     this.emptyOpener,
     this.emptyStarters = const [],
+    this.focusedInputTurnId,
   });
 
   final List<ChatMessage> messages;
@@ -29,6 +30,7 @@ class SessionTranscript extends StatefulWidget {
   final ValueChanged<String> onStarter;
   final String? emptyOpener;
   final List<String> emptyStarters;
+  final String? focusedInputTurnId;
 
   @override
   State<SessionTranscript> createState() => _SessionTranscriptState();
@@ -39,12 +41,16 @@ class _SessionTranscriptState extends State<SessionTranscript> {
   var _lastMessageCount = 0;
   late String _lastContentSignature;
   var _scrollScheduled = false;
+  final _focusedTurnAnchor = GlobalKey();
+  var _focusRevision = 0;
+  var _focusedTurnHighlighted = false;
 
   @override
   void initState() {
     super.initState();
     _lastMessageCount = widget.messages.length;
     _lastContentSignature = _contentSignature();
+    _scheduleFocusedTurn();
   }
 
   @override
@@ -56,15 +62,85 @@ class _SessionTranscriptState extends State<SessionTranscript> {
     final structuralChange =
         widget.messages.length != _lastMessageCount ||
         widget.analyzing != oldWidget.analyzing;
+    if (structuralChange) _lastMessageCount = widget.messages.length;
     final wasFollowingTail =
         !_scrollController.hasClients ||
         _scrollController.position.maxScrollExtent -
                 _scrollController.position.pixels <=
             72;
-    if (structuralChange || (contentChanged && wasFollowingTail)) {
-      _lastMessageCount = widget.messages.length;
+    final hasFocusedTurn = _normalizedFocusedTurnId != null;
+    if (hasFocusedTurn &&
+        (structuralChange ||
+            widget.focusedInputTurnId != oldWidget.focusedInputTurnId)) {
+      _scheduleFocusedTurn();
+    } else if (!hasFocusedTurn &&
+        (structuralChange || (contentChanged && wasFollowingTail))) {
       _scheduleTailFollow();
     }
+  }
+
+  String? get _normalizedFocusedTurnId {
+    final value = widget.focusedInputTurnId?.trim();
+    return value == null || value.isEmpty ? null : value;
+  }
+
+  int get _focusedMessageIndex {
+    final target = _normalizedFocusedTurnId;
+    if (target == null) return -1;
+    return widget.messages.indexWhere(
+      (message) => message.isUser && message.inputTurnId == target,
+    );
+  }
+
+  void _scheduleFocusedTurn() {
+    final targetIndex = _focusedMessageIndex;
+    if (targetIndex < 0) return;
+    final revision = ++_focusRevision;
+    _focusedTurnHighlighted = false;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _revealFocusedTurn(revision, targetIndex);
+    });
+  }
+
+  Future<void> _revealFocusedTurn(int revision, int targetIndex) async {
+    if (!mounted || revision != _focusRevision) return;
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    if (_focusedTurnAnchor.currentContext == null &&
+        _scrollController.hasClients) {
+      final position = _scrollController.position;
+      final denominator = (widget.messages.length - 1).clamp(1, 1 << 20);
+      final fraction = targetIndex / denominator;
+      final estimatedOffset =
+          position.minScrollExtent +
+          (position.maxScrollExtent - position.minScrollExtent) * fraction;
+      if (reduceMotion) {
+        _scrollController.jumpTo(estimatedOffset);
+      } else {
+        await _scrollController.animateTo(
+          estimatedOffset,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+        );
+      }
+      if (!mounted || revision != _focusRevision) return;
+      await WidgetsBinding.instance.endOfFrame;
+    }
+    final anchorContext = _focusedTurnAnchor.currentContext;
+    if (anchorContext == null ||
+        !anchorContext.mounted ||
+        !mounted ||
+        revision != _focusRevision) {
+      return;
+    }
+    setState(() => _focusedTurnHighlighted = true);
+    await Scrollable.ensureVisible(
+      anchorContext,
+      alignment: 0.46,
+      duration: reduceMotion
+          ? Duration.zero
+          : const Duration(milliseconds: 420),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   String _contentSignature() {
@@ -167,15 +243,7 @@ class _SessionTranscriptState extends State<SessionTranscript> {
           padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
           children: [
             for (final message in widget.messages)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: ChatMessageBubble(
-                  message,
-                  onPrecipitate: message.isUser
-                      ? null
-                      : (skill) => widget.onPrecipitate(message, skill),
-                ),
-              ),
+              _messageRow(context, message),
             if (widget.analyzing) ...[
               const SizedBox(height: 4),
               const SessionAnalysisBlock(),
@@ -191,6 +259,40 @@ class _SessionTranscriptState extends State<SessionTranscript> {
           ],
         ),
       ],
+    );
+  }
+
+  Widget _messageRow(BuildContext context, ChatMessage message) {
+    final bubble = Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: ChatMessageBubble(
+        message,
+        onPrecipitate: message.isUser
+            ? null
+            : (skill) => widget.onPrecipitate(message, skill),
+      ),
+    );
+    final target = _normalizedFocusedTurnId;
+    if (!message.isUser || target == null || message.inputTurnId != target) {
+      return bubble;
+    }
+    return KeyedSubtree(
+      key: _focusedTurnAnchor,
+      child: AnimatedContainer(
+        key: ValueKey('session-focused-turn-$target'),
+        duration: MediaQuery.disableAnimationsOf(context)
+            ? Duration.zero
+            : const Duration(milliseconds: 420),
+        curve: Curves.easeOutCubic,
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: _focusedTurnHighlighted
+              ? context.themeV2.accentSoft
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: bubble,
+      ),
     );
   }
 }

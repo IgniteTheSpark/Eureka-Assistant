@@ -305,11 +305,15 @@ class ChatController extends ChangeNotifier {
           ChatMessage.user(
             m['id'] as String? ?? 'u',
             m['text'] as String? ?? '',
+            inputTurnId: m['input_turn_id'] as String?,
           ),
         );
       } else if (m['role'] == 'agent') {
         final running = (m['status'] as String? ?? 'done') == 'running';
-        final msg = ChatMessage.agent(m['id'] as String? ?? 'a');
+        final msg = ChatMessage.agent(
+          m['id'] as String? ?? 'a',
+          inputTurnId: m['input_turn_id'] as String?,
+        );
         msg.streaming = running; // running → 「分析中…」 (chat_page renders it)
         final tc = m['tool_call'];
         if (tc is Map) {
@@ -664,6 +668,16 @@ class ChatController extends ChangeNotifier {
             sid,
           ); // a new lazily-created session becomes the active one
           RecentSessionStore.save(id: sid, type: 'chat');
+        }
+        final inputTurnId = ev.json['input_turn_id'];
+        if (inputTurnId is String && inputTurnId.isNotEmpty) {
+          agent.inputTurnId = inputTurnId;
+          for (final message in messages.reversed) {
+            if (message.isUser && message.inputTurnId == null) {
+              message.inputTurnId = inputTurnId;
+              break;
+            }
+          }
         }
       case 'token':
         final txt = ev.json['text'];

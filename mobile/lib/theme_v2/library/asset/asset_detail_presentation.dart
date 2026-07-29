@@ -132,6 +132,8 @@ class AssetDetailController extends ChangeNotifier {
     });
   }
 
+  void restoreScrollOffset(double offset) => _restoreScrollOffset(offset);
+
   void beginEditing() {
     if (!canEdit || _draft == null) return;
     editing = true;

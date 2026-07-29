@@ -102,6 +102,27 @@ class AssetDetailSourceBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
+    final content = Padding(
+      padding: const EdgeInsets.symmetric(vertical: ThemeV2Spacing.sm),
+      child: Row(
+        children: [
+          Icon(Icons.bolt_outlined, size: 16, color: tokens.muted),
+          const SizedBox(width: ThemeV2Spacing.sm),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: tokens.muted),
+            ),
+          ),
+          if (onOpen != null)
+            Icon(Icons.chevron_right, size: 18, color: tokens.muted),
+        ],
+      ),
+    );
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         ThemeV2Spacing.xl,
@@ -112,31 +133,17 @@ class AssetDetailSourceBar extends StatelessWidget {
       child: Material(
         key: const ValueKey('asset-detail-source'),
         color: tokens.surface,
-        child: InkWell(
-          onTap: onOpen,
-          borderRadius: BorderRadius.circular(ThemeV2Radii.md),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: ThemeV2Spacing.sm),
-            child: Row(
-              children: [
-                Icon(Icons.bolt_outlined, size: 16, color: tokens.muted),
-                const SizedBox(width: ThemeV2Spacing.sm),
-                Expanded(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(
-                      context,
-                    ).textTheme.bodySmall?.copyWith(color: tokens.muted),
-                  ),
+        child: onOpen == null
+            ? content
+            : Semantics(
+                button: true,
+                label: '$label，打开原始输入',
+                child: InkWell(
+                  onTap: onOpen,
+                  borderRadius: BorderRadius.circular(ThemeV2Radii.md),
+                  child: content,
                 ),
-                if (onOpen != null)
-                  Icon(Icons.chevron_right, size: 18, color: tokens.muted),
-              ],
-            ),
-          ),
-        ),
+              ),
       ),
     );
   }

@@ -81,6 +81,30 @@ void main() {
   });
 
   test(
+    'live meta assigns the exact input turn to the local turn pair',
+    () async {
+      final controller = ChatController(
+        turnStream: (_, _) => Stream<SseEvent>.fromIterable([
+          SseEvent('meta', {
+            'session_id': 'session-1',
+            'input_turn_id': 'turn-2',
+          }),
+          SseEvent('done', const {}),
+        ]),
+      );
+      addTearDown(controller.dispose);
+
+      await controller.send('定位这一轮');
+
+      expect(controller.messages, hasLength(2));
+      expect(
+        controller.messages.map((message) => message.inputTurnId),
+        everyElement('turn-2'),
+      );
+    },
+  );
+
+  test(
     'reset prevents late SSE frames from contaminating a new session',
     () async {
       final events = StreamController<SseEvent>();
@@ -197,6 +221,42 @@ void main() {
     expect(controller.sessionId, 'b');
     expect(controller.displayTitle, '会话 B');
     expect(controller.messages.single.text, 'B 内容');
+  });
+
+  test('history replay preserves input turn provenance', () async {
+    final api = ApiClient(
+      client: MockClient((request) async {
+        if (request.url.path.endsWith('/messages')) {
+          return http.Response.bytes(
+            utf8.encode(
+              jsonEncode({
+                'messages': [
+                  {
+                    'id': 'u2',
+                    'role': 'user',
+                    'text': '第二轮输入',
+                    'input_turn_id': 'turn-2',
+                  },
+                ],
+              }),
+            ),
+            200,
+          );
+        }
+        return http.Response(jsonEncode({'session': {}}), 200);
+      }),
+      baseUrl: 'http://test',
+      enableLogging: false,
+    );
+    final controller = ChatController(api: api);
+    addTearDown(() {
+      controller.dispose();
+      api.close();
+    });
+
+    await controller.loadSession('session-1');
+
+    expect(controller.messages.single.inputTurnId, 'turn-2');
   });
 
   test('a session cannot be restored after deletion has started', () async {
