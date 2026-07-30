@@ -142,23 +142,7 @@ class _SessionHistoryDrawerState extends State<SessionHistoryDrawer> {
                 ],
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
-              child: TextField(
-                readOnly: true,
-                decoration: InputDecoration(
-                  hintText: '搜索',
-                  prefixIcon: const Icon(Icons.search_rounded, size: 18),
-                  isDense: true,
-                  filled: true,
-                  fillColor: tokens.background,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(ThemeV2Radii.md),
-                    borderSide: BorderSide(color: tokens.border),
-                  ),
-                ),
-              ),
-            ),
+            const SizedBox(height: 6),
             Expanded(child: _buildBody(tokens)),
             Padding(
               padding: const EdgeInsets.all(16),

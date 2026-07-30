@@ -151,6 +151,14 @@ void main() {
 
       expect(find.byType(SessionHistoryDrawer), findsOneWidget);
       expect(
+        find.descendant(
+          of: find.byType(SessionHistoryDrawer),
+          matching: find.byType(TextField),
+        ),
+        findsNothing,
+      );
+      expect(find.text('搜索'), findsNothing);
+      expect(
         tester.getSize(find.byType(SessionHistoryDrawer)).width,
         lessThanOrEqualTo(240),
       );
