@@ -1619,7 +1619,7 @@ Map<String, dynamic> _eventEnvelope(Map<String, dynamic> event) => {
     'id': null,
     'machine_name': 'event',
     'display_name': '事件',
-    'icon': '▣',
+    'icon': '📅',
   },
   'fields': [
     _eventField('title', '标题', 'string', 0, required: true),

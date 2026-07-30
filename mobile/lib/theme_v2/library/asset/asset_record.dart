@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../../assets/assets.dart';
 import '../../../render/render_spec.dart';
+import '../../../timeline/timeline.dart' show contactAssetIcon, eventAssetIcon;
 import '../../asset/asset_card_display.dart';
 
 enum AssetRecordKind { todo, note, event, contact, custom }
@@ -181,7 +182,7 @@ class AssetRecordAdapter {
       containerId: 'event',
       kind: AssetRecordKind.event,
       card: AssetCardViewData(
-        mark: '▣',
+        mark: eventAssetIcon,
         skillLabel: '事件',
         primaryValue: title,
         secondaryValues: [if (summary.isNotEmpty) summary],
@@ -212,7 +213,7 @@ class AssetRecordAdapter {
       containerId: 'contact',
       kind: AssetRecordKind.contact,
       card: AssetCardViewData(
-        mark: '♙',
+        mark: contactAssetIcon,
         skillLabel: '联系人',
         primaryValue: name,
         secondaryValues: [

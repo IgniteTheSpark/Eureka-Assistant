@@ -274,7 +274,7 @@ Map<String, dynamic> _eventEnvelope({required String title}) => {
     'id': null,
     'machine_name': 'event',
     'display_name': '事件',
-    'icon': '▣',
+    'icon': '📅',
   },
   'fields': [_field('title', '标题', order: 0, required: true)],
   'values': {'title': title},

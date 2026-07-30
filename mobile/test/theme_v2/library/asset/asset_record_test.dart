@@ -58,10 +58,12 @@ void main() {
       );
 
       expect(event.kind, AssetRecordKind.event);
+      expect(event.card.mark, '📅');
       expect(event.card.primaryValue, '设计评审');
       expect(event.card.secondaryValues.single, contains('14:00'));
       expect(event.fields.map((field) => field.id), contains('location'));
       expect(contact.kind, AssetRecordKind.contact);
+      expect(contact.card.mark, '👤');
       expect(contact.card.primaryValue, '林知夏');
       expect(contact.card.secondaryValues, ['Eureka', 'Designer']);
     });

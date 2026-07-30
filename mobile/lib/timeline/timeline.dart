@@ -1,6 +1,11 @@
 import '../api/api_client.dart';
 import '../render/render_spec.dart';
 
+const todoAssetIcon = '📋';
+const eventAssetIcon = '📅';
+const contactAssetIcon = '👤';
+const notesAssetIcon = '✍️';
+
 /// Icon + label + accent for a skill / derived kind.
 class SkillMeta {
   final String icon;
@@ -134,12 +139,12 @@ class TimelineItem {
 }
 
 const _builtin = <String, SkillMeta>{
-  'todo': SkillMeta('📋', '待办', 'blue'),
-  'event': SkillMeta('📅', '日程', 'purple'),
-  'contact': SkillMeta('👤', '名片', 'neutral'),
-  'notes': SkillMeta('✍️', '随记', 'amber'), // 随记 (idea/misc merged in)
-  'idea': SkillMeta('✍️', '随记', 'amber'), // legacy fallback → 随记
-  'misc': SkillMeta('✍️', '随记', 'amber'), // legacy fallback → 随记
+  'todo': SkillMeta(todoAssetIcon, '待办', 'blue'),
+  'event': SkillMeta(eventAssetIcon, '日程', 'purple'),
+  'contact': SkillMeta(contactAssetIcon, '名片', 'neutral'),
+  'notes': SkillMeta(notesAssetIcon, '随记', 'amber'), // 随记 (idea/misc merged in)
+  'idea': SkillMeta(notesAssetIcon, '随记', 'amber'), // legacy fallback → 随记
+  'misc': SkillMeta(notesAssetIcon, '随记', 'amber'), // legacy fallback → 随记
   'expense': SkillMeta('💰', '记账', 'green'),
   'external_ref': SkillMeta('🔗', '外部', 'purple'),
 };
@@ -147,7 +152,7 @@ const _builtin = <String, SkillMeta>{
 /// Built-in glyphs the client pins regardless of the server's render_spec — the
 /// seed mirrors these, but the client owns the canonical look. 待办 must read as
 /// "to-do" (📋), not "done" (✅). Custom user skills are unaffected.
-const _pinnedIcons = <String, String>{'todo': '📋'};
+const _pinnedIcons = <String, String>{'todo': todoAssetIcon};
 
 /// Resolve a skill / derived key to its icon + label. Custom skills live only
 /// in the registry, so look there first (mirrors the web derivedMeta fix).

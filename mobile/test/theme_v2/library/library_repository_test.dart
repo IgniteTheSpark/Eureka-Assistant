@@ -100,6 +100,22 @@ void main() {
         expect(overview.containerCount, 5);
         expect(overview.customContainerCount, 1);
         expect(overview.totalAssetCount, 74);
+        expect(
+          overview.systemContainers
+              .singleWhere(
+                (container) => container.type == LibraryContainerType.event,
+              )
+              .mark,
+          '📅',
+        );
+        expect(
+          overview.systemContainers
+              .singleWhere(
+                (container) => container.type == LibraryContainerType.contact,
+              )
+              .mark,
+          '👤',
+        );
         expect(overview.recentAssets, hasLength(50));
         expect(overview.recentAssets.first.id, 'asset-54');
         expect(overview.recentAssets.first.primaryValue, '自定义主标题 54');

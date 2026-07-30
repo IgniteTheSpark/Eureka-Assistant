@@ -5,6 +5,8 @@ import 'package:http/http.dart' as http;
 import '../../api/api_client.dart';
 import '../../assets/assets.dart';
 import '../../render/render_spec.dart';
+import '../../timeline/timeline.dart'
+    show contactAssetIcon, eventAssetIcon, notesAssetIcon, todoAssetIcon;
 import '../asset/asset_card_display.dart';
 import 'library_models.dart';
 
@@ -147,7 +149,7 @@ class ApiLibraryRepository implements LibraryRepository {
     _systemContainer(
       id: 'todo',
       label: '待办',
-      fallbackMark: '☑',
+      fallbackMark: todoAssetIcon,
       type: LibraryContainerType.todo,
       skill: skills['todo'],
       count: counts['todo'] ?? 0,
@@ -155,7 +157,7 @@ class ApiLibraryRepository implements LibraryRepository {
     _systemContainer(
       id: 'notes',
       label: '随记',
-      fallbackMark: '✎',
+      fallbackMark: notesAssetIcon,
       type: LibraryContainerType.notes,
       skill: skills['notes'],
       count: counts['notes'] ?? 0,
@@ -163,7 +165,7 @@ class ApiLibraryRepository implements LibraryRepository {
     _systemContainer(
       id: 'event',
       label: '事件',
-      fallbackMark: '▣',
+      fallbackMark: eventAssetIcon,
       type: LibraryContainerType.event,
       skill: skills['event'],
       count: counts['event'] ?? events.length,
@@ -171,7 +173,7 @@ class ApiLibraryRepository implements LibraryRepository {
     _systemContainer(
       id: 'contact',
       label: '联系人',
-      fallbackMark: '♙',
+      fallbackMark: contactAssetIcon,
       type: LibraryContainerType.contact,
       skill: skills['contact'],
       count: counts['contact'] ?? contacts.length,

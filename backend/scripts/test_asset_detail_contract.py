@@ -289,6 +289,7 @@ async def test_canonical_detail_envelope() -> None:
         assert flash["values"]["remark"].startswith("# 晚餐")
 
         assert event_detail["entity"]["kind"] == "event"
+        assert event_detail["skill"]["icon"] == "📅"
         assert event_detail["source"]["kind"] == "flash"
         assert event_detail["source"]["input_turn_id"] == str(ids["turn"])
         assert any(field["id"] == "description" and field["long"] for field in event_detail["fields"])
@@ -306,6 +307,7 @@ async def test_canonical_detail_envelope() -> None:
         ]
 
         assert contact_detail["entity"]["kind"] == "contact"
+        assert contact_detail["skill"]["icon"] == "👤"
         assert contact_detail["source"]["kind"] == "manual"
         assert any(field["id"] == "notes" and field["long"] for field in contact_detail["fields"])
         assert contact_detail["capabilities"] == {

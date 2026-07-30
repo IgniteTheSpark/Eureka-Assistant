@@ -408,7 +408,7 @@ Map<String, dynamic> _eventDetailEnvelope(String id) => {
     'id': null,
     'machine_name': 'event',
     'display_name': '事件',
-    'icon': '▣',
+    'icon': '📅',
   },
   'fields': [
     {

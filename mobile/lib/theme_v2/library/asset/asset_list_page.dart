@@ -708,7 +708,8 @@ Map<String, dynamic> _schemaMap(RenderSpec spec) => {
 String _date(DateTime date) =>
     '${date.month.toString().padLeft(2, '0')}.${date.day.toString().padLeft(2, '0')}';
 
-String _entityIcon(String? cardType) => cardType == 'event' ? '📅' : '👤';
+String _entityIcon(String? cardType) =>
+    cardType == 'event' ? eventAssetIcon : contactAssetIcon;
 
 bool _sameDay(DateTime a, DateTime b) =>
     a.year == b.year && a.month == b.month && a.day == b.day;
