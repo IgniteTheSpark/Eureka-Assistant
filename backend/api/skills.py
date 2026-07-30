@@ -31,10 +31,20 @@ from agents.design_agent import design_skill, clarify_skill
 from core.auth import get_current_user_id
 from core.skill_schema import validate_payload_schema
 from db.database import AsyncSessionLocal
-from db.models import GlobalSkill, UserSkill, Asset, AssetField, Session as DBSession, Task
+from db.models import (
+    Asset,
+    AssetField,
+    Contact,
+    Event,
+    GlobalSkill,
+    Session as DBSession,
+    Task,
+    UserSkill,
+)
 
 USER_SKILL_CAP = 30      # how many skills a user may *register*
 ACTIVE_SKILL_CAP = 9     # how many may be *active* (enabled=1) at once
+_RECENT_MANUAL_LIMIT = 4
 
 router = APIRouter()
 
@@ -165,6 +175,79 @@ async def list_skills(user_id: str = Depends(get_current_user_id)):
         })
 
     return {"ok": True, "skills": skills, "active_cap": ACTIVE_SKILL_CAP}
+
+
+# ── GET /api/skills/recent-manual ─────────────────────────────────────────────
+
+@router.get("/skills/recent-manual")
+async def list_recent_manual_skills(
+    user_id: str = Depends(get_current_user_id),
+):
+    """Return the newest distinct Skills backed by successful manual creates.
+
+    This is deliberately derived from authoritative entity rows so it remains
+    user-scoped and consistent across devices without a second usage log.
+    """
+    async with AsyncSessionLocal() as db:
+        asset_rows = (
+            await db.execute(
+                select(
+                    GlobalSkill.name,
+                    func.max(Asset.created_at).label("latest"),
+                )
+                .select_from(Asset)
+                .join(UserSkill, Asset.user_skill_id == UserSkill.id)
+                .join(GlobalSkill, UserSkill.skill_id == GlobalSkill.id)
+                .where(
+                    Asset.user_id == user_id,
+                    Asset.source_input_turn_id.is_(None),
+                    Asset.source_report_id.is_(None),
+                )
+                .group_by(GlobalSkill.name)
+            )
+        ).all()
+        event_latest = (
+            await db.execute(
+                select(func.max(Event.created_at)).where(
+                    Event.user_id == user_id,
+                    Event.source_input_turn_id.is_(None),
+                    or_(
+                        Event.sync_source.is_(None),
+                        Event.sync_source == "manual",
+                    ),
+                )
+            )
+        ).scalar_one_or_none()
+        contact_latest = (
+            await db.execute(
+                select(func.max(Contact.created_at)).where(
+                    Contact.user_id == user_id,
+                    Contact.source_input_turn_id.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+
+    candidates = [
+        (str(skill_name), latest)
+        for skill_name, latest in asset_rows
+        if latest is not None
+    ]
+    if event_latest is not None:
+        candidates.append(("event", event_latest))
+    if contact_latest is not None:
+        candidates.append(("contact", contact_latest))
+    candidates.sort(key=lambda item: (-item[1].timestamp(), item[0]))
+
+    names = []
+    seen = set()
+    for name, _ in candidates:
+        if name in seen:
+            continue
+        seen.add(name)
+        names.append(name)
+        if len(names) == _RECENT_MANUAL_LIMIT:
+            break
+    return {"ok": True, "skill_names": names}
 
 
 # ── POST /api/skills (draft via design agent) ─────────────────────────────────
