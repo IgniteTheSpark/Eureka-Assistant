@@ -1,5 +1,6 @@
 import 'package:eureka/theme_v2/calendar/calendar_day_detail.dart';
 import 'package:eureka/theme_v2/calendar/calendar_models.dart';
+import 'package:eureka/timeline/timeline.dart' show SkillMeta;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -8,6 +9,7 @@ import 'calendar_test_fixtures.dart';
 void main() {
   Widget detail(
     CalendarDayData dayData, {
+    Map<String, SkillMeta> skills = const {},
     VoidCallback? onOpenFlash,
     VoidCallback? onManualRecord,
     VoidCallback? onOpenSchedule,
@@ -15,7 +17,7 @@ void main() {
     return calendarTestHost(
       CalendarDayDetail(
         dayData: dayData,
-        skills: const {},
+        skills: skills,
         onBack: () {},
         onOpenSchedule: onOpenSchedule ?? () {},
         onOpenFlash: onOpenFlash ?? () {},
@@ -130,5 +132,41 @@ void main() {
       tester.getTopLeft(find.text('线上复盘会')).dy,
       lessThan(tester.getTopLeft(find.text('客户拜访')).dy),
     );
+  });
+
+  testWidgets('Day Detail resolves custom and first-class Asset emoji', (
+    tester,
+  ) async {
+    final day = DateTime(2026, 7, 3);
+    final data = CalendarData(
+      [
+        calendarFixtureItem(
+          id: 'feeding',
+          title: '宝贝饮食',
+          at: day.add(const Duration(hours: 8)),
+          kind: 'asset',
+          skillName: 'feeding',
+          hasClockTime: true,
+        ),
+        calendarFixtureItem(
+          id: 'event',
+          title: '复盘',
+          at: day.add(const Duration(hours: 9)),
+        ),
+        calendarFixtureItem(
+          id: 'contact',
+          title: 'Ada',
+          at: day.add(const Duration(hours: 10)),
+          kind: 'contact',
+        ),
+      ],
+      const {'feeding': SkillMeta('🍼', '宝贝饮食', 'amber')},
+    );
+
+    await tester.pumpWidget(detail(data.day(day), skills: data.skills));
+
+    expect(find.text('🍼'), findsOneWidget);
+    expect(find.text('📅'), findsOneWidget);
+    expect(find.text('👤'), findsOneWidget);
   });
 }

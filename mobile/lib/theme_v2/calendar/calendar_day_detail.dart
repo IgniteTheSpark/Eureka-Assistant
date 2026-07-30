@@ -456,12 +456,7 @@ class _DayRecordRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
     final item = record.item;
-    final meta = resolveMeta(item.skillName ?? item.kind, skills);
-    final icon = switch (item.kind) {
-      'event' => '📅',
-      'contact' => '👤',
-      _ => meta.icon,
-    };
+    final icon = resolveTimelineItemMeta(item, skills).icon;
     return Semantics(
       label:
           '${record.isTimed ? calendarTimeLabel(record.effectiveAt) : '没说时间'}，${item.title}',

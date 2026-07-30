@@ -15,6 +15,7 @@ import 'package:eureka/theme_v2/calendar/calendar_schedule_grid.dart';
 import 'package:eureka/theme_v2/calendar/calendar_sticky_date_rail.dart';
 import 'package:eureka/theme_v2/calendar/calendar_year_view.dart';
 import 'package:eureka/theme_v2/calendar/theme_v2_calendar_page.dart';
+import 'package:eureka/timeline/timeline.dart' show SkillMeta;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -195,6 +196,68 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('calendar-record-event-a')));
     expect(openedId, 'event-a');
+  });
+
+  testWidgets('Flow rows use canonical Skill emoji for every Asset kind', (
+    tester,
+  ) async {
+    final day = DateTime(2026, 7, 3);
+    final data = CalendarData(
+      [
+        calendarFixtureItem(
+          id: 'feeding',
+          title: '宝贝饮食',
+          at: day.add(const Duration(hours: 8)),
+          kind: 'asset',
+          skillName: 'feeding',
+          hasClockTime: true,
+        ),
+        calendarFixtureItem(
+          id: 'event',
+          title: '复盘',
+          at: day.add(const Duration(hours: 9)),
+        ),
+        calendarFixtureItem(
+          id: 'todo',
+          title: '回访',
+          at: day.add(const Duration(hours: 10)),
+          kind: 'asset',
+          skillName: 'todo',
+          hasScheduledTime: true,
+        ),
+        calendarFixtureItem(
+          id: 'contact',
+          title: 'Ada',
+          at: day.add(const Duration(hours: 11)),
+          kind: 'contact',
+        ),
+      ],
+      const {
+        'feeding': SkillMeta('🍼', '宝贝饮食', 'amber'),
+        'todo': SkillMeta('✅', '待办', 'green'),
+      },
+    );
+
+    await tester.pumpWidget(
+      calendarTestHost(
+        CalendarFlowView(
+          data: data,
+          controller: CalendarController(),
+          today: day,
+          onOpenDay: (_) {},
+          onRequestManualRecord: (_) {},
+          onOpenRecord: (_) {},
+          onOpenFlash: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('🍼'), findsOneWidget);
+    expect(find.text('📅'), findsOneWidget);
+    expect(find.text('📋'), findsOneWidget);
+    expect(find.text('👤'), findsOneWidget);
+    expect(find.byIcon(Icons.note_outlined), findsNothing);
   });
 
   testWidgets('month summary record uses the injected detail callback', (

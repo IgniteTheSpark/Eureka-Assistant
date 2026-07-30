@@ -170,12 +170,9 @@ class CalendarRecordRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
     final item = record.item;
-    final icon = switch ((item.kind, item.skillName)) {
-      ('event', _) => Icons.event_outlined,
-      (_, 'todo') => Icons.check_circle_outline,
-      ('input_turn', _) => Icons.bolt_outlined,
-      _ => Icons.note_outlined,
-    };
+    final meta = item.kind == 'input_turn'
+        ? null
+        : resolveTimelineItemMeta(item, skills);
     return Semantics(
       label:
           '${record.isTimed ? calendarTimeLabel(record.effectiveAt) : '未指定时间'} ${item.title}',
@@ -203,11 +200,14 @@ class CalendarRecordRow extends StatelessWidget {
                       ),
                     ),
                   ),
-                  Icon(
-                    icon,
-                    size: 16,
-                    color: muted ? tokens.muted : tokens.accent,
-                  ),
+                  if (meta == null)
+                    Icon(
+                      Icons.bolt_outlined,
+                      size: 16,
+                      color: muted ? tokens.muted : tokens.accent,
+                    )
+                  else
+                    Text(meta.icon, style: const TextStyle(fontSize: 16)),
                   const SizedBox(width: ThemeV2Spacing.sm),
                   Expanded(
                     child: Text(

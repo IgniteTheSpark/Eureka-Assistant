@@ -160,6 +160,23 @@ SkillMeta resolveMeta(String key, Map<String, SkillMeta> registry) {
       : SkillMeta(pin, m.label, m.accentColor, m.userSkillId, m.enabled);
 }
 
+/// Resolve the canonical identity for an Asset-like timeline entry.
+///
+/// Flash/input-turn rows are a separate presentation and should keep their
+/// lightning icon instead of passing through this resolver.
+SkillMeta resolveTimelineItemMeta(
+  TimelineItem item,
+  Map<String, SkillMeta> registry,
+) {
+  if (item.kind == 'event') return resolveMeta('event', registry);
+  if (item.kind == 'contact') return resolveMeta('contact', registry);
+  final skillName = item.skillName?.trim();
+  if (skillName != null && skillName.isNotEmpty) {
+    return resolveMeta(skillName, registry);
+  }
+  return const SkillMeta('•', '记录');
+}
+
 Future<List<TimelineItem>> fetchTimeline(ApiClient api) async {
   final res = await api.getJson('/api/timeline');
   final items = (res is Map ? res['items'] : null) as List? ?? const [];
