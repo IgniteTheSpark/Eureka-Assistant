@@ -554,21 +554,15 @@ class _SkillGrid extends StatelessWidget {
     super.key,
     required this.options,
     required this.onSelected,
-    this.shrinkWrap = false,
-    this.physics,
   });
 
   final List<CalendarSkillOption> options;
   final ValueChanged<CalendarSkillOption> onSelected;
-  final bool shrinkWrap;
-  final ScrollPhysics? physics;
 
   @override
   Widget build(BuildContext context) {
     return GridView.builder(
       padding: EdgeInsets.zero,
-      shrinkWrap: shrinkWrap,
-      physics: physics,
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 2,
         mainAxisExtent: 64,
