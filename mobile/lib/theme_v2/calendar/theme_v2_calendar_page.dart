@@ -292,7 +292,7 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
     final option = await showCalendarManualRecordPicker(
       context,
       effectiveDate: day,
-      loader: () => fetchCalendarSkillOptions(_apiClient),
+      loader: () => fetchCalendarSkillCatalog(_apiClient),
     );
     if (option == null || !mounted) return;
     await openCalendarSkillEditor(context, option, day);

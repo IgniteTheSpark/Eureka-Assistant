@@ -96,38 +96,41 @@ void main() {
           alignment: Alignment.bottomCenter,
           child: CalendarManualRecordPicker(
             effectiveDate: today,
-            loader: () async => const [
-              CalendarSkillOption.event(),
-              CalendarSkillOption.asset(
-                name: 'todo',
-                displayName: '待办',
-                icon: '✅',
-                userSkillId: 'todo',
-              ),
-              CalendarSkillOption.asset(
-                name: 'note',
-                displayName: '笔记',
-                icon: '📝',
-                userSkillId: 'note',
-              ),
-              CalendarSkillOption.contact(
-                displayName: '联系人',
-                icon: '📇',
-                userSkillId: 'contact',
-              ),
-              CalendarSkillOption.asset(
-                name: 'running',
-                displayName: '跑步训练',
-                icon: '🏃',
-                userSkillId: 'running',
-              ),
-              CalendarSkillOption.asset(
-                name: 'coffee',
-                displayName: '咖啡记录',
-                icon: '☕',
-                userSkillId: 'coffee',
-              ),
-            ],
+            loader: () async => const CalendarSkillCatalog(
+              options: [
+                CalendarSkillOption.event(),
+                CalendarSkillOption.asset(
+                  name: 'todo',
+                  displayName: '待办',
+                  icon: '📋',
+                  userSkillId: 'todo',
+                ),
+                CalendarSkillOption.asset(
+                  name: 'note',
+                  displayName: '笔记',
+                  icon: '📝',
+                  userSkillId: 'note',
+                ),
+                CalendarSkillOption.contact(
+                  displayName: '联系人',
+                  icon: '👤',
+                  userSkillId: 'contact',
+                ),
+                CalendarSkillOption.asset(
+                  name: 'running',
+                  displayName: '跑步训练',
+                  icon: '🏃',
+                  userSkillId: 'running',
+                ),
+                CalendarSkillOption.asset(
+                  name: 'coffee',
+                  displayName: '咖啡记录',
+                  icon: '☕',
+                  userSkillId: 'coffee',
+                ),
+              ],
+              recentNames: ['coffee', 'running', 'note', 'todo'],
+            ),
             onSelected: (_) {},
             onClose: () {},
           ),

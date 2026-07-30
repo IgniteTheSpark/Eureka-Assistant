@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../api/api_client.dart';
 import '../../pet/floating_mascot.dart'
     show mascotSuppressed, releaseMascotSuppress;
+import '../../timeline/timeline.dart' show eventAssetIcon, todoAssetIcon;
 import '../foundation/theme_v2_motion.dart';
 import '../foundation/theme_v2_semantics.dart';
 import '../foundation/theme_v2_theme.dart';
@@ -20,7 +21,7 @@ class CalendarSkillOption {
     : kind = CalendarSkillKind.event,
       name = 'event',
       displayName = '日程',
-      icon = '📅',
+      icon = eventAssetIcon,
       accentColor = 'purple',
       userSkillId = null,
       payloadSchema = const {},
@@ -56,7 +57,20 @@ class CalendarSkillOption {
   final Map<String, dynamic> renderSpecData;
 }
 
-typedef CalendarSkillLoader = Future<List<CalendarSkillOption>> Function();
+@immutable
+class CalendarSkillCatalog {
+  const CalendarSkillCatalog({
+    required this.options,
+    this.recentNames = const [],
+    this.recentUnavailable = false,
+  });
+
+  final List<CalendarSkillOption> options;
+  final List<String> recentNames;
+  final bool recentUnavailable;
+}
+
+typedef CalendarSkillLoader = Future<CalendarSkillCatalog> Function();
 
 List<CalendarSkillOption> parseCalendarSkillOptions(Object? response) {
   final rawSkills =
@@ -79,7 +93,9 @@ List<CalendarSkillOption> parseCalendarSkillOptions(Object? response) {
         (raw['payload_schema'] as Map?)?.cast<String, dynamic>() ?? const {};
     final displayName = raw['display_name']?.toString().trim();
     final userSkillId = raw['user_skill_id']?.toString();
-    final icon = renderSpec['icon']?.toString() ?? '•';
+    final icon = name == 'todo'
+        ? todoAssetIcon
+        : renderSpec['icon']?.toString() ?? '•';
     final accent = renderSpec['accent_color']?.toString() ?? 'gray';
     if (name == 'contact') {
       options.add(
@@ -109,10 +125,44 @@ List<CalendarSkillOption> parseCalendarSkillOptions(Object? response) {
   return List.unmodifiable(options);
 }
 
-Future<List<CalendarSkillOption>> fetchCalendarSkillOptions(
-  ApiClient api,
-) async {
-  return parseCalendarSkillOptions(await api.getJson('/api/skills'));
+List<String> parseRecentManualSkillNames(Object? response) {
+  final rawNames =
+      (response is Map ? response['skill_names'] : null) as List? ?? const [];
+  final names = <String>[];
+  final seen = <String>{};
+  for (final raw in rawNames) {
+    final name = raw?.toString().trim() ?? '';
+    if (name.isEmpty || !seen.add(name)) continue;
+    names.add(name);
+    if (names.length == 4) break;
+  }
+  return List.unmodifiable(names);
+}
+
+List<CalendarSkillOption> _recentSkillOptions(CalendarSkillCatalog catalog) {
+  final byName = {for (final option in catalog.options) option.name: option};
+  final recent = <CalendarSkillOption>[];
+  final seen = <String>{};
+  for (final name in catalog.recentNames.take(4)) {
+    if (!seen.add(name)) continue;
+    final option = byName[name];
+    if (option != null) recent.add(option);
+  }
+  return List.unmodifiable(recent);
+}
+
+Future<CalendarSkillCatalog> fetchCalendarSkillCatalog(ApiClient api) async {
+  final options = parseCalendarSkillOptions(await api.getJson('/api/skills'));
+  try {
+    return CalendarSkillCatalog(
+      options: options,
+      recentNames: parseRecentManualSkillNames(
+        await api.getJson('/api/skills/recent-manual'),
+      ),
+    );
+  } catch (_) {
+    return CalendarSkillCatalog(options: options, recentUnavailable: true);
+  }
 }
 
 Future<CalendarSkillOption?> showCalendarManualRecordPicker(
@@ -204,7 +254,7 @@ class CalendarManualRecordPicker extends StatefulWidget {
 
 class _CalendarManualRecordPickerState
     extends State<CalendarManualRecordPicker> {
-  late Future<List<CalendarSkillOption>> _future = widget.loader();
+  late Future<CalendarSkillCatalog> _future = widget.loader();
   final FocusNode _titleFocus = FocusNode(debugLabel: 'Manual record title');
 
   @override
@@ -305,7 +355,7 @@ class _CalendarManualRecordPickerState
                 ),
                 const SizedBox(height: ThemeV2Spacing.md),
                 Expanded(
-                  child: FutureBuilder<List<CalendarSkillOption>>(
+                  child: FutureBuilder<CalendarSkillCatalog>(
                     future: _future,
                     builder: (context, snapshot) {
                       if (snapshot.hasError) {
@@ -315,7 +365,7 @@ class _CalendarManualRecordPickerState
                         return const _PickerLoading();
                       }
                       return _PickerContent(
-                        options: snapshot.data!,
+                        catalog: snapshot.data!,
                         onSelected: widget.onSelected,
                       );
                     },
@@ -331,25 +381,25 @@ class _CalendarManualRecordPickerState
 }
 
 class _PickerContent extends StatelessWidget {
-  const _PickerContent({required this.options, required this.onSelected});
+  const _PickerContent({required this.catalog, required this.onSelected});
 
-  final List<CalendarSkillOption> options;
+  final CalendarSkillCatalog catalog;
   final ValueChanged<CalendarSkillOption> onSelected;
 
   @override
   Widget build(BuildContext context) {
-    final common = options.take(4).toList(growable: false);
+    final recent = _recentSkillOptions(catalog);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionLabel('常用'),
+        const _SectionLabel('最近'),
         const SizedBox(height: ThemeV2Spacing.sm),
-        _SkillGrid(
-          options: common,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          onSelected: onSelected,
-        ),
+        if (catalog.recentUnavailable)
+          const _RecentStatus('最近暂不可用')
+        else if (recent.isEmpty)
+          const _RecentStatus('暂无')
+        else
+          _RecentSkillRow(options: recent, onSelected: onSelected),
         const SizedBox(height: ThemeV2Spacing.lg),
         const _SectionLabel('全部 Skills'),
         const SizedBox(height: ThemeV2Spacing.sm),
@@ -359,12 +409,123 @@ class _PickerContent extends StatelessWidget {
             container: true,
             child: _SkillGrid(
               key: const ValueKey('calendar-skill-all-scroll'),
-              options: options,
+              options: catalog.options,
               onSelected: onSelected,
             ),
           ),
         ),
       ],
+    );
+  }
+}
+
+class _RecentStatus extends StatelessWidget {
+  const _RecentStatus(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 68,
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(
+          label,
+          style: Theme.of(
+            context,
+          ).textTheme.bodySmall?.copyWith(color: context.themeV2.muted),
+        ),
+      ),
+    );
+  }
+}
+
+class _RecentSkillRow extends StatelessWidget {
+  const _RecentSkillRow({required this.options, required this.onSelected});
+
+  final List<CalendarSkillOption> options;
+  final ValueChanged<CalendarSkillOption> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const gap = ThemeV2Spacing.sm;
+        final tileWidth = (constraints.maxWidth - gap * 3) / 4;
+        return SizedBox(
+          height: 68,
+          child: Row(
+            children: [
+              for (var index = 0; index < options.length; index++) ...[
+                if (index > 0) const SizedBox(width: gap),
+                SizedBox(
+                  width: tileWidth,
+                  child: _RecentSkillTile(
+                    option: options[index],
+                    onTap: () => onSelected(options[index]),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _RecentSkillTile extends StatelessWidget {
+  const _RecentSkillTile({required this.option, required this.onTap});
+
+  final CalendarSkillOption option;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.themeV2;
+    return Semantics(
+      label: '手动记录：${option.displayName}',
+      button: true,
+      onTap: onTap,
+      child: ExcludeSemantics(
+        child: Material(
+          color: tokens.surface,
+          borderRadius: BorderRadius.circular(ThemeV2Radii.lg),
+          child: InkWell(
+            key: ValueKey('calendar-skill-recent-${option.name}'),
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(ThemeV2Radii.lg),
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: ThemeV2Spacing.xs,
+                vertical: ThemeV2Spacing.xs,
+              ),
+              decoration: BoxDecoration(
+                border: Border.all(color: tokens.border),
+                borderRadius: BorderRadius.circular(ThemeV2Radii.lg),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(option.icon, style: const TextStyle(fontSize: 22)),
+                  const SizedBox(height: 2),
+                  Text(
+                    option.displayName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: tokens.foreground,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
