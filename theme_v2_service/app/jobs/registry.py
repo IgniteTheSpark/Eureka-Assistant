@@ -8,6 +8,8 @@ from app.domains.notifications.maintenance import (
 
 
 JobHandler = Callable[[WorkflowJob], Awaitable[None]]
+REPORT_PLANNER_JOB_TYPE = "report_planner"
+REPORT_PIPELINE_JOB_TYPE = "report_pipeline"
 
 
 class JobHandlerRegistry:

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -127,3 +127,38 @@ class ShareCardSpec(StrictModel):
     highlights: list[str] = Field(default_factory=list, max_length=3)
     time_range: str
     illustration_file_id: str | None = None
+
+
+class UserRunCreate(StrictModel):
+    origin: Literal["user_initiated"] = "user_initiated"
+    intent: str = Field(min_length=1)
+    skill_ids: list[str] = Field(default_factory=list)
+    asset_ids: list[str] = Field(default_factory=list)
+    time_range: TimeRange | None = None
+
+    def to_evidence_scope(self) -> EvidenceScope:
+        return EvidenceScope(
+            time_range=self.time_range,
+            skill_ids=self.skill_ids,
+            asset_ids=self.asset_ids,
+        )
+
+
+class TriggerRunCreate(StrictModel):
+    origin: Literal["trigger"]
+    trigger_execution_id: str
+
+
+ReportRunCreate = Annotated[
+    UserRunCreate | TriggerRunCreate,
+    Field(discriminator="origin"),
+]
+
+
+class RunDecisionRequest(StrictModel):
+    answers: dict = Field(default_factory=dict)
+    evidence_scope: EvidenceScope | None = None
+
+
+class RunGenerateRequest(StrictModel):
+    selected_option_id: str
