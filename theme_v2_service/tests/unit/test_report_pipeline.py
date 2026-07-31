@@ -78,7 +78,7 @@ async def test_resume_after_content_does_not_repeat_paid_stages():
 
     await execute_report_job(context)
 
-    assert calls == ["illustration", "html_render", "persist"]
+    assert calls == ["chart_validation", "illustration", "html_render", "persist"]
 
 
 async def test_crash_after_render_resumes_at_persist_only():
@@ -115,6 +115,7 @@ def test_stage_order_is_stable_and_execution_plan_is_not_a_stage_input_variant()
         "load_evidence",
         "web_search",
         "content_generation",
+        "chart_validation",
         "illustration",
         "html_render",
         "persist",

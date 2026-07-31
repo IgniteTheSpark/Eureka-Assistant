@@ -2,6 +2,7 @@ import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from app.auth.api import router as auth_router
@@ -45,6 +46,7 @@ app.include_router(assets_router)
 app.include_router(notification_router)
 app.include_router(trigger_router)
 app.include_router(report_runs_router)
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 
 @app.get("/health")

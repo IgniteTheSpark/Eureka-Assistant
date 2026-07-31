@@ -15,6 +15,7 @@ STAGES = (
     "load_evidence",
     "web_search",
     "content_generation",
+    "chart_validation",
     "illustration",
     "html_render",
     "persist",

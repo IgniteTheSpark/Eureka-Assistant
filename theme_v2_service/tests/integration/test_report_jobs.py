@@ -140,6 +140,7 @@ async def test_database_pipeline_checkpoints_require_current_running_job(session
                 "load_evidence",
                 "web_search",
                 "content_generation",
+                "chart_validation",
                 "illustration",
                 "html_render",
                 "persist",

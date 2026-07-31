@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.domains.reports.charts import ChartDirective
 from app.domains.reports.schemas import ReportExecutionPlan, ShareCardSpec
 
 if TYPE_CHECKING:
@@ -41,7 +42,7 @@ class GeneratorUsage(ProviderModel):
 
 class GeneratorResult(ProviderModel):
     content_md: str = Field(min_length=1)
-    chart_directives: list[dict] = Field(default_factory=list)
+    chart_directives: list[ChartDirective] = Field(default_factory=list)
     illustration_prompt: str | None = None
     share_card_spec: ShareCardSpec
     usage: GeneratorUsage = Field(default_factory=GeneratorUsage)
