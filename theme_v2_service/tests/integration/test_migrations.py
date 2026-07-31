@@ -34,6 +34,8 @@ def test_foundation_migration_round_trip_and_physical_types():
         "user_skills",
         "assets",
         "events",
+        "notifications",
+        "outbox_events",
         "workflow_jobs",
     }.issubset(set(inspector.get_table_names()))
 
@@ -44,5 +46,5 @@ def test_foundation_migration_round_trip_and_physical_types():
 
     with engine.connect() as connection:
         revision = connection.scalar(text("SELECT version_num FROM alembic_version"))
-    assert revision == "0001_foundation"
+    assert revision == "0002_notifications_outbox"
     engine.dispose()

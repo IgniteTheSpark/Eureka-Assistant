@@ -5,6 +5,7 @@ from app.auth import models as auth_models  # noqa: F401
 from app.db import models as domain_models  # noqa: F401
 from app.db.base import Base
 from app.db.session import AsyncSessionFactory, engine
+from app.domains.notifications import models as notification_models  # noqa: F401
 
 
 async def _assert_test_database(connection) -> None:
