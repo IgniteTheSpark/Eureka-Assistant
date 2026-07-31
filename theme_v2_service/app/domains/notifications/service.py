@@ -1,3 +1,6 @@
+from datetime import datetime, timedelta
+
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domains.notifications.models import Notification, OutboxEvent
@@ -29,3 +32,87 @@ async def create_notification(
     )
     await session.flush()
     return notification
+
+
+async def list_notifications(
+    session: AsyncSession,
+    user_id: str,
+    *,
+    limit: int = 30,
+) -> tuple[list[Notification], int]:
+    bounded_limit = max(1, min(limit, 100))
+    result = await session.scalars(
+        select(Notification)
+        .where(Notification.user_id == user_id)
+        .order_by(Notification.created_at.desc(), Notification.id.desc())
+        .limit(bounded_limit)
+    )
+    unread = await session.scalar(
+        select(func.count())
+        .select_from(Notification)
+        .where(
+            Notification.user_id == user_id,
+            Notification.read.is_(False),
+        )
+    )
+    return list(result), int(unread or 0)
+
+
+async def mark_read(
+    session: AsyncSession,
+    user_id: str,
+    notification_id: str,
+) -> bool:
+    notification = await session.scalar(
+        select(Notification).where(
+            Notification.id == notification_id,
+            Notification.user_id == user_id,
+        )
+    )
+    if notification is None:
+        return False
+    notification.read = True
+    await session.flush()
+    return True
+
+
+async def mark_all_read(session: AsyncSession, user_id: str) -> int:
+    result = await session.execute(
+        update(Notification)
+        .where(
+            Notification.user_id == user_id,
+            Notification.read.is_(False),
+        )
+        .values(read=True)
+    )
+    return int(result.rowcount or 0)
+
+
+async def delete_notification(
+    session: AsyncSession,
+    user_id: str,
+    notification_id: str,
+) -> bool:
+    notification = await session.scalar(
+        select(Notification).where(
+            Notification.id == notification_id,
+            Notification.user_id == user_id,
+        )
+    )
+    if notification is None:
+        return False
+    await session.delete(notification)
+    await session.flush()
+    return True
+
+
+async def prune_notifications(
+    session: AsyncSession,
+    *,
+    now: datetime,
+) -> int:
+    cutoff = now - timedelta(days=14)
+    result = await session.execute(
+        delete(Notification).where(Notification.created_at < cutoff)
+    )
+    return int(result.rowcount or 0)
