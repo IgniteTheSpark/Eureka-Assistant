@@ -3,10 +3,12 @@
 > office-hours(startup mode)产出 · 2026-06-25 · Status: **DRAFT**
 > 这是**产品/价值设计稿**,不是实现卡。落点指向 §4.5.0 / §14 / §7 / §9 / §2 / §4.8(见末尾「接入点」)。
 >
-> **2026-07-24 更新：本稿中的“用户创建习惯对象”已被
-> [Goal Core（手动创建、记录驱动进度）](design-goal-core.md) 取代。**
-> 新口径是“用户创建可由 Assets 自动计算的 Goal”；Habit 状态与 Reka Goal 建议均不在 Goal Core 首版范围。
-> 本稿保留作 capture-fed、streak、温柔反馈和留存问题的历史参考，不再作为习惯数据模型真值。
+> **ARCHIVE · DO NOT IMPLEMENT（仅限 Goal / Habit 对象实现章节）**
+>
+> Goals are outside the current product and implementation scope as of
+> 2026-07-31. 本稿中依赖 Goal、Habit 实体、创建入口、进度配置或主动建议的实现内容
+> 仅作历史参考，不得作为 coding source。独立的 capture-fed、streak、温柔反馈与
+> 留存研究仍可作为产品研究参考，但不授权创建 Goal / Habit 生产模块。
 
 ## 1. 问题
 留存。app 现在**没有稳定的「明天还回来」的理由**。捕捉很爽(wedge),但**记录完没有正反馈、不形成习惯**(用户原话)。现有闭环「攒够量 → insight/报告」太慢太理性 —— 它是「**深化**」循环(让已留下的人更黏),不是「**拉回**」循环。

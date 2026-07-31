@@ -6,6 +6,10 @@
 
 > Revision 2026-07-29：旧 Calendar Flow 已从画布移除并由 Sticky Date Rail 原位替换；补充 Asset Emoji System、自然语言时间水印、日期/空日点击、Day Detail 空态、手动记录 Skill Picker，以及全部 Calendar 状态的 Asset 图标规则。已实现代码如与本 revision 冲突，应删除旧实现并按本稿回归。
 
+> Revision 2026-07-31：Goals 已移出当前产品与实施范围。Theme V2 Home
+> 只实现 Today 与其 Agenda 展开态；`secondaryLayer = null`，不提供跨层横向手势。
+> Goal 相关画板和文档仅作归档参考，不得作为 coding source。
+
 ## 1. 给 Coding Agent 的唯一读取规则
 
 1. 只实现名称以 `UReka · Theme V2 /` 或 `Theme V2 /` 开头的页面和组件。
@@ -36,7 +40,7 @@
 
 ## 2. 实施顺序
 
-实施节奏先完成 P0 Foundation，再依次替换 P2 Calendar、P3 Library / Assets、P4 Session、Notification / Reka Inbox 和 P6 Device 等已有成熟逻辑的 UI。P1 Today/Home 与 P5 Goal 涉及新业务逻辑，放在最后两个业务阶段；Home 先基于稳定 view model 和测试 fixture 完成，真实 Goal 数据、创建流程和生命周期在 P5 一次接通。
+实施节奏先完成 P0 Foundation，再依次替换 P2 Calendar、P3 Library / Assets、P4 Session、Notification / Reka Inbox 和 P6 Device 等已有成熟逻辑的 UI。P1 Today/Home 基于稳定的 `TodayData`、repository seam 和测试 fixture 实施；不读取或请求 Goal 数据。
 
 ### P0 — Foundation
 
@@ -61,9 +65,9 @@
 
 - Dock 是固定在 viewport 底部上方的全局浮层，不随内容滚动。
 - 411 基准画板使用 `169 × 60`，水平居中；Dock 下缘与 Home Indicator / bottom safe area 保持独立间距。
-- 三个入口固定为：Today / Home、Calendar、Library。Goals 是 Home 的第二张页面，不增加第四个 Dock 入口。
-- 只在一级浏览表面显示：Home Today / Goals、Calendar Flow / Month / Year / Schedule、Library Hub / Index。
-- Session、Goal Setting、Asset Detail / Edit、Goal Detail、Device Connection、全屏 sheet、modal 和键盘打开状态隐藏 Dock。
+- 三个入口固定为：Today / Home、Calendar、Library，不增加第四个 Dock 入口。
+- 只在一级浏览表面显示：Home Today、Calendar Flow / Month / Year / Schedule、Library Hub / Index。
+- Session、Asset Detail / Edit、Device Connection、全屏 sheet、modal 和键盘打开状态隐藏 Dock。
 - 页面可滚动内容必须预留 `dock height + visual gap + bottom safe area` 的底部 inset；最后一项不能被 Dock 覆盖，也不能通过把 Dock 放进滚动列表来解决。
 - Dock 的选中态只表达当前一级目的地；App 不提供 hover，也不提供 web 式侧边高亮。
 - Light 使用 `ohIfN`，Dark 使用 `Y7EHo`；业务代码必须共享同一 Dock 组件。
@@ -81,21 +85,19 @@
 |---|---|
 | `WsOyv` | Light / Today Layer |
 | `PMCdg` | Dark / Today Layer |
-| `SuznI` | Light / Goals Layer |
-| `BNmyJ` | Dark / Goals Layer |
 | `vRy65` | Light / Today Agenda Fishbone |
 | `J5cpE` | Dark / Today Agenda Fishbone |
 
 必须实现：
 
-- Today 与 Goals 是两张错位叠放的页面，不是底部 Tab。
-- Today 在前、Goals 在后；滑动或点击露出的页头进行换页。
-- 今日资产是内容下层的泡泡池。每个 Asset 独立成球；尺寸使用稳定伪随机，不按内容类型分类。
-- 最新 1–5 个泡泡使用主题渐变强调，其余降为中性色。
-- 展开 Agenda 使用毛玻璃层覆盖泡泡池。
+- Home 运行时只有 Today；`secondaryLayer` 固定为 `null`，不得添加 Goal 占位、开关、路由、数据请求或分析事件。
+- Today 与 Agenda 是同一个 Home 面板的两种展示态，只能通过明确的展开/收起动作切换；不得添加跨 Home layer 的横向手势。
+- 411 × 960 基准下，Home 面板全屏坐标固定为 `x=8, y=54, width=395, height=790`；更窄屏幕保持两侧 8px，并适配 safe area。
+- Today 依次展示 Next Moment、Reka Queue、今日资产泡泡区和 Agenda 展开入口；空数据时保持各区结构稳定。
+- 今日资产使用有界泡泡区；大量内容必须聚合或在内部处理，不能无限推高页面。
+- 展开 Agenda 后使用扩展时间脉络视图，并把固定高度的生成舱保持在面板底部。
 - 同一时间点的多个事项放在同一个时间节点内，全部展开显示，不产生多分支，也不收敛成“2 个待办”。
-- 多个同时需要关注的 Goal 使用可循环下翻的 stacked cards / carousel，不只展示最新一个。
-- Goals Layer 按当前 Theme V2 画板实现：顶部摘要、下一 Goal 节点、全部 Goals 概览和历史入口使用同一份 Goal view model；P1 阶段完成组件与交互，P5 阶段接入真实 Goal 数据。
+- Goal 派生队列项只能依据显式结构化元数据排除；普通用户文本即使包含“目标”也必须保留。
 
 ### P2 — Calendar
 
@@ -174,7 +176,6 @@ Light / Dark
 - 每个 icon/asset 都保留时间。
 - 首页容器与“全部容器”是管理入口；“创建技能”是独立的 AI 主动作，不与全部容器同级并排。
 - 容器长按配置必须与主界面当前结构一致。
-- Skill/Asset Detail 提供“设定目标”的上下文入口，并预选该 Skill。
 - Todo、Notes、Events、Contacts、Custom Skill 等所有 Asset Detail 默认使用 Bottom Sheet，不按资产类型分叉。
 - Bottom Sheet 支持上拉或点击展开动作进入 Full Page；展开前后复用同一 detail state，滚动位置、编辑草稿和异步状态不得丢失。
 - Full Page 是统一 Detail 的展开形态，不是 Todo 专属页面；是否显示 Global Top Nav / Dock 由打开上下文和共享页面壳决定，不由资产类型决定。
@@ -192,30 +193,6 @@ Light / Dark
 
 优先复用 Theme V2 Session components：`T3kZvN`、`d75dT`、`sqQRI`、`jAu2q`、`JjkFU`、`G5gSN9`、`hXDge`。
 
-### P5 — Goal Core（最后确认阶段）
-
-| Node ID | Screen |
-|---|---|
-| `Mqv86` / `s7cFJ` | Select Skill |
-| `WB3fq` / `GfkUr` | Describe |
-| `e6zmV3` / `xJtQw` | Confirm Draft |
-| `Me6Bl` / `a7r1m` | Success |
-| `wpZIJ` / `ZbWba` | All Goals |
-| `Vcp3f` / `oRqjp` | Goal Detail / Check-in |
-| `Es6w4` / `BlVcp` | Adjust Goal Confirmation |
-
-不可破坏的规则：
-
-- Goal 必须关联已有 Skill。
-- 首页 `+ Goal` 先选择 Skill；从 Skill/Asset 详情进入时预选 Skill 并跳过选择页。
-- Draft 可修改，离开流程即丢弃；确认后计算规则不可编辑。
-- 调整目标不是修改原 Goal：先弹窗说明“将创建新 Goal，当前 Goal 与记录保留”，确认新 Draft 时原子结束旧 Goal并创建新 Goal。
-- Goal Detail Evidence 是按 `effective_time DESC` 排序的扁平 Asset 列表。
-- All Goals 分 active / scheduled；组内 `created_at DESC`；历史目标进入独立页面。
-- 同 Skill + 同 Goal Type 最多一个 scheduled/active Goal，服务端确认时再次校验。
-- 当前 Goal UI 方向已确认可实施。Goal History 复用 All Goals 的卡片骨架和筛选结构；Progress / Guardrail Detail 复用 Check-in Detail 的页面骨架，仅替换确定性进度模块；loading / empty / error 使用 P0 通用状态。
-- P5 开始时进行一次最终范围确认，然后统一完成 Goal read contract、Home 数据接入、创建、详情、调整和历史，不在 P1–P4 中拆出临时 Goal 后端。
-
 ### P6 — Device / Global Entry（最后确认阶段）
 
 | Node ID | Screen |
@@ -226,7 +203,7 @@ Light / Dark
 
 Global Top Nav 包含 Logo、设备连接状态、Light/Dark 切换和 Notification 快速入口。Notification 打开 Reka Inbox；设备状态打开对应 Device Center。
 
-P6 在 Calendar、Library、Session 和 Inbox 稳定后进行范围确认，再接入发现、配对、连接和异常恢复。P0 的 Global Top Nav 只需要先保留稳定的 Device Center 入口与可替换状态接口；Device 完成后再进入 Today/Home 与 Goal。
+P6 在 Calendar、Library、Session 和 Inbox 稳定后进行范围确认，再接入发现、配对、连接和异常恢复。P0 的 Global Top Nav 只需要先保留稳定的 Device Center 入口与可替换状态接口；Device 完成后再进入 Today/Home。
 
 ## 3. Theme V2 Tokens
 
@@ -262,8 +239,7 @@ ease-fluid: cubic-bezier(0.22,1,0.36,1)
 
 | Interaction | Required behavior |
 |---|---|
-| Home layer switch | 两张纸错位叠放，手势跟手；完成后切换前后层级 |
-| Goal attention stack | 可循环下翻；手动交互优先；自动轮播需在用户触摸、读屏或 reduced-motion 时停止 |
+| Home presentation | Today 与 Agenda 通过明确的展开/收起动作切换；不提供横向跨层手势 |
 | Asset bubble pool | 泡泡位于内容下层；新资产出现时使用短促落入/浮入反馈；点击打开 Asset Detail |
 | Agenda expand | 毛玻璃 sheet 展开；背景泡泡仍可感知但不可误触 |
 | Calendar scale swipe | Flow / Month / Year 横向跟手切换 |
@@ -279,7 +255,6 @@ ease-fluid: cubic-bezier(0.22,1,0.36,1)
 | Unscheduled Todo Tray | 最多可见 3 条；超出后区域内部纵向滚动，外部布局高度保持不变 |
 | All-day Events | 左上角固定显示“全天日程 · N”；0 条时隐藏整个区域 |
 | Floating Dock | 固定于 viewport，不参与页面滚动；只显示在规定的一级浏览表面 |
-| Goal adjust | 先解释 replacement 语义，再进入带旧规则预填的新 Draft |
 | Theme toggle | 无页面重建闪烁；状态、滚动位置和输入内容保持 |
 
 ## 5. Missing / Must Not Guess
@@ -290,7 +265,7 @@ ease-fluid: cubic-bezier(0.22,1,0.36,1)
 - 所有页面在极端长文本、动态字体和横屏下的最终布局。
 - Device 配对失败、权限拒绝、断线重连等异常态。
 
-Goal 的缺失画板不再阻塞实现：History、Progress / Guardrail Detail、All Goals 筛选和异步状态按 P5 中已经确认的组件复用规则实现，不另行发明一套视觉语言。
+Goals 不属于当前 gap list；它已明确移出产品与实施范围，不能因历史画板仍存在而恢复实现。
 
 ## 6. Acceptance Checklist
 
@@ -314,8 +289,9 @@ Goal 的缺失画板不再阻塞实现：History、Progress / Guardrail Detail�
 - [ ] 动画支持 Reduce Motion；自动轮播可暂停。
 - [ ] 中文长文案不会覆盖图标或 CTA。
 - [ ] loading / empty / error 不改变页面主要结构。
-- [ ] Home、Calendar、Library、Session、Goals、Device 的入口和返回路径可闭环。
-- [ ] Goal 规则和 Evidence 计算由确定性数据驱动，不由 UI 或 LLM 临时判断。
+- [ ] Home 只暴露 Today 与 Agenda；`secondaryLayer = null`，没有 Goal CTA、占位、路由或横向跨层手势。
+- [ ] Goal 派生队列项按显式元数据排除，普通用户文本中的“目标”不会被误过滤。
+- [ ] Home、Calendar、Library、Session、Device 的入口和返回路径可闭环。
 - [ ] 截图回归至少覆盖 411px Light / Dark 与一档更窄设备。
 
 ## 7. 可直接交给 Coding Agent 的 Prompt
@@ -332,7 +308,7 @@ deprecated 列表。任何画布节点名或路径都不得作为 breadcrumbs �
 acceptance checklist 视为实现约束。视觉值从 $theme-v2/* variables 获取；
 Light / Dark 必须共用组件树。页面根节点 metadata 是交互真值。
 
-按 P0 → P2 → P3 → P4 → Inbox → P6 → P1 → P5 的工程顺序实施；章节编号仍表示设计域，不表示执行先后。每阶段先给出：
+按 P0 → P2 → P3 → P4 → Inbox → P6 → P1 的工程顺序实施；章节编号仍表示设计域，不表示执行先后。每阶段先给出：
 1. 将实现的 route / state；
 2. 复用的组件和 token；
 3. 设计未覆盖的 gap。

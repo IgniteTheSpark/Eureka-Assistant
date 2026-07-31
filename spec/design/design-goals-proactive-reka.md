@@ -1,7 +1,13 @@
 # Design: 通用 Goal + Reka 主动服务系统
 
+> **ARCHIVE · DO NOT IMPLEMENT**
+>
+> Goals are outside the current product and implementation scope as of
+> 2026-07-31. This document is retained for historical reference only and must
+> not be used as a coding source.
+
 > 日期：2026-07-24  
-> 状态：**DRAFT · 产品方向已确认，待实施拆分**  
+> 状态：**ARCHIVED · 不得实施**
 > 范围：Goal、习惯状态、主动候选生成、提醒与分发、Reka 收件箱、即时气泡、系统通知。  
 > **明确不包含：首页的信息架构、布局、卡片数量与视觉设计。**
 >

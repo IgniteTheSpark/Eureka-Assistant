@@ -1,9 +1,15 @@
 # Design: Goal Core（手动创建、记录驱动进度）
 
+> **ARCHIVE · DO NOT IMPLEMENT**
+>
+> Goals are outside the current product and implementation scope as of
+> 2026-07-31. This document is retained for historical reference only and must
+> not be used as a coding source.
+
 > 日期：2026-07-24
-> 状态：**READY FOR HANDOFF · 产品规则已收口，尚未实施**
+> 状态：**ARCHIVED · 不得实施**
 > 范围：Goal 类型、时间规则、手动创建、Draft/确认、成功页、My Goals、进度、Asset Evidence、详情页、结束与重建。
-> 本稿是下一轮 Goal coding handoff 的产品真值。它不表示代码已经落地。
+> 本稿曾作为 Goal coding handoff 的产品真值；现仅保留历史语境。
 
 ---
 
