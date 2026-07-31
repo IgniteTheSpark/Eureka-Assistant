@@ -1,6 +1,7 @@
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 import hashlib
+from time import perf_counter
 from typing import Any
 
 from sqlalchemy import select
@@ -28,6 +29,7 @@ from app.domains.reports.security import validate_generator_result
 from app.domains.reports.storage import Storage, persist_owned_file
 from app.domains.reports.templates import TemplateRegistry
 from app.domains.reports.web_search import build_web_queries, execute_web_search
+from app.observability import metrics
 
 
 STAGES = (
@@ -303,6 +305,10 @@ def build_pipeline_handlers(
             provider=web_search,
             queries=queries,
         )
+        if context.execution_plan.web_policy != "none":
+            metrics.increment("web_search_count", float(len(queries)))
+        if execution.status == "failed_degraded":
+            metrics.increment("web_search_degraded_total")
         return execution.model_dump(mode="json")
 
     async def content_generation_stage(context: PipelineContext) -> StageResult:
@@ -368,6 +374,10 @@ def build_pipeline_handlers(
             store_image=store_image,
             sensitive_values=_collect_sensitive_strings(evidence),
         )
+        if context.execution_plan.illustration_policy != "none":
+            metrics.increment("image_generation_count")
+        if outcome.execution.status == "failed_degraded":
+            metrics.increment("image_degraded_total")
         return {
             "execution": outcome.execution.model_dump(mode="json"),
             "file_id": outcome.file_id,
@@ -375,6 +385,7 @@ def build_pipeline_handlers(
         }
 
     async def html_render_stage(context: PipelineContext) -> StageResult:
+        started = perf_counter()
         content = context.checkpoints["content_generation"]
         charts = context.checkpoints["chart_validation"]
         illustration_result = context.checkpoints["illustration"]
@@ -387,6 +398,7 @@ def build_pipeline_handlers(
             chart_svgs=charts.get("svgs", {}),
             media_urls=media_urls,
         )
+        metrics.observe("render_duration_ms", (perf_counter() - started) * 1000)
         return {"title": title, "html": html}
 
     async def persist_stage(context: PipelineContext) -> StageResult:
@@ -463,6 +475,8 @@ def report_pipeline_handler(
     session_factory: async_sessionmaker[AsyncSession] = AsyncSessionFactory,
 ) -> Callable[[WorkflowJob], Awaitable[None]]:
     async def handle(job: WorkflowJob) -> None:
+        started = perf_counter()
+        outcome: float | None = None
         handlers = build_pipeline_handlers(
             job=job,
             generator=generator,
@@ -479,6 +493,7 @@ def report_pipeline_handler(
                 session_factory=session_factory,
             )
             await execute_report_job(context)
+            outcome = 1.0
         except PipelineWriteRejected:
             return
         except (InsufficientEvidence, PermanentProviderError, ValueError) as exc:
@@ -501,7 +516,13 @@ def report_pipeline_handler(
                     retry_from=failure_stage,
                 )
                 await session.commit()
+            outcome = 0.0
         except RetryableProviderError:
+            outcome = 0.0
             raise
+        finally:
+            metrics.observe("pipeline_duration_ms", (perf_counter() - started) * 1000)
+            if outcome is not None:
+                metrics.observe("pipeline_success_rate", outcome)
 
     return handle

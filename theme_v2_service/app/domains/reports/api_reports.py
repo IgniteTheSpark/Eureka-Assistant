@@ -22,6 +22,7 @@ from app.domains.reports.shares import (
 )
 from app.domains.reports.service import get_owned_report, list_owned_reports
 from app.domains.reports.storage import LocalStorage, StorageKeyRejected
+from app.observability import metrics
 
 
 router = APIRouter(tags=["reports"])
@@ -174,7 +175,9 @@ async def get_public_share(
 ) -> Response:
     share = await get_active_share(session, token=share_token)
     if share is None:
+        metrics.increment("invalid_share_token_total")
         raise HTTPException(status_code=404, detail="not found")
+    metrics.increment("share_opened_total", labels={"surface": "api"})
     import orjson
 
     return Response(
@@ -194,7 +197,9 @@ async def view_public_share(
 ) -> HTMLResponse:
     share = await get_active_share(session, token=share_token)
     if share is None:
+        metrics.increment("invalid_share_token_total")
         raise HTTPException(status_code=404, detail="not found")
+    metrics.increment("share_opened_total", labels={"surface": "html"})
     return HTMLResponse(
         public_share_html(share, token=share_token),
         headers={
@@ -212,6 +217,7 @@ async def get_public_share_media(
 ) -> Response:
     share = await get_active_share(session, token=share_token)
     if share is None:
+        metrics.increment("invalid_share_token_total")
         raise HTTPException(status_code=404, detail="not found")
     file = await get_share_media_file(
         session,
@@ -219,11 +225,13 @@ async def get_public_share_media(
         media_key=media_key,
     )
     if file is None:
+        metrics.increment("invalid_media_access_total")
         raise HTTPException(status_code=404, detail="not found")
     storage = LocalStorage(Path(get_settings().media_root))
     try:
         content = await storage.get(file.storage_key)
     except (FileNotFoundError, StorageKeyRejected) as exc:
+        metrics.increment("invalid_media_access_total")
         raise HTTPException(status_code=404, detail="not found") from exc
     return Response(
         content,

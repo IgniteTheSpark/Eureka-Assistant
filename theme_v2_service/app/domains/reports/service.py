@@ -34,6 +34,7 @@ from app.domains.triggers.service import (
 )
 from app.jobs.queue import enqueue_job
 from app.jobs.registry import REPORT_PIPELINE_JOB_TYPE, REPORT_PLANNER_JOB_TYPE
+from app.observability import metrics
 
 
 ACTIVE_STATES = {"planning", "awaiting_selection", "generating", "failed"}
@@ -110,6 +111,7 @@ async def create_user_run(
     await session.flush()
     await _enqueue_planner(session, run, reason="initial")
     await session.flush()
+    metrics.increment("run_created_total", labels={"origin": run.origin})
     return run
 
 
@@ -169,6 +171,7 @@ async def create_trigger_run(
     )
     await _enqueue_planner(session, run, reason="initial")
     await session.flush()
+    metrics.increment("run_created_total", labels={"origin": run.origin})
     return run
 
 
@@ -388,6 +391,7 @@ async def cancel_run(
             .values(status="cancelled", completed_at=now or utc_now())
         )
     await session.flush()
+    metrics.increment("run_cancelled_total")
     return run
 
 
@@ -541,6 +545,8 @@ async def persist_completed_report(
         body=data.title,
         link=f"report:{report.id}",
     )
+    metrics.increment("run_completed_total")
+    metrics.observe("tokens_used", float(data.tokens_used))
     await session.flush()
     return report
 
@@ -599,6 +605,11 @@ async def record_report_failure(
         body="可以从失败阶段重试。",
         link=f"report-run:{run.id}",
     )
+    metrics.increment(
+        "run_failed_total",
+        labels={"failure_stage": failure_stage},
+    )
+    metrics.observe("failure_stage", 1, labels={"stage": failure_stage})
     await session.flush()
     return True
 

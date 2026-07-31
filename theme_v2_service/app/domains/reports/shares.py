@@ -16,6 +16,7 @@ from app.domains.reports.rendering import render_report_html
 from app.domains.reports.schemas import ShareCardSpec
 from app.domains.reports.share_cards import RenderedShareCard, render_share_card
 from app.domains.reports.storage import Storage, persist_owned_file
+from app.observability import metrics
 
 
 TEMPLATE_ROOT = Path(__file__).resolve().parents[2] / "templates"
@@ -179,6 +180,7 @@ async def create_report_share(
     )
     session.add(share)
     await session.flush()
+    metrics.increment("share_created_total")
     return CreatedShare(share=share, token=token)
 
 
@@ -268,6 +270,7 @@ async def generate_share_card_for_share(
         snapshot.pop("warnings", None)
     share.snapshot_spec_json = snapshot
     await session.flush()
+    metrics.increment("share_card_generated_total")
     return file
 
 
@@ -308,6 +311,7 @@ async def revoke_report_share(
         share.status = "revoked"
         share.revoked_at = _utc_naive(now or utc_now())
         await session.flush()
+        metrics.increment("share_revoked_total")
     return True
 
 

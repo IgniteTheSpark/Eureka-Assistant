@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user_id
+from app.config import get_settings
 from app.db.session import get_session
 from app.domains.reports import service
 from app.domains.reports.schemas import (
@@ -14,6 +15,11 @@ from app.domains.triggers.service import ExecutionExpired, ExecutionNotFound
 
 
 router = APIRouter(prefix="/api/report-generation-runs", tags=["reports"])
+
+
+def _require_provider(available: bool, detail: str) -> None:
+    if not available:
+        raise HTTPException(status_code=503, detail=detail)
 
 
 def _translate_error(exc: Exception) -> HTTPException:
@@ -30,6 +36,10 @@ async def create_report_run(
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
+    _require_provider(
+        get_settings().report_planner_available(),
+        "report planner is not configured",
+    )
     try:
         if isinstance(command, TriggerRunCreate):
             run = await service.create_trigger_run(
@@ -86,6 +96,10 @@ async def decide_report_run(
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
+    _require_provider(
+        get_settings().report_planner_available(),
+        "report planner is not configured",
+    )
     try:
         run = await service.submit_decision(
             session,
@@ -105,6 +119,10 @@ async def generate_report_run(
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
+    _require_provider(
+        get_settings().report_pipeline_available(),
+        "report generator is not configured",
+    )
     try:
         run, _ = await service.generate_run(
             session,
@@ -124,6 +142,21 @@ async def retry_report_run(
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     try:
+        current = await service.get_owned_run(
+            session,
+            user_id=user_id,
+            run_id=run_id,
+        )
+        if current.retry_from == "planning":
+            _require_provider(
+                get_settings().report_planner_available(),
+                "report planner is not configured",
+            )
+        else:
+            _require_provider(
+                get_settings().report_pipeline_available(),
+                "report generator is not configured",
+            )
         run, _ = await service.retry_run(
             session,
             user_id=user_id,

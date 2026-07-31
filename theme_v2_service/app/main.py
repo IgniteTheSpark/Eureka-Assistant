@@ -1,7 +1,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
@@ -16,6 +16,7 @@ from app.domains.reports.api_runs import router as report_runs_router
 from app.domains.reports.api_reports import router as reports_router
 from app.domains.reports.templates import get_template_registry
 from app.domains.triggers.api import router as trigger_router
+from app.observability import metrics
 
 
 @asynccontextmanager
@@ -67,3 +68,11 @@ async def ready() -> dict[str, str]:
     except Exception as exc:
         raise HTTPException(status_code=503, detail="database unavailable") from exc
     return {"status": "ready"}
+
+
+@app.get("/metrics", include_in_schema=False)
+async def prometheus_metrics() -> Response:
+    return Response(
+        metrics.render_prometheus(),
+        media_type="text/plain; version=0.0.4",
+    )

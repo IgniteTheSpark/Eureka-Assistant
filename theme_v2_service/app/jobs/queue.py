@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.base import utc_now
 from app.db.models import WorkflowJob
 from app.jobs.models import JobStatus
+from app.observability import metrics
 
 
 async def enqueue_job(
@@ -68,6 +69,7 @@ async def claim_next_job(
     if candidate is None:
         return None
 
+    recovered_expired_lease = candidate.status == JobStatus.RUNNING.value
     candidate.status = JobStatus.RUNNING.value
     candidate.attempt += 1
     candidate.lease_owner = owner
@@ -75,6 +77,8 @@ async def claim_next_job(
     candidate.started_at = candidate.started_at or now
     candidate.updated_at = now
     await session.flush()
+    if recovered_expired_lease:
+        metrics.increment("job_lease_recovered_total")
     return candidate
 
 
@@ -178,6 +182,7 @@ async def fail_job(
                 jitter_seconds=jitter_seconds,
             )
         )
+        metrics.increment("job_retry_total")
     else:
         job.status = JobStatus.FAILED.value
         job.completed_at = now

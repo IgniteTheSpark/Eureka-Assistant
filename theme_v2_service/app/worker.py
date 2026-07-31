@@ -3,6 +3,7 @@ import signal
 
 from app.config import get_settings
 from app.domains.notifications.maintenance import run_notification_prune_scheduler
+from app.domains.reports.maintenance import run_report_maintenance_scheduler
 from app.domains.reports.templates import get_template_registry
 from app.domains.triggers.maintenance import run_trigger_maintenance_scheduler
 from app.jobs.registry import registry
@@ -24,6 +25,9 @@ async def serve() -> None:
         ),
         asyncio.create_task(
             run_trigger_maintenance_scheduler(stop_event=stop_event)
+        ),
+        asyncio.create_task(
+            run_report_maintenance_scheduler(stop_event=stop_event)
         ),
     )
     try:

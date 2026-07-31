@@ -1,4 +1,5 @@
 from collections.abc import Awaitable, Callable
+from time import perf_counter
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -25,6 +26,7 @@ from app.domains.reports.schemas import (
 )
 from app.domains.reports.state_machine import transition_run
 from app.domains.reports.templates import TemplatePackage, TemplateRegistry
+from app.observability import metrics
 
 
 class InvalidPlannerResult(ValueError):
@@ -324,6 +326,7 @@ async def persist_planner_result(
     usage["planner"] = result.usage.model_dump(mode="json")
     run.usage_json = usage
     transition_run(run, "awaiting_selection")
+    metrics.increment("run_awaiting_selection_total")
     await _ensure_plan_notification(session, run=run)
     await session.flush()
     return True
@@ -337,40 +340,59 @@ async def execute_report_planner_job(
     session_factory: async_sessionmaker[AsyncSession] = AsyncSessionFactory,
     limits: PlannerLimits | None = None,
 ) -> bool:
+    started = perf_counter()
     if job.run_id is None:
         return False
-    async with session_factory() as read_session:
-        run = await read_session.scalar(
-            select(ReportGenerationRun).where(
-                ReportGenerationRun.id == job.run_id,
-                ReportGenerationRun.state == "planning",
-                ReportGenerationRun.planner_job_id == job.id,
+    try:
+        async with session_factory() as read_session:
+            run = await read_session.scalar(
+                select(ReportGenerationRun).where(
+                    ReportGenerationRun.id == job.run_id,
+                    ReportGenerationRun.state == "planning",
+                    ReportGenerationRun.planner_job_id == job.id,
+                )
             )
-        )
-        if run is None:
-            return False
-        request = await build_planner_request(
-            run=run,
-            tools=PlannerTools(
-                read_session,
-                user_id=run.user_id,
-                limits=limits,
-            ),
-            registry=registry,
-        )
+            if run is None:
+                return False
+            request = await build_planner_request(
+                run=run,
+                tools=PlannerTools(
+                    read_session,
+                    user_id=run.user_id,
+                    limits=limits,
+                ),
+                registry=registry,
+            )
 
-    result = PlannerResult.model_validate(await provider.plan(request))
-    validate_planner_result(request=request, result=result, registry=registry)
+        result = PlannerResult.model_validate(await provider.plan(request))
+        validate_planner_result(request=request, result=result, registry=registry)
 
-    async with session_factory() as write_session:
-        written = await persist_planner_result(
-            write_session,
-            run_id=job.run_id,
-            job_id=job.id,
-            result=result,
-        )
-        await write_session.commit()
-    return written
+        async with session_factory() as write_session:
+            written = await persist_planner_result(
+                write_session,
+                run_id=job.run_id,
+                job_id=job.id,
+                result=result,
+            )
+            await write_session.commit()
+        if written:
+            tokens = result.usage.input_tokens + result.usage.output_tokens
+            metrics.observe("planner_tokens", float(tokens))
+            metrics.observe(
+                "planner_clarification_rate",
+                1.0 if result.clarification_questions else 0.0,
+            )
+            metrics.observe("planner_option_count", float(len(result.options)))
+            metrics.observe(
+                "related_skill_discovery_rate",
+                1.0 if request.related_skills else 0.0,
+            )
+        return written
+    except Exception:
+        metrics.increment("planner_failed_total")
+        raise
+    finally:
+        metrics.observe("planner_duration_ms", (perf_counter() - started) * 1000)
 
 
 def planner_handler(

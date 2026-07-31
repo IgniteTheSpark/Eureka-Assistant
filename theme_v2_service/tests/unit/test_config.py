@@ -34,3 +34,12 @@ def test_theme_v2_defaults_are_isolated(monkeypatch):
     assert settings.database_url.endswith("/eureka_theme_v2")
     assert settings.worker_poll_seconds == 0.5
     assert settings.job_lease_seconds == 60
+    assert settings.report_planner_available() is False
+    assert settings.report_pipeline_available() is False
+
+
+def test_fake_provider_workflows_remain_available_only_in_test_environment():
+    settings = Settings(env="test", jwt_secret="test-only-secret")
+
+    assert settings.report_planner_available() is True
+    assert settings.report_pipeline_available() is True

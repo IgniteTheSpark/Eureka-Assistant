@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     report_provider_api_key: str | None = None
     report_provider_timeout_seconds: float = 60.0
     report_provider_max_attempts: int = 3
+    report_planning_timeout_seconds: int = 300
+    report_generation_timeout_seconds: int = 1800
     report_web_timeout_seconds: float = 20.0
     bocha_api_key: str | None = None
     bocha_api_url: str = "https://api.bochaai.com/v1/web-search"
@@ -54,6 +56,16 @@ class Settings(BaseSettings):
         if self.report_pipeline_enabled and not self.report_generator_model:
             errors.append("REPORT_GENERATOR_MODEL is required")
         return errors
+
+    def report_planner_available(self) -> bool:
+        return self.env == "test" or bool(
+            self.report_planner_enabled and self.report_planner_model
+        )
+
+    def report_pipeline_available(self) -> bool:
+        return self.env == "test" or bool(
+            self.report_pipeline_enabled and self.report_generator_model
+        )
 
     def runtime_readiness_errors(self) -> list[str]:
         errors = self.provider_readiness_errors()
