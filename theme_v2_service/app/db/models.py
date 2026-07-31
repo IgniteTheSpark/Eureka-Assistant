@@ -5,6 +5,7 @@ from sqlalchemy import (
     CHAR,
     ForeignKey,
     Index,
+    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -104,6 +105,56 @@ class Event(Base):
         default=utc_now,
         nullable=False,
     )
+    updated_at: Mapped[datetime] = mapped_column(
+        mysql.DATETIME(fsp=6),
+        default=utc_now,
+        onupdate=utc_now,
+        nullable=False,
+    )
+
+
+class WorkflowJob(Base):
+    __tablename__ = "workflow_jobs"
+    __table_args__ = (
+        Index(
+            "ix_workflow_jobs_claim",
+            "status",
+            "available_at",
+            "lease_expires_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(CHAR(36), primary_key=True, default=new_uuid)
+    run_id: Mapped[str | None] = mapped_column(CHAR(36))
+    job_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32),
+        default="queued",
+        nullable=False,
+    )
+    attempt: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    available_at: Mapped[datetime] = mapped_column(
+        mysql.DATETIME(fsp=6),
+        default=utc_now,
+        nullable=False,
+    )
+    lease_owner: Mapped[str | None] = mapped_column(String(200))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(mysql.DATETIME(fsp=6))
+    checkpoint_json: Mapped[dict | None] = mapped_column(mysql.JSON)
+    input_dedupe_key: Mapped[str | None] = mapped_column(
+        String(255),
+        unique=True,
+    )
+    error_code: Mapped[str | None] = mapped_column(String(100))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        mysql.DATETIME(fsp=6),
+        default=utc_now,
+        nullable=False,
+    )
+    started_at: Mapped[datetime | None] = mapped_column(mysql.DATETIME(fsp=6))
+    completed_at: Mapped[datetime | None] = mapped_column(mysql.DATETIME(fsp=6))
     updated_at: Mapped[datetime] = mapped_column(
         mysql.DATETIME(fsp=6),
         default=utc_now,
