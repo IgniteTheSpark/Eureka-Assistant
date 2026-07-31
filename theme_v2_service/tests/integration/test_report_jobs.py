@@ -1,9 +1,14 @@
 from datetime import datetime
 
+import pytest
 from sqlalchemy import func, select
 
 from app.db.models import WorkflowJob
 from app.domains.reports.models import ReportGenerationRun
+from app.domains.reports.pipeline import (
+    PipelineWriteRejected,
+    database_pipeline_context,
+)
 from app.domains.reports.schemas import UserRunCreate
 from app.domains.reports.service import (
     create_user_run,
@@ -82,3 +87,81 @@ async def test_only_current_job_can_write_back(session):
         run_id=run.id,
         job_id="stale-generation",
     ) is None
+
+
+async def test_database_pipeline_checkpoints_require_current_running_job(session):
+    run = ReportGenerationRun(
+        user_id="user-1",
+        origin="user_initiated",
+        state="generating",
+        active_stage="load_evidence",
+        launch_context={},
+        intent="Summary",
+        answers={},
+        evidence_scope={},
+        plan_options=[],
+        execution_plan={
+            "template_id": "general_period_review",
+            "template_version": "1.0.0",
+            "base_family": "theme_synthesis",
+            "report_goal": "Summary",
+            "resolved_asset_ids": [],
+            "field_bindings": {},
+            "time_range": None,
+            "web_policy": "none",
+            "illustration_policy": "none",
+            "render_policy": "report_html_v1",
+        },
+        resolved_asset_ids=[],
+        generation_context={},
+        usage_json={},
+    )
+    session.add(run)
+    await session.flush()
+    job = WorkflowJob(
+        run_id=run.id,
+        job_type="report_pipeline",
+        status="running",
+        lease_owner="worker-1",
+    )
+    session.add(job)
+    await session.flush()
+    run.generation_job_id = job.id
+    await session.commit()
+
+    async def unused(_):
+        return {}
+
+    context = await database_pipeline_context(
+        job,
+        handlers={
+            stage: unused
+            for stage in (
+                "load_evidence",
+                "web_search",
+                "content_generation",
+                "illustration",
+                "html_render",
+                "persist",
+            )
+        },
+    )
+    await context.save_checkpoint("load_evidence", {"loaded": 1})
+
+    await session.refresh(run)
+    await session.refresh(job)
+    assert run.active_stage == "web_search"
+    assert job.checkpoint_json["completed_stages"] == ["load_evidence"]
+
+    job.lease_owner = "worker-2"
+    await session.commit()
+    with pytest.raises(PipelineWriteRejected):
+        await context.save_checkpoint("web_search", {"sources": []})
+
+    job.lease_owner = "worker-1"
+    run.state = "cancelled"
+    await session.commit()
+    with pytest.raises(PipelineWriteRejected):
+        await context.save_checkpoint("web_search", {"sources": []})
+    await session.refresh(job)
+    assert "web_search" not in job.checkpoint_json["stage_results"]

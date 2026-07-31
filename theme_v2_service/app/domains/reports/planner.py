@@ -1,6 +1,4 @@
 from collections.abc import Awaitable, Callable
-from typing import Protocol
-
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -18,6 +16,7 @@ from app.domains.reports.planner_tools import (
     PlannerSkill,
     PlannerTools,
 )
+from app.domains.reports.providers import ReportPlannerProvider
 from app.domains.reports.schemas import (
     ClarificationQuestion,
     EvidenceScope,
@@ -102,11 +101,6 @@ class PlannerResult(PlannerModel):
             if sum(option.recommended for option in self.options) != 1:
                 raise ValueError("planner options require exactly one recommendation")
         return self
-
-
-class ReportPlannerProvider(Protocol):
-    async def plan(self, request: PlannerRequest) -> PlannerResult:
-        ...
 
 
 def _template_view(package: TemplatePackage) -> PlannerTemplate:

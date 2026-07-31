@@ -73,6 +73,8 @@ class ReportPlanOption(StrictModel):
 
 
 class ReportExecutionPlan(StrictModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True, frozen=True)
+
     template_id: str
     template_version: str
     base_family: str
