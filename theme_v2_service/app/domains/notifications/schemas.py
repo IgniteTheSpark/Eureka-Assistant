@@ -38,3 +38,8 @@ class NotificationPayload(BaseModel):
         if value.tzinfo is None:
             value = value.replace(tzinfo=timezone.utc)
         return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+class NotificationListResponse(BaseModel):
+    notifications: list[NotificationPayload]
+    unread: int
