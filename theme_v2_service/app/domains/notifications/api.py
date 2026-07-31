@@ -1,15 +1,18 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.responses import StreamingResponse
 
 from app.auth.dependencies import get_current_user_id
 from app.db.session import get_session
 from app.domains.notifications.schemas import NotificationListResponse
+from app.domains.notifications.sse import sse_comment, with_heartbeats
 from app.domains.notifications.service import (
     delete_notification,
     list_notifications,
     mark_all_read,
     mark_read,
 )
+from app.domains.notifications.subscribers import SubscriberRegistry
 
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
@@ -29,6 +32,36 @@ async def get_notifications(
     return NotificationListResponse(
         notifications=notifications,
         unread=unread,
+    )
+
+
+@router.get("/stream")
+async def notification_stream(
+    request: Request,
+    user_id: str = Depends(get_current_user_id),
+) -> StreamingResponse:
+    registry: SubscriberRegistry = request.app.state.notification_subscribers
+    queue = registry.subscribe(user_id)
+
+    async def frames():
+        yield sse_comment("connected")
+        heartbeat_stream = with_heartbeats(
+            queue,
+            on_close=lambda: registry.unsubscribe(user_id, queue),
+        )
+        try:
+            async for frame in heartbeat_stream:
+                yield frame
+        finally:
+            await heartbeat_stream.aclose()
+
+    return StreamingResponse(
+        frames(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 
