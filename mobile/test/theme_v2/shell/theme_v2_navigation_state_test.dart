@@ -179,10 +179,7 @@ void main() {
   ) async {
     await tester.pumpWidget(
       const _ThemeHost(
-        child: ThemeV2AppShell(
-          initialIndex: 0,
-          showStartupOverlays: false,
-        ),
+        child: ThemeV2AppShell(initialIndex: 0, showStartupOverlays: false),
       ),
     );
     await tester.pump();
