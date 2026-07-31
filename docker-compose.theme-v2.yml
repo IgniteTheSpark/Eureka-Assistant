@@ -1,5 +1,15 @@
 name: eureka-theme-v2
 
+x-theme-v2-service: &theme-v2-service
+  image: eureka-theme-v2-service:local
+  build: ./theme_v2_service
+
+x-theme-v2-environment: &theme-v2-environment
+  DATABASE_URL: mysql://theme_v2:${THEME_V2_DB_PASSWORD:-theme_v2}@mysql:3306/eureka_theme_v2
+  JWT_SECRET: ${THEME_V2_JWT_SECRET:-dev-insecure-change-me}
+  ENV: ${THEME_V2_ENV:-dev}
+  MEDIA_ROOT: /data/media
+
 services:
   mysql:
     image: mysql:8.0
@@ -20,21 +30,49 @@ services:
       timeout: 5s
       retries: 20
 
-  api:
-    build: ./theme_v2_service
-    ports:
-      - "8100:8000"
-    environment:
-      DATABASE_URL: mysql://theme_v2:${THEME_V2_DB_PASSWORD:-theme_v2}@mysql:3306/eureka_theme_v2
-      JWT_SECRET: ${THEME_V2_JWT_SECRET:-dev-insecure-change-me}
+  migrate:
+    <<: *theme-v2-service
+    command: alembic upgrade head
+    environment: *theme-v2-environment
     depends_on:
       mysql:
         condition: service_healthy
     volumes:
       - ./theme_v2_service:/app
+      - media_data:/data/media
+
+  api:
+    <<: *theme-v2-service
+    ports:
+      - "${THEME_V2_API_HOST_PORT:-8100}:8000"
+    environment: *theme-v2-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ./theme_v2_service:/app
+      - media_data:/data/media
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+  worker:
+    <<: *theme-v2-service
+    command: python -m app.worker
+    environment: *theme-v2-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ./theme_v2_service:/app
+      - media_data:/data/media
+    stop_grace_period: 90s
 
   test:
-    build: ./theme_v2_service
+    <<: *theme-v2-service
     profiles: ["test"]
     environment:
       DATABASE_URL: mysql://theme_v2:${THEME_V2_DB_PASSWORD:-theme_v2}@mysql:3306/eureka_theme_v2_test
