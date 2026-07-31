@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.db.base import new_uuid, utc_now
 from app.db.models import UserSkill, WorkflowJob
 from app.domains.reports.models import ReportGenerationRun
@@ -55,6 +56,7 @@ async def _enqueue_planner(
         run_id=run.id,
         job_type=REPORT_PLANNER_JOB_TYPE,
         dedupe_key=_planner_key(run.id, reason),
+        max_attempts=get_settings().report_provider_max_attempts,
     )
     run.planner_job_id = job.id
     run.active_stage = "intake"
@@ -284,6 +286,7 @@ async def generate_run(
         run_id=run.id,
         job_type=REPORT_PIPELINE_JOB_TYPE,
         dedupe_key=f"pipeline:{run.id}:{selected_option_id}",
+        max_attempts=get_settings().report_provider_max_attempts,
     )
     run.selected_option_id = selected_option_id
     run.execution_plan = execution_plan.model_dump(mode="json", by_alias=True)
@@ -321,6 +324,7 @@ async def retry_run(
             run_id=run.id,
             job_type=REPORT_PIPELINE_JOB_TYPE,
             dedupe_key=f"pipeline:{run.id}:retry:{retry_token}",
+            max_attempts=get_settings().report_provider_max_attempts,
         )
         run.generation_job_id = job.id
         run.active_stage = run.retry_from

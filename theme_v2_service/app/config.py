@@ -15,12 +15,34 @@ class Settings(BaseSettings):
     job_lease_seconds: int = 60
     media_root: str = "/data/media"
     default_user_timezone: str = "Asia/Shanghai"
+    report_planner_enabled: bool = False
+    report_pipeline_enabled: bool = False
+    report_planner_model: str | None = None
+    report_generator_model: str | None = None
+    report_illustration_model: str | None = None
+    report_provider_api_key: str | None = None
+    report_provider_timeout_seconds: float = 60.0
+    report_provider_max_attempts: int = 3
+    report_web_timeout_seconds: float = 20.0
+    bocha_api_key: str | None = None
+    bocha_api_url: str = "https://api.bochaai.com/v1/web-search"
+    tavily_api_key: str | None = None
+    tavily_api_url: str = "https://api.tavily.com/search"
+    report_illustration_api_url: str | None = None
 
     @model_validator(mode="after")
     def reject_insecure_prod(self) -> "Settings":
         if self.env in {"prod", "production"} and self.jwt_secret == "dev-insecure-change-me":
             raise ValueError("JWT_SECRET must be changed in production")
         return self
+
+    def provider_readiness_errors(self) -> list[str]:
+        errors = []
+        if self.report_planner_enabled and not self.report_planner_model:
+            errors.append("REPORT_PLANNER_MODEL is required")
+        if self.report_pipeline_enabled and not self.report_generator_model:
+            errors.append("REPORT_GENERATOR_MODEL is required")
+        return errors
 
 
 @lru_cache

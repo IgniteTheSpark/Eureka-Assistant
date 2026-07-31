@@ -1,5 +1,6 @@
 from collections.abc import Awaitable, Callable
 
+from app.config import get_settings
 from app.db.models import WorkflowJob
 from app.domains.notifications.maintenance import (
     NOTIFICATION_PRUNE_JOB_TYPE,
@@ -30,3 +31,21 @@ class JobHandlerRegistry:
 
 registry = JobHandlerRegistry()
 registry.register(NOTIFICATION_PRUNE_JOB_TYPE, handle_notification_prune)
+
+_settings = get_settings()
+if _settings.report_planner_enabled and _settings.report_planner_model:
+    from app.domains.reports.planner import planner_handler
+    from app.domains.reports.providers_litellm import LiteLLMPlannerProvider
+    from app.domains.reports.templates import get_template_registry
+
+    registry.register(
+        REPORT_PLANNER_JOB_TYPE,
+        planner_handler(
+            provider=LiteLLMPlannerProvider(
+                model=_settings.report_planner_model,
+                api_key=_settings.report_provider_api_key,
+                timeout_seconds=_settings.report_provider_timeout_seconds,
+            ),
+            registry=get_template_registry(),
+        ),
+    )

@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException
 from sqlalchemy import text
 
 from app.auth.api import router as auth_router
+from app.config import get_settings
 from app.db.session import AsyncSessionFactory
 from app.domains.assets.api import router as assets_router
 from app.domains.notifications.api import router as notification_router
@@ -53,6 +54,9 @@ async def health() -> dict[str, str]:
 
 @app.get("/ready")
 async def ready() -> dict[str, str]:
+    provider_errors = get_settings().provider_readiness_errors()
+    if provider_errors:
+        raise HTTPException(status_code=503, detail=provider_errors)
     try:
         async with AsyncSessionFactory() as session:
             await session.execute(text("SELECT 1"))
