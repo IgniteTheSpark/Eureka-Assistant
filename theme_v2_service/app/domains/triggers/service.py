@@ -1,6 +1,6 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +18,14 @@ from app.domains.triggers.proactive_summary import (
     ProactiveSnapshot,
     decide_proactive_summary,
 )
+
+
+class ExecutionNotFound(Exception):
+    pass
+
+
+class ExecutionExpired(Exception):
+    pass
 
 
 def _utc_z(value: datetime) -> str:
@@ -210,3 +218,99 @@ async def on_asset_created(
             local_date=decision.notification_local_date,
         )
     await session.flush()
+
+
+async def owned_execution_for_update(
+    session: AsyncSession,
+    *,
+    user_id: str,
+    execution_id: str,
+) -> TriggerExecution:
+    execution = await session.scalar(
+        select(TriggerExecution)
+        .where(
+            TriggerExecution.id == execution_id,
+            TriggerExecution.user_id == user_id,
+        )
+        .with_for_update()
+    )
+    if execution is None or execution.workflow_type != "report_generation":
+        raise ExecutionNotFound()
+    return execution
+
+
+def _raise_if_expired(execution: TriggerExecution, now: datetime) -> None:
+    if execution.status == "expired" or (
+        execution.expires_at is not None and execution.expires_at <= now
+    ):
+        raise ExecutionExpired()
+
+
+async def dismiss_execution(
+    session: AsyncSession,
+    *,
+    user_id: str,
+    execution_id: str,
+    now: datetime,
+) -> TriggerExecution:
+    execution = await owned_execution_for_update(
+        session,
+        user_id=user_id,
+        execution_id=execution_id,
+    )
+    _raise_if_expired(execution, now)
+    if execution.status == "consumed" or execution.trigger_type != "proactive_summary":
+        return execution
+
+    if execution.tracker_id is not None:
+        tracker = await session.get(
+            TriggerTracker,
+            execution.tracker_id,
+            with_for_update=True,
+        )
+        if tracker is not None:
+            tracker.dismissed_until = now + timedelta(days=7)
+    await session.flush()
+    return execution
+
+
+async def consume_execution(
+    session: AsyncSession,
+    *,
+    user_id: str,
+    execution_id: str,
+    workflow_run_id: str,
+    now: datetime,
+) -> TriggerExecution:
+    execution = await owned_execution_for_update(
+        session,
+        user_id=user_id,
+        execution_id=execution_id,
+    )
+    _raise_if_expired(execution, now)
+    if execution.status == "consumed":
+        return execution
+
+    execution.status = "consumed"
+    execution.consumed_at = now
+    execution.workflow_run_id = workflow_run_id
+    if execution.tracker_id is not None:
+        tracker = await session.get(
+            TriggerTracker,
+            execution.tracker_id,
+            with_for_update=True,
+        )
+        if tracker is not None:
+            if tracker.active_execution_id == execution.id:
+                tracker.active_execution_id = None
+            tracker.last_consumed_at = now
+            tracker.proactive_suppressed_until = now + timedelta(days=7)
+            tracker.cycle_started_at = now
+            tracker.new_asset_count = 0
+            await session.execute(
+                delete(TriggerCountedAsset).where(
+                    TriggerCountedAsset.tracker_id == tracker.id
+                )
+            )
+    await session.flush()
+    return execution

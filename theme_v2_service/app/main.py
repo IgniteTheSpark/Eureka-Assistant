@@ -10,6 +10,7 @@ from app.domains.assets.api import router as assets_router
 from app.domains.notifications.api import router as notification_router
 from app.domains.notifications.outbox import run_outbox_dispatcher
 from app.domains.notifications.subscribers import SubscriberRegistry
+from app.domains.triggers.api import router as trigger_router
 
 
 @asynccontextmanager
@@ -38,6 +39,7 @@ app = FastAPI(
 app.include_router(auth_router)
 app.include_router(assets_router)
 app.include_router(notification_router)
+app.include_router(trigger_router)
 
 
 @app.get("/health")
