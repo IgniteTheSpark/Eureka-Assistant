@@ -1,6 +1,10 @@
 from collections.abc import Awaitable, Callable
 
 from app.db.models import WorkflowJob
+from app.domains.notifications.maintenance import (
+    NOTIFICATION_PRUNE_JOB_TYPE,
+    handle_notification_prune,
+)
 
 
 JobHandler = Callable[[WorkflowJob], Awaitable[None]]
@@ -23,3 +27,4 @@ class JobHandlerRegistry:
 
 
 registry = JobHandlerRegistry()
+registry.register(NOTIFICATION_PRUNE_JOB_TYPE, handle_notification_prune)
