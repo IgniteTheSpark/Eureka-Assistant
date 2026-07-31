@@ -4,6 +4,11 @@
 > 状态：**DRAFT · 产品方向已确认，待实施拆分**  
 > 范围：Goal、习惯状态、主动候选生成、提醒与分发、Reka 收件箱、即时气泡、系统通知。  
 > **明确不包含：首页的信息架构、布局、卡片数量与视觉设计。**
+>
+> **2026-07-24 范围更新：本稿中的 Goal 创建、类型、时间、Evidence、详情和生命周期定义，
+> 已由 [Goal Core（手动创建、记录驱动进度）](design-goal-core.md) 取代。**
+> Goal Core 首版明确不实现 Reka Goal 建议、Flash/硬件创建、暂停、A2UI 和提醒配置；
+> 本稿继续保留为 Habit / Proactive Candidate / 收件箱 / 系统推送的长期方向参考，不可直接作为 Goal coding handoff。
 
 ## 1. 背景
 
@@ -222,25 +227,16 @@ templates:
 
 ### 3.5 Goal 管理容器
 
-需要独立的 Goal 管理容器，工作名为 **「我的目标」**。本稿不决定其全局导航位置。
+> 本节早期设想已被 [Goal Core §7.3](design-goal-core.md) 取代。
 
-状态分组：
+当前真值：
 
-- 进行中
-- 待确认
-- 已暂停
-- 已结束
-
-Goal 详情至少包含：
-
-- 当前周期进度和规则。
-- 历史周期达标情况。
-- 被计入的原始记录及排除原因。
-- 当前习惯状态。
-- 提醒策略。
-- 编辑、暂停、结束和重新开始。
-
-系统自动计入记录后，用户必须可以纠正误计入或漏计入。
+- `My Goals` 从资产库一级入口进入，不新增底部导航。
+- 当前 Goal 使用纵向卡片墙；`active / scheduled` 分组，组内按创建时间倒序。
+- 历史 Goal 使用独立历史页。
+- 支持 Skill / Goal Type / Status 筛选。
+- 首版无暂停、待确认列表、规则编辑或固定提醒。
+- Theme V2 Home 已接入 Goals Layer；Goal 摘要、下一结算节点、当前 Goal 概览和历史入口以 [Goal Core §16.8](design-goal-core.md) 为准。
 
 ## 4. Goal 进度、习惯与周期复盘
 
@@ -648,10 +644,11 @@ safety_notes: []
 
 ### 11.2 习惯 / streak 草案
 
-[design-habit-streak.md](design-habit-streak.md) 中“用户创建习惯对象”的定义由本稿替代：
+[design-habit-streak.md](design-habit-streak.md) 中“用户创建习惯对象”的定义已由
+[Goal Core](design-goal-core.md) 取代：
 
-- 用户创建 Goal。
-- 习惯是 Goal 的派生行为状态。
+- 用户创建由 Assets 自动计算的 Goal。
+- Goal Core 首版不实现 Habit 状态。
 - capture-fed 自动计入和 streak 反馈仍可复用。
 - `completion_event`、里程碑和温柔反馈原则继续有效。
 
@@ -678,14 +675,10 @@ safety_notes: []
 
 ## 13. 分阶段建议
 
-### Phase 1：通用 Goal 基础
+### Phase 1：Goal Core（已迁出本稿）
 
-- Goal DSL 和 Skill `goal_capabilities`。
-- 任意 Skill 的 Goal 创建、编辑、暂停和结束。
-- 自动计入、纠错、周期快照。
-- `count`、`sum`、`average`、`distinct_days`、`condition_rate`、`streak`。
-- 固定提醒和基础风险提醒。
-- Goal 管理容器。
+Goal 的类型、手动创建、计算、Evidence、不可变规则和实施顺序以
+[design-goal-core.md §17](design-goal-core.md#17-实施拆分建议) 为准。本稿不再定义 Goal Phase 1。
 
 ### Phase 2：统一主动候选
 
