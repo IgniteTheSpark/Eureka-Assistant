@@ -8,6 +8,7 @@ from app.config import get_settings
 from app.db import models as domain_models  # noqa: F401
 from app.db.base import Base
 from app.domains.notifications import models as notification_models  # noqa: F401
+from app.domains.reports import models as report_models  # noqa: F401
 from app.domains.triggers import models as trigger_models  # noqa: F401
 
 

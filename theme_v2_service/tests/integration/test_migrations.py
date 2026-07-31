@@ -39,6 +39,9 @@ def test_foundation_migration_round_trip_and_physical_types():
         "trigger_trackers",
         "trigger_counted_assets",
         "trigger_executions",
+        "report_generation_runs",
+        "reports",
+        "files",
         "workflow_jobs",
     }.issubset(set(inspector.get_table_names()))
 
@@ -49,5 +52,5 @@ def test_foundation_migration_round_trip_and_physical_types():
 
     with engine.connect() as connection:
         revision = connection.scalar(text("SELECT version_num FROM alembic_version"))
-    assert revision == "0003_triggers"
+    assert revision == "0004_report_workflow"
     engine.dispose()
