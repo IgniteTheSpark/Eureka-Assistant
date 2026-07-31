@@ -13,6 +13,7 @@ from app.domains.reports.models import File, Report
 from app.domains.reports.rendering import render_report_html
 from app.domains.reports.shares import (
     create_report_share,
+    generate_share_card_for_share,
     get_active_share,
     get_share_media_file,
     public_share_html,
@@ -136,6 +137,13 @@ async def create_share(
     if created is None:
         raise HTTPException(status_code=404, detail="not found")
     base_url = get_settings().report_public_base_url.rstrip("/")
+    await generate_share_card_for_share(
+        session,
+        share=created.share,
+        token=created.token,
+        public_base_url=base_url,
+        storage=LocalStorage(Path(get_settings().media_root)),
+    )
     return {
         "share_id": created.share.id,
         "url": f"{base_url}/r/{created.token}",

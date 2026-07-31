@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -30,6 +31,15 @@ class Settings(BaseSettings):
     tavily_api_url: str = "https://api.tavily.com/search"
     report_illustration_api_url: str | None = None
     report_public_base_url: str = "http://localhost:8100"
+    share_card_geist_font_path: str = (
+        "/usr/share/fonts/truetype/geist/Geist-Regular.ttf"
+    )
+    share_card_geist_bold_font_path: str = (
+        "/usr/share/fonts/truetype/geist/Geist-Bold.ttf"
+    )
+    share_card_noto_cjk_font_path: str = (
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
+    )
 
     @model_validator(mode="after")
     def reject_insecure_prod(self) -> "Settings":
@@ -43,6 +53,16 @@ class Settings(BaseSettings):
             errors.append("REPORT_PLANNER_MODEL is required")
         if self.report_pipeline_enabled and not self.report_generator_model:
             errors.append("REPORT_GENERATOR_MODEL is required")
+        return errors
+
+    def runtime_readiness_errors(self) -> list[str]:
+        errors = self.provider_readiness_errors()
+        if not Path(self.share_card_geist_font_path).is_file():
+            errors.append("Geist share-card font is unavailable")
+        if not Path(self.share_card_geist_bold_font_path).is_file():
+            errors.append("Geist bold share-card font is unavailable")
+        if not Path(self.share_card_noto_cjk_font_path).is_file():
+            errors.append("Noto CJK share-card font is unavailable")
         return errors
 
 

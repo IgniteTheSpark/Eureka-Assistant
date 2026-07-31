@@ -11,9 +11,9 @@ from app.jobs.runner import run_worker
 
 async def serve() -> None:
     get_template_registry()
-    provider_errors = get_settings().provider_readiness_errors()
-    if provider_errors:
-        raise RuntimeError("; ".join(provider_errors))
+    readiness_errors = get_settings().runtime_readiness_errors()
+    if readiness_errors:
+        raise RuntimeError("; ".join(readiness_errors))
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
     for stop_signal in (signal.SIGINT, signal.SIGTERM):

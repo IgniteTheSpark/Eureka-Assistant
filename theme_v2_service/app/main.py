@@ -58,9 +58,9 @@ async def health() -> dict[str, str]:
 
 @app.get("/ready")
 async def ready() -> dict[str, str]:
-    provider_errors = get_settings().provider_readiness_errors()
-    if provider_errors:
-        raise HTTPException(status_code=503, detail=provider_errors)
+    readiness_errors = get_settings().runtime_readiness_errors()
+    if readiness_errors:
+        raise HTTPException(status_code=503, detail=readiness_errors)
     try:
         async with AsyncSessionFactory() as session:
             await session.execute(text("SELECT 1"))

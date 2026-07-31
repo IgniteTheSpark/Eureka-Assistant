@@ -1,7 +1,9 @@
+from io import BytesIO
 from pathlib import Path
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from PIL import Image
 
 from app.config import get_settings
 from app.domains.reports.models import File, Report, ReportGenerationRun
@@ -121,12 +123,24 @@ async def test_public_snapshot_media_isolation_and_immediate_revocation(client, 
     assert public_json.status_code == 200
     assert public_html.status_code == 200
     assert public_html.headers["x-robots-tag"] == "noindex"
+    share_card_url = public_json.json()["share_card_url"]
+    assert share_card_url
+    assert f'property="og:image" content="{share_card_url}"' in public_html.text
+    share_card = await client.get(share_card_url)
+    assert share_card.status_code == 200
+    assert share_card.headers["content-type"] == "image/png"
+    assert Image.open(BytesIO(share_card.content)).size == (1080, 1440)
     for internal in (report.id, report.generation_run_id, file.id, "asset-secret"):
         assert internal not in serialized
         assert internal not in public_html.text
 
-    media_key = public_json.json()["media"][0]["key"]
-    media = await client.get(f"/r/{token}/media/{media_key}")
+    illustration = next(
+        item
+        for item in public_json.json()["media"]
+        if item["url"] != share_card_url
+    )
+    media_key = illustration["key"]
+    media = await client.get(illustration["url"])
     tampered = await client.get(f"/r/{token}/media/not-the-key")
     assert media.content == b"public-image"
     assert tampered.status_code == 404

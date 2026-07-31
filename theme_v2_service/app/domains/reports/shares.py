@@ -1,7 +1,9 @@
 import hashlib
 import secrets
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from html import escape
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -12,6 +14,8 @@ from app.db.base import utc_now
 from app.domains.reports.models import File, Report, ReportShare
 from app.domains.reports.rendering import render_report_html
 from app.domains.reports.schemas import ShareCardSpec
+from app.domains.reports.share_cards import RenderedShareCard, render_share_card
+from app.domains.reports.storage import Storage, persist_owned_file
 
 
 TEMPLATE_ROOT = Path(__file__).resolve().parents[2] / "templates"
@@ -144,6 +148,9 @@ async def create_report_share(
     share_card = ShareCardSpec.model_validate(report.share_card_spec).model_copy(
         update={"illustration_file_id": None}
     )
+    illustration_media_key = file_to_media.get(
+        report.share_card_spec.get("illustration_file_id")
+    )
     public_spec = {
         "surface": spec.get("surface", "report"),
         "palette": spec.get("palette", "calm"),
@@ -153,6 +160,7 @@ async def create_report_share(
             spec.get("external_sources", [])
         ),
         "share_card": share_card.model_dump(mode="json"),
+        "illustration_media_key": illustration_media_key,
     }
     issued_at = _utc_naive(now or utc_now())
     token = issue_share_token()
@@ -172,6 +180,95 @@ async def create_report_share(
     session.add(share)
     await session.flush()
     return CreatedShare(share=share, token=token)
+
+
+async def generate_share_card_for_share(
+    session: AsyncSession,
+    *,
+    share: ReportShare,
+    token: str,
+    public_base_url: str,
+    storage: Storage,
+    renderer: Callable[..., RenderedShareCard] = render_share_card,
+) -> File | None:
+    if share.share_card_file_id:
+        existing = await session.scalar(
+            select(File).where(
+                File.id == share.share_card_file_id,
+                File.user_id == share.user_id,
+            )
+        )
+        if existing is not None:
+            return existing
+    spec = ShareCardSpec.model_validate(
+        share.snapshot_spec_json.get("share_card", {})
+    )
+    illustration_bytes = None
+    illustration_key = share.snapshot_spec_json.get("illustration_media_key")
+    if illustration_key:
+        illustration_file = await get_share_media_file(
+            session,
+            share=share,
+            media_key=illustration_key,
+        )
+        if illustration_file is not None:
+            try:
+                illustration_bytes = await storage.get(
+                    illustration_file.storage_key
+                )
+            except (FileNotFoundError, ValueError):
+                illustration_bytes = None
+    public_url = f"{public_base_url.rstrip('/')}/r/{token}"
+    try:
+        rendered = renderer(
+            spec,
+            public_url=public_url,
+            illustration_bytes=illustration_bytes,
+            forbidden_ids={
+                share.id,
+                share.report_id,
+                *share.media_map_json.values(),
+            },
+        )
+        file = await persist_owned_file(
+            session,
+            storage=storage,
+            user_id=share.user_id,
+            purpose="report_share_card",
+            key=f"report-shares/{share.user_id}/{share.id}/card.png",
+            content=rendered.png_bytes,
+            mime_type="image/png",
+        )
+    except Exception:
+        snapshot = dict(share.snapshot_spec_json)
+        warnings = list(snapshot.get("warnings", []))
+        if "share card generation failed" not in warnings:
+            warnings.append("share card generation failed")
+        snapshot["warnings"] = warnings
+        share.snapshot_spec_json = snapshot
+        await session.flush()
+        return None
+
+    media_map = dict(share.media_map_json or {})
+    media_key = secrets.token_urlsafe(16)
+    while media_key in media_map:
+        media_key = secrets.token_urlsafe(16)
+    media_map[media_key] = file.id
+    share.media_map_json = media_map
+    share.share_card_file_id = file.id
+    snapshot = dict(share.snapshot_spec_json)
+    warnings = [
+        warning
+        for warning in snapshot.get("warnings", [])
+        if warning != "share card generation failed"
+    ]
+    if warnings:
+        snapshot["warnings"] = warnings
+    else:
+        snapshot.pop("warnings", None)
+    share.snapshot_spec_json = snapshot
+    await session.flush()
+    return file
 
 
 async def get_active_share(
@@ -232,6 +329,14 @@ async def get_share_media_file(
 
 
 def serialize_public_share(share: ReportShare, *, token: str) -> dict:
+    share_card_key = next(
+        (
+            media_key
+            for media_key, file_id in (share.media_map_json or {}).items()
+            if file_id == share.share_card_file_id
+        ),
+        None,
+    )
     return {
         "content_md": share.snapshot_content_md,
         "html": public_share_html(share, token=token),
@@ -243,6 +348,9 @@ def serialize_public_share(share: ReportShare, *, token: str) -> dict:
             }
             for media_key in (share.media_map_json or {})
         ],
+        "share_card_url": (
+            f"/r/{token}/media/{share_card_key}" if share_card_key else None
+        ),
         "expires_at": (
             share.expires_at.replace(tzinfo=timezone.utc)
             .isoformat()
@@ -270,6 +378,25 @@ def public_share_html(share: ReportShare, *, token: str) -> str:
             chart_svgs={},
             media_urls=media_urls,
         )
+    share_card_key = next(
+        (
+            media_key
+            for media_key, file_id in (share.media_map_json or {}).items()
+            if file_id == share.share_card_file_id
+        ),
+        None,
+    )
+    if share_card_key:
+        og_image_url = escape(
+            f"/r/{token}/media/{share_card_key}",
+            quote=True,
+        )
+        og_meta = f'<meta property="og:image" content="{og_image_url}">\n'
+        head_end = snapshot.lower().find("</head>")
+        if head_end >= 0:
+            snapshot = f"{snapshot[:head_end]}{og_meta}{snapshot[head_end:]}"
+        else:
+            snapshot = f"{og_meta}{snapshot}"
     environment = Environment(
         loader=FileSystemLoader(TEMPLATE_ROOT),
         autoescape=select_autoescape(("html", "xml")),

@@ -2,7 +2,10 @@ name: eureka-theme-v2
 
 x-theme-v2-service: &theme-v2-service
   image: eureka-theme-v2-service:local
-  build: ./theme_v2_service
+  build:
+    context: ./theme_v2_service
+    additional_contexts:
+      geist: ./mobile/assets/fonts/Geist
 
 x-theme-v2-environment: &theme-v2-environment
   DATABASE_URL: mysql://theme_v2:${THEME_V2_DB_PASSWORD:-theme_v2}@mysql:3306/eureka_theme_v2
