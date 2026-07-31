@@ -1,16 +1,18 @@
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 from sqlalchemy import func, select
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
+from app.db.models import Asset, UserSkill
 from app.db.session import AsyncSessionFactory
 from app.domains.triggers.models import (
     TriggerCountedAsset,
     TriggerExecution,
     TriggerTracker,
 )
+from app.domains.triggers.service import on_asset_created
 
 
 NOW = datetime(2026, 7, 31, 10, 0, 0)
@@ -97,3 +99,48 @@ async def test_execution_revision_must_be_positive(session):
     with pytest.raises(DBAPIError):
         await session.commit()
     await session.rollback()
+
+
+async def test_concurrent_assets_create_one_tracker_and_active_execution(session):
+    async with AsyncSessionFactory() as seed:
+        skill = UserSkill(
+            user_id="user-1",
+            machine_name="notes",
+            display_name="Notes",
+            schema_json={},
+        )
+        seed.add(skill)
+        await seed.commit()
+        skill_id = skill.id
+
+    async def create_and_signal(index: int) -> str:
+        async with AsyncSessionFactory() as database_session:
+            asset = Asset(
+                user_id="user-1",
+                user_skill_id=skill_id,
+                payload_json={"index": index},
+                created_at=NOW - timedelta(days=7),
+                updated_at=NOW,
+            )
+            database_session.add(asset)
+            await database_session.flush()
+            await on_asset_created(
+                database_session,
+                asset=asset,
+                now=NOW,
+                timezone_name="Asia/Shanghai",
+            )
+            await database_session.commit()
+            return asset.id
+
+    asset_ids = await asyncio.gather(*(create_and_signal(i) for i in range(10)))
+
+    async with AsyncSessionFactory() as check:
+        trackers = list(await check.scalars(select(TriggerTracker)))
+        executions = list(await check.scalars(select(TriggerExecution)))
+        assert len(trackers) == 1
+        assert len(executions) == 1
+        assert trackers[0].new_asset_count == 10
+        assert trackers[0].active_execution_id == executions[0].id
+        assert executions[0].revision == 4
+        assert set(executions[0].payload_json["asset_ids"]) == set(asset_ids)

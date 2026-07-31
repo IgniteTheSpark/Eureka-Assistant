@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.db.base import utc_now
 from app.db.models import Asset, Event, UserSkill
 from app.domains.assets.schemas import (
@@ -12,6 +13,7 @@ from app.domains.assets.schemas import (
     EventUpdate,
     UserSkillCreate,
 )
+from app.domains.triggers.service import on_asset_created
 
 
 class UserSkillNotFound(Exception):
@@ -89,6 +91,12 @@ async def create_asset(
     )
     session.add(asset)
     await session.flush()
+    await on_asset_created(
+        session,
+        asset=asset,
+        now=utc_now(),
+        timezone_name=get_settings().default_user_timezone,
+    )
     return asset
 
 
