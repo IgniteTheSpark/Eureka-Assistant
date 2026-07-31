@@ -27,4 +27,4 @@ async def test_runtime_uses_only_theme_v2_database_and_migration():
     assert health.json() == {"status": "ok", "service": "theme-v2"}
     assert ready.json() == {"status": "ready"}
     assert database == expected_database
-    assert revision == "0002_notifications_outbox"
+    assert revision == "0003_triggers"
