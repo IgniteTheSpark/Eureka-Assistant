@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     tavily_api_key: str | None = None
     tavily_api_url: str = "https://api.tavily.com/search"
     report_illustration_api_url: str | None = None
+    report_public_base_url: str = "http://localhost:8100"
 
     @model_validator(mode="after")
     def reject_insecure_prod(self) -> "Settings":

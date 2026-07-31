@@ -52,5 +52,5 @@ def test_foundation_migration_round_trip_and_physical_types():
 
     with engine.connect() as connection:
         revision = connection.scalar(text("SELECT version_num FROM alembic_version"))
-    assert revision == "0004_report_workflow"
+    assert revision == "0005_report_share"
     engine.dispose()

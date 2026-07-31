@@ -151,3 +151,40 @@ class File(Base):
         default=utc_now,
         nullable=False,
     )
+
+
+class ReportShare(Base):
+    __tablename__ = "report_shares"
+    __table_args__ = (
+        Index("ix_report_shares_user_created", "user_id", "created_at"),
+        Index("ix_report_shares_status_expiry", "status", "expires_at"),
+        CheckConstraint(
+            "status IN ('active', 'revoked', 'expired')",
+            name="ck_report_shares_status",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(CHAR(36), primary_key=True, default=new_uuid)
+    report_id: Mapped[str] = mapped_column(
+        CHAR(36),
+        ForeignKey("reports.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_id: Mapped[str] = mapped_column(CHAR(36), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="active", nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(mysql.DATETIME(fsp=6))
+    snapshot_content_md: Mapped[str] = mapped_column(Text, nullable=False)
+    snapshot_spec_json: Mapped[dict] = mapped_column(mysql.JSON, nullable=False)
+    snapshot_html: Mapped[str | None] = mapped_column(Text)
+    media_map_json: Mapped[dict] = mapped_column(mysql.JSON, default=dict, nullable=False)
+    share_card_file_id: Mapped[str | None] = mapped_column(
+        CHAR(36),
+        ForeignKey("files.id", ondelete="SET NULL"),
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        mysql.DATETIME(fsp=6),
+        default=utc_now,
+        nullable=False,
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(mysql.DATETIME(fsp=6))
