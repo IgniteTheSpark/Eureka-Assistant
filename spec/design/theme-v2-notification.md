@@ -60,6 +60,7 @@ Notification 与 Trigger、Report Generation 的完整关系分别见：
 
 - [Theme V2 Trigger](theme-v2-trigger.md)
 - [Theme V2 Report Generation](theme-v2-report-generation.md)
+- [Theme V2 独立服务运行时设计](../../docs/superpowers/specs/2026-07-31-theme-v2-service-runtime-design.md)
 
 ---
 
@@ -405,7 +406,13 @@ GET /api/notifications/stream
 - 每条新 Notification 推送一个 `notification` 事件。
 - 带心跳，防止代理和移动网络静默断开。
 - 断线重连后，客户端调用列表 API 恢复可能错过的通知。
-- Phase 1 使用 PostgreSQL `LISTEN/NOTIFY`（或等价的数据库 Outbox 分发）把 Worker 写入的通知广播给 API 进程中的 SSE Subscriber Registry；不依赖进程内事件跨越 API/Worker 边界，且无需在第一阶段引入 Redis。
+- Phase 1 固定使用 MySQL Transactional Outbox：Notification 与
+  `OutboxEvent(notification.created)` 在同一事务写入，单实例 API 轮询
+  Outbox 并广播到本进程的 SSE Subscriber Registry。
+- API 在推送后再标记 Outbox 已发布，因此极端崩溃窗口允许重复帧；
+  客户端按 Notification ID 去重。
+- Worker 不调用 API 容器，也不依赖进程内事件跨越 API / Worker 边界。
+- Phase 1 不引入 Redis；多 API 实例不属于本阶段部署拓扑。
 
 ---
 

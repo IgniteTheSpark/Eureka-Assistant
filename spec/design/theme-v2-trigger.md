@@ -62,6 +62,9 @@ Trigger Phase 1 不调用 Agent，不选择 Template，不执行 Web Search。
 
 通知契约见 [Theme V2 Notification](theme-v2-notification.md)，后续 Workflow 见 [Theme V2 Report Generation](theme-v2-report-generation.md)。
 
+Docker、MySQL 物理类型、事务、Outbox、数据库 Job Queue 和进程职责见
+[Theme V2 独立服务运行时设计](../../docs/superpowers/specs/2026-07-31-theme-v2-service-runtime-design.md)。
+
 ---
 
 ## 1. 服务与范围
