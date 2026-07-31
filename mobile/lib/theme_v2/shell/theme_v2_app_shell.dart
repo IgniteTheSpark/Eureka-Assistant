@@ -6,11 +6,11 @@ import '../../app_shell.dart' show scheduleShellStartupSurface;
 import '../../data_revision.dart';
 import '../../pages/calendar_page.dart' show calendarHome;
 import '../../pages/device_pairing_page.dart';
-import '../../pages/today_page.dart';
 import '../../theme/app_theme.dart';
 import '../calendar/calendar_controller.dart';
 import '../calendar/theme_v2_calendar_page.dart';
 import '../foundation/theme_v2_theme.dart';
+import '../home/theme_v2_home_page.dart';
 import '../inbox/reka_inbox_controller.dart';
 import '../inbox/reka_inbox_page.dart';
 import '../library/library_navigation.dart';
@@ -24,7 +24,7 @@ import 'theme_v2_page_scaffold.dart';
 ///
 /// Page bodies are injectable so shell behavior can be tested without mounting
 /// network- or device-heavy production pages. The production defaults keep the
-/// mature Today and Library implementations alive during migration.
+/// mature Library implementation alive during migration.
 class ThemeV2AppShell extends StatefulWidget {
   const ThemeV2AppShell({
     super.key,
@@ -159,7 +159,10 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
   List<ThemeV2PageScaffold> _pages() {
     return widget.pages ??
         [
-          ThemeV2PageScaffold(body: TodayPage(active: _index == 0)),
+          const ThemeV2PageScaffold(
+            body: ThemeV2HomePage(),
+            showTopNav: false,
+          ),
           ThemeV2PageScaffold(
             body: ThemeV2CalendarPage(controller: _calendarController),
             showDock: _calendarController.surface != CalendarSurface.schedule,

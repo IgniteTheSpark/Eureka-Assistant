@@ -4,6 +4,7 @@ import 'package:eureka/theme/theme_controller.dart';
 import 'package:eureka/theme_v2/calendar/calendar_controller.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_tokens.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_typography.dart';
+import 'package:eureka/theme_v2/home/theme_v2_home_page.dart';
 import 'package:eureka/theme_v2/calendar/theme_v2_calendar_page.dart';
 import 'package:eureka/theme_v2/library/library_navigation.dart';
 import 'package:eureka/theme_v2/shell/device_status_summary.dart';
@@ -171,6 +172,31 @@ void main() {
 
     expect(find.byType(ThemeV2CalendarPage), findsOneWidget);
     expect(find.byType(ThemeV2GlobalTopNav), findsOneWidget);
+  });
+
+  testWidgets('production shell mounts Today-only Theme V2 Home', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const _ThemeHost(
+        child: ThemeV2AppShell(
+          initialIndex: 0,
+          showStartupOverlays: false,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byType(ThemeV2HomePage), findsOneWidget);
+    expect(find.byType(ThemeV2GlobalTopNav), findsNothing);
+    expect(find.byKey(ThemeV2FloatingDock.dockKey), findsOneWidget);
+    expect(find.text('目标'), findsNothing);
+
+    await tester.tap(find.bySemanticsLabel('日历'));
+    await tester.pump();
+    await tester.tap(find.bySemanticsLabel('今日'));
+    await tester.pump();
+    expect(find.byType(ThemeV2HomePage), findsOneWidget);
   });
 
   testWidgets('Schedule hides the dock and Day Detail restores it', (
