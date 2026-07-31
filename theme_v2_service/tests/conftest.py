@@ -1,6 +1,7 @@
 import pytest_asyncio
 from sqlalchemy import text
 
+from app.auth import models as auth_models  # noqa: F401
 from app.db.base import Base
 from app.db.session import AsyncSessionFactory, engine
 

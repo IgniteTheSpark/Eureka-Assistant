@@ -1,10 +1,12 @@
 from fastapi import FastAPI, HTTPException
 from sqlalchemy import text
 
+from app.auth.api import router as auth_router
 from app.db.session import AsyncSessionFactory
 
 
 app = FastAPI(title="Eureka Theme V2 API", version="2.0.0")
+app.include_router(auth_router)
 
 
 @app.get("/health")

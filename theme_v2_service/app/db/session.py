@@ -32,3 +32,8 @@ async def session_scope() -> AsyncIterator[AsyncSession]:
         except Exception:
             await session.rollback()
             raise
+
+
+async def get_session() -> AsyncIterator[AsyncSession]:
+    async with session_scope() as session:
+        yield session
