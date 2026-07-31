@@ -2,12 +2,14 @@ import asyncio
 import signal
 
 from app.domains.notifications.maintenance import run_notification_prune_scheduler
+from app.domains.reports.templates import get_template_registry
 from app.domains.triggers.maintenance import run_trigger_maintenance_scheduler
 from app.jobs.registry import registry
 from app.jobs.runner import run_worker
 
 
 async def serve() -> None:
+    get_template_registry()
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
     for stop_signal in (signal.SIGINT, signal.SIGTERM):

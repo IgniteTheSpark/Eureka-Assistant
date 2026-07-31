@@ -1,0 +1,11 @@
+{
+  "id": "work_monthly_review",
+  "version": "1.0.0",
+  "base_family": "professional_evaluation",
+  "planner_description": "将工作记录整理为成果、影响、协作和下阶段计划",
+  "data_fit": ["outcome_record", "daily_log", "counterparty", "free_text"],
+  "analysis_method": "outcome_impact_reflection",
+  "web_policy": "none",
+  "illustration_policy": "none",
+  "render_policy": "report_html_v1"
+}

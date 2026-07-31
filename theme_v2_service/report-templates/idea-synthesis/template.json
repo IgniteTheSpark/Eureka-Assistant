@@ -1,0 +1,11 @@
+{
+  "id": "idea_synthesis",
+  "version": "1.0.0",
+  "base_family": "theme_synthesis",
+  "planner_description": "连接分散灵感，提炼主题、张力、机会和下一步",
+  "data_fit": ["free_text", "daily_log"],
+  "analysis_method": "thematic_clustering_and_synthesis",
+  "web_policy": "optional",
+  "illustration_policy": "optional",
+  "render_policy": "report_html_v1"
+}

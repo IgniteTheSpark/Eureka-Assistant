@@ -1,0 +1,11 @@
+{
+  "id": "learning_review",
+  "version": "1.0.0",
+  "base_family": "professional_evaluation",
+  "planner_description": "总结学习投入、掌握证据、困难和下一阶段策略",
+  "data_fit": ["outcome_record", "daily_log", "free_text", "time_series_measurement"],
+  "analysis_method": "evidence_based_learning_reflection",
+  "web_policy": "optional",
+  "illustration_policy": "none",
+  "render_policy": "report_html_v1"
+}

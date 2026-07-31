@@ -1,0 +1,11 @@
+{
+  "id": "general_period_review",
+  "version": "1.0.0",
+  "base_family": "theme_synthesis",
+  "planner_description": "对任意一段时间的结构化记录与文字内容形成通用复盘",
+  "data_fit": ["daily_log", "free_text", "time_series_measurement", "categorical_log", "outcome_record"],
+  "analysis_method": "period_summary_and_change_detection",
+  "web_policy": "none",
+  "illustration_policy": "optional",
+  "render_policy": "report_html_v1"
+}

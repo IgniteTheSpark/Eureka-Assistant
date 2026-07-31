@@ -1,0 +1,11 @@
+{
+  "id": "child_growth_review",
+  "version": "1.0.0",
+  "base_family": "professional_evaluation",
+  "planner_description": "根据一段时间内的成长、饮食和日常记录形成阶段总结",
+  "data_fit": ["time_series_measurement", "daily_log", "categorical_intake"],
+  "analysis_method": "trend_comparison_with_observation",
+  "web_policy": "authoritative_only",
+  "illustration_policy": "optional",
+  "render_policy": "report_html_v1"
+}

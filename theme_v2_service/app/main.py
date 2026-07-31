@@ -11,11 +11,13 @@ from app.domains.notifications.api import router as notification_router
 from app.domains.notifications.outbox import run_outbox_dispatcher
 from app.domains.notifications.subscribers import SubscriberRegistry
 from app.domains.reports.api_runs import router as report_runs_router
+from app.domains.reports.templates import get_template_registry
 from app.domains.triggers.api import router as trigger_router
 
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
+    application.state.report_template_registry = get_template_registry()
     registry = SubscriberRegistry()
     dispatcher_task = asyncio.create_task(
         run_outbox_dispatcher(AsyncSessionFactory, registry)

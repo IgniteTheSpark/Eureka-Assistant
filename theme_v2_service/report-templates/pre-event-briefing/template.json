@@ -1,0 +1,11 @@
+{
+  "id": "pre_event_briefing",
+  "version": "1.0.0",
+  "base_family": "briefing_research",
+  "planner_description": "为即将发生的会议或活动整理背景、目标、材料和准备事项",
+  "data_fit": ["event", "counterparty", "free_text", "location"],
+  "analysis_method": "event_context_briefing",
+  "web_policy": "optional",
+  "illustration_policy": "none",
+  "render_policy": "report_html_v1"
+}

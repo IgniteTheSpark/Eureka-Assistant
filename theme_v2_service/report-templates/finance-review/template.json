@@ -1,0 +1,11 @@
+{
+  "id": "finance_review",
+  "version": "1.0.0",
+  "base_family": "data_trend",
+  "planner_description": "汇总周期内的收支、类别和往来记录并解释主要变化",
+  "data_fit": ["time_series_measurement", "categorical_log", "counterparty"],
+  "analysis_method": "category_and_period_comparison",
+  "web_policy": "none",
+  "illustration_policy": "none",
+  "render_policy": "report_html_v1"
+}

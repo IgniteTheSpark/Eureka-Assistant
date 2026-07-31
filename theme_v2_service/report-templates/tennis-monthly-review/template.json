@@ -1,0 +1,11 @@
+{
+  "id": "tennis_monthly_review",
+  "version": "1.0.0",
+  "base_family": "data_trend",
+  "planner_description": "复盘网球训练、比赛结果、技术主题和月度变化",
+  "data_fit": ["outcome_record", "time_series_measurement", "daily_log"],
+  "analysis_method": "performance_trend_review",
+  "web_policy": "optional",
+  "illustration_policy": "optional",
+  "render_policy": "report_html_v1"
+}
