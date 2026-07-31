@@ -79,3 +79,8 @@ class WebSearchProvider(Protocol):
 class IllustrationProvider(Protocol):
     async def generate(self, prompt: str) -> GeneratedImage:
         ...
+
+
+class UnavailableIllustrationProvider:
+    async def generate(self, prompt: str) -> GeneratedImage:
+        raise PermanentProviderError("illustration provider is not configured")

@@ -3,18 +3,24 @@ from datetime import datetime, timezone
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.config import get_settings
 from app.db.base import new_uuid, utc_now
 from app.db.models import UserSkill, WorkflowJob
-from app.domains.reports.models import ReportGenerationRun
+from app.domains.notifications.models import Notification
+from app.domains.notifications.schemas import NotificationCreate
+from app.domains.notifications.service import create_notification
+from app.domains.reports.models import Report, ReportGenerationRun
 from app.domains.reports.schemas import (
     EvidenceScope,
+    ReportSpec,
     ReportExecutionPlan,
     ReportPlanOption,
     RunDecisionRequest,
     TriggerRunCreate,
     UserRunCreate,
+    ShareCardSpec,
 )
 from app.domains.reports.state_machine import (
     InvalidRunTransition,
@@ -39,6 +45,22 @@ class RunNotFound(Exception):
 
 class RunConflict(Exception):
     pass
+
+
+class PersistRejected(Exception):
+    pass
+
+
+class CompletedReportData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=255)
+    content_md: str = Field(min_length=1)
+    html: str | None = None
+    spec_json: ReportSpec
+    share_card_spec: ShareCardSpec
+    tokens_used: int = Field(default=0, ge=0)
+    gen_ms: int = Field(default=0, ge=0)
 
 
 def _planner_key(run_id: str, reason: str) -> str:
@@ -400,6 +422,212 @@ async def generation_write_guard(
             ReportGenerationRun.generation_job_id == job_id,
         )
         .with_for_update()
+    )
+
+
+async def _ensure_report_notification(
+    session: AsyncSession,
+    *,
+    run: ReportGenerationRun,
+    notification_type: str,
+    title: str,
+    body: str,
+    link: str,
+) -> None:
+    existing = await session.scalar(
+        select(Notification.id).where(
+            Notification.user_id == run.user_id,
+            Notification.type == notification_type,
+            Notification.link == link,
+        )
+    )
+    if existing is None:
+        await create_notification(
+            session,
+            NotificationCreate(
+                user_id=run.user_id,
+                type=notification_type,
+                title=title,
+                body=body,
+                link=link,
+            ),
+        )
+
+
+async def persist_completed_report(
+    session: AsyncSession,
+    *,
+    run_id: str,
+    job_id: str,
+    lease_owner: str | None,
+    data: CompletedReportData,
+    now: datetime | None = None,
+) -> Report:
+    existing = await session.scalar(
+        select(Report).where(Report.generation_run_id == run_id)
+    )
+    if existing is not None:
+        return existing
+
+    run = await session.scalar(
+        select(ReportGenerationRun)
+        .where(
+            ReportGenerationRun.id == run_id,
+            ReportGenerationRun.state == "generating",
+            ReportGenerationRun.generation_job_id == job_id,
+        )
+        .with_for_update()
+    )
+    job_query = select(WorkflowJob).where(
+        WorkflowJob.id == job_id,
+        WorkflowJob.run_id == run_id,
+        WorkflowJob.status == "running",
+    )
+    if lease_owner is not None:
+        job_query = job_query.where(WorkflowJob.lease_owner == lease_owner)
+    job = await session.scalar(job_query.with_for_update())
+    if run is None or job is None:
+        raise PersistRejected("run is cancelled or Job lease is stale")
+
+    completed_at = now or utc_now()
+    report = Report(
+        user_id=run.user_id,
+        generation_run_id=run.id,
+        title=data.title,
+        template_id=data.spec_json.template_id,
+        template_version=data.spec_json.template_version,
+        base_family=data.spec_json.base_family,
+        content_md=data.content_md,
+        html=data.html,
+        spec_json=data.spec_json.model_dump(mode="json", by_alias=True),
+        share_card_spec=data.share_card_spec.model_dump(mode="json"),
+        tokens_used=data.tokens_used,
+        gen_ms=data.gen_ms,
+        created_at=completed_at,
+    )
+    session.add(report)
+    await session.flush()
+    run.report_id = report.id
+    run.completed_at = completed_at
+    run.active_stage = None
+    transition_run(run, "completed", now=completed_at)
+    checkpoint = dict(job.checkpoint_json or {})
+    results = dict(checkpoint.get("stage_results", {}))
+    results["persist"] = {"report_id": report.id}
+    job.checkpoint_json = {
+        "completed_stages": [
+            "load_evidence",
+            "web_search",
+            "content_generation",
+            "chart_validation",
+            "illustration",
+            "html_render",
+            "persist",
+        ],
+        "stage_results": results,
+    }
+    job.status = "succeeded"
+    job.lease_owner = None
+    job.lease_expires_at = None
+    job.error_code = None
+    job.error_message = None
+    job.completed_at = completed_at
+    job.updated_at = completed_at
+    await _ensure_report_notification(
+        session,
+        run=run,
+        notification_type="report_done",
+        title="报告已生成",
+        body=data.title,
+        link=f"report:{report.id}",
+    )
+    await session.flush()
+    return report
+
+
+async def record_report_failure(
+    session: AsyncSession,
+    *,
+    run_id: str,
+    job_id: str,
+    lease_owner: str | None,
+    failure_stage: str,
+    error_code: str,
+    error_message: str,
+    retry_from: str,
+    now: datetime | None = None,
+) -> bool:
+    run = await session.scalar(
+        select(ReportGenerationRun)
+        .where(
+            ReportGenerationRun.id == run_id,
+            ReportGenerationRun.state == "generating",
+            ReportGenerationRun.generation_job_id == job_id,
+        )
+        .with_for_update()
+    )
+    job_query = select(WorkflowJob).where(
+        WorkflowJob.id == job_id,
+        WorkflowJob.run_id == run_id,
+        WorkflowJob.status == "running",
+    )
+    if lease_owner is not None:
+        job_query = job_query.where(WorkflowJob.lease_owner == lease_owner)
+    job = await session.scalar(job_query.with_for_update())
+    if run is None or job is None:
+        return False
+
+    failed_at = now or utc_now()
+    run.failure_stage = failure_stage
+    run.error_code = error_code
+    run.error_message = error_message
+    run.retry_from = retry_from
+    run.active_stage = None
+    transition_run(run, "failed", now=failed_at)
+    job.status = "failed"
+    job.lease_owner = None
+    job.lease_expires_at = None
+    job.error_code = error_code
+    job.error_message = error_message
+    job.completed_at = failed_at
+    job.updated_at = failed_at
+    await _ensure_report_notification(
+        session,
+        run=run,
+        notification_type="report_failed",
+        title="报告生成失败",
+        body="可以从失败阶段重试。",
+        link=f"report-run:{run.id}",
+    )
+    await session.flush()
+    return True
+
+
+async def list_owned_reports(
+    session: AsyncSession,
+    *,
+    user_id: str,
+) -> list[Report]:
+    return list(
+        await session.scalars(
+            select(Report)
+            .where(Report.user_id == user_id)
+            .order_by(Report.created_at.desc(), Report.id.desc())
+        )
+    )
+
+
+async def get_owned_report(
+    session: AsyncSession,
+    *,
+    user_id: str,
+    report_id: str,
+) -> Report | None:
+    return await session.scalar(
+        select(Report).where(
+            Report.id == report_id,
+            Report.user_id == user_id,
+        )
     )
 
 
