@@ -269,6 +269,132 @@ void main() {
     expect(configured, isTrue);
   });
 
+  testWidgets('loads a Theme V2 core asset list by user skill id', (
+    tester,
+  ) async {
+    final requestedUris = <Uri>[];
+    final api = ApiClient(
+      baseUrl: 'http://localhost',
+      enableLogging: false,
+      client: MockClient((request) async {
+        requestedUris.add(request.url);
+        if (request.url.path == '/api/skills') {
+          return _jsonResponse({'detail': 'Not Found'}, statusCode: 404);
+        }
+        return _jsonResponse([
+          {
+            'id': 'core-note-1',
+            'user_skill_id': 'core-notes',
+            'payload': {'content': 'Theme V2 note one'},
+            'effective_at': '2026-08-02T05:00:00Z',
+            'created_at': '2026-08-02T05:00:00Z',
+          },
+          {
+            'id': 'core-note-2',
+            'user_skill_id': 'core-notes',
+            'payload': {'content': 'Theme V2 note two'},
+            'effective_at': '2026-08-02T04:00:00Z',
+            'created_at': '2026-08-02T04:00:00Z',
+          },
+        ]);
+      }),
+    );
+    addTearDown(api.close);
+
+    await tester.pumpWidget(
+      _host(
+        ThemeV2AssetListPage.assets(
+          meta: const SkillMeta('•', '随记', 'gray', 'core-notes'),
+          skillName: 'notes',
+          initialAssets: const [],
+          specs: const {
+            'notes': RenderSpec(
+              cardLayout: 'horizontal',
+              icon: '•',
+              accentColor: 'gray',
+              primaryField: 'content',
+              schemaFields: ['content'],
+            ),
+          },
+          api: api,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final assetsRequest = requestedUris.singleWhere(
+      (uri) => uri.path == '/api/assets',
+    );
+    expect(assetsRequest.queryParameters['user_skill_id'], 'core-notes');
+    expect(find.text('Theme V2 note one'), findsOneWidget);
+    expect(find.text('Theme V2 note two'), findsOneWidget);
+    expect(find.text('还没有内容'), findsNothing);
+  });
+
+  testWidgets('updates a Theme V2 todo with the core PATCH contract', (
+    tester,
+  ) async {
+    final methods = <String>[];
+    Map<String, dynamic>? patchBody;
+    final api = ApiClient(
+      baseUrl: 'http://localhost',
+      enableLogging: false,
+      client: MockClient((request) async {
+        methods.add('${request.method} ${request.url.path}');
+        if (request.url.path == '/api/skills') {
+          return _jsonResponse({'detail': 'Not Found'}, statusCode: 404);
+        }
+        if (request.method == 'PATCH') {
+          patchBody = jsonDecode(request.body) as Map<String, dynamic>;
+          return _jsonResponse({
+            'id': 'core-todo',
+            'user_skill_id': 'core-todo-skill',
+            'payload': patchBody!['payload'],
+            'effective_at': '2026-08-02T05:00:00Z',
+            'created_at': '2026-08-02T05:00:00Z',
+          });
+        }
+        return _jsonResponse([
+          {
+            'id': 'core-todo',
+            'user_skill_id': 'core-todo-skill',
+            'payload': {'title': '完成真机验收', 'status': 'pending'},
+            'effective_at': '2026-08-02T05:00:00Z',
+            'created_at': '2026-08-02T05:00:00Z',
+          },
+        ]);
+      }),
+    );
+    addTearDown(api.close);
+
+    await tester.pumpWidget(
+      _host(
+        ThemeV2AssetListPage.assets(
+          meta: const SkillMeta('✓', '待办', 'gray', 'core-todo-skill'),
+          skillName: 'todo',
+          initialAssets: const [],
+          specs: const {
+            'todo': RenderSpec(
+              cardLayout: 'horizontal',
+              icon: '✓',
+              accentColor: 'gray',
+              primaryField: 'title',
+              schemaFields: ['title', 'status'],
+            ),
+          },
+          api: api,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('todo-complete-core-todo')));
+    await tester.pumpAndSettle();
+
+    expect(methods, contains('PATCH /api/assets/core-todo'));
+    expect(methods, isNot(contains('PUT /api/assets/core-todo')));
+    expect(patchBody?['payload'], {'title': '完成真机验收', 'status': 'done'});
+  });
+
   testWidgets('custom asset list refreshes its schema before editing', (
     tester,
   ) async {
@@ -357,11 +483,12 @@ Widget _host(Widget child) => MaterialApp(
   ),
 );
 
-http.Response _jsonResponse(Object body) => http.Response.bytes(
-  utf8.encode(jsonEncode(body)),
-  200,
-  headers: const {'content-type': 'application/json; charset=utf-8'},
-);
+http.Response _jsonResponse(Object body, {int statusCode = 200}) =>
+    http.Response.bytes(
+      utf8.encode(jsonEncode(body)),
+      statusCode,
+      headers: const {'content-type': 'application/json; charset=utf-8'},
+    );
 
 Map<String, dynamic> _assetDetailEnvelope({
   required String id,

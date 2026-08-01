@@ -86,6 +86,7 @@ class _ThemeV2AssetListPageState extends State<ThemeV2AssetListPage> {
       api: _api,
       source: widget.source,
       skillName: widget.skillName,
+      userSkillId: widget.meta?.userSkillId,
       cardType: widget.cardType,
       label: widget.meta?.label ?? widget.title ?? '资产',
       specs: _specs,
@@ -330,6 +331,7 @@ class _AssetListRepository implements AssetContainerRepository {
     required this.api,
     required this.source,
     required this.skillName,
+    required this.userSkillId,
     required this.cardType,
     required this.label,
     required Map<String, RenderSpec> specs,
@@ -339,10 +341,13 @@ class _AssetListRepository implements AssetContainerRepository {
   final ApiClient api;
   final AssetListSource source;
   final String? skillName;
+  final String? userSkillId;
   final String? cardType;
   final String label;
   final ValueChanged<Map<String, RenderSpec>> onSpecsChanged;
   Map<String, RenderSpec> _specs;
+  final Map<String, Map<String, dynamic>> _payloadsById = {};
+  bool _usesCoreContract = false;
 
   @override
   Future<AssetContainerPage> load({String? cursor}) async {
@@ -350,8 +355,7 @@ class _AssetListRepository implements AssetContainerRepository {
       final type = cardType!;
       final key = type == 'event' ? 'events' : 'contacts';
       final response = await api.getJson('/api/$key');
-      final rows =
-          (response is Map ? response[key] : null) as List? ?? const [];
+      final rows = _responseRows(response, key);
       return AssetContainerPage(
         records: [
           for (final item in rows.whereType<Map>())
@@ -366,7 +370,12 @@ class _AssetListRepository implements AssetContainerRepository {
     final responses = await Future.wait<Object?>([
       api.getJson(
         '/api/assets',
-        query: {'user_skill_name': skillName, 'cursor': ?cursor},
+        query: {
+          'user_skill_name': ?skillName,
+          'user_skill_id': ?userSkillId,
+          'cursor': ?cursor,
+          'limit': 100,
+        },
       ),
       _fetchSpecsSafely(),
     ]);
@@ -376,16 +385,33 @@ class _AssetListRepository implements AssetContainerRepository {
       onSpecsChanged(_specs);
     }
     final response = responses[0];
-    final rows =
-        (response is Map ? response['assets'] : null) as List? ?? const [];
+    _usesCoreContract = response is List;
+    final rows = _responseRows(response, 'assets');
+    for (final item in rows.whereType<Map>()) {
+      final id = item['id']?.toString();
+      final payload = (item['payload'] as Map?)?.cast<String, dynamic>();
+      if (id != null && payload != null) _payloadsById[id] = payload;
+    }
     return AssetContainerPage(
       records: [
         for (final item in rows.whereType<Map>())
-          _adapt(AssetItem.fromJson(item.cast<String, dynamic>())),
+          _adapt(
+            AssetItem.fromJson({
+              ...item.cast<String, dynamic>(),
+              if (item['user_skill_name'] == null && skillName != null)
+                'user_skill_name': skillName,
+            }),
+          ),
       ],
       nextCursor: response is Map ? response['next_cursor']?.toString() : null,
     );
   }
+
+  List _responseRows(dynamic response, String key) => switch (response) {
+    List value => value,
+    Map value => value[key] as List? ?? const [],
+    _ => const [],
+  };
 
   AssetRecordViewModel _adapt(AssetItem asset) {
     final spec = _specs[asset.skillName] ?? synthesizeSpec(asset.skillName);
@@ -407,10 +433,19 @@ class _AssetListRepository implements AssetContainerRepository {
   }
 
   @override
-  Future<void> setTodoCompleted(String id, bool completed) {
-    return api.putJson('/api/assets/$id', {
-      'payload_patch': {'status': completed ? 'done' : 'pending'},
-    });
+  Future<void> setTodoCompleted(String id, bool completed) async {
+    if (!_usesCoreContract) {
+      await api.putJson('/api/assets/$id', {
+        'payload_patch': {'status': completed ? 'done' : 'pending'},
+      });
+      return;
+    }
+    final payload = {
+      ...?_payloadsById[id],
+      'status': completed ? 'done' : 'pending',
+    };
+    await api.patchJson('/api/assets/$id', {'payload': payload});
+    _payloadsById[id] = payload;
   }
 }
 

@@ -86,7 +86,7 @@ void main() {
           requestedUris
               .singleWhere((uri) => uri.path == '/api/assets')
               .queryParameters,
-          {'limit': '50'},
+          {'limit': '100'},
         );
         expect(
           overview.systemContainers.map((container) => container.type),
@@ -175,6 +175,79 @@ void main() {
       );
       expect(overview.totalAssetCount, 2);
     });
+
+    test(
+      'adapts Theme V2 core-record lists without a false partial state',
+      () async {
+        final api = _api((request) async {
+          switch (request.url.path) {
+            case '/api/assets':
+              return _json([
+                for (var index = 0; index < 54; index++)
+                  {
+                    'id': 'core-asset-$index',
+                    'user_skill_id': 'core-notes',
+                    'payload': {'content': 'Theme V2 note $index'},
+                    'effective_at': '2026-08-02T05:00:00Z',
+                    'created_at': DateTime.utc(
+                      2026,
+                      8,
+                      2,
+                    ).add(Duration(minutes: index)).toIso8601String(),
+                  },
+              ]);
+            case '/api/skills':
+              return _json({'detail': 'Not Found'}, statusCode: 404);
+            case '/api/user-skills':
+              return _json([
+                {
+                  'id': 'core-notes',
+                  'machine_name': 'notes',
+                  'display_name': '随记',
+                  'domain': 'knowledge',
+                  'schema': {
+                    'content': {'type': 'string'},
+                  },
+                },
+              ]);
+            case '/api/events':
+              return _json([
+                {'id': 'core-event'},
+              ]);
+            case '/api/contacts':
+            case '/api/assets/counts':
+              return _json({'detail': 'Not Found'}, statusCode: 404);
+            default:
+              throw StateError('unexpected ${request.url}');
+          }
+        });
+        addTearDown(api.close);
+
+        final overview = await ApiLibraryRepository(api).loadOverview();
+
+        expect(overview.failedSources, isEmpty);
+        expect(overview.totalAssetCount, 54);
+        expect(overview.recentAssets, hasLength(50));
+        expect(overview.recentAssets.first.skillName, 'notes');
+        expect(overview.recentAssets.first.skillLabel, '随记');
+        expect(
+          overview.systemContainers
+              .singleWhere(
+                (container) => container.type == LibraryContainerType.notes,
+              )
+              .totalCount,
+          54,
+        );
+        expect(
+          overview.systemContainers
+              .singleWhere(
+                (container) => container.type == LibraryContainerType.event,
+              )
+              .totalCount,
+          1,
+        );
+      },
+    );
 
     test('all offline sources produce a typed offline failure', () async {
       final api = _api(

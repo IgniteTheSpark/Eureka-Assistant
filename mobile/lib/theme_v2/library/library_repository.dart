@@ -24,12 +24,18 @@ class ApiLibraryRepository implements LibraryRepository {
     final sources = await Future.wait([
       _capture(
         'assets',
-        () => api.getJson('/api/assets', query: const {'limit': 50}),
+        () => api.getJson('/api/assets', query: const {'limit': 100}),
       ),
-      _capture('skills', () => api.getJson('/api/skills')),
+      _capture('skills', _loadSkills),
       _capture('events', () => api.getJson('/api/events')),
-      _capture('contacts', () => api.getJson('/api/contacts')),
-      _capture('counts', () => api.getJson('/api/assets/counts')),
+      _capture(
+        'contacts',
+        () => _optionalNotFound(() => api.getJson('/api/contacts')),
+      ),
+      _capture(
+        'counts',
+        () => _optionalNotFound(() => api.getJson('/api/assets/counts')),
+      ),
     ]);
     final failures = [
       for (final source in sources)
@@ -42,12 +48,12 @@ class ApiLibraryRepository implements LibraryRepository {
       );
     }
 
-    final assets = _assets(sources[0].value);
     final skills = _skills(sources[1].value);
+    final assets = _assets(sources[0].value, skills);
     final events = _rows(sources[2].value, 'events');
     final contacts = _rows(sources[3].value, 'contacts');
     final serverCounts = _counts(sources[4].value);
-    final counts = sources[4].failure == null
+    final counts = serverCounts.isNotEmpty
         ? serverCounts
         : _countsFromAssets(assets);
 
@@ -81,26 +87,62 @@ class ApiLibraryRepository implements LibraryRepository {
     }
   }
 
-  List<AssetItem> _assets(dynamic response) {
-    final rows = (response is Map ? response['assets'] : null) as List? ?? [];
+  Future<dynamic> _loadSkills() async {
+    try {
+      return await api.getJson('/api/skills');
+    } on ApiException catch (error) {
+      if (error.statusCode != 404) rethrow;
+      return api.getJson('/api/user-skills');
+    }
+  }
+
+  Future<dynamic> _optionalNotFound(Future<dynamic> Function() request) async {
+    try {
+      return await request();
+    } on ApiException catch (error) {
+      if (error.statusCode == 404) return null;
+      rethrow;
+    }
+  }
+
+  List<AssetItem> _assets(
+    dynamic response,
+    Map<String, _SkillDefinition> skills,
+  ) {
+    final rows = _list(response, 'assets');
+    final skillsById = {
+      for (final skill in skills.values)
+        if (skill.userSkillId != null) skill.userSkillId!: skill,
+    };
     return rows
         .whereType<Map>()
-        .map((row) => AssetItem.fromJson(row.cast<String, dynamic>()))
+        .map((row) {
+          final value = row.cast<String, dynamic>();
+          final skill = skillsById[value['user_skill_id']?.toString()];
+          return AssetItem.fromJson({
+            ...value,
+            if (value['user_skill_name'] == null && skill != null)
+              'user_skill_name': skill.name,
+            if (value['domain'] == null && skill?.domain != null)
+              'domain': skill!.domain,
+          });
+        })
         .toList(growable: false);
   }
 
   Map<String, _SkillDefinition> _skills(dynamic response) {
-    final rows = (response is Map ? response['skills'] : null) as List? ?? [];
+    final rows = _list(response, 'skills');
     final result = <String, _SkillDefinition>{};
     for (final raw in rows.whereType<Map>()) {
       final row = raw.cast<String, dynamic>();
-      final name = row['name']?.toString().trim() ?? '';
+      final name =
+          (row['name'] ?? row['machine_name'])?.toString().trim() ?? '';
       if (name.isEmpty || !_enabled(row['enabled'])) continue;
       final renderMap =
           (row['render_spec'] as Map?)?.cast<String, dynamic>() ?? const {};
       var spec = RenderSpec.fromJson(
         renderMap,
-      ).withSchema(row['payload_schema']);
+      ).withSchema(row['payload_schema'] ?? row['schema']);
       if (name == 'todo') spec = normalizeTodoSpec(spec);
       result[name] = _SkillDefinition(
         name: name,
@@ -108,6 +150,7 @@ class ApiLibraryRepository implements LibraryRepository {
             ? row['display_name'].toString().trim()
             : name,
         userSkillId: row['user_skill_id']?.toString() ?? row['id']?.toString(),
+        domain: row['domain']?.toString(),
         renderMap: renderMap,
         spec: spec,
       );
@@ -116,12 +159,18 @@ class ApiLibraryRepository implements LibraryRepository {
   }
 
   List<Map<String, dynamic>> _rows(dynamic response, String key) {
-    final rows = (response is Map ? response[key] : null) as List? ?? [];
+    final rows = _list(response, key);
     return rows
         .whereType<Map>()
         .map((row) => row.cast<String, dynamic>())
         .toList(growable: false);
   }
+
+  List _list(dynamic response, String key) => switch (response) {
+    List value => value,
+    Map value => value[key] as List? ?? const [],
+    _ => const [],
+  };
 
   Map<String, int> _counts(dynamic response) {
     final raw = (response is Map ? response['counts'] : null) as Map? ?? {};
@@ -305,6 +354,7 @@ class _SkillDefinition {
     required this.name,
     required this.label,
     required this.userSkillId,
+    required this.domain,
     required this.renderMap,
     required this.spec,
   });
@@ -312,6 +362,7 @@ class _SkillDefinition {
   final String name;
   final String label;
   final String? userSkillId;
+  final String? domain;
   final Map<String, dynamic> renderMap;
   final RenderSpec spec;
 }
