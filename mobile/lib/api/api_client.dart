@@ -320,6 +320,9 @@ class _ApiLoggingClient extends http.BaseClient {
   List<String> _plainMapLines(Map<String, dynamic> values) {
     if (values.isEmpty) return const ['  [empty]'];
     return values.entries.map((entry) {
+      if (entry.key.toLowerCase() == 'authorization') {
+        return '${entry.key}: [REDACTED]';
+      }
       final value = entry.value;
       final rendered = value is Iterable ? value.join(', ') : '$value';
       return '${entry.key}: $rendered';
