@@ -14,7 +14,10 @@ class ApiThemeV2HomeRepository implements ThemeV2HomeRepository {
   final bool _ownsApi;
 
   @override
-  Future<TodayData> load() => loadToday(_api);
+  Future<TodayData> load() async {
+    await _api.getJson('/ready');
+    return loadToday(_api);
+  }
 
   void dispose() {
     if (_ownsApi) _api.close();

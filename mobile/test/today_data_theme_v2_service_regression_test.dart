@@ -1,0 +1,158 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:eureka/api/api_client.dart';
+import 'package:eureka/today/today_data.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+
+void main() {
+  test('loads Today from the Theme V2 core-record list contract', () async {
+    final coreListLimits = <int>[];
+    final api = ApiClient(
+      baseUrl: 'http://theme-v2.test',
+      enableLogging: false,
+      client: MockClient((request) async {
+        if ({
+          '/api/assets',
+          '/api/events',
+          '/api/contacts',
+        }.contains(request.url.path)) {
+          final limit = int.tryParse(
+            request.url.queryParameters['limit'] ?? '',
+          );
+          if (limit != null) coreListLimits.add(limit);
+        }
+        switch (request.url.path) {
+          case '/api/timeline':
+          case '/api/skills':
+            return http.Response('{"detail":"Not Found"}', 404);
+          case '/api/user-skills':
+            return _json([
+              {
+                'id': 'skill-notes',
+                'machine_name': 'notes',
+                'display_name': '随记',
+                'description': '短笔记',
+                'domain': 'knowledge',
+                'schema': {
+                  'content': {'type': 'string'},
+                },
+                'created_at': '2026-08-02T00:00:00Z',
+                'updated_at': '2026-08-02T00:00:00Z',
+              },
+              {
+                'id': 'skill-todo',
+                'machine_name': 'todo',
+                'display_name': '待办',
+                'description': '任务',
+                'domain': 'work',
+                'schema': {
+                  'title': {'type': 'string'},
+                },
+                'created_at': '2026-08-02T00:00:00Z',
+                'updated_at': '2026-08-02T00:00:00Z',
+              },
+            ]);
+          case '/api/assets':
+            return _json([
+              {
+                'id': 'asset-note',
+                'user_skill_id': 'skill-notes',
+                'payload': {'content': 'Theme V2 真机验收记录'},
+                'effective_at': '2026-08-01T17:10:00Z',
+                'created_at': '2026-08-01T17:05:00Z',
+                'updated_at': '2026-08-01T17:05:00Z',
+              },
+              {
+                'id': 'asset-todo',
+                'user_skill_id': 'skill-todo',
+                'payload': {
+                  'title': '完成 Theme V2 验收',
+                  'due_date': '2026-08-02T10:00:00+08:00',
+                  'status': 'open',
+                },
+                'effective_at': '2026-08-02T02:00:00Z',
+                'created_at': '2026-08-01T17:06:00Z',
+                'updated_at': '2026-08-01T17:06:00Z',
+              },
+            ]);
+          case '/api/events':
+            return _json([
+              {
+                'id': 'event-review',
+                'title': 'Theme V2 设计复核',
+                'description': '真机验收测试事件',
+                'location': '线上会议室',
+                'start_at': '2026-08-02T01:00:00Z',
+                'end_at': '2026-08-02T02:00:00Z',
+                'all_day': false,
+                'status': 'scheduled',
+                'created_at': '2026-08-01T17:07:00Z',
+                'updated_at': '2026-08-01T17:07:00Z',
+              },
+            ]);
+          case '/api/contacts':
+            return _json({'contacts': <Object>[]});
+          case '/api/sessions':
+            return _json({'sessions': <Object>[]});
+          default:
+            return http.Response('{"detail":"unexpected"}', 500);
+        }
+      }),
+    );
+
+    final data = await loadToday(api, nowOverride: DateTime(2026, 8, 2, 1));
+
+    expect(data.chain.map((item) => item.id), ['event-review', 'asset-todo']);
+    expect(data.pool.map((item) => item.id), [
+      'event-review',
+      'asset-todo',
+      'asset-note',
+    ]);
+    expect(data.poolTrueCount, 3);
+    expect(data.skills['notes']?.label, '随记');
+    expect(data.skills['todo']?.label, '待办');
+    expect(coreListLimits, isNot(contains(greaterThan(100))));
+  });
+
+  test('attaches Today subrequest error handlers before awaiting', () async {
+    final uncaught = <Object>[];
+    final api = ApiClient(
+      baseUrl: 'http://theme-v2.test',
+      enableLogging: false,
+      client: MockClient((request) async {
+        if (request.url.path == '/api/timeline') {
+          return _json({'items': <Object>[]});
+        }
+        if (request.url.path == '/api/skills') {
+          return _json({'skills': <Object>[]});
+        }
+        if (request.url.path == '/api/sessions') {
+          return _json({'sessions': <Object>[]});
+        }
+        if (request.url.path == '/api/assets') {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+          return _json({'assets': <Object>[]});
+        }
+        return http.Response('{"detail":"Not Found"}', 404);
+      }),
+    );
+
+    final future = runZonedGuarded(
+      () => loadToday(api, nowOverride: DateTime(2026, 8, 2, 1)),
+      (error, _) => uncaught.add(error),
+    );
+    expect(future, isNotNull);
+    await future!;
+
+    expect(uncaught, isEmpty);
+  });
+}
+
+http.Response _json(Object body) => http.Response(
+  jsonEncode(body),
+  200,
+  headers: const {'content-type': 'application/json'},
+);

@@ -183,23 +183,131 @@ SkillMeta resolveTimelineItemMeta(
 }
 
 Future<List<TimelineItem>> fetchTimeline(ApiClient api) async {
-  final res = await api.getJson('/api/timeline');
-  final items = (res is Map ? res['items'] : null) as List? ?? const [];
-  return items
-      .whereType<Map>()
-      .map((e) => TimelineItem.fromJson(e.cast<String, dynamic>()))
-      // The 文件 entity was removed from the app — never surface file captures.
-      .where((it) => it.kind != 'file')
-      .toList();
+  try {
+    final res = await api.getJson('/api/timeline');
+    final items = (res is Map ? res['items'] : null) as List? ?? const [];
+    return items
+        .whereType<Map>()
+        .map((e) => TimelineItem.fromJson(e.cast<String, dynamic>()))
+        // The 文件 entity was removed from the app — never surface file captures.
+        .where((it) => it.kind != 'file')
+        .toList();
+  } on ApiException catch (error) {
+    if (error.statusCode != 404) rethrow;
+    return _fetchCoreRecordTimeline(api);
+  }
+}
+
+Future<List<TimelineItem>> _fetchCoreRecordTimeline(ApiClient api) async {
+  final responses = await Future.wait([
+    api.getJson('/api/user-skills'),
+    api.getJson('/api/assets', query: const {'limit': 100}),
+    api.getJson('/api/events', query: const {'limit': 100}),
+  ]);
+  final skillsById = <String, ({String name, String domain})>{};
+  for (final raw in _coreList(responses[0], 'skills').whereType<Map>()) {
+    final skill = raw.cast<String, dynamic>();
+    final id = skill['id']?.toString();
+    final name = skill['machine_name']?.toString();
+    if (id == null || name == null || name.isEmpty) continue;
+    skillsById[id] = (name: name, domain: skill['domain']?.toString() ?? '');
+  }
+
+  final items = <TimelineItem>[];
+  for (final raw in _coreList(responses[2], 'events').whereType<Map>()) {
+    final event = raw.cast<String, dynamic>();
+    if (event['status'] == 'cancelled') continue;
+    final start = DateTime.tryParse(
+      event['start_at']?.toString() ?? '',
+    )?.toLocal();
+    if (start == null) continue;
+    final id = event['id']?.toString() ?? '';
+    items.add(
+      TimelineItem(
+        kind: 'event',
+        id: id,
+        effectiveAt: start,
+        title: _coreTitle(event, '事件'),
+        subtitle: '',
+        skillName: null,
+        sessionId: null,
+        derived: const {},
+        endAt: DateTime.tryParse(event['end_at']?.toString() ?? '')?.toLocal(),
+        allDay: event['all_day'] == true,
+        location: event['location']?.toString(),
+        eventId: id,
+        payload: event,
+      ),
+    );
+  }
+
+  for (final raw in _coreList(responses[1], 'assets').whereType<Map>()) {
+    final asset = raw.cast<String, dynamic>();
+    final skill = skillsById[asset['user_skill_id']?.toString()];
+    if (skill == null) continue;
+    final payload =
+        (asset['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final due = payload['due_date']?.toString();
+    final effective = DateTime.tryParse(
+      due == null || due.isEmpty
+          ? asset['effective_at']?.toString() ?? ''
+          : due,
+    )?.toLocal();
+    if (effective == null) continue;
+    items.add(
+      TimelineItem(
+        kind: 'asset',
+        id: asset['id']?.toString() ?? '',
+        effectiveAt: effective,
+        title: _coreTitle(payload, skill.name),
+        subtitle:
+            payload['note']?.toString() ??
+            payload['description']?.toString() ??
+            '',
+        skillName: skill.name,
+        sessionId: null,
+        derived: const {},
+        payload: payload,
+        hasClockTime: due?.contains('T') == true,
+        hasScheduledTime: due != null && due.isNotEmpty,
+        domain: skill.domain,
+      ),
+    );
+  }
+  items.sort((a, b) => a.effectiveAt.compareTo(b.effectiveAt));
+  return items;
+}
+
+List _coreList(dynamic response, String key) => switch (response) {
+  List value => value,
+  Map value => value[key] as List? ?? const [],
+  _ => const [],
+};
+
+String _coreTitle(Map<String, dynamic> value, String fallback) {
+  final candidate =
+      value['title'] ?? value['content'] ?? value['name'] ?? value['amount'];
+  final title = candidate?.toString().trim() ?? '';
+  return title.isEmpty ? fallback : title;
 }
 
 /// name → {icon, label} from /api/skills (render_spec.icon + display_name).
 Future<Map<String, SkillMeta>> fetchSkills(ApiClient api) async {
-  final res = await api.getJson('/api/skills');
-  final skills = (res is Map ? res['skills'] : null) as List? ?? const [];
+  dynamic res;
+  try {
+    res = await api.getJson('/api/skills');
+  } on ApiException catch (error) {
+    if (error.statusCode != 404) rethrow;
+    res = await api.getJson('/api/user-skills');
+  }
+  final skills = switch (res) {
+    List value => value,
+    Map value => value['skills'] as List? ?? const [],
+    _ => const [],
+  };
   final out = <String, SkillMeta>{};
   for (final s in skills.whereType<Map>()) {
-    final name = s['name'] as String?;
+    final name = (s['name'] ?? s['machine_name']) as String?;
     if (name == null) continue;
     final rs = (s['render_spec'] as Map?)?.cast<String, dynamic>();
     out[name] = SkillMeta(
@@ -208,7 +316,7 @@ Future<Map<String, SkillMeta>> fetchSkills(ApiClient api) async {
       _pinnedIcons[name] ?? (rs?['icon'] as String? ?? '•'),
       s['display_name'] as String? ?? name,
       rs?['accent_color'] as String? ?? 'gray',
-      s['user_skill_id'] as String?,
+      (s['user_skill_id'] ?? s['id']) as String?,
       (s['enabled'] as int? ?? 1) != 0,
     );
   }

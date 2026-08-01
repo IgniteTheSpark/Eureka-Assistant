@@ -276,13 +276,117 @@ _loadChain(ApiClient api, String from, String to, DateTime now) async {
       todoDone: todoDone,
     );
   } catch (_) {
-    return (
-      chain: <ChainItem>[],
-      noTime: <ChainItem>[],
-      todoTotal: 0,
-      todoDone: 0,
+    return _loadCoreRecordChain(api, from, to, now);
+  }
+}
+
+Future<
+  ({List<ChainItem> chain, List<ChainItem> noTime, int todoTotal, int todoDone})
+>
+_loadCoreRecordChain(
+  ApiClient api,
+  String from,
+  String to,
+  DateTime now,
+) async {
+  final skillsFuture = _loadCoreSkills(api);
+  final eventsFuture = _safeGetWithLimit(
+    api,
+    '/api/events',
+    query: {'start_from': from, 'start_to': to, 'limit': 100},
+  );
+  final assetsFuture = _safeGetWithLimit(
+    api,
+    '/api/assets',
+    query: {'limit': 100},
+  );
+  final skillsById = await skillsFuture;
+  final events = _responseList(await eventsFuture, 'events');
+  final assets = _responseList(await assetsFuture, 'assets');
+  final candidates = <ChainItem>[];
+  var todoTotal = 0;
+  var todoDone = 0;
+
+  for (final raw in events.whereType<Map>()) {
+    final event = raw.cast<String, dynamic>();
+    if (event['status'] == 'cancelled') continue;
+    final start = DateTime.tryParse(
+      event['start_at'] as String? ?? '',
+    )?.toLocal();
+    if (start == null || !_isWithin(start, from, to)) continue;
+    final end = DateTime.tryParse(event['end_at'] as String? ?? '')?.toLocal();
+    final id = (event['id'] ?? event['event_id'])?.toString() ?? '';
+    final title = (event['title'] as String?)?.trim();
+    candidates.add(
+      ChainItem(
+        kind: 'event',
+        id: id,
+        title: title == null || title.isEmpty ? '事件' : title,
+        at: start,
+        timed: true,
+        sub: (event['location'] as String?)?.trim().isNotEmpty == true
+            ? event['location'] as String
+            : '事件',
+        dur: end?.difference(start),
+        card: {
+          'card_type': 'event',
+          'title': title == null || title.isEmpty ? '事件' : title,
+          'start_at': start.toIso8601String(),
+          'location': event['location'] ?? '',
+          'domain': '',
+          'asset_id': id,
+        },
+      ),
     );
   }
+
+  for (final raw in assets.whereType<Map>()) {
+    final asset = raw.cast<String, dynamic>();
+    final skill = skillsById[asset['user_skill_id']?.toString()];
+    if (skill?.machineName != 'todo') continue;
+    final payload =
+        (asset['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final due = payload['due_date']?.toString();
+    final effective = due == null || due.isEmpty
+        ? asset['effective_at']?.toString()
+        : due;
+    final at = DateTime.tryParse(effective ?? '')?.toLocal();
+    if (at == null || !_isWithin(at, from, to)) continue;
+    todoTotal++;
+    final done = _todoDone(payload);
+    if (done) todoDone++;
+    final id = asset['id']?.toString() ?? '';
+    final title = _poolTitle(payload, skill!.machineName);
+    candidates.add(
+      ChainItem(
+        kind: 'todo',
+        id: id,
+        title: title,
+        at: at,
+        timed: due?.contains('T') == true,
+        sub: payload['note']?.toString() ?? '',
+        domain: skill.domain,
+        done: done,
+        card: {
+          'user_skill_name': skill.machineName,
+          'payload': payload,
+          'asset_id': id,
+          'domain': skill.domain,
+        },
+      ),
+    );
+  }
+
+  final live = candidates
+      .where((item) => !(item.timed && item.kind == 'todo' && item.done))
+      .toList();
+  final split = splitChain(live, now);
+  return (
+    chain: split.chain,
+    noTime: split.noTime,
+    todoTotal: todoTotal,
+    todoDone: todoDone,
+  );
 }
 
 /// Today's pool = everything **captured today**: assets (by created_at) + events
@@ -296,32 +400,42 @@ Future<({List<PoolAsset> pool, int trueCount})> _loadPool(
   String from,
   String to,
 ) async {
-  final assetsF = api.getJson(
+  final assetsF = _safeGetWithLimit(
+    api,
     '/api/assets',
     query: {'created_from': from, 'created_to': to, 'limit': 500},
   );
-  final eventsF = api.getJson(
+  final eventsF = _safeGetWithLimit(
+    api,
     '/api/events',
     query: {'created_from': from, 'created_to': to, 'limit': 200},
   );
-  final contactsF = api.getJson('/api/contacts', query: {'limit': 200});
+  final contactsF = _safeGetWithLimit(
+    api,
+    '/api/contacts',
+    query: {'limit': 200},
+  );
+  final skillsF = _loadCoreSkills(api);
 
   final all = <PoolAsset>[];
+  final skillsById = await skillsF;
 
   // assets (skill-typed; carry their own §8 domain)
   try {
     final res = await assetsF;
-    final list = (res is Map ? res['assets'] : null) as List? ?? const [];
+    final list = _responseList(res, 'assets');
     for (final raw in list.whereType<Map>()) {
       final m = raw.cast<String, dynamic>();
       final payload =
           (m['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
-      final type = m['user_skill_name'] as String? ?? '';
+      final coreSkill = skillsById[m['user_skill_id']?.toString()];
+      final type =
+          m['user_skill_name'] as String? ?? coreSkill?.machineName ?? '';
       all.add(
         PoolAsset(
           id: m['id'] as String? ?? '',
           type: type,
-          domain: m['domain'] as String? ?? '',
+          domain: m['domain'] as String? ?? coreSkill?.domain ?? '',
           title: _poolTitle(payload, type),
           payload: payload,
           createdAt:
@@ -335,7 +449,7 @@ Future<({List<PoolAsset> pool, int trueCount})> _loadPool(
   // events recorded today — no domain → '' (neutral bubble / 未分类 in 按领域)
   try {
     final res = await eventsF;
-    final list = (res is Map ? res['events'] : null) as List? ?? const [];
+    final list = _responseList(res, 'events');
     for (final raw in list.whereType<Map>()) {
       final m = raw.cast<String, dynamic>();
       final t = (m['title'] as String?)?.trim();
@@ -358,7 +472,7 @@ Future<({List<PoolAsset> pool, int trueCount})> _loadPool(
   // API has no created filter, so client-filter created_at into [from, to].
   try {
     final res = await contactsF;
-    final list = (res is Map ? res['contacts'] : null) as List? ?? const [];
+    final list = _responseList(res, 'contacts');
     final fromDt = DateTime.tryParse(from), toDt = DateTime.tryParse(to);
     for (final raw in list.whereType<Map>()) {
       final m = raw.cast<String, dynamic>();
@@ -383,6 +497,87 @@ Future<({List<PoolAsset> pool, int trueCount})> _loadPool(
   // newest first → the dashboard's "最新" row + the freshest 50 as bubbles.
   all.sort((a, b) => b.createdAt.compareTo(a.createdAt));
   return (pool: all.take(50).toList(), trueCount: all.length);
+}
+
+class _CoreSkill {
+  const _CoreSkill({required this.machineName, required this.domain});
+
+  final String machineName;
+  final String domain;
+}
+
+Future<Map<String, _CoreSkill>> _loadCoreSkills(ApiClient api) async {
+  final response = await _safeGetWithLimit(api, '/api/user-skills');
+  final out = <String, _CoreSkill>{};
+  for (final raw in _responseList(response, 'skills').whereType<Map>()) {
+    final value = raw.cast<String, dynamic>();
+    final id = value['id']?.toString();
+    final machineName = value['machine_name']?.toString();
+    if (id == null || machineName == null || machineName.isEmpty) continue;
+    out[id] = _CoreSkill(
+      machineName: machineName,
+      domain: value['domain']?.toString() ?? '',
+    );
+  }
+  return out;
+}
+
+Future<dynamic> _safeGetWithLimit(
+  ApiClient api,
+  String path, {
+  Map<String, dynamic>? query,
+}) async {
+  final requestedLimit = int.tryParse('${query?['limit'] ?? ''}');
+  if (requestedLimit != null && requestedLimit > 100) {
+    try {
+      final safeResponse = await api.getJson(
+        path,
+        query: {...?query, 'limit': 100},
+      );
+      // Theme V2 list endpoints cap `limit` at 100. Legacy endpoints return a
+      // keyed map and allow the larger bounds used by Today; only probe that
+      // legacy bound when the first page is actually full.
+      if (safeResponse is! Map || _responseItemCount(safeResponse) < 100) {
+        return safeResponse;
+      }
+      try {
+        return await api.getJson(path, query: query);
+      } on ApiException catch (error) {
+        if (error.statusCode == 422) return safeResponse;
+        return null;
+      }
+    } catch (_) {
+      return null;
+    }
+  }
+  try {
+    return await api.getJson(path, query: query);
+  } on ApiException catch (_) {
+    return null;
+  } catch (_) {
+    return null;
+  }
+}
+
+int _responseItemCount(Map response) {
+  for (final value in response.values) {
+    if (value is List) return value.length;
+  }
+  return 0;
+}
+
+List _responseList(dynamic response, String key) => switch (response) {
+  List value => value,
+  Map value => value[key] as List? ?? const [],
+  _ => const [],
+};
+
+bool _isWithin(DateTime value, String from, String to) {
+  final start = DateTime.tryParse(from)?.toLocal();
+  final end = DateTime.tryParse(to)?.toLocal();
+  if (start != null && value.isBefore(start)) return false;
+  if (end != null && value.isAfter(end)) return false;
+  return true;
 }
 
 /// GET /api/sessions?session_type=flash&date=today → flash count (server filters
