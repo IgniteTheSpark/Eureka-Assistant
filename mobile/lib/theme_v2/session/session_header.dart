@@ -10,15 +10,15 @@ class SessionHeader extends StatelessWidget {
     required this.title,
     required this.messageCount,
     required this.onBack,
-    required this.onNewSession,
-    required this.onOpenHistory,
+    this.onNewSession,
+    this.onOpenHistory,
   });
 
   final String title;
   final int messageCount;
   final VoidCallback onBack;
-  final VoidCallback onNewSession;
-  final VoidCallback onOpenHistory;
+  final VoidCallback? onNewSession;
+  final VoidCallback? onOpenHistory;
 
   @override
   Widget build(BuildContext context) {
@@ -69,18 +69,20 @@ class SessionHeader extends StatelessWidget {
                   ],
                 ),
               ),
-              ThemeV2IconButton(
-                semanticLabel: '新会话',
-                icon: Icons.add_comment_outlined,
-                color: tokens.muted,
-                onPressed: onNewSession,
-              ),
-              ThemeV2IconButton(
-                semanticLabel: '历史会话',
-                icon: Icons.history_rounded,
-                color: tokens.muted,
-                onPressed: onOpenHistory,
-              ),
+              if (onNewSession != null)
+                ThemeV2IconButton(
+                  semanticLabel: '新会话',
+                  icon: Icons.add_comment_outlined,
+                  color: tokens.muted,
+                  onPressed: onNewSession!,
+                ),
+              if (onOpenHistory != null)
+                ThemeV2IconButton(
+                  semanticLabel: '历史会话',
+                  icon: Icons.history_rounded,
+                  color: tokens.muted,
+                  onPressed: onOpenHistory!,
+                ),
               const SizedBox(width: 4),
             ],
           ),

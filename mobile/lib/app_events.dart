@@ -11,7 +11,7 @@ import 'data_revision.dart';
 import 'flash/flash_processing_state.dart';
 import 'pages/calendar_page.dart';
 import 'pages/report_viewer_page.dart';
-import 'pages/session_detail_page.dart';
+import 'theme_v2/capture/flash_notification_target.dart';
 import 'pet/reka_notifications.dart';
 import 'pet/reka_nudges.dart';
 import 'theme/app_theme.dart';
@@ -232,11 +232,8 @@ Future<void> openNotificationTarget(String type, String link) async {
     return;
   }
   if (type == 'flash_done') {
-    nav.push(
-      MaterialPageRoute(
-        builder: (_) => SessionDetailPage(sessionId: link, title: '闪念'),
-      ),
-    );
+    final context = navigatorKey.currentContext;
+    if (context != null) await openFlashNotificationTarget(context, link);
     return;
   }
   if (type == 'report_done') {

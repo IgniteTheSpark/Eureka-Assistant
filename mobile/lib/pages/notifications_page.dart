@@ -8,8 +8,8 @@ import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
 import '../theme_v2/asset_detail/asset_entity_ref.dart';
 import '../theme_v2/asset_detail/open_asset_detail.dart';
+import '../theme_v2/capture/flash_notification_target.dart';
 import '../widgets/skeleton_loader.dart';
-import 'session_detail_page.dart';
 
 /// One notification from GET /api/notifications.
 class NotifItem {
@@ -105,13 +105,9 @@ class _NotificationsPageState extends State<NotificationsPage> {
     if (link.isEmpty) return;
     try {
       if (n.type == 'flash_done') {
-        // 闪念 → its capture session (link is the bare session_id).
+        // Theme V2 uses /library?recording_id=...; legacy uses a bare session id.
         if (!mounted) return;
-        await Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => SessionDetailPage(sessionId: link, title: '闪念'),
-          ),
-        );
+        await openFlashNotificationTarget(context, link);
       } else if (n.type == 'reminder') {
         // The scheduler stores a composite key, not a bare id:
         // "reminder:evt:<event_id>:<thr>" or "reminder:todo:<asset_id>:<thr>"

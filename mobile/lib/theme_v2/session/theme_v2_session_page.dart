@@ -177,6 +177,7 @@ class ThemeV2SessionPage extends StatefulWidget {
     this.emptyOpener,
     this.emptyStarters = const [],
     this.focusedInputTurnId,
+    this.readOnly = false,
     this.onBack,
     this.onNewConversation,
   });
@@ -192,6 +193,7 @@ class ThemeV2SessionPage extends StatefulWidget {
   final String? emptyOpener;
   final List<String> emptyStarters;
   final String? focusedInputTurnId;
+  final bool readOnly;
   final VoidCallback? onBack;
   final VoidCallback? onNewConversation;
 
@@ -374,13 +376,15 @@ class _ThemeV2SessionPageState extends State<ThemeV2SessionPage> {
       onDrawerChanged: (open) {
         if (_historyOpen != open) setState(() => _historyOpen = open);
       },
-      drawer: SessionHistoryDrawer(
-        activeSessionId: _controller.sessionId,
-        loadSessions: _controller.listSessions,
-        deleteSession: _controller.deleteSession,
-        onSelectSession: _selectSession,
-        onNewSession: _newConversation,
-      ),
+      drawer: widget.readOnly
+          ? null
+          : SessionHistoryDrawer(
+              activeSessionId: _controller.sessionId,
+              loadSessions: _controller.listSessions,
+              deleteSession: _controller.deleteSession,
+              onSelectSession: _selectSession,
+              onNewSession: _newConversation,
+            ),
       body: SafeArea(
         bottom: false,
         child: Column(
@@ -389,8 +393,10 @@ class _ThemeV2SessionPageState extends State<ThemeV2SessionPage> {
               title: title,
               messageCount: state.messages.length,
               onBack: _back,
-              onNewSession: _newConversation,
-              onOpenHistory: () => _scaffoldKey.currentState?.openDrawer(),
+              onNewSession: widget.readOnly ? null : _newConversation,
+              onOpenHistory: widget.readOnly
+                  ? null
+                  : () => _scaffoldKey.currentState?.openDrawer(),
             ),
             if (_subjectLabel != null || _contexts.isNotEmpty)
               _SessionContextRail(
@@ -411,13 +417,14 @@ class _ThemeV2SessionPageState extends State<ThemeV2SessionPage> {
                 focusedInputTurnId: widget.focusedInputTurnId,
               ),
             ),
-            SessionComposer(
-              controller: _inputController,
-              focusNode: _inputFocusNode,
-              streaming: state.streaming,
-              onAddContext: () => unawaited(_addContext()),
-              onSend: _controller.send,
-            ),
+            if (!widget.readOnly)
+              SessionComposer(
+                controller: _inputController,
+                focusNode: _inputFocusNode,
+                streaming: state.streaming,
+                onAddContext: () => unawaited(_addContext()),
+                onSend: _controller.send,
+              ),
           ],
         ),
       ),

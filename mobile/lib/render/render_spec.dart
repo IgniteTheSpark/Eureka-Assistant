@@ -390,14 +390,28 @@ RenderSpec synthesizeSpec(String cardType) {
   }
 }
 
-Future<Map<String, RenderSpec>> fetchRenderSpecs(ApiClient api) async {
-  final res = await api.getJson('/api/skills');
-  final skills = (res is Map ? res['skills'] : null) as List? ?? const [];
+Future<Map<String, RenderSpec>> fetchRenderSpecs(
+  ApiClient api, {
+  bool coreRecordsOnly = false,
+}) async {
+  final res = await api.getJson(
+    coreRecordsOnly ? '/api/user-skills' : '/api/skills',
+  );
+  final skills = switch (res) {
+    List value => value,
+    Map value => value['skills'] as List? ?? const [],
+    _ => const [],
+  };
   final out = <String, RenderSpec>{};
   for (final s in skills.whereType<Map>()) {
-    final name = s['name'] as String?;
+    final name = (s['name'] ?? s['machine_name']) as String?;
+    if (name == null) continue;
+    if (coreRecordsOnly) {
+      out[name] = _coreRecordRenderSpec(name, s['schema']);
+      continue;
+    }
     final rs = s['render_spec'];
-    if (name != null && rs is Map) {
+    if (rs is Map) {
       var spec = RenderSpec.fromJson(
         rs.cast<String, dynamic>(),
       ).withSchema(s['payload_schema']);
@@ -406,6 +420,83 @@ Future<Map<String, RenderSpec>> fetchRenderSpecs(ApiClient api) async {
     }
   }
   return out;
+}
+
+RenderSpec _coreRecordRenderSpec(String name, dynamic rawSchema) {
+  final schema = rawSchema is Map
+      ? ((rawSchema['properties'] as Map?) ?? rawSchema)
+      : const <String, dynamic>{};
+  RenderSpec spec;
+  switch (name) {
+    case 'todo':
+      spec = synthesizeSpec('todo');
+    case 'expense':
+      spec = const RenderSpec(
+        cardLayout: 'horizontal',
+        icon: '💳',
+        accentColor: 'green',
+        primaryField: 'amount',
+        primaryFormat: 'currency',
+        secondaryField: 'description',
+        metaFields: [
+          MetaFieldSpec('category', 'text'),
+          MetaFieldSpec('merchant', 'text'),
+        ],
+      );
+    case 'contact':
+      spec = synthesizeSpec('contact');
+    case 'idea':
+      spec = const RenderSpec(
+        cardLayout: 'horizontal',
+        icon: '💡',
+        accentColor: 'amber',
+        primaryField: 'title',
+        secondaryField: 'content',
+      );
+    case 'notes':
+      spec = const RenderSpec(
+        cardLayout: 'horizontal',
+        icon: '📝',
+        accentColor: 'blue',
+        primaryField: 'title',
+        secondaryField: 'content',
+      );
+    case 'misc':
+      spec = const RenderSpec(
+        cardLayout: 'horizontal',
+        icon: '🗂',
+        accentColor: 'gray',
+        primaryField: 'title',
+        secondaryField: 'content',
+      );
+    default:
+      final fields = schema.keys.whereType<String>().toList();
+      String? firstPresent(List<String> candidates) {
+        for (final candidate in candidates) {
+          if (fields.contains(candidate)) return candidate;
+        }
+        return null;
+      }
+
+      final primary =
+          firstPresent(const ['title', 'name', 'content', 'amount']) ??
+          (fields.isEmpty ? null : fields.first);
+      final secondary = firstPresent(const [
+        'description',
+        'content',
+        'company',
+        'category',
+      ]);
+      spec = RenderSpec(
+        cardLayout: 'horizontal',
+        icon: '•',
+        accentColor: 'gray',
+        primaryField: primary,
+        secondaryField: secondary == primary ? null : secondary,
+      );
+  }
+  final withSchema = spec.withSchema(schema);
+  return name == 'todo' ? normalizeTodoSpec(withSchema) : withSchema;
 }
 
 RenderSpec normalizeTodoSpec(RenderSpec spec) {

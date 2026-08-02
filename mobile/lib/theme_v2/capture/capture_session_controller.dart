@@ -1,0 +1,214 @@
+import 'package:flutter/foundation.dart';
+
+import '../../api/api_client.dart';
+import '../../chat/chat_models.dart';
+import '../session/theme_v2_session_page.dart';
+
+/// Read-only adapter that projects a Theme V2 capture recording onto the
+/// established Session transcript surface.
+///
+/// Theme V2 persists hardware/typed flashes as CaptureRecording + CaptureTurn,
+/// not as legacy chat sessions. Keeping that distinction here avoids inventing
+/// a second session store while still letting notification recipients replay
+/// the exact transcript, organization summary, and derived records.
+class CaptureSessionController extends ChangeNotifier
+    implements ThemeV2SessionController {
+  CaptureSessionController({ApiClient? api})
+    : _api = api ?? ApiClient(),
+      _ownsApi = api == null;
+
+  final ApiClient _api;
+  final bool _ownsApi;
+
+  @override
+  final List<ChatMessage> messages = [];
+
+  @override
+  bool streaming = false;
+
+  @override
+  String? error;
+
+  @override
+  String? sessionId;
+
+  DateTime? _createdAt;
+  var _loadRevision = 0;
+  var _disposed = false;
+
+  @override
+  String get displayTitle {
+    final createdAt = _createdAt;
+    return createdAt == null ? '闪念' : '${createdAt.month}月${createdAt.day}日 闪念';
+  }
+
+  @override
+  List<({String id, String label})> get contextAssets => const [];
+
+  @override
+  Future<void> loadSession(String id, {String? title}) async {
+    final revision = ++_loadRevision;
+    streaming = true;
+    error = null;
+    _notify();
+    try {
+      final response = await _api.getJson('/api/flash/recordings/$id');
+      final recording = ((response as Map)['recording'] as Map?)
+          ?.cast<String, dynamic>();
+      if (recording == null) {
+        throw const FormatException('闪念详情格式不正确');
+      }
+      final references = ((recording['result_cards'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((item) => item.cast<String, dynamic>())
+          .toList();
+      final cards = await Future.wait(references.map(_hydrateReference));
+      if (_disposed || revision != _loadRevision) return;
+
+      final transcript = recording['asr_text']?.toString().trim() ?? '';
+      final summary = recording['result_summary']?.toString().trim() ?? '';
+      final inputTurnId = recording['input_turn_id']?.toString();
+      final createdAt = DateTime.tryParse(
+        recording['created_at']?.toString() ?? '',
+      )?.toLocal();
+      final status = recording['process_status']?.toString() ?? '';
+
+      messages.clear();
+      if (transcript.isNotEmpty) {
+        messages.add(
+          ChatMessage.user(
+            'capture-$id-user',
+            transcript,
+            inputTurnId: inputTurnId,
+          ),
+        );
+      }
+      if (summary.isNotEmpty || cards.isNotEmpty) {
+        final agent = ChatMessage.agent(
+          'capture-$id-agent',
+          inputTurnId: inputTurnId,
+        )..streaming = false;
+        if (summary.isNotEmpty) {
+          agent
+            ..text = summary
+            ..parts.add(TextPart(summary));
+        }
+        if (cards.isNotEmpty) agent.parts.add(CardsPart(cards));
+        messages.add(agent);
+      }
+
+      sessionId = id;
+      _createdAt = createdAt;
+      streaming = !const {'done', 'empty', 'failed'}.contains(status);
+      error = status == 'failed'
+          ? (recording['error_message']?.toString().trim().isNotEmpty == true
+                ? recording['error_message'].toString().trim()
+                : '闪念整理失败')
+          : null;
+      _notify();
+    } on ApiException catch (exception) {
+      if (_disposed || revision != _loadRevision) return;
+      streaming = false;
+      error = exception.statusCode == 404 ? '这条闪念不存在或已失效' : '闪念加载失败，请稍后重试';
+      _notify();
+      rethrow;
+    } catch (_) {
+      if (_disposed || revision != _loadRevision) return;
+      streaming = false;
+      error = '闪念加载失败，请稍后重试';
+      _notify();
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> _hydrateReference(
+    Map<String, dynamic> reference,
+  ) async {
+    final kind = reference['kind']?.toString();
+    try {
+      if (kind == 'event') {
+        final id = reference['event_id']?.toString() ?? '';
+        if (id.isEmpty) return _fallbackCard(reference);
+        final event = (await _api.getJson('/api/events/$id') as Map)
+            .cast<String, dynamic>();
+        return {...event, ...reference, 'event_id': id, 'card_type': 'event'};
+      }
+      if (kind == 'asset') {
+        final id = reference['asset_id']?.toString() ?? '';
+        if (id.isEmpty) return _fallbackCard(reference);
+        final asset = (await _api.getJson('/api/assets/$id') as Map)
+            .cast<String, dynamic>();
+        final skill = reference['skill_machine_name']?.toString() ?? 'asset';
+        return {
+          ...asset,
+          ...reference,
+          'asset_id': id,
+          'card_type': skill,
+          'user_skill_name': skill,
+        };
+      }
+    } catch (_) {
+      // A derived record may have been deleted after the capture. The session
+      // itself still replays, with a stable reference card for provenance.
+    }
+    return _fallbackCard(reference);
+  }
+
+  Map<String, dynamic> _fallbackCard(Map<String, dynamic> reference) {
+    final event = reference['kind'] == 'event';
+    final skill = reference['skill_machine_name']?.toString() ?? 'asset';
+    return {
+      ...reference,
+      'card_type': event ? 'event' : skill,
+      if (!event) 'user_skill_name': skill,
+    };
+  }
+
+  @override
+  Future<void> retryLastFailedTurn() async {
+    final id = sessionId;
+    if (id == null || id.isEmpty) return;
+    await _api.postJson('/api/flash/recordings/$id/retry', const {});
+    await loadSession(id);
+  }
+
+  @override
+  Future<void> resumeLast() async {}
+
+  @override
+  Future<void> bindSubject(String type, String id) async {}
+
+  @override
+  Future<List<SessionInfo>> listSessions() async => const [];
+
+  @override
+  Future<bool> deleteSession(String id) async => false;
+
+  @override
+  Future<void> send(String text) async {}
+
+  @override
+  Future<void> precipitate(String text, String skill) async {}
+
+  @override
+  Future<bool> attachContexts(
+    List<String> assetIds, {
+    Map<String, String> labels = const {},
+  }) async => false;
+
+  @override
+  void reset() {}
+
+  void _notify() {
+    if (!_disposed) notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    _loadRevision++;
+    if (_ownsApi) _api.close();
+    super.dispose();
+  }
+}
