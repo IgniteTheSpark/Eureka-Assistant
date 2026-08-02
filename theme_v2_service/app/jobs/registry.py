@@ -3,7 +3,13 @@ from collections.abc import Awaitable, Callable
 from app.config import get_settings
 from app.db.models import WorkflowJob
 from app.domains.capture.asr import TencentS3AsrProvider
-from app.domains.capture.jobs import CAPTURE_ASR_JOB_TYPE, capture_asr_handler
+from app.domains.capture.agent import UnavailableCaptureAgentProvider
+from app.domains.capture.jobs import (
+    CAPTURE_ASR_JOB_TYPE,
+    CAPTURE_PROCESS_JOB_TYPE,
+    capture_asr_handler,
+    capture_process_handler,
+)
 from app.domains.notifications.maintenance import (
     NOTIFICATION_PRUNE_JOB_TYPE,
     handle_notification_prune,
@@ -44,6 +50,23 @@ registry.register(
         ),
         poll_interval_seconds=_settings.capture_asr_poll_interval_seconds,
         poll_timeout_seconds=_settings.capture_asr_poll_timeout_seconds,
+    ),
+)
+if _settings.capture_agent_enabled and _settings.capture_agent_model:
+    from app.domains.capture.providers_litellm import LiteLLMCaptureAgentProvider
+
+    capture_agent_provider = LiteLLMCaptureAgentProvider(
+        model=_settings.capture_agent_model,
+        api_key=_settings.capture_agent_api_key,
+        timeout_seconds=_settings.capture_agent_timeout_seconds,
+    )
+else:
+    capture_agent_provider = UnavailableCaptureAgentProvider()
+registry.register(
+    CAPTURE_PROCESS_JOB_TYPE,
+    capture_process_handler(
+        capture_agent_provider,
+        timezone_name=_settings.default_user_timezone,
     ),
 )
 if _settings.report_planner_enabled and _settings.report_planner_model:

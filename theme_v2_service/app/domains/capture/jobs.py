@@ -1,11 +1,26 @@
 from collections.abc import Callable
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 
 from app.db.base import utc_now
-from app.db.models import WorkflowJob
+from app.db.models import UserSkill, WorkflowJob
 from app.db.session import session_scope
+from app.domains.assets.schemas import AssetCreate, EventCreate
+from app.domains.assets.service import (
+    create_asset,
+    create_event,
+    ensure_capture_skills,
+)
+from app.domains.capture.agent import (
+    CaptureAgentProvider,
+    CaptureAgentResult,
+    CaptureOutputError,
+    PermanentCaptureAgentError,
+    capture_skill_from_model,
+    validate_capture_result,
+)
 from app.domains.capture.asr import (
     AsrPollResult,
     AsrProvider,
@@ -13,11 +28,14 @@ from app.domains.capture.asr import (
 )
 from app.domains.capture.models import CaptureFile, CaptureRecording, CaptureTurn
 from app.domains.capture.service import publish_capture_status
+from app.domains.notifications.schemas import NotificationCreate
+from app.domains.notifications.service import create_notification
 from app.jobs.models import JobDeferred, JobPermanentFailure
 from app.jobs.queue import defer_job, enqueue_job
 
 
 CAPTURE_ASR_JOB_TYPE = "capture_asr"
+CAPTURE_PROCESS_JOB_TYPE = "capture_process"
 
 
 async def _load_recording(recording_id: str) -> CaptureRecording | None:
@@ -326,6 +344,251 @@ def capture_asr_handler(
                 "Tencent ASR reported failure",
             )
         await _complete_capture(
+            recording_id=recording_id,
+            result=result,
+            now=now,
+        )
+
+    return handle
+
+
+async def _prepare_capture_processing(
+    *,
+    recording_id: str,
+) -> tuple[str, str, list] | None:
+    async with session_scope() as session:
+        recording = await session.scalar(
+            select(CaptureRecording)
+            .where(CaptureRecording.id == recording_id)
+            .with_for_update()
+        )
+        if recording is None:
+            raise JobPermanentFailure(
+                "capture_missing",
+                "capture recording not found",
+            )
+        if recording.process_status == "done":
+            return None
+        if recording.process_status not in {"asr_done", "agent_processing"}:
+            raise JobPermanentFailure(
+                "capture_process_invalid_state",
+                f"capture cannot process from {recording.process_status}",
+            )
+        transcript = (recording.asr_text or "").strip()
+        if not transcript:
+            raise JobPermanentFailure(
+                "capture_transcript_missing",
+                "capture transcript is missing",
+            )
+        baseline = await ensure_capture_skills(session, recording.user_id)
+        baseline_names = {skill.machine_name for skill in baseline}
+        custom = list(
+            await session.scalars(
+                select(UserSkill)
+                .where(
+                    UserSkill.user_id == recording.user_id,
+                    UserSkill.machine_name.not_in(baseline_names),
+                )
+                .order_by(UserSkill.created_at, UserSkill.id)
+            )
+        )
+        skills = [capture_skill_from_model(skill) for skill in baseline]
+        skills.extend(
+            capture_skill
+            for skill in custom
+            if (capture_skill := capture_skill_from_model(skill)).enabled
+        )
+        if recording.process_status == "asr_done":
+            recording.process_status = "agent_processing"
+            recording.updated_at = utc_now()
+            await publish_capture_status(
+                session,
+                recording,
+                status="agent_processing",
+                message="正在整理语音内容",
+            )
+        return recording.user_id, transcript, skills
+
+
+async def _fail_agent_capture(
+    *,
+    recording_id: str,
+    message: str,
+    now: datetime,
+) -> None:
+    safe_message = (message or "capture agent failed")[:500]
+    async with session_scope() as session:
+        recording = await session.scalar(
+            select(CaptureRecording)
+            .where(CaptureRecording.id == recording_id)
+            .with_for_update()
+        )
+        if recording is None or recording.process_status == "done":
+            return
+        recording.process_status = "failed"
+        recording.error_message = safe_message
+        recording.processed_at = now
+        recording.updated_at = now
+        await publish_capture_status(
+            session,
+            recording,
+            status="failed",
+            message="语音内容整理失败",
+        )
+
+
+async def _persist_capture_result(
+    *,
+    recording_id: str,
+    result: CaptureAgentResult,
+    now: datetime,
+) -> None:
+    async with session_scope() as session:
+        recording = await session.scalar(
+            select(CaptureRecording)
+            .where(CaptureRecording.id == recording_id)
+            .with_for_update()
+        )
+        if recording is None:
+            raise JobPermanentFailure(
+                "capture_missing",
+                "capture recording not found",
+            )
+        if recording.process_status == "done":
+            return
+        if recording.process_status != "agent_processing":
+            raise JobPermanentFailure(
+                "capture_process_invalid_state",
+                f"capture cannot persist from {recording.process_status}",
+            )
+        skill_models = list(
+            await session.scalars(
+                select(UserSkill).where(UserSkill.user_id == recording.user_id)
+            )
+        )
+        skills = [capture_skill_from_model(skill) for skill in skill_models]
+        validate_capture_result(result, skills)
+        skill_by_name = {skill.machine_name: skill for skill in skill_models}
+
+        references: list[dict] = []
+        for command in result.records:
+            if command.kind == "asset":
+                skill = skill_by_name[command.skill_machine_name or ""]
+                asset = await create_asset(
+                    session,
+                    recording.user_id,
+                    AssetCreate(
+                        user_skill_id=skill.id,
+                        payload=command.payload,
+                        effective_at=command.effective_at,
+                    ),
+                )
+                references.append(
+                    {
+                        "kind": "asset",
+                        "asset_id": asset.id,
+                        "user_skill_id": skill.id,
+                        "skill_machine_name": skill.machine_name,
+                    }
+                )
+            else:
+                event = await create_event(
+                    session,
+                    recording.user_id,
+                    EventCreate(
+                        title=command.title or "",
+                        description=command.description,
+                        location=command.location,
+                        start_at=command.start_at,
+                        end_at=command.end_at,
+                        all_day=command.all_day,
+                        status="scheduled",
+                    ),
+                )
+                references.append(
+                    {
+                        "kind": "event",
+                        "event_id": event.id,
+                    }
+                )
+
+        recording.process_status = "done"
+        recording.result_summary = result.summary.strip()
+        recording.result_records_json = references
+        recording.error_message = None
+        recording.processed_at = now
+        recording.updated_at = now
+        await create_notification(
+            session,
+            NotificationCreate(
+                user_id=recording.user_id,
+                type="flash_done",
+                title="闪念已整理",
+                body=recording.result_summary,
+                link=f"/library?recording_id={recording.id}",
+            ),
+        )
+        await publish_capture_status(
+            session,
+            recording,
+            status="done",
+            message=recording.result_summary,
+        )
+
+
+def _date_in_timezone(now: datetime, timezone_name: str) -> date:
+    aware = now if now.tzinfo is not None else now.replace(tzinfo=timezone.utc)
+    return aware.astimezone(ZoneInfo(timezone_name)).date()
+
+
+def capture_process_handler(
+    provider: CaptureAgentProvider,
+    *,
+    clock: Callable[[], datetime] = utc_now,
+    timezone_name: str = "Asia/Shanghai",
+):
+    async def handle(job: WorkflowJob) -> None:
+        recording_id = job.run_id
+        if not recording_id or not job.lease_owner:
+            raise JobPermanentFailure(
+                "capture_process_invalid_job",
+                "capture process job is missing recording or lease owner",
+            )
+        prepared = await _prepare_capture_processing(recording_id=recording_id)
+        if prepared is None:
+            return
+        _, transcript, skills = prepared
+        now = clock()
+        try:
+            result = await provider.organize(
+                transcript=transcript,
+                local_date=_date_in_timezone(now, timezone_name),
+                skills=skills,
+            )
+            if not isinstance(result, CaptureAgentResult):
+                raise CaptureOutputError("capture provider returned invalid result")
+            validate_capture_result(result, skills)
+        except PermanentCaptureAgentError as exc:
+            await _fail_agent_capture(
+                recording_id=recording_id,
+                message=str(exc),
+                now=now,
+            )
+            raise JobPermanentFailure(
+                "capture_agent_permanent",
+                "capture agent permanently failed",
+            ) from exc
+        except CaptureOutputError as exc:
+            await _fail_agent_capture(
+                recording_id=recording_id,
+                message=str(exc),
+                now=now,
+            )
+            raise JobPermanentFailure(
+                "capture_agent_invalid_output",
+                "capture agent returned invalid output",
+            ) from exc
+        await _persist_capture_result(
             recording_id=recording_id,
             result=result,
             now=now,

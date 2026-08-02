@@ -108,6 +108,17 @@ class CaptureAgentProvider(Protocol):
     ) -> CaptureAgentResult: ...
 
 
+class UnavailableCaptureAgentProvider:
+    async def organize(
+        self,
+        *,
+        transcript: str,
+        local_date: date,
+        skills: list[CaptureSkill],
+    ) -> CaptureAgentResult:
+        raise PermanentCaptureAgentError("capture agent is not configured")
+
+
 def capture_skill_from_model(skill: UserSkill) -> CaptureSkill:
     schema = skill.schema_json or {}
     enabled = skill.machine_name in BASELINE_CAPTURE_SKILL_NAMES or (
