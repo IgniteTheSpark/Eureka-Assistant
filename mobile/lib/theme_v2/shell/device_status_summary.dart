@@ -2,9 +2,8 @@ import 'package:flutter/foundation.dart';
 
 /// Stable, view-only device summary consumed by the global navigation.
 ///
-/// Task 13 owns mapping live device controllers into this contract. Until
-/// then, production uses [DeviceStatusSummary.disconnected] and the Theme V2
-/// rollout remains off by default.
+/// Live hardware controllers are mapped into this contract at the Theme V2
+/// shell boundary, keeping connection ownership out of presentation widgets.
 enum DeviceStatusSummaryKind { disconnected, connected, attention }
 
 @immutable

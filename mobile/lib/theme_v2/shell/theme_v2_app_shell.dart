@@ -16,6 +16,7 @@ import '../inbox/reka_inbox_page.dart';
 import '../library/library_navigation.dart';
 import '../library/theme_v2_library_page.dart';
 import 'device_status_summary.dart';
+import 'theme_v2_device_status_adapter.dart';
 import 'theme_v2_floating_dock.dart';
 import 'theme_v2_global_top_nav.dart';
 import 'theme_v2_page_scaffold.dart';
@@ -29,7 +30,8 @@ class ThemeV2AppShell extends StatefulWidget {
   const ThemeV2AppShell({
     super.key,
     this.pages,
-    this.deviceStatus = const DeviceStatusSummary.disconnected(),
+    this.deviceStatus,
+    this.deviceStatusAdapter,
     this.onDevicePressed,
     this.onNotificationsPressed,
     this.inboxController,
@@ -37,10 +39,15 @@ class ThemeV2AppShell extends StatefulWidget {
     this.libraryNavigation,
     this.initialIndex = const int.fromEnvironment('START_TAB', defaultValue: 0),
     this.showStartupOverlays = true,
-  });
+  }) : assert(deviceStatus == null || deviceStatusAdapter == null);
 
   final List<ThemeV2PageScaffold>? pages;
-  final DeviceStatusSummary deviceStatus;
+  final DeviceStatusSummary? deviceStatus;
+
+  /// Test seam for exercising live changes without native hardware plugins.
+  /// Production leaves this null and listens to the shared controllers.
+  @visibleForTesting
+  final ThemeV2DeviceStatusAdapter? deviceStatusAdapter;
   final VoidCallback? onDevicePressed;
   final VoidCallback? onNotificationsPressed;
   final RekaInboxController? inboxController;
@@ -67,6 +74,8 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
   late final LibraryNavigationController _libraryNavigation =
       widget.libraryNavigation ?? LibraryNavigationController();
   late final bool _ownsLibraryNavigation = widget.libraryNavigation == null;
+  ThemeV2DeviceStatusAdapter? _deviceStatusAdapter;
+  bool _ownsDeviceStatusAdapter = false;
 
   @override
   void initState() {
@@ -76,6 +85,7 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
     _inboxController.addListener(_onInboxChanged);
     _calendarController.surfaceListenable.addListener(_onCalendarChanged);
     _libraryNavigation.addListener(_onLibraryChanged);
+    _attachDeviceStatusAdapter();
     if (_inboxController.status == RekaInboxStatus.idle) {
       unawaited(_inboxController.load(includeOffers: false));
     }
@@ -84,6 +94,7 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
 
   @override
   void dispose() {
+    _detachDeviceStatusAdapter();
     _inboxController.removeListener(_onInboxChanged);
     if (_ownsInboxController) _inboxController.dispose();
     _calendarController.surfaceListenable.removeListener(_onCalendarChanged);
@@ -92,6 +103,37 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
     if (_ownsLibraryNavigation) _libraryNavigation.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant ThemeV2AppShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.deviceStatus != widget.deviceStatus ||
+        oldWidget.deviceStatusAdapter != widget.deviceStatusAdapter) {
+      _detachDeviceStatusAdapter();
+      _attachDeviceStatusAdapter();
+    }
+  }
+
+  void _attachDeviceStatusAdapter() {
+    if (widget.deviceStatus != null) return;
+    _deviceStatusAdapter =
+        widget.deviceStatusAdapter ?? ThemeV2DeviceStatusAdapter();
+    _ownsDeviceStatusAdapter = widget.deviceStatusAdapter == null;
+    _deviceStatusAdapter!.addListener(_onDeviceStatusChanged);
+  }
+
+  void _detachDeviceStatusAdapter() {
+    final adapter = _deviceStatusAdapter;
+    if (adapter == null) return;
+    adapter.removeListener(_onDeviceStatusChanged);
+    if (_ownsDeviceStatusAdapter) adapter.dispose();
+    _deviceStatusAdapter = null;
+    _ownsDeviceStatusAdapter = false;
+  }
+
+  void _onDeviceStatusChanged() {
+    if (mounted) setState(() {});
   }
 
   void _onInboxChanged() {
@@ -190,7 +232,10 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
     final pages = _pages();
     final activePage = pages[_index];
     final topNav = ThemeV2GlobalTopNav(
-      deviceStatus: widget.deviceStatus,
+      deviceStatus:
+          widget.deviceStatus ??
+          _deviceStatusAdapter?.value ??
+          const DeviceStatusSummary.disconnected(),
       unreadNotificationCount: _inboxController.unreadCount,
       onDevicePressed: () => _openDevice(context),
       onNotificationsPressed: () => _openNotifications(context),
