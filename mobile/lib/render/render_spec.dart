@@ -107,14 +107,20 @@ class RenderSpec {
     final types = <String, String>{};
     final required = <String>{};
     if (payloadSchema is Map) {
-      payloadSchema.forEach((k, meta) {
+      final schema = (payloadSchema['properties'] as Map?) ?? payloadSchema;
+      final envelopeRequired = (payloadSchema['required'] as List? ?? const [])
+          .map((value) => value.toString())
+          .toSet();
+      schema.forEach((k, meta) {
         if (k is String) {
           fields.add(k);
           if (meta is Map) {
             final l = (meta['label'] as String?)?.trim();
             if (l != null && l.isNotEmpty) labels[k] = l;
             if (meta['long'] == true) longs.add(k);
-            if (meta['required'] == true) required.add(k);
+            if (meta['required'] == true || envelopeRequired.contains(k)) {
+              required.add(k);
+            }
             final t = meta['type'] as String?;
             if (t != null && t.isNotEmpty) types[k] = t;
           }
@@ -407,7 +413,7 @@ Future<Map<String, RenderSpec>> fetchRenderSpecs(
     final name = (s['name'] ?? s['machine_name']) as String?;
     if (name == null) continue;
     if (coreRecordsOnly) {
-      out[name] = _coreRecordRenderSpec(name, s['schema']);
+      out[name] = coreRecordRenderSpec(name, s['schema']);
       continue;
     }
     final rs = s['render_spec'];
@@ -422,7 +428,7 @@ Future<Map<String, RenderSpec>> fetchRenderSpecs(
   return out;
 }
 
-RenderSpec _coreRecordRenderSpec(String name, dynamic rawSchema) {
+RenderSpec coreRecordRenderSpec(String name, dynamic rawSchema) {
   final schema = rawSchema is Map
       ? ((rawSchema['properties'] as Map?) ?? rawSchema)
       : const <String, dynamic>{};

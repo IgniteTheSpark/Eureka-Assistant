@@ -14,12 +14,14 @@ abstract interface class AssetDetailRepository {
 }
 
 class ApiAssetDetailRepository implements AssetDetailRepository {
-  ApiAssetDetailRepository(this.api);
+  ApiAssetDetailRepository(this.api, {this.coreRecordsOnly = false});
 
   final ApiClient api;
+  final bool coreRecordsOnly;
 
   @override
   Future<AssetDetailModel> load(AssetEntityRef ref) async {
+    if (coreRecordsOnly) return _loadCoreRecord(ref);
     try {
       final response = await api.getJson(_canonicalPath(ref));
       return AssetDetailModel.fromJson(
@@ -60,7 +62,8 @@ class ApiAssetDetailRepository implements AssetDetailRepository {
       _field('start_at', '开始', order: 1),
       _field('end_at', '结束', order: 2),
       _field('location', '地点', order: 3),
-      _field('description', '备注', order: 4, long: true),
+      _field('attendees', '参与人', order: 4),
+      _field('description', '备注', order: 5, long: true),
     ];
     return _coreDetail(
       ref: ref,
@@ -72,14 +75,21 @@ class ApiAssetDetailRepository implements AssetDetailRepository {
         icon: '📅',
       ),
       fields: fields,
-      values: event,
+      values: {
+        for (final field in fields)
+          field.id: field.id == 'attendees'
+              ? _coreEventAttendees(event[field.id])
+              : event[field.id],
+      },
       primaryFieldId: 'title',
       secondaryFieldIds: const [
         'start_at',
         'end_at',
         'location',
+        'attendees',
         'description',
       ],
+      source: _coreSource(event),
     );
   }
 
@@ -92,19 +102,34 @@ class ApiAssetDetailRepository implements AssetDetailRepository {
         .cast<String, dynamic>();
     final payload =
         (asset['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
-    final schema =
+    final rawSchema =
         (skill['schema'] as Map?)?.cast<String, dynamic>() ?? const {};
-    final fieldIds = <String>{...schema.keys, ...payload.keys};
+    final schema =
+        (rawSchema['properties'] as Map?)?.cast<String, dynamic>() ?? rawSchema;
+    final requiredFields = (rawSchema['required'] as List? ?? const [])
+        .map((value) => value.toString())
+        .toSet();
+    final machineName = skill['machine_name']?.toString() ?? 'asset';
+    final fieldIds = machineName == 'todo'
+        ? const <String>{'title', 'due_date', 'content'}
+        : <String>{
+            ...schema.keys.where((id) => !_coreMetadataFields.contains(id)),
+            ...payload.keys.where((id) => !_coreMetadataFields.contains(id)),
+          };
     final fields = <AssetDetailField>[];
     var order = 0;
     for (final id in fieldIds) {
-      final metadata = (schema[id] as Map?)?.cast<String, dynamic>();
+      final rawMetadata = schema[id];
+      final metadata = rawMetadata is Map
+          ? rawMetadata.cast<String, dynamic>()
+          : null;
       fields.add(
         _field(
           id,
-          metadata?['label']?.toString() ?? _fieldLabel(id),
+          _coreFieldLabel(machineName, id, metadata?['label']),
           type: metadata?['type']?.toString() ?? 'string',
-          required: metadata?['required'] == true,
+          required:
+              metadata?['required'] == true || requiredFields.contains(id),
           long:
               metadata?['long'] == true ||
               const {'content', 'description', 'notes', 'remark'}.contains(id),
@@ -113,25 +138,40 @@ class ApiAssetDetailRepository implements AssetDetailRepository {
       );
     }
     final primary = const ['title', 'content', 'name'].firstWhere(
-      payload.containsKey,
-      orElse: () => fields.isEmpty ? 'content' : fields.first.id,
+      (id) => _hasCoreValue(payload[id]),
+      orElse: () {
+        for (final field in fields) {
+          if (_hasCoreValue(payload[field.id])) return field.id;
+        }
+        return fields.isEmpty ? 'content' : fields.first.id;
+      },
     );
+    final values = <String, dynamic>{
+      for (final id in fieldIds)
+        if (payload.containsKey(id)) id: payload[id],
+    };
+    if (machineName == 'todo' &&
+        !_hasCoreValue(values['due_date']) &&
+        _hasCoreValue(payload['occurred_at'])) {
+      values['due_date'] = payload['occurred_at'];
+    }
     return _coreDetail(
       ref: ref,
       version: _version(asset),
       skill: AssetDetailSkill(
         id: skillId.isEmpty ? null : skillId,
-        machineName: skill['machine_name']?.toString() ?? 'asset',
+        machineName: machineName,
         displayName: skill['display_name']?.toString() ?? '资产',
-        icon: '•',
+        icon: _coreAssetIcon(machineName),
       ),
       fields: fields,
-      values: payload,
+      values: values,
       primaryFieldId: primary,
       secondaryFieldIds: [
         for (final field in fields)
           if (field.id != primary) field.id,
       ],
+      source: _coreSource(asset),
     );
   }
 
@@ -166,6 +206,12 @@ AssetDetailModel _coreDetail({
   required Map<String, dynamic> values,
   required String primaryFieldId,
   required List<String> secondaryFieldIds,
+  AssetDetailSource source = const AssetDetailSource(
+    kind: AssetDetailSourceKind.manual,
+    label: '手动创建',
+    sessionId: null,
+    inputTurnId: null,
+  ),
 }) => AssetDetailModel(
   ref: ref,
   version: version,
@@ -176,12 +222,7 @@ AssetDetailModel _coreDetail({
     primaryFieldId: primaryFieldId,
     secondaryFieldIds: List.unmodifiable(secondaryFieldIds),
   ),
-  source: const AssetDetailSource(
-    kind: AssetDetailSourceKind.manual,
-    label: '手动创建',
-    sessionId: null,
-    inputTurnId: null,
-  ),
+  source: source,
   capabilities: const AssetDetailCapabilities(editable: false, deletable: true),
 );
 
@@ -216,3 +257,75 @@ String _fieldLabel(String id) => switch (id) {
   'notes' || 'remark' => '备注',
   _ => id,
 };
+
+String _coreFieldLabel(String machineName, String id, dynamic declaredLabel) {
+  final label = declaredLabel?.toString().trim() ?? '';
+  if (label.isNotEmpty) return label;
+  if (machineName == 'expense') {
+    return switch (id) {
+      'amount' => '金额',
+      'currency' => '币种',
+      'category' => '类别',
+      'merchant' => '商户',
+      'date' => '日期',
+      'description' => '描述',
+      _ => _fieldLabel(id),
+    };
+  }
+  return switch (id) {
+    'tags' => '标签',
+    'phone' => '电话',
+    'company' => '公司',
+    'email' => '邮箱',
+    _ => _fieldLabel(id),
+  };
+}
+
+bool _hasCoreValue(dynamic value) =>
+    value != null && (value is! String || value.trim().isNotEmpty);
+
+const _coreMetadataFields = {'period', 'occurred_at', 'domain'};
+
+String _coreAssetIcon(String machineName) => switch (machineName) {
+  'todo' => '📋',
+  'expense' => '💳',
+  'contact' => '👤',
+  'idea' => '💡',
+  'notes' => '📝',
+  _ => '•',
+};
+
+List<Map<String, dynamic>> _coreEventAttendees(dynamic raw) => [
+  for (final attendee in raw is List ? raw.whereType<Map>() : const <Map>[])
+    {
+      ...attendee.cast<String, dynamic>(),
+      // The isolated service currently has no Contacts route. Preserve the
+      // unresolved person section without exposing a broken association action.
+      'id': null,
+    },
+];
+
+AssetDetailSource _coreSource(Map<String, dynamic> record) {
+  final recordingId = record['source_recording_id']?.toString().trim() ?? '';
+  final inputTurnId = record['source_input_turn_id']?.toString().trim() ?? '';
+  if (recordingId.isEmpty) {
+    return const AssetDetailSource(
+      kind: AssetDetailSourceKind.manual,
+      label: '手动创建',
+      sessionId: null,
+      inputTurnId: null,
+    );
+  }
+  final createdAt = DateTime.tryParse(
+    record['created_at']?.toString() ?? '',
+  )?.toLocal();
+  final dateLabel = createdAt == null
+      ? '闪念'
+      : '${createdAt.month}月${createdAt.day}日闪念';
+  return AssetDetailSource(
+    kind: AssetDetailSourceKind.flash,
+    label: '来自 $dateLabel',
+    sessionId: recordingId,
+    inputTurnId: inputTurnId.isEmpty ? null : inputTurnId,
+  );
+}

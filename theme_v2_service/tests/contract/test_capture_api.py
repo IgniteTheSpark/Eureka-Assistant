@@ -481,6 +481,14 @@ async def test_text_flash_waits_for_durable_worker_result(client):
     assert body["derived_assets"] == body["cards"]
     assert len(provider.calls) == 1
 
+    derived = await client.get(
+        f"/api/assets/{body['cards'][0]['asset_id']}",
+        headers=_headers(token),
+    )
+    assert derived.status_code == 200
+    assert derived.json()["source_recording_id"] == body["session_id"]
+    assert derived.json()["source_input_turn_id"] == body["input_turn_id"]
+
     status = await client.get(
         f"/api/flash/recordings/{body['session_id']}",
         headers=_headers(token),
@@ -488,6 +496,44 @@ async def test_text_flash_waits_for_durable_worker_result(client):
     assert status.status_code == 200
     assert status.json()["recording"]["process_status"] == "done"
     assert status.json()["recording"]["input_turn_id"] == body["input_turn_id"]
+
+
+async def test_capture_recording_archive_can_be_listed_and_deleted(client, monkeypatch):
+    token = await _register(client, "archive@example.com")
+    monkeypatch.setattr(
+        "app.domains.capture.api.get_settings",
+        lambda: SimpleNamespace(
+            capture_flash_wait_seconds=0.01,
+            capture_flash_poll_interval_seconds=0.005,
+        ),
+    )
+    created = await client.post(
+        "/api/flash",
+        headers=_headers(token),
+        json={"text": "需要归档的闪念", "source": "typed"},
+    )
+    recording_id = created.json()["session_id"]
+
+    listed = await client.get(
+        "/api/flash/recordings",
+        headers=_headers(token),
+    )
+    assert listed.status_code == 200
+    assert listed.json()["recordings"][0]["id"] == recording_id
+    assert listed.json()["recordings"][0]["title"]
+
+    deleted = await client.delete(
+        f"/api/flash/recordings/{recording_id}",
+        headers=_headers(token),
+    )
+    assert deleted.status_code == 200
+    assert deleted.json() == {"ok": True}
+    assert (
+        await client.get(
+            f"/api/flash/recordings/{recording_id}",
+            headers=_headers(token),
+        )
+    ).status_code == 404
 
 
 async def test_text_flash_timeout_returns_controlled_pending(

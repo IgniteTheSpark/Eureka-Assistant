@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_serializer
 
 
 def _as_utc_z(value: datetime | None) -> str | None:
@@ -33,6 +33,24 @@ class AssetUpdate(BaseModel):
     effective_at: datetime | None = None
 
 
+class EventAttendeeCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=320)
+    contact_id: str | None = None
+    role: str = Field(default="attendee", min_length=1, max_length=32)
+
+
+class EventAttendeeRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str | None = None
+    contact_id: str | None = None
+    name_raw: str
+    display_name: str
+    is_resolved: bool
+    contact_summary: str = ""
+    role: str = "attendee"
+
+
 class EventCreate(BaseModel):
     title: str = Field(min_length=1, max_length=500)
     description: str | None = None
@@ -41,6 +59,7 @@ class EventCreate(BaseModel):
     end_at: datetime
     all_day: bool = False
     status: Literal["scheduled", "cancelled"] = "scheduled"
+    attendees: list[EventAttendeeCreate] = Field(default_factory=list)
 
 
 class EventUpdate(BaseModel):
@@ -85,6 +104,8 @@ class AssetRead(BaseModel):
     effective_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    source_recording_id: str | None = None
+    source_input_turn_id: str | None = None
 
     @field_serializer("effective_at", "created_at", "updated_at")
     def serialize_timestamp(self, value: datetime | None) -> str | None:
@@ -96,7 +117,9 @@ class EventRead(BaseModel):
 
     id: str
     title: str
-    description: str | None
+    description: str | None = Field(
+        validation_alias=AliasChoices("display_description", "description")
+    )
     location: str | None
     start_at: datetime
     end_at: datetime
@@ -104,6 +127,12 @@ class EventRead(BaseModel):
     status: str
     created_at: datetime
     updated_at: datetime
+    attendees: list[EventAttendeeRead] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("attendee_payload", "attendees"),
+    )
+    source_recording_id: str | None = None
+    source_input_turn_id: str | None = None
 
     @field_serializer("start_at", "end_at", "created_at", "updated_at")
     def serialize_timestamp(self, value: datetime) -> str:

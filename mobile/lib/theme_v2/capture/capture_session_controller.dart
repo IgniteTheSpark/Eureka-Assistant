@@ -4,7 +4,7 @@ import '../../api/api_client.dart';
 import '../../chat/chat_models.dart';
 import '../session/theme_v2_session_page.dart';
 
-/// Read-only adapter that projects a Theme V2 capture recording onto the
+/// Adapter that projects Theme V2 capture recordings onto the
 /// established Session transcript surface.
 ///
 /// Theme V2 persists hardware/typed flashes as CaptureRecording + CaptureTurn,
@@ -179,13 +179,76 @@ class CaptureSessionController extends ChangeNotifier
   Future<void> bindSubject(String type, String id) async {}
 
   @override
-  Future<List<SessionInfo>> listSessions() async => const [];
+  Future<List<SessionInfo>> listSessions() async {
+    final response = await _api.getJson('/api/flash/recordings');
+    final raw = response is Map
+        ? response['recordings'] as List? ?? const []
+        : response is List
+        ? response
+        : const [];
+    return raw
+        .whereType<Map>()
+        .map((value) {
+          final recording = value.cast<String, dynamic>();
+          final createdAt =
+              DateTime.tryParse(
+                recording['created_at']?.toString() ?? '',
+              )?.toLocal() ??
+              DateTime.now();
+          final declaredTitle = recording['title']?.toString().trim() ?? '';
+          return SessionInfo(
+            recording['id']?.toString() ?? '',
+            declaredTitle.isEmpty
+                ? '${createdAt.month}月${createdAt.day}日 闪念'
+                : declaredTitle,
+            createdAt,
+          );
+        })
+        .where((session) => session.id.isNotEmpty)
+        .toList();
+  }
 
   @override
-  Future<bool> deleteSession(String id) async => false;
+  Future<bool> deleteSession(String id) async {
+    try {
+      await _api.deleteJson('/api/flash/recordings/$id');
+      if (sessionId == id) reset();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
 
   @override
-  Future<void> send(String text) async {}
+  Future<void> send(String text) async {
+    final normalized = text.trim();
+    if (normalized.isEmpty || streaming) return;
+    final parentSessionId = sessionId;
+    streaming = true;
+    error = null;
+    _notify();
+    try {
+      final response = await _api.postJson('/api/flash', {
+        'text': normalized,
+        'source': 'typed',
+        if (parentSessionId != null && parentSessionId.isNotEmpty)
+          'session_id': parentSessionId,
+        'capture_session_type': 'follow_up',
+      });
+      final nextSessionId = response is Map
+          ? response['session_id']?.toString() ?? ''
+          : '';
+      if (nextSessionId.isEmpty) {
+        throw const FormatException('闪念续写响应格式不正确');
+      }
+      await loadSession(nextSessionId);
+    } catch (_) {
+      streaming = false;
+      error = '发送失败，请稍后重试';
+      _notify();
+      rethrow;
+    }
+  }
 
   @override
   Future<void> precipitate(String text, String skill) async {}
@@ -197,7 +260,15 @@ class CaptureSessionController extends ChangeNotifier
   }) async => false;
 
   @override
-  void reset() {}
+  void reset() {
+    _loadRevision++;
+    messages.clear();
+    sessionId = null;
+    _createdAt = null;
+    streaming = false;
+    error = null;
+    _notify();
+  }
 
   void _notify() {
     if (!_disposed) notifyListeners();

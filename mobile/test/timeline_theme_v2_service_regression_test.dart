@@ -77,6 +77,99 @@ void main() {
     expect(items.last.domain, 'work');
     expect(items.last.hasScheduledTime, isTrue);
   });
+
+  test('keeps Theme V2 assets in Flow when effective_at is omitted', () async {
+    final api = ApiClient(
+      baseUrl: 'http://theme-v2.test',
+      enableLogging: false,
+      client: MockClient((request) async {
+        switch (request.url.path) {
+          case '/api/user-skills':
+            return _json([
+              {
+                'id': 'skill-expense',
+                'machine_name': 'expense',
+                'display_name': '消费',
+                'domain': 'finance',
+                'schema': const {},
+              },
+              {
+                'id': 'skill-notes',
+                'machine_name': 'notes',
+                'display_name': '随记',
+                'domain': 'knowledge',
+                'schema': const {},
+              },
+            ]);
+          case '/api/assets':
+            return _json([
+              {
+                'id': 'asset-expense',
+                'user_skill_id': 'skill-expense',
+                'payload': {
+                  'amount': 386,
+                  'occurred_at': '2026-08-02T19:00:00+08:00',
+                },
+                'effective_at': null,
+                'created_at': '2026-08-02T10:00:00Z',
+                'updated_at': '2026-08-02T10:00:00Z',
+              },
+              {
+                'id': 'asset-notes',
+                'user_skill_id': 'skill-notes',
+                'payload': {'content': '没有显式时间的闪念'},
+                'effective_at': null,
+                'created_at': '2026-08-02T12:00:00Z',
+                'updated_at': '2026-08-02T12:00:00Z',
+              },
+            ]);
+          case '/api/events':
+            return _json([]);
+          default:
+            return http.Response('{"detail":"unexpected"}', 500);
+        }
+      }),
+    );
+    addTearDown(api.close);
+
+    final items = await fetchTimeline(api, coreRecordsOnly: true);
+
+    expect(items.map((item) => item.id), ['asset-expense', 'asset-notes']);
+    expect(items.first.effectiveAt.hour, 19);
+    expect(items.first.hasClockTime, isTrue);
+    expect(items.last.effectiveAt.hour, 20);
+    expect(items.last.hasClockTime, isFalse);
+    expect(items.last.hasScheduledTime, isFalse);
+  });
+
+  test('core skill metadata uses the same built-in icons as detail', () async {
+    final api = ApiClient(
+      baseUrl: 'http://theme-v2.test',
+      enableLogging: false,
+      client: MockClient(
+        (request) async => _json([
+          {
+            'id': 'skill-expense',
+            'machine_name': 'expense',
+            'display_name': '消费',
+            'schema': const {},
+          },
+          {
+            'id': 'skill-todo',
+            'machine_name': 'todo',
+            'display_name': '待办',
+            'schema': const {},
+          },
+        ]),
+      ),
+    );
+    addTearDown(api.close);
+
+    final skills = await fetchSkills(api, coreRecordsOnly: true);
+
+    expect(skills['expense']?.icon, '💳');
+    expect(skills['todo']?.icon, '📋');
+  });
 }
 
 http.Response _json(Object body) => http.Response(

@@ -252,12 +252,19 @@ Future<List<TimelineItem>> _fetchCoreRecordTimeline(ApiClient api) async {
     final payload =
         (asset['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
     final due = payload['due_date']?.toString();
-    final effective = DateTime.tryParse(
-      due == null || due.isEmpty
-          ? asset['effective_at']?.toString() ?? ''
-          : due,
-    )?.toLocal();
+    final explicit = _firstCoreDate([
+      asset['effective_at'],
+      payload['occurred_at'],
+    ]);
+    final semantic = switch (skill.name) {
+      'todo' => _firstCoreDate([due]),
+      'expense' => _firstCoreDate([payload['at'], payload['date']]),
+      _ => null,
+    };
+    final effective =
+        explicit ?? semantic ?? _firstCoreDate([asset['created_at']]);
     if (effective == null) continue;
+    final hasExplicitClock = explicit != null;
     items.add(
       TimelineItem(
         kind: 'asset',
@@ -272,14 +279,27 @@ Future<List<TimelineItem>> _fetchCoreRecordTimeline(ApiClient api) async {
         sessionId: null,
         derived: const {},
         payload: payload,
-        hasClockTime: due?.contains('T') == true,
-        hasScheduledTime: due != null && due.isNotEmpty,
+        period: payload['period']?.toString() ?? '',
+        hasClockTime: hasExplicitClock || due?.contains('T') == true,
+        hasScheduledTime:
+            skill.name == 'todo' &&
+            (hasExplicitClock || due?.contains('T') == true),
         domain: skill.domain,
       ),
     );
   }
   items.sort((a, b) => a.effectiveAt.compareTo(b.effectiveAt));
   return items;
+}
+
+DateTime? _firstCoreDate(Iterable<dynamic> values) {
+  for (final value in values) {
+    final raw = value?.toString().trim() ?? '';
+    if (raw.isEmpty) continue;
+    final parsed = DateTime.tryParse(raw)?.toLocal();
+    if (parsed != null) return parsed;
+  }
+  return null;
 }
 
 List _coreList(dynamic response, String key) => switch (response) {
@@ -321,12 +341,15 @@ Future<Map<String, SkillMeta>> fetchSkills(
     final name = (s['name'] ?? s['machine_name']) as String?;
     if (name == null) continue;
     final rs = (s['render_spec'] as Map?)?.cast<String, dynamic>();
+    final coreSpec = coreRecordsOnly
+        ? coreRecordRenderSpec(name, s['schema'])
+        : null;
     out[name] = SkillMeta(
       // Pin built-in glyphs (待办 → 📋) even for surfaces that read the meta map
       // directly (e.g. 资产库 container tiles), not just via resolveMeta.
-      _pinnedIcons[name] ?? (rs?['icon'] as String? ?? '•'),
+      _pinnedIcons[name] ?? (rs?['icon'] as String? ?? coreSpec?.icon ?? '•'),
       s['display_name'] as String? ?? name,
-      rs?['accent_color'] as String? ?? 'gray',
+      rs?['accent_color'] as String? ?? coreSpec?.accentColor ?? 'gray',
       (s['user_skill_id'] ?? s['id']) as String?,
       (s['enabled'] as int? ?? 1) != 0,
     );

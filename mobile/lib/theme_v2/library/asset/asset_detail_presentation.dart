@@ -42,6 +42,7 @@ class AssetDetailController extends ChangeNotifier {
   String? get userSkillId => _detail?.skill.id;
   String? get sessionId => _detail?.source.sessionId;
   String? get inputTurnId => _detail?.source.inputTurnId;
+  AssetDetailSourceKind? get sourceKind => _detail?.source.kind;
   String? get sourceLabel => _detail?.source.label;
   bool get sourceCanOpen => _detail?.source.canOpen ?? false;
   bool get canEdit =>
@@ -228,6 +229,11 @@ RenderSpec renderSpecFromAssetDetailModel(AssetDetailModel model) {
         model.skill.machineName == 'todo' ? 'blue' : 'gray',
     },
     primaryField: model.display.primaryFieldId,
+    primaryFormat:
+        model.skill.machineName == 'expense' &&
+            model.display.primaryFieldId == 'amount'
+        ? 'currency'
+        : null,
     secondaryField: secondary.firstOrNull,
     metaFields: [
       for (final field in secondary.skip(1)) MetaFieldSpec(field, null),

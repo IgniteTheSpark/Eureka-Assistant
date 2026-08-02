@@ -94,6 +94,30 @@ void main() {
     expect(find.text('今日生成'), findsOneWidget);
   });
 
+  testWidgets('empty Reka queue does not paint a fake scrollbar rail', (
+    tester,
+  ) async {
+    _setReferenceView(tester);
+    await tester.pumpWidget(
+      _HomeHost(
+        child: ThemeV2HomePage(
+          repository: const _FakeHomeRepository(TodayData.empty),
+          now: DateTime(2026, 8, 2),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final queue = find.byKey(HomeTodayPanel.rekaQueueKey);
+    final rails = find.descendant(
+      of: queue,
+      matching: find.byWidgetPredicate(
+        (widget) => widget is SizedBox && widget.width == 2,
+      ),
+    );
+    expect(rails, findsNothing);
+  });
+
   testWidgets('Today chooses NEXT from the unfinished full-day chain', (
     tester,
   ) async {

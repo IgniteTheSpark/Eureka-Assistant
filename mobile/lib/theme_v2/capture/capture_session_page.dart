@@ -9,9 +9,14 @@ import '../session/theme_v2_session_page.dart';
 
 /// Owns the Theme V2 capture-to-session adapter for one notification target.
 class CaptureSessionPage extends StatefulWidget {
-  const CaptureSessionPage({super.key, required this.recordingId});
+  const CaptureSessionPage({
+    super.key,
+    required this.recordingId,
+    this.focusedInputTurnId,
+  });
 
   final String recordingId;
+  final String? focusedInputTurnId;
 
   @override
   State<CaptureSessionPage> createState() => _CaptureSessionPageState();
@@ -48,7 +53,8 @@ class _CaptureSessionPageState extends State<CaptureSessionPage> {
       child: ThemeV2SessionPage(
         controller: _controller,
         boundSessionId: widget.recordingId,
-        readOnly: true,
+        focusedInputTurnId: widget.focusedInputTurnId,
+        readOnly: false,
         emptyOpener: '正在载入闪念…',
       ),
     );

@@ -197,7 +197,7 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
     await openAssetDetail(
       context,
       AssetEntityRef(kind: AssetEntityKind.asset, id: item.id),
-      repository: ApiAssetDetailRepository(_detailApi),
+      repository: ApiAssetDetailRepository(_detailApi, coreRecordsOnly: true),
     );
   }
 
@@ -218,6 +218,7 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
           cardType: 'event',
           initialEntities: const [],
           api: _detailApi,
+          coreRecordsOnly: true,
           onBack: _navigation.back,
           contentBottomPadding: ThemeV2Spacing.lg,
         );
@@ -227,6 +228,7 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
           cardType: 'contact',
           initialEntities: const [],
           api: _detailApi,
+          coreRecordsOnly: true,
           onBack: _navigation.back,
           contentBottomPadding: ThemeV2Spacing.lg,
         );
@@ -245,6 +247,7 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
           initialAssets: const [],
           specs: ref.read(renderSpecsProvider).valueOrNull ?? const {},
           api: _detailApi,
+          coreRecordsOnly: true,
           onBack: _navigation.back,
           contentBottomPadding: ThemeV2Spacing.lg,
           onConfigureCard:

@@ -209,6 +209,28 @@ void main() {
       findsNothing,
     );
   });
+
+  testWidgets('event detail renders only its declared business fields', (
+    tester,
+  ) async {
+    final model = AssetDetailModel.fromJson(_eventEnvelopeWithStorageFields());
+    final controller = AssetDetailController(
+      repository: _FakeRepository(model),
+      ref: model.ref,
+    );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(_host(ThemeV2AssetDetailSurface(controller)));
+    await tester.pumpAndSettle();
+
+    expect(find.text('设计评审'), findsWidgets);
+    expect(find.text('线上会议室'), findsOneWidget);
+    expect(find.text('备注'), findsOneWidget);
+    expect(find.text('scheduled'), findsNothing);
+    expect(find.text('event-storage-id'), findsNothing);
+    expect(find.text('2026-08-01T17:07:00Z'), findsNothing);
+    expect(find.text('false'), findsNothing);
+  });
 }
 
 class _FakeRepository implements AssetDetailRepository {
@@ -286,6 +308,46 @@ Map<String, dynamic> _eventEnvelope({required String title}) => {
     'input_turn_id': null,
   },
   'capabilities': {'editable': true, 'deletable': true},
+};
+
+Map<String, dynamic> _eventEnvelopeWithStorageFields() => {
+  'entity': {'kind': 'event', 'id': 'event-1', 'version': 'version-1'},
+  'skill': {
+    'id': null,
+    'machine_name': 'event',
+    'display_name': '事件',
+    'icon': '📅',
+  },
+  'fields': [
+    _field('title', '标题', order: 0, required: true),
+    _field('start_at', '开始', order: 1),
+    _field('end_at', '结束', order: 2),
+    _field('location', '地点', order: 3),
+    _field('description', '备注', order: 4, long: true),
+  ],
+  'values': {
+    'id': 'event-storage-id',
+    'title': '设计评审',
+    'start_at': '2026-08-02T01:00:00Z',
+    'end_at': '2026-08-02T02:00:00Z',
+    'location': '线上会议室',
+    'description': '讨论 Theme V2',
+    'all_day': false,
+    'status': 'scheduled',
+    'created_at': '2026-08-01T17:07:00Z',
+    'updated_at': '2026-08-01T17:08:00Z',
+  },
+  'display': {
+    'primary_field_id': 'title',
+    'secondary_field_ids': ['start_at', 'end_at', 'location', 'description'],
+  },
+  'source': {
+    'kind': 'manual',
+    'label': '手动创建',
+    'session_id': null,
+    'input_turn_id': null,
+  },
+  'capabilities': {'editable': false, 'deletable': true},
 };
 
 Map<String, dynamic> _field(

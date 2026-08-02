@@ -278,8 +278,21 @@ void main() {
       enableLogging: false,
       client: MockClient((request) async {
         requestedUris.add(request.url);
-        if (request.url.path == '/api/skills') {
-          return _jsonResponse({'detail': 'Not Found'}, statusCode: 404);
+        if (request.url.path == '/api/user-skills') {
+          return _jsonResponse([
+            {
+              'id': 'core-notes',
+              'machine_name': 'notes',
+              'display_name': '随记',
+              'domain': 'knowledge',
+              'schema': {
+                'type': 'object',
+                'properties': {
+                  'content': {'type': 'string'},
+                },
+              },
+            },
+          ]);
         }
         return _jsonResponse([
           {
@@ -317,6 +330,7 @@ void main() {
             ),
           },
           api: api,
+          coreRecordsOnly: true,
         ),
       ),
     );
@@ -326,6 +340,7 @@ void main() {
       (uri) => uri.path == '/api/assets',
     );
     expect(assetsRequest.queryParameters['user_skill_id'], 'core-notes');
+    expect(requestedUris.where((uri) => uri.path == '/api/skills'), isEmpty);
     expect(find.text('Theme V2 note one'), findsOneWidget);
     expect(find.text('Theme V2 note two'), findsOneWidget);
     expect(find.text('还没有内容'), findsNothing);

@@ -580,6 +580,7 @@ Future<void> _openItem(BuildContext context, ChainItem item) {
           : AssetEntityKind.asset,
       id: item.id,
     ),
+    coreRecordsOnly: true,
   );
 }
 

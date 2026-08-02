@@ -13,10 +13,15 @@ Future<void> openAssetDetail(
   BuildContext context,
   AssetEntityRef ref, {
   AssetDetailRepository? repository,
+  bool coreRecordsOnly = false,
 }) async {
   ApiClient? ownedApi;
   final resolvedRepository =
-      repository ?? ApiAssetDetailRepository(ownedApi = ApiClient());
+      repository ??
+      ApiAssetDetailRepository(
+        ownedApi = ApiClient(),
+        coreRecordsOnly: coreRecordsOnly,
+      );
   final controller = AssetDetailController(
     repository: resolvedRepository,
     ref: ref,

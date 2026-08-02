@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 import pytest
 from sqlalchemy import func, select
 
-from app.db.models import Asset, Event, UserSkill, WorkflowJob
+from app.db.models import Asset, Event, EventAttendee, UserSkill, WorkflowJob
 from app.db.session import AsyncSessionFactory
 from app.domains.capture.asr import (
     AsrPollResult,
@@ -207,6 +207,7 @@ def _event_and_expense_result() -> CaptureAgentResult:
                 start_at="2026-08-03T15:00:00+08:00",
                 end_at="2026-08-03T16:00:00+08:00",
                 location="会议室 A",
+                attendees=["冯总"],
             ),
             CaptureRecordCommand(
                 kind="asset",
@@ -381,6 +382,7 @@ async def test_capture_job_creates_multiple_records_and_notification(session):
         job = await database_session.get(WorkflowJob, job_id)
         assets = list(await database_session.scalars(select(Asset)))
         events = list(await database_session.scalars(select(Event)))
+        attendees = list(await database_session.scalars(select(EventAttendee)))
         notifications = list(
             await database_session.scalars(
                 select(Notification).where(Notification.type == "flash_done")
@@ -396,6 +398,9 @@ async def test_capture_job_creates_multiple_records_and_notification(session):
     assert len(recording.result_records_json) == 2
     assert len(assets) == 1
     assert len(events) == 1
+    assert [(item.event_id, item.name_raw, item.contact_id) for item in attendees] == [
+        (events[0].id, "冯总", None)
+    ]
     assert len(notifications) == 1
     assert notifications[0].body == recording.result_summary
     assert job.status == "succeeded"

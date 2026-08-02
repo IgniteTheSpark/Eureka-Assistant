@@ -160,4 +160,89 @@ void main() {
       expect(specs['expense']?.secondaryField, 'description');
     },
   );
+
+  test(
+    'capture session lists history, deletes, and accepts typed input',
+    () async {
+      final requested = <String>[];
+      final api = ApiClient(
+        baseUrl: 'http://test',
+        enableLogging: false,
+        client: MockClient((request) async {
+          requested.add('${request.method} ${request.url.path}');
+          if (request.method == 'GET' &&
+              request.url.path == '/api/flash/recordings') {
+            return http.Response(
+              jsonEncode({
+                'recordings': [
+                  {
+                    'id': 'recording-1',
+                    'title': '8月2日 闪念',
+                    'created_at': '2026-08-02T13:43:21Z',
+                  },
+                ],
+              }),
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          if (request.method == 'DELETE') {
+            return http.Response('{}', 200);
+          }
+          if (request.method == 'POST' && request.url.path == '/api/flash') {
+            final payload = jsonDecode(request.body) as Map<String, dynamic>;
+            expect(payload['session_id'], 'recording-1');
+            expect(payload['source'], 'typed');
+            return http.Response(
+              jsonEncode({
+                'ok': true,
+                'session_id': 'recording-2',
+                'input_turn_id': 'turn-2',
+                'summary': '已继续整理。',
+                'cards': const [],
+              }),
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          if (request.method == 'GET' &&
+              request.url.path == '/api/flash/recordings/recording-2') {
+            return http.Response(
+              jsonEncode({
+                'recording': {
+                  'id': 'recording-2',
+                  'process_status': 'done',
+                  'asr_text': '继续整理',
+                  'input_turn_id': 'turn-2',
+                  'result_summary': '已继续整理。',
+                  'result_cards': const [],
+                  'created_at': '2026-08-02T14:00:00Z',
+                },
+              }),
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          return http.Response('not found', 404);
+        }),
+      );
+      final controller = CaptureSessionController(api: api);
+      addTearDown(() {
+        controller.dispose();
+        api.close();
+      });
+      controller.sessionId = 'recording-1';
+
+      final sessions = await controller.listSessions();
+      expect(sessions.single.id, 'recording-1');
+      expect(await controller.deleteSession('recording-old'), isTrue);
+      await controller.send('继续整理');
+
+      expect(controller.sessionId, 'recording-2');
+      expect(controller.messages.first.text, '继续整理');
+      expect(controller.messages.last.text, '已继续整理。');
+      expect(requested, contains('GET /api/flash/recordings'));
+      expect(requested, contains('POST /api/flash'));
+    },
+  );
 }

@@ -41,8 +41,9 @@ void _openFlashSession(BuildContext context, TimelineItem item) {
 Future<void> _openTimelineItem(
   BuildContext context,
   TimelineItem item,
-  Map<String, SkillMeta> _,
-) async {
+  Map<String, SkillMeta> _, {
+  bool coreRecordsOnly = false,
+}) async {
   if (item.kind == 'input_turn') {
     _openFlashSession(context, item);
     return;
@@ -60,6 +61,7 @@ Future<void> _openTimelineItem(
         },
         id: id,
       ),
+      coreRecordsOnly: coreRecordsOnly,
     );
   } catch (_) {
     // Couldn't load the record — fall back to its source session if any.
@@ -76,8 +78,10 @@ Future<void> _openTimelineItem(
 Future<void> openCalendarTimelineItem(
   BuildContext context,
   TimelineItem item,
-  Map<String, SkillMeta> skills,
-) => _openTimelineItem(context, item, skills);
+  Map<String, SkillMeta> skills, {
+  bool coreRecordsOnly = false,
+}) =>
+    _openTimelineItem(context, item, skills, coreRecordsOnly: coreRecordsOnly);
 
 /// Theme V2 adapter for the existing full-day Calendar route.
 void openCalendarDayDetail(BuildContext context, DateTime day) {

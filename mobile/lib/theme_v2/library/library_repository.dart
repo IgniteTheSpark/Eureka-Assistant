@@ -146,9 +146,11 @@ class ApiLibraryRepository implements LibraryRepository {
       if (name.isEmpty || !_enabled(row['enabled'])) continue;
       final renderMap =
           (row['render_spec'] as Map?)?.cast<String, dynamic>() ?? const {};
-      var spec = RenderSpec.fromJson(
-        renderMap,
-      ).withSchema(row['payload_schema'] ?? row['schema']);
+      var spec = coreRecordsOnly
+          ? coreRecordRenderSpec(name, row['schema'])
+          : RenderSpec.fromJson(
+              renderMap,
+            ).withSchema(row['payload_schema'] ?? row['schema']);
       if (name == 'todo') spec = normalizeTodoSpec(spec);
       result[name] = _SkillDefinition(
         name: name,

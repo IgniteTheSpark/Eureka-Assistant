@@ -504,33 +504,30 @@ class _RekaQueue extends StatelessWidget {
               height: 32,
               child: _SecondaryCandidate(item: secondary[index]),
             ),
-          Positioned(
-            right: 4,
-            top: 45,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: tokens.background,
-                borderRadius: BorderRadius.circular(1),
-              ),
-              child: const SizedBox(width: 2, height: 128),
-            ),
-          ),
-          Positioned(
-            right: 4,
-            top: 45,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: tokens.accent,
-                borderRadius: BorderRadius.circular(1),
-              ),
-              child: SizedBox(
-                width: 2,
-                height: items.length > 3
-                    ? 34
-                    : math.max(34, 128 - items.length * 18),
+          if (items.length > 3) ...[
+            Positioned(
+              right: 4,
+              top: 45,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: tokens.background,
+                  borderRadius: BorderRadius.circular(1),
+                ),
+                child: const SizedBox(width: 2, height: 128),
               ),
             ),
-          ),
+            Positioned(
+              right: 4,
+              top: 45,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: tokens.accent,
+                  borderRadius: BorderRadius.circular(1),
+                ),
+                child: const SizedBox(width: 2, height: 34),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -799,6 +796,7 @@ class _AssetBubble extends StatelessWidget {
               openAssetDetail(
                 context,
                 AssetEntityRef(kind: AssetEntityKind.asset, id: asset.id),
+                coreRecordsOnly: true,
               ),
             ),
             child: Center(
@@ -858,6 +856,7 @@ Future<void> _openChainItem(BuildContext context, ChainItem item) {
           : AssetEntityKind.asset,
       id: item.id,
     ),
+    coreRecordsOnly: true,
   );
 }
 

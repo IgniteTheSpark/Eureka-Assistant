@@ -3,10 +3,11 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import new_uuid, utc_now
+from app.db.models import WorkflowJob
 from app.db.session import AsyncSessionFactory
 from app.domains.capture.models import CaptureFile, CaptureRecording, CaptureTurn
 from app.domains.capture.schemas import (
@@ -527,6 +528,7 @@ async def accept_text_capture(
         provenance_json={
             "kind": "text_flash" if command.source == "typed" else "ring_asr",
             "capture_session_type": command.capture_session_type,
+            "parent_session_id": command.session_id.strip(),
         },
         created_at=now,
     )
@@ -772,3 +774,55 @@ def recording_payload(result: RecordingResult) -> dict:
             "updated_at": recording.updated_at,
         },
     }
+
+
+async def list_recordings(
+    session: AsyncSession,
+    user_id: str,
+    *,
+    limit: int = 100,
+) -> list[CaptureRecording]:
+    return list(
+        await session.scalars(
+            select(CaptureRecording)
+            .where(CaptureRecording.user_id == user_id)
+            .order_by(CaptureRecording.created_at.desc(), CaptureRecording.id.desc())
+            .limit(limit)
+        )
+    )
+
+
+def recording_archive_item(recording: CaptureRecording) -> dict:
+    transcript = (recording.asr_text or "").strip().splitlines()
+    title = transcript[0][:36] if transcript else "闪念"
+    return {
+        "id": recording.id,
+        "title": title or "闪念",
+        "created_at": recording.created_at,
+        "process_status": recording.process_status,
+    }
+
+
+async def delete_recording(
+    session: AsyncSession,
+    user_id: str,
+    recording_id: str,
+) -> bool:
+    recording = await session.scalar(
+        select(CaptureRecording).where(
+            CaptureRecording.id == recording_id,
+            CaptureRecording.user_id == user_id,
+        )
+    )
+    if recording is None:
+        return False
+    file = await session.get(CaptureFile, recording.file_id)
+    await session.execute(
+        delete(WorkflowJob).where(WorkflowJob.run_id == recording.id)
+    )
+    await session.delete(recording)
+    await session.flush()
+    if file is not None:
+        await session.delete(file)
+        await session.flush()
+    return True

@@ -147,11 +147,24 @@ async def test_event_can_be_rescheduled_cancelled_and_physically_deleted(client)
             "end_at": "2026-08-01T11:00:00+08:00",
             "all_day": False,
             "status": "scheduled",
+            "attendees": [{"name": "冯总"}],
         },
     )
     assert created.status_code == 200
     event = created.json()
     assert event["start_at"] == "2026-08-01T02:00:00Z"
+    assert event["description"] == "Theme V2 review"
+    assert event["attendees"] == [
+        {
+            "id": event["attendees"][0]["id"],
+            "contact_id": None,
+            "name_raw": "冯总",
+            "display_name": "冯总",
+            "is_resolved": False,
+            "contact_summary": "",
+            "role": "attendee",
+        }
+    ]
 
     foreign_get = await client.get(
         f"/api/events/{event['id']}",
@@ -193,3 +206,30 @@ async def test_event_can_be_rescheduled_cancelled_and_physically_deleted(client)
     )
     assert deleted.json() == {"ok": True}
     assert missing.status_code == 404
+
+
+async def test_legacy_event_participant_phrase_is_presented_as_unresolved_attendee(client):
+    owner = await _register(client, "legacy-attendee@example.com")
+    created = await client.post(
+        "/api/events",
+        headers=_headers(owner),
+        json={
+            "title": "参加饭局",
+            "description": "和冯总一起参加",
+            "start_at": "2026-08-03T18:00:00+08:00",
+            "end_at": "2026-08-03T19:00:00+08:00",
+        },
+    )
+
+    assert created.status_code == 200
+    event = created.json()
+    assert event["description"] is None
+    assert event["attendees"][0]["name_raw"] == "冯总"
+    assert event["attendees"][0]["is_resolved"] is False
+
+    loaded = await client.get(
+        f"/api/events/{event['id']}",
+        headers=_headers(owner),
+    )
+    assert loaded.json()["description"] is None
+    assert loaded.json()["attendees"][0]["display_name"] == "冯总"

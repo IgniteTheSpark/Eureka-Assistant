@@ -55,6 +55,7 @@ class CaptureRecordCommand(BaseModel):
     start_at: datetime | None = None
     end_at: datetime | None = None
     all_day: bool = False
+    attendees: list[str] = Field(default_factory=list, max_length=50)
 
     @model_validator(mode="after")
     def validate_kind_shape(self) -> "CaptureRecordCommand":
@@ -70,7 +71,7 @@ class CaptureRecordCommand(BaseModel):
                     self.start_at,
                     self.end_at,
                 )
-            ) or self.all_day:
+            ) or self.all_day or self.attendees:
                 raise ValueError("asset command contains event fields")
             if self.effective_at is not None and self.effective_at.tzinfo is None:
                 raise ValueError("effective_at must include a timezone")
@@ -90,6 +91,9 @@ class CaptureRecordCommand(BaseModel):
             raise ValueError("end_at must be after start_at")
         if self.effective_at is not None:
             raise ValueError("event command must not set effective_at")
+        self.attendees = list(
+            dict.fromkeys(name.strip() for name in self.attendees if name.strip())
+        )
         return self
 
 

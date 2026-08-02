@@ -352,10 +352,10 @@ class _AssetDetailField extends StatelessWidget {
 }
 
 List<String> _orderedFields(AssetDetailController controller) {
-  final available = <String>{
-    ...controller.spec.schemaFields,
-    ...controller.payload.keys,
-  };
+  final declared = controller.spec.schemaFields;
+  final available = declared.isEmpty
+      ? <String>{...controller.payload.keys}
+      : <String>{...declared};
   final priority = switch (controller.cardType) {
     'todo' => const [
       'title',
@@ -372,7 +372,7 @@ List<String> _orderedFields(AssetDetailController controller) {
       'end_at',
       'location',
       'attendees',
-      'notes',
+      'description',
     ],
     'contact' => const [
       'name',

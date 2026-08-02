@@ -26,6 +26,7 @@ class ThemeV2AssetListPage extends StatefulWidget {
     required this.initialAssets,
     required this.specs,
     this.api,
+    this.coreRecordsOnly = false,
     this.autoLoad = true,
     this.today,
     this.onConfigureCard,
@@ -42,6 +43,7 @@ class ThemeV2AssetListPage extends StatefulWidget {
     required this.cardType,
     required this.initialEntities,
     this.api,
+    this.coreRecordsOnly = false,
     this.autoLoad = true,
     this.today,
     this.onConfigureCard,
@@ -62,6 +64,7 @@ class ThemeV2AssetListPage extends StatefulWidget {
   final String? cardType;
   final List<Map<String, dynamic>> initialEntities;
   final ApiClient? api;
+  final bool coreRecordsOnly;
   final bool autoLoad;
   final DateTime Function()? today;
   final VoidCallback? onConfigureCard;
@@ -89,6 +92,7 @@ class _ThemeV2AssetListPageState extends State<ThemeV2AssetListPage> {
       userSkillId: widget.meta?.userSkillId,
       cardType: widget.cardType,
       label: widget.meta?.label ?? widget.title ?? '资产',
+      coreRecordsOnly: widget.coreRecordsOnly,
       specs: _specs,
       onSpecsChanged: (specs) => _specs = specs,
     );
@@ -321,7 +325,10 @@ class _ThemeV2AssetListPageState extends State<ThemeV2AssetListPage> {
     await openAssetDetail(
       context,
       AssetEntityRef(kind: kind, id: record.id),
-      repository: ApiAssetDetailRepository(_api),
+      repository: ApiAssetDetailRepository(
+        _api,
+        coreRecordsOnly: widget.coreRecordsOnly,
+      ),
     );
   }
 }
@@ -334,6 +341,7 @@ class _AssetListRepository implements AssetContainerRepository {
     required this.userSkillId,
     required this.cardType,
     required this.label,
+    required this.coreRecordsOnly,
     required Map<String, RenderSpec> specs,
     required this.onSpecsChanged,
   }) : _specs = specs;
@@ -344,6 +352,7 @@ class _AssetListRepository implements AssetContainerRepository {
   final String? userSkillId;
   final String? cardType;
   final String label;
+  final bool coreRecordsOnly;
   final ValueChanged<Map<String, RenderSpec>> onSpecsChanged;
   Map<String, RenderSpec> _specs;
   final Map<String, Map<String, dynamic>> _payloadsById = {};
@@ -385,7 +394,7 @@ class _AssetListRepository implements AssetContainerRepository {
       onSpecsChanged(_specs);
     }
     final response = responses[0];
-    _usesCoreContract = response is List;
+    _usesCoreContract = coreRecordsOnly || response is List;
     final rows = _responseRows(response, 'assets');
     for (final item in rows.whereType<Map>()) {
       final id = item['id']?.toString();
@@ -426,7 +435,7 @@ class _AssetListRepository implements AssetContainerRepository {
 
   Future<Map<String, RenderSpec>> _fetchSpecsSafely() async {
     try {
-      return await fetchRenderSpecs(api);
+      return await fetchRenderSpecs(api, coreRecordsOnly: coreRecordsOnly);
     } catch (_) {
       return const {};
     }

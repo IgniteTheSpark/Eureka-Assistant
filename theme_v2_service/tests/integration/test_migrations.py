@@ -36,6 +36,7 @@ def test_foundation_migration_round_trip_and_physical_types():
         "user_skills",
         "assets",
         "events",
+        "event_attendees",
         "notifications",
         "outbox_events",
         "trigger_trackers",
@@ -59,5 +60,5 @@ def test_foundation_migration_round_trip_and_physical_types():
 
     with engine.connect() as connection:
         revision = connection.scalar(text("SELECT version_num FROM alembic_version"))
-    assert revision == "0007_capture_workflow"
+    assert revision == "0008_event_attendees"
     engine.dispose()

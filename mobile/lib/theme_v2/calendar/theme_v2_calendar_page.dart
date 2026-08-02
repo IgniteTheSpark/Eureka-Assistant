@@ -274,7 +274,14 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
     if (callback != null) {
       callback(record);
     } else {
-      unawaited(openCalendarTimelineItem(context, record.item, _currentSkills));
+      unawaited(
+        openCalendarTimelineItem(
+          context,
+          record.item,
+          _currentSkills,
+          coreRecordsOnly: true,
+        ),
+      );
     }
   }
 

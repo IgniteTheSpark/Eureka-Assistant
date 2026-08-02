@@ -11,7 +11,7 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.dialects import mysql
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, new_uuid, utc_now
 
@@ -111,6 +111,42 @@ class Event(Base):
         onupdate=utc_now,
         nullable=False,
     )
+    attendees: Mapped[list["EventAttendee"]] = relationship(
+        back_populates="event",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+
+class EventAttendee(Base):
+    __tablename__ = "event_attendees"
+    __table_args__ = (Index("ix_event_attendees_event", "event_id"),)
+
+    id: Mapped[str] = mapped_column(CHAR(36), primary_key=True, default=new_uuid)
+    event_id: Mapped[str] = mapped_column(
+        CHAR(36),
+        ForeignKey("events.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    contact_id: Mapped[str | None] = mapped_column(CHAR(36))
+    name_raw: Mapped[str] = mapped_column(String(320), nullable=False)
+    role: Mapped[str] = mapped_column(
+        String(32),
+        default="attendee",
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        mysql.DATETIME(fsp=6),
+        default=utc_now,
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        mysql.DATETIME(fsp=6),
+        default=utc_now,
+        onupdate=utc_now,
+        nullable=False,
+    )
+    event: Mapped[Event] = relationship(back_populates="attendees")
 
 
 class WorkflowJob(Base):

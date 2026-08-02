@@ -503,6 +503,7 @@ async def _persist_capture_result(
                         end_at=command.end_at,
                         all_day=command.all_day,
                         status="scheduled",
+                        attendees=[{"name": name} for name in command.attendees],
                     ),
                 )
                 references.append(

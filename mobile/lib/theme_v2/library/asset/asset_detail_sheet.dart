@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 
 import '../../../api/api_client.dart';
 import '../../../pages/create_asset.dart' show ContactForm, EventForm;
+import '../../asset_detail/asset_detail_model.dart';
 import '../../asset_detail/asset_entity_ref.dart';
+import '../../capture/capture_session_page.dart';
 import '../../foundation/theme_v2_semantics.dart';
 import '../../foundation/theme_v2_theme.dart';
 import '../../foundation/theme_v2_tokens.dart';
@@ -304,10 +306,15 @@ class _DetailBody extends StatelessWidget {
         : 0.0;
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
-        builder: (_) => ThemeV2SessionPage(
-          boundSessionId: controller.sessionId!,
-          focusedInputTurnId: controller.inputTurnId!,
-        ),
+        builder: (_) => controller.sourceKind == AssetDetailSourceKind.flash
+            ? CaptureSessionPage(
+                recordingId: controller.sessionId!,
+                focusedInputTurnId: controller.inputTurnId,
+              )
+            : ThemeV2SessionPage(
+                boundSessionId: controller.sessionId!,
+                focusedInputTurnId: controller.inputTurnId!,
+              ),
       ),
     );
     controller.restoreScrollOffset(offset);

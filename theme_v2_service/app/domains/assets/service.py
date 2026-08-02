@@ -1,11 +1,13 @@
+import re
 from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.config import get_settings
 from app.db.base import utc_now
-from app.db.models import Asset, Event, UserSkill
+from app.db.models import Asset, Event, EventAttendee, UserSkill
 from app.domains.assets.schemas import (
     AssetCreate,
     AssetUpdate,
@@ -18,6 +20,12 @@ from app.domains.triggers.service import on_asset_created
 
 class UserSkillNotFound(Exception):
     pass
+
+
+_LEGACY_ATTENDEE_PATTERN = re.compile(
+    r"(?:和|与)(?P<name>[\u4e00-\u9fffA-Za-z0-9·]{1,40}?)"
+    r"(?=一起参加|共同参加|参加|出席)(?:一起参加|共同参加|参加|出席)"
+)
 
 
 BASELINE_CAPTURE_SKILLS: tuple[dict, ...] = (
@@ -260,9 +268,12 @@ async def get_asset(
     user_id: str,
     asset_id: str,
 ) -> Asset | None:
-    return await session.scalar(
+    asset = await session.scalar(
         select(Asset).where(Asset.id == asset_id, Asset.user_id == user_id)
     )
+    if asset is not None:
+        await _attach_capture_source(session, user_id, "asset", asset.id, asset)
+    return asset
 
 
 async def list_assets(
@@ -333,8 +344,18 @@ async def create_event(
         all_day=command.all_day,
         status=command.status,
     )
+    event.attendees = [
+        EventAttendee(
+            contact_id=attendee.contact_id,
+            name_raw=attendee.name.strip(),
+            role=attendee.role,
+        )
+        for attendee in command.attendees
+        if attendee.name.strip()
+    ]
     session.add(event)
     await session.flush()
+    _decorate_event(event)
     return event
 
 
@@ -343,9 +364,15 @@ async def get_event(
     user_id: str,
     event_id: str,
 ) -> Event | None:
-    return await session.scalar(
-        select(Event).where(Event.id == event_id, Event.user_id == user_id)
+    event = await session.scalar(
+        select(Event)
+        .options(selectinload(Event.attendees))
+        .where(Event.id == event_id, Event.user_id == user_id)
     )
+    if event is not None:
+        _decorate_event(event)
+        await _attach_capture_source(session, user_id, "event", event.id, event)
+    return event
 
 
 async def list_events(
@@ -358,7 +385,11 @@ async def list_events(
     created_to: datetime | None = None,
     limit: int = 50,
 ) -> list[Event]:
-    query = select(Event).where(Event.user_id == user_id)
+    query = (
+        select(Event)
+        .options(selectinload(Event.attendees))
+        .where(Event.user_id == user_id)
+    )
     if start_from is not None:
         query = query.where(Event.start_at >= _utc_naive(start_from))
     if start_to is not None:
@@ -370,7 +401,10 @@ async def list_events(
     result = await session.scalars(
         query.order_by(Event.start_at, Event.created_at, Event.id).limit(limit)
     )
-    return list(result)
+    events = list(result)
+    for event in events:
+        _decorate_event(event)
+    return events
 
 
 async def update_event(
@@ -405,3 +439,74 @@ async def delete_event(
     await session.delete(event)
     await session.flush()
     return True
+
+
+def _decorate_event(event: Event) -> None:
+    description = event.description or ""
+    legacy_names = [
+        match.group("name").strip()
+        for match in _LEGACY_ATTENDEE_PATTERN.finditer(description)
+        if match.group("name").strip()
+    ]
+    event.display_description = (
+        _LEGACY_ATTENDEE_PATTERN.sub("", description).strip(" ，,。；;") or None
+    )
+    persisted = [
+        {
+            "id": attendee.id,
+            "contact_id": attendee.contact_id,
+            "name_raw": attendee.name_raw,
+            "display_name": attendee.name_raw,
+            "is_resolved": attendee.contact_id is not None,
+            "contact_summary": "",
+            "role": attendee.role,
+        }
+        for attendee in event.attendees
+        if attendee.name_raw.strip()
+    ]
+    if not persisted:
+        persisted = [
+            {
+                "id": None,
+                "contact_id": None,
+                "name_raw": name,
+                "display_name": name,
+                "is_resolved": False,
+                "contact_summary": "",
+                "role": "attendee",
+            }
+            for name in dict.fromkeys(legacy_names)
+        ]
+    event.attendee_payload = persisted
+
+
+async def _attach_capture_source(
+    session: AsyncSession,
+    user_id: str,
+    kind: str,
+    record_id: str,
+    record: Asset | Event,
+) -> None:
+    from app.domains.capture.models import CaptureRecording, CaptureTurn
+
+    rows = await session.execute(
+        select(CaptureRecording, CaptureTurn)
+        .outerjoin(CaptureTurn, CaptureTurn.recording_id == CaptureRecording.id)
+        .where(CaptureRecording.user_id == user_id)
+        .order_by(CaptureRecording.created_at.desc())
+        .limit(500)
+    )
+    id_key = "asset_id" if kind == "asset" else "event_id"
+    for recording, turn in rows.all():
+        references = recording.result_records_json or []
+        if any(
+            isinstance(reference, dict)
+            and reference.get("kind") == kind
+            and str(reference.get(id_key) or "") == record_id
+            for reference in references
+        ):
+            record.source_recording_id = recording.id
+            record.source_input_turn_id = turn.id if turn is not None else None
+            return
+    record.source_recording_id = None
+    record.source_input_turn_id = None

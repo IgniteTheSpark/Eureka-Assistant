@@ -67,6 +67,7 @@ def test_event_and_expense_output_passes_dynamic_validation():
                 start_at="2026-08-03T15:00:00+08:00",
                 end_at="2026-08-03T16:00:00+08:00",
                 location="会议室 A",
+                attendees=["冯总"],
             ),
             CaptureRecordCommand(
                 kind="asset",
@@ -231,6 +232,8 @@ async def test_provider_marks_transcript_untrusted_and_requests_strict_json():
     assert "Asset records must omit every event-only field" in calls[0][
         "messages"
     ][0]["content"]
+    assert "attendees" in calls[0]["messages"][0]["content"]
+    assert "participant-only phrases" in calls[0]["messages"][0]["content"]
     transcript_message = calls[0]["messages"][-1]["content"]
     assert "BEGIN_UNTRUSTED_TRANSCRIPT" in transcript_message
     assert transcript in transcript_message

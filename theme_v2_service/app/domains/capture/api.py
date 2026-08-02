@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -118,6 +118,35 @@ async def get_flash_recording(
     if result is None:
         raise HTTPException(status_code=404, detail="recording not found")
     return service.recording_payload(result)
+
+
+@router.get("/flash/recordings")
+async def list_flash_recordings(
+    limit: int = Query(default=100, ge=1, le=200),
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+):
+    recordings = await service.list_recordings(session, user_id, limit=limit)
+    return {
+        "recordings": [
+            service.recording_archive_item(recording) for recording in recordings
+        ]
+    }
+
+
+@router.delete("/flash/recordings/{recording_id}")
+async def delete_flash_recording(
+    recording_id: str,
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+):
+    try:
+        UUID(recording_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="invalid recording id") from exc
+    if not await service.delete_recording(session, user_id, recording_id):
+        raise HTTPException(status_code=404, detail="recording not found")
+    return {"ok": True}
 
 
 @router.post("/flash/recordings/{recording_id}/retry")
