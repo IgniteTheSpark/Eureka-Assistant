@@ -33,6 +33,8 @@ def test_theme_v2_defaults_are_isolated(monkeypatch):
         "CAPTURE_AGENT_MODEL",
         "CAPTURE_AGENT_API_KEY",
         "CAPTURE_AGENT_TIMEOUT_SECONDS",
+        "CAPTURE_FLASH_WAIT_SECONDS",
+        "CAPTURE_FLASH_POLL_INTERVAL_SECONDS",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -50,6 +52,8 @@ def test_theme_v2_defaults_are_isolated(monkeypatch):
     assert settings.capture_provider_timeout_seconds == 20
     assert settings.capture_agent_enabled is False
     assert settings.capture_agent_model is None
+    assert settings.capture_flash_wait_seconds == 20
+    assert settings.capture_flash_poll_interval_seconds == 0.05
 
 
 def test_fake_provider_workflows_remain_available_only_in_test_environment():

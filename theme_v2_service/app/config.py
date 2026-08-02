@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     capture_agent_api_key: str | None = None
     capture_agent_timeout_seconds: float = Field(default=60, gt=0)
     capture_agent_max_attempts: int = Field(default=3, ge=1)
+    capture_flash_wait_seconds: float = Field(default=20, gt=0)
+    capture_flash_poll_interval_seconds: float = Field(default=0.05, gt=0)
     report_planner_enabled: bool = False
     report_pipeline_enabled: bool = False
     report_planner_model: str | None = None

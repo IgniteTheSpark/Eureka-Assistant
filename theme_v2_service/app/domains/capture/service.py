@@ -1,19 +1,23 @@
+import asyncio
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.base import utc_now
+from app.db.base import new_uuid, utc_now
+from app.db.session import AsyncSessionFactory
 from app.domains.capture.models import CaptureFile, CaptureRecording, CaptureTurn
 from app.domains.capture.schemas import (
     TencentAsrS3UploadRequest,
     TencentAsrSyncResultRequest,
     TimestampInput,
+    FlashRequest,
 )
 from app.domains.devices.models import Card, CardBinding
 from app.domains.notifications.service import publish_domain_event
-from app.jobs.queue import enqueue_job
+from app.jobs.queue import enqueue_job, enqueue_or_requeue_job
 
 
 class CardNotBound(Exception):
@@ -36,6 +40,14 @@ class CaptureAcceptanceResult:
 class RecordingResult:
     recording: CaptureRecording
     file: CaptureFile
+    turn: CaptureTurn | None = None
+
+
+@dataclass(frozen=True)
+class TextCaptureResult:
+    recording: CaptureRecording
+    file: CaptureFile
+    turn: CaptureTurn
 
 
 async def publish_capture_status(
@@ -462,6 +474,85 @@ async def accept_s3_upload(
     )
 
 
+async def accept_text_capture(
+    session: AsyncSession,
+    user_id: str,
+    command: FlashRequest,
+) -> TextCaptureResult:
+    now = utc_now()
+    identity = new_uuid()
+    storage_key = command.file_id.strip() or f"text-capture:{identity}"
+    file = CaptureFile(
+        user_id=user_id,
+        storage_url=storage_key,
+        file_type="text/plain",
+        source_tag="flash",
+        asr_status="completed",
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(file)
+    await session.flush()
+    recording = CaptureRecording(
+        user_id=user_id,
+        file_id=file.id,
+        card_sn="ring" if command.source == "voice" else "text",
+        device_file_name=f"TEXT-{identity}.txt",
+        client_task_id=f"text-{identity}",
+        source=command.source,
+        audio_format="text",
+        asr_mode="text_client",
+        s3_key=storage_key,
+        s3_upload_headers_json={},
+        tencent_speaker_diarization=0,
+        tencent_status="not_applicable",
+        tencent_task_response_json={},
+        upload_status="uploaded",
+        process_status="asr_done",
+        asr_provider="client_text",
+        asr_text=command.text,
+        asr_segments_json=[],
+        result_records_json=[],
+        accepted_at=now,
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(recording)
+    await session.flush()
+    turn = CaptureTurn(
+        recording_id=recording.id,
+        user_id=user_id,
+        transcript=command.text,
+        source=command.source,
+        provenance_json={
+            "kind": "text_flash" if command.source == "typed" else "ring_asr",
+            "capture_session_type": command.capture_session_type,
+        },
+        created_at=now,
+    )
+    session.add(turn)
+    await session.flush()
+    await enqueue_job(
+        session,
+        job_type="capture_process",
+        run_id=recording.id,
+        dedupe_key=f"capture-process:{recording.id}",
+    )
+    await publish_capture_status(
+        session,
+        recording,
+        status="accepted",
+        message="已收到语音内容",
+    )
+    await publish_capture_status(
+        session,
+        recording,
+        status="asr_done",
+        message="语音识别完成",
+    )
+    return TextCaptureResult(recording=recording, file=file, turn=turn)
+
+
 def _message_for(recording: CaptureRecording) -> str:
     if recording.process_status == "empty":
         return "文件没内容"
@@ -517,7 +608,137 @@ async def get_recording(
     if recording is None:
         return None
     file = await _file_for_recording(session, recording)
-    return RecordingResult(recording=recording, file=file)
+    turn = await session.scalar(
+        select(CaptureTurn).where(CaptureTurn.recording_id == recording.id)
+    )
+    return RecordingResult(recording=recording, file=file, turn=turn)
+
+
+async def wait_for_recording(
+    user_id: str,
+    recording_id: str,
+    *,
+    timeout_seconds: float,
+    poll_interval_seconds: float,
+) -> tuple[RecordingResult | None, int]:
+    started = time.monotonic()
+    deadline = started + timeout_seconds
+    latest: RecordingResult | None = None
+    while True:
+        async with AsyncSessionFactory() as session:
+            latest = await get_recording(session, user_id, recording_id)
+        if latest is None or latest.recording.process_status in {
+            "done",
+            "empty",
+            "failed",
+        }:
+            break
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        await asyncio.sleep(min(poll_interval_seconds, remaining))
+    return latest, int((time.monotonic() - started) * 1000)
+
+
+def flash_response_payload(
+    result: RecordingResult,
+    *,
+    elapsed_ms: int,
+) -> dict:
+    recording = result.recording
+    references = recording.result_records_json or []
+    cards = []
+    for reference in references:
+        if reference.get("kind") == "asset":
+            cards.append(
+                {
+                    **reference,
+                    "card_type": reference.get("skill_machine_name") or "asset",
+                }
+            )
+        elif reference.get("kind") == "event":
+            cards.append({**reference, "card_type": "event"})
+    pending = recording.process_status not in {"done", "empty", "failed"}
+    failed = recording.process_status == "failed"
+    summary = recording.result_summary or ""
+    return {
+        "ok": not failed,
+        "session_id": recording.id,
+        "input_turn_id": result.turn.id if result.turn is not None else "",
+        "reply": summary if not references and not pending and not failed else "",
+        "summary": summary,
+        "cards": cards,
+        "derived_assets": cards,
+        "has_pending": pending,
+        "elapsed_ms": elapsed_ms,
+        "error": (recording.error_message or "") if failed else "",
+    }
+
+
+class CaptureRetryUnavailable(Exception):
+    pass
+
+
+async def retry_recording(
+    session: AsyncSession,
+    user_id: str,
+    recording_id: str,
+) -> str | None:
+    recording = await session.scalar(
+        select(CaptureRecording)
+        .where(
+            CaptureRecording.id == recording_id,
+            CaptureRecording.user_id == user_id,
+        )
+        .with_for_update()
+    )
+    if recording is None:
+        return None
+    now = utc_now()
+    recording.retry_count += 1
+    recording.error_message = None
+    recording.asr_error = None
+    recording.processed_at = None
+    recording.updated_at = now
+    if (recording.asr_text or "").strip():
+        mode = "pipeline"
+        recording.process_status = "asr_done"
+        job_type = "capture_process"
+        dedupe_key = f"capture-process:{recording.id}"
+        status = "asr_done"
+        message = "已重新排队整理"
+    else:
+        if recording.asr_mode != "async":
+            raise CaptureRetryUnavailable(
+                "client ASR must be retried from the capture device"
+            )
+        mode = "asr"
+        recording.process_status = "asr_processing"
+        recording.tencent_status = (
+            "submitted" if recording.tencent_asr_task_id else "pending"
+        )
+        file = await session.get(CaptureFile, recording.file_id)
+        if file is not None:
+            file.asr_status = "processing"
+            file.updated_at = now
+        job_type = "capture_asr"
+        dedupe_key = f"capture-asr:{recording.id}"
+        status = "asr_processing"
+        message = "已重新排队识别"
+    await enqueue_or_requeue_job(
+        session,
+        job_type=job_type,
+        run_id=recording.id,
+        dedupe_key=dedupe_key,
+        available_at=now,
+    )
+    await publish_capture_status(
+        session,
+        recording,
+        status=status,
+        message=message,
+    )
+    return mode
 
 
 def recording_payload(result: RecordingResult) -> dict:
@@ -543,8 +764,8 @@ def recording_payload(result: RecordingResult) -> dict:
             "tencent_error_message": recording.tencent_error_message or "",
             "asr_text": recording.asr_text or "",
             "asr_error": recording.asr_error or "",
-            "session_id": None,
-            "input_turn_id": None,
+            "session_id": recording.id,
+            "input_turn_id": result.turn.id if result.turn is not None else None,
             "result_summary": recording.result_summary or "",
             "result_cards": recording.result_records_json or [],
             "created_at": recording.created_at,

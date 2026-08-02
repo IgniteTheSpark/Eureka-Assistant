@@ -41,6 +41,50 @@ async def enqueue_job(
     return job
 
 
+async def enqueue_or_requeue_job(
+    session: AsyncSession,
+    *,
+    job_type: str,
+    run_id: str,
+    dedupe_key: str,
+    available_at: datetime | None = None,
+    max_attempts: int = 3,
+) -> WorkflowJob:
+    job = await session.scalar(
+        select(WorkflowJob)
+        .where(WorkflowJob.input_dedupe_key == dedupe_key)
+        .with_for_update()
+    )
+    if job is None:
+        return await enqueue_job(
+            session,
+            job_type=job_type,
+            run_id=run_id,
+            dedupe_key=dedupe_key,
+            available_at=available_at,
+            max_attempts=max_attempts,
+        )
+    if job.status in {JobStatus.QUEUED.value, JobStatus.RUNNING.value}:
+        return job
+    now = available_at or utc_now()
+    job.job_type = job_type
+    job.run_id = run_id
+    job.status = JobStatus.QUEUED.value
+    job.attempt = 0
+    job.max_attempts = max_attempts
+    job.available_at = now
+    job.lease_owner = None
+    job.lease_expires_at = None
+    job.checkpoint_json = None
+    job.error_code = None
+    job.error_message = None
+    job.started_at = None
+    job.completed_at = None
+    job.updated_at = now
+    await session.flush()
+    return job
+
+
 async def claim_next_job(
     session: AsyncSession,
     *,

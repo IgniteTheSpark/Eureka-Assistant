@@ -113,3 +113,36 @@ class CaptureAcceptance(BaseModel):
     pipeline_status: str
     message: str
     error: str = ""
+
+
+class FlashRequest(BaseModel):
+    text: str = Field(min_length=1)
+    session_id: str = ""
+    source: Literal["voice", "typed", "imported"] = "voice"
+    capture_session_type: str = ""
+    file_id: str = ""
+
+    @field_validator("text")
+    @classmethod
+    def strip_text(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("text must not be blank")
+        return cleaned
+
+
+class FlashResponse(BaseModel):
+    ok: bool
+    session_id: str
+    input_turn_id: str
+    reply: str = ""
+    summary: str = ""
+    cards: list[dict] = Field(default_factory=list)
+    derived_assets: list[dict] = Field(default_factory=list)
+    has_pending: bool = False
+    elapsed_ms: int = 0
+    error: str = ""
+
+
+class ListeningRequest(BaseModel):
+    state: Literal["on", "off"]
