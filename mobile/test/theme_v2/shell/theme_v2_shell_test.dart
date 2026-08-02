@@ -94,7 +94,7 @@ void main() {
     final safePadding = tester.widget<Padding>(
       find.byKey(ThemeV2FloatingDock.safeAreaPaddingKey),
     );
-    expect(safePadding.padding, const EdgeInsets.only(bottom: 36));
+    expect(safePadding.padding, const EdgeInsets.only(bottom: 35));
     final dock = find.byKey(ThemeV2FloatingDock.dockKey);
     expect(tester.getSize(dock).width, 169);
     expect(
@@ -106,6 +106,43 @@ void main() {
       expect(size.width, greaterThanOrEqualTo(44), reason: label);
       expect(size.height, greaterThanOrEqualTo(44), reason: label);
     }
+
+    final material = tester.widget<Material>(dock);
+    final shape = material.shape! as RoundedRectangleBorder;
+    expect(shape.borderRadius, BorderRadius.circular(18));
+    expect(
+      tester
+          .widget<Icon>(
+            find.descendant(
+              of: find.bySemanticsLabel('今日'),
+              matching: find.byType(Icon),
+            ),
+          )
+          .icon,
+      Icons.auto_awesome_outlined,
+    );
+    expect(
+      tester
+          .widget<Icon>(
+            find.descendant(
+              of: find.bySemanticsLabel('日历'),
+              matching: find.byType(Icon),
+            ),
+          )
+          .icon,
+      Icons.calendar_month_outlined,
+    );
+    expect(
+      tester
+          .widget<Icon>(
+            find.descendant(
+              of: find.bySemanticsLabel('资产'),
+              matching: find.byType(Icon),
+            ),
+          )
+          .icon,
+      Icons.local_library_outlined,
+    );
   });
 
   testWidgets('async primitives render loading and empty states', (

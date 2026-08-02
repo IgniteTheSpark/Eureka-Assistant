@@ -59,6 +59,61 @@ void main() {
     );
   });
 
+  testWidgets('Today follows the Pen default composition at 411x960', (
+    tester,
+  ) async {
+    _setReferenceView(tester);
+
+    await tester.pumpWidget(
+      _HomeHost(
+        child: ThemeV2HomePage(
+          repository: _FakeHomeRepository(_fixture),
+          now: DateTime(2026, 7, 31, 9, 48),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final nextMoment = find.byKey(const ValueKey('theme-v2-today-next-moment'));
+    final rekaQueue = find.byKey(const ValueKey('theme-v2-today-reka-queue'));
+    final bubbleField = find.byKey(
+      const ValueKey('theme-v2-today-asset-bubble-field'),
+    );
+
+    expect(tester.getTopLeft(nextMoment), const Offset(20, 106));
+    expect(tester.getSize(nextMoment), const Size(371, 126));
+    expect(tester.getTopLeft(rekaQueue), const Offset(20, 240));
+    expect(tester.getSize(rekaQueue), const Size(371, 188));
+    expect(tester.getTopLeft(bubbleField), const Offset(8, 54));
+    expect(tester.getSize(bubbleField), const Size(395, 790));
+    expect(find.text('NEXT / 10:30'), findsOneWidget);
+    expect(find.text('42'), findsOneWidget);
+    expect(find.text('分钟后'), findsOneWidget);
+    expect(find.text('今日共 1 项  ↗'), findsOneWidget);
+    expect(find.text('下一时刻'), findsNothing);
+    expect(find.text('今日生成'), findsOneWidget);
+  });
+
+  testWidgets('Today chooses NEXT from the unfinished full-day chain', (
+    tester,
+  ) async {
+    _setReferenceView(tester);
+
+    await tester.pumpWidget(
+      _HomeHost(
+        child: ThemeV2HomePage(
+          repository: _FakeHomeRepository(_agendaFixture),
+          now: DateTime(2026, 7, 31, 9, 48),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('NEXT / 10:30'), findsOneWidget);
+    expect(find.text('NEXT / 09:00'), findsNothing);
+    expect(find.text('今日共 2 项  ↗'), findsOneWidget);
+  });
+
   testWidgets('Agenda uses the same promoted panel geometry', (tester) async {
     _setReferenceView(tester);
     final controller = ThemeV2HomeController(
@@ -88,6 +143,44 @@ void main() {
     );
   });
 
+  testWidgets('Agenda follows the Pen fishbone composition at 411x960', (
+    tester,
+  ) async {
+    _setReferenceView(tester);
+    final controller = ThemeV2HomeController(
+      initialPresentation: HomePresentation.agenda,
+    );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      _HomeHost(
+        child: ThemeV2HomePage(
+          controller: controller,
+          repository: _FakeHomeRepository(_agendaFixture),
+          now: DateTime(2026, 7, 31, 9, 48),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final spine = find.byKey(const ValueKey('theme-v2-agenda-spine'));
+    final firstCard = find.byKey(const ValueKey('theme-v2-agenda-card-0'));
+    final secondCard = find.byKey(const ValueKey('theme-v2-agenda-card-1'));
+
+    expect(tester.getTopLeft(spine), const Offset(205, 150));
+    expect(tester.getSize(spine), const Size(1, 606));
+    expect(tester.getTopLeft(firstCard), const Offset(26, 138));
+    expect(tester.getSize(firstCard), const Size(148, 78));
+    expect(tester.getTopLeft(secondCard), const Offset(237, 222));
+    expect(tester.getSize(secondCard), const Size(148, 78));
+    expect(find.text('今日安排'), findsOneWidget);
+    expect(find.text('7月31日 · 周五'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('theme-v2-agenda-generated-chamber')),
+      findsNothing,
+    );
+  });
+
   testWidgets('Agenda opens from Today and returns with explicit actions', (
     tester,
   ) async {
@@ -102,10 +195,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(
-      tester.getSize(find.bySemanticsLabel('打开日程')),
-      const Size.square(44),
-    );
+    expect(tester.getSize(find.bySemanticsLabel('打开日程')), const Size(116, 44));
     await tester.tap(find.bySemanticsLabel('打开日程'));
     await tester.pumpAndSettle();
     expect(find.byType(HomeAgendaPanel), findsOneWidget);
@@ -151,7 +241,7 @@ void main() {
     expect(find.text('今日加载失败'), findsOneWidget);
     await tester.tap(find.bySemanticsLabel('重试'));
     await tester.pumpAndSettle();
-    expect(find.text('下一时刻'), findsOneWidget);
+    expect(find.text('NEXT / 10:30'), findsOneWidget);
     expect(repository.loadCount, 2);
   });
 
@@ -222,6 +312,32 @@ final _fixture = TodayData(
   flashCount: 2,
   todoDone: 1,
   todoTotal: 2,
+);
+
+final _agendaFixture = TodayData(
+  chain: [
+    ChainItem(
+      kind: 'event',
+      id: 'event-1',
+      title: '线上复盘会',
+      at: DateTime(2026, 7, 31, 9),
+      timed: true,
+      sub: '45 分钟',
+      dur: const Duration(minutes: 45),
+    ),
+    ChainItem(
+      kind: 'todo',
+      id: 'todo-1',
+      title: '提交费用单',
+      at: DateTime(2026, 7, 31, 10, 30),
+      timed: true,
+      sub: '待办',
+    ),
+  ],
+  noTimeTodos: [_queueItem(title: '整理研究笔记')],
+  pool: _fixture.pool,
+  poolTrueCount: _fixture.poolTrueCount,
+  flashCount: _fixture.flashCount,
 );
 
 ChainItem _queueItem({

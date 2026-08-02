@@ -14,7 +14,7 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   const surface = ValueKey('home-golden-surface');
   const size = Size(411, 960);
-  final now = DateTime(2026, 7, 31, 8, 30);
+  final now = DateTime(2026, 7, 31, 14, 18);
 
   setUpAll(() async {
     await (FontLoader(
@@ -80,7 +80,7 @@ void main() {
         expect(find.text('目标'), findsNothing);
         final dock = find.byKey(ThemeV2FloatingDock.dockKey);
         expect(dock, findsOneWidget);
-        expect(tester.getTopLeft(dock), const Offset(121, 888));
+        expect(tester.getTopLeft(dock), const Offset(121, 865));
         expect(tester.getSize(dock), const Size(169, 60));
 
         await expectLater(
@@ -96,62 +96,140 @@ final _homeFixture = TodayData(
   chain: [
     ChainItem(
       kind: 'event',
-      id: 'event-weekly',
-      title: '产品周会',
-      at: _eventTime,
+      id: 'event-review',
+      title: '线上复盘会',
+      at: DateTime(2026, 7, 31, 9),
       timed: true,
-      sub: '项目空间 · 45 分钟',
+      sub: '视频会议',
       domain: 'work',
+      dur: const Duration(minutes: 45),
+      done: true,
+    ),
+    ChainItem(
+      kind: 'todo',
+      id: 'todo-expense',
+      title: '提交费用单',
+      at: DateTime(2026, 7, 31, 10, 30),
+      timed: true,
+      sub: '财务',
+      domain: 'work',
+      done: true,
+    ),
+    ChainItem(
+      kind: 'event',
+      id: 'event-lunch',
+      title: '午餐与散步',
+      at: DateTime(2026, 7, 31, 12),
+      timed: true,
+      sub: '生活',
+      domain: 'life',
+      dur: const Duration(minutes: 45),
+      done: true,
+    ),
+    ChainItem(
+      kind: 'event',
+      id: 'event-client',
+      title: '客户需求拜访',
+      at: DateTime(2026, 7, 31, 15),
+      timed: true,
+      sub: '线下拜访',
+      domain: 'work',
+      dur: const Duration(hours: 1),
+    ),
+    ChainItem(
+      kind: 'todo',
+      id: 'todo-training',
+      title: '培训',
+      at: DateTime(2026, 7, 31, 15),
+      timed: true,
+      sub: '待办',
+      domain: 'work',
+    ),
+    ChainItem(
+      kind: 'todo',
+      id: 'todo-materials',
+      title: '提交材料',
+      at: DateTime(2026, 7, 31, 15),
+      timed: true,
+      sub: '待办',
+      domain: 'work',
+    ),
+    ChainItem(
+      kind: 'event',
+      id: 'event-interview',
+      title: '线上面试',
+      at: DateTime(2026, 7, 31, 20),
+      timed: true,
+      sub: '视频会议',
+      domain: 'work',
+      dur: const Duration(minutes: 45),
     ),
   ],
   noTimeTodos: [
     ChainItem(
       kind: 'todo',
-      id: 'todo-notes',
-      title: '整理用户访谈笔记',
-      at: _todoDate,
+      id: 'todo-brief',
+      title: '会前简报已经准备好',
+      at: DateTime(2026, 7, 31),
+      timed: false,
+      sub: '14:00 · 客户需求拜访',
+      domain: 'work',
+    ),
+    ChainItem(
+      kind: 'todo',
+      id: 'todo-flashes',
+      title: '9 条闪念可以整理为一个新主题',
+      at: DateTime(2026, 7, 31),
+      timed: false,
+      sub: '灵感整理',
+      domain: 'work',
+    ),
+    ChainItem(
+      kind: 'todo',
+      id: 'todo-questions',
+      title: '更新产品问题清单',
+      at: DateTime(2026, 7, 31),
       timed: false,
       sub: '工作',
       domain: 'work',
     ),
-  ],
-  pool: [
-    PoolAsset(
-      id: 'asset-note',
-      type: 'note',
+    ChainItem(
+      kind: 'todo',
+      id: 'todo-notes',
+      title: '整理用户访谈笔记',
+      at: DateTime(2026, 7, 31),
+      timed: false,
+      sub: '研究',
       domain: 'work',
-      title: '访谈摘录',
-      payload: {'content': '访谈摘录'},
-      createdAt: _assetTime1,
-    ),
-    PoolAsset(
-      id: 'asset-expense',
-      type: 'expense',
-      domain: 'life',
-      title: '午餐记录',
-      payload: {'amount': 42},
-      createdAt: _assetTime2,
-    ),
-    PoolAsset(
-      id: 'asset-contact',
-      type: 'contact',
-      domain: 'social',
-      title: '林晓',
-      payload: {'name': '林晓'},
-      createdAt: _assetTime3,
     ),
   ],
-  poolTrueCount: 3,
-  flashCount: 2,
-  todoDone: 1,
-  todoTotal: 3,
+  pool: List<PoolAsset>.generate(22, (index) {
+    const types = [
+      'idea',
+      'event',
+      'todo',
+      'book',
+      'expense',
+      'note',
+      'contact',
+      'location',
+      'audio',
+      'image',
+    ];
+    return PoolAsset(
+      id: 'asset-$index',
+      type: types[index % types.length],
+      domain: index.isEven ? 'work' : 'life',
+      title: '今日资产 ${index + 1}',
+      payload: {'content': '今日资产 ${index + 1}'},
+      createdAt: DateTime(2026, 7, 31, 8, index),
+    );
+  }),
+  poolTrueCount: 29,
+  flashCount: 9,
+  todoDone: 2,
+  todoTotal: 5,
 );
-
-final _eventTime = DateTime(2026, 7, 31, 10, 30);
-final _todoDate = DateTime(2026, 7, 31);
-final _assetTime1 = DateTime(2026, 7, 31, 9, 5);
-final _assetTime2 = DateTime(2026, 7, 31, 12, 10);
-final _assetTime3 = DateTime(2026, 7, 31, 14, 20);
 
 void _noopIndex(int _) {}
 

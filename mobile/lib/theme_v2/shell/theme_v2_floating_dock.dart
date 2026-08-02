@@ -1,8 +1,9 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../foundation/theme_v2_semantics.dart';
 import '../foundation/theme_v2_theme.dart';
-import '../foundation/theme_v2_tokens.dart';
 
 class ThemeV2FloatingDock extends StatelessWidget {
   const ThemeV2FloatingDock({
@@ -14,35 +15,40 @@ class ThemeV2FloatingDock extends StatelessWidget {
   static const safeAreaPaddingKey = Key('theme-v2-dock-safe-area');
   static const dockKey = Key('theme-v2-floating-dock');
   static const double contentClearance = 80;
+  static const double viewportBottomPadding = 35;
 
   final int selectedIndex;
   final ValueChanged<int> onDestinationSelected;
 
   static const _destinations = <({IconData icon, String label})>[
-    (icon: Icons.wb_sunny_outlined, label: '今日'),
-    (icon: Icons.calendar_today_outlined, label: '日历'),
-    (icon: Icons.grid_view_outlined, label: '资产'),
+    (icon: Icons.auto_awesome_outlined, label: '今日'),
+    (icon: Icons.calendar_month_outlined, label: '日历'),
+    (icon: Icons.local_library_outlined, label: '资产'),
   ];
 
   @override
   Widget build(BuildContext context) {
     final bottom = MediaQuery.paddingOf(context).bottom;
-    final tokens = context.themeV2;
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return Align(
       alignment: Alignment.bottomCenter,
       child: Padding(
         key: safeAreaPaddingKey,
-        padding: EdgeInsets.only(bottom: bottom + ThemeV2Spacing.md),
+        padding: EdgeInsets.only(
+          bottom: math.max(bottom, viewportBottomPadding),
+        ),
         child: SizedBox(
           width: 169,
           child: Material(
             key: dockKey,
             elevation: 8,
             shadowColor: Colors.black.withValues(alpha: 0.22),
-            color: const Color(0xFF101319).withValues(alpha: 0.98),
+            color: dark ? const Color(0xE8191E29) : const Color(0xFF101319),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(ThemeV2Radii.pill),
-              side: BorderSide(color: tokens.border),
+              borderRadius: BorderRadius.circular(dark ? 20 : 18),
+              side: dark
+                  ? const BorderSide(color: Color(0xFF343B4A))
+                  : BorderSide.none,
             ),
             clipBehavior: Clip.antiAlias,
             child: SizedBox(
