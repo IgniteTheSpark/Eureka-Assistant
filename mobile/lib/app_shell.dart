@@ -36,6 +36,7 @@ final RouteObserver<PageRoute<dynamic>> shellRouteObserver =
 void scheduleShellStartupSurface(
   BuildContext context, {
   String overlay = const String.fromEnvironment('START_OVERLAY'),
+  bool enableMorningBriefing = true,
 }) {
   WidgetsBinding.instance.addPostFrameCallback((_) {
     if (!context.mounted) return;
@@ -53,7 +54,7 @@ void scheduleShellStartupSurface(
       Navigator.of(
         context,
       ).push(MaterialPageRoute(builder: (_) => const DevicePairingPage()));
-    } else {
+    } else if (enableMorningBriefing) {
       // §14.6 晨间简报 — 中午前的第一次打开进沉浸式「早安」页(每天一次、可滑走、
       // 失败静默)。放 else 里:截图验证用的 START_OVERLAY 启动不被它抢路由。
       maybeShowMorningBriefing();

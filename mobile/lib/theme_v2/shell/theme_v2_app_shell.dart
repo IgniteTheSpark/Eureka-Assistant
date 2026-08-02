@@ -6,6 +6,8 @@ import '../../app_shell.dart' show scheduleShellStartupSurface;
 import '../../data_revision.dart';
 import '../../pages/calendar_page.dart' show calendarHome;
 import '../../pages/device_pairing_page.dart';
+import '../../pages/notifications_page.dart';
+import '../../pet/reka_notifications.dart';
 import '../../theme/app_theme.dart';
 import '../calendar/calendar_controller.dart';
 import '../calendar/theme_v2_calendar_page.dart';
@@ -35,6 +37,7 @@ class ThemeV2AppShell extends StatefulWidget {
     this.onDevicePressed,
     this.onNotificationsPressed,
     this.inboxController,
+    this.enableLegacyInbox = false,
     this.calendarController,
     this.libraryNavigation,
     this.initialIndex = const int.fromEnvironment('START_TAB', defaultValue: 0),
@@ -51,6 +54,11 @@ class ThemeV2AppShell extends StatefulWidget {
   final VoidCallback? onDevicePressed;
   final VoidCallback? onNotificationsPressed;
   final RekaInboxController? inboxController;
+
+  /// Retains the old Nudge/Offer inbox only for legacy-backed test or rollout
+  /// hosts. The isolated Theme V2 service uses persistent notifications.
+  final bool enableLegacyInbox;
+  bool get usesLegacyInbox => enableLegacyInbox || inboxController != null;
   final CalendarController? calendarController;
   final LibraryNavigationController? libraryNavigation;
   final int initialIndex;
@@ -82,20 +90,31 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
     super.initState();
     assert(widget.pages == null || widget.pages!.length == 3);
     WidgetsBinding.instance.addObserver(this);
-    _inboxController.addListener(_onInboxChanged);
+    if (widget.usesLegacyInbox) {
+      _inboxController.addListener(_onInboxChanged);
+    } else {
+      RekaNotifications.instance.addListener(_onInboxChanged);
+    }
     _calendarController.surfaceListenable.addListener(_onCalendarChanged);
     _libraryNavigation.addListener(_onLibraryChanged);
     _attachDeviceStatusAdapter();
-    if (_inboxController.status == RekaInboxStatus.idle) {
+    if (widget.enableLegacyInbox &&
+        _inboxController.status == RekaInboxStatus.idle) {
       unawaited(_inboxController.load(includeOffers: false));
     }
-    if (widget.showStartupOverlays) scheduleShellStartupSurface(context);
+    if (widget.showStartupOverlays) {
+      scheduleShellStartupSurface(context, enableMorningBriefing: false);
+    }
   }
 
   @override
   void dispose() {
     _detachDeviceStatusAdapter();
-    _inboxController.removeListener(_onInboxChanged);
+    if (widget.usesLegacyInbox) {
+      _inboxController.removeListener(_onInboxChanged);
+    } else {
+      RekaNotifications.instance.removeListener(_onInboxChanged);
+    }
     if (_ownsInboxController) _inboxController.dispose();
     _calendarController.surfaceListenable.removeListener(_onCalendarChanged);
     if (_ownsCalendarController) _calendarController.dispose();
@@ -176,6 +195,12 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
       callback();
       return;
     }
+    if (!widget.usesLegacyInbox) {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => const NotificationsPage()),
+      );
+      return;
+    }
     final originLegacyTheme = Theme.of(context).extension<EurekaTheme>();
     Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -236,7 +261,9 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
           widget.deviceStatus ??
           _deviceStatusAdapter?.value ??
           const DeviceStatusSummary.disconnected(),
-      unreadNotificationCount: _inboxController.unreadCount,
+      unreadNotificationCount: widget.usesLegacyInbox
+          ? _inboxController.unreadCount
+          : RekaNotifications.instance.unread,
       onDevicePressed: () => _openDevice(context),
       onNotificationsPressed: () => _openNotifications(context),
     );

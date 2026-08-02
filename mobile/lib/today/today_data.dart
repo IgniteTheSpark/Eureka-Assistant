@@ -160,19 +160,32 @@ String _poolTitle(Map<String, dynamic> p, String type) {
 /// One fetch feeding all three of today's sections. Resilient: a failure in any
 /// one sub-fetch degrades that section to empty rather than blanking the whole
 /// landing. The three GETs run concurrently (started before the first await).
-Future<TodayData> loadToday(ApiClient api, {DateTime? nowOverride}) async {
+Future<TodayData> loadToday(
+  ApiClient api, {
+  DateTime? nowOverride,
+  bool coreRecordsOnly = false,
+}) async {
   final now = nowOverride ?? DateTime.now();
   final today = DateTime(now.year, now.month, now.day);
   final from = _bound(today, end: false);
   final to = _bound(today, end: true);
 
-  final chainF = _loadChain(api, from, to, now);
-  final poolF = _loadPool(api, from, to);
-  final flashF = _loadFlashCount(api, today);
+  final chainF = _loadChain(
+    api,
+    from,
+    to,
+    now,
+    coreRecordsOnly: coreRecordsOnly,
+  );
+  final poolF = _loadPool(api, from, to, coreRecordsOnly: coreRecordsOnly);
+  final flashF = _loadFlashCount(api, today, coreRecordsOnly: coreRecordsOnly);
   // skill registry (icon + label per skill) — drives the bubble glyph + the
   // dashboard category name so custom skills render correctly. Resilient: an
   // empty map just falls back to resolveMeta's built-in defaults.
-  final skillsF = fetchSkills(api).catchError((_) => <String, SkillMeta>{});
+  final skillsF = fetchSkills(
+    api,
+    coreRecordsOnly: coreRecordsOnly,
+  ).catchError((_) => <String, SkillMeta>{});
 
   final split = await chainF;
   final poolRes = await poolF;
@@ -198,7 +211,14 @@ Future<TodayData> loadToday(ApiClient api, {DateTime? nowOverride}) async {
 Future<
   ({List<ChainItem> chain, List<ChainItem> noTime, int todoTotal, int todoDone})
 >
-_loadChain(ApiClient api, String from, String to, DateTime now) async {
+_loadChain(
+  ApiClient api,
+  String from,
+  String to,
+  DateTime now, {
+  required bool coreRecordsOnly,
+}) async {
+  if (coreRecordsOnly) return _loadCoreRecordChain(api, from, to, now);
   try {
     final res = await api.getJson(
       '/api/timeline',
@@ -398,8 +418,9 @@ _loadCoreRecordChain(
 Future<({List<PoolAsset> pool, int trueCount})> _loadPool(
   ApiClient api,
   String from,
-  String to,
-) async {
+  String to, {
+  required bool coreRecordsOnly,
+}) async {
   final assetsF = _safeGetWithLimit(
     api,
     '/api/assets',
@@ -410,11 +431,9 @@ Future<({List<PoolAsset> pool, int trueCount})> _loadPool(
     '/api/events',
     query: {'created_from': from, 'created_to': to, 'limit': 200},
   );
-  final contactsF = _safeGetWithLimit(
-    api,
-    '/api/contacts',
-    query: {'limit': 200},
-  );
+  final contactsF = coreRecordsOnly
+      ? Future<dynamic>.value(null)
+      : _safeGetWithLimit(api, '/api/contacts', query: {'limit': 200});
   final skillsF = _loadCoreSkills(api);
 
   final all = <PoolAsset>[];
@@ -584,8 +603,10 @@ bool _isWithin(DateTime value, String from, String to) {
 /// by DBSession.date, so no client-side date math needed).
 Future<({int count, String? latestId})> _loadFlashCount(
   ApiClient api,
-  DateTime today,
-) async {
+  DateTime today, {
+  required bool coreRecordsOnly,
+}) async {
+  if (coreRecordsOnly) return (count: 0, latestId: null);
   try {
     String two(int n) => n.toString().padLeft(2, '0');
     final d = '${today.year}-${two(today.month)}-${two(today.day)}';

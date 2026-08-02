@@ -15,9 +15,10 @@ abstract interface class LibraryRepository {
 }
 
 class ApiLibraryRepository implements LibraryRepository {
-  ApiLibraryRepository(this.api);
+  ApiLibraryRepository(this.api, {this.coreRecordsOnly = false});
 
   final ApiClient api;
+  final bool coreRecordsOnly;
 
   @override
   Future<LibraryOverview> loadOverview() async {
@@ -30,11 +31,15 @@ class ApiLibraryRepository implements LibraryRepository {
       _capture('events', () => api.getJson('/api/events')),
       _capture(
         'contacts',
-        () => _optionalNotFound(() => api.getJson('/api/contacts')),
+        () => coreRecordsOnly
+            ? Future<dynamic>.value(null)
+            : _optionalNotFound(() => api.getJson('/api/contacts')),
       ),
       _capture(
         'counts',
-        () => _optionalNotFound(() => api.getJson('/api/assets/counts')),
+        () => coreRecordsOnly
+            ? Future<dynamic>.value(null)
+            : _optionalNotFound(() => api.getJson('/api/assets/counts')),
       ),
     ]);
     final failures = [
@@ -88,6 +93,7 @@ class ApiLibraryRepository implements LibraryRepository {
   }
 
   Future<dynamic> _loadSkills() async {
+    if (coreRecordsOnly) return api.getJson('/api/user-skills');
     try {
       return await api.getJson('/api/skills');
     } on ApiException catch (error) {

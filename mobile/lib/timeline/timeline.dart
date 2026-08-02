@@ -182,7 +182,11 @@ SkillMeta resolveTimelineItemMeta(
   return const SkillMeta('•', '记录');
 }
 
-Future<List<TimelineItem>> fetchTimeline(ApiClient api) async {
+Future<List<TimelineItem>> fetchTimeline(
+  ApiClient api, {
+  bool coreRecordsOnly = false,
+}) async {
+  if (coreRecordsOnly) return _fetchCoreRecordTimeline(api);
   try {
     final res = await api.getJson('/api/timeline');
     final items = (res is Map ? res['items'] : null) as List? ?? const [];
@@ -292,13 +296,20 @@ String _coreTitle(Map<String, dynamic> value, String fallback) {
 }
 
 /// name → {icon, label} from /api/skills (render_spec.icon + display_name).
-Future<Map<String, SkillMeta>> fetchSkills(ApiClient api) async {
+Future<Map<String, SkillMeta>> fetchSkills(
+  ApiClient api, {
+  bool coreRecordsOnly = false,
+}) async {
   dynamic res;
-  try {
-    res = await api.getJson('/api/skills');
-  } on ApiException catch (error) {
-    if (error.statusCode != 404) rethrow;
+  if (coreRecordsOnly) {
     res = await api.getJson('/api/user-skills');
+  } else {
+    try {
+      res = await api.getJson('/api/skills');
+    } on ApiException catch (error) {
+      if (error.statusCode != 404) rethrow;
+      res = await api.getJson('/api/user-skills');
+    }
   }
   final skills = switch (res) {
     List value => value,

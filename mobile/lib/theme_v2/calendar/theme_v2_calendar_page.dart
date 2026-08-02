@@ -94,8 +94,8 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
 
   Future<CalendarData> _loadProduction() async {
     final result = await Future.wait([
-      fetchTimeline(_apiClient),
-      fetchSkills(_apiClient),
+      fetchTimeline(_apiClient, coreRecordsOnly: true),
+      fetchSkills(_apiClient, coreRecordsOnly: true),
     ]);
     return CalendarData(
       result[0] as List<TimelineItem>,

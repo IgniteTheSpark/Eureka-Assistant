@@ -38,14 +38,14 @@ class AppEvents {
 
   void _flashLog(String message) => debugPrint('$_flashLogTag SSE $message');
 
-  void start() {
+  void start({bool recoverLegacyNudges = true}) {
     if (_started) return;
     _started = true;
     final runId = ++_runId;
     _flashLog('app events start');
     _run(runId);
     // §14.7: restore today's un-acted nudges → quiet「...」chip on the ball.
-    RekaNudges.instance.loadPending();
+    if (recoverLegacyNudges) RekaNudges.instance.loadPending();
   }
 
   void stop() {

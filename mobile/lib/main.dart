@@ -11,6 +11,7 @@ import 'auth/auth_controller.dart';
 import 'ble_flash/ble_flash_manager.dart';
 import 'ble_flash/ble_flash_overlay.dart';
 import 'ble_flash/flash_file_workflow.dart';
+import 'config.dart';
 import 'ring/ring_capture_service.dart';
 import 'ring/ring_connection.dart';
 import 'data_revision.dart';
@@ -22,11 +23,16 @@ import 'pet/pet_controller.dart';
 import 'pet/reka_notifications.dart';
 import 'pages/session_detail_page.dart';
 import 'render/sprite_factory.dart';
+import 'startup_capabilities.dart';
 import 'theme/app_theme.dart';
 import 'theme/eureka_colors.dart';
 import 'theme/theme_controller.dart';
 import 'theme_v2/theme_v2_rollout.dart';
 import 'widgets/listening_overlay.dart';
+
+const _startupCapabilities = AppConfig.themeV2
+    ? StartupCapabilities.themeV2()
+    : StartupCapabilities.legacy();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -100,16 +106,18 @@ class EurekaApp extends StatelessWidget {
                           // app-wide so pixel-exact sprite previews (pet board milestones,
                           // the full-screen 换装 page's cells) work regardless of which
                           // route is on top (an offstage board host wouldn't render).
-                          const Positioned(
-                            left: -50,
-                            top: -50,
-                            width: 1,
-                            height: 1,
-                            child: SpriteFactoryHost(),
-                          ),
+                          if (_startupCapabilities.pet)
+                            const Positioned(
+                              left: -50,
+                              top: -50,
+                              width: 1,
+                              height: 1,
+                              child: SpriteFactoryHost(),
+                            ),
                           // §9.2 全局浮动球球 REKA — above every route (navigates via
                           // navigatorKey). Sits below the hardware listening overlay.
-                          const Positioned.fill(child: FloatingMascot()),
+                          if (_startupCapabilities.pet)
+                            const Positioned.fill(child: FloatingMascot()),
                           ValueListenableBuilder<bool>(
                             valueListenable: listeningNotifier,
                             builder: (_, on, child) => on
@@ -164,19 +172,25 @@ class _AuthGate extends StatelessWidget {
         }
         if (!auth.isAuthed) return const LoginPage();
         // Authed: open the hardware/notifications SSE bridge (idempotent).
-        AppEvents.instance.start();
+        AppEvents.instance.start(
+          recoverLegacyNudges: _startupCapabilities.nudges,
+        );
         // §C: restore the 14-day notification history so the REKA feed isn't
         // empty on relaunch (server is the source of truth; SSE adds live ones).
-        unawaited(RekaNotifications.instance.loadFromServer());
-        BleFlashManager.instance.start();
-        unawaited(FlashFileWorkflow.instance.start(auth.userId!));
-        // 戒指实时录音 → 闪念(里程碑2)。幂等;仅在戒指连接后双击才生效。
-        startRingCapture(ApiClient());
-        RingConnection.instance.ensureStarted(); // 全局戒指连接态(头部图标用)
+        if (_startupCapabilities.notifications) {
+          unawaited(RekaNotifications.instance.loadFromServer());
+        }
+        if (_startupCapabilities.hardwareCapture) {
+          BleFlashManager.instance.start();
+          unawaited(FlashFileWorkflow.instance.start(auth.userId!));
+          // 戒指实时录音 → 闪念。幂等；仅在戒指连接后双击才生效。
+          startRingCapture(ApiClient());
+          RingConnection.instance.ensureStarted();
+        }
         return _startSession.isEmpty
             ? KeyedSubtree(
                 key: ValueKey(auth.sessionEpoch),
-                child: const _PostAuthGate(),
+                child: const _PostAuthGate(capabilities: _startupCapabilities),
               )
             : SessionDetailPage(sessionId: _startSession, title: '会话详情');
       },
@@ -189,7 +203,9 @@ class _AuthGate extends StatelessWidget {
 /// 不是晨报、不是 shell。Tiers ②/③(晨报 vs 直接进 app)由 shell 的
 /// `maybeShowMorningBriefing` 接手(只在已孵化时跑)。
 class _PostAuthGate extends StatefulWidget {
-  const _PostAuthGate();
+  const _PostAuthGate({required this.capabilities});
+
+  final StartupCapabilities capabilities;
 
   @override
   State<_PostAuthGate> createState() => _PostAuthGateState();
@@ -213,13 +229,16 @@ class _PostAuthGateState extends State<_PostAuthGate> {
     // notifies SYNCHRONOUSLY (loading flag) — calling inside build marks the
     // floating ball dirty mid-build ("setState() during build"); defer a frame.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _pet.ensureLoaded();
-      DeviceController.instance.refreshBoundDevice();
+      if (widget.capabilities.pet) _pet.ensureLoaded();
+      if (widget.capabilities.hardwareCapture) {
+        DeviceController.instance.refreshBoundDevice();
+      }
     });
   }
 
   @override
   Widget build(BuildContext context) {
+    if (!widget.capabilities.pet) return const AppRootShell();
     return AnimatedBuilder(
       animation: _pet,
       builder: (context, _) {

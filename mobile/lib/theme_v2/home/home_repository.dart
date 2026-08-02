@@ -16,7 +16,7 @@ class ApiThemeV2HomeRepository implements ThemeV2HomeRepository {
   @override
   Future<TodayData> load() async {
     await _api.getJson('/ready');
-    return loadToday(_api);
+    return loadToday(_api, coreRecordsOnly: true);
   }
 
   void dispose() {

@@ -61,7 +61,9 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
     if (_ownsController) {
       final api = ApiClient();
       _ownedApi = api;
-      _controller = LibraryController(repository: ApiLibraryRepository(api));
+      _controller = LibraryController(
+        repository: ApiLibraryRepository(api, coreRecordsOnly: true),
+      );
     } else {
       _controller = widget.controller!;
     }
