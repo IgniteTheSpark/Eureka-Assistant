@@ -5,6 +5,7 @@ from sqlalchemy import select
 
 from app.db.models import WorkflowJob
 from app.db.session import AsyncSessionFactory
+from app.domains.notifications.models import OutboxEvent
 from app.main import app
 
 
@@ -161,6 +162,22 @@ async def test_bound_card_sync_asr_result_is_idempotently_accepted(client):
     assert jobs[0].input_dedupe_key == (
         f"capture-process:{first.json()['recording_id']}"
     )
+    async with AsyncSessionFactory() as database_session:
+        events = list(
+            await database_session.scalars(
+                select(OutboxEvent).where(
+                    OutboxEvent.aggregate_id == first.json()["recording_id"]
+                )
+            )
+        )
+    assert [event.event_type for event in events] == [
+        "flash_file_status",
+        "flash_file_status",
+    ]
+    assert {event.payload_json["status"] for event in events} == {
+        "accepted",
+        "asr_done",
+    }
 
 
 async def test_unbound_card_sync_result_is_rejected(client):

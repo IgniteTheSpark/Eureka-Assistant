@@ -7,7 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.db.base import utc_now
 from app.domains.notifications.models import Notification, OutboxEvent
 from app.domains.notifications.schemas import NotificationPayload
-from app.domains.notifications.subscribers import SubscriberRegistry
+from app.domains.notifications.subscribers import (
+    SubscriberFrame,
+    SubscriberRegistry,
+)
 
 
 async def dispatch_one(
@@ -23,7 +26,7 @@ async def dispatch_one(
                 OutboxEvent.published_at.is_(None),
                 OutboxEvent.available_at <= now,
             )
-            .order_by(OutboxEvent.id)
+            .order_by(OutboxEvent.created_at, OutboxEvent.id)
             .with_for_update(skip_locked=True)
             .limit(1)
         )
@@ -32,12 +35,24 @@ async def dispatch_one(
 
         event_id = event.id
         try:
-            notification = await session.get(Notification, event.aggregate_id)
-            if notification is not None:
-                payload = NotificationPayload.model_validate(notification).model_dump(
-                    mode="json"
+            if event.aggregate_type == "notification":
+                notification = await session.get(Notification, event.aggregate_id)
+                if notification is not None:
+                    payload = NotificationPayload.model_validate(
+                        notification
+                    ).model_dump(mode="json")
+                    registry.publish(
+                        notification.user_id,
+                        SubscriberFrame(event="notification", payload=payload),
+                    )
+            else:
+                registry.publish(
+                    event.user_id,
+                    SubscriberFrame(
+                        event=event.event_type,
+                        payload=event.payload_json,
+                    ),
                 )
-                registry.publish(notification.user_id, payload)
             event.published_at = now
             event.last_error = None
             await session.commit()

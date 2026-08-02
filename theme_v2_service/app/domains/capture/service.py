@@ -12,6 +12,7 @@ from app.domains.capture.schemas import (
     TimestampInput,
 )
 from app.domains.devices.models import Card, CardBinding
+from app.domains.notifications.service import publish_domain_event
 from app.jobs.queue import enqueue_job
 
 
@@ -35,6 +36,32 @@ class CaptureAcceptanceResult:
 class RecordingResult:
     recording: CaptureRecording
     file: CaptureFile
+
+
+async def publish_capture_status(
+    session: AsyncSession,
+    recording: CaptureRecording,
+    *,
+    status: str,
+    message: str,
+) -> None:
+    await publish_domain_event(
+        session,
+        event_type="flash_file_status",
+        aggregate_type="capture_recording",
+        aggregate_id=recording.id,
+        user_id=recording.user_id,
+        payload={
+            "recording_id": recording.id,
+            "file_id": recording.file_id,
+            "client_task_id": recording.client_task_id,
+            "card_sn": recording.card_sn,
+            "device_file_name": recording.device_file_name,
+            "status": status,
+            "pipeline_status": recording.process_status,
+            "message": message,
+        },
+    )
 
 
 def _utc_naive(value: datetime) -> datetime:
@@ -280,6 +307,20 @@ async def accept_sync_result(
     )
     session.add(recording)
     await session.flush()
+    await publish_capture_status(
+        session,
+        recording,
+        status="accepted",
+        message="上传完成",
+    )
+    await publish_capture_status(
+        session,
+        recording,
+        status=process_status,
+        message=(
+            "语音识别完成" if process_status == "asr_done" else message
+        ),
+    )
     if text:
         session.add(
             CaptureTurn(
@@ -395,6 +436,18 @@ async def accept_s3_upload(
     )
     session.add(recording)
     await session.flush()
+    await publish_capture_status(
+        session,
+        recording,
+        status="accepted",
+        message="上传完成",
+    )
+    await publish_capture_status(
+        session,
+        recording,
+        status="asr_processing",
+        message="语音识别中",
+    )
     await enqueue_job(
         session,
         job_type="capture_asr",

@@ -7,6 +7,27 @@ from app.domains.notifications.models import Notification, OutboxEvent
 from app.domains.notifications.schemas import NotificationCreate
 
 
+async def publish_domain_event(
+    session: AsyncSession,
+    *,
+    event_type: str,
+    aggregate_type: str,
+    aggregate_id: str,
+    user_id: str,
+    payload: dict,
+) -> OutboxEvent:
+    event = OutboxEvent(
+        event_type=event_type,
+        aggregate_type=aggregate_type,
+        aggregate_id=aggregate_id,
+        user_id=user_id,
+        payload_json=payload,
+    )
+    session.add(event)
+    await session.flush()
+    return event
+
+
 async def create_notification(
     session: AsyncSession,
     command: NotificationCreate,
@@ -21,16 +42,14 @@ async def create_notification(
     session.add(notification)
     await session.flush()
 
-    session.add(
-        OutboxEvent(
-            event_type="notification.created",
-            aggregate_type="notification",
-            aggregate_id=notification.id,
-            user_id=notification.user_id,
-            payload_json={"notification_id": notification.id},
-        )
+    await publish_domain_event(
+        session,
+        event_type="notification.created",
+        aggregate_type="notification",
+        aggregate_id=notification.id,
+        user_id=notification.user_id,
+        payload={"notification_id": notification.id},
     )
-    await session.flush()
     return notification
 
 

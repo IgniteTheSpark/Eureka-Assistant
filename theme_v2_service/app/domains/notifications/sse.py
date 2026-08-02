@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator, Callable
 
 from app.domains.notifications.subscribers import (
     NotificationFrame,
+    SubscriberFrame,
     SubscriberQueue,
 )
 
@@ -34,14 +35,17 @@ async def with_heartbeats(
     try:
         while True:
             try:
-                payload = await asyncio.wait_for(
+                frame = await asyncio.wait_for(
                     queue.get(),
                     timeout=heartbeat_seconds,
                 )
             except TimeoutError:
                 yield sse_comment("heartbeat")
             else:
-                yield sse_event("notification", payload)
+                if isinstance(frame, SubscriberFrame):
+                    yield sse_event(frame.event, frame.payload)
+                else:
+                    yield sse_event("notification", frame)
     finally:
         if on_close is not None:
             on_close()
