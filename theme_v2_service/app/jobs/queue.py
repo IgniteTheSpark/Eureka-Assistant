@@ -132,6 +132,38 @@ async def complete_job(
     return result.rowcount == 1
 
 
+async def defer_job(
+    session: AsyncSession,
+    *,
+    job_id: str,
+    owner: str,
+    now: datetime,
+    available_at: datetime,
+    checkpoint: dict | None = None,
+) -> bool:
+    job = await session.scalar(
+        select(WorkflowJob)
+        .where(
+            WorkflowJob.id == job_id,
+            WorkflowJob.status == JobStatus.RUNNING.value,
+            WorkflowJob.lease_owner == owner,
+        )
+        .with_for_update()
+    )
+    if job is None:
+        return False
+    job.status = JobStatus.QUEUED.value
+    job.available_at = available_at
+    job.lease_owner = None
+    job.lease_expires_at = None
+    job.checkpoint_json = checkpoint
+    job.error_code = None
+    job.error_message = None
+    job.updated_at = now
+    await session.flush()
+    return True
+
+
 def _retry_delay_seconds(
     attempt: int,
     *,

@@ -1,7 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,6 +16,15 @@ class Settings(BaseSettings):
     job_lease_seconds: int = 60
     media_root: str = "/data/media"
     default_user_timezone: str = "Asia/Shanghai"
+    tencent_asr_service_base_url: str = "https://pre.card.biz"
+    capture_asr_poll_interval_seconds: float = Field(default=5, gt=0)
+    capture_asr_poll_timeout_seconds: float = Field(default=1800, gt=0)
+    capture_provider_timeout_seconds: float = Field(default=20, gt=0)
+    capture_agent_enabled: bool = False
+    capture_agent_model: str | None = None
+    capture_agent_api_key: str | None = None
+    capture_agent_timeout_seconds: float = Field(default=60, gt=0)
+    capture_agent_max_attempts: int = Field(default=3, ge=1)
     report_planner_enabled: bool = False
     report_pipeline_enabled: bool = False
     report_planner_model: str | None = None
@@ -55,6 +64,8 @@ class Settings(BaseSettings):
             errors.append("REPORT_PLANNER_MODEL is required")
         if self.report_pipeline_enabled and not self.report_generator_model:
             errors.append("REPORT_GENERATOR_MODEL is required")
+        if self.capture_agent_enabled and not self.capture_agent_model:
+            errors.append("CAPTURE_AGENT_MODEL is required")
         return errors
 
     def report_planner_available(self) -> bool:

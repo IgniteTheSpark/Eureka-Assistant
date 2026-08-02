@@ -15,6 +15,7 @@ from app.jobs.queue import (
     renew_lease,
 )
 from app.jobs.registry import JobHandlerRegistry
+from app.jobs.models import JobDeferred, JobPermanentFailure
 
 
 def _worker_owner() -> str:
@@ -93,6 +94,19 @@ async def run_worker_once(
 
         try:
             await handler(job)
+        except JobDeferred:
+            pass
+        except JobPermanentFailure as exc:
+            async with session_scope() as session:
+                await fail_job(
+                    session,
+                    job_id=job.id,
+                    owner=owner,
+                    now=clock(),
+                    error_code=exc.error_code,
+                    error_message=exc.error_message,
+                    retryable=False,
+                )
         except Exception as exc:
             async with session_scope() as session:
                 await fail_job(

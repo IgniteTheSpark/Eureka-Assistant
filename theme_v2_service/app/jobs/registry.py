@@ -2,6 +2,8 @@ from collections.abc import Awaitable, Callable
 
 from app.config import get_settings
 from app.db.models import WorkflowJob
+from app.domains.capture.asr import TencentS3AsrProvider
+from app.domains.capture.jobs import CAPTURE_ASR_JOB_TYPE, capture_asr_handler
 from app.domains.notifications.maintenance import (
     NOTIFICATION_PRUNE_JOB_TYPE,
     handle_notification_prune,
@@ -33,6 +35,17 @@ registry = JobHandlerRegistry()
 registry.register(NOTIFICATION_PRUNE_JOB_TYPE, handle_notification_prune)
 
 _settings = get_settings()
+registry.register(
+    CAPTURE_ASR_JOB_TYPE,
+    capture_asr_handler(
+        TencentS3AsrProvider(
+            base_url=_settings.tencent_asr_service_base_url,
+            timeout_seconds=_settings.capture_provider_timeout_seconds,
+        ),
+        poll_interval_seconds=_settings.capture_asr_poll_interval_seconds,
+        poll_timeout_seconds=_settings.capture_asr_poll_timeout_seconds,
+    ),
+)
 if _settings.report_planner_enabled and _settings.report_planner_model:
     from app.domains.reports.planner import planner_handler
     from app.domains.reports.providers_litellm import LiteLLMPlannerProvider
