@@ -9,6 +9,7 @@ from app.auth.api import router as auth_router
 from app.config import get_settings
 from app.db.session import AsyncSessionFactory
 from app.domains.assets.api import router as assets_router
+from app.domains.devices.api import router as devices_router
 from app.domains.notifications.api import router as notification_router
 from app.domains.notifications.outbox import run_outbox_dispatcher
 from app.domains.notifications.subscribers import SubscriberRegistry
@@ -45,6 +46,7 @@ app = FastAPI(
 )
 app.include_router(auth_router)
 app.include_router(assets_router)
+app.include_router(devices_router)
 app.include_router(notification_router)
 app.include_router(trigger_router)
 app.include_router(report_runs_router)

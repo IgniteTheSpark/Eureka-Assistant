@@ -7,6 +7,7 @@ from app.config import get_settings
 from app.db.base import Base
 from app.db import models as domain_models  # noqa: F401
 from app.auth import models as auth_models  # noqa: F401
+from app.domains.devices import models as device_models  # noqa: F401
 
 
 def _sync_url(url: str) -> str:
@@ -43,6 +44,8 @@ def test_foundation_migration_round_trip_and_physical_types():
         "reports",
         "files",
         "workflow_jobs",
+        "cards",
+        "card_bindings",
     }.issubset(set(inspector.get_table_names()))
 
     asset_columns = {column["name"]: column for column in inspector.get_columns("assets")}
@@ -52,5 +55,5 @@ def test_foundation_migration_round_trip_and_physical_types():
 
     with engine.connect() as connection:
         revision = connection.scalar(text("SELECT version_num FROM alembic_version"))
-    assert revision == "0005_report_share"
+    assert revision == "0006_device_bindings"
     engine.dispose()
