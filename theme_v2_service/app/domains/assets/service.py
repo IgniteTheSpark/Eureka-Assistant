@@ -20,6 +20,161 @@ class UserSkillNotFound(Exception):
     pass
 
 
+BASELINE_CAPTURE_SKILLS: tuple[dict, ...] = (
+    {
+        "machine_name": "todo",
+        "display_name": "待办",
+        "description": "需要完成、提醒或跟进的事项",
+        "domain": "productivity",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "content": {"type": "string"},
+                "due_date": {"type": "string"},
+                "period": {"type": "string"},
+                "occurred_at": {"type": "string"},
+                "status": {"type": "string"},
+                "domain": {"type": "string"},
+            },
+            "required": ["title"],
+            "additionalProperties": False,
+            "x-capture-enabled": True,
+        },
+    },
+    {
+        "machine_name": "expense",
+        "display_name": "消费",
+        "description": "消费、付款或报销记录",
+        "domain": "finance",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "amount": {"type": "number"},
+                "currency": {"type": "string"},
+                "category": {"type": "string"},
+                "merchant": {"type": "string"},
+                "date": {"type": "string"},
+                "description": {"type": "string"},
+                "period": {"type": "string"},
+                "occurred_at": {"type": "string"},
+                "domain": {"type": "string"},
+            },
+            "required": ["amount", "currency"],
+            "additionalProperties": False,
+            "x-capture-enabled": True,
+        },
+    },
+    {
+        "machine_name": "contact",
+        "display_name": "联系人",
+        "description": "人物及其明确提供的联系信息",
+        "domain": "people",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "phone": {"type": "string"},
+                "company": {"type": "string"},
+                "title": {"type": "string"},
+                "email": {"type": "string"},
+                "notes": {"type": "string"},
+                "domain": {"type": "string"},
+            },
+            "required": ["name"],
+            "additionalProperties": False,
+            "x-capture-enabled": True,
+        },
+    },
+    {
+        "machine_name": "idea",
+        "display_name": "想法",
+        "description": "灵感、产品想法和待探索方向",
+        "domain": "knowledge",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "content": {"type": "string"},
+                "tags": {"type": "array", "items": {"type": "string"}},
+                "domain": {"type": "string"},
+            },
+            "required": ["title", "content", "tags"],
+            "additionalProperties": False,
+            "x-capture-enabled": True,
+        },
+    },
+    {
+        "machine_name": "notes",
+        "display_name": "随记",
+        "description": "忠于原文的自由文本笔记",
+        "domain": "knowledge",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "content": {"type": "string"},
+                "tags": {"type": "array", "items": {"type": "string"}},
+                "domain": {"type": "string"},
+            },
+            "required": ["title", "content", "tags"],
+            "additionalProperties": False,
+            "x-capture-enabled": True,
+        },
+    },
+    {
+        "machine_name": "misc",
+        "display_name": "其他",
+        "description": "无法归入更具体类型的记录",
+        "domain": "knowledge",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "content": {"type": "string"},
+                "tags": {"type": "array", "items": {"type": "string"}},
+                "domain": {"type": "string"},
+            },
+            "required": ["title", "content", "tags"],
+            "additionalProperties": False,
+            "x-capture-enabled": True,
+        },
+    },
+)
+
+
+async def ensure_capture_skills(
+    session: AsyncSession,
+    user_id: str,
+) -> list[UserSkill]:
+    machine_names = [item["machine_name"] for item in BASELINE_CAPTURE_SKILLS]
+    existing = list(
+        await session.scalars(
+            select(UserSkill).where(
+                UserSkill.user_id == user_id,
+                UserSkill.machine_name.in_(machine_names),
+            )
+        )
+    )
+    by_name = {skill.machine_name: skill for skill in existing}
+    for definition in BASELINE_CAPTURE_SKILLS:
+        machine_name = definition["machine_name"]
+        if machine_name in by_name:
+            continue
+        skill = UserSkill(
+            user_id=user_id,
+            machine_name=machine_name,
+            display_name=definition["display_name"],
+            description=definition["description"],
+            domain=definition["domain"],
+            schema_json=definition["schema"],
+        )
+        session.add(skill)
+        by_name[machine_name] = skill
+    await session.flush()
+    return [by_name[machine_name] for machine_name in machine_names]
+
+
 def _utc_naive(value: datetime | None) -> datetime | None:
     if value is None or value.tzinfo is None:
         return value
