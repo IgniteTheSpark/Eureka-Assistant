@@ -173,6 +173,11 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
     super.didUpdateWidget(oldWidget);
     if (_assetKey(oldWidget.assets) != _assetKey(widget.assets)) {
       _syncAssets();
+    } else {
+      _assetsById
+        ..clear()
+        ..addEntries(widget.assets.map((asset) => MapEntry(asset.id, asset)));
+      _repaint.value++;
     }
     if (oldWidget.gravityStream != widget.gravityStream) {
       unawaited(_gravitySubscription?.cancel());
@@ -215,6 +220,14 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
             }
           },
           onError: (_) {
+            const fallback = Offset(0, 20);
+            _gravity = fallback;
+            final field = _field;
+            if (field != null) {
+              field.gravity = fallback;
+              field.wakeAll();
+              if (_physicsActive && !_ticker.isActive) _ticker.start();
+            }
             unawaited(_gravitySubscription?.cancel());
             _gravitySubscription = null;
           },
@@ -259,6 +272,9 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
       ..clear()
       ..addEntries(widget.assets.map((asset) => MapEntry(asset.id, asset)));
     final ids = widget.assets.map((asset) => asset.id).toSet();
+    if (field.bubbles.any((bubble) => !ids.contains(bubble.id))) {
+      field.release();
+    }
     for (final bubble in List<Bubble>.of(field.bubbles)) {
       if (!ids.contains(bubble.id)) {
         field.removeBubble(bubble);
