@@ -9,8 +9,7 @@ import '../asset_detail/open_asset_detail.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
 import 'theme_v2_asset_bubble_field.dart';
-
-const double homePanelRadius = 19;
+import 'theme_v2_gravity_chamber.dart';
 
 const _goalMetadataKeys = <String>{
   'card_type',
@@ -69,24 +68,28 @@ class HomeTodayPanel extends StatelessWidget {
     super.key,
     required this.data,
     required this.onOpenAgenda,
+    required this.chamberHeight,
     this.date,
     this.active = true,
   });
 
   static const nextMomentKey = ValueKey<String>('theme-v2-today-next-moment');
   static const rekaQueueKey = ValueKey<String>('theme-v2-today-reka-queue');
+  static const gravityChamberKey = ValueKey<String>(
+    'theme-v2-today-gravity-chamber',
+  );
   static const assetBubbleFieldKey = ValueKey<String>(
     'theme-v2-today-asset-bubble-field',
   );
 
   final TodayData data;
   final VoidCallback onOpenAgenda;
+  final double chamberHeight;
   final DateTime? date;
   final bool active;
 
   @override
   Widget build(BuildContext context) {
-    final tokens = context.themeV2;
     final queue = supportedHomeQueueItems(data.noTimeTodos);
     final chain = supportedHomeQueueItems(data.chain);
     final now = date ?? DateTime.now();
@@ -96,94 +99,43 @@ class HomeTodayPanel extends StatelessWidget {
       return !end.isBefore(now);
     }).toList();
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: tokens.surface,
-        borderRadius: BorderRadius.circular(homePanelRadius),
-        border: Border.all(color: tokens.border),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x1A101828),
-            offset: Offset(0, 10),
-            blurRadius: 28,
+    return Column(
+      children: [
+        SizedBox(
+          key: nextMomentKey,
+          width: double.infinity,
+          height: 126,
+          child: _NextMomentCard(
+            item: upcoming.firstOrNull,
+            sameTimeItems: _sameTimeItems(upcoming),
+            now: now,
+            todayCount: todayCount,
+            onOpenAgenda: onOpenAgenda,
           ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(homePanelRadius),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            ThemeV2AssetBubbleField(
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          key: rekaQueueKey,
+          width: double.infinity,
+          height: 188,
+          child: _RekaQueue(items: queue, onOpenAgenda: onOpenAgenda),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          key: gravityChamberKey,
+          width: double.infinity,
+          height: chamberHeight,
+          child: ThemeV2GravityChamber(
+            child: ThemeV2AssetBubbleField(
               key: assetBubbleFieldKey,
               assets: data.pool,
               trueCount: data.poolTrueCount,
               skills: data.skills,
               active: active,
             ),
-            Positioned(
-              left: 12,
-              top: 14,
-              child: Text(
-                '今日',
-                style: _geist(
-                  color: tokens.foreground,
-                  size: 16,
-                  weight: FontWeight.w600,
-                ),
-              ),
-            ),
-            Positioned(
-              left: 57,
-              top: 18,
-              child: Text(
-                '$todayCount 项 · ${data.poolTrueCount} 个生成',
-                style: _mono(
-                  color: tokens.muted,
-                  size: 8.5,
-                  weight: FontWeight.w600,
-                ),
-              ),
-            ),
-            Positioned(
-              left: 173,
-              top: 9,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: tokens.accent,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-                child: const SizedBox(width: 48, height: 3),
-              ),
-            ),
-            Positioned(
-              left: 12,
-              top: 52,
-              width: 371,
-              height: 126,
-              child: _NextMomentCard(
-                key: nextMomentKey,
-                item: upcoming.firstOrNull,
-                sameTimeItems: _sameTimeItems(upcoming),
-                now: now,
-                todayCount: todayCount,
-                onOpenAgenda: onOpenAgenda,
-              ),
-            ),
-            Positioned(
-              left: 12,
-              top: 186,
-              width: 371,
-              height: 188,
-              child: _RekaQueue(
-                key: rekaQueueKey,
-                items: queue,
-                onOpenAgenda: onOpenAgenda,
-              ),
-            ),
-          ],
+          ),
         ),
-      ),
+      ],
     );
   }
 }

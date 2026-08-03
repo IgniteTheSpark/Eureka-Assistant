@@ -34,6 +34,7 @@ void main() {
 
     await tester.pumpWidget(
       _HomeHost(
+        size: const Size(360, 640),
         child: ThemeV2HomePage(
           controller: controller,
           repository: const _FakeHomeRepository(TodayData.empty),
@@ -43,9 +44,13 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final panel = find.byKey(ThemeV2HomePage.panelKey);
-    expect(tester.getTopLeft(panel), const Offset(8, 54));
-    expect(tester.getSize(panel), const Size(395, 790));
+    final document = find.byKey(ThemeV2HomePage.panelKey);
+    expect(document, findsOneWidget);
+    expect(find.byType(Scrollable), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('theme-v2-page-title-home')),
+      findsOneWidget,
+    );
     expect(find.byType(HomeTodayPanel), findsOneWidget);
     expect(find.text('目标'), findsNothing);
     expect(find.bySemanticsLabel('打开目标'), findsNothing);
@@ -60,7 +65,7 @@ void main() {
     );
   });
 
-  testWidgets('Today follows the Pen default composition at 411x960', (
+  testWidgets('Today uses three aligned independent regions at 411x960', (
     tester,
   ) async {
     _setReferenceView(tester);
@@ -77,16 +82,24 @@ void main() {
 
     final nextMoment = find.byKey(const ValueKey('theme-v2-today-next-moment'));
     final rekaQueue = find.byKey(const ValueKey('theme-v2-today-reka-queue'));
-    final bubbleField = find.byKey(
-      const ValueKey('theme-v2-today-asset-bubble-field'),
-    );
+    final chamber = find.byKey(HomeTodayPanel.gravityChamberKey);
+    final pageTitle = find.byKey(const ValueKey('theme-v2-page-title-home'));
 
-    expect(tester.getTopLeft(nextMoment), const Offset(20, 106));
-    expect(tester.getSize(nextMoment), const Size(371, 126));
-    expect(tester.getTopLeft(rekaQueue), const Offset(20, 240));
-    expect(tester.getSize(rekaQueue), const Size(371, 188));
-    expect(tester.getTopLeft(bubbleField), const Offset(8, 54));
-    expect(tester.getSize(bubbleField), const Size(395, 790));
+    expect(tester.getTopLeft(pageTitle).dx, 18);
+    expect(tester.getTopLeft(nextMoment).dx, 18);
+    expect(tester.getTopLeft(rekaQueue).dx, 18);
+    expect(tester.getTopLeft(chamber).dx, 18);
+    expect(tester.getSize(nextMoment), const Size(375, 126));
+    expect(tester.getSize(rekaQueue), const Size(375, 188));
+    expect(tester.getSize(chamber).height, greaterThanOrEqualTo(340));
+    expect(
+      tester.getTopLeft(rekaQueue).dy - tester.getBottomLeft(nextMoment).dy,
+      12,
+    );
+    expect(
+      tester.getTopLeft(chamber).dy - tester.getBottomLeft(rekaQueue).dy,
+      12,
+    );
     expect(find.text('NEXT / 10:30'), findsOneWidget);
     expect(find.text('42'), findsOneWidget);
     expect(find.text('分钟后'), findsOneWidget);
@@ -98,6 +111,56 @@ void main() {
       find.byKey(const ValueKey('theme-v2-asset-bubble-asset-1')),
       findsOneWidget,
     );
+  });
+
+  testWidgets('short Home scrolls as one document without chamber scrolling', (
+    tester,
+  ) async {
+    _setView(tester, const Size(360, 640));
+    final manyAssets = List.generate(
+      50,
+      (index) => PoolAsset(
+        id: 'asset-$index',
+        type: 'notes',
+        domain: 'work',
+        title: 'Asset $index',
+        payload: const {},
+        createdAt: DateTime(2026, 8, 3, 10).add(Duration(minutes: index)),
+      ),
+    );
+    final data = TodayData(
+      chain: const [],
+      noTimeTodos: const [],
+      pool: manyAssets,
+      poolTrueCount: manyAssets.length,
+      flashCount: 0,
+    );
+    await tester.pumpWidget(
+      _HomeHost(
+        child: ThemeV2HomePage(
+          repository: _FakeHomeRepository(data),
+          now: DateTime(2026, 8, 3),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final document = find.byKey(ThemeV2HomePage.panelKey);
+    final chamber = find.byKey(HomeTodayPanel.gravityChamberKey);
+    final pageScrollable = find.descendant(
+      of: document,
+      matching: find.byType(Scrollable),
+    );
+    expect(document, findsOneWidget);
+    expect(
+      find.descendant(of: chamber, matching: find.byType(Scrollable)),
+      findsNothing,
+    );
+    expect(pageScrollable, findsOneWidget);
+
+    await tester.scrollUntilVisible(chamber, 240, scrollable: pageScrollable);
+    await tester.pump();
+    expect(tester.getBottomLeft(chamber).dy, lessThanOrEqualTo(640 - 24));
   });
 
   testWidgets('Home forwards inactive state to Today asset physics', (
@@ -190,7 +253,7 @@ void main() {
     expect(find.text('今日共 2 项  ↗'), findsOneWidget);
   });
 
-  testWidgets('Agenda uses the same promoted panel geometry', (tester) async {
+  testWidgets('Agenda remains a bounded document section', (tester) async {
     _setReferenceView(tester);
     final controller = ThemeV2HomeController(
       initialPresentation: HomePresentation.agenda,
@@ -209,10 +272,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(HomeAgendaPanel), findsOneWidget);
-    expect(
-      tester.getSize(find.byKey(ThemeV2HomePage.panelKey)),
-      const Size(395, 790),
-    );
+    expect(tester.getSize(find.byType(HomeAgendaPanel)).height, 720);
     expect(
       tester.getSize(find.bySemanticsLabel('收起日程')),
       const Size.square(44),
@@ -243,11 +303,12 @@ void main() {
     final firstCard = find.byKey(const ValueKey('theme-v2-agenda-card-0'));
     final secondCard = find.byKey(const ValueKey('theme-v2-agenda-card-1'));
 
-    expect(tester.getTopLeft(spine), const Offset(205, 150));
+    final panelOrigin = tester.getTopLeft(find.byType(HomeAgendaPanel));
+    expect(tester.getTopLeft(spine), panelOrigin + const Offset(197, 96));
     expect(tester.getSize(spine), const Size(1, 606));
-    expect(tester.getTopLeft(firstCard), const Offset(26, 138));
+    expect(tester.getTopLeft(firstCard), panelOrigin + const Offset(18, 84));
     expect(tester.getSize(firstCard), const Size(148, 78));
-    expect(tester.getTopLeft(secondCard), const Offset(237, 222));
+    expect(tester.getTopLeft(secondCard), panelOrigin + const Offset(229, 168));
     expect(tester.getSize(secondCard), const Size(148, 78));
     expect(find.text('今日安排'), findsOneWidget);
     expect(find.text('7月31日 · 周五'), findsOneWidget);
@@ -356,8 +417,12 @@ void main() {
 }
 
 void _setReferenceView(WidgetTester tester) {
+  _setView(tester, const Size(411, 960));
+}
+
+void _setView(WidgetTester tester, Size size) {
   tester.view.devicePixelRatio = 1;
-  tester.view.physicalSize = const Size(411, 960);
+  tester.view.physicalSize = size;
   addTearDown(tester.view.resetDevicePixelRatio);
   addTearDown(tester.view.resetPhysicalSize);
 }
@@ -454,16 +519,21 @@ class _ScriptedRepository implements ThemeV2HomeRepository {
 }
 
 class _HomeHost extends StatelessWidget {
-  const _HomeHost({required this.child, this.disableAnimations = true});
+  const _HomeHost({
+    required this.child,
+    this.disableAnimations = true,
+    this.size = const Size(411, 960),
+  });
 
   final Widget child;
   final bool disableAnimations;
+  final Size size;
 
   @override
   Widget build(BuildContext context) {
     return MediaQuery(
       data: MediaQueryData(
-        size: Size(411, 960),
+        size: size,
         devicePixelRatio: 1,
         padding: EdgeInsets.only(top: 44),
         disableAnimations: disableAnimations,

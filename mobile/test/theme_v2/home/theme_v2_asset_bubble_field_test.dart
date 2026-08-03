@@ -121,7 +121,7 @@ void main() {
   );
 
   testWidgets(
-    'short Reduce Motion field scrolls to and opens the 50th asset once',
+    'short Reduce Motion chamber fits and opens all 50 assets without scrolling',
     (tester) async {
       final assets = _assets(50);
       PoolAsset? opened;
@@ -144,13 +144,11 @@ void main() {
       );
       const lastKey = ValueKey('theme-v2-asset-bubble-asset-49');
 
-      expect(scrollable, findsOneWidget);
-      await tester.scrollUntilVisible(
-        find.byKey(lastKey),
-        88,
-        scrollable: scrollable,
+      expect(scrollable, findsNothing);
+      expect(
+        _visibleAssetTargetRects(tester, assets, fieldRect),
+        hasLength(50),
       );
-      await tester.pump();
       final last = find.byKey(lastKey);
       final lastRect = tester.getRect(last);
       _expectFullTargetInside(lastRect, fieldRect);
@@ -161,6 +159,16 @@ void main() {
       expect(activationCount, 1);
     },
   );
+
+  testWidgets('empty chamber preserves its watermark and guidance', (
+    tester,
+  ) async {
+    await _pumpField(tester, assets: const [], disableAnimations: true);
+
+    expect(find.text('0'), findsOneWidget);
+    expect(find.text('今日生成'), findsOneWidget);
+    expect(find.text('今天生成的资产会落在这里'), findsOneWidget);
+  });
 
   testWidgets('compact metadata refresh opens the updated same-id asset', (
     tester,

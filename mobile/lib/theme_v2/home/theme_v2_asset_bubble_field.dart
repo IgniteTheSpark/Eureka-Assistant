@@ -107,7 +107,6 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
   static const _settledSlotCount = 22;
   static const _compactDiameter = 36.0;
   static const _minimumTargetSize = 44.0;
-  static const _compactChamberTop = 390.0;
 
   bool get _usesCompactGrid =>
       _reduceMotion && widget.assets.length > _settledSlotCount;
@@ -388,8 +387,8 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
           fit: StackFit.expand,
           children: [
             Positioned(
-              left: 238,
-              top: 450,
+              right: 18,
+              bottom: 82,
               child: IgnorePointer(
                 child: Text(
                   '${widget.trueCount}',
@@ -405,8 +404,8 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
               ),
             ),
             Positioned(
-              left: 286,
-              top: 548,
+              right: 24,
+              bottom: 72,
               child: IgnorePointer(
                 child: Text(
                   '今日生成',
@@ -421,15 +420,19 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                 ),
               ),
             ),
-            if (_usesCompactGrid)
-              Positioned(
-                left: 0,
-                right: 0,
-                top: math.min(
-                  _compactChamberTop,
-                  math.max(0, box.height - _minimumTargetSize),
+            if (widget.assets.isEmpty)
+              Center(
+                child: Text(
+                  '今天生成的资产会落在这里',
+                  style: TextStyle(
+                    color: tokens.muted,
+                    fontFamily: 'Geist',
+                    fontSize: 12,
+                  ),
                 ),
-                bottom: 0,
+              ),
+            if (_usesCompactGrid)
+              Positioned.fill(
                 child: _ThemeV2CompactAssetGrid(
                   assets: widget.assets,
                   skills: widget.skills,
@@ -567,51 +570,53 @@ class _ThemeV2CompactAssetGrid extends StatelessWidget {
                   _ThemeV2AssetBubbleFieldState._minimumTargetSize)
               .floor(),
         );
-        return GridView.builder(
-          padding: EdgeInsets.zero,
-          physics: const ClampingScrollPhysics(),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: columns,
-            mainAxisExtent: _ThemeV2AssetBubbleFieldState._minimumTargetSize,
+        final cellWidth = constraints.maxWidth / columns;
+        return Align(
+          alignment: Alignment.bottomLeft,
+          child: Wrap(
+            children: [
+              for (var index = 0; index < assets.length; index++)
+                SizedBox(
+                  width: cellWidth,
+                  height: _ThemeV2AssetBubbleFieldState._minimumTargetSize,
+                  child: _compactAssetTarget(assets[index], index),
+                ),
+            ],
           ),
-          itemCount: assets.length,
-          itemBuilder: (context, index) {
-            final asset = assets[index];
-            return Semantics(
-              key: ValueKey('theme-v2-asset-bubble-${asset.id}'),
-              label: '打开资产 ${asset.title}',
-              button: true,
-              onTap: () => onOpenAsset(asset),
-              child: ExcludeSemantics(
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () => onOpenAsset(asset),
-                  child: Center(
-                    child: IgnorePointer(
-                      child: Transform.rotate(
-                        key: ValueKey(
-                          'theme-v2-asset-bubble-rotation-${asset.id}',
-                        ),
-                        angle: 0,
-                        child: SizedBox.square(
-                          dimension:
-                              _ThemeV2AssetBubbleFieldState._compactDiameter,
-                          child: _ThemeV2BubbleVisual(
-                            asset: asset,
-                            skills: skills,
-                            index: index,
-                            onTap: () => onOpenAsset(asset),
-                          ),
-                        ),
-                      ),
-                    ),
+        );
+      },
+    );
+  }
+
+  Widget _compactAssetTarget(PoolAsset asset, int index) {
+    return Semantics(
+      key: ValueKey('theme-v2-asset-bubble-${asset.id}'),
+      label: '打开资产 ${asset.title}',
+      button: true,
+      onTap: () => onOpenAsset(asset),
+      child: ExcludeSemantics(
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => onOpenAsset(asset),
+          child: Center(
+            child: IgnorePointer(
+              child: Transform.rotate(
+                key: ValueKey('theme-v2-asset-bubble-rotation-${asset.id}'),
+                angle: 0,
+                child: SizedBox.square(
+                  dimension: _ThemeV2AssetBubbleFieldState._compactDiameter,
+                  child: _ThemeV2BubbleVisual(
+                    asset: asset,
+                    skills: skills,
+                    index: index,
+                    onTap: () => onOpenAsset(asset),
                   ),
                 ),
               ),
-            );
-          },
-        );
-      },
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

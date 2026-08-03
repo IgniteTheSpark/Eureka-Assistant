@@ -9,6 +9,7 @@ import '../foundation/theme_v2_motion.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
 import '../shell/theme_v2_async_state.dart';
+import '../shell/theme_v2_page_title.dart';
 import 'home_agenda_panel.dart';
 import 'home_controller.dart';
 import 'home_repository.dart';
@@ -24,9 +25,6 @@ class ThemeV2HomePage extends StatefulWidget {
   });
 
   static const panelKey = ValueKey<String>('theme-v2-home-panel');
-  static const referencePanelSize = Size(395, 790);
-  static const referenceLeft = 8.0;
-  static const referenceTopAfterSafeArea = 10.0;
 
   final ThemeV2HomeController? controller;
   final ThemeV2HomeRepository? repository;
@@ -145,24 +143,11 @@ class _ThemeV2HomePageState extends State<ThemeV2HomePage> {
     super.dispose();
   }
 
-  Size _panelSize(BoxConstraints constraints) {
-    final width = constraints.maxWidth >= 411
-        ? ThemeV2HomePage.referencePanelSize.width
-        : math.max(0, constraints.maxWidth - 16);
-    final height = math.min(
-      ThemeV2HomePage.referencePanelSize.height,
-      math.max(
-        0,
-        constraints.maxHeight - ThemeV2HomePage.referenceTopAfterSafeArea,
-      ),
-    );
-    return Size(width.toDouble(), height.toDouble());
-  }
-
-  Widget _content() {
+  Widget _content({required double chamberHeight}) {
     final data = _data;
     if (data == null) {
-      return _HomeStateSurface(
+      return SizedBox(
+        height: 340,
         child: _loading
             ? const ThemeV2AsyncState.loading(label: '正在加载今日')
             : ThemeV2AsyncState.error(
@@ -179,18 +164,21 @@ class _ThemeV2HomePageState extends State<ThemeV2HomePage> {
         data: data,
         date: widget.now,
         active: widget.active,
+        chamberHeight: chamberHeight,
         onOpenAgenda: _controller.openAgenda,
       ),
-      HomePresentation.agenda => HomeAgendaPanel(
-        key: const ValueKey(HomePresentation.agenda),
-        data: data,
-        date: widget.now,
-        onCloseAgenda: _controller.closeAgenda,
+      HomePresentation.agenda => SizedBox(
+        height: 720,
+        child: HomeAgendaPanel(
+          key: const ValueKey(HomePresentation.agenda),
+          data: data,
+          date: widget.now,
+          onCloseAgenda: _controller.closeAgenda,
+        ),
       ),
     };
 
     return Stack(
-      fit: StackFit.expand,
       children: [
         AnimatedSwitcher(
           duration: ThemeV2Motion.duration(
@@ -233,45 +221,27 @@ class _ThemeV2HomePageState extends State<ThemeV2HomePage> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final panelSize = _panelSize(constraints);
-        final left = constraints.maxWidth <= 411
-            ? ThemeV2HomePage.referenceLeft
-            : math.max(
-                ThemeV2HomePage.referenceLeft,
-                (constraints.maxWidth - panelSize.width) / 2,
-              );
-        return Stack(
-          children: [
-            Positioned(
-              key: ThemeV2HomePage.panelKey,
-              left: left,
-              top: ThemeV2HomePage.referenceTopAfterSafeArea,
-              width: panelSize.width,
-              height: panelSize.height,
-              child: _content(),
-            ),
-          ],
+        final contentWidth = math.max(0, constraints.maxWidth - 36);
+        final columns = math.max(1, (contentWidth / 44).floor());
+        final visibleCount = math.min(_data?.pool.length ?? 0, 50);
+        final rows = (visibleCount + columns - 1) ~/ columns;
+        final chamberHeight = math.max(340.0, rows * 44.0);
+        return SingleChildScrollView(
+          key: ThemeV2HomePage.panelKey,
+          padding: const EdgeInsets.fromLTRB(18, 14, 18, 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const ThemeV2PageTitle(
+                key: ValueKey('theme-v2-page-title-home'),
+                title: '今日',
+              ),
+              const SizedBox(height: 14),
+              _content(chamberHeight: chamberHeight),
+            ],
+          ),
         );
       },
-    );
-  }
-}
-
-class _HomeStateSurface extends StatelessWidget {
-  const _HomeStateSurface({required this.child});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.themeV2;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: tokens.surface,
-        borderRadius: BorderRadius.circular(homePanelRadius),
-        border: Border.all(color: tokens.border),
-      ),
-      child: child,
     );
   }
 }

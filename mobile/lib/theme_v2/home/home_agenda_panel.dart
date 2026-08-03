@@ -12,6 +12,7 @@ import '../foundation/theme_v2_semantics.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
 import 'home_today_panel.dart';
+import 'theme_v2_gravity_chamber.dart';
 
 class HomeAgendaPanel extends StatelessWidget {
   const HomeAgendaPanel({
@@ -39,7 +40,7 @@ class HomeAgendaPanel extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: tokens.surface,
-        borderRadius: BorderRadius.circular(homePanelRadius),
+        borderRadius: BorderRadius.circular(themeV2HomePanelRadius),
         border: Border.all(color: tokens.border),
         boxShadow: const [
           BoxShadow(
@@ -50,7 +51,7 @@ class HomeAgendaPanel extends StatelessWidget {
         ],
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(homePanelRadius),
+        borderRadius: BorderRadius.circular(themeV2HomePanelRadius),
         child: Stack(
           fit: StackFit.expand,
           children: [
