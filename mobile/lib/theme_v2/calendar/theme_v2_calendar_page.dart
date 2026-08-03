@@ -13,6 +13,7 @@ import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
 import '../foundation/theme_v2_typography.dart';
 import '../shell/theme_v2_async_state.dart';
+import '../shell/theme_v2_page_title.dart';
 import 'calendar_controller.dart';
 import 'calendar_components.dart';
 import 'calendar_day_detail.dart';
@@ -562,7 +563,7 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
             ),
           },
     );
-    return Stack(
+    final calendarOverviewStack = Stack(
       children: [
         Positioned.fill(
           child: Listener(
@@ -614,6 +615,19 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
             ),
           ),
         ),
+      ],
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.fromLTRB(18, 14, 18, 0),
+          child: ThemeV2PageTitle(
+            key: ValueKey('theme-v2-page-title-calendar'),
+            title: '日历',
+          ),
+        ),
+        Expanded(child: calendarOverviewStack),
       ],
     );
   }

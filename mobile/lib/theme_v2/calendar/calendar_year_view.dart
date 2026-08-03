@@ -231,7 +231,7 @@ class _YearMonthCell extends StatelessWidget {
             onTap: onTap,
             borderRadius: BorderRadius.circular(ThemeV2Radii.md),
             child: Container(
-              padding: const EdgeInsets.all(6),
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
               decoration: BoxDecoration(
                 color: selected ? tokens.accentSoft : tokens.surface,
                 borderRadius: BorderRadius.circular(ThemeV2Radii.md),

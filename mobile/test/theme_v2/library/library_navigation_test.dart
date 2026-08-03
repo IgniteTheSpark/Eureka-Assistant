@@ -114,6 +114,9 @@ void main() {
     );
 
     expect(find.text('资产库'), findsOneWidget);
+    final title = find.byKey(const ValueKey('theme-v2-page-title-library'));
+    expect(title, findsOneWidget);
+    expect(tester.getTopLeft(title).dx, 18);
     expect(find.textContaining('LIBRARY /'), findsNothing);
     expect(find.textContaining('你的记录'), findsNothing);
     expect(find.text('最近生成'), findsOneWidget);

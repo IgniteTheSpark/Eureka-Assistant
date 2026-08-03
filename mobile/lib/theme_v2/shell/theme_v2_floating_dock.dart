@@ -20,11 +20,24 @@ class ThemeV2FloatingDock extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<int> onDestinationSelected;
 
-  static const _destinations = <({IconData icon, String label})>[
-    (icon: Icons.auto_awesome_outlined, label: '今日'),
-    (icon: Icons.calendar_month_outlined, label: '日历'),
-    (icon: Icons.local_library_outlined, label: '资产'),
-  ];
+  static const _destinations =
+      <({IconData icon, IconData selectedIcon, String label})>[
+        (
+          icon: Icons.home_outlined,
+          selectedIcon: Icons.home_rounded,
+          label: '今日',
+        ),
+        (
+          icon: Icons.calendar_month_outlined,
+          selectedIcon: Icons.calendar_month_outlined,
+          label: '日历',
+        ),
+        (
+          icon: Icons.local_library_outlined,
+          selectedIcon: Icons.local_library_outlined,
+          label: '资产',
+        ),
+      ];
 
   @override
   Widget build(BuildContext context) {
@@ -61,7 +74,9 @@ class ThemeV2FloatingDock extends StatelessWidget {
                   for (var index = 0; index < _destinations.length; index++)
                     Expanded(
                       child: _DockDestination(
-                        icon: _destinations[index].icon,
+                        icon: selectedIndex == index
+                            ? _destinations[index].selectedIcon
+                            : _destinations[index].icon,
                         label: _destinations[index].label,
                         selected: selectedIndex == index,
                         onPressed: () => onDestinationSelected(index),

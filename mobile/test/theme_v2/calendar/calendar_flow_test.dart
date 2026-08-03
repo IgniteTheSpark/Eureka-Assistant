@@ -23,6 +23,27 @@ import 'package:flutter_test/flutter_test.dart';
 import 'calendar_test_fixtures.dart';
 
 void main() {
+  testWidgets('calendar overview uses the shared root title', (tester) async {
+    await tester.pumpWidget(
+      calendarTestHost(
+        ThemeV2CalendarPage(
+          today: DateTime(2026, 7, 3),
+          initialData: calendarFixtureData(),
+          onOpenDay: (_) {},
+          onOpenRecord: (_) {},
+          onCreateDraft: (_) async {},
+          onOpenDraftEditor: (_) {},
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final title = find.byKey(const ValueKey('theme-v2-page-title-calendar'));
+    expect(title, findsOneWidget);
+    expect(find.text('日历'), findsOneWidget);
+    expect(tester.getTopLeft(title).dx, 18);
+  });
+
   testWidgets('populated date opens Day Detail on the first tap', (
     tester,
   ) async {

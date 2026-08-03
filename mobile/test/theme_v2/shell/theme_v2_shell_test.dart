@@ -10,6 +10,7 @@ import 'package:eureka/theme_v2/shell/device_status_summary.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_async_state.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_floating_dock.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_global_top_nav.dart';
+import 'package:eureka/theme_v2/shell/theme_v2_page_title.dart';
 import 'package:eureka/widgets/skeleton_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -17,6 +18,23 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   setUp(() => themeModeNotifier.value = ThemeMode.light);
   tearDown(() => themeModeNotifier.value = ThemeMode.light);
+
+  testWidgets(
+    'root page title exposes shared typography and header semantics',
+    (tester) async {
+      await tester.pumpWidget(
+        const _PureThemeV2Host(child: ThemeV2PageTitle(title: '今日')),
+      );
+
+      final text = tester.widget<Text>(find.text('今日'));
+      expect(text.style?.fontSize, 22);
+      expect(text.style?.fontWeight, FontWeight.w700);
+      final semantics = tester.widget<Semantics>(
+        find.ancestor(of: find.text('今日'), matching: find.byType(Semantics)),
+      );
+      expect(semantics.properties.header, isTrue);
+    },
+  );
 
   testWidgets(
     'global top nav exposes logo, device, theme, and notification actions',
@@ -119,7 +137,7 @@ void main() {
             ),
           )
           .icon,
-      Icons.auto_awesome_outlined,
+      Icons.home_rounded,
     );
     expect(
       tester
@@ -142,6 +160,31 @@ void main() {
           )
           .icon,
       Icons.local_library_outlined,
+    );
+
+    await tester.pumpWidget(
+      const _TestHost(
+        size: Size(360, 800),
+        bottomPadding: 24,
+        child: Align(
+          alignment: Alignment.bottomCenter,
+          child: ThemeV2FloatingDock(
+            selectedIndex: 1,
+            onDestinationSelected: _noopIndex,
+          ),
+        ),
+      ),
+    );
+    expect(
+      tester
+          .widget<Icon>(
+            find.descendant(
+              of: find.bySemanticsLabel('今日'),
+              matching: find.byType(Icon),
+            ),
+          )
+          .icon,
+      Icons.home_outlined,
     );
   });
 

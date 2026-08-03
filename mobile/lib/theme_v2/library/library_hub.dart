@@ -5,6 +5,7 @@ import '../asset/asset_card_display.dart';
 import '../foundation/theme_v2_semantics.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
+import '../shell/theme_v2_page_title.dart';
 import 'create_skill_action.dart';
 import 'library_components.dart';
 import 'library_controller.dart';
@@ -41,13 +42,9 @@ class LibraryHub extends StatelessWidget {
           key: const PageStorageKey('theme-v2-library-hub'),
           padding: const EdgeInsets.fromLTRB(18, 14, 18, 112),
           children: [
-            Text(
-              '资产库',
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                color: context.themeV2.foreground,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -.8,
-              ),
+            const ThemeV2PageTitle(
+              key: ValueKey('theme-v2-page-title-library'),
+              title: '资产库',
             ),
             const SizedBox(height: 18),
             LibraryStatsBar(
