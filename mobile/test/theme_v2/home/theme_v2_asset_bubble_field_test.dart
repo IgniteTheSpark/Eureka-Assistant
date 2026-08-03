@@ -46,6 +46,91 @@ void main() {
     expect(tester.getCenter(bubble), before);
   });
 
+  testWidgets(
+    'Reduce Motion gives 50 assets stable separate targets and opens the last',
+    (tester) async {
+      final assets = _assets(50);
+      PoolAsset? opened;
+      var activationCount = 0;
+      var gravityListenCount = 0;
+      final gravity = StreamController<Offset>(
+        onListen: () => gravityListenCount++,
+      );
+      addTearDown(() => unawaited(gravity.close()));
+      await _pumpField(
+        tester,
+        assets: assets,
+        disableAnimations: true,
+        gravityStream: gravity.stream,
+        onOpenAsset: (value) {
+          opened = value;
+          activationCount++;
+        },
+      );
+      final fieldRect = tester.getRect(find.byType(ThemeV2AssetBubbleField));
+      final targets = [
+        for (final asset in assets)
+          find.bySemanticsLabel('打开资产 ${asset.title}'),
+      ];
+      final before = targets.map(tester.getRect).toList(growable: false);
+
+      expect(targets.every((target) => target.evaluate().length == 1), isTrue);
+      expect(gravityListenCount, 0);
+      for (var index = 0; index < before.length; index++) {
+        final rect = before[index];
+        expect(rect.width, greaterThanOrEqualTo(44), reason: 'asset $index');
+        expect(rect.height, greaterThanOrEqualTo(44), reason: 'asset $index');
+        expect(rect.left, greaterThanOrEqualTo(fieldRect.left));
+        expect(rect.top, greaterThanOrEqualTo(fieldRect.top));
+        expect(rect.right, lessThanOrEqualTo(fieldRect.right));
+        expect(rect.bottom, lessThanOrEqualTo(fieldRect.bottom));
+        for (var other = index + 1; other < before.length; other++) {
+          expect(
+            rect.overlaps(before[other]),
+            isFalse,
+            reason: 'asset $index overlaps asset $other',
+          );
+        }
+      }
+
+      await tester.pump(const Duration(seconds: 1));
+      expect(targets.map(tester.getRect), orderedEquals(before));
+      expect(gravityListenCount, 0);
+      await tester.tap(targets.last);
+      await tester.pump();
+
+      expect(opened?.id, 'asset-49');
+      expect(activationCount, 1);
+    },
+  );
+
+  testWidgets(
+    'Reduce Motion overflow transition compacts then restores body diameters',
+    (tester) async {
+      final assets = _assets(23);
+      const firstRotation = ValueKey('theme-v2-asset-bubble-rotation-asset-0');
+      await _pumpField(
+        tester,
+        assets: assets.take(22).toList(),
+        disableAnimations: true,
+      );
+      expect(tester.getSize(find.byKey(firstRotation)), const Size.square(70));
+
+      await _pumpField(tester, assets: assets, disableAnimations: true);
+      expect(tester.getSize(find.byKey(firstRotation)), const Size.square(36));
+
+      await _pumpField(
+        tester,
+        assets: assets.take(22).toList(),
+        disableAnimations: true,
+      );
+      expect(tester.getSize(find.byKey(firstRotation)), const Size.square(70));
+
+      await _pumpField(tester, assets: assets, disableAnimations: false);
+      expect(tester.getSize(find.byKey(firstRotation)), const Size.square(70));
+    },
+  );
+
   testWidgets('inactive Home pauses bubble motion', (tester) async {
     await _pumpField(
       tester,
@@ -208,6 +293,67 @@ void main() {
     expect(opened?.id, 'asset-19');
     expect(activationCount, 1);
   });
+
+  testWidgets(
+    'small bubble keeps a full clamped target at both physical side walls',
+    (tester) async {
+      final assets = _assets(20);
+      final smallAsset = assets[19];
+      final gravity = StreamController<Offset>();
+      addTearDown(gravity.close);
+      PoolAsset? opened;
+      var activationCount = 0;
+
+      // Seed the normal diameter cache, then retain only the 30px body.
+      await _pumpField(tester, assets: assets, disableAnimations: true);
+      await _pumpField(
+        tester,
+        assets: [smallAsset],
+        disableAnimations: false,
+        gravityStream: gravity.stream,
+        onOpenAsset: (value) {
+          opened = value;
+          activationCount++;
+        },
+      );
+      final fieldRect = tester.getRect(find.byType(ThemeV2AssetBubbleField));
+      final target = find.bySemanticsLabel('打开资产 ${smallAsset.title}');
+      final visual = find.byKey(
+        ValueKey('theme-v2-asset-bubble-rotation-${smallAsset.id}'),
+      );
+
+      gravity.add(const Offset(-20, 0));
+      await tester.pump();
+      await _pumpFrames(tester, 180);
+      final leftVisualCenter = tester.getCenter(visual);
+      final leftTarget = tester.getRect(target);
+      expect(leftVisualCenter.dx - fieldRect.left, closeTo(15, 0.6));
+      _expectFullTargetInside(leftTarget, fieldRect);
+      final leftOuterPoint = Offset(fieldRect.left + 40, leftVisualCenter.dy);
+      expect(leftOuterPoint.dx, greaterThan(leftVisualCenter.dx + 15));
+      await tester.tapAt(leftOuterPoint);
+      await tester.pump();
+      expect(opened?.id, smallAsset.id);
+      expect(activationCount, 1);
+
+      gravity.add(const Offset(20, 0));
+      await tester.pump();
+      await _pumpFrames(tester, 240);
+      final rightVisualCenter = tester.getCenter(visual);
+      final rightTarget = tester.getRect(target);
+      expect(fieldRect.right - rightVisualCenter.dx, closeTo(15, 0.6));
+      _expectFullTargetInside(rightTarget, fieldRect);
+      final rightOuterPoint = Offset(
+        fieldRect.right - 40,
+        rightVisualCenter.dy,
+      );
+      expect(rightOuterPoint.dx, lessThan(rightVisualCenter.dx - 15));
+      await tester.tapAt(rightOuterPoint);
+      await tester.pump();
+      expect(opened?.id, smallAsset.id);
+      expect(activationCount, 2);
+    },
+  );
 
   testWidgets('drag releases with throw velocity', (tester) async {
     await _pumpField(
@@ -384,6 +530,26 @@ void main() {
       findsOneWidget,
     );
   });
+}
+
+List<PoolAsset> _assets(int count) => List.generate(
+  count,
+  (index) => PoolAsset(
+    id: 'asset-$index',
+    type: 'contact',
+    domain: 'work',
+    title: 'Contact $index',
+    payload: {'name': 'Contact $index'},
+    createdAt: DateTime(2026, 8, 3, 10).add(Duration(minutes: index)),
+  ),
+);
+
+void _expectFullTargetInside(Rect target, Rect field) {
+  expect(target.size, const Size.square(44));
+  expect(target.left, greaterThanOrEqualTo(field.left));
+  expect(target.top, greaterThanOrEqualTo(field.top));
+  expect(target.right, lessThanOrEqualTo(field.right));
+  expect(target.bottom, lessThanOrEqualTo(field.bottom));
 }
 
 Future<void> _pumpFrames(WidgetTester tester, int count) async {

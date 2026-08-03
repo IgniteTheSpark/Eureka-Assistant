@@ -101,11 +101,21 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
     34,
     32,
   ];
+  static const _settledSlotCount = 22;
+  static const _compactDiameter = 36.0;
+  static const _minimumTargetSize = 44.0;
+  static const _compactColumns = 8;
+  static const _compactRows = 7;
+  static const _compactRowStep = 45.0;
+
+  bool get _usesCompactSettledLayout =>
+      _reduceMotion && widget.assets.length > _settledSlotCount;
 
   String _assetKey(List<PoolAsset> assets) =>
       assets.map((asset) => asset.id).join('|');
 
   double _diameter(PoolAsset asset, int index) {
+    if (_usesCompactSettledLayout) return _compactDiameter;
     return _diametersById.putIfAbsent(
       asset.id,
       () => _diameters[index % _diameters.length],
@@ -125,6 +135,24 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
   }
 
   Offset _settledCenter(int index, double radius) {
+    if (_usesCompactSettledLayout) {
+      final horizontalStep = math.max(
+        _minimumTargetSize,
+        (_box.width - _minimumTargetSize) / (_compactColumns - 1),
+      );
+      final column = index % _compactColumns;
+      final row = index ~/ _compactColumns;
+      final firstRowCenter = math.max(
+        _minimumTargetSize / 2,
+        _box.height -
+            _minimumTargetSize / 2 -
+            (_compactRows - 1) * _compactRowStep,
+      );
+      return Offset(
+        _minimumTargetSize / 2 + column * horizontalStep,
+        firstRowCenter + row * _compactRowStep,
+      );
+    }
     const slots = [
       Offset(39, 700),
       Offset(87, 711),
@@ -171,7 +199,13 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
   @override
   void didUpdateWidget(covariant ThemeV2AssetBubbleField oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (_assetKey(oldWidget.assets) != _assetKey(widget.assets)) {
+    final crossedCompactThreshold =
+        _reduceMotion &&
+        (oldWidget.assets.length > _settledSlotCount) !=
+            (widget.assets.length > _settledSlotCount);
+    if (crossedCompactThreshold) {
+      _rebuildField(_box);
+    } else if (_assetKey(oldWidget.assets) != _assetKey(widget.assets)) {
       _syncAssets();
     } else {
       _assetsById
@@ -308,6 +342,30 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
     _repaint.value++;
   }
 
+  Rect _targetRect(Bubble bubble) {
+    final size = math.max(_minimumTargetSize, bubble.r * 2);
+    return Rect.fromLTWH(
+      (bubble.x - size / 2).clamp(0, math.max(0, _box.width - size)),
+      (bubble.y - size / 2).clamp(0, math.max(0, _box.height - size)),
+      size,
+      size,
+    );
+  }
+
+  Bubble? _hitBubbleAt(BubbleField field, Offset position) {
+    Bubble? best;
+    var bestDistance = double.infinity;
+    for (final bubble in field.bubbles) {
+      if (!_targetRect(bubble).contains(position)) continue;
+      final distance = (Offset(bubble.x, bubble.y) - position).distanceSquared;
+      if (distance < bestDistance) {
+        best = bubble;
+        bestDistance = distance;
+      }
+    }
+    return best;
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
@@ -371,13 +429,13 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                 child: GestureDetector(
                   behavior: HitTestBehavior.translucent,
                   onTapUp: (details) {
-                    final bubble = field.hit(details.localPosition);
+                    final bubble = _hitBubbleAt(field, details.localPosition);
                     if (bubble == null) return;
                     final asset = _assetsById[bubble.id];
                     if (asset != null) widget._openAsset(context, asset);
                   },
                   onPanStart: (details) {
-                    final bubble = field.hit(details.localPosition);
+                    final bubble = _hitBubbleAt(field, details.localPosition);
                     if (bubble == null) {
                       field.release();
                       return;
@@ -410,39 +468,52 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                               Builder(
                                 builder: (context) {
                                   final index = indexById[bubble.id] ?? 0;
-                                  final hitSize = math.max(44.0, bubble.r * 2);
+                                  final target = _targetRect(bubble);
                                   return Positioned(
                                     key: ValueKey(
                                       'theme-v2-asset-bubble-${asset.id}',
                                     ),
-                                    left: bubble.x - hitSize / 2,
-                                    top: bubble.y - hitSize / 2,
-                                    width: hitSize,
-                                    height: hitSize,
+                                    left: target.left,
+                                    top: target.top,
+                                    width: target.width,
+                                    height: target.height,
                                     child: Semantics(
                                       label: '打开资产 ${asset.title}',
                                       button: true,
                                       onTap: () =>
                                           widget._openAsset(context, asset),
                                       child: ExcludeSemantics(
-                                        child: Center(
-                                          child: Transform.rotate(
-                                            key: ValueKey(
-                                              'theme-v2-asset-bubble-rotation-${asset.id}',
-                                            ),
-                                            angle: bubble.angle,
-                                            child: SizedBox.square(
-                                              dimension: bubble.r * 2,
-                                              child: _ThemeV2BubbleVisual(
-                                                asset: asset,
-                                                index: index,
-                                                onTap: () => widget._openAsset(
-                                                  context,
-                                                  asset,
+                                        child: Stack(
+                                          clipBehavior: Clip.none,
+                                          children: [
+                                            Positioned(
+                                              left:
+                                                  bubble.x -
+                                                  target.left -
+                                                  bubble.r,
+                                              top:
+                                                  bubble.y -
+                                                  target.top -
+                                                  bubble.r,
+                                              width: bubble.r * 2,
+                                              height: bubble.r * 2,
+                                              child: Transform.rotate(
+                                                key: ValueKey(
+                                                  'theme-v2-asset-bubble-rotation-${asset.id}',
+                                                ),
+                                                angle: bubble.angle,
+                                                child: _ThemeV2BubbleVisual(
+                                                  asset: asset,
+                                                  index: index,
+                                                  onTap: () =>
+                                                      widget._openAsset(
+                                                        context,
+                                                        asset,
+                                                      ),
                                                 ),
                                               ),
                                             ),
-                                          ),
+                                          ],
                                         ),
                                       ),
                                     ),

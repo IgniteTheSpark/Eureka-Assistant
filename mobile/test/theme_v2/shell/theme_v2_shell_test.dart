@@ -162,6 +162,7 @@ void main() {
     );
     final lightShape = lightMaterial.shape! as RoundedRectangleBorder;
     expect(lightMaterial.color, ThemeV2Tokens.light.surface);
+    expect(lightMaterial.shadowColor, Colors.black.withValues(alpha: 0.12));
     expect(lightShape.borderRadius, BorderRadius.circular(18));
     expect(lightShape.side.color, ThemeV2Tokens.light.border);
     expect(lightShape.side.width, 1);
