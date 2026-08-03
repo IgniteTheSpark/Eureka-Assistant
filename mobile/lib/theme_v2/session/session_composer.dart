@@ -23,6 +23,7 @@ class SessionComposer extends StatelessWidget {
     final trimmed = text.trim();
     if (trimmed.isEmpty || streaming) return;
     controller.clear();
+    focusNode.unfocus();
     await onSend(trimmed);
   }
 

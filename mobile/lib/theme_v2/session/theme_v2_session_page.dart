@@ -56,6 +56,10 @@ class SessionViewState {
   }
 }
 
+int sessionTurnCount(Iterable<ChatMessage> messages) {
+  return messages.where((message) => message.isUser).length;
+}
+
 /// Testable contract between the Theme V2 view and the mature chat engine.
 ///
 /// Production uses [ChatControllerSessionAdapter]; tests can provide an
@@ -369,6 +373,7 @@ class _ThemeV2SessionPageState extends State<ThemeV2SessionPage> {
     final title = _subjectLabel?.trim().isNotEmpty == true
         ? _subjectLabel!.trim()
         : _controller.displayTitle;
+    final turnCount = sessionTurnCount(state.messages);
     return Scaffold(
       key: _scaffoldKey,
       resizeToAvoidBottomInset: false,
@@ -391,7 +396,7 @@ class _ThemeV2SessionPageState extends State<ThemeV2SessionPage> {
           children: [
             SessionHeader(
               title: title,
-              messageCount: state.messages.length,
+              turnCount: turnCount,
               onBack: _back,
               onNewSession: widget.readOnly ? null : _newConversation,
               onOpenHistory: widget.readOnly
@@ -406,6 +411,7 @@ class _ThemeV2SessionPageState extends State<ThemeV2SessionPage> {
             Expanded(
               child: SessionTranscript(
                 messages: state.messages,
+                turnCount: turnCount,
                 analyzing: state.surface == SessionSurfaceState.analyzing,
                 error: state.error,
                 onRetry: () => unawaited(_controller.retryLastFailedTurn()),

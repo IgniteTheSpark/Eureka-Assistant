@@ -249,6 +249,45 @@ void main() {
     }
   });
 
+  testWidgets('sending dismisses the keyboard before the request completes', (
+    tester,
+  ) async {
+    final pending = Completer<void>();
+    final controller = FakeSessionController(sendCompleter: pending);
+    await _pumpSession(tester, controller: controller);
+
+    final field = find.byKey(const ValueKey('session-composer-field'));
+    await tester.tap(field);
+    await tester.enterText(field, '今天有什么待办？');
+    await tester.pump();
+    expect(tester.widget<TextField>(field).focusNode!.hasFocus, isTrue);
+
+    await tester.tap(find.byKey(const ValueKey('session-send')));
+    await tester.pump();
+
+    expect(tester.widget<TextField>(field).focusNode!.hasFocus, isFalse);
+    pending.complete();
+    await tester.pump();
+  });
+
+  testWidgets('header and watermark count user turns instead of messages', (
+    tester,
+  ) async {
+    final messages = <ChatMessage>[];
+    for (var index = 0; index < 6; index++) {
+      messages
+        ..add(ChatMessage.user('u-$index', '第 ${index + 1} 次输入'))
+        ..add(_assistant('第 ${index + 1} 次回复', streaming: index == 5));
+    }
+    await _pumpSession(
+      tester,
+      controller: FakeSessionController(messages: messages, streaming: true),
+    );
+
+    expect(find.text('06'), findsNWidgets(2));
+    expect(find.text('12'), findsNothing);
+  });
+
   testWidgets('transcript actions expose 44px button targets', (tester) async {
     final message = _assistant(
       '这是一段足够长、可以沉淀为资产的回复内容',
@@ -546,6 +585,7 @@ class FakeSessionController extends ChangeNotifier
     List<({String id, String label})>? contextAssets,
     this.loadCompleter,
     this.loadCompleters,
+    this.sendCompleter,
     this.listFailuresRemaining = 0,
   }) : messages = messages ?? [],
        sessions = sessions ?? [],
@@ -572,6 +612,7 @@ class FakeSessionController extends ChangeNotifier
   final List<SessionInfo> sessions;
   final Completer<void>? loadCompleter;
   final Map<String, Completer<void>>? loadCompleters;
+  final Completer<void>? sendCompleter;
   int listFailuresRemaining;
   int listCallCount = 0;
   final List<String> loadedSessionIds = [];
@@ -632,5 +673,7 @@ class FakeSessionController extends ChangeNotifier
   }
 
   @override
-  Future<void> send(String text) async {}
+  Future<void> send(String text) async {
+    await sendCompleter?.future;
+  }
 }

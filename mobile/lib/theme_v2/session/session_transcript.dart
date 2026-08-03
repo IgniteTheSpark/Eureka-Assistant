@@ -10,6 +10,7 @@ class SessionTranscript extends StatefulWidget {
   const SessionTranscript({
     super.key,
     required this.messages,
+    required this.turnCount,
     required this.analyzing,
     required this.error,
     required this.onRetry,
@@ -22,6 +23,7 @@ class SessionTranscript extends StatefulWidget {
   });
 
   final List<ChatMessage> messages;
+  final int turnCount;
   final bool analyzing;
   final String? error;
   final VoidCallback onRetry;
@@ -227,7 +229,7 @@ class _SessionTranscriptState extends State<SessionTranscript> {
           bottom: 72,
           child: IgnorePointer(
             child: Text(
-              widget.messages.length.toString().padLeft(2, '0'),
+              widget.turnCount.toString().padLeft(2, '0'),
               style: TextStyle(
                 color: tokens.watermark,
                 fontSize: 96,

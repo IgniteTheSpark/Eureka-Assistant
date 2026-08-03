@@ -8,14 +8,14 @@ class SessionHeader extends StatelessWidget {
   const SessionHeader({
     super.key,
     required this.title,
-    required this.messageCount,
+    required this.turnCount,
     required this.onBack,
     this.onNewSession,
     this.onOpenHistory,
   });
 
   final String title;
-  final int messageCount;
+  final int turnCount;
   final VoidCallback onBack;
   final VoidCallback? onNewSession;
   final VoidCallback? onOpenHistory;
@@ -58,7 +58,7 @@ class SessionHeader extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      messageCount.toString().padLeft(2, '0'),
+                      turnCount.toString().padLeft(2, '0'),
                       style: ThemeV2Typography.mono(
                         color: tokens.muted,
                         fontSize: 8,
