@@ -1428,3 +1428,117 @@ git push origin codex/theme-v2-ui-refactor
 ```
 
 Expected: the branch is synchronized with `origin/codex/theme-v2-ui-refactor`; no merge or push to `main` occurs.
+
+---
+
+### Task 6: Rotate bubble artwork with the Forge2D body
+
+**User acceptance defect:** The bodies translate and collide, but the bubble
+gradient and icon remain screen-upright. A physical ball must visibly rotate.
+
+**Files:**
+- Modify: `mobile/lib/today/bubble_physics.dart`
+- Modify: `mobile/lib/theme_v2/home/theme_v2_asset_bubble_field.dart`
+- Modify: `mobile/test/today/bubble_physics_test.dart`
+- Modify: `mobile/test/theme_v2/home/theme_v2_asset_bubble_field_test.dart`
+
+**Interfaces:**
+- Produces: `Bubble.angle`, expressed in radians from the Forge2D body.
+- Produces: keyed per-asset `Transform.rotate` around the center of the full
+  visual sphere, including gradient, border, and icon.
+- Preserves: the unrotated 44 px semantics/hit target and Reduce Motion goldens.
+
+- [ ] **Step 1: Add assertion-level RED tests**
+
+In the shared physics test, dynamically read `bubble.angle` after assigning a
+known angular velocity and stepping the field. Catch the old missing-member
+error and fail an explicit `error isNull` assertion; do not accept a compile or
+uncaught setup error. Assert the exposed value equals `bubble.body.angle`.
+
+In the adapter test, require a keyed `Transform` named
+`theme-v2-asset-bubble-rotation-<asset-id>` inside the existing semantics hit
+target. The current upright renderer must fail because that transform is absent.
+
+Also run a realistic drag/throw or tilted-collision physics probe. If Forge2D
+does not generate any angular velocity for a translated circle, derive a
+release spin from horizontal linear velocity and circle radius without changing
+the existing damping, restitution, density, or collision bounds.
+
+- [ ] **Step 2: Render the real body angle**
+
+Expose the read-only body angle:
+
+```dart
+double get angle => body.angle;
+```
+
+Wrap only the sphere artwork, not its positioned 44 px semantics target:
+
+```dart
+Transform.rotate(
+  key: ValueKey('theme-v2-asset-bubble-rotation-${asset.id}'),
+  angle: bubble.angle,
+  child: _ThemeV2BubbleVisual(...),
+)
+```
+
+- [ ] **Step 3: Verify and commit**
+
+Run shared physics, adapter, Home, and Home golden tests plus targeted analysis.
+Existing Reduce Motion goldens must remain unchanged. Commit only the four task
+files with `fix: rotate theme v2 bubble artwork`.
+
+---
+
+### Task 7: Use the light Theme V2 surface for the Light Dock
+
+**User acceptance defect:** The Light-theme Dock is hard-coded black, which
+breaks the Light semantic palette.
+
+**Files:**
+- Modify: `mobile/lib/theme_v2/shell/theme_v2_floating_dock.dart`
+- Modify: `mobile/test/theme_v2/shell/theme_v2_shell_test.dart`
+- Update: `mobile/test/theme_v2/home/goldens/home-today-411-light.png`
+- Update: `mobile/test/theme_v2/home/goldens/home-agenda-411-light.png`
+
+**Interfaces:**
+- Light: `tokens.surface` fill, `tokens.border` one-pixel border, lighter shadow,
+  18 px radius, existing accent/muted icons.
+- Dark: preserve the existing translucent dark fill, border, shadow, and 20 px
+  radius exactly.
+
+- [ ] **Step 1: Add the Light/Dark color RED test**
+
+Pump the real Dock under `buildThemeV2Theme(Brightness.light)` and assert the
+Dock `Material.color == ThemeV2Tokens.light.surface`, its shape has the light
+border, and its radius is 18. The current hard-coded black fill must fail this
+color assertion. Pump Dark and lock the existing dark values against regression.
+
+- [ ] **Step 2: Replace the Light hard-code with semantic tokens**
+
+Read `context.themeV2` in the Dock. Use `tokens.surface` and `tokens.border` for
+Light with a reduced black shadow alpha; keep the Dark branch unchanged.
+
+- [ ] **Step 3: Update only the two Light full-Home goldens and commit**
+
+Run shell tests and first run Home goldens without update to confirm only the
+Light Dock pixels differ. Update the two Light Home goldens; Dark goldens must
+remain byte-unchanged. Run navigation/Home/golden tests and targeted analysis.
+Commit only the Dock, its test, and the two Light goldens with
+`fix: align light theme v2 dock palette`.
+
+---
+
+### Task 8: Re-run device acceptance and push the current branch
+
+- Run targeted analysis and the complete Flutter suite; update the recorded
+  test count only if it changes.
+- Rebuild/install the Theme V2 APK, keep `adb reverse tcp:8000 tcp:8100`, and
+  confirm the independent backend remains healthy.
+- On the connected device, confirm a translating/rolling bubble visibly rotates
+  its gradient and icon, and confirm the Light Dock is a light surface with
+  readable accent/muted icons. Capture screenshots; for rotation, capture two
+  frames around a throw or tilt.
+- Run PID-scoped logcat and reject Flutter/API/404/MissingPlugin exceptions.
+- After task review and whole-branch review, push only
+  `codex/theme-v2-ui-refactor`; do not merge or push `main`.
