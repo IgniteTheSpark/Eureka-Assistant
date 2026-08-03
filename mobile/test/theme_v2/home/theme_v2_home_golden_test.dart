@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/home/home_controller.dart';
 import 'package:eureka/theme_v2/home/home_repository.dart';
+import 'package:eureka/theme_v2/home/home_today_panel.dart';
 import 'package:eureka/theme_v2/home/theme_v2_home_page.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_floating_dock.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_page_scaffold.dart';
@@ -74,9 +75,24 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        final panel = find.byKey(ThemeV2HomePage.panelKey);
-        expect(tester.getTopLeft(panel), const Offset(8, 54));
-        expect(tester.getSize(panel), const Size(395, 790));
+        final document = find.byKey(ThemeV2HomePage.panelKey);
+        expect(document, findsOneWidget);
+        expect(
+          tester
+              .getTopLeft(
+                find.byKey(const ValueKey('theme-v2-page-title-home')),
+              )
+              .dx,
+          18,
+        );
+        if (presentation == HomePresentation.today) {
+          final chamber = find.byKey(HomeTodayPanel.gravityChamberKey);
+          expect(chamber, findsOneWidget);
+          expect(
+            find.descendant(of: chamber, matching: find.byType(Scrollable)),
+            findsNothing,
+          );
+        }
         expect(find.text('目标'), findsNothing);
         final dock = find.byKey(ThemeV2FloatingDock.dockKey);
         expect(dock, findsOneWidget);
@@ -90,6 +106,54 @@ void main() {
       });
     }
   }
+
+  testWidgets('Home today 360 light keeps one rigid gravity chamber', (
+    tester,
+  ) async {
+    const compactSize = Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = compactSize;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+
+    await tester.pumpWidget(
+      _GoldenHomeHost(
+        brightness: Brightness.light,
+        size: compactSize,
+        child: RepaintBoundary(
+          key: surface,
+          child: ThemeV2PageScaffold(
+            showTopNav: false,
+            body: ThemeV2HomePage(
+              repository: _FakeHomeRepository(_homeFixture),
+              now: now,
+            ),
+            dock: const ThemeV2FloatingDock(
+              selectedIndex: 0,
+              onDestinationSelected: _noopIndex,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final chamber = find.byKey(HomeTodayPanel.gravityChamberKey);
+    expect(
+      find.descendant(of: chamber, matching: find.byType(Scrollable)),
+      findsNothing,
+    );
+    await tester.drag(
+      find.byKey(ThemeV2HomePage.panelKey),
+      const Offset(0, -180),
+    );
+    await tester.pumpAndSettle();
+
+    await expectLater(
+      find.byKey(surface),
+      matchesGoldenFile('goldens/home-today-360-light.png'),
+    );
+  });
 }
 
 final _homeFixture = TodayData(
@@ -243,16 +307,21 @@ class _FakeHomeRepository implements ThemeV2HomeRepository {
 }
 
 class _GoldenHomeHost extends StatelessWidget {
-  const _GoldenHomeHost({required this.brightness, required this.child});
+  const _GoldenHomeHost({
+    required this.brightness,
+    required this.child,
+    this.size = const Size(411, 960),
+  });
 
   final Brightness brightness;
   final Widget child;
+  final Size size;
 
   @override
   Widget build(BuildContext context) {
     return MediaQuery(
       data: MediaQueryData(
-        size: const Size(411, 960),
+        size: size,
         devicePixelRatio: 1,
         padding: const EdgeInsets.only(top: 44),
         platformBrightness: brightness,

@@ -148,7 +148,6 @@ List<ChainItem> _sameTimeItems(List<ChainItem> chain) {
 
 class _NextMomentCard extends StatelessWidget {
   const _NextMomentCard({
-    super.key,
     required this.item,
     required this.sameTimeItems,
     required this.now,
@@ -366,7 +365,6 @@ class _NextMomentEmpty extends StatelessWidget {
 
 class _RekaQueue extends StatelessWidget {
   const _RekaQueue({
-    super.key,
     required this.items,
     required this.onOpenAgenda,
   });
