@@ -142,10 +142,8 @@ const _builtin = <String, SkillMeta>{
   'todo': SkillMeta(todoAssetIcon, '待办', 'blue'),
   'event': SkillMeta(eventAssetIcon, '日程', 'purple'),
   'contact': SkillMeta(contactAssetIcon, '名片', 'neutral'),
-  'notes': SkillMeta(notesAssetIcon, '随记', 'amber'), // 随记 (idea/misc merged in)
-  'idea': SkillMeta(notesAssetIcon, '随记', 'amber'), // legacy fallback → 随记
-  'misc': SkillMeta(notesAssetIcon, '随记', 'amber'), // legacy fallback → 随记
-  'expense': SkillMeta('💰', '记账', 'green'),
+  'notes': SkillMeta(notesAssetIcon, '随记', 'amber'),
+  'expense': SkillMeta('💳', '记账', 'green'),
   'external_ref': SkillMeta('🔗', '外部', 'purple'),
 };
 
@@ -154,12 +152,20 @@ const _builtin = <String, SkillMeta>{
 /// "to-do" (📋), not "done" (✅). Custom user skills are unaffected.
 const _pinnedIcons = <String, String>{'todo': todoAssetIcon};
 
+String _canonicalSkillKey(String key) => switch (key.trim().toLowerCase()) {
+  'calendar' => 'event',
+  'note' || 'idea' || 'misc' => 'notes',
+  final normalized => normalized,
+};
+
 /// Resolve a skill / derived key to its icon + label. Custom skills live only
 /// in the registry, so look there first (mirrors the web derivedMeta fix).
 SkillMeta resolveMeta(String key, Map<String, SkillMeta> registry) {
-  if (key == 'event') return _builtin['event']!;
-  final m = registry[key] ?? _builtin[key] ?? SkillMeta('•', key);
-  final pin = _pinnedIcons[key];
+  final normalized = key.trim().toLowerCase();
+  final registered = registry[normalized] ?? registry[key];
+  final canonical = _canonicalSkillKey(normalized);
+  final m = registered ?? _builtin[canonical] ?? SkillMeta('•', key);
+  final pin = _pinnedIcons[canonical];
   return pin == null
       ? m
       : SkillMeta(pin, m.label, m.accentColor, m.userSkillId, m.enabled);

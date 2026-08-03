@@ -5,6 +5,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 
 import '../../today/today_data.dart';
+import '../../timeline/timeline.dart';
 import '../asset_detail/asset_entity_ref.dart';
 import '../asset_detail/open_asset_detail.dart';
 import '../foundation/theme_v2_semantics.dart';
@@ -53,7 +54,7 @@ class HomeAgendaPanel extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            _AgendaBubbleBackdrop(assets: data.pool),
+            _AgendaBubbleBackdrop(assets: data.pool, skills: data.skills),
             const Positioned(
               left: 0,
               top: 40,
@@ -296,9 +297,10 @@ class _AgendaGlass extends StatelessWidget {
 }
 
 class _AgendaBubbleBackdrop extends StatelessWidget {
-  const _AgendaBubbleBackdrop({required this.assets});
+  const _AgendaBubbleBackdrop({required this.assets, required this.skills});
 
   final List<PoolAsset> assets;
+  final Map<String, SkillMeta> skills;
 
   static const _slots = <({double x, double y, double size})>[
     (x: 3, y: 640, size: 74),
@@ -340,10 +342,16 @@ class _AgendaBubbleBackdrop extends StatelessWidget {
                         : null,
                     border: Border.all(color: tokens.border),
                   ),
-                  child: Icon(
-                    _agendaAssetIcon(visible[index].type),
-                    size: math.min(22, _slots[index].size * 0.3),
-                    color: index < 5 ? Colors.white : tokens.muted,
+                  child: Center(
+                    child: Text(
+                      resolveMeta(visible[index].type, skills).icon,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: math.min(22, _slots[index].size * 0.3),
+                        height: 1,
+                        color: index < 5 ? Colors.white : tokens.muted,
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -635,22 +643,6 @@ LinearGradient _agendaBubbleGradient(BuildContext context, int index) {
       end: Alignment.bottomRight,
       colors: [Color(0xFF6F7CFF), Color(0xFF58D6FF)],
     ),
-  };
-}
-
-IconData _agendaAssetIcon(String type) {
-  return switch (type.toLowerCase()) {
-    'idea' => Icons.lightbulb_outline,
-    'todo' => Icons.check_box_outlined,
-    'event' || 'calendar' => Icons.calendar_today_outlined,
-    'book' => Icons.menu_book_outlined,
-    'expense' => Icons.restaurant_outlined,
-    'contact' => Icons.person_outline,
-    'audio' || 'voice' => Icons.mic_none_outlined,
-    'image' || 'photo' => Icons.image_outlined,
-    'location' => Icons.location_on_outlined,
-    'note' => Icons.description_outlined,
-    _ => Icons.auto_awesome_outlined,
   };
 }
 

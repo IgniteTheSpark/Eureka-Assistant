@@ -7,6 +7,22 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 void main() {
+  test('asset aliases and expense share canonical glyphs', () {
+    expect(resolveMeta('todo', const {}).icon, '📋');
+    expect(resolveMeta('calendar', const {}).icon, '📅');
+    expect(resolveMeta('note', const {}).icon, '✍️');
+    expect(resolveMeta('idea', const {}).icon, '✍️');
+    expect(resolveMeta('misc', const {}).icon, '✍️');
+    expect(resolveMeta('expense', const {}).icon, '💳');
+    expect(resolveMeta('unknown', const {}).icon, '•');
+  });
+
+  test('custom skill registry keeps its configured glyph', () {
+    const registry = {'tennis': SkillMeta('🎾', '网球记录', 'green')};
+
+    expect(resolveMeta('tennis', registry).icon, '🎾');
+  });
+
   test('loads Calendar timeline from Theme V2 core records', () async {
     final api = ApiClient(
       baseUrl: 'http://theme-v2.test',

@@ -118,6 +118,7 @@ class HomeTodayPanel extends StatelessWidget {
               key: assetBubbleFieldKey,
               assets: data.pool,
               trueCount: data.poolTrueCount,
+              skills: data.skills,
               active: active,
             ),
             Positioned(

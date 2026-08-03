@@ -7,6 +7,7 @@ import 'package:sensors_plus/sensors_plus.dart';
 
 import '../../today/bubble_physics.dart';
 import '../../today/today_data.dart';
+import '../../timeline/timeline.dart';
 import '../asset_detail/asset_entity_ref.dart';
 import '../asset_detail/open_asset_detail.dart';
 import '../foundation/theme_v2_theme.dart';
@@ -23,6 +24,7 @@ class ThemeV2AssetBubbleField extends StatefulWidget {
     super.key,
     required this.assets,
     required this.trueCount,
+    this.skills = const {},
     this.active = true,
     this.gravityStream,
     this.onOpenAsset,
@@ -30,6 +32,7 @@ class ThemeV2AssetBubbleField extends StatefulWidget {
 
   final List<PoolAsset> assets;
   final int trueCount;
+  final Map<String, SkillMeta> skills;
   final bool active;
   final Stream<Offset>? gravityStream;
   final ValueChanged<PoolAsset>? onOpenAsset;
@@ -429,6 +432,7 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                 bottom: 0,
                 child: _ThemeV2CompactAssetGrid(
                   assets: widget.assets,
+                  skills: widget.skills,
                   onOpenAsset: (asset) => widget._openAsset(context, asset),
                 ),
               )
@@ -512,6 +516,7 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                                                 angle: bubble.angle,
                                                 child: _ThemeV2BubbleVisual(
                                                   asset: asset,
+                                                  skills: widget.skills,
                                                   index: index,
                                                   onTap: () =>
                                                       widget._openAsset(
@@ -544,10 +549,12 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
 class _ThemeV2CompactAssetGrid extends StatelessWidget {
   const _ThemeV2CompactAssetGrid({
     required this.assets,
+    required this.skills,
     required this.onOpenAsset,
   });
 
   final List<PoolAsset> assets;
+  final Map<String, SkillMeta> skills;
   final ValueChanged<PoolAsset> onOpenAsset;
 
   @override
@@ -591,6 +598,7 @@ class _ThemeV2CompactAssetGrid extends StatelessWidget {
                               _ThemeV2AssetBubbleFieldState._compactDiameter,
                           child: _ThemeV2BubbleVisual(
                             asset: asset,
+                            skills: skills,
                             index: index,
                             onTap: () => onOpenAsset(asset),
                           ),
@@ -611,11 +619,13 @@ class _ThemeV2CompactAssetGrid extends StatelessWidget {
 class _ThemeV2BubbleVisual extends StatelessWidget {
   const _ThemeV2BubbleVisual({
     required this.asset,
+    required this.skills,
     required this.index,
     required this.onTap,
   });
 
   final PoolAsset asset;
+  final Map<String, SkillMeta> skills;
   final int index;
   final VoidCallback onTap;
 
@@ -653,10 +663,14 @@ class _ThemeV2BubbleVisual extends StatelessWidget {
           onTap: onTap,
           child: LayoutBuilder(
             builder: (context, constraints) => Center(
-              child: Icon(
-                _assetIcon(asset.type),
-                size: math.min(22, constraints.maxWidth * 0.31),
-                color: highlighted ? Colors.white : tokens.muted,
+              child: Text(
+                resolveMeta(asset.type, skills).icon,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: math.min(22, constraints.maxWidth * 0.31),
+                  height: 1,
+                  color: highlighted ? Colors.white : tokens.muted,
+                ),
               ),
             ),
           ),
@@ -697,21 +711,5 @@ LinearGradient _bubbleGradient(BuildContext context, int index) {
       end: Alignment.bottomRight,
       colors: [Color(0xFF6F7CFF), Color(0xFF58D6FF)],
     ),
-  };
-}
-
-IconData _assetIcon(String type) {
-  return switch (type.toLowerCase()) {
-    'idea' => Icons.lightbulb_outline,
-    'todo' => Icons.check_box_outlined,
-    'event' || 'calendar' => Icons.calendar_today_outlined,
-    'book' => Icons.menu_book_outlined,
-    'expense' => Icons.restaurant_outlined,
-    'contact' => Icons.person_outline,
-    'audio' || 'voice' => Icons.mic_none_outlined,
-    'image' || 'photo' => Icons.image_outlined,
-    'location' => Icons.location_on_outlined,
-    'note' => Icons.description_outlined,
-    _ => Icons.auto_awesome_outlined,
   };
 }

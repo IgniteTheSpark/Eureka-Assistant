@@ -160,6 +160,46 @@ void main() {
     });
     expect(saved.values['status'], 'done');
   });
+
+  test('core expense detail uses the canonical payment glyph', () async {
+    final api = ApiClient(
+      baseUrl: 'http://theme-v2.test',
+      enableLogging: false,
+      client: MockClient((request) async {
+        if (request.url.path == '/api/user-skills/skill-expense') {
+          return http.Response(
+            jsonEncode({
+              'id': 'skill-expense',
+              'machine_name': 'expense',
+              'display_name': '记账',
+              'schema': const {},
+            }),
+            200,
+            headers: const {'content-type': 'application/json'},
+          );
+        }
+        return http.Response(
+          jsonEncode({
+            'id': 'expense-1',
+            'user_skill_id': 'skill-expense',
+            'payload': {'amount': 88},
+            'created_at': '2026-08-03T03:00:00Z',
+            'updated_at': '2026-08-03T03:00:00Z',
+          }),
+          200,
+          headers: const {'content-type': 'application/json'},
+        );
+      }),
+    );
+    addTearDown(api.close);
+    final repository = ApiAssetDetailRepository(api, coreRecordsOnly: true);
+
+    final detail = await repository.load(
+      const AssetEntityRef(kind: AssetEntityKind.asset, id: 'expense-1'),
+    );
+
+    expect(detail.skill.icon, '💳');
+  });
 }
 
 Map<String, dynamic> _detailJson({

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/home/theme_v2_asset_bubble_field.dart';
+import 'package:eureka/timeline/timeline.dart';
 import 'package:eureka/today/today_data.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -19,6 +20,38 @@ void main() {
   test('acceleration maps to fixed-magnitude screen gravity', () {
     expect(themeV2GravityForAcceleration(0, 0), const Offset(0, 20));
     expect(themeV2GravityForAcceleration(-9.8, 0).dx, closeTo(20, 0.01));
+  });
+
+  testWidgets('bubble renders canonical and custom skill glyphs', (
+    tester,
+  ) async {
+    final expense = PoolAsset(
+      id: 'expense-1',
+      type: 'expense',
+      domain: 'life',
+      title: '午餐',
+      payload: const {'amount': 88},
+      createdAt: DateTime(2026, 8, 3, 11),
+    );
+    final tennis = PoolAsset(
+      id: 'tennis-1',
+      type: 'tennis',
+      domain: 'sport',
+      title: '晚间网球',
+      payload: const {'duration': 60},
+      createdAt: DateTime(2026, 8, 3, 12),
+    );
+
+    await _pumpField(
+      tester,
+      assets: [expense, tennis],
+      disableAnimations: true,
+      skills: const {'tennis': SkillMeta('🎾', '网球记录', 'green')},
+    );
+
+    expect(find.text('💳'), findsOneWidget);
+    expect(find.text('🎾'), findsOneWidget);
+    expect(find.byIcon(Icons.restaurant_outlined), findsNothing);
   });
 
   testWidgets('active physics moves a bubble under gravity', (tester) async {
@@ -660,6 +693,7 @@ Future<void> _pumpField(
   bool active = true,
   Size size = const Size(395, 790),
   Stream<Offset>? gravityStream,
+  Map<String, SkillMeta> skills = const {},
   ValueChanged<PoolAsset>? onOpenAsset,
 }) async {
   tester.view.devicePixelRatio = 1;
@@ -677,6 +711,7 @@ Future<void> _pumpField(
           child: ThemeV2AssetBubbleField(
             assets: assets,
             trueCount: assets.length,
+            skills: skills,
             active: active,
             gravityStream: gravityStream,
             onOpenAsset: onOpenAsset,

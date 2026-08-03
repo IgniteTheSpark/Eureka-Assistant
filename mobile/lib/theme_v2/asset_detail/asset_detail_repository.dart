@@ -1,4 +1,5 @@
 import '../../api/api_client.dart';
+import '../../timeline/timeline.dart';
 import 'asset_detail_model.dart';
 import 'asset_entity_ref.dart';
 
@@ -318,14 +319,8 @@ bool _hasCoreValue(dynamic value) =>
 
 const _coreMetadataFields = {'period', 'occurred_at', 'domain'};
 
-String _coreAssetIcon(String machineName) => switch (machineName) {
-  'todo' => '📋',
-  'expense' => '💳',
-  'contact' => '👤',
-  'idea' => '💡',
-  'notes' => '📝',
-  _ => '•',
-};
+String _coreAssetIcon(String machineName) =>
+    resolveMeta(machineName, const <String, SkillMeta>{}).icon;
 
 List<Map<String, dynamic>> _coreEventAttendees(dynamic raw) => [
   for (final attendee in raw is List ? raw.whereType<Map>() : const <Map>[])
