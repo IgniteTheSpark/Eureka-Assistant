@@ -426,14 +426,20 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                                           widget._openAsset(context, asset),
                                       child: ExcludeSemantics(
                                         child: Center(
-                                          child: SizedBox.square(
-                                            dimension: bubble.r * 2,
-                                            child: _ThemeV2BubbleVisual(
-                                              asset: asset,
-                                              index: index,
-                                              onTap: () => widget._openAsset(
-                                                context,
-                                                asset,
+                                          child: Transform.rotate(
+                                            key: ValueKey(
+                                              'theme-v2-asset-bubble-rotation-${asset.id}',
+                                            ),
+                                            angle: bubble.angle,
+                                            child: SizedBox.square(
+                                              dimension: bubble.r * 2,
+                                              child: _ThemeV2BubbleVisual(
+                                                asset: asset,
+                                                index: index,
+                                                onTap: () => widget._openAsset(
+                                                  context,
+                                                  asset,
+                                                ),
                                               ),
                                             ),
                                           ),

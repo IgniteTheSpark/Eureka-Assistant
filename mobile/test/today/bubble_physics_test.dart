@@ -58,4 +58,52 @@ void main() {
     final distance = Offset(left.x - right.x, left.y - right.y).distance;
     expect(distance, greaterThanOrEqualTo(39.5));
   });
+
+  test('bubble exposes the integrated Forge2D body angle', () {
+    final field = BubbleField(box: const Size(240, 180), gravity: Offset.zero);
+    field.addBubble('spinning', const Offset(120, 90), 20);
+    final bubble = field.bubbles.single;
+    bubble.body.angularVelocity = 2.5;
+
+    for (var step = 0; step < 12; step++) {
+      field.step();
+    }
+
+    double? exposedAngle;
+    Object? angleReadError;
+    try {
+      exposedAngle = (bubble as dynamic).angle as double;
+    } catch (error) {
+      angleReadError = error;
+    }
+
+    expect(
+      angleReadError,
+      isNull,
+      reason: 'Bubble must expose the Forge2D angle used by its renderer',
+    );
+    expect(bubble.body.angle, isNot(0));
+    expect(exposedAngle, closeTo(bubble.body.angle, 0.000001));
+  });
+
+  test('a tilted collision produces physical circle spin', () {
+    final field = BubbleField(
+      box: const Size(240, 180),
+      gravity: const Offset(12, 20),
+    );
+    field.addBubble('rolling', const Offset(50, 30), 20);
+    final bubble = field.bubbles.single;
+    var peakAngularVelocity = 0.0;
+
+    for (var step = 0; step < 360; step++) {
+      field.step();
+      final angularVelocity = bubble.body.angularVelocity.abs();
+      if (angularVelocity > peakAngularVelocity) {
+        peakAngularVelocity = angularVelocity;
+      }
+    }
+
+    expect(peakAngularVelocity, greaterThan(0.01));
+    expect(bubble.body.angle.abs(), greaterThan(0.01));
+  });
 }

@@ -149,6 +149,28 @@ void main() {
     expect(activationCount, 2);
   });
 
+  testWidgets('bubble artwork rotates inside its stationary semantics target', (
+    tester,
+  ) async {
+    await _pumpField(tester, assets: [asset], disableAnimations: true);
+
+    final rotation = find.byKey(
+      const ValueKey('theme-v2-asset-bubble-rotation-asset-1'),
+    );
+    expect(rotation, findsOneWidget);
+    expect(
+      find.ancestor(
+        of: rotation,
+        matching: find.byWidgetPredicate(
+          (widget) =>
+              widget is Semantics && widget.properties.label == '打开资产 Kevin',
+        ),
+      ),
+      findsOneWidget,
+    );
+    expect(tester.getSize(find.bySemanticsLabel('打开资产 Kevin')).width, 70);
+  });
+
   testWidgets('drag releases with throw velocity', (tester) async {
     await _pumpField(
       tester,

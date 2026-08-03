@@ -17,6 +17,7 @@ class Bubble {
 
   double get x => body.position.x * _scale;
   double get y => body.position.y * _scale;
+  double get angle => body.angle;
   bool get sleeping => !body.isAwake;
   void wake() => body.setAwake(true);
 }
