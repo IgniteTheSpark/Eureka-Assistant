@@ -8,6 +8,7 @@ import '../asset_detail/asset_entity_ref.dart';
 import '../asset_detail/open_asset_detail.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
+import 'theme_v2_asset_bubble_field.dart';
 
 const double homePanelRadius = 19;
 
@@ -69,6 +70,7 @@ class HomeTodayPanel extends StatelessWidget {
     required this.data,
     required this.onOpenAgenda,
     this.date,
+    this.active = true,
   });
 
   static const nextMomentKey = ValueKey<String>('theme-v2-today-next-moment');
@@ -80,6 +82,7 @@ class HomeTodayPanel extends StatelessWidget {
   final TodayData data;
   final VoidCallback onOpenAgenda;
   final DateTime? date;
+  final bool active;
 
   @override
   Widget build(BuildContext context) {
@@ -111,10 +114,11 @@ class HomeTodayPanel extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            _AssetBubbleField(
+            ThemeV2AssetBubbleField(
               key: assetBubbleFieldKey,
               assets: data.pool,
               trueCount: data.poolTrueCount,
+              active: active,
             ),
             Positioned(
               left: 12,
@@ -657,196 +661,6 @@ class _SecondaryCandidate extends StatelessWidget {
   }
 }
 
-class _AssetBubbleField extends StatelessWidget {
-  const _AssetBubbleField({
-    super.key,
-    required this.assets,
-    required this.trueCount,
-  });
-
-  final List<PoolAsset> assets;
-  final int trueCount;
-
-  static const _slots = <({double x, double y, double size})>[
-    (x: 4, y: 665, size: 70),
-    (x: 63, y: 687, size: 48),
-    (x: 105, y: 650, size: 72),
-    (x: 165, y: 680, size: 58),
-    (x: 215, y: 644, size: 80),
-    (x: 288, y: 684, size: 52),
-    (x: 330, y: 653, size: 64),
-    (x: 15, y: 615, size: 52),
-    (x: 57, y: 628, size: 44),
-    (x: 135, y: 602, size: 50),
-    (x: 180, y: 620, size: 38),
-    (x: 300, y: 608, size: 46),
-    (x: 350, y: 620, size: 38),
-    (x: 30, y: 570, size: 38),
-    (x: 78, y: 578, size: 54),
-    (x: 150, y: 558, size: 42),
-    (x: 244, y: 576, size: 56),
-    (x: 318, y: 558, size: 46),
-    (x: 198, y: 548, size: 34),
-    (x: 12, y: 535, size: 30),
-    (x: 356, y: 536, size: 34),
-    (x: 114, y: 532, size: 32),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.themeV2;
-    final visible = assets.take(_slots.length).toList();
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        Positioned(
-          left: 238,
-          top: 450,
-          child: IgnorePointer(
-            child: Text(
-              '$trueCount',
-              style: _geist(
-                color: tokens.accent.withValues(alpha: 0.07),
-                size: 112,
-                weight: FontWeight.w700,
-                letterSpacing: -6,
-              ),
-            ),
-          ),
-        ),
-        Positioned(
-          left: 286,
-          top: 548,
-          child: IgnorePointer(
-            child: Text(
-              '今日生成',
-              style: _mono(
-                color: tokens.accent.withValues(alpha: 0.28),
-                size: 9,
-                weight: FontWeight.w700,
-                letterSpacing: 1.2,
-              ),
-            ),
-          ),
-        ),
-        for (var index = visible.length - 1; index >= 0; index--)
-          Positioned(
-            left: _slots[index].x,
-            top: _slots[index].y,
-            width: _slots[index].size,
-            height: _slots[index].size,
-            child: _AssetBubble(
-              asset: visible[index],
-              index: index,
-              size: _slots[index].size,
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-class _AssetBubble extends StatelessWidget {
-  const _AssetBubble({
-    required this.asset,
-    required this.index,
-    required this.size,
-  });
-
-  final PoolAsset asset;
-  final int index;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.themeV2;
-    final highlighted = index < 5;
-    final decoration = BoxDecoration(
-      color: highlighted ? null : tokens.background.withValues(alpha: 0.78),
-      gradient: highlighted ? _bubbleGradient(context, index) : null,
-      shape: BoxShape.circle,
-      border: Border.all(
-        color: highlighted
-            ? Colors.white.withValues(alpha: 0.4)
-            : tokens.border,
-      ),
-      boxShadow: highlighted
-          ? const [
-              BoxShadow(
-                color: Color(0x55697BFF),
-                offset: Offset(0, 5),
-                blurRadius: 14,
-                spreadRadius: -5,
-              ),
-            ]
-          : null,
-    );
-    return Semantics(
-      button: true,
-      label: '打开资产 ${asset.title}',
-      child: DecoratedBox(
-        decoration: decoration,
-        child: Material(
-          color: Colors.transparent,
-          shape: const CircleBorder(),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            customBorder: const CircleBorder(),
-            onTap: () => unawaited(
-              openAssetDetail(
-                context,
-                AssetEntityRef(kind: AssetEntityKind.asset, id: asset.id),
-                coreRecordsOnly: true,
-              ),
-            ),
-            child: Center(
-              child: Icon(
-                _assetIcon(asset.type),
-                size: math.min(22, size * 0.31),
-                color: highlighted ? Colors.white : tokens.muted,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-LinearGradient _bubbleGradient(BuildContext context, int index) {
-  final dark = Theme.of(context).brightness == Brightness.dark;
-  return switch (index) {
-    0 => LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [
-        dark ? const Color(0xFF8A82FF) : const Color(0xFF25B6D6),
-        const Color(0xFF58D6FF),
-      ],
-    ),
-    1 => const LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [Color(0xFF8A82FF), Color(0xFFD06BFF)],
-    ),
-    2 => const LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [Color(0xFF32D7A1), Color(0xFF58D6FF)],
-    ),
-    3 => const LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [Color(0xFFFF9B68), Color(0xFFE36BFF)],
-    ),
-    _ => const LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [Color(0xFF6F7CFF), Color(0xFF58D6FF)],
-    ),
-  };
-}
-
 Future<void> _openChainItem(BuildContext context, ChainItem item) {
   return openAssetDetail(
     context,
@@ -886,22 +700,6 @@ String _queueMeta(ChainItem item) {
   final time = item.timed ? _clock(item.at) : '待处理';
   if (item.sub.trim().isEmpty) return time;
   return '$time · ${item.sub}';
-}
-
-IconData _assetIcon(String type) {
-  return switch (type.toLowerCase()) {
-    'idea' => Icons.lightbulb_outline,
-    'todo' => Icons.check_box_outlined,
-    'event' || 'calendar' => Icons.calendar_today_outlined,
-    'book' => Icons.menu_book_outlined,
-    'expense' => Icons.restaurant_outlined,
-    'contact' => Icons.person_outline,
-    'audio' || 'voice' => Icons.mic_none_outlined,
-    'image' || 'photo' => Icons.image_outlined,
-    'location' => Icons.location_on_outlined,
-    'note' => Icons.description_outlined,
-    _ => Icons.auto_awesome_outlined,
-  };
 }
 
 TextStyle _geist({

@@ -226,7 +226,7 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
   List<ThemeV2PageScaffold> _pages() {
     return widget.pages ??
         [
-          const ThemeV2PageScaffold(body: ThemeV2HomePage()),
+          ThemeV2PageScaffold(body: ThemeV2HomePage(active: _index == 0)),
           ThemeV2PageScaffold(
             body: ThemeV2CalendarPage(controller: _calendarController),
             showDock: _calendarController.surface != CalendarSurface.schedule,

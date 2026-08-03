@@ -6,6 +6,7 @@ import 'package:eureka/theme_v2/home/home_agenda_panel.dart';
 import 'package:eureka/theme_v2/home/home_controller.dart';
 import 'package:eureka/theme_v2/home/home_repository.dart';
 import 'package:eureka/theme_v2/home/home_today_panel.dart';
+import 'package:eureka/theme_v2/home/theme_v2_asset_bubble_field.dart';
 import 'package:eureka/theme_v2/home/theme_v2_home_page.dart';
 import 'package:eureka/today/today_data.dart';
 import 'package:flutter/material.dart';
@@ -92,6 +93,57 @@ void main() {
     expect(find.text('今日共 1 项  ↗'), findsOneWidget);
     expect(find.text('下一时刻'), findsNothing);
     expect(find.text('今日生成'), findsOneWidget);
+    expect(find.byType(ThemeV2AssetBubbleField), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('theme-v2-asset-bubble-asset-1')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('Home forwards inactive state to Today asset physics', (
+    tester,
+  ) async {
+    _setReferenceView(tester);
+    await tester.pumpWidget(
+      _HomeHost(
+        child: ThemeV2HomePage(
+          repository: _FakeHomeRepository(_fixture),
+          now: DateTime(2026, 7, 31, 9, 48),
+          active: false,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .widget<ThemeV2AssetBubbleField>(find.byType(ThemeV2AssetBubbleField))
+          .active,
+      isFalse,
+    );
+  });
+
+  testWidgets('Today asset bubbles fall under gravity when motion is enabled', (
+    tester,
+  ) async {
+    _setReferenceView(tester);
+    await tester.pumpWidget(
+      _HomeHost(
+        disableAnimations: false,
+        child: ThemeV2HomePage(
+          repository: _FakeHomeRepository(_fixture),
+          now: DateTime(2026, 7, 31, 9, 48),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    final bubble = find.bySemanticsLabel('打开资产 访谈摘录');
+    final before = tester.getCenter(bubble);
+
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(tester.getCenter(bubble).dy, greaterThan(before.dy));
   });
 
   testWidgets('empty Reka queue does not paint a fake scrollbar rail', (
@@ -402,18 +454,19 @@ class _ScriptedRepository implements ThemeV2HomeRepository {
 }
 
 class _HomeHost extends StatelessWidget {
-  const _HomeHost({required this.child});
+  const _HomeHost({required this.child, this.disableAnimations = true});
 
   final Widget child;
+  final bool disableAnimations;
 
   @override
   Widget build(BuildContext context) {
     return MediaQuery(
-      data: const MediaQueryData(
+      data: MediaQueryData(
         size: Size(411, 960),
         devicePixelRatio: 1,
         padding: EdgeInsets.only(top: 44),
-        disableAnimations: true,
+        disableAnimations: disableAnimations,
         textScaler: TextScaler.noScaling,
       ),
       child: MaterialApp(
