@@ -89,7 +89,7 @@ Phase 1 只使用独立 MySQL、API、Worker 和数据库 Job / Outbox；不要�
 ## 验收门槛
 
 - [x] 后端完整测试通过（324 tests）；容器测试进程退出码为 0。
-- [x] Flutter 完整测试通过（569 tests）；本次变更范围静态分析为 0 issue。
+- [x] Flutter 完整测试通过（571 tests）；本次变更范围静态分析为 0 issue。
 - [x] 独立 Compose 重建、迁移到 `0010_flash_chat_notes (head)`，API 容器 `/ready` 健康检查通过。
 - [x] OpenAPI 中存在审计要求的全部 Theme V2 路由，无缺失项。
 - [x] 真机安装强制开启 Theme V2 的 APK；首页、资产库、Skill Builder 启动正常，应用错误日志为空。

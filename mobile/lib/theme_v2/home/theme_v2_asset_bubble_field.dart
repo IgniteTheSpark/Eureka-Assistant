@@ -56,7 +56,7 @@ class ThemeV2AssetBubbleField extends StatefulWidget {
 
 class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
-  late final Ticker _ticker = createTicker(_onTick);
+  Ticker? _ticker;
   final ValueNotifier<int> _repaint = ValueNotifier(0);
   final Map<String, PoolAsset> _assetsById = {};
   final Map<String, double> _diametersById = {};
@@ -104,18 +104,15 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
   static const _settledSlotCount = 22;
   static const _compactDiameter = 36.0;
   static const _minimumTargetSize = 44.0;
-  static const _compactColumns = 8;
-  static const _compactRows = 7;
-  static const _compactRowStep = 45.0;
+  static const _compactChamberTop = 390.0;
 
-  bool get _usesCompactSettledLayout =>
+  bool get _usesCompactGrid =>
       _reduceMotion && widget.assets.length > _settledSlotCount;
 
   String _assetKey(List<PoolAsset> assets) =>
       assets.map((asset) => asset.id).join('|');
 
   double _diameter(PoolAsset asset, int index) {
-    if (_usesCompactSettledLayout) return _compactDiameter;
     return _diametersById.putIfAbsent(
       asset.id,
       () => _diameters[index % _diameters.length],
@@ -135,24 +132,6 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
   }
 
   Offset _settledCenter(int index, double radius) {
-    if (_usesCompactSettledLayout) {
-      final horizontalStep = math.max(
-        _minimumTargetSize,
-        (_box.width - _minimumTargetSize) / (_compactColumns - 1),
-      );
-      final column = index % _compactColumns;
-      final row = index ~/ _compactColumns;
-      final firstRowCenter = math.max(
-        _minimumTargetSize / 2,
-        _box.height -
-            _minimumTargetSize / 2 -
-            (_compactRows - 1) * _compactRowStep,
-      );
-      return Offset(
-        _minimumTargetSize / 2 + column * horizontalStep,
-        firstRowCenter + row * _compactRowStep,
-      );
-    }
     const slots = [
       Offset(39, 700),
       Offset(87, 711),
@@ -236,7 +215,7 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
 
   void _syncLifecycle() {
     if (!_physicsActive) {
-      if (_ticker.isActive) _ticker.stop();
+      _ticker?.stop();
       unawaited(_gravitySubscription?.cancel());
       _gravitySubscription = null;
       return;
@@ -250,7 +229,7 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
             if (field != null) {
               field.gravity = gravity;
               field.wakeAll();
-              if (!_ticker.isActive) _ticker.start();
+              if (!(_ticker?.isActive ?? false)) _startTicker();
             }
           },
           onError: (_) {
@@ -260,13 +239,21 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
             if (field != null) {
               field.gravity = fallback;
               field.wakeAll();
-              if (_physicsActive && !_ticker.isActive) _ticker.start();
+              if (_physicsActive && !(_ticker?.isActive ?? false)) {
+                _startTicker();
+              }
             }
             unawaited(_gravitySubscription?.cancel());
             _gravitySubscription = null;
           },
         );
-    if ((_field?.anyAwake ?? false) && !_ticker.isActive) _ticker.start();
+    if ((_field?.anyAwake ?? false) && !(_ticker?.isActive ?? false)) {
+      _startTicker();
+    }
+  }
+
+  void _startTicker() {
+    (_ticker ??= createTicker(_onTick)).start();
   }
 
   void _rebuildField(Size box) {
@@ -276,7 +263,14 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
       ..addEntries(widget.assets.map((asset) => MapEntry(asset.id, asset)));
     if (box == Size.zero || widget.assets.isEmpty) {
       _field = null;
-      if (_ticker.isActive) _ticker.stop();
+      _ticker?.stop();
+      return;
+    }
+    if (_usesCompactGrid) {
+      _field = null;
+      _ticker?.stop();
+      _repaint.value++;
+      _syncLifecycle();
       return;
     }
     final field = BubbleField(box: box, gravity: _gravity);
@@ -335,7 +329,7 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
     final field = _field;
     if (!_physicsActive || field == null) return;
     if (!field.anyAwake) {
-      _ticker.stop();
+      _ticker?.stop();
       return;
     }
     field.step();
@@ -370,7 +364,7 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     unawaited(_gravitySubscription?.cancel());
-    _ticker.dispose();
+    _ticker?.dispose();
     _repaint.dispose();
     super.dispose();
   }
@@ -424,7 +418,21 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                 ),
               ),
             ),
-            if (field != null)
+            if (_usesCompactGrid)
+              Positioned(
+                left: 0,
+                right: 0,
+                top: math.min(
+                  _compactChamberTop,
+                  math.max(0, box.height - _minimumTargetSize),
+                ),
+                bottom: 0,
+                child: _ThemeV2CompactAssetGrid(
+                  assets: widget.assets,
+                  onOpenAsset: (asset) => widget._openAsset(context, asset),
+                ),
+              )
+            else if (field != null)
               Positioned.fill(
                 child: GestureDetector(
                   behavior: HitTestBehavior.translucent,
@@ -527,6 +535,73 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                 ),
               ),
           ],
+        );
+      },
+    );
+  }
+}
+
+class _ThemeV2CompactAssetGrid extends StatelessWidget {
+  const _ThemeV2CompactAssetGrid({
+    required this.assets,
+    required this.onOpenAsset,
+  });
+
+  final List<PoolAsset> assets;
+  final ValueChanged<PoolAsset> onOpenAsset;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = math.max(
+          1,
+          (constraints.maxWidth /
+                  _ThemeV2AssetBubbleFieldState._minimumTargetSize)
+              .floor(),
+        );
+        return GridView.builder(
+          padding: EdgeInsets.zero,
+          physics: const ClampingScrollPhysics(),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            mainAxisExtent: _ThemeV2AssetBubbleFieldState._minimumTargetSize,
+          ),
+          itemCount: assets.length,
+          itemBuilder: (context, index) {
+            final asset = assets[index];
+            return Semantics(
+              key: ValueKey('theme-v2-asset-bubble-${asset.id}'),
+              label: '打开资产 ${asset.title}',
+              button: true,
+              onTap: () => onOpenAsset(asset),
+              child: ExcludeSemantics(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => onOpenAsset(asset),
+                  child: Center(
+                    child: IgnorePointer(
+                      child: Transform.rotate(
+                        key: ValueKey(
+                          'theme-v2-asset-bubble-rotation-${asset.id}',
+                        ),
+                        angle: 0,
+                        child: SizedBox.square(
+                          dimension:
+                              _ThemeV2AssetBubbleFieldState._compactDiameter,
+                          child: _ThemeV2BubbleVisual(
+                            asset: asset,
+                            index: index,
+                            onTap: () => onOpenAsset(asset),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
         );
       },
     );

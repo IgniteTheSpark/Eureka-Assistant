@@ -47,62 +47,122 @@ void main() {
   });
 
   testWidgets(
-    'Reduce Motion gives 50 assets stable separate targets and opens the last',
+    'Reduce Motion sizes 50-asset rows from each supported field width',
     (tester) async {
       final assets = _assets(50);
-      PoolAsset? opened;
-      var activationCount = 0;
       var gravityListenCount = 0;
       final gravity = StreamController<Offset>(
         onListen: () => gravityListenCount++,
       );
       addTearDown(() => unawaited(gravity.close()));
+
+      for (final width in [395.0, 344.0, 304.0]) {
+        await _pumpField(
+          tester,
+          assets: assets,
+          disableAnimations: true,
+          gravityStream: gravity.stream,
+          size: Size(width, 790),
+        );
+        final fieldRect = tester.getRect(find.byType(ThemeV2AssetBubbleField));
+        final visibleTargets = _visibleAssetTargetRects(
+          tester,
+          assets,
+          fieldRect,
+        );
+        final firstTop = visibleTargets.first.top;
+        final firstRowCount = visibleTargets
+            .where((rect) => (rect.top - firstTop).abs() < 0.01)
+            .length;
+
+        expect(firstRowCount, (width / 44).floor(), reason: '$width px');
+        _expectSeparateTargetsInside(visibleTargets, fieldRect);
+        expect(find.text('50'), findsOneWidget);
+        expect(find.text('今日生成'), findsOneWidget);
+        expect(gravityListenCount, 0);
+      }
+
+      await tester.pump(const Duration(seconds: 1));
+      expect(gravityListenCount, 0);
+    },
+  );
+
+  testWidgets(
+    'short Reduce Motion field scrolls to and opens the 50th asset once',
+    (tester) async {
+      final assets = _assets(50);
+      PoolAsset? opened;
+      var activationCount = 0;
       await _pumpField(
         tester,
         assets: assets,
         disableAnimations: true,
-        gravityStream: gravity.stream,
+        size: const Size(304, 480),
         onOpenAsset: (value) {
           opened = value;
           activationCount++;
         },
       );
-      final fieldRect = tester.getRect(find.byType(ThemeV2AssetBubbleField));
-      final targets = [
-        for (final asset in assets)
-          find.bySemanticsLabel('打开资产 ${asset.title}'),
-      ];
-      final before = targets.map(tester.getRect).toList(growable: false);
+      final field = find.byType(ThemeV2AssetBubbleField);
+      final fieldRect = tester.getRect(field);
+      final scrollable = find.descendant(
+        of: field,
+        matching: find.byType(Scrollable),
+      );
+      const lastKey = ValueKey('theme-v2-asset-bubble-asset-49');
 
-      expect(targets.every((target) => target.evaluate().length == 1), isTrue);
-      expect(gravityListenCount, 0);
-      for (var index = 0; index < before.length; index++) {
-        final rect = before[index];
-        expect(rect.width, greaterThanOrEqualTo(44), reason: 'asset $index');
-        expect(rect.height, greaterThanOrEqualTo(44), reason: 'asset $index');
-        expect(rect.left, greaterThanOrEqualTo(fieldRect.left));
-        expect(rect.top, greaterThanOrEqualTo(fieldRect.top));
-        expect(rect.right, lessThanOrEqualTo(fieldRect.right));
-        expect(rect.bottom, lessThanOrEqualTo(fieldRect.bottom));
-        for (var other = index + 1; other < before.length; other++) {
-          expect(
-            rect.overlaps(before[other]),
-            isFalse,
-            reason: 'asset $index overlaps asset $other',
-          );
-        }
-      }
-
-      await tester.pump(const Duration(seconds: 1));
-      expect(targets.map(tester.getRect), orderedEquals(before));
-      expect(gravityListenCount, 0);
-      await tester.tap(targets.last);
+      expect(scrollable, findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.byKey(lastKey),
+        88,
+        scrollable: scrollable,
+      );
+      await tester.pump();
+      final last = find.byKey(lastKey);
+      final lastRect = tester.getRect(last);
+      _expectFullTargetInside(lastRect, fieldRect);
+      await tester.tap(last);
       await tester.pump();
 
       expect(opened?.id, 'asset-49');
       expect(activationCount, 1);
     },
   );
+
+  testWidgets('compact metadata refresh opens the updated same-id asset', (
+    tester,
+  ) async {
+    final assets = _assets(50);
+    PoolAsset? opened;
+    await _pumpField(
+      tester,
+      assets: assets,
+      disableAnimations: true,
+      onOpenAsset: (value) => opened = value,
+    );
+    final updated = PoolAsset(
+      id: assets.first.id,
+      type: 'expense',
+      domain: 'life',
+      title: 'Updated Contact 0',
+      payload: const {'amount': 88},
+      createdAt: assets.first.createdAt,
+    );
+
+    await _pumpField(
+      tester,
+      assets: [updated, ...assets.skip(1)],
+      disableAnimations: true,
+      onOpenAsset: (value) => opened = value,
+    );
+    final target = find.bySemanticsLabel('打开资产 Updated Contact 0');
+    expect(target, findsOneWidget);
+    await tester.tap(target);
+    await tester.pump();
+
+    expect(identical(opened, updated), isTrue);
+    expect(opened?.payload['amount'], 88);
+  });
 
   testWidgets(
     'Reduce Motion overflow transition compacts then restores body diameters',
@@ -544,8 +604,43 @@ List<PoolAsset> _assets(int count) => List.generate(
   ),
 );
 
+List<Rect> _visibleAssetTargetRects(
+  WidgetTester tester,
+  List<PoolAsset> assets,
+  Rect field,
+) => [
+  for (final asset in assets)
+    if (find
+        .byKey(ValueKey('theme-v2-asset-bubble-${asset.id}'))
+        .evaluate()
+        .isNotEmpty)
+      tester.getRect(find.byKey(ValueKey('theme-v2-asset-bubble-${asset.id}'))),
+].where((rect) => rect.overlaps(field)).toList(growable: false);
+
+void _expectSeparateTargetsInside(List<Rect> targets, Rect field) {
+  expect(targets, isNotEmpty);
+  const epsilon = 0.01;
+  for (var index = 0; index < targets.length; index++) {
+    final rect = targets[index];
+    expect(rect.width, greaterThanOrEqualTo(44), reason: 'target $index');
+    expect(rect.height, greaterThanOrEqualTo(44), reason: 'target $index');
+    expect(rect.left, greaterThanOrEqualTo(field.left - epsilon));
+    expect(rect.top, greaterThanOrEqualTo(field.top - epsilon));
+    expect(rect.right, lessThanOrEqualTo(field.right + epsilon));
+    expect(rect.bottom, lessThanOrEqualTo(field.bottom + epsilon));
+    for (var other = index + 1; other < targets.length; other++) {
+      expect(
+        rect.overlaps(targets[other]),
+        isFalse,
+        reason: 'target $index overlaps target $other',
+      );
+    }
+  }
+}
+
 void _expectFullTargetInside(Rect target, Rect field) {
-  expect(target.size, const Size.square(44));
+  expect(target.width, greaterThanOrEqualTo(44));
+  expect(target.height, greaterThanOrEqualTo(44));
   expect(target.left, greaterThanOrEqualTo(field.left));
   expect(target.top, greaterThanOrEqualTo(field.top));
   expect(target.right, lessThanOrEqualTo(field.right));
@@ -563,11 +658,12 @@ Future<void> _pumpField(
   required List<PoolAsset> assets,
   required bool disableAnimations,
   bool active = true,
+  Size size = const Size(395, 790),
   Stream<Offset>? gravityStream,
   ValueChanged<PoolAsset>? onOpenAsset,
 }) async {
   tester.view.devicePixelRatio = 1;
-  tester.view.physicalSize = const Size(395, 790);
+  tester.view.physicalSize = size;
   addTearDown(tester.view.resetDevicePixelRatio);
   addTearDown(tester.view.resetPhysicalSize);
   await tester.pumpWidget(
@@ -576,8 +672,8 @@ Future<void> _pumpField(
       home: MediaQuery(
         data: MediaQueryData(disableAnimations: disableAnimations),
         child: SizedBox(
-          width: 395,
-          height: 790,
+          width: size.width,
+          height: size.height,
           child: ThemeV2AssetBubbleField(
             assets: assets,
             trueCount: assets.length,
