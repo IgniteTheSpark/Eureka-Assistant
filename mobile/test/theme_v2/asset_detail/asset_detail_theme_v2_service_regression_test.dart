@@ -59,7 +59,7 @@ void main() {
         'attendees',
         'description',
       });
-      expect(detail.capabilities.editable, isFalse);
+      expect(detail.capabilities.editable, isTrue);
       expect(requests, ['/api/events/event-1']);
     },
   );
@@ -106,6 +106,10 @@ void main() {
     expect(
       (detail.values['attendees'] as List).single,
       containsPair('name_raw', '冯总'),
+    );
+    expect(
+      (detail.values['attendees'] as List).single,
+      containsPair('id', 'attendee-1'),
     );
     expect(detail.source.kind, AssetDetailSourceKind.flash);
     expect(detail.source.label, '来自 8月2日闪念');
@@ -183,7 +187,7 @@ void main() {
       ['title', 'content'],
     );
     expect(detail.values['content'], 'Theme V2 真机验收记录');
-    expect(detail.capabilities.editable, isFalse);
+    expect(detail.capabilities.editable, isTrue);
     expect(requests, ['/api/assets/asset-1', '/api/user-skills/skill-notes']);
   });
 

@@ -11,9 +11,28 @@ Widget calendarEditorPageForSkill(
 ) {
   switch (option.kind) {
     case CalendarSkillKind.event:
-      return EventForm(presetDate: effectiveDate);
+      return EventForm(presetDate: effectiveDate, coreRecordsOnly: true);
     case CalendarSkillKind.contact:
-      return const ContactForm();
+      final definition = SkillDef(
+        option.name,
+        option.displayName,
+        option.icon,
+        option.accentColor,
+        option.payloadSchema,
+      );
+      return ThemeV2AssetEditPage(
+        reference: const AssetEntityRef(
+          kind: AssetEntityKind.asset,
+          id: 'new:contact',
+        ),
+        initialValues: const {},
+        mode: AssetEditMode.create,
+        skillName: option.name,
+        userSkillId: option.userSkillId,
+        spec: renderSpecForSkill(definition),
+        displayName: option.displayName,
+        presetDate: effectiveDate,
+      );
     case CalendarSkillKind.asset:
       final definition = SkillDef(
         option.name,
@@ -30,6 +49,7 @@ Widget calendarEditorPageForSkill(
         initialValues: const {},
         mode: AssetEditMode.create,
         skillName: option.name,
+        userSkillId: option.userSkillId,
         spec: renderSpecForSkill(definition),
         displayName: option.displayName,
         presetDate: effectiveDate,

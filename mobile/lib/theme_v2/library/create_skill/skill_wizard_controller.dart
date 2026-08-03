@@ -113,7 +113,7 @@ class ApiSkillWizardRepository implements SkillWizardRepository {
 
   @override
   Future<Map<String, dynamic>> draft(Map<String, dynamic> body) async {
-    final response = await _api.postJson('/api/skills', body);
+    final response = await _api.postJson('/api/user-skills/draft', body);
     if (response is! Map) {
       throw const FormatException('技能设计服务返回格式错误');
     }
@@ -122,12 +122,50 @@ class ApiSkillWizardRepository implements SkillWizardRepository {
 
   @override
   Future<void> confirm(Map<String, dynamic> body) async {
-    await _api.postJson('/api/skills/confirm', body);
+    final payloadSchema =
+        (body['payload_schema'] as Map?)?.cast<String, dynamic>() ?? const {};
+    await _api.postJson('/api/user-skills', {
+      'machine_name': body['name'],
+      'display_name': body['display_name'],
+      'schema': _themeV2SkillSchema(payloadSchema),
+      'render_spec': body['render_spec'] ?? const <String, dynamic>{},
+      'chat_starters': body['chat_starters'] ?? const <dynamic>[],
+    });
   }
 
   void dispose() {
     if (_ownsApi) _api.close();
   }
+}
+
+Map<String, dynamic> _themeV2SkillSchema(Map<String, dynamic> payloadSchema) {
+  final properties = <String, dynamic>{};
+  final required = <String>[];
+  for (final entry in payloadSchema.entries) {
+    final metadata = (entry.value as Map?)?.cast<String, dynamic>() ?? const {};
+    final sourceType = metadata['type']?.toString() ?? 'string';
+    final property = <String, dynamic>{
+      'type': switch (sourceType) {
+        'date' || 'datetime' || 'uuid' => 'string',
+        _ => sourceType,
+      },
+      if (sourceType == 'date') 'format': 'date',
+      if (sourceType == 'datetime') 'format': 'date-time',
+      if (sourceType == 'uuid') 'format': 'uuid',
+      'title': metadata['label']?.toString() ?? entry.key,
+      'description': metadata['description']?.toString() ?? '',
+      'x-long': metadata['long'] == true,
+    };
+    properties[entry.key] = property;
+    if (metadata['required'] == true) required.add(entry.key);
+  }
+  return {
+    'type': 'object',
+    'properties': properties,
+    'required': required,
+    'additionalProperties': false,
+    'x-capture-enabled': true,
+  };
 }
 
 class SkillWizardController extends ChangeNotifier {

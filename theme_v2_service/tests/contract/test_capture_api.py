@@ -189,6 +189,85 @@ async def test_bound_card_sync_asr_result_is_idempotently_accepted(client):
     }
 
 
+async def test_flash_sessions_group_recordings_by_local_capture_day(client):
+    token = await _registered_bound_card(
+        client,
+        "daily-capture@example.com",
+        "SN-001",
+    )
+    capture_times = [
+        "2026-08-02T01:00:00Z",
+        "2026-08-02T10:00:00Z",
+        "2026-08-03T01:00:00Z",
+    ]
+    recording_ids = []
+    for index, capture_started_at in enumerate(capture_times, start=1):
+        payload = {
+            **_sync_payload(),
+            "client_task_id": f"daily-task-{index}",
+            "device_file_name": f"F00{index}.opus",
+            "device_crc": 2000 + index,
+            "capture_started_at": capture_started_at,
+            "capture_ended_at": capture_started_at,
+            "local_audio_sha256": f"{index}" * 64,
+            "asr_text": f"第 {index} 条闪念",
+        }
+        response = await client.post(
+            "/api/flash/tencent-asr-sync-results",
+            headers=_headers(token),
+            json=payload,
+        )
+        assert response.status_code == 200
+        recording_ids.append(response.json()["recording_id"])
+
+    history = await client.get("/api/flash/sessions", headers=_headers(token))
+
+    assert history.status_code == 200
+    assert [item["id"] for item in history.json()["sessions"]] == [
+        "2026-08-03",
+        "2026-08-02",
+    ]
+    assert history.json()["sessions"][1]["title"] == "8月2日 闪念"
+    assert history.json()["sessions"][1]["recording_count"] == 2
+
+    detail = await client.get(
+        "/api/flash/sessions/2026-08-02",
+        headers=_headers(token),
+    )
+    assert detail.status_code == 200
+    assert detail.json()["session"]["id"] == "2026-08-02"
+    assert [item["id"] for item in detail.json()["session"]["recordings"]] == [
+        recording_ids[0],
+        recording_ids[1],
+    ]
+
+    archive = await client.get(
+        "/api/flash/recordings",
+        headers=_headers(token),
+    )
+    assert archive.status_code == 200
+    archived_by_id = {
+        item["id"]: item for item in archive.json()["recordings"]
+    }
+    assert archived_by_id[recording_ids[0]]["session_date"] == "2026-08-02"
+    assert archived_by_id[recording_ids[2]]["session_date"] == "2026-08-03"
+    assert archived_by_id[recording_ids[0]]["captured_at"].startswith(
+        "2026-08-02T01:00:00"
+    )
+
+    deleted = await client.delete(
+        "/api/flash/sessions/2026-08-02",
+        headers=_headers(token),
+    )
+    assert deleted.status_code == 200
+    assert deleted.json()["deleted_recording_count"] == 2
+    missing = await client.get(
+        "/api/flash/sessions/2026-08-02",
+        headers=_headers(token),
+    )
+    assert missing.status_code == 404
+
+
 async def test_unbound_card_sync_result_is_rejected(client):
     token = await _register(client, "capture@example.com")
     response = await client.post(

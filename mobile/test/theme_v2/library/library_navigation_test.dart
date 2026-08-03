@@ -273,6 +273,34 @@ void main() {
     },
   );
 
+  testWidgets(
+    'Theme V2 contact container reads contact assets, not legacy contacts',
+    (tester) async {
+      final controller = await _controller();
+      await _pumpHost(
+        tester,
+        ThemeV2LibraryPage(
+          controller: controller,
+          autoLoad: false,
+          onCreateSkill: () {},
+        ),
+      );
+
+      await tester.tap(
+        find.byKey(const ValueKey('library-pinned-tile-contact')),
+      );
+      await tester.pumpAndSettle();
+
+      final page = tester.widget<ThemeV2AssetListPage>(
+        find.byType(ThemeV2AssetListPage),
+      );
+      expect(page.source, AssetListSource.assets);
+      expect(page.skillName, 'contact');
+      expect(page.meta?.userSkillId, 's-contact');
+      expect(page.coreRecordsOnly, isTrue);
+    },
+  );
+
   testWidgets('default recent asset opens direct detail not a container list', (
     tester,
   ) async {
@@ -1061,6 +1089,7 @@ Future<LibraryController> _controller({
             type: LibraryContainerType.contact,
             totalCount: 0,
             isSystem: true,
+            userSkillId: 's-contact',
           ),
         ],
         customContainers: const [

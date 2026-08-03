@@ -13,7 +13,8 @@ class RingFrame {
 }
 
 typedef RecCmdFn = Future<void> Function();
-typedef TranscribeFn = Future<String> Function(Uint8List pcm, int sampleRate, int channels);
+typedef TranscribeFn =
+    Future<String> Function(Uint8List pcm, int sampleRate, int channels);
 typedef CreateCardFn = Future<void> Function(String text);
 
 /// Lifecycle phase of a ring capture, surfaced so the UI can mirror the card's
@@ -21,6 +22,7 @@ typedef CreateCardFn = Future<void> Function(String text);
 enum RingCapturePhase { recording, transcribing, filing, done, empty, error }
 
 typedef PhaseFn = void Function(RingCapturePhase phase);
+typedef CaptureErrorFn = void Function(Object error);
 
 /// Double-click the ring to start a capture; double-click again to stop, which
 /// transcribes the accumulated PCM and files it as a flash card.
@@ -38,14 +40,15 @@ class RingCaptureController {
     required TranscribeFn transcribe,
     required CreateCardFn createCard,
     this.onPhase,
+    this.onError,
     this.sampleRate = 8000,
     this.stopDrain = const Duration(milliseconds: 400),
-  })  : _keyEvents = keyEvents,
-        _audioFrames = audioFrames,
-        _startRecording = startRecording,
-        _stopRecording = stopRecording,
-        _transcribe = transcribe,
-        _createCard = createCard;
+  }) : _keyEvents = keyEvents,
+       _audioFrames = audioFrames,
+       _startRecording = startRecording,
+       _stopRecording = stopRecording,
+       _transcribe = transcribe,
+       _createCard = createCard;
 
   final Stream<int> _keyEvents;
   final Stream<RingFrame> _audioFrames;
@@ -56,6 +59,7 @@ class RingCaptureController {
 
   /// Capture lifecycle hook so the UI can mirror the card's progressive status.
   final PhaseFn? onPhase;
+  final CaptureErrorFn? onError;
   final int sampleRate;
 
   /// After the stop command, keep buffering for this long so the in-flight BLE
@@ -68,9 +72,6 @@ class RingCaptureController {
   int _channels = 1;
   bool _recording = false;
   bool _finishing = false; // true across the stop→transcribe→file handshake
-  int _lastSeq = -1;
-  int _droppedFrames = 0;
-  int _frames = 0;
 
   void start() {
     _keySub ??= _keyEvents.listen((k) {
@@ -80,12 +81,6 @@ class RingCaptureController {
     _audioSub ??= _audioFrames.listen((f) {
       if (!_recording) return;
       _channels = f.channels;
-      // Detect dropped BLE frames via gaps in the plugin's sequence counter.
-      if (_lastSeq >= 0 && f.seq > _lastSeq + 1) {
-        _droppedFrames += f.seq - _lastSeq - 1;
-      }
-      _lastSeq = f.seq;
-      _frames++;
       _buf.add(f.pcm);
     });
   }
@@ -101,9 +96,6 @@ class RingCaptureController {
 
   void _beginRecording() {
     _buf.clear();
-    _lastSeq = -1;
-    _droppedFrames = 0;
-    _frames = 0;
     _recording = true;
     onPhase?.call(RingCapturePhase.recording);
     // Fire-and-forget the start command; never let it throw into the key handler.
@@ -124,8 +116,6 @@ class RingCaptureController {
       }
       _recording = false;
       final pcm = _buf.toBytes();
-      final bytesPerSec = sampleRate * 2 * (_channels <= 0 ? 1 : _channels);
-      final approxSecs = bytesPerSec == 0 ? 0.0 : pcm.length / bytesPerSec;
       if (pcm.isEmpty) {
         onPhase?.call(RingCapturePhase.empty);
         return;
@@ -139,8 +129,9 @@ class RingCaptureController {
       onPhase?.call(RingCapturePhase.filing);
       await _createCard(text);
       onPhase?.call(RingCapturePhase.done);
-    } catch (_) {
+    } catch (error) {
       // swallow — a transcription/network failure must not break future captures
+      onError?.call(error);
       onPhase?.call(RingCapturePhase.error);
     } finally {
       _recording = false;

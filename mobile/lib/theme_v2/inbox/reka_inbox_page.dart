@@ -71,6 +71,10 @@ class _RekaInboxPageState extends State<RekaInboxPage> {
         callback(item);
         return;
       }
+      if (item.cta == 'notification') {
+        await openNotificationTarget(item.type, item.ref);
+        return;
+      }
       if (item.cta == 'view') {
         await openNotificationTarget('reminder', _viewLink(item.ref));
         return;

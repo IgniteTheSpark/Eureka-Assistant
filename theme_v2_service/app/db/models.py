@@ -33,6 +33,16 @@ class UserSkill(Base):
     description: Mapped[str | None] = mapped_column(String(1000))
     domain: Mapped[str | None] = mapped_column(String(100))
     schema_json: Mapped[dict] = mapped_column(mysql.JSON, nullable=False)
+    render_spec_json: Mapped[dict] = mapped_column(
+        mysql.JSON,
+        default=dict,
+        nullable=False,
+    )
+    chat_starters_json: Mapped[list] = mapped_column(
+        mysql.JSON,
+        default=list,
+        nullable=False,
+    )
     created_at: Mapped[datetime] = mapped_column(
         mysql.DATETIME(fsp=6),
         default=utc_now,

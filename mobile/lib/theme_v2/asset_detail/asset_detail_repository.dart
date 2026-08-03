@@ -111,7 +111,7 @@ class ApiAssetDetailRepository implements AssetDetailRepository {
         .toSet();
     final machineName = skill['machine_name']?.toString() ?? 'asset';
     final fieldIds = machineName == 'todo'
-        ? const <String>{'title', 'due_date', 'content'}
+        ? const <String>{'title', 'due_date', 'content', 'status'}
         : <String>{
             ...schema.keys.where((id) => !_coreMetadataFields.contains(id)),
             ...payload.keys.where((id) => !_coreMetadataFields.contains(id)),
@@ -180,6 +180,38 @@ class ApiAssetDetailRepository implements AssetDetailRepository {
     AssetDetailModel current,
     Map<String, dynamic> valuesPatch,
   ) async {
+    if (coreRecordsOnly) {
+      switch (current.ref.kind) {
+        case AssetEntityKind.asset:
+          final latest =
+              (await api.getJson('/api/assets/${current.ref.id}') as Map)
+                  .cast<String, dynamic>();
+          final payload = {
+            ...(latest['payload'] as Map?)?.cast<String, dynamic>() ??
+                const <String, dynamic>{},
+            ...valuesPatch,
+          };
+          final response = await api.patchJson(
+            '/api/assets/${current.ref.id}',
+            {'payload': payload},
+          );
+          return _assetDetail(
+            current.ref,
+            (response as Map).cast<String, dynamic>(),
+          );
+        case AssetEntityKind.event:
+          final response = await api.patchJson(
+            '/api/events/${current.ref.id}',
+            valuesPatch,
+          );
+          return _eventDetail(
+            current.ref,
+            (response as Map).cast<String, dynamic>(),
+          );
+        case AssetEntityKind.contact:
+          throw StateError('core contact updates are unavailable');
+      }
+    }
     final response = await api.putJson(_canonicalPath(current.ref), {
       'expected_version': current.version,
       'values_patch': valuesPatch,
@@ -223,7 +255,7 @@ AssetDetailModel _coreDetail({
     secondaryFieldIds: List.unmodifiable(secondaryFieldIds),
   ),
   source: source,
-  capabilities: const AssetDetailCapabilities(editable: false, deletable: true),
+  capabilities: const AssetDetailCapabilities(editable: true, deletable: true),
 );
 
 AssetDetailField _field(
@@ -297,12 +329,7 @@ String _coreAssetIcon(String machineName) => switch (machineName) {
 
 List<Map<String, dynamic>> _coreEventAttendees(dynamic raw) => [
   for (final attendee in raw is List ? raw.whereType<Map>() : const <Map>[])
-    {
-      ...attendee.cast<String, dynamic>(),
-      // The isolated service currently has no Contacts route. Preserve the
-      // unresolved person section without exposing a broken association action.
-      'id': null,
-    },
+    attendee.cast<String, dynamic>(),
 ];
 
 AssetDetailSource _coreSource(Map<String, dynamic> record) {

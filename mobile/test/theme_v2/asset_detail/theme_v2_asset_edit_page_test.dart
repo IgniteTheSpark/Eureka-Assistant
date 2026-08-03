@@ -48,6 +48,7 @@ void main() {
           initialValues: const {},
           mode: AssetEditMode.create,
           skillName: 'notes',
+          userSkillId: 'skill-notes',
           displayName: '随记',
           spec: spec,
           api: api,
@@ -69,9 +70,62 @@ void main() {
     expect(request.method, 'POST');
     expect(request.url.path, '/api/assets');
     expect(jsonDecode(request.body), {
-      'user_skill_name': 'notes',
+      'user_skill_id': 'skill-notes',
       'payload': {'title': '测试随记', 'body': '# 正文\n\n- 条目'},
-      'domain': '',
     });
+  });
+
+  testWidgets('create loads its schema from the Theme V2 user-skill API', (
+    tester,
+  ) async {
+    final requestedPaths = <String>[];
+    final api = ApiClient(
+      baseUrl: 'http://test',
+      enableLogging: false,
+      client: MockClient((request) async {
+        requestedPaths.add(request.url.path);
+        return http.Response(
+          jsonEncode([
+            {
+              'id': 'skill-notes',
+              'machine_name': 'notes',
+              'display_name': '随记',
+              'schema': {
+                'type': 'object',
+                'properties': {
+                  'title': {'type': 'string', 'title': '标题'},
+                },
+                'required': ['title'],
+              },
+              'render_spec': {'icon': '✍️', 'primary_field': 'title'},
+            },
+          ]),
+          200,
+          headers: const {'content-type': 'application/json'},
+        );
+      }),
+    );
+    addTearDown(api.close);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildEurekaTheme(EurekaColors.light),
+        home: ThemeV2AssetEditPage(
+          reference: const AssetEntityRef(
+            kind: AssetEntityKind.asset,
+            id: 'new:notes',
+          ),
+          initialValues: const {},
+          mode: AssetEditMode.create,
+          skillName: 'notes',
+          displayName: '随记',
+          api: api,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(requestedPaths, ['/api/user-skills']);
+    expect(find.byKey(const ValueKey('asset-editor-title')), findsOneWidget);
   });
 }

@@ -33,6 +33,7 @@ class CaptureSessionController extends ChangeNotifier
   String? sessionId;
 
   DateTime? _createdAt;
+  String? _retryRecordingId;
   var _loadRevision = 0;
   var _disposed = false;
 
@@ -52,59 +53,108 @@ class CaptureSessionController extends ChangeNotifier
     error = null;
     _notify();
     try {
-      final response = await _api.getJson('/api/flash/recordings/$id');
-      final recording = ((response as Map)['recording'] as Map?)
-          ?.cast<String, dynamic>();
-      if (recording == null) {
-        throw const FormatException('闪念详情格式不正确');
+      Map<String, dynamic>? linkedRecording;
+      var sessionDate = _isSessionDate(id) ? id : '';
+      if (sessionDate.isEmpty) {
+        final response = await _api.getJson('/api/flash/recordings/$id');
+        linkedRecording = ((response as Map)['recording'] as Map?)
+            ?.cast<String, dynamic>();
+        if (linkedRecording == null) {
+          throw const FormatException('闪念详情格式不正确');
+        }
+        sessionDate = linkedRecording['session_date']?.toString().trim() ?? '';
+        if (sessionDate.isEmpty) {
+          final createdAt = DateTime.tryParse(
+            linkedRecording['created_at']?.toString() ?? '',
+          )?.toLocal();
+          if (createdAt != null) {
+            sessionDate = _dateKey(createdAt);
+          }
+        }
       }
-      final references = ((recording['result_cards'] as List?) ?? const [])
+      if (sessionDate.isEmpty) {
+        throw const FormatException('闪念日期格式不正确');
+      }
+      Map<String, dynamic> dailySession;
+      try {
+        final dailyResponse = await _api.getJson(
+          '/api/flash/sessions/$sessionDate',
+        );
+        dailySession =
+            ((dailyResponse as Map)['session'] as Map?)
+                ?.cast<String, dynamic>() ??
+            const {};
+      } on ApiException catch (exception) {
+        if (exception.statusCode != 404 || linkedRecording == null) rethrow;
+        dailySession = {
+          'id': sessionDate,
+          'date': sessionDate,
+          'recordings': [linkedRecording],
+        };
+      }
+      final recordings = (dailySession['recordings'] as List? ?? const [])
           .whereType<Map>()
           .map((item) => item.cast<String, dynamic>())
           .toList();
-      final cards = await Future.wait(references.map(_hydrateReference));
-      if (_disposed || revision != _loadRevision) return;
-
-      final transcript = recording['asr_text']?.toString().trim() ?? '';
-      final summary = recording['result_summary']?.toString().trim() ?? '';
-      final inputTurnId = recording['input_turn_id']?.toString();
-      final createdAt = DateTime.tryParse(
-        recording['created_at']?.toString() ?? '',
-      )?.toLocal();
-      final status = recording['process_status']?.toString() ?? '';
-
-      messages.clear();
-      if (transcript.isNotEmpty) {
-        messages.add(
-          ChatMessage.user(
-            'capture-$id-user',
-            transcript,
-            inputTurnId: inputTurnId,
-          ),
-        );
+      if (recordings.isEmpty) {
+        throw const FormatException('闪念 Session 没有内容');
       }
-      if (summary.isNotEmpty || cards.isNotEmpty) {
-        final agent = ChatMessage.agent(
-          'capture-$id-agent',
-          inputTurnId: inputTurnId,
-        )..streaming = false;
-        if (summary.isNotEmpty) {
-          agent
-            ..text = summary
-            ..parts.add(TextPart(summary));
+      final nextMessages = <ChatMessage>[];
+      var hasPending = false;
+      String? nextError;
+      String? retryRecordingId;
+      for (final recording in recordings) {
+        final recordingId = recording['id']?.toString() ?? '';
+        final references = ((recording['result_cards'] as List?) ?? const [])
+            .whereType<Map>()
+            .map((item) => item.cast<String, dynamic>())
+            .toList();
+        final cards = await Future.wait(references.map(_hydrateReference));
+        final transcript = recording['asr_text']?.toString().trim() ?? '';
+        final summary = recording['result_summary']?.toString().trim() ?? '';
+        final inputTurnId = recording['input_turn_id']?.toString();
+        final status = recording['process_status']?.toString() ?? '';
+        if (transcript.isNotEmpty) {
+          nextMessages.add(
+            ChatMessage.user(
+              'capture-$recordingId-user',
+              transcript,
+              inputTurnId: inputTurnId,
+            ),
+          );
         }
-        if (cards.isNotEmpty) agent.parts.add(CardsPart(cards));
-        messages.add(agent);
+        if (summary.isNotEmpty || cards.isNotEmpty) {
+          final agent = ChatMessage.agent(
+            'capture-$recordingId-agent',
+            inputTurnId: inputTurnId,
+          )..streaming = false;
+          if (summary.isNotEmpty) {
+            agent
+              ..text = summary
+              ..parts.add(TextPart(summary));
+          }
+          if (cards.isNotEmpty) agent.parts.add(CardsPart(cards));
+          nextMessages.add(agent);
+        }
+        hasPending =
+            hasPending || !const {'done', 'empty', 'failed'}.contains(status);
+        if (status == 'failed') {
+          retryRecordingId = recordingId;
+          nextError =
+              recording['error_message']?.toString().trim().isNotEmpty == true
+              ? recording['error_message'].toString().trim()
+              : '闪念整理失败';
+        }
       }
-
-      sessionId = id;
-      _createdAt = createdAt;
-      streaming = !const {'done', 'empty', 'failed'}.contains(status);
-      error = status == 'failed'
-          ? (recording['error_message']?.toString().trim().isNotEmpty == true
-                ? recording['error_message'].toString().trim()
-                : '闪念整理失败')
-          : null;
+      if (_disposed || revision != _loadRevision) return;
+      messages
+        ..clear()
+        ..addAll(nextMessages);
+      sessionId = sessionDate;
+      _createdAt = DateTime.tryParse(sessionDate);
+      _retryRecordingId = retryRecordingId;
+      streaming = hasPending;
+      error = nextError;
       _notify();
     } on ApiException catch (exception) {
       if (_disposed || revision != _loadRevision) return;
@@ -120,6 +170,14 @@ class CaptureSessionController extends ChangeNotifier
       rethrow;
     }
   }
+
+  bool _isSessionDate(String value) =>
+      RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(value);
+
+  String _dateKey(DateTime value) =>
+      '${value.year.toString().padLeft(4, '0')}-'
+      '${value.month.toString().padLeft(2, '0')}-'
+      '${value.day.toString().padLeft(2, '0')}';
 
   Future<Map<String, dynamic>> _hydrateReference(
     Map<String, dynamic> reference,
@@ -166,10 +224,10 @@ class CaptureSessionController extends ChangeNotifier
 
   @override
   Future<void> retryLastFailedTurn() async {
-    final id = sessionId;
+    final id = _retryRecordingId;
     if (id == null || id.isEmpty) return;
     await _api.postJson('/api/flash/recordings/$id/retry', const {});
-    await loadSession(id);
+    await loadSession(sessionId ?? id);
   }
 
   @override
@@ -180,9 +238,9 @@ class CaptureSessionController extends ChangeNotifier
 
   @override
   Future<List<SessionInfo>> listSessions() async {
-    final response = await _api.getJson('/api/flash/recordings');
+    final response = await _api.getJson('/api/flash/sessions');
     final raw = response is Map
-        ? response['recordings'] as List? ?? const []
+        ? response['sessions'] as List? ?? const []
         : response is List
         ? response
         : const [];
@@ -192,7 +250,9 @@ class CaptureSessionController extends ChangeNotifier
           final recording = value.cast<String, dynamic>();
           final createdAt =
               DateTime.tryParse(
-                recording['created_at']?.toString() ?? '',
+                recording['created_at']?.toString() ??
+                    recording['date']?.toString() ??
+                    '',
               )?.toLocal() ??
               DateTime.now();
           final declaredTitle = recording['title']?.toString().trim() ?? '';
@@ -211,7 +271,7 @@ class CaptureSessionController extends ChangeNotifier
   @override
   Future<bool> deleteSession(String id) async {
     try {
-      await _api.deleteJson('/api/flash/recordings/$id');
+      await _api.deleteJson('/api/flash/sessions/$id');
       if (sessionId == id) reset();
       return true;
     } catch (_) {
@@ -265,6 +325,7 @@ class CaptureSessionController extends ChangeNotifier
     messages.clear();
     sessionId = null;
     _createdAt = null;
+    _retryRecordingId = null;
     streaming = false;
     error = null;
     _notify();

@@ -3,12 +3,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../api/api_client.dart';
+import '../config.dart';
 import '../data_revision.dart';
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
 import '../theme_v2/asset_detail/asset_entity_ref.dart';
 import '../theme_v2/asset_detail/open_asset_detail.dart';
 import '../theme_v2/capture/flash_notification_target.dart';
+import '../theme_v2/report/report_notification_target.dart';
 import '../widgets/skeleton_loader.dart';
 
 /// One notification from GET /api/notifications.
@@ -108,6 +110,10 @@ class _NotificationsPageState extends State<NotificationsPage> {
         // Theme V2 uses /library?recording_id=...; legacy uses a bare session id.
         if (!mounted) return;
         await openFlashNotificationTarget(context, link);
+      } else if (n.type == 'report_available' ||
+          n.type == 'report_plan_ready') {
+        if (!mounted) return;
+        await openReportNotificationTarget(context, link);
       } else if (n.type == 'reminder') {
         // The scheduler stores a composite key, not a bare id:
         // "reminder:evt:<event_id>:<thr>" or "reminder:todo:<asset_id>:<thr>"
@@ -123,12 +129,14 @@ class _NotificationsPageState extends State<NotificationsPage> {
             kind: kind == 'evt' ? AssetEntityKind.event : AssetEntityKind.asset,
             id: id,
           ),
+          coreRecordsOnly: AppConfig.themeV2,
         );
       } else if (n.type == 'task_done' || n.type == 'task_failed') {
         if (!mounted) return;
         await openAssetDetail(
           context,
           AssetEntityRef(kind: AssetEntityKind.asset, id: link),
+          coreRecordsOnly: AppConfig.themeV2,
         );
       }
     } catch (_) {
@@ -160,7 +168,15 @@ class _NotificationsPageState extends State<NotificationsPage> {
   // Dismissible animates out; false snaps it back.
   Future<bool> _dismiss(NotifItem n) async {
     try {
-      await _api.deleteJson('/api/notifications/${n.id}');
+      if (n.type == 'report_available') {
+        await dismissReportAvailableNotification(
+          _api,
+          notificationId: n.id,
+          link: n.link,
+        );
+      } else {
+        await _api.deleteJson('/api/notifications/${n.id}');
+      }
       return true;
     } catch (_) {
       return false;

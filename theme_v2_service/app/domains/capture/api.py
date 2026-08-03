@@ -1,4 +1,5 @@
 from uuid import UUID
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.exc import IntegrityError
@@ -132,6 +133,57 @@ async def list_flash_recordings(
             service.recording_archive_item(recording) for recording in recordings
         ]
     }
+
+
+@router.get("/flash/sessions")
+async def list_flash_sessions(
+    limit: int = Query(default=100, ge=1, le=200),
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+):
+    settings = get_settings()
+    return {
+        "sessions": await service.list_daily_sessions(
+            session,
+            user_id,
+            timezone_name=settings.default_user_timezone,
+            limit=limit,
+        )
+    }
+
+
+@router.get("/flash/sessions/{session_date}")
+async def get_flash_session(
+    session_date: date,
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+):
+    result = await service.get_daily_session(
+        session,
+        user_id,
+        session_date,
+        timezone_name=get_settings().default_user_timezone,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="flash session not found")
+    return {"session": result}
+
+
+@router.delete("/flash/sessions/{session_date}")
+async def delete_flash_session(
+    session_date: date,
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+):
+    deleted = await service.delete_daily_session(
+        session,
+        user_id,
+        session_date,
+        timezone_name=get_settings().default_user_timezone,
+    )
+    if deleted == 0:
+        raise HTTPException(status_code=404, detail="flash session not found")
+    return {"ok": True, "deleted_recording_count": deleted}
 
 
 @router.delete("/flash/recordings/{recording_id}")

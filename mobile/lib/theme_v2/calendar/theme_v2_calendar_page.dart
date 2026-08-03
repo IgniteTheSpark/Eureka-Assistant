@@ -5,15 +5,16 @@ import 'package:flutter/material.dart';
 import '../../api/api_client.dart';
 import '../../data_revision.dart';
 import '../../pages/calendar_page.dart';
-import '../../pages/session_detail_page.dart';
 import '../../render/render_spec.dart';
 import '../../timeline/timeline.dart';
+import '../capture/capture_session_page.dart';
 import '../foundation/theme_v2_motion.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
 import '../foundation/theme_v2_typography.dart';
 import '../shell/theme_v2_async_state.dart';
 import 'calendar_controller.dart';
+import 'calendar_components.dart';
 import 'calendar_day_detail.dart';
 import 'calendar_editor_router.dart';
 import 'calendar_flow_view.dart';
@@ -26,6 +27,16 @@ import 'calendar_scale_droplet.dart';
 import 'calendar_year_view.dart';
 
 typedef CalendarDataLoader = Future<CalendarData> Function();
+
+Future<void> updateThemeV2CalendarTodo(
+  ApiClient api,
+  CalendarRecord record,
+) async {
+  final next = !todoPayloadIsDone(record.item.payload);
+  await api.patchJson('/api/assets/${record.id}', {
+    'payload': {...record.item.payload, 'status': next ? 'done' : 'pending'},
+  });
+}
 
 class ThemeV2CalendarPage extends StatefulWidget {
   const ThemeV2CalendarPage({
@@ -320,42 +331,12 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
             ?.where((item) => item.kind == 'input_turn')
             .toList() ??
         const <TimelineItem>[];
-    final sessionId =
-        _latestFlashSessionId(flashes) ?? await _loadFlashSessionId(day);
-    if (!mounted || sessionId == null) return;
+    if (!mounted || flashes.isEmpty) return;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => SessionDetailPage(
-          sessionId: sessionId,
-          title: '${day.month}月${day.day}日 闪念',
-        ),
+        builder: (_) => CaptureSessionPage(recordingId: calendarDayKey(day)),
       ),
     );
-  }
-
-  String? _latestFlashSessionId(List<TimelineItem> flashes) {
-    final withSession =
-        flashes.where((item) => item.sessionId?.isNotEmpty ?? false).toList()
-          ..sort((a, b) => b.effectiveAt.compareTo(a.effectiveAt));
-    return withSession.isEmpty ? null : withSession.first.sessionId;
-  }
-
-  Future<String?> _loadFlashSessionId(DateTime day) async {
-    String twoDigits(int value) => value.toString().padLeft(2, '0');
-    final date = '${day.year}-${twoDigits(day.month)}-${twoDigits(day.day)}';
-    try {
-      final response = await _apiClient.getJson(
-        '/api/sessions',
-        query: {'session_type': 'flash', 'date': date, 'limit': 1},
-      );
-      final sessions =
-          (response is Map ? response['sessions'] : null) as List? ?? const [];
-      if (sessions.isEmpty || sessions.first is! Map) return null;
-      final id = ((sessions.first as Map)['id'] as String?)?.trim();
-      return id == null || id.isEmpty ? null : id;
-    } catch (_) {
-      return null;
-    }
   }
 
   Map<String, SkillMeta> _currentSkills = const {};
@@ -390,10 +371,7 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
   }
 
   Future<void> _toggleTodo(CalendarRecord record) async {
-    final next = !todoPayloadIsDone(record.item.payload);
-    await _apiClient.putJson('/api/assets/${record.id}', {
-      'payload_patch': {'status': next ? 'done' : 'pending'},
-    });
+    await updateThemeV2CalendarTodo(_apiClient, record);
     bumpData();
   }
 

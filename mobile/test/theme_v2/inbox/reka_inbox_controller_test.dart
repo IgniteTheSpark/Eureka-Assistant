@@ -436,14 +436,12 @@ void main() {
   });
 
   test(
-    'API repository uses the shared nudge and offer contracts once',
+    'API repository adapts Theme V2 notifications without legacy nudge APIs',
     () async {
       final calls = <String>[];
-      Map<String, dynamic>? outcomeBody;
       final client = MockClient((request) async {
         calls.add('${request.method} ${request.url.path}');
         if (request.method == 'POST') {
-          outcomeBody = jsonDecode(request.body) as Map<String, dynamic>;
           return http.Response(
             jsonEncode({'ok': true}),
             200,
@@ -452,8 +450,18 @@ void main() {
         }
         return http.Response(
           jsonEncode({
-            'ok': true,
-            'nudges': [_row(request.url.path)],
+            'notifications': [
+              {
+                'id': 'notification-1',
+                'type': 'flash_done',
+                'title': '闪念已整理',
+                'body': '已提取 1 条待办',
+                'link': '/library?recording_id=recording-1',
+                'read': false,
+                'created_at': '2026-08-03T02:00:00Z',
+              },
+            ],
+            'unread': 1,
           }),
           200,
           headers: const {'content-type': 'application/json'},
@@ -467,20 +475,68 @@ void main() {
       addTearDown(api.close);
       final repository = ApiRekaInboxRepository(api);
 
-      expect(await repository.loadPending(), hasLength(1));
-      expect(await repository.loadRecent(), hasLength(1));
-      expect(await repository.loadOffers(), hasLength(1));
-      await repository.outcome('n-1', 'seen');
+      final items = await repository.loadPending();
+      expect(items, hasLength(1));
+      expect(items.single, containsPair('text', '闪念已整理'));
+      expect(items.single, containsPair('cta', 'notification'));
+      expect(items.single, containsPair('status', 'pending'));
+      expect(await repository.loadRecent(), isEmpty);
+      expect(await repository.loadOffers(), isEmpty);
+      await repository.outcome('notification-1', 'seen');
 
       expect(calls, [
-        'GET /api/nudges/pending',
-        'GET /api/nudges',
-        'GET /api/offers/today',
-        'POST /api/nudges/n-1/outcome',
+        'GET /api/notifications',
+        'POST /api/notifications/notification-1/read',
       ]);
-      expect(outcomeBody, {'status': 'seen'});
     },
   );
+
+  test('dismissing a report notification also dismisses its trigger', () async {
+    final calls = <String>[];
+    final api = ApiClient(
+      client: MockClient((request) async {
+        calls.add('${request.method} ${request.url.path}');
+        if (request.method == 'GET') {
+          return http.Response(
+            jsonEncode({
+              'notifications': [
+                {
+                  'id': 'notification-report',
+                  'type': 'report_available',
+                  'title': '需要准备会前调研吗？',
+                  'body': '',
+                  'link': 'report-start:execution-1:1',
+                  'read': false,
+                  'created_at': '2026-08-03T02:00:00Z',
+                },
+              ],
+              'unread': 1,
+            }),
+            200,
+            headers: const {'content-type': 'application/json'},
+          );
+        }
+        return http.Response(
+          jsonEncode({'ok': true}),
+          200,
+          headers: const {'content-type': 'application/json'},
+        );
+      }),
+      baseUrl: 'https://inbox.test',
+      enableLogging: false,
+    );
+    addTearDown(api.close);
+    final repository = ApiRekaInboxRepository(api);
+
+    await repository.loadPending();
+    await repository.outcome('notification-report', 'dismissed');
+
+    expect(calls, [
+      'GET /api/notifications',
+      'POST /api/trigger-executions/execution-1/dismiss',
+      'DELETE /api/notifications/notification-report',
+    ]);
+  });
 
   test(
     'shared outcome adopts the backend authoritative terminal status',

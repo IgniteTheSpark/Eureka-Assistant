@@ -14,8 +14,15 @@ from app.domains.assets.schemas import (
     EventCreate,
     EventRead,
     EventUpdate,
+    SkillDraftRequest,
     UserSkillCreate,
     UserSkillRead,
+    UserSkillUpdate,
+)
+from app.domains.assets.skill_design import (
+    InvalidSkillDraft,
+    SkillDesignUnavailable,
+    design_skill_draft,
 )
 
 
@@ -47,6 +54,34 @@ async def list_user_skills(
     return await service.list_user_skills(session, user_id)
 
 
+@router.get("/user-skills/recent-manual")
+async def list_recent_manual_skills(
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+):
+    return {
+        "skill_names": await service.list_recent_manual_skill_names(
+            session,
+            user_id,
+        )
+    }
+
+
+@router.post("/user-skills/draft")
+async def draft_user_skill(
+    command: SkillDraftRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    del user_id
+    try:
+        draft = await design_skill_draft(command.description, command.answers)
+    except SkillDesignUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except InvalidSkillDraft as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"ok": True, "draft": draft}
+
+
 @router.get("/user-skills/{skill_id}", response_model=UserSkillRead)
 async def get_user_skill(
     skill_id: str,
@@ -54,6 +89,19 @@ async def get_user_skill(
     session: AsyncSession = Depends(get_session),
 ):
     skill = await service.get_user_skill(session, user_id, skill_id)
+    if skill is None:
+        raise _not_found()
+    return skill
+
+
+@router.patch("/user-skills/{skill_id}", response_model=UserSkillRead)
+async def update_user_skill(
+    skill_id: str,
+    command: UserSkillUpdate,
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+):
+    skill = await service.update_user_skill(session, user_id, skill_id, command)
     if skill is None:
         raise _not_found()
     return skill

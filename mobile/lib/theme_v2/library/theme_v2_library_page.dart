@@ -223,10 +223,16 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
           contentBottomPadding: ThemeV2Spacing.lg,
         );
       case LibraryContainerType.contact:
-        return ThemeV2AssetListPage.entities(
-          title: '人物索引',
-          cardType: 'contact',
-          initialEntities: const [],
+        return ThemeV2AssetListPage.assets(
+          meta: SkillMeta(
+            container.mark,
+            container.label,
+            'gray',
+            container.userSkillId,
+          ),
+          skillName: 'contact',
+          initialAssets: const [],
+          specs: ref.read(renderSpecsProvider).valueOrNull ?? const {},
           api: _detailApi,
           coreRecordsOnly: true,
           onBack: _navigation.back,

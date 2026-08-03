@@ -252,7 +252,7 @@ List<EventAttendeeDraft> eventAttendeeDraftsFromExisting(dynamic raw) {
 
 String? eventIdFromCreateResponse(dynamic response) {
   if (response is! Map) return null;
-  final value = '${response['event_id'] ?? ''}'.trim();
+  final value = '${response['event_id'] ?? response['id'] ?? ''}'.trim();
   if (value.isNotEmpty) return value;
   return eventIdFromCreateResponse(response['event']);
 }
@@ -322,12 +322,14 @@ class EventForm extends StatefulWidget {
   final String? eventId; // non-null = EDIT mode (PUT instead of POST)
   final Map<String, dynamic>? existing; // event record to prefill in edit mode
   final ApiClient? api;
+  final bool coreRecordsOnly;
   const EventForm({
     super.key,
     this.presetDate,
     this.eventId,
     this.existing,
     this.api,
+    this.coreRecordsOnly = false,
   });
   @override
   State<EventForm> createState() => _EventFormState();
@@ -404,6 +406,42 @@ class _EventFormState extends State<EventForm> {
     BuildContext context,
     String initialName,
   ) async {
+    if (widget.coreRecordsOnly) {
+      final response = await _api.getJson('/api/user-skills');
+      final skills = response is List
+          ? response
+          : (response is Map
+                ? response['skills'] as List? ?? const []
+                : const []);
+      final contactSkill = skills.whereType<Map>().firstWhere(
+        (skill) => skill['machine_name']?.toString() == 'contact',
+        orElse: () => const {},
+      );
+      final userSkillId = contactSkill['id']?.toString() ?? '';
+      if (userSkillId.isEmpty) {
+        throw StateError('Contact Skill is unavailable');
+      }
+      if (!context.mounted) return null;
+      final receipt = await Navigator.of(context).push<dynamic>(
+        MaterialPageRoute(
+          builder: (_) => ThemeV2AssetEditPage(
+            reference: const AssetEntityRef(
+              kind: AssetEntityKind.asset,
+              id: 'new:contact',
+            ),
+            initialValues: initialName.isEmpty
+                ? const {}
+                : {'name': initialName},
+            mode: AssetEditMode.create,
+            skillName: 'contact',
+            displayName: contactSkill['display_name']?.toString() ?? '联系人',
+            userSkillId: userSkillId,
+            api: _api,
+          ),
+        ),
+      );
+      return receipt is Map ? Map<String, dynamic>.from(receipt) : null;
+    }
     final receipt = await Navigator.of(context).push<dynamic>(
       MaterialPageRoute(
         builder: (_) => ContactForm(
@@ -424,6 +462,7 @@ class _EventFormState extends State<EventForm> {
       context,
       api: _api,
       excludedContactIds: excludedIds,
+      coreRecordsOnly: widget.coreRecordsOnly,
       onCreateContact: _openContactForm,
     );
     if (!mounted || selected == null) return;
@@ -463,6 +502,7 @@ class _EventFormState extends State<EventForm> {
       excludedContactIds: excludedIds,
       initialQuery: target.nameRaw ?? target.displayName,
       singleSelect: true,
+      coreRecordsOnly: widget.coreRecordsOnly,
       onCreateContact: _openContactForm,
     );
     if (!mounted || selected == null || selected.isEmpty) return;
@@ -518,25 +558,62 @@ class _EventFormState extends State<EventForm> {
     try {
       final body = {
         'title': _title.text.trim(),
-        'start_at': isoBeijing(_start, dateOnly: _allDay),
-        if (!_allDay) 'end_at': isoBeijing(_end),
-        'all_day': _allDay ? 1 : 0,
+        'start_at': isoBeijing(
+          _start,
+          dateOnly: _allDay && !widget.coreRecordsOnly,
+        ),
+        if (!_allDay || widget.coreRecordsOnly) 'end_at': isoBeijing(_end),
+        'all_day': widget.coreRecordsOnly ? _allDay : (_allDay ? 1 : 0),
         'location': _location.text.trim(),
         'description': _desc.text.trim(),
+        if (widget.coreRecordsOnly)
+          'attendees': [
+            for (final attendee in _attendees)
+              {
+                'name': attendee.nameRaw ?? attendee.displayName,
+                'contact_id': attendee.contactId,
+                'role': attendee.role,
+              },
+          ],
       };
       late final String savedEventId;
       if (_isEdit) {
-        await _api.putJson('/api/events/${widget.eventId}', body);
+        if (widget.coreRecordsOnly) {
+          await _api.patchJson('/api/events/${widget.eventId}', body);
+        } else {
+          await _api.putJson('/api/events/${widget.eventId}', body);
+        }
         savedEventId = widget.eventId!;
       } else if (_savedCreateEventId != null) {
         savedEventId = _savedCreateEventId!;
-        await _api.putJson('/api/events/$savedEventId', body);
+        if (widget.coreRecordsOnly) {
+          await _api.patchJson('/api/events/$savedEventId', body);
+        } else {
+          await _api.putJson('/api/events/$savedEventId', body);
+        }
       } else {
         final response = await _api.postJson('/api/events', body);
         savedEventId =
             eventIdFromCreateResponse(response) ??
             (throw StateError('创建事件响应缺少 event_id'));
         _savedCreateEventId = savedEventId;
+      }
+      if (widget.coreRecordsOnly) {
+        bumpData();
+        if (mounted) {
+          Navigator.of(context).maybePop(
+            _isEdit
+                ? true
+                : <String, dynamic>{
+                    'event_id': savedEventId,
+                    'user_skill_name': 'event',
+                    'display_name': '事件',
+                    'icon': '📅',
+                    'payload': {'title': _title.text.trim()},
+                  },
+          );
+        }
+        return;
       }
       try {
         await syncEventAttendees(

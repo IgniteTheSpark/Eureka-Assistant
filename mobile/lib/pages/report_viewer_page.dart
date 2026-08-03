@@ -29,11 +29,16 @@ class ReportViewerPage extends StatefulWidget {
   /// a freshly-generated report passes its new id too.
   final String? reportId;
 
+  /// Legacy reports expose server-side action extraction and palette rerender.
+  /// Theme V2 reports use the immutable report contract and disable both calls.
+  final bool enableLegacyEnhancements;
+
   const ReportViewerPage({
     super.key,
     required this.title,
     required this.html,
     this.reportId,
+    this.enableLegacyEnhancements = true,
   });
 
   @override
@@ -45,7 +50,8 @@ class _ReportViewerPageState extends State<ReportViewerPage> {
   late final WebViewController _controller;
   late String _html = widget.html;
   String? _gsap; // bundled gsap.min.js, loaded once
-  String? _scrolltrigger; // ScrollTrigger plugin — scroll-scrub image motion (§6.6.2)
+  String?
+  _scrolltrigger; // ScrollTrigger plugin — scroll-scrub image motion (§6.6.2)
   String? _pixel; // pixel.js — pet render engine (§6.6.1 signature band)
   String? _mascot; // mascot.js — Mascot.mount() for the REKA band
   bool _busy = false;
@@ -63,30 +69,36 @@ class _ReportViewerPageState extends State<ReportViewerPage> {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0xFF0B0E16))
-      ..setNavigationDelegate(NavigationDelegate(
-        onNavigationRequest: (req) {
-          final u = req.url;
-          if (u.startsWith('http://') || u.startsWith('https://')) {
-            return NavigationDecision.prevent;
-          }
-          return NavigationDecision.navigate;
-        },
-      ));
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onNavigationRequest: (req) {
+            final u = req.url;
+            if (u.startsWith('http://') || u.startsWith('https://')) {
+              return NavigationDecision.prevent;
+            }
+            return NavigationDecision.navigate;
+          },
+        ),
+      );
     _bootstrap();
     _loadActions();
   }
 
   Future<void> _loadActions() async {
+    if (!widget.enableLegacyEnhancements) return;
     final id = widget.reportId;
     if (id == null) return;
     try {
       final res = await _api.getJson('/api/reports/$id/actions');
       final list = (res is Map ? res['actions'] : null) as List?;
       if (list == null || !mounted) return;
-      setState(() => _actions = list.whereType<Map>()
-          .map((a) => Map<String, dynamic>.from(a))
-          .where((a) => (a['title'] as String?)?.isNotEmpty ?? false)
-          .toList());
+      setState(
+        () => _actions = list
+            .whereType<Map>()
+            .map((a) => Map<String, dynamic>.from(a))
+            .where((a) => (a['title'] as String?)?.isNotEmpty ?? false)
+            .toList(),
+      );
     } catch (_) {
       // actions bar is an enhancement — a fetch failure just means no bar
     }
@@ -97,7 +109,9 @@ class _ReportViewerPageState extends State<ReportViewerPage> {
     if (id == null || _adding.contains(title)) return;
     setState(() => _adding.add(title));
     try {
-      final res = await _api.postJson('/api/reports/$id/actions', {'title': title});
+      final res = await _api.postJson('/api/reports/$id/actions', {
+        'title': title,
+      });
       final created = res is Map && res['created'] == true;
       if (!mounted) return;
       setState(() {
@@ -128,9 +142,12 @@ class _ReportViewerPageState extends State<ReportViewerPage> {
       _gsap = null; // missing asset → report falls back to its vanilla reveal
     }
     try {
-      _scrolltrigger = await rootBundle.loadString('assets/js/ScrollTrigger.min.js');
+      _scrolltrigger = await rootBundle.loadString(
+        'assets/js/ScrollTrigger.min.js',
+      );
     } catch (_) {
-      _scrolltrigger = null; // missing → scroll-scrub falls back to non-scrub motion
+      _scrolltrigger =
+          null; // missing → scroll-scrub falls back to non-scrub motion
     }
     try {
       _pixel = await rootBundle.loadString('assets/js/pixel.js');
@@ -151,11 +168,15 @@ class _ReportViewerPageState extends State<ReportViewerPage> {
       if (js != null && js.isNotEmpty) buf.write('<script>$js</script>');
     }
     if ((_gsap?.isNotEmpty ?? false) && (_scrolltrigger?.isNotEmpty ?? false)) {
-      buf.write('<script>try{gsap.registerPlugin(ScrollTrigger);}catch(e){}</script>');
+      buf.write(
+        '<script>try{gsap.registerPlugin(ScrollTrigger);}catch(e){}</script>',
+      );
     }
     final head = buf.toString();
     if (head.isEmpty) return html;
-    if (html.contains('</head>')) return html.replaceFirst('</head>', '$head</head>');
+    if (html.contains('</head>')) {
+      return html.replaceFirst('</head>', '$head</head>');
+    }
     return head + html;
   }
 
@@ -191,14 +212,14 @@ class _ReportViewerPageState extends State<ReportViewerPage> {
     try {
       final safe = widget.title.replaceAll(RegExp(r'[^\w一-龥]+'), '_');
       final file = File(
-          '${Directory.systemTemp.path}/eureka_${safe.isEmpty ? "report" : safe}.html');
+        '${Directory.systemTemp.path}/eureka_${safe.isEmpty ? "report" : safe}.html',
+      );
       // Self-contained export (§6.6.1): inline the engines + gene so the shared
       // .html animates standalone (GSAP charts + the REKA signature band).
       await file.writeAsString(_withEngines(_html));
-      await Share.shareXFiles(
-        [XFile(file.path, mimeType: 'text/html', name: '${widget.title}.html')],
-        subject: widget.title,
-      );
+      await Share.shareXFiles([
+        XFile(file.path, mimeType: 'text/html', name: '${widget.title}.html'),
+      ], subject: widget.title);
     } catch (e) {
       if (mounted) showToast(context, '分享失败：$e', error: true);
     } finally {
@@ -219,12 +240,14 @@ class _ReportViewerPageState extends State<ReportViewerPage> {
         backgroundColor: const Color(0xFF0B0E16),
         foregroundColor: eu.textHi,
         elevation: 0,
-        title: Text(widget.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+        title: Text(
+          widget.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+        ),
         actions: [
-          if (widget.reportId != null)
+          if (widget.reportId != null && widget.enableLegacyEnhancements)
             IconButton(
               tooltip: '换装',
               icon: const Text('🎨', style: TextStyle(fontSize: 17)),
@@ -283,20 +306,26 @@ class _ReportViewerPageState extends State<ReportViewerPage> {
                 padding: const EdgeInsets.fromLTRB(16, 10, 8, 2),
                 child: Row(
                   children: [
-                    Text('✦ 接下来',
-                        style: TextStyle(
-                            color: eu.brand,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 1.5)),
+                    Text(
+                      '✦ 接下来',
+                      style: TextStyle(
+                        color: eu.brand,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1.5,
+                      ),
+                    ),
                     const Spacer(),
                     if (pending > 1)
                       TextButton(
                         onPressed: _adding.isEmpty ? _addAllActions : null,
                         style: TextButton.styleFrom(
-                            visualDensity: VisualDensity.compact),
-                        child: Text('全部加到待办',
-                            style: TextStyle(color: eu.brand, fontSize: 12)),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        child: Text(
+                          '全部加到待办',
+                          style: TextStyle(color: eu.brand, fontSize: 12),
+                        ),
                       ),
                   ],
                 ),
@@ -316,35 +345,48 @@ class _ReportViewerPageState extends State<ReportViewerPage> {
                       child: Row(
                         children: [
                           Icon(
-                              created
-                                  ? Icons.check_circle
-                                  : Icons.radio_button_unchecked,
-                              size: 16,
-                              color: created ? eu.brand : eu.textLo),
+                            created
+                                ? Icons.check_circle
+                                : Icons.radio_button_unchecked,
+                            size: 16,
+                            color: created ? eu.brand : eu.textLo,
+                          ),
                           const SizedBox(width: 10),
                           Expanded(
-                            child: Text(title,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                    color: eu.textHi, fontSize: 13.5, height: 1.3)),
+                            child: Text(
+                              title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: eu.textHi,
+                                fontSize: 13.5,
+                                height: 1.3,
+                              ),
+                            ),
                           ),
                           const SizedBox(width: 8),
                           SizedBox(
                             height: 28,
                             child: created
-                                ? Text('已加 ✓',
+                                ? Text(
+                                    '已加 ✓',
                                     style: TextStyle(
-                                        color: eu.textLo, fontSize: 12))
+                                      color: eu.textLo,
+                                      fontSize: 12,
+                                    ),
+                                  )
                                 : OutlinedButton(
-                                    onPressed:
-                                        busy ? null : () => _addAction(title),
+                                    onPressed: busy
+                                        ? null
+                                        : () => _addAction(title),
                                     style: OutlinedButton.styleFrom(
                                       foregroundColor: eu.brand,
                                       side: BorderSide(
-                                          color: eu.brand.withValues(alpha: 0.5)),
+                                        color: eu.brand.withValues(alpha: 0.5),
+                                      ),
                                       padding: const EdgeInsets.symmetric(
-                                          horizontal: 10),
+                                        horizontal: 10,
+                                      ),
                                       visualDensity: VisualDensity.compact,
                                       textStyle: const TextStyle(fontSize: 12),
                                     ),

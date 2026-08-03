@@ -93,17 +93,28 @@ void main() {
                 'updated_at': '2026-08-01T17:07:00Z',
               },
             ]);
-          case '/api/contacts':
-            return _json({'contacts': <Object>[]});
-          case '/api/sessions':
-            return _json({'sessions': <Object>[]});
+          case '/api/flash/sessions/2026-08-02':
+            return _json({
+              'session': {
+                'id': '2026-08-02',
+                'recording_count': 2,
+                'recordings': [
+                  {'id': 'recording-1'},
+                  {'id': 'recording-2'},
+                ],
+              },
+            });
           default:
             return http.Response('{"detail":"unexpected"}', 500);
         }
       }),
     );
 
-    final data = await loadToday(api, nowOverride: DateTime(2026, 8, 2, 1));
+    final data = await loadToday(
+      api,
+      nowOverride: DateTime(2026, 8, 2, 1),
+      coreRecordsOnly: true,
+    );
 
     expect(data.chain.map((item) => item.id), ['event-review', 'asset-todo']);
     expect(data.pool.map((item) => item.id), [
@@ -112,6 +123,8 @@ void main() {
       'asset-note',
     ]);
     expect(data.poolTrueCount, 3);
+    expect(data.flashCount, 2);
+    expect(data.flashLatestId, '2026-08-02');
     expect(data.skills['notes']?.label, '随记');
     expect(data.skills['todo']?.label, '待办');
     expect(coreListLimits, isNot(contains(greaterThan(100))));

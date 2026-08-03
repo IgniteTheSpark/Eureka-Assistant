@@ -46,7 +46,10 @@ void main() {
 
     expect(event, isA<EventForm>());
     expect((event as EventForm).presetDate, date);
-    expect(contact, isA<ContactForm>());
+    expect(event.coreRecordsOnly, isTrue);
+    expect(contact, isA<ThemeV2AssetEditPage>());
+    expect((contact as ThemeV2AssetEditPage).skillName, 'contact');
+    expect(contact.userSkillId, 'contact-id');
     expect(asset, isA<ThemeV2AssetEditPage>());
     expect((asset as ThemeV2AssetEditPage).skillName, 'running');
     expect(asset.displayName, '跑步训练');

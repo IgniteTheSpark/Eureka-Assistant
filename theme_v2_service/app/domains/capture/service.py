@@ -1,12 +1,14 @@
 import asyncio
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, time as datetime_time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import new_uuid, utc_now
+from app.config import get_settings
 from app.db.models import WorkflowJob
 from app.db.session import AsyncSessionFactory
 from app.domains.capture.models import CaptureFile, CaptureRecording, CaptureTurn
@@ -49,6 +51,21 @@ class TextCaptureResult:
     recording: CaptureRecording
     file: CaptureFile
     turn: CaptureTurn
+
+
+def _recording_timestamp(recording: CaptureRecording) -> datetime:
+    return recording.capture_started_at or recording.created_at
+
+
+def _local_capture_date(
+    recording: CaptureRecording,
+    *,
+    timezone_name: str,
+) -> date:
+    timestamp = _recording_timestamp(recording)
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=timezone.utc)
+    return timestamp.astimezone(ZoneInfo(timezone_name)).date()
 
 
 async def publish_capture_status(
@@ -770,10 +787,137 @@ def recording_payload(result: RecordingResult) -> dict:
             "input_turn_id": result.turn.id if result.turn is not None else None,
             "result_summary": recording.result_summary or "",
             "result_cards": recording.result_records_json or [],
+            "session_date": _local_capture_date(
+                recording,
+                timezone_name=get_settings().default_user_timezone,
+            ).isoformat(),
             "created_at": recording.created_at,
             "updated_at": recording.updated_at,
         },
     }
+
+
+def _recording_detail_item(result: RecordingResult) -> dict:
+    return recording_payload(result)["recording"]
+
+
+async def list_daily_sessions(
+    session: AsyncSession,
+    user_id: str,
+    *,
+    timezone_name: str,
+    limit: int = 100,
+) -> list[dict]:
+    recordings = list(
+        await session.scalars(
+            select(CaptureRecording)
+            .where(CaptureRecording.user_id == user_id)
+            .order_by(
+                func.coalesce(
+                    CaptureRecording.capture_started_at,
+                    CaptureRecording.created_at,
+                ).desc(),
+                CaptureRecording.id.desc(),
+            )
+        )
+    )
+    grouped: dict[date, list[CaptureRecording]] = {}
+    for recording in recordings:
+        local_date = _local_capture_date(
+            recording,
+            timezone_name=timezone_name,
+        )
+        grouped.setdefault(local_date, []).append(recording)
+    sessions = []
+    for local_date in sorted(grouped, reverse=True)[:limit]:
+        rows = grouped[local_date]
+        sessions.append(
+            {
+                "id": local_date.isoformat(),
+                "date": local_date.isoformat(),
+                "title": f"{local_date.month}月{local_date.day}日 闪念",
+                "recording_count": len(rows),
+                "created_at": min(_recording_timestamp(row) for row in rows),
+                "updated_at": max(row.updated_at for row in rows),
+            }
+        )
+    return sessions
+
+
+async def get_daily_session(
+    session: AsyncSession,
+    user_id: str,
+    local_date: date,
+    *,
+    timezone_name: str,
+) -> dict | None:
+    zone = ZoneInfo(timezone_name)
+    start_local = datetime.combine(local_date, datetime_time.min, tzinfo=zone)
+    end_local = start_local + timedelta(days=1)
+    start_utc = start_local.astimezone(timezone.utc).replace(tzinfo=None)
+    end_utc = end_local.astimezone(timezone.utc).replace(tzinfo=None)
+    timestamp = func.coalesce(
+        CaptureRecording.capture_started_at,
+        CaptureRecording.created_at,
+    )
+    recordings = list(
+        await session.scalars(
+            select(CaptureRecording)
+            .where(
+                CaptureRecording.user_id == user_id,
+                timestamp >= start_utc,
+                timestamp < end_utc,
+            )
+            .order_by(timestamp.asc(), CaptureRecording.id.asc())
+        )
+    )
+    if not recordings:
+        return None
+    results = []
+    for recording in recordings:
+        file = await _file_for_recording(session, recording)
+        turn = await session.scalar(
+            select(CaptureTurn).where(CaptureTurn.recording_id == recording.id)
+        )
+        results.append(RecordingResult(recording=recording, file=file, turn=turn))
+    return {
+        "id": local_date.isoformat(),
+        "date": local_date.isoformat(),
+        "title": f"{local_date.month}月{local_date.day}日 闪念",
+        "created_at": min(_recording_timestamp(row) for row in recordings),
+        "updated_at": max(row.updated_at for row in recordings),
+        "recordings": [_recording_detail_item(result) for result in results],
+    }
+
+
+async def delete_daily_session(
+    session: AsyncSession,
+    user_id: str,
+    local_date: date,
+    *,
+    timezone_name: str,
+) -> int:
+    zone = ZoneInfo(timezone_name)
+    start_local = datetime.combine(local_date, datetime_time.min, tzinfo=zone)
+    end_local = start_local + timedelta(days=1)
+    start_utc = start_local.astimezone(timezone.utc).replace(tzinfo=None)
+    end_utc = end_local.astimezone(timezone.utc).replace(tzinfo=None)
+    timestamp = func.coalesce(
+        CaptureRecording.capture_started_at,
+        CaptureRecording.created_at,
+    )
+    recording_ids = list(
+        await session.scalars(
+            select(CaptureRecording.id).where(
+                CaptureRecording.user_id == user_id,
+                timestamp >= start_utc,
+                timestamp < end_utc,
+            )
+        )
+    )
+    for recording_id in recording_ids:
+        await delete_recording(session, user_id, recording_id)
+    return len(recording_ids)
 
 
 async def list_recordings(
@@ -795,9 +939,15 @@ async def list_recordings(
 def recording_archive_item(recording: CaptureRecording) -> dict:
     transcript = (recording.asr_text or "").strip().splitlines()
     title = transcript[0][:36] if transcript else "闪念"
+    captured_at = _recording_timestamp(recording)
     return {
         "id": recording.id,
         "title": title or "闪念",
+        "session_date": _local_capture_date(
+            recording,
+            timezone_name=get_settings().default_user_timezone,
+        ).isoformat(),
+        "captured_at": captured_at,
         "created_at": recording.created_at,
         "process_status": recording.process_status,
     }

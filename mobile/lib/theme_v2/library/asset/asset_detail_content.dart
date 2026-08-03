@@ -7,6 +7,7 @@ import '../../../pages/event_attendees.dart';
 import '../../../render/render_spec.dart';
 import '../../asset_detail/asset_entity_ref.dart';
 import '../../asset_detail/asset_text_value.dart';
+import '../../asset_detail/theme_v2_asset_edit_page.dart';
 import '../../foundation/theme_v2_theme.dart';
 import '../../foundation/theme_v2_tokens.dart';
 import '../../foundation/theme_v2_typography.dart';
@@ -144,6 +145,42 @@ class _EventAttendeesValueState extends State<_EventAttendeesValue> {
     BuildContext context,
     String initialName,
   ) async {
+    if (widget.controller.coreRecordsOnly) {
+      final response = await _api.getJson('/api/user-skills');
+      final skills = response is List
+          ? response
+          : (response is Map
+                ? response['skills'] as List? ?? const []
+                : const []);
+      final contactSkill = skills.whereType<Map>().firstWhere(
+        (skill) => skill['machine_name']?.toString() == 'contact',
+        orElse: () => const {},
+      );
+      final userSkillId = contactSkill['id']?.toString() ?? '';
+      if (userSkillId.isEmpty) {
+        throw StateError('Contact Skill is unavailable');
+      }
+      if (!context.mounted) return null;
+      final receipt = await Navigator.of(context).push<dynamic>(
+        MaterialPageRoute(
+          builder: (_) => ThemeV2AssetEditPage(
+            reference: const AssetEntityRef(
+              kind: AssetEntityKind.asset,
+              id: 'new:contact',
+            ),
+            initialValues: initialName.isEmpty
+                ? const {}
+                : {'name': initialName},
+            mode: AssetEditMode.create,
+            skillName: 'contact',
+            displayName: contactSkill['display_name']?.toString() ?? '联系人',
+            userSkillId: userSkillId,
+            api: _api,
+          ),
+        ),
+      );
+      return receipt is Map ? Map<String, dynamic>.from(receipt) : null;
+    }
     final receipt = await Navigator.of(context).push<dynamic>(
       MaterialPageRoute<dynamic>(
         builder: (_) => ContactForm(
@@ -168,15 +205,26 @@ class _EventAttendeesValueState extends State<_EventAttendeesValue> {
       excludedContactIds: excludedIds,
       initialQuery: attendee.nameRaw ?? attendee.displayName,
       singleSelect: true,
+      coreRecordsOnly: widget.controller.coreRecordsOnly,
       onCreateContact: _openContactForm,
     );
     if (!mounted || selected == null || selected.isEmpty) return;
     setState(() => _busy = true);
     try {
-      await _api.patchJson(
-        '/api/events/${widget.controller.assetId}/attendees/$attendeeId',
-        {'contact_id': selected.first.id},
-      );
+      if (widget.controller.coreRecordsOnly) {
+        await _api.patchJson('/api/events/${widget.controller.assetId}', {
+          'attendees': coreEventAttendeeCommands(
+            _attendees,
+            attendeeId: attendeeId,
+            contactId: selected.first.id,
+          ),
+        });
+      } else {
+        await _api.patchJson(
+          '/api/events/${widget.controller.assetId}/attendees/$attendeeId',
+          {'contact_id': selected.first.id},
+        );
+      }
       await widget.controller.retry();
       bumpData();
     } catch (_) {

@@ -92,6 +92,74 @@ void main() {
     expect(model.source.kind, AssetDetailSourceKind.manual);
     expect(model.source.canOpen, isFalse);
   });
+
+  test('core todo toggle preserves payload and uses PATCH', () async {
+    final requests = <http.Request>[];
+    final api = ApiClient(
+      baseUrl: 'http://theme-v2.test',
+      enableLogging: false,
+      client: MockClient((request) async {
+        requests.add(request);
+        if (request.url.path == '/api/user-skills/skill-todo') {
+          return http.Response(
+            jsonEncode({
+              'id': 'skill-todo',
+              'machine_name': 'todo',
+              'display_name': '待办',
+              'schema': {
+                'type': 'object',
+                'properties': {
+                  'title': {'type': 'string'},
+                  'content': {'type': 'string'},
+                  'status': {'type': 'string'},
+                },
+              },
+            }),
+            200,
+            headers: const {'content-type': 'application/json'},
+          );
+        }
+        final payload = request.method == 'PATCH'
+            ? (jsonDecode(request.body) as Map<String, dynamic>)['payload']
+            : {
+                'title': '完成验收',
+                'content': '不能丢失',
+                'status': 'pending',
+                'domain': 'productivity',
+              };
+        return http.Response(
+          jsonEncode({
+            'id': 'todo-1',
+            'user_skill_id': 'skill-todo',
+            'payload': payload,
+            'created_at': '2026-08-03T02:00:00Z',
+            'updated_at': '2026-08-03T02:00:00Z',
+          }),
+          200,
+          headers: const {'content-type': 'application/json'},
+        );
+      }),
+    );
+    addTearDown(api.close);
+    final repository = ApiAssetDetailRepository(api, coreRecordsOnly: true);
+    final current = await repository.load(
+      const AssetEntityRef(kind: AssetEntityKind.asset, id: 'todo-1'),
+    );
+
+    final saved = await repository.save(current, const {'status': 'done'});
+
+    final patch = requests.singleWhere((request) => request.method == 'PATCH');
+    expect(patch.url.path, '/api/assets/todo-1');
+    expect(jsonDecode(patch.body), {
+      'payload': {
+        'title': '完成验收',
+        'content': '不能丢失',
+        'status': 'done',
+        'domain': 'productivity',
+      },
+    });
+    expect(saved.values['status'], 'done');
+  });
 }
 
 Map<String, dynamic> _detailJson({

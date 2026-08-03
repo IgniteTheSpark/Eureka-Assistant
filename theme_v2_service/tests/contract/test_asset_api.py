@@ -114,6 +114,86 @@ async def test_user_skill_and_asset_crud_are_owner_scoped(client):
     assert missing.status_code == 404
 
 
+async def test_theme_v2_skill_builder_routes_draft_create_and_configure(client, monkeypatch):
+    owner = await _register(client, "skill-builder@example.com")
+
+    async def fake_draft(description, answers=None):
+        assert description == "记录跑步"
+        assert answers == []
+        return {
+            "name": "running_log",
+            "display_name": "跑步记录",
+            "payload_schema": {
+                "distance": {
+                    "type": "number",
+                    "label": "距离",
+                    "description": "本次跑步距离",
+                    "required": True,
+                    "long": False,
+                }
+            },
+            "render_spec": {
+                "icon": "🏃",
+                "primary_field": "distance",
+            },
+            "sample_payload": {"distance": 5.2},
+        }
+
+    monkeypatch.setattr(
+        "app.domains.assets.api.design_skill_draft",
+        fake_draft,
+        raising=False,
+    )
+    drafted = await client.post(
+        "/api/user-skills/draft",
+        headers=_headers(owner),
+        json={"description": "记录跑步"},
+    )
+    assert drafted.status_code == 200
+    assert drafted.json()["draft"]["name"] == "running_log"
+
+    created = await client.post(
+        "/api/user-skills",
+        headers=_headers(owner),
+        json={
+            "machine_name": "running_log",
+            "display_name": "跑步记录",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "distance": {"type": "number", "title": "距离"},
+                },
+                "required": ["distance"],
+                "x-capture-enabled": True,
+            },
+            "render_spec": {
+                "icon": "🏃",
+                "primary_field": "distance",
+            },
+        },
+    )
+    assert created.status_code == 200
+    skill = created.json()
+    assert skill["render_spec"]["icon"] == "🏃"
+
+    configured = await client.patch(
+        f"/api/user-skills/{skill['id']}",
+        headers=_headers(owner),
+        json={
+            "render_spec": {
+                "icon": "⚡",
+                "primary_field": "distance",
+                "card_display": {
+                    "primary_field_id": "distance",
+                    "secondary_field_ids": [],
+                },
+            }
+        },
+    )
+    assert configured.status_code == 200
+    assert configured.json()["render_spec"]["icon"] == "⚡"
+
+
 async def test_asset_list_validates_limit(client):
     token = await _register(client, "owner@example.com")
 
@@ -179,11 +259,20 @@ async def test_event_can_be_rescheduled_cancelled_and_physically_deleted(client)
             "start_at": "2026-08-01T12:00:00+08:00",
             "end_at": "2026-08-01T13:00:00+08:00",
             "status": "cancelled",
+            "attendees": [
+                {"name": "冯总", "contact_id": None},
+                {"name": "王总", "contact_id": "contact-asset-id"},
+            ],
         },
     )
     assert changed.status_code == 200
     assert changed.json()["status"] == "cancelled"
     assert changed.json()["start_at"] == "2026-08-01T04:00:00Z"
+    assert [item["display_name"] for item in changed.json()["attendees"]] == [
+        "冯总",
+        "王总",
+    ]
+    assert changed.json()["attendees"][1]["contact_id"] == "contact-asset-id"
 
     listed = await client.get(
         "/api/events",

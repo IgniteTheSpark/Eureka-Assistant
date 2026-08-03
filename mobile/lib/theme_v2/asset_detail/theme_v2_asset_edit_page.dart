@@ -22,6 +22,7 @@ class ThemeV2AssetEditPage extends StatefulWidget {
     required this.mode,
     required this.skillName,
     required this.displayName,
+    this.userSkillId,
     this.spec,
     this.presetDate,
     this.initialDomain,
@@ -34,6 +35,7 @@ class ThemeV2AssetEditPage extends StatefulWidget {
   final AssetEditMode mode;
   final String skillName;
   final String displayName;
+  final String? userSkillId;
   final RenderSpec? spec;
   final DateTime? presetDate;
   final String? initialDomain;
@@ -75,11 +77,14 @@ class _ThemeV2AssetEditPageState extends State<ThemeV2AssetEditPage> {
   }
 
   Future<RenderSpec> _loadCreateSpec() async {
-    final response = await _api.getJson('/api/skills');
-    final skills =
-        (response is Map ? response['skills'] : null) as List? ?? const [];
+    final response = await _api.getJson('/api/user-skills');
+    final skills = response is List
+        ? response
+        : ((response is Map ? response['skills'] : null) as List? ?? const []);
     final raw = skills.whereType<Map>().cast<Map>().firstWhere(
-      (skill) => skill['name'] == widget.skillName,
+      (skill) =>
+          (skill['machine_name'] ?? skill['name'])?.toString() ==
+          widget.skillName,
       orElse: () => const {},
     );
     if (raw.isEmpty) {
@@ -88,12 +93,10 @@ class _ThemeV2AssetEditPageState extends State<ThemeV2AssetEditPage> {
     final render =
         (raw['render_spec'] as Map?)?.cast<String, dynamic>() ?? const {};
     final schema =
-        (raw['payload_schema'] as Map?)?.cast<String, dynamic>() ?? const {};
-    return RenderSpec(
-      cardLayout: render['card_layout'] as String? ?? 'horizontal',
-      icon: render['icon'] as String? ?? '•',
-      accentColor: render['accent_color'] as String? ?? 'gray',
-    ).withSchema(schema);
+        ((raw['schema'] ?? raw['payload_schema']) as Map?)
+            ?.cast<String, dynamic>() ??
+        const {};
+    return RenderSpec.fromJson(render).withSchema(schema);
   }
 
   Map<String, dynamic> _presetValues(
@@ -135,19 +138,34 @@ class _ThemeV2AssetEditPageState extends State<ThemeV2AssetEditPage> {
           for (final entry in values.entries)
             if (_hasCreateValue(entry.value)) entry.key: entry.value,
         };
-        await _api.postJson('/api/assets', {
-          'user_skill_name': widget.skillName,
-          'payload': payload,
-          'domain': widget.initialDomain ?? '',
-        });
+        final userSkillId = widget.userSkillId?.trim() ?? '';
+        final response = await _api.postJson(
+          '/api/assets',
+          userSkillId.isNotEmpty
+              ? {'user_skill_id': userSkillId, 'payload': payload}
+              : {
+                  'user_skill_name': widget.skillName,
+                  'payload': payload,
+                  'domain': widget.initialDomain ?? '',
+                },
+        );
         bumpData();
         _draft?.acceptSaved();
         if (!mounted) return;
+        final record = response is Map
+            ? response.cast<String, dynamic>()
+            : const <String, dynamic>{};
+        final assetId = record['id']?.toString() ?? '';
         Navigator.of(context).pop(<String, dynamic>{
           'user_skill_name': widget.skillName,
           'display_name': widget.displayName,
           'icon': _draft?.spec.icon ?? '•',
           'payload': payload,
+          if (assetId.isNotEmpty) 'asset_id': assetId,
+          if (widget.skillName == 'contact' && assetId.isNotEmpty) ...{
+            'contact_id': assetId,
+            'contact': {'id': assetId, ...payload},
+          },
         });
         return;
       }

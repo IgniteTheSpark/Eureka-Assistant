@@ -78,6 +78,47 @@ class ContactChoice {
   int get hashCode => id.hashCode;
 }
 
+/// Theme V2 stores contacts as Assets under the built-in `contact` Skill.
+List<ContactChoice> coreContactChoices(
+  Object? skillsResponse,
+  Object? assetsResponse, {
+  String query = '',
+  Set<String> excludedContactIds = const {},
+}) {
+  List rawList(Object? response, String key) => response is List
+      ? response
+      : (response is Map ? response[key] as List? ?? const [] : const []);
+
+  String? contactSkillId;
+  for (final raw in rawList(skillsResponse, 'skills').whereType<Map>()) {
+    if (_text(raw['machine_name']) == 'contact') {
+      contactSkillId = _text(raw['id']);
+      break;
+    }
+  }
+  if (contactSkillId == null || contactSkillId.isEmpty) return const [];
+
+  final needle = query.trim().toLowerCase();
+  final contacts = <ContactChoice>[];
+  for (final raw in rawList(assetsResponse, 'assets').whereType<Map>()) {
+    if (_text(raw['user_skill_id']) != contactSkillId) continue;
+    final payload = raw['payload'];
+    if (payload is! Map) continue;
+    final id = _text(raw['id']);
+    if (id.isEmpty || excludedContactIds.contains(id)) continue;
+    final flattened = <String, dynamic>{'id': id, ...payload};
+    if (needle.isNotEmpty &&
+        !flattened.values.any(
+          (value) => _text(value).toLowerCase().contains(needle),
+        )) {
+      continue;
+    }
+    final contact = ContactChoice.fromJson(flattened);
+    if (contact.name.isNotEmpty) contacts.add(contact);
+  }
+  return contacts;
+}
+
 class EventAttendeeDraft {
   const EventAttendeeDraft({
     this.id,
@@ -150,6 +191,23 @@ class EventAttendeeDraft {
   }
 }
 
+/// Theme V2 updates the complete attendee collection atomically on the Event.
+/// This preserves every unresolved name while binding only the selected row.
+List<Map<String, dynamic>> coreEventAttendeeCommands(
+  List<EventAttendeeDraft> attendees, {
+  required String attendeeId,
+  required String contactId,
+}) => [
+  for (final attendee in attendees)
+    {
+      'name': attendee.nameRaw ?? attendee.displayName,
+      'contact_id': ?(attendee.id == attendeeId
+          ? contactId
+          : attendee.contactId),
+      'role': attendee.role,
+    },
+];
+
 /// Applies the attendee diff only after its parent event has been saved.
 Future<void> syncEventAttendees(
   ApiClient api, {
@@ -220,6 +278,7 @@ Future<List<ContactChoice>?> showEventAttendeeSelector(
   Set<String> excludedContactIds = const {},
   String initialQuery = '',
   bool singleSelect = false,
+  bool coreRecordsOnly = false,
   required CreateContactCallback onCreateContact,
 }) {
   return showModalBottomSheet<List<ContactChoice>>(
@@ -238,6 +297,7 @@ Future<List<ContactChoice>?> showEventAttendeeSelector(
         excludedContactIds: excludedContactIds,
         initialQuery: initialQuery,
         singleSelect: singleSelect,
+        coreRecordsOnly: coreRecordsOnly,
         onCreateContact: onCreateContact,
       ),
     ),
@@ -251,6 +311,7 @@ class _EventAttendeeSelector extends StatefulWidget {
     required this.excludedContactIds,
     required this.initialQuery,
     required this.singleSelect,
+    required this.coreRecordsOnly,
     required this.onCreateContact,
   });
 
@@ -259,6 +320,7 @@ class _EventAttendeeSelector extends StatefulWidget {
   final Set<String> excludedContactIds;
   final String initialQuery;
   final bool singleSelect;
+  final bool coreRecordsOnly;
   final CreateContactCallback onCreateContact;
 
   @override
@@ -312,22 +374,36 @@ class _EventAttendeeSelectorState extends State<_EventAttendeeSelector> {
       });
     }
     try {
-      final response = await _api.getJson(
-        '/api/contacts',
-        query: {'q': query, 'limit': 20},
-      );
-      final rawContacts = response is Map ? response['contacts'] : null;
-      final contacts = rawContacts is List
-          ? rawContacts
-                .whereType<Map>()
-                .map(ContactChoice.fromJson)
-                .where(
-                  (contact) =>
-                      contact.id.isNotEmpty &&
-                      !widget.excludedContactIds.contains(contact.id),
-                )
-                .toList()
-          : <ContactChoice>[];
+      late final List<ContactChoice> contacts;
+      if (widget.coreRecordsOnly) {
+        final responses = await Future.wait([
+          _api.getJson('/api/user-skills'),
+          _api.getJson('/api/assets', query: const {'limit': 100}),
+        ]);
+        contacts = coreContactChoices(
+          responses[0],
+          responses[1],
+          query: query,
+          excludedContactIds: widget.excludedContactIds,
+        );
+      } else {
+        final response = await _api.getJson(
+          '/api/contacts',
+          query: {'q': query, 'limit': 20},
+        );
+        final rawContacts = response is Map ? response['contacts'] : null;
+        contacts = rawContacts is List
+            ? rawContacts
+                  .whereType<Map>()
+                  .map(ContactChoice.fromJson)
+                  .where(
+                    (contact) =>
+                        contact.id.isNotEmpty &&
+                        !widget.excludedContactIds.contains(contact.id),
+                  )
+                  .toList()
+            : <ContactChoice>[];
+      }
       if (!mounted || generation != _searchGeneration) return;
       setState(() {
         _contacts = contacts;

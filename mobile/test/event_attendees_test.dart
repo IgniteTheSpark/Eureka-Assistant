@@ -60,6 +60,71 @@ void main() {
       expect(first, isNot(second));
       expect({first, second}, hasLength(2));
     });
+
+    test('loads Theme V2 contacts from contact Skill assets', () {
+      final contacts = coreContactChoices(
+        const [
+          {'id': 'skill-contact', 'machine_name': 'contact'},
+          {'id': 'skill-notes', 'machine_name': 'notes'},
+        ],
+        const [
+          {
+            'id': 'asset-contact',
+            'user_skill_id': 'skill-contact',
+            'payload': {
+              'name': '冯总',
+              'company': 'Eureka',
+              'title': 'CEO',
+              'phone': '13800000000',
+            },
+          },
+          {
+            'id': 'asset-note',
+            'user_skill_id': 'skill-notes',
+            'payload': {'content': '不是联系人'},
+          },
+        ],
+        query: 'Eureka',
+      );
+
+      expect(contacts, hasLength(1));
+      expect(contacts.single.id, 'asset-contact');
+      expect(contacts.single.name, '冯总');
+      expect(contacts.single.summary, 'Eureka · CEO');
+    });
+
+    test('builds an atomic Theme V2 attendee patch when binding a contact', () {
+      final attendees = [
+        EventAttendeeDraft.fromJson(const {
+          'id': 'attendee-1',
+          'contact_id': null,
+          'name_raw': '冯总',
+          'display_name': '冯总',
+          'role': 'attendee',
+          'is_resolved': false,
+        }),
+        EventAttendeeDraft.fromJson(const {
+          'id': 'attendee-2',
+          'contact_id': 'contact-2',
+          'name_raw': '李总',
+          'display_name': '李总',
+          'role': 'host',
+          'is_resolved': true,
+        }),
+      ];
+
+      expect(
+        coreEventAttendeeCommands(
+          attendees,
+          attendeeId: 'attendee-1',
+          contactId: 'contact-1',
+        ),
+        [
+          {'name': '冯总', 'contact_id': 'contact-1', 'role': 'attendee'},
+          {'name': '李总', 'contact_id': 'contact-2', 'role': 'host'},
+        ],
+      );
+    });
   });
 
   test('contact creation receipt preserves card keys and created contact', () {
@@ -741,6 +806,73 @@ void main() {
       ]);
     },
   );
+
+  testWidgets('Theme V2 creates an event with attendees in one core request', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final requests = <http.Request>[];
+    final api = ApiClient(
+      baseUrl: 'http://localhost',
+      enableLogging: false,
+      client: MockClient((request) async {
+        requests.add(request);
+        return http.Response(
+          jsonEncode({
+            'id': 'event-core',
+            'title': 'Theme V2 Planning',
+            'start_at': '2026-07-13T01:00:00Z',
+            'end_at': '2026-07-13T02:00:00Z',
+            'all_day': false,
+            'status': 'scheduled',
+            'attendees': const [],
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+    );
+    addTearDown(api.close);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          theme: buildEurekaTheme(EurekaColors.light),
+          home: EventForm(
+            api: api,
+            coreRecordsOnly: true,
+            existing: const {
+              'title': 'Theme V2 Planning',
+              'start_at': '2026-07-13T09:00:00+08:00',
+              'end_at': '2026-07-13T10:00:00+08:00',
+              'attendees': [
+                {
+                  'contact_id': 'asset-contact',
+                  'name_raw': '冯总',
+                  'display_name': '冯总',
+                  'is_resolved': true,
+                },
+              ],
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.widgetWithText(TextButton, '保存'));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(requests, hasLength(1));
+    expect(requests.single.method, 'POST');
+    expect(requests.single.url.path, '/api/events');
+    final body = jsonDecode(requests.single.body) as Map<String, dynamic>;
+    expect(body['attendees'], [
+      {'name': '冯总', 'contact_id': 'asset-contact', 'role': 'attendee'},
+    ]);
+  });
 
   testWidgets(
     'attendee sync failure keeps edit draft open with a specific error',

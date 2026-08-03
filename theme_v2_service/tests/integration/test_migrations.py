@@ -58,7 +58,14 @@ def test_foundation_migration_round_trip_and_physical_types():
     assert isinstance(asset_columns["payload_json"]["type"], mysql.JSON)
     assert asset_columns["created_at"]["type"].fsp == 6
 
+    skill_columns = {
+        column["name"]: column
+        for column in inspector.get_columns("user_skills")
+    }
+    assert isinstance(skill_columns["render_spec_json"]["type"], mysql.JSON)
+    assert isinstance(skill_columns["chat_starters_json"]["type"], mysql.JSON)
+
     with engine.connect() as connection:
         revision = connection.scalar(text("SELECT version_num FROM alembic_version"))
-    assert revision == "0008_event_attendees"
+    assert revision == "0009_user_skill_presentation"
     engine.dispose()

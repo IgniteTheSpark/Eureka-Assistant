@@ -14,7 +14,9 @@ import 'ring_reconnect.dart';
 /// Most recent ring-capture flash result. Onboarding watches this to advance its
 /// 「双击戒指说一句」step the moment a capture files a card. null = none yet in
 /// the current listen window (set null before listening to ignore stale results).
-final ValueNotifier<FlashResult?> ringLastFlash = ValueNotifier<FlashResult?>(null);
+final ValueNotifier<FlashResult?> ringLastFlash = ValueNotifier<FlashResult?>(
+  null,
+);
 
 /// Wires the ring (chiplet_ring plugin) → Tencent ASR → /api/flash card creation.
 ///
@@ -31,7 +33,8 @@ void startRingCapture(ApiClient api) {
   final ring = ChipletRing();
   // Keep the ring connected: scan-and-connect to the saved MAC on launch + after drops.
   RingReconnect.instance.start();
-  final asrClient = TencentAsrS3Client(); // baseUrl defaults to AppConfig.tencentAsrBase
+  final asrClient =
+      TencentAsrS3Client(); // baseUrl defaults to AppConfig.tencentAsrBase
   final asr = RingAsr(
     recognize: (File wav) async {
       final r = await asrClient.recognizeFile(file: wav);
@@ -40,15 +43,18 @@ void startRingCapture(ApiClient api) {
   );
   _ringCapture = RingCaptureController(
     keyEvents: ring.keyEvents,
-    audioFrames:
-        ring.audioFrames.map((f) => RingFrame(pcm: f.pcm, channels: f.channels, seq: f.seq)),
+    audioFrames: ring.audioFrames.map(
+      (f) => RingFrame(pcm: f.pcm, channels: f.channels, seq: f.seq),
+    ),
     startRecording: ring.startRecording,
     stopRecording: ring.stopRecording,
-    transcribe: (pcm, sr, ch) => asr.transcribePcm(pcm, sampleRate: sr, channels: ch),
+    transcribe: (pcm, sr, ch) =>
+        asr.transcribePcm(pcm, sampleRate: sr, channels: ch),
     createCard: (text) async {
       final result = await sendFlash(api, text, source: 'voice');
       ringLastFlash.value = result; // onboarding's 戒指 capture step watches this
     },
+    onError: (error) => debugPrint('Ring capture failed: $error'),
     // Mirror the card's progressive「Reka听到：…正在X」bubble (floating mascot)
     // instead of a single static line. Ring ASR is on-device, so the「听写」beat
     // has no server counterpart — the client must drive it.
@@ -65,7 +71,7 @@ void startRingCapture(ApiClient api) {
         case RingCapturePhase.empty:
           s.clear();
         case RingCapturePhase.error:
-          s.failed('');
+          s.failed('录音整理失败，请重试');
       }
     },
   )..start();

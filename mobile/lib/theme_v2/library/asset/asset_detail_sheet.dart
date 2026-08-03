@@ -134,6 +134,7 @@ class _ThemeV2AssetDetailSurfaceState extends State<ThemeV2AssetDetailSurface> {
         eventId: controller.assetId,
         existing: controller.payload,
         api: widget.api,
+        coreRecordsOnly: controller.coreRecordsOnly,
       ),
       AssetEntityKind.contact => ContactForm(
         contactId: controller.assetId,

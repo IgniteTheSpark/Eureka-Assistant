@@ -40,6 +40,10 @@ void main() {
         return switch (request.url.path) {
           '/ready' => _json({'status': 'ready'}),
           '/api/user-skills' || '/api/assets' || '/api/events' => _json([]),
+          '/api/flash/recordings' => _json({'recordings': <Object>[]}),
+          final path when path.startsWith('/api/flash/sessions/') => _json({
+            'detail': 'flash session not found',
+          }, 404),
           _ => _json({'detail': 'unexpected ${request.url.path}'}, 500),
         };
       }),
@@ -59,7 +63,16 @@ void main() {
     expect(
       calls,
       everyElement(
-        isIn({'/ready', '/api/user-skills', '/api/assets', '/api/events'}),
+        anyOf(
+          isIn({
+            '/ready',
+            '/api/user-skills',
+            '/api/assets',
+            '/api/events',
+            '/api/flash/recordings',
+          }),
+          startsWith('/api/flash/sessions/'),
+        ),
       ),
     );
   });

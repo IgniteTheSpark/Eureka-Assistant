@@ -297,21 +297,18 @@ void main() {
       baseUrl: 'https://calendar.test',
       enableLogging: false,
       client: MockClient((request) async {
-        if (request.url.path == '/api/skills') {
-          return _json({
-            'skills': [
-              {
-                'name': 'coffee',
-                'display_name': '咖啡记录',
-                'user_skill_id': 'coffee-id',
-                'enabled': 1,
-                'render_spec': {'icon': '☕'},
-                'payload_schema': <String, dynamic>{},
-              },
-            ],
-          });
+        if (request.url.path == '/api/user-skills') {
+          return _json([
+            {
+              'machine_name': 'coffee',
+              'display_name': '咖啡记录',
+              'id': 'coffee-id',
+              'render_spec': {'icon': '☕'},
+              'schema': {'type': 'object', 'properties': <String, dynamic>{}},
+            },
+          ]);
         }
-        if (request.url.path == '/api/skills/recent-manual') {
+        if (request.url.path == '/api/user-skills/recent-manual') {
           return _json({'detail': 'offline'}, statusCode: 503);
         }
         throw StateError('unexpected ${request.url}');

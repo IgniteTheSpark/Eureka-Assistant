@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../api/api_client.dart';
 import '../../pet/reka_nudges.dart';
+import '../report/report_notification_target.dart';
 import 'reka_inbox_item.dart';
 
 enum RekaInboxStatus { idle, loading, refreshing, ready, partial, empty, error }
@@ -22,31 +23,68 @@ class ApiRekaInboxRepository implements RekaInboxRepository {
 
   final ApiClient _api;
   final bool _ownsApi;
+  final Map<String, Map<String, dynamic>> _notificationsById = {};
 
   @override
-  Future<List<Map<String, dynamic>>> loadPending() =>
-      _load('/api/nudges/pending');
+  Future<List<Map<String, dynamic>>> loadPending() async {
+    final response = await _api.getJson('/api/notifications');
+    final raw = response is Map ? response['notifications'] : null;
+    final notifications = raw is List
+        ? raw
+              .whereType<Map>()
+              .map((row) => row.cast<String, dynamic>())
+              .toList()
+        : const <Map<String, dynamic>>[];
+    _notificationsById
+      ..clear()
+      ..addEntries(
+        notifications
+            .where((row) => (row['id']?.toString() ?? '').isNotEmpty)
+            .map((row) => MapEntry(row['id'].toString(), row)),
+      );
+    return [for (final row in notifications) _notificationRow(row)];
+  }
 
   @override
-  Future<List<Map<String, dynamic>>> loadRecent() => _load('/api/nudges');
+  Future<List<Map<String, dynamic>>> loadRecent() async => const [];
 
   @override
-  Future<List<Map<String, dynamic>>> loadOffers() => _load('/api/offers/today');
+  Future<List<Map<String, dynamic>>> loadOffers() async => const [];
 
-  Future<List<Map<String, dynamic>>> _load(String path) async {
-    final response = await _api.getJson(path);
-    final list =
-        (response is Map ? response['nudges'] : null) as List? ?? const [];
-    return list
-        .whereType<Map>()
-        .map((row) => row.cast<String, dynamic>())
-        .toList(growable: false);
+  Map<String, dynamic> _notificationRow(Map<String, dynamic> row) {
+    final type = row['type']?.toString() ?? '';
+    return {
+      'id': row['id'],
+      'type': type,
+      'kind': type,
+      'text': row['title'],
+      'body': row['body'] ?? '',
+      'ref': row['link'] ?? '',
+      'cta': 'notification',
+      'status': row['read'] == true ? 'seen' : 'pending',
+      'created_at': row['created_at'],
+    };
   }
 
   @override
   Future<void> outcome(String id, String status) async {
-    final saved = await RekaNudges.instance.outcome(id, status, api: _api);
-    if (!saved) throw StateError('REKA 状态同步失败');
+    if (status == 'dismissed') {
+      final notification = _notificationsById[id];
+      if (notification?['type'] == 'report_available') {
+        await dismissReportAvailableNotification(
+          _api,
+          notificationId: id,
+          link: notification?['link']?.toString() ?? '',
+        );
+      } else {
+        await _api.deleteJson('/api/notifications/$id');
+      }
+      _notificationsById.remove(id);
+      return;
+    }
+    await _api.postJson('/api/notifications/$id/read', const {});
+    final notification = _notificationsById[id];
+    if (notification != null) notification['read'] = true;
   }
 
   void dispose() {
@@ -60,7 +98,7 @@ class RekaInboxController extends ChangeNotifier {
     bool? observeNudgeStore,
   }) : repository = repository ?? ApiRekaInboxRepository(),
        _ownsRepository = repository == null,
-       _observesNudgeStore = observeNudgeStore ?? repository == null {
+       _observesNudgeStore = observeNudgeStore ?? false {
     if (_observesNudgeStore) {
       _seenBobSignal = RekaNudges.instance.bobSignal;
       _seenOutcomeSignal = RekaNudges.instance.outcomeSignal;

@@ -73,11 +73,15 @@ class CalendarSkillCatalog {
 typedef CalendarSkillLoader = Future<CalendarSkillCatalog> Function();
 
 List<CalendarSkillOption> parseCalendarSkillOptions(Object? response) {
-  final rawSkills =
-      (response is Map ? response['skills'] : null) as List? ?? const [];
+  final rawSkills = response is List
+      ? response
+      : ((response is Map ? response['skills'] : null) as List? ?? const []);
   final options = <CalendarSkillOption>[const CalendarSkillOption.event()];
   for (final raw in rawSkills.whereType<Map>()) {
-    final name = raw['name']?.toString().trim() ?? '';
+    final name =
+        raw['name']?.toString().trim() ??
+        raw['machine_name']?.toString().trim() ??
+        '';
     if (name.isEmpty ||
         name == 'qa' ||
         name == 'external_ref' ||
@@ -89,10 +93,10 @@ List<CalendarSkillOption> parseCalendarSkillOptions(Object? response) {
     }
     final renderSpec =
         (raw['render_spec'] as Map?)?.cast<String, dynamic>() ?? const {};
-    final payloadSchema =
-        (raw['payload_schema'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final payloadSchema = _calendarPayloadSchema(raw);
     final displayName = raw['display_name']?.toString().trim();
-    final userSkillId = raw['user_skill_id']?.toString();
+    final userSkillId =
+        raw['user_skill_id']?.toString() ?? raw['id']?.toString();
     final icon = name == 'todo'
         ? todoAssetIcon
         : renderSpec['icon']?.toString() ?? '•';
@@ -125,6 +129,41 @@ List<CalendarSkillOption> parseCalendarSkillOptions(Object? response) {
   return List.unmodifiable(options);
 }
 
+Map<String, dynamic> _calendarPayloadSchema(Map raw) {
+  final legacy = (raw['payload_schema'] as Map?)?.cast<String, dynamic>();
+  if (legacy != null) return legacy;
+  final schema = (raw['schema'] as Map?)?.cast<String, dynamic>() ?? const {};
+  final properties =
+      (schema['properties'] as Map?)?.cast<String, dynamic>() ?? const {};
+  final required = (schema['required'] as List? ?? const [])
+      .map((value) => value.toString())
+      .toSet();
+  return {
+    for (final entry in properties.entries)
+      entry.key: _calendarFieldMetadata(entry.key, entry.value, required),
+  };
+}
+
+Map<String, dynamic> _calendarFieldMetadata(
+  String key,
+  dynamic raw,
+  Set<String> required,
+) {
+  final metadata = (raw as Map?)?.cast<String, dynamic>() ?? const {};
+  return {
+    ...metadata,
+    'type': switch (metadata['format']?.toString()) {
+      'date' => 'date',
+      'date-time' => 'datetime',
+      'uuid' => 'uuid',
+      _ => metadata['type']?.toString() ?? 'string',
+    },
+    'label': metadata['title']?.toString() ?? key,
+    'required': required.contains(key),
+    'long': metadata['x-long'] == true,
+  };
+}
+
 List<String> parseRecentManualSkillNames(Object? response) {
   final rawNames =
       (response is Map ? response['skill_names'] : null) as List? ?? const [];
@@ -152,12 +191,14 @@ List<CalendarSkillOption> _recentSkillOptions(CalendarSkillCatalog catalog) {
 }
 
 Future<CalendarSkillCatalog> fetchCalendarSkillCatalog(ApiClient api) async {
-  final options = parseCalendarSkillOptions(await api.getJson('/api/skills'));
+  final options = parseCalendarSkillOptions(
+    await api.getJson('/api/user-skills'),
+  );
   try {
     return CalendarSkillCatalog(
       options: options,
       recentNames: parseRecentManualSkillNames(
-        await api.getJson('/api/skills/recent-manual'),
+        await api.getJson('/api/user-skills/recent-manual'),
       ),
     );
   } catch (_) {

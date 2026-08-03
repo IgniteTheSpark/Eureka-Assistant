@@ -60,6 +60,18 @@ void main() {
                 'updated_at': '2026-08-01T17:07:00Z',
               },
             ]);
+          case '/api/flash/recordings':
+            return _json({
+              'recordings': [
+                {
+                  'id': 'recording-1',
+                  'title': 'Theme V2 闪念',
+                  'session_date': '2026-08-02',
+                  'captured_at': '2026-08-02T03:00:00Z',
+                  'process_status': 'completed',
+                },
+              ],
+            });
           default:
             return http.Response('{"detail":"unexpected"}', 500);
         }
@@ -69,13 +81,20 @@ void main() {
 
     final items = await fetchTimeline(api);
 
-    expect(items.map((item) => item.id), ['event-review', 'asset-todo']);
+    expect(items.map((item) => item.id), [
+      'event-review',
+      'asset-todo',
+      'recording-1',
+    ]);
     expect(items.first.kind, 'event');
     expect(items.first.location, '线上会议室');
-    expect(items.last.kind, 'asset');
-    expect(items.last.skillName, 'todo');
-    expect(items.last.domain, 'work');
-    expect(items.last.hasScheduledTime, isTrue);
+    expect(items[1].kind, 'asset');
+    expect(items[1].skillName, 'todo');
+    expect(items[1].domain, 'work');
+    expect(items[1].hasScheduledTime, isTrue);
+    expect(items.last.kind, 'input_turn');
+    expect(items.last.sessionId, '2026-08-02');
+    expect(items.last.title, 'Theme V2 闪念');
   });
 
   test('keeps Theme V2 assets in Flow when effective_at is omitted', () async {
@@ -125,6 +144,8 @@ void main() {
             ]);
           case '/api/events':
             return _json([]);
+          case '/api/flash/recordings':
+            return _json({'recordings': <Object>[]});
           default:
             return http.Response('{"detail":"unexpected"}', 500);
         }

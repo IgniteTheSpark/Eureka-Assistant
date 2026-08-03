@@ -16,25 +16,26 @@ void main() {
       client: MockClient((request) async {
         requests.add(request);
         if (request.method == 'GET') {
-          return _json({
-            'skills': [
-              {
-                'user_skill_id': 'skill-running',
-                'name': 'running_log',
-                'display_name': '跑步记录',
-                'payload_schema': {
-                  'distance': {'type': 'number', 'label': '距离'},
-                  'date': {'type': 'date', 'label': '日期'},
-                },
-                'render_spec': {
-                  'icon': '🏃',
-                  'primary_field': 'distance',
-                  'secondary_field': 'date',
-                  'actions': ['edit'],
+          return _json([
+            {
+              'id': 'skill-running',
+              'machine_name': 'running_log',
+              'display_name': '跑步记录',
+              'schema': {
+                'type': 'object',
+                'properties': {
+                  'distance': {'type': 'number', 'title': '距离'},
+                  'date': {'type': 'string', 'format': 'date', 'title': '日期'},
                 },
               },
-            ],
-          });
+              'render_spec': {
+                'icon': '🏃',
+                'primary_field': 'distance',
+                'secondary_field': 'date',
+                'actions': ['edit'],
+              },
+            },
+          ]);
         }
         return _json({'ok': true});
       }),
@@ -56,8 +57,8 @@ void main() {
     );
 
     expect(requests.map((request) => '${request.method} ${request.url.path}'), [
-      'GET /api/skills',
-      'PATCH /api/skills/skill-running',
+      'GET /api/user-skills',
+      'PATCH /api/user-skills/skill-running',
     ]);
     final body = jsonDecode(requests.last.body) as Map<String, dynamic>;
     expect(body.containsKey('payload_schema'), isFalse);

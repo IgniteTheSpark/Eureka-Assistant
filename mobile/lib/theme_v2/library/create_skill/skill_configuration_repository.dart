@@ -16,13 +16,11 @@ class ConfigurableSkill {
   });
 
   factory ConfigurableSkill.fromJson(Map<String, dynamic> json) {
-    final schema =
-        (json['payload_schema'] as Map?)?.cast<String, dynamic>() ??
-        const <String, dynamic>{};
+    final schema = _payloadSchema(json);
     return ConfigurableSkill(
       userSkillId:
           json['user_skill_id']?.toString() ?? json['id']?.toString() ?? '',
-      name: json['name']?.toString() ?? '',
+      name: json['name']?.toString() ?? json['machine_name']?.toString() ?? '',
       displayName:
           json['display_name']?.toString() ??
           json['name']?.toString() ??
@@ -50,6 +48,42 @@ class ConfigurableSkill {
           entry.key: _sampleValue(
             (entry.value as Map?)?.cast<String, dynamic>() ?? const {},
           ),
+    };
+  }
+
+  static Map<String, dynamic> _payloadSchema(Map<String, dynamic> json) {
+    final legacy = (json['payload_schema'] as Map?)?.cast<String, dynamic>();
+    if (legacy != null) return legacy;
+    final root = (json['schema'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final properties =
+        (root['properties'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final required = (root['required'] as List? ?? const [])
+        .map((value) => value.toString())
+        .toSet();
+    return {
+      for (final entry in properties.entries)
+        entry.key: _fieldMetadata(entry.key, entry.value, required),
+    };
+  }
+
+  static Map<String, dynamic> _fieldMetadata(
+    String key,
+    dynamic raw,
+    Set<String> required,
+  ) {
+    final metadata = (raw as Map?)?.cast<String, dynamic>() ?? const {};
+    final format = metadata['format']?.toString();
+    return {
+      ...metadata,
+      'type': switch (format) {
+        'date' => 'date',
+        'date-time' => 'datetime',
+        'uuid' => 'uuid',
+        _ => metadata['type']?.toString() ?? 'string',
+      },
+      'label': metadata['title']?.toString() ?? key,
+      'required': required.contains(key),
+      'long': metadata['x-long'] == true,
     };
   }
 
@@ -87,8 +121,10 @@ class ApiSkillConfigurationRepository implements SkillConfigurationRepository {
 
   @override
   Future<ConfigurableSkill> load(String userSkillId) async {
-    final response = await _api.getJson('/api/skills');
-    final rows = (response is Map ? response['skills'] : null) as List? ?? [];
+    final response = await _api.getJson('/api/user-skills');
+    final rows = response is List
+        ? response
+        : ((response is Map ? response['skills'] : null) as List? ?? []);
     for (final raw in rows.whereType<Map>()) {
       final row = raw.cast<String, dynamic>();
       final id =
@@ -104,7 +140,7 @@ class ApiSkillConfigurationRepository implements SkillConfigurationRepository {
     CardDisplayConfig config,
     Map<String, dynamic> originalRenderSpec,
   ) async {
-    await _api.patchJson('/api/skills/$userSkillId', {
+    await _api.patchJson('/api/user-skills/$userSkillId', {
       'render_spec': config.applyToRenderSpec(originalRenderSpec),
     });
   }

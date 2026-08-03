@@ -207,6 +207,7 @@ Future<List<TimelineItem>> _fetchCoreRecordTimeline(ApiClient api) async {
     api.getJson('/api/user-skills'),
     api.getJson('/api/assets', query: const {'limit': 100}),
     api.getJson('/api/events', query: const {'limit': 100}),
+    api.getJson('/api/flash/recordings', query: const {'limit': 200}),
   ]);
   final skillsById = <String, ({String name, String domain})>{};
   for (final raw in _coreList(responses[0], 'skills').whereType<Map>()) {
@@ -285,6 +286,32 @@ Future<List<TimelineItem>> _fetchCoreRecordTimeline(ApiClient api) async {
             skill.name == 'todo' &&
             (hasExplicitClock || due?.contains('T') == true),
         domain: skill.domain,
+      ),
+    );
+  }
+
+  for (final raw in _coreList(responses[3], 'recordings').whereType<Map>()) {
+    final recording = raw.cast<String, dynamic>();
+    final effective = _firstCoreDate([
+      recording['captured_at'],
+      recording['created_at'],
+    ]);
+    if (effective == null) continue;
+    final title = recording['title']?.toString().trim() ?? '';
+    items.add(
+      TimelineItem(
+        kind: 'input_turn',
+        id: recording['id']?.toString() ?? '',
+        effectiveAt: effective,
+        title: title.isEmpty ? '闪念' : title,
+        subtitle: '',
+        skillName: null,
+        sessionId: recording['session_date']?.toString(),
+        derived: const {},
+        payload: {
+          'process_status': recording['process_status'],
+          'session_date': recording['session_date'],
+        },
       ),
     );
   }

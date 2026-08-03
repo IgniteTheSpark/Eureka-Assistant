@@ -20,6 +20,29 @@ class UserSkillCreate(BaseModel):
     description: str | None = Field(default=None, max_length=1000)
     domain: str | None = Field(default=None, max_length=100)
     schema_definition: dict = Field(default_factory=dict, alias="schema")
+    render_spec: dict = Field(default_factory=dict)
+    chat_starters: list[str] = Field(default_factory=list, max_length=12)
+
+
+class UserSkillUpdate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    display_name: str | None = Field(default=None, min_length=1, max_length=160)
+    description: str | None = Field(default=None, max_length=1000)
+    domain: str | None = Field(default=None, max_length=100)
+    schema_definition: dict | None = Field(default=None, alias="schema")
+    render_spec: dict | None = None
+    chat_starters: list[str] | None = Field(default=None, max_length=12)
+
+
+class SkillDraftAnswer(BaseModel):
+    key: str = Field(min_length=1, max_length=100)
+    value: str = Field(default="", max_length=1000)
+
+
+class SkillDraftRequest(BaseModel):
+    description: str = Field(min_length=1, max_length=4000)
+    answers: list[SkillDraftAnswer] = Field(default_factory=list, max_length=3)
 
 
 class AssetCreate(BaseModel):
@@ -70,6 +93,7 @@ class EventUpdate(BaseModel):
     end_at: datetime | None = None
     all_day: bool | None = None
     status: Literal["scheduled", "cancelled"] | None = None
+    attendees: list[EventAttendeeCreate] | None = None
 
 
 class UserSkillRead(BaseModel):
@@ -84,6 +108,8 @@ class UserSkillRead(BaseModel):
         validation_alias="schema_json",
         serialization_alias="schema",
     )
+    render_spec: dict = Field(validation_alias="render_spec_json")
+    chat_starters: list[str] = Field(validation_alias="chat_starters_json")
     created_at: datetime
     updated_at: datetime
 

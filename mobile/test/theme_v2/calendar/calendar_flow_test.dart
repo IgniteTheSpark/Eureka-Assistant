@@ -5,6 +5,7 @@ import 'package:eureka/data_revision.dart' show bumpData;
 import 'package:eureka/pages/calendar_page.dart' show calendarHome;
 import 'package:eureka/pages/day_flash_view.dart';
 import 'package:eureka/pages/session_detail_page.dart';
+import 'package:eureka/theme_v2/capture/capture_session_page.dart';
 import 'package:eureka/theme_v2/calendar/calendar_controller.dart';
 import 'package:eureka/theme_v2/calendar/calendar_day_detail.dart';
 import 'package:eureka/theme_v2/calendar/calendar_flow_view.dart';
@@ -339,12 +340,13 @@ void main() {
 
     expect(openedDays, 0);
     expect(find.byType(DayFlashView), findsNothing);
-    expect(find.byType(SessionDetailPage), findsOneWidget);
+    expect(find.byType(SessionDetailPage), findsNothing);
+    expect(find.byType(CaptureSessionPage), findsOneWidget);
     expect(
       tester
-          .widget<SessionDetailPage>(find.byType(SessionDetailPage))
-          .sessionId,
-      'flash-session-a',
+          .widget<CaptureSessionPage>(find.byType(CaptureSessionPage))
+          .recordingId,
+      '2026-07-03',
     );
   });
 

@@ -599,17 +599,30 @@ bool _isWithin(DateTime value, String from, String to) {
   return true;
 }
 
-/// GET /api/sessions?session_type=flash&date=today → flash count (server filters
-/// by DBSession.date, so no client-side date math needed).
+/// Theme V2 uses one logical flash session per local day. Legacy mode keeps the
+/// historical `/api/sessions` contract while the isolated service addresses a
+/// daily session directly by `YYYY-MM-DD`.
 Future<({int count, String? latestId})> _loadFlashCount(
   ApiClient api,
   DateTime today, {
   required bool coreRecordsOnly,
 }) async {
-  if (coreRecordsOnly) return (count: 0, latestId: null);
   try {
     String two(int n) => n.toString().padLeft(2, '0');
     final d = '${today.year}-${two(today.month)}-${two(today.day)}';
+    if (coreRecordsOnly) {
+      final res = await api.getJson('/api/flash/sessions/$d');
+      final session = (res is Map ? res['session'] : null) as Map?;
+      if (session == null) return (count: 0, latestId: null);
+      final recordings = session['recordings'] as List? ?? const [];
+      final declaredCount = session['recording_count'];
+      final count = declaredCount is num
+          ? declaredCount.toInt()
+          : recordings.length;
+      return count > 0
+          ? (count: count, latestId: session['id']?.toString() ?? d)
+          : (count: 0, latestId: null);
+    }
     final res = await api.getJson(
       '/api/sessions',
       query: {'session_type': 'flash', 'date': d},

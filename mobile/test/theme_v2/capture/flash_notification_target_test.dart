@@ -103,10 +103,11 @@ void main() {
 
       expect(requestedPaths, [
         '/api/flash/recordings/recording-1',
+        '/api/flash/sessions/2026-08-02',
         '/api/events/event-1',
         '/api/assets/asset-1',
       ]);
-      expect(controller.sessionId, 'recording-1');
+      expect(controller.sessionId, '2026-08-02');
       expect(controller.displayTitle, '8月2日 闪念');
       expect(controller.messages, hasLength(2));
       expect(controller.messages.first.text, contains('咖啡花了 28 元'));
@@ -161,6 +162,83 @@ void main() {
     },
   );
 
+  test('recording deep-link opens the whole daily flash session', () async {
+    final requested = <String>[];
+    final api = ApiClient(
+      baseUrl: 'http://test',
+      enableLogging: false,
+      client: MockClient((request) async {
+        requested.add(request.url.path);
+        if (request.url.path == '/api/flash/recordings/recording-2') {
+          return http.Response(
+            jsonEncode({
+              'recording': {
+                'id': 'recording-2',
+                'created_at': '2026-08-02T14:00:00Z',
+              },
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        if (request.url.path == '/api/flash/sessions/2026-08-02') {
+          return http.Response(
+            jsonEncode({
+              'session': {
+                'id': '2026-08-02',
+                'date': '2026-08-02',
+                'title': '8月2日 闪念',
+                'recordings': [
+                  {
+                    'id': 'recording-1',
+                    'process_status': 'done',
+                    'asr_text': '上午的闪念',
+                    'input_turn_id': 'turn-1',
+                    'result_summary': '已整理上午内容。',
+                    'result_cards': const [],
+                    'created_at': '2026-08-02T09:00:00Z',
+                  },
+                  {
+                    'id': 'recording-2',
+                    'process_status': 'done',
+                    'asr_text': '下午的闪念',
+                    'input_turn_id': 'turn-2',
+                    'result_summary': '已整理下午内容。',
+                    'result_cards': const [],
+                    'created_at': '2026-08-02T14:00:00Z',
+                  },
+                ],
+              },
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response('not found', 404);
+      }),
+    );
+    final controller = CaptureSessionController(api: api);
+    addTearDown(() {
+      controller.dispose();
+      api.close();
+    });
+
+    await controller.loadSession('recording-2');
+
+    expect(requested, [
+      '/api/flash/recordings/recording-2',
+      '/api/flash/sessions/2026-08-02',
+    ]);
+    expect(controller.sessionId, '2026-08-02');
+    expect(controller.displayTitle, '8月2日 闪念');
+    expect(controller.messages.map((message) => message.text), [
+      '上午的闪念',
+      '已整理上午内容。',
+      '下午的闪念',
+      '已整理下午内容。',
+    ]);
+  });
+
   test(
     'capture session lists history, deletes, and accepts typed input',
     () async {
@@ -171,12 +249,13 @@ void main() {
         client: MockClient((request) async {
           requested.add('${request.method} ${request.url.path}');
           if (request.method == 'GET' &&
-              request.url.path == '/api/flash/recordings') {
+              request.url.path == '/api/flash/sessions') {
             return http.Response(
               jsonEncode({
-                'recordings': [
+                'sessions': [
                   {
-                    'id': 'recording-1',
+                    'id': '2026-08-02',
+                    'date': '2026-08-02',
                     'title': '8月2日 闪念',
                     'created_at': '2026-08-02T13:43:21Z',
                   },
@@ -191,7 +270,7 @@ void main() {
           }
           if (request.method == 'POST' && request.url.path == '/api/flash') {
             final payload = jsonDecode(request.body) as Map<String, dynamic>;
-            expect(payload['session_id'], 'recording-1');
+            expect(payload['session_id'], '2026-08-02');
             expect(payload['source'], 'typed');
             return http.Response(
               jsonEncode({
@@ -216,7 +295,32 @@ void main() {
                   'input_turn_id': 'turn-2',
                   'result_summary': '已继续整理。',
                   'result_cards': const [],
+                  'session_date': '2026-08-02',
                   'created_at': '2026-08-02T14:00:00Z',
+                },
+              }),
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          if (request.method == 'GET' &&
+              request.url.path == '/api/flash/sessions/2026-08-02') {
+            return http.Response(
+              jsonEncode({
+                'session': {
+                  'id': '2026-08-02',
+                  'date': '2026-08-02',
+                  'recordings': [
+                    {
+                      'id': 'recording-2',
+                      'process_status': 'done',
+                      'asr_text': '继续整理',
+                      'input_turn_id': 'turn-2',
+                      'result_summary': '已继续整理。',
+                      'result_cards': const [],
+                      'created_at': '2026-08-02T14:00:00Z',
+                    },
+                  ],
                 },
               }),
               200,
@@ -231,17 +335,18 @@ void main() {
         controller.dispose();
         api.close();
       });
-      controller.sessionId = 'recording-1';
+      controller.sessionId = '2026-08-02';
 
       final sessions = await controller.listSessions();
-      expect(sessions.single.id, 'recording-1');
-      expect(await controller.deleteSession('recording-old'), isTrue);
+      expect(sessions.single.id, '2026-08-02');
+      expect(await controller.deleteSession('2026-08-01'), isTrue);
       await controller.send('继续整理');
 
-      expect(controller.sessionId, 'recording-2');
+      expect(controller.sessionId, '2026-08-02');
       expect(controller.messages.first.text, '继续整理');
       expect(controller.messages.last.text, '已继续整理。');
-      expect(requested, contains('GET /api/flash/recordings'));
+      expect(requested, contains('GET /api/flash/sessions'));
+      expect(requested, contains('DELETE /api/flash/sessions/2026-08-01'));
       expect(requested, contains('POST /api/flash'));
     },
   );

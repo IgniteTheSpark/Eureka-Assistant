@@ -14,6 +14,7 @@ from app.domains.assets.schemas import (
     EventCreate,
     EventUpdate,
     UserSkillCreate,
+    UserSkillUpdate,
 )
 from app.domains.triggers.service import on_asset_created
 
@@ -201,6 +202,8 @@ async def create_user_skill(
         description=command.description,
         domain=command.domain,
         schema_json=command.schema_definition,
+        render_spec_json=command.render_spec,
+        chat_starters_json=command.chat_starters,
     )
     session.add(skill)
     await session.flush()
@@ -230,6 +233,59 @@ async def get_user_skill(
             UserSkill.user_id == user_id,
         )
     )
+
+
+async def update_user_skill(
+    session: AsyncSession,
+    user_id: str,
+    skill_id: str,
+    command: UserSkillUpdate,
+) -> UserSkill | None:
+    skill = await get_user_skill(session, user_id, skill_id)
+    if skill is None:
+        return None
+    for field in ("display_name", "description", "domain"):
+        if field in command.model_fields_set:
+            setattr(skill, field, getattr(command, field))
+    if (
+        "schema_definition" in command.model_fields_set
+        and command.schema_definition is not None
+    ):
+        skill.schema_json = command.schema_definition
+    if "render_spec" in command.model_fields_set and command.render_spec is not None:
+        skill.render_spec_json = command.render_spec
+    if "chat_starters" in command.model_fields_set and command.chat_starters is not None:
+        skill.chat_starters_json = command.chat_starters
+    skill.updated_at = utc_now()
+    await session.flush()
+    return skill
+
+
+async def list_recent_manual_skill_names(
+    session: AsyncSession,
+    user_id: str,
+    *,
+    limit: int = 4,
+) -> list[str]:
+    rows = (
+        await session.execute(
+            select(UserSkill.machine_name, Asset.created_at)
+            .join(Asset, Asset.user_skill_id == UserSkill.id)
+            .where(UserSkill.user_id == user_id, Asset.user_id == user_id)
+            .order_by(Asset.created_at.desc(), Asset.id.desc())
+            .limit(100)
+        )
+    ).all()
+    names = []
+    seen = set()
+    for name, _ in rows:
+        if name in seen:
+            continue
+        seen.add(name)
+        names.append(name)
+        if len(names) == limit:
+            break
+    return names
 
 
 async def create_asset(
@@ -423,8 +479,19 @@ async def update_event(
         event.start_at = _utc_naive(command.start_at)
     if "end_at" in command.model_fields_set and command.end_at is not None:
         event.end_at = _utc_naive(command.end_at)
+    if "attendees" in command.model_fields_set and command.attendees is not None:
+        event.attendees = [
+            EventAttendee(
+                contact_id=attendee.contact_id,
+                name_raw=attendee.name.strip(),
+                role=attendee.role,
+            )
+            for attendee in command.attendees
+            if attendee.name.strip()
+        ]
     event.updated_at = utc_now()
     await session.flush()
+    _decorate_event(event)
     return event
 
 
