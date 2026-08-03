@@ -23,8 +23,8 @@
 2. **允许 Report Generator 自行联网（不采用）**：调用更少，但搜索过程无法作为
    独立阶段审计和重试，也会绕过 `optional / required /
    authoritative_only` 策略。
-3. **继续仅使用 Bocha/Tavily（保留为后备）**：现有实现不删除，但不作为本地
-   Theme V2 环境的首选配置。
+3. **保留多供应商切换层（不采用）**：当前环境没有 Bocha/Tavily 凭证，保留其
+   Provider、配置和测试只会扩大维护面，并让部署状态更难判断。
 
 ## 架构
 
@@ -45,15 +45,16 @@ Provider 直接使用 `httpx.AsyncClient` 调用 DeepSeek Responses API，不通
 和严格 JSON 输出，并未暴露 DeepSeek Responses 的服务端 `web_search` 工具及
 引用结构。
 
-现有 `ConfiguredWebSearchProvider` 继续负责 Bocha/Tavily。Worker Registry
-通过一个小型 Provider Factory 根据配置选择实现，Pipeline 不感知具体厂商。
+现有 `ConfiguredWebSearchProvider` 及其 Bocha/Tavily 适配逻辑删除。Worker
+Registry 只在联网开关启用时创建 `DeepSeekResponsesWebSearchProvider`；关闭时
+使用现有无联网路径。Pipeline 继续只依赖 `WebSearchProvider` 协议，不感知厂商。
 
 ## 配置
 
 增加以下环境变量：
 
 ```text
-REPORT_WEB_PROVIDER=deepseek | bocha | tavily | none
+REPORT_WEB_ENABLED=false | true
 REPORT_WEB_MODEL=deepseek-v4-flash
 REPORT_WEB_API_URL=https://api.deepseek.com
 REPORT_WEB_API_KEY=<optional>
@@ -61,17 +62,18 @@ REPORT_WEB_API_KEY=<optional>
 
 规则：
 
-- 默认 `REPORT_WEB_PROVIDER=none`，避免升级后意外产生联网调用和费用。
-- Theme V2 Docker 本地验收环境显式设置 `REPORT_WEB_PROVIDER=deepseek`。
+- 默认 `REPORT_WEB_ENABLED=false`，避免升级后意外产生联网调用和费用。
+- Theme V2 Docker 本地验收环境显式设置 `REPORT_WEB_ENABLED=true`。
 - `REPORT_WEB_API_KEY` 未设置时可回退到 `REPORT_PROVIDER_API_KEY`，允许同一个
   DeepSeek Key 同时服务 Report Planner、Generator 和 Search。
 - `REPORT_WEB_MODEL` 的默认值固定为 `deepseek-v4-flash`。不把
   `deepseek-chat` 或 V4 Pro 当作支持原生搜索的隐式别名。
-- Bocha/Tavily 的既有 Key 和 URL 配置保持兼容。
+- 删除 `BOCHA_API_KEY`、`BOCHA_API_URL`、`TAVILY_API_KEY`、
+  `TAVILY_API_URL` 及 Compose 中对应环境变量，不提供旧配置兼容层。
 
-Settings 提供 `report_web_available()` 和配置错误检查。`provider=deepseek`
-但缺少 Key、Model 或合法 URL 时，服务 Ready 检查明确报告配置错误；不会静默
-回退到另一个供应商。
+Settings 提供 `report_web_available()` 和配置错误检查。联网启用但缺少 Key、
+Model 或合法 URL 时，服务 Ready 检查明确报告配置错误；不会静默回退到其他
+供应商或假装处于无联网状态。
 
 ## 请求与来源归一化
 
@@ -130,8 +132,9 @@ Responses 成功但没有任何可验证 URL 时视为 Provider 错误：`option
 4. 超时、连接错误、可重试状态码、确定性 `4xx` 和畸形响应分类。
 5. 没有可验证 URL 时不得返回成功。
 6. Settings 默认关闭、Key 回退、非法配置与 Ready 检查。
-7. Worker Provider Factory 对 `deepseek / bocha / tavily / none` 的选择。
-8. 现有 Report Web Policy、Checkpoint、Pipeline 和 E2E 测试继续通过。
+7. Worker Registry 在开关启用/关闭时分别装配 DeepSeek Provider/无联网路径。
+8. Bocha/Tavily Provider、配置、Compose 环境变量和供应商测试全部移除。
+9. 现有 Report Web Policy、Checkpoint、Pipeline 和 E2E 测试继续通过。
 
 实现完成后用当前 DeepSeek Key 做一次最小真实 Contract Smoke Test，只记录状态、
 来源数量和 URL 域名，不输出 Key 或完整生成内容。随后在独立 Theme V2 Docker 中
@@ -142,13 +145,13 @@ Responses 成功但没有任何可验证 URL 时视为 Provider 错误：`option
 本地 Theme V2 Compose 显式启用：
 
 ```text
-REPORT_WEB_PROVIDER=deepseek
+REPORT_WEB_ENABLED=true
 REPORT_WEB_MODEL=deepseek-v4-flash
 ```
 
 Key 复用现有 `REPORT_PROVIDER_API_KEY`。如果 DeepSeek Search 不可用，将
-`REPORT_WEB_PROVIDER` 改为 `none` 可立即回到当前无联网的降级行为；也可改为
-`bocha` 或 `tavily` 使用现有 Provider。无需数据库迁移，也不影响已生成 Report。
+`REPORT_WEB_ENABLED` 改为 `false` 可立即回到当前无联网的降级行为。无需数据库
+迁移，也不影响已生成 Report。
 
 ## 完成标准
 
@@ -157,4 +160,5 @@ Key 复用现有 `REPORT_PROVIDER_API_KEY`。如果 DeepSeek Search 不可用，
 - Report 的 `spec_json` / generation context 继续保存来源和执行状态。
 - `optional` 搜索失败时报告仍完成；`required` 搜索失败时可重试。
 - Planner、Generator 仍不能自行调用 Web Search。
+- 代码库和 Theme V2 Compose 中不再存在 Bocha/Tavily 运行时配置或适配器。
 - 全量 Theme V2 Service 测试通过，现有移动端接口不变。
