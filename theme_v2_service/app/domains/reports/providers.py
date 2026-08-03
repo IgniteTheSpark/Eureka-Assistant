@@ -76,6 +76,11 @@ class WebSearchProvider(Protocol):
         ...
 
 
+class UnavailableWebSearchProvider:
+    async def search(self, queries: list[str]) -> list[WebSource]:
+        raise PermanentProviderError("report Web Search is not enabled")
+
+
 class IllustrationProvider(Protocol):
     async def generate(self, prompt: str) -> GeneratedImage:
         ...

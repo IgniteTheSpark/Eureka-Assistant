@@ -3,7 +3,12 @@ from datetime import datetime
 import httpx
 import pytest
 
-from app.domains.reports.providers import RetryableProviderError, WebSource
+from app.domains.reports import providers as report_providers
+from app.domains.reports.providers import (
+    PermanentProviderError,
+    RetryableProviderError,
+    WebSource,
+)
 from app.domains.reports.providers_web import ConfiguredWebSearchProvider
 from app.domains.reports.schemas import TimeRange
 from app.domains.reports.web_search import (
@@ -69,6 +74,13 @@ async def test_none_policy_never_calls_provider():
 
     assert provider.calls == 0
     assert execution.status == "not_requested"
+
+
+async def test_unavailable_provider_fails_without_network_access():
+    with pytest.raises(PermanentProviderError, match="not enabled"):
+        await report_providers.UnavailableWebSearchProvider().search(
+            ["safe query"]
+        )
 
 
 async def test_optional_failure_degrades_without_failing_report():
