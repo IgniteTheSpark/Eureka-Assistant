@@ -145,6 +145,47 @@ void main() {
     );
   });
 
+  testWidgets('floating dock uses semantic light and stable dark palettes', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const _PureThemeV2Host(
+        child: ThemeV2FloatingDock(
+          selectedIndex: 0,
+          onDestinationSelected: _noopIndex,
+        ),
+      ),
+    );
+
+    final lightMaterial = tester.widget<Material>(
+      find.byKey(ThemeV2FloatingDock.dockKey),
+    );
+    final lightShape = lightMaterial.shape! as RoundedRectangleBorder;
+    expect(lightMaterial.color, ThemeV2Tokens.light.surface);
+    expect(lightShape.borderRadius, BorderRadius.circular(18));
+    expect(lightShape.side.color, ThemeV2Tokens.light.border);
+    expect(lightShape.side.width, 1);
+
+    await tester.pumpWidget(
+      const _PureThemeV2Host(
+        brightness: Brightness.dark,
+        child: ThemeV2FloatingDock(
+          selectedIndex: 0,
+          onDestinationSelected: _noopIndex,
+        ),
+      ),
+    );
+
+    final darkMaterial = tester.widget<Material>(
+      find.byKey(ThemeV2FloatingDock.dockKey),
+    );
+    final darkShape = darkMaterial.shape! as RoundedRectangleBorder;
+    expect(darkMaterial.color, const Color(0xE8191E29));
+    expect(darkMaterial.shadowColor, Colors.black.withValues(alpha: 0.22));
+    expect(darkShape.borderRadius, BorderRadius.circular(20));
+    expect(darkShape.side, const BorderSide(color: Color(0xFF343B4A)));
+  });
+
   testWidgets('async primitives render loading and empty states', (
     tester,
   ) async {
@@ -270,17 +311,24 @@ class _TestHost extends StatelessWidget {
 }
 
 class _PureThemeV2Host extends StatelessWidget {
-  const _PureThemeV2Host({required this.child});
+  const _PureThemeV2Host({
+    required this.child,
+    this.brightness = Brightness.light,
+  });
 
   final Widget child;
+  final Brightness brightness;
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      theme: buildThemeV2Theme(Brightness.light),
-      home: MediaQuery(
-        data: const MediaQueryData(disableAnimations: true),
-        child: Scaffold(body: child),
+    return Theme(
+      data: buildThemeV2Theme(brightness),
+      child: Directionality(
+        textDirection: TextDirection.ltr,
+        child: MediaQuery(
+          data: const MediaQueryData(disableAnimations: true),
+          child: Scaffold(body: child),
+        ),
       ),
     );
   }

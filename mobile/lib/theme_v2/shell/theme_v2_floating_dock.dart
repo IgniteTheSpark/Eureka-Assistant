@@ -30,6 +30,7 @@ class ThemeV2FloatingDock extends StatelessWidget {
   Widget build(BuildContext context) {
     final bottom = MediaQuery.paddingOf(context).bottom;
     final dark = Theme.of(context).brightness == Brightness.dark;
+    final tokens = context.themeV2;
     return Align(
       alignment: Alignment.bottomCenter,
       child: Padding(
@@ -42,13 +43,15 @@ class ThemeV2FloatingDock extends StatelessWidget {
           child: Material(
             key: dockKey,
             elevation: 8,
-            shadowColor: Colors.black.withValues(alpha: 0.22),
-            color: dark ? const Color(0xE8191E29) : const Color(0xFF101319),
+            shadowColor: dark
+                ? Colors.black.withValues(alpha: 0.22)
+                : Colors.black.withValues(alpha: 0.12),
+            color: dark ? const Color(0xE8191E29) : tokens.surface,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(dark ? 20 : 18),
               side: dark
                   ? const BorderSide(color: Color(0xFF343B4A))
-                  : BorderSide.none,
+                  : BorderSide(color: tokens.border),
             ),
             clipBehavior: Clip.antiAlias,
             child: SizedBox(
