@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
     CHAR,
@@ -180,6 +180,38 @@ class CaptureTurn(Base):
     transcript: Mapped[str] = mapped_column(Text, nullable=False)
     source: Mapped[str] = mapped_column(String(32), nullable=False)
     provenance_json: Mapped[dict] = mapped_column(mysql.JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        mysql.DATETIME(fsp=6),
+        default=utc_now,
+        nullable=False,
+    )
+
+
+class FlashChatMessage(Base):
+    __tablename__ = "flash_chat_messages"
+    __table_args__ = (
+        CheckConstraint(
+            "role IN ('user', 'agent')",
+            name="ck_flash_chat_messages_role",
+        ),
+        CheckConstraint(
+            "status IN ('done', 'failed')",
+            name="ck_flash_chat_messages_status",
+        ),
+        Index(
+            "ix_flash_chat_messages_user_date_created",
+            "user_id",
+            "session_date",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(CHAR(36), primary_key=True, default=new_uuid)
+    user_id: Mapped[str] = mapped_column(CHAR(36), nullable=False)
+    session_date: Mapped[date] = mapped_column(mysql.DATE, nullable=False)
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="done", nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         mysql.DATETIME(fsp=6),
         default=utc_now,

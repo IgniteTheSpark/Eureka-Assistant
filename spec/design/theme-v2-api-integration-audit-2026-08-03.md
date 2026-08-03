@@ -15,6 +15,8 @@ Theme V2 的生产入口现已收敛到独立 Service 的 Core Record API。审�
 - Theme V2 手动创建联系人仍调用 `/api/contacts`；改为 `contact` Skill 的 Asset。
 - Theme V2 手动事件的参会人仍调用 `/events/{id}/attendees` 子资源；改为 Event Create / Patch 原子保存 `attendees`。
 - Theme V2 事件详情的编辑与联系人关联仍可能落入旧 attendee 子资源；改为 Core Event Patch，并复用 contact Skill Asset 选择器。
+- 每日 Flash Session 的输入框此前误用 `POST /api/flash`，把问题送进 Capture Agent；现改为独立的 Session 问答端点，读取当天闪念、用户资产和日程后回答，并持久化问答历史。
+- Theme V2 默认自由文本技能此前重复 provision `想法 / 随记 / 其他`；现统一为 `随记 (notes)`，迁移存量 Asset 与录音引用，并移除随记的标签字段。
 - 生产 Shell 已使用 `/api/notifications`，但休眠的 Reka Inbox fallback 仍默认读取旧 `/api/nudges*`；本次也将 fallback 改为通知适配，避免未来开启时重新引入 404。
 - `report_available`、`report_plan_ready` 通知没有完整跳转；改为创建或恢复 Report Run。
 - Planner 返回 Clarification 时 App 无回答入口；补齐回答和 `POST /decision`。
@@ -30,6 +32,7 @@ Theme V2 的生产入口现已收敛到独立 Service 的 Core Record API。审�
 | 文字闪念 | `POST /api/flash` | 已实现 |
 | 闪念详情 / 重试 | `/api/flash/recordings/{id}`、`/{id}/retry` | 已实现 |
 | 每日闪念 | `/api/flash/sessions`、`/{YYYY-MM-DD}` | 本次补齐 |
+| 每日闪念问答 | `/api/flash/sessions/{YYYY-MM-DD}/chat` | 已实现并持久化历史 |
 | 首页 / 日历闪念流 | `/api/flash/recordings` | 本次补齐日期和捕捉时间字段 |
 | Skill | `/api/user-skills`、`/draft`、`/{id}`、`/recent-manual` | 本次补齐 |
 | Asset | `/api/assets`、`/{id}` | 已实现并对齐 Create / Patch / Delete |
@@ -48,6 +51,7 @@ Theme V2 的生产入口现已收敛到独立 Service 的 Core Record API。审�
 - `/api/skills`
 - `/api/contacts`
 - `/api/sessions`
+- `/api/chat`（旧 Session Chat；Theme V2 每日闪念使用自己的问答端点）
 - `/api/asset-details/*`
 - `/api/events/{id}/attendees/*`
 - `/api/nudges*`
@@ -84,9 +88,9 @@ Phase 1 只使用独立 MySQL、API、Worker 和数据库 Job / Outbox；不要�
 
 ## 验收门槛
 
-- [x] 后端完整测试通过；容器测试进程退出码为 0。
-- [x] Flutter 完整测试通过（540 tests）；本次变更范围静态分析为 0 issue。
-- [x] 独立 Compose 重建、迁移到 `0009_user_skill_presentation (head)`，`/health` 与 `/ready` 通过。
+- [x] 后端完整测试通过（324 tests）；容器测试进程退出码为 0。
+- [x] Flutter 完整测试通过（543 tests）；本次变更范围静态分析为 0 issue。
+- [x] 独立 Compose 重建、迁移到 `0010_flash_chat_notes (head)`，API 容器 `/ready` 健康检查通过。
 - [x] OpenAPI 中存在审计要求的全部 Theme V2 路由，无缺失项。
 - [x] 真机安装强制开启 Theme V2 的 APK；首页、资产库、Skill Builder 启动正常，应用错误日志为空。
 - [ ] 在真机完成一次新的戒指录音，确认通知、每日 Session、Asset 和日历闪念同时出现。

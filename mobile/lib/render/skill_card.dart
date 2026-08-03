@@ -96,7 +96,13 @@ CardData resolveSkillCardData(
     ).copyWith(domain: card['domain'] as String?);
   }
   final type = card['card_type'] as String?;
-  if (type == 'event' || type == 'contact' || type == 'task') {
+  final contactSkillAsset =
+      type == 'contact' &&
+      card['asset_id'] != null &&
+      card['contact_id'] == null;
+  if (type == 'event' ||
+      (type == 'contact' && !contactSkillAsset) ||
+      type == 'task') {
     return buildCard(
       payload: card,
       spec: synthesizeSpec(type!),
@@ -120,11 +126,13 @@ AssetEntityRef? skillCardEntityRef(Map<String, dynamic> card) {
   final id = skillCardAssetId(card)?.trim();
   if (id == null || id.isEmpty) return null;
   return AssetEntityRef(
-    kind: switch (type) {
-      'event' => AssetEntityKind.event,
-      'contact' => AssetEntityKind.contact,
-      _ => AssetEntityKind.asset,
-    },
+    kind: card['asset_id'] != null && card['contact_id'] == null
+        ? AssetEntityKind.asset
+        : switch (type) {
+            'event' => AssetEntityKind.event,
+            'contact' => AssetEntityKind.contact,
+            _ => AssetEntityKind.asset,
+          },
     id: id,
   );
 }
@@ -135,7 +143,13 @@ void showSkillCardDetail(
 }) {
   final reference = skillCardEntityRef(card);
   if (reference == null) return;
-  unawaited(openAssetDetail(context, reference));
+  unawaited(
+    openAssetDetail(
+      context,
+      reference,
+      coreRecordsOnly: card['core_records_only'] == true,
+    ),
+  );
 }
 
 /// The universal render_spec-driven card (mirrors the web SkillCard). Resolves
@@ -234,6 +248,10 @@ class _SkillCardState extends ConsumerState<SkillCard> {
         final id = (card['event_id'] ?? card['id']) as String?;
         return id == null ? null : '/api/events/$id';
       case 'contact':
+        final assetId = card['asset_id'] as String?;
+        if (assetId != null && card['contact_id'] == null) {
+          return '/api/assets/$assetId';
+        }
         final id = (card['contact_id'] ?? card['id']) as String?;
         return id == null ? null : '/api/contacts/$id';
       case 'task':

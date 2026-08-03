@@ -14,7 +14,6 @@ RenderSpec themeV2AssetEditorSpec(String cardType, RenderSpec base) {
     ],
     'notes' || 'note' => const [
       ('title', '标题', 'string', true, false),
-      ('tags', '标签', 'array', false, false),
       ('body', '正文', 'string', false, true),
       ('domain', '领域', 'string', false, false),
     ],
@@ -40,15 +39,24 @@ RenderSpec themeV2AssetEditorSpec(String cardType, RenderSpec base) {
   if (definitions.isEmpty) return base;
 
   final systemFields = definitions.map((field) => field.$1).toList();
+  final hiddenFields = cardType == 'notes' || cardType == 'note'
+      ? const {'tags'}
+      : const <String>{};
   final fields = [
     ...systemFields,
     for (final field in base.schemaFields)
-      if (!systemFields.contains(field)) field,
+      if (!systemFields.contains(field) && !hiddenFields.contains(field)) field,
   ];
   final labels = Map<String, String>.from(base.fieldLabels);
   final types = Map<String, String>.from(base.fieldTypes);
   final required = Set<String>.from(base.requiredFields);
   final longs = Set<String>.from(base.longFields);
+  for (final field in hiddenFields) {
+    labels.remove(field);
+    types.remove(field);
+    required.remove(field);
+    longs.remove(field);
+  }
   for (final field in definitions) {
     labels[field.$1] = field.$2;
     types[field.$1] = field.$3;

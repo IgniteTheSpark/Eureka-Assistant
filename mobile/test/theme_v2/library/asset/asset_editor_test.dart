@@ -7,6 +7,22 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('notes editor removes the legacy tags field from its skill schema', () {
+    final spec = themeV2AssetEditorSpec(
+      'notes',
+      const RenderSpec(
+        cardLayout: 'horizontal',
+        icon: '✍️',
+        accentColor: 'amber',
+        schemaFields: ['title', 'content', 'tags'],
+        requiredFields: {'title', 'content', 'tags'},
+      ),
+    );
+
+    expect(spec.schemaFields, isNot(contains('tags')));
+    expect(spec.requiredFields, isNot(contains('tags')));
+  });
+
   testWidgets('system asset kinds expose their dedicated editor fields', (
     tester,
   ) async {

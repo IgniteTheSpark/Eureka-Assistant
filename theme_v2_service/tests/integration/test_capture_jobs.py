@@ -408,17 +408,13 @@ async def test_capture_job_creates_multiple_records_and_notification(session):
         "todo",
         "expense",
         "contact",
-        "idea",
         "notes",
-        "misc",
     ]
     assert {skill.machine_name for skill in skills} == {
         "todo",
         "expense",
         "contact",
-        "idea",
         "notes",
-        "misc",
     }
 
 

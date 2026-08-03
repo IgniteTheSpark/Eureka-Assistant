@@ -146,6 +146,26 @@ class CaptureSessionController extends ChangeNotifier
               : '闪念整理失败';
         }
       }
+      final chatMessages = (dailySession['chat_messages'] as List? ?? const [])
+          .whereType<Map>()
+          .map((item) => item.cast<String, dynamic>());
+      for (final item in chatMessages) {
+        final id = item['id']?.toString() ?? '';
+        final text = item['text']?.toString().trim() ?? '';
+        if (id.isEmpty || text.isEmpty) continue;
+        if (item['role'] == 'user') {
+          nextMessages.add(ChatMessage.user(id, text, inputTurnId: id));
+        } else {
+          final agent = ChatMessage.agent(id)
+            ..streaming = false
+            ..text = text;
+          agent.parts.add(TextPart(text));
+          if (item['status'] == 'failed') {
+            agent.parts.add(const ErrorPart('回答失败，请重试'));
+          }
+          nextMessages.add(agent);
+        }
+      }
       if (_disposed || revision != _loadRevision) return;
       messages
         ..clear()
@@ -189,7 +209,13 @@ class CaptureSessionController extends ChangeNotifier
         if (id.isEmpty) return _fallbackCard(reference);
         final event = (await _api.getJson('/api/events/$id') as Map)
             .cast<String, dynamic>();
-        return {...event, ...reference, 'event_id': id, 'card_type': 'event'};
+        return {
+          ...event,
+          ...reference,
+          'event_id': id,
+          'card_type': 'event',
+          'core_records_only': true,
+        };
       }
       if (kind == 'asset') {
         final id = reference['asset_id']?.toString() ?? '';
@@ -203,6 +229,7 @@ class CaptureSessionController extends ChangeNotifier
           'asset_id': id,
           'card_type': skill,
           'user_skill_name': skill,
+          'core_records_only': true,
         };
       }
     } catch (_) {
@@ -219,6 +246,7 @@ class CaptureSessionController extends ChangeNotifier
       ...reference,
       'card_type': event ? 'event' : skill,
       if (!event) 'user_skill_name': skill,
+      'core_records_only': true,
     };
   }
 
@@ -284,29 +312,44 @@ class CaptureSessionController extends ChangeNotifier
     final normalized = text.trim();
     if (normalized.isEmpty || streaming) return;
     final parentSessionId = sessionId;
+    if (parentSessionId == null || !_isSessionDate(parentSessionId)) {
+      error = '请先打开一个闪念 Session';
+      _notify();
+      return;
+    }
+    final localId = 'flash-chat-${DateTime.now().microsecondsSinceEpoch}';
+    final userMessage = ChatMessage.user(localId, normalized);
+    messages.add(userMessage);
     streaming = true;
     error = null;
     _notify();
     try {
-      final response = await _api.postJson('/api/flash', {
-        'text': normalized,
-        'source': 'typed',
-        if (parentSessionId != null && parentSessionId.isNotEmpty)
-          'session_id': parentSessionId,
-        'capture_session_type': 'follow_up',
-      });
-      final nextSessionId = response is Map
-          ? response['session_id']?.toString() ?? ''
-          : '';
-      if (nextSessionId.isEmpty) {
-        throw const FormatException('闪念续写响应格式不正确');
+      final response = await _api.postJson(
+        '/api/flash/sessions/$parentSessionId/chat',
+        {'user_text': normalized},
+      );
+      final body = (response as Map).cast<String, dynamic>();
+      final reply = body['reply']?.toString().trim() ?? '';
+      if (reply.isEmpty) {
+        throw const FormatException('闪念问答响应格式不正确');
       }
-      await loadSession(nextSessionId);
+      userMessage.inputTurnId = body['input_turn_id']?.toString();
+      final agent =
+          ChatMessage.agent(
+              body['message_id']?.toString() ?? '$localId-agent',
+              inputTurnId: userMessage.inputTurnId,
+            )
+            ..streaming = false
+            ..text = reply;
+      agent.parts.add(TextPart(reply));
+      messages.add(agent);
+      streaming = false;
+      error = null;
+      _notify();
     } catch (_) {
       streaming = false;
       error = '发送失败，请稍后重试';
       _notify();
-      rethrow;
     }
   }
 

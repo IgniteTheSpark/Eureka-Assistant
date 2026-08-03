@@ -12,6 +12,7 @@ from app.domains.notifications.models import OutboxEvent
 from app.domains.capture.agent import CaptureAgentResult, CaptureRecordCommand
 from app.domains.capture.jobs import capture_process_handler
 from app.domains.capture.models import CaptureRecording
+from app.domains.capture.chat import get_flash_chat_provider
 from app.domains.notifications.subscribers import SubscriberRegistry
 from app.jobs.registry import JobHandlerRegistry
 from app.jobs.runner import run_worker_once
@@ -463,6 +464,11 @@ async def test_s3_upload_rejects_malformed_shape(client, field, value):
     ("method", "path", "payload"),
     [
         ("POST", "/api/flash", {"text": "需要登录", "source": "typed"}),
+        (
+            "POST",
+            "/api/flash/sessions/2026-08-03/chat",
+            {"user_text": "今天有什么待办？"},
+        ),
         ("POST", "/api/flash/tencent-asr-sync-results", _sync_payload()),
         ("POST", "/api/flash/tencent-asr-s3-uploads", _s3_payload()),
         ("POST", "/api/flash/listening", {"state": "on"}),
@@ -530,7 +536,6 @@ async def test_text_flash_waits_for_durable_worker_result(client):
                     payload={
                         "title": "客户标签系统",
                         "content": "可以做一个客户标签系统",
-                        "tags": ["产品", "客户"],
                     },
                 )
             ],
@@ -575,6 +580,76 @@ async def test_text_flash_waits_for_durable_worker_result(client):
     assert status.status_code == 200
     assert status.json()["recording"]["process_status"] == "done"
     assert status.json()["recording"]["input_turn_id"] == body["input_turn_id"]
+
+
+async def test_daily_flash_session_chat_answers_and_persists(client):
+    token = await _registered_bound_card(
+        client,
+        "daily-chat@example.com",
+        "SN-001",
+    )
+    payload = {
+        **_sync_payload(),
+        "capture_started_at": "2026-08-03T01:00:00Z",
+        "capture_ended_at": "2026-08-03T01:00:08Z",
+        "asr_text": "今天要提交评审稿",
+    }
+    capture = await client.post(
+        "/api/flash/tencent-asr-sync-results",
+        headers=_headers(token),
+        json=payload,
+    )
+    assert capture.status_code == 200
+
+    class FakeFlashChatProvider:
+        def __init__(self):
+            self.calls = []
+
+        async def answer(self, **command):
+            self.calls.append(command)
+            return "今天有一项待办：提交评审稿。"
+
+    provider = FakeFlashChatProvider()
+    app.dependency_overrides[get_flash_chat_provider] = lambda: provider
+    try:
+        response = await client.post(
+            "/api/flash/sessions/2026-08-03/chat",
+            headers=_headers(token),
+            json={"user_text": "今天有什么待办？"},
+        )
+    finally:
+        app.dependency_overrides.pop(get_flash_chat_provider, None)
+
+    assert response.status_code == 200
+    assert response.json()["session_id"] == "2026-08-03"
+    assert response.json()["reply"] == "今天有一项待办：提交评审稿。"
+    assert response.json()["input_turn_id"]
+    assert response.json()["message_id"]
+    assert provider.calls[0]["question"] == "今天有什么待办？"
+    assert "今天要提交评审稿" in provider.calls[0]["context"]
+
+    daily = await client.get(
+        "/api/flash/sessions/2026-08-03",
+        headers=_headers(token),
+    )
+    assert daily.status_code == 200
+    messages = daily.json()["session"]["chat_messages"]
+    assert [(message["role"], message["text"]) for message in messages] == [
+        ("user", "今天有什么待办？"),
+        ("agent", "今天有一项待办：提交评审稿。"),
+    ]
+
+
+async def test_daily_flash_session_chat_rejects_missing_session(client):
+    token = await _register(client, "missing-daily-chat@example.com")
+
+    response = await client.post(
+        "/api/flash/sessions/2026-08-03/chat",
+        headers=_headers(token),
+        json={"user_text": "今天有什么待办？"},
+    )
+
+    assert response.status_code == 404
 
 
 async def test_capture_recording_archive_can_be_listed_and_deleted(client, monkeypatch):

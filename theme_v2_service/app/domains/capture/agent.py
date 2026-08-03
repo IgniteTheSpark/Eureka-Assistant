@@ -12,9 +12,7 @@ BASELINE_CAPTURE_SKILL_NAMES = {
     "todo",
     "expense",
     "contact",
-    "idea",
     "notes",
-    "misc",
 }
 
 

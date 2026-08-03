@@ -11,11 +11,19 @@ from app.db.session import get_session, session_scope
 from app.domains.capture import service
 from app.domains.capture.schemas import (
     CaptureAcceptance,
+    FlashChatRequest,
+    FlashChatResponse,
     FlashRequest,
     FlashResponse,
     ListeningRequest,
     TencentAsrS3UploadRequest,
     TencentAsrSyncResultRequest,
+)
+from app.domains.capture.chat import (
+    FlashChatProvider,
+    PermanentFlashChatError,
+    RetryableFlashChatError,
+    get_flash_chat_provider,
 )
 from app.domains.notifications.subscribers import (
     SubscriberFrame,
@@ -167,6 +175,72 @@ async def get_flash_session(
     if result is None:
         raise HTTPException(status_code=404, detail="flash session not found")
     return {"session": result}
+
+
+@router.post(
+    "/flash/sessions/{session_date}/chat",
+    response_model=FlashChatResponse,
+)
+async def chat_with_flash_session(
+    session_date: date,
+    command: FlashChatRequest,
+    user_id: str = Depends(get_current_user_id),
+    provider: FlashChatProvider = Depends(get_flash_chat_provider),
+):
+    settings = get_settings()
+    async with session_scope() as session:
+        context = await service.build_flash_chat_context(
+            session,
+            user_id,
+            session_date,
+            timezone_name=settings.default_user_timezone,
+        )
+        if context is None:
+            raise HTTPException(status_code=404, detail="flash session not found")
+        history_models = await service.list_flash_chat_messages(
+            session,
+            user_id,
+            session_date,
+        )
+        history = [
+            {"role": message.role, "text": message.text}
+            for message in history_models
+            if message.status == "done"
+        ]
+        user_message = await service.create_flash_chat_message(
+            session,
+            user_id,
+            session_date,
+            role="user",
+            text=command.user_text,
+        )
+
+    try:
+        reply = await provider.answer(
+            session_date=session_date.isoformat(),
+            context=context,
+            history=history,
+            question=command.user_text,
+        )
+    except RetryableFlashChatError as exc:
+        raise HTTPException(status_code=503, detail="session assistant unavailable") from exc
+    except PermanentFlashChatError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    async with session_scope() as session:
+        agent_message = await service.create_flash_chat_message(
+            session,
+            user_id,
+            session_date,
+            role="agent",
+            text=reply,
+        )
+    return FlashChatResponse(
+        session_id=session_date.isoformat(),
+        input_turn_id=user_message.id,
+        message_id=agent_message.id,
+        reply=reply,
+    )
 
 
 @router.delete("/flash/sessions/{session_date}")

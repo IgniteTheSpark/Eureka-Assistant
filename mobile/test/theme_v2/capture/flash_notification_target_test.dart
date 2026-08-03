@@ -4,6 +4,8 @@ import 'package:eureka/api/api_client.dart';
 import 'package:eureka/chat/chat_models.dart';
 import 'package:eureka/pages/session_detail_page.dart';
 import 'package:eureka/render/render_spec.dart';
+import 'package:eureka/render/skill_card.dart';
+import 'package:eureka/theme_v2/asset_detail/asset_entity_ref.dart';
 import 'package:eureka/theme_v2/capture/capture_session_controller.dart';
 import 'package:eureka/theme_v2/capture/capture_session_page.dart';
 import 'package:eureka/theme_v2/capture/flash_notification_target.dart';
@@ -12,6 +14,23 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 void main() {
+  test('contact skill asset cards open through the asset API', () {
+    final card = {
+      'card_type': 'contact',
+      'asset_id': 'contact-asset-1',
+      'user_skill_name': 'contact',
+      'payload': {'name': 'Kevin', 'company': '谷歌'},
+    };
+    final reference = skillCardEntityRef(card);
+    final data = resolveSkillCardData(card, {
+      'contact': synthesizeSpec('contact'),
+    });
+
+    expect(reference?.kind, AssetEntityKind.asset);
+    expect(reference?.id, 'contact-asset-1');
+    expect(data.title, 'Kevin');
+  });
+
   test('Theme V2 library deep-link resolves to its recording session', () {
     const recordingId = 'd727c76c-2d36-4b1f-8507-7f84c5a3e242';
     const link = '/library?recording_id=$recordingId';
@@ -208,6 +227,22 @@ void main() {
                     'created_at': '2026-08-02T14:00:00Z',
                   },
                 ],
+                'chat_messages': [
+                  {
+                    'id': 'chat-user-1',
+                    'role': 'user',
+                    'text': '今天有什么待办？',
+                    'status': 'done',
+                    'created_at': '2026-08-02T14:10:00Z',
+                  },
+                  {
+                    'id': 'chat-agent-1',
+                    'role': 'agent',
+                    'text': '今天有一项待办：提交评审稿。',
+                    'status': 'done',
+                    'created_at': '2026-08-02T14:10:01Z',
+                  },
+                ],
               },
             }),
             200,
@@ -236,6 +271,8 @@ void main() {
       '已整理上午内容。',
       '下午的闪念',
       '已整理下午内容。',
+      '今天有什么待办？',
+      '今天有一项待办：提交评审稿。',
     ]);
   });
 
@@ -268,36 +305,17 @@ void main() {
           if (request.method == 'DELETE') {
             return http.Response('{}', 200);
           }
-          if (request.method == 'POST' && request.url.path == '/api/flash') {
+          if (request.method == 'POST' &&
+              request.url.path == '/api/flash/sessions/2026-08-02/chat') {
             final payload = jsonDecode(request.body) as Map<String, dynamic>;
-            expect(payload['session_id'], '2026-08-02');
-            expect(payload['source'], 'typed');
+            expect(payload['user_text'], '今天有什么待办？');
             return http.Response(
               jsonEncode({
                 'ok': true,
-                'session_id': 'recording-2',
-                'input_turn_id': 'turn-2',
-                'summary': '已继续整理。',
-                'cards': const [],
-              }),
-              200,
-              headers: {'content-type': 'application/json'},
-            );
-          }
-          if (request.method == 'GET' &&
-              request.url.path == '/api/flash/recordings/recording-2') {
-            return http.Response(
-              jsonEncode({
-                'recording': {
-                  'id': 'recording-2',
-                  'process_status': 'done',
-                  'asr_text': '继续整理',
-                  'input_turn_id': 'turn-2',
-                  'result_summary': '已继续整理。',
-                  'result_cards': const [],
-                  'session_date': '2026-08-02',
-                  'created_at': '2026-08-02T14:00:00Z',
-                },
+                'session_id': '2026-08-02',
+                'input_turn_id': 'chat-user-1',
+                'message_id': 'chat-agent-1',
+                'reply': '今天有一项待办：提交评审稿。',
               }),
               200,
               headers: {'content-type': 'application/json'},
@@ -340,14 +358,40 @@ void main() {
       final sessions = await controller.listSessions();
       expect(sessions.single.id, '2026-08-02');
       expect(await controller.deleteSession('2026-08-01'), isTrue);
-      await controller.send('继续整理');
+      await controller.send('今天有什么待办？');
 
       expect(controller.sessionId, '2026-08-02');
-      expect(controller.messages.first.text, '继续整理');
-      expect(controller.messages.last.text, '已继续整理。');
+      expect(controller.messages.first.text, '今天有什么待办？');
+      expect(controller.messages.last.text, '今天有一项待办：提交评审稿。');
       expect(requested, contains('GET /api/flash/sessions'));
       expect(requested, contains('DELETE /api/flash/sessions/2026-08-01'));
-      expect(requested, contains('POST /api/flash'));
+      expect(requested, contains('POST /api/flash/sessions/2026-08-02/chat'));
     },
   );
+
+  test('capture session reports chat failures without throwing', () async {
+    final api = ApiClient(
+      baseUrl: 'http://test',
+      enableLogging: false,
+      client: MockClient((request) async {
+        if (request.method == 'POST' &&
+            request.url.path == '/api/flash/sessions/2026-08-02/chat') {
+          return http.Response('upstream unavailable', 503);
+        }
+        return http.Response('not found', 404);
+      }),
+    );
+    final controller = CaptureSessionController(api: api);
+    addTearDown(() {
+      controller.dispose();
+      api.close();
+    });
+    controller.sessionId = '2026-08-02';
+
+    await controller.send('今天有什么待办？');
+
+    expect(controller.streaming, isFalse);
+    expect(controller.error, '发送失败，请稍后重试');
+    expect(controller.messages.single.text, '今天有什么待办？');
+  });
 }

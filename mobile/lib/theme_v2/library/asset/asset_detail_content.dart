@@ -404,6 +404,9 @@ List<String> _orderedFields(AssetDetailController controller) {
   final available = declared.isEmpty
       ? <String>{...controller.payload.keys}
       : <String>{...declared};
+  if (controller.cardType == 'notes' || controller.cardType == 'note') {
+    available.remove('tags');
+  }
   final priority = switch (controller.cardType) {
     'todo' => const [
       'title',
@@ -413,7 +416,7 @@ List<String> _orderedFields(AssetDetailController controller) {
       'notes',
       'status',
     ],
-    'notes' || 'note' => const ['title', 'tags', 'body', 'content', 'domain'],
+    'notes' || 'note' => const ['title', 'body', 'content', 'domain'],
     'event' => const [
       'title',
       'start_at',

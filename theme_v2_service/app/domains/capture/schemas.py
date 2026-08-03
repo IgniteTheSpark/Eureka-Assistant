@@ -144,5 +144,25 @@ class FlashResponse(BaseModel):
     error: str = ""
 
 
+class FlashChatRequest(BaseModel):
+    user_text: str = Field(min_length=1, max_length=4000)
+
+    @field_validator("user_text")
+    @classmethod
+    def strip_user_text(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("user_text must not be blank")
+        return cleaned
+
+
+class FlashChatResponse(BaseModel):
+    ok: bool = True
+    session_id: str
+    input_turn_id: str
+    message_id: str
+    reply: str
+
+
 class ListeningRequest(BaseModel):
     state: Literal["on", "off"]

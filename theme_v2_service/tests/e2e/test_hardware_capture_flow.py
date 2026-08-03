@@ -224,9 +224,10 @@ async def test_complete_hardware_capture_workflow_uses_theme_v2_only(client):
         "todo",
         "expense",
         "contact",
-        "idea",
         "notes",
-        "misc",
+    }
+    assert not {"idea", "misc"} & {
+        skill["machine_name"] for skill in skills.json()
     }
     assert [asset["payload"]["amount"] for asset in assets.json()] == [28]
     assert [event["title"] for event in events.json()] == ["项目会"]

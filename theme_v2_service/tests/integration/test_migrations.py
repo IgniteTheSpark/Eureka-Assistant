@@ -51,6 +51,7 @@ def test_foundation_migration_round_trip_and_physical_types():
         "capture_files",
         "capture_recordings",
         "capture_turns",
+        "flash_chat_messages",
     }.issubset(set(inspector.get_table_names()))
 
     asset_columns = {column["name"]: column for column in inspector.get_columns("assets")}
@@ -67,5 +68,5 @@ def test_foundation_migration_round_trip_and_physical_types():
 
     with engine.connect() as connection:
         revision = connection.scalar(text("SELECT version_num FROM alembic_version"))
-    assert revision == "0009_user_skill_presentation"
+    assert revision == "0010_flash_chat_notes"
     engine.dispose()

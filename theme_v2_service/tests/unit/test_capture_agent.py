@@ -28,12 +28,13 @@ async def test_baseline_capture_skills_are_idempotent(session):
         "todo",
         "expense",
         "contact",
-        "idea",
         "notes",
-        "misc",
     ]
     assert [skill.id for skill in second] == [skill.id for skill in first]
     assert all(skill.schema_json["x-capture-enabled"] is True for skill in first)
+    notes = next(skill for skill in first if skill.machine_name == "notes")
+    assert "tags" not in notes.schema_json["properties"]
+    assert notes.schema_json["required"] == ["title", "content"]
 
 
 def _skill(
@@ -234,6 +235,9 @@ async def test_provider_marks_transcript_untrusted_and_requests_strict_json():
     ][0]["content"]
     assert "attendees" in calls[0]["messages"][0]["content"]
     assert "participant-only phrases" in calls[0]["messages"][0]["content"]
+    assert "free-form content must use the notes skill" in calls[0]["messages"][0][
+        "content"
+    ]
     transcript_message = calls[0]["messages"][-1]["content"]
     assert "BEGIN_UNTRUSTED_TRANSCRIPT" in transcript_message
     assert transcript in transcript_message

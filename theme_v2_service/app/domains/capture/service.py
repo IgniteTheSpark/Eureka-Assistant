@@ -1,4 +1,5 @@
 import asyncio
+import json
 import time
 from dataclasses import dataclass
 from datetime import date, datetime, time as datetime_time, timedelta, timezone
@@ -9,9 +10,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import new_uuid, utc_now
 from app.config import get_settings
-from app.db.models import WorkflowJob
+from app.db.models import Asset, Event, UserSkill, WorkflowJob
 from app.db.session import AsyncSessionFactory
-from app.domains.capture.models import CaptureFile, CaptureRecording, CaptureTurn
+from app.domains.capture.models import (
+    CaptureFile,
+    CaptureRecording,
+    CaptureTurn,
+    FlashChatMessage,
+)
 from app.domains.capture.schemas import (
     TencentAsrS3UploadRequest,
     TencentAsrSyncResultRequest,
@@ -659,6 +665,20 @@ async def wait_for_recording(
     return latest, int((time.monotonic() - started) * 1000)
 
 
+def _display_result_summary(recording: CaptureRecording) -> str:
+    summary = recording.result_summary or ""
+    references = recording.result_records_json or []
+    migrated_to_notes = any(
+        reference.get("kind") == "asset"
+        and reference.get("skill_machine_name") == "notes"
+        for reference in references
+        if isinstance(reference, dict)
+    )
+    if migrated_to_notes:
+        return summary.replace("已记为其他类型", "已记为随记")
+    return summary
+
+
 def flash_response_payload(
     result: RecordingResult,
     *,
@@ -679,7 +699,7 @@ def flash_response_payload(
             cards.append({**reference, "card_type": "event"})
     pending = recording.process_status not in {"done", "empty", "failed"}
     failed = recording.process_status == "failed"
-    summary = recording.result_summary or ""
+    summary = _display_result_summary(recording)
     return {
         "ok": not failed,
         "session_id": recording.id,
@@ -785,7 +805,7 @@ def recording_payload(result: RecordingResult) -> dict:
             "asr_error": recording.asr_error or "",
             "session_id": recording.id,
             "input_turn_id": result.turn.id if result.turn is not None else None,
-            "result_summary": recording.result_summary or "",
+            "result_summary": _display_result_summary(recording),
             "result_cards": recording.result_records_json or [],
             "session_date": _local_capture_date(
                 recording,
@@ -880,14 +900,158 @@ async def get_daily_session(
             select(CaptureTurn).where(CaptureTurn.recording_id == recording.id)
         )
         results.append(RecordingResult(recording=recording, file=file, turn=turn))
+    chat_messages = await list_flash_chat_messages(session, user_id, local_date)
     return {
         "id": local_date.isoformat(),
         "date": local_date.isoformat(),
         "title": f"{local_date.month}月{local_date.day}日 闪念",
         "created_at": min(_recording_timestamp(row) for row in recordings),
-        "updated_at": max(row.updated_at for row in recordings),
+        "updated_at": max(
+            [row.updated_at for row in recordings]
+            + [message.created_at for message in chat_messages]
+        ),
         "recordings": [_recording_detail_item(result) for result in results],
+        "chat_messages": [flash_chat_message_payload(item) for item in chat_messages],
     }
+
+
+async def list_flash_chat_messages(
+    session: AsyncSession,
+    user_id: str,
+    local_date: date,
+    *,
+    limit: int = 40,
+) -> list[FlashChatMessage]:
+    messages = list(
+        await session.scalars(
+            select(FlashChatMessage)
+            .where(
+                FlashChatMessage.user_id == user_id,
+                FlashChatMessage.session_date == local_date,
+            )
+            .order_by(FlashChatMessage.created_at.desc(), FlashChatMessage.id.desc())
+            .limit(limit)
+        )
+    )
+    messages.reverse()
+    return messages
+
+
+def flash_chat_message_payload(message: FlashChatMessage) -> dict:
+    return {
+        "id": message.id,
+        "role": message.role,
+        "text": message.text,
+        "status": message.status,
+        "created_at": message.created_at,
+    }
+
+
+async def create_flash_chat_message(
+    session: AsyncSession,
+    user_id: str,
+    local_date: date,
+    *,
+    role: str,
+    text: str,
+    status: str = "done",
+) -> FlashChatMessage:
+    message = FlashChatMessage(
+        user_id=user_id,
+        session_date=local_date,
+        role=role,
+        text=text.strip(),
+        status=status,
+    )
+    session.add(message)
+    await session.flush()
+    return message
+
+
+def _json_value(value):
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=timezone.utc).isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    raise TypeError(f"unsupported context value: {type(value).__name__}")
+
+
+async def build_flash_chat_context(
+    session: AsyncSession,
+    user_id: str,
+    local_date: date,
+    *,
+    timezone_name: str,
+) -> str | None:
+    daily = await get_daily_session(
+        session,
+        user_id,
+        local_date,
+        timezone_name=timezone_name,
+    )
+    if daily is None:
+        return None
+
+    skill_rows = list(
+        await session.scalars(select(UserSkill).where(UserSkill.user_id == user_id))
+    )
+    skill_by_id = {skill.id: skill for skill in skill_rows}
+    assets = list(
+        await session.scalars(
+            select(Asset)
+            .where(Asset.user_id == user_id)
+            .order_by(Asset.created_at.desc(), Asset.id.desc())
+            .limit(200)
+        )
+    )
+    events = list(
+        await session.scalars(
+            select(Event)
+            .where(Event.user_id == user_id)
+            .order_by(Event.start_at.desc(), Event.id.desc())
+            .limit(100)
+        )
+    )
+    context = {
+        "session_date": local_date,
+        "captures": [
+            {
+                "transcript": item.get("asr_text", ""),
+                "summary": item.get("result_summary", ""),
+                "records": item.get("result_cards", []),
+                "captured_at": item.get("created_at"),
+            }
+            for item in daily["recordings"]
+        ],
+        "assets": [
+            {
+                "id": asset.id,
+                "type": (
+                    skill_by_id[asset.user_skill_id].machine_name
+                    if asset.user_skill_id in skill_by_id
+                    else "asset"
+                ),
+                "payload": asset.payload_json,
+                "effective_at": asset.effective_at,
+                "created_at": asset.created_at,
+            }
+            for asset in assets
+        ],
+        "events": [
+            {
+                "id": event.id,
+                "title": event.title,
+                "description": event.description,
+                "location": event.location,
+                "start_at": event.start_at,
+                "end_at": event.end_at,
+                "status": event.status,
+                "attendees": [item.name_raw for item in event.attendees],
+            }
+            for event in events
+        ],
+    }
+    return json.dumps(context, ensure_ascii=False, default=_json_value)
 
 
 async def delete_daily_session(
@@ -917,6 +1081,12 @@ async def delete_daily_session(
     )
     for recording_id in recording_ids:
         await delete_recording(session, user_id, recording_id)
+    await session.execute(
+        delete(FlashChatMessage).where(
+            FlashChatMessage.user_id == user_id,
+            FlashChatMessage.session_date == local_date,
+        )
+    )
     return len(recording_ids)
 
 
