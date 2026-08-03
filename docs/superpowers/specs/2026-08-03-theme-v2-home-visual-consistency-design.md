@@ -92,6 +92,19 @@
 - 保留当前球体图标随球体姿态转动的实现，不把图标强制保持垂直。
 - 开启 Reduce Motion 时使用稳定静态布局，仍保留水印和可点击的最小 44px 目标。
 
+### 容量与第 51 个球
+
+- 当天真实生成总数不设 50 的展示上限，水印始终使用 `poolTrueCount`。
+- 物理世界最多保留最新的 50 个资产；第 51 个资产进入时，淘汰当前可视集合中
+  `createdAt` 最早的资产。资产只退出球池，不从资产库删除。
+- 被淘汰球先从物理世界移除，原位置留下一个不参与碰撞的视觉快照；快照在约
+  `260ms` 内向下轻移、缩小并淡出。新球同时从顶部开口落入，因此物理 Body 始终
+  不超过 50 个。
+- 如果待淘汰球正在被拖动，替换延后到用户松手，避免资产在手指下消失。
+- 一次刷新产生多个新资产时，按 `createdAt` 由旧到新确定退场集合；退场残影可短暂
+  错峰，但最终可视集合严格等于最新 50 个资产。
+- Reduce Motion、页面不活跃或 App 位于后台时不播放退场动画，直接稳定替换。
+
 ## 资产图标统一
 
 首页不再维护 `_assetIcon` 和 `_agendaAssetIcon` 两套临时 Material Icon 映射。
@@ -157,13 +170,15 @@ Canonical Skill Resolver 获取图标：
 2. 411px、360px 下页面留白、滚动和 Dock Clearance 不重叠。
 3. 球体从舱体上边缘生成，仍具有碰撞、重力、拖动、点击和转动。
 4. Reduce Motion、页面非活动状态和前后台切换不会持续运行物理 Ticker。
-5. 内置、别名、自定义和未知资产类型均解析到唯一 Canonical Glyph；expense 为
+5. 第 51 个资产进入时淘汰最老的可视资产，水印显示真实总数；退场残影不参与
+   碰撞，拖动中的球不会在手指下消失。
+6. 内置、别名、自定义和未知资产类型均解析到唯一 Canonical Glyph；expense 为
    `💳`，不再出现餐饮图标。
-6. 今日、日历、资产库根页面都使用相同的标题样式和水平位置。
-7. Dock 今日入口在选中/未选中状态使用 Home 图标并保留 Semantics。
-8. 更新 Home、Calendar、Library 的 411 Light/Dark Golden，并覆盖 360px 首页。
-9. Flutter Analyze 和相关 Widget/Golden 测试通过。
-10. 在连接的 Android 真机上验收三 Tab 标题、Dock 间距、球体下落/碰撞/转动以及
+7. 今日、日历、资产库根页面都使用相同的标题样式和水平位置。
+8. Dock 今日入口在选中/未选中状态使用 Home 图标并保留 Semantics。
+9. 更新 Home、Calendar、Library 的 411 Light/Dark Golden，并覆盖 360px 首页。
+10. Flutter Analyze 和相关 Widget/Golden 测试通过。
+11. 在连接的 Android 真机上验收三 Tab 标题、Dock 间距、球体下落/碰撞/转动以及
     资产打开流程。
 
 ## 非目标
