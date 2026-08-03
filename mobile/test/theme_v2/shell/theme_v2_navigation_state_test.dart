@@ -174,26 +174,40 @@ void main() {
     expect(find.byType(ThemeV2GlobalTopNav), findsOneWidget);
   });
 
-  testWidgets('production shell mounts Today-only Theme V2 Home', (
+  testWidgets('production Today exposes top navigation and floating dock', (
     tester,
   ) async {
+    var deviceTaps = 0;
+    var notificationTaps = 0;
     await tester.pumpWidget(
-      const _ThemeHost(
-        child: ThemeV2AppShell(initialIndex: 0, showStartupOverlays: false),
+      _ThemeHost(
+        child: ThemeV2AppShell(
+          initialIndex: 0,
+          showStartupOverlays: false,
+          deviceStatus: const DeviceStatusSummary.disconnected(),
+          onDevicePressed: () => deviceTaps++,
+          onNotificationsPressed: () => notificationTaps++,
+        ),
       ),
     );
     await tester.pump();
 
     expect(find.byType(ThemeV2HomePage), findsOneWidget);
-    expect(find.byType(ThemeV2GlobalTopNav), findsNothing);
+    expect(find.byType(ThemeV2GlobalTopNav), findsOneWidget);
     expect(find.byKey(ThemeV2FloatingDock.dockKey), findsOneWidget);
     expect(find.text('目标'), findsNothing);
+
+    await tester.tap(find.bySemanticsLabel('设备：未连接'));
+    await tester.tap(find.bySemanticsLabel('通知'));
+    expect(deviceTaps, 1);
+    expect(notificationTaps, 1);
+    expect(tester.takeException(), isNull);
 
     await tester.tap(find.bySemanticsLabel('日历'));
     await tester.pump();
     await tester.tap(find.bySemanticsLabel('今日'));
     await tester.pump();
-    expect(find.byType(ThemeV2HomePage), findsOneWidget);
+    expect(find.byType(ThemeV2GlobalTopNav), findsOneWidget);
   });
 
   testWidgets('Schedule hides the dock and Day Detail restores it', (
