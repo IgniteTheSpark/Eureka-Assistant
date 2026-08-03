@@ -91,12 +91,14 @@ if _settings.report_pipeline_enabled and _settings.report_generator_model:
     from pathlib import Path
 
     from app.domains.reports.pipeline import report_pipeline_handler
+    from app.domains.reports.provider_factory import (
+        build_report_web_search_provider,
+    )
     from app.domains.reports.providers import UnavailableIllustrationProvider
     from app.domains.reports.providers_image import (
         OpenAICompatibleIllustrationProvider,
     )
     from app.domains.reports.providers_litellm import LiteLLMGeneratorProvider
-    from app.domains.reports.providers_web import ConfiguredWebSearchProvider
     from app.domains.reports.storage import LocalStorage
     from app.domains.reports.templates import get_template_registry
 
@@ -121,13 +123,9 @@ if _settings.report_pipeline_enabled and _settings.report_generator_model:
                     api_key=_settings.report_provider_api_key,
                     timeout_seconds=_settings.report_provider_timeout_seconds,
                 ),
-                web_search=ConfiguredWebSearchProvider(
-                    client=client,
-                    bocha_api_key=_settings.bocha_api_key,
-                    bocha_endpoint=_settings.bocha_api_url,
-                    tavily_api_key=_settings.tavily_api_key,
-                    tavily_endpoint=_settings.tavily_api_url,
-                    timeout_seconds=_settings.report_web_timeout_seconds,
+                web_search=build_report_web_search_provider(
+                    _settings,
+                    client,
                 ),
                 illustration=illustration,
                 registry=get_template_registry(),

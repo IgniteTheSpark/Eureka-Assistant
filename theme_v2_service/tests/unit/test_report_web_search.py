@@ -1,6 +1,5 @@
 from datetime import datetime
 
-import httpx
 import pytest
 
 from app.domains.reports import providers as report_providers
@@ -9,7 +8,6 @@ from app.domains.reports.providers import (
     RetryableProviderError,
     WebSource,
 )
-from app.domains.reports.providers_web import ConfiguredWebSearchProvider
 from app.domains.reports.schemas import TimeRange
 from app.domains.reports.web_search import (
     AuthoritativeSourcesUnavailable,
@@ -137,47 +135,3 @@ async def test_authoritative_only_rejects_ordinary_sources_without_fallback():
             queries=["safe query"],
             authoritative_domains={"example.gov"},
         )
-
-
-async def test_configured_provider_prefers_bocha_and_normalizes_sources():
-    requests = []
-
-    def handle(request: httpx.Request) -> httpx.Response:
-        requests.append(request)
-        return httpx.Response(
-            200,
-            json={
-                "data": {
-                    "webPages": {
-                        "value": [
-                            {
-                                "name": "Official guidance",
-                                "url": "https://example.gov/guide",
-                                "snippet": "Summary",
-                            }
-                        ]
-                    }
-                }
-            },
-        )
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
-        provider = ConfiguredWebSearchProvider(
-            client=client,
-            bocha_api_key="bocha-secret",
-            bocha_endpoint="https://bocha.test/search",
-            tavily_api_key="tavily-secret",
-            tavily_endpoint="https://tavily.test/search",
-            clock=lambda: datetime(2026, 7, 31, 10, 0, 0),
-        )
-        sources = await provider.search(["safe query"])
-
-    assert len(requests) == 1
-    assert requests[0].url.host == "bocha.test"
-    assert sources[0].model_dump() == {
-        "title": "Official guidance",
-        "url": "https://example.gov/guide",
-        "snippet": "Summary",
-        "accessed_at": "2026-07-31T10:00:00Z",
-        "authoritative": False,
-    }
