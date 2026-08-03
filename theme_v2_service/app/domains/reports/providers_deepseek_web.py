@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -71,7 +72,11 @@ class DeepSeekResponsesWebSearchProvider:
                 headers={"Authorization": f"Bearer {self.api_key}"},
                 json={
                     "model": self.model,
-                    "input": query,
+                    "input": (
+                        "Search the public web for the following topic. "
+                        "Return a concise answer with verifiable URL citations. "
+                        f"Topic: {query}"
+                    ),
                     "tools": [{"type": "web_search"}],
                     "tool_choice": {"type": "web_search"},
                 },
@@ -129,6 +134,13 @@ class DeepSeekResponsesWebSearchProvider:
         action = item.get("action")
         sources = action.get("sources") if isinstance(action, dict) else None
         candidates = []
+        action_url = (
+            _valid_url(action.get("url")) if isinstance(action, dict) else None
+        )
+        if action_url:
+            candidates.append(
+                (urlparse(action_url).hostname or action_url, action_url, "")
+            )
         for source in sources if isinstance(sources, list) else []:
             if not isinstance(source, dict):
                 continue

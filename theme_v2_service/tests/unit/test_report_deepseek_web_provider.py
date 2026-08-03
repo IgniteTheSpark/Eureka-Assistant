@@ -83,7 +83,10 @@ async def test_provider_forces_web_search_and_normalizes_citations():
     assert requests[0].headers["authorization"] == "Bearer deepseek-secret"
     assert json.loads(requests[0].content) == {
         "model": "deepseek-v4-flash",
-        "input": "safe aggregate query",
+        "input": (
+            "Search the public web for the following topic. Return a concise "
+            "answer with verifiable URL citations. Topic: safe aggregate query"
+        ),
         "tools": [{"type": "web_search"}],
         "tool_choice": {"type": "web_search"},
     }
@@ -101,7 +104,7 @@ async def test_provider_calls_once_per_query_and_keeps_stable_url_order():
     def handle(request: httpx.Request) -> httpx.Response:
         requests.append(request)
         query = json.loads(request.content)["input"]
-        suffix = "one" if query == "query one" else "two"
+        suffix = "one" if query.endswith("query one") else "two"
         return httpx.Response(
             200,
             json={
@@ -131,6 +134,55 @@ async def test_provider_calls_once_per_query_and_keeps_stable_url_order():
     assert [source.url for source in sources] == [
         "https://example.com/one",
         "https://example.com/two",
+    ]
+
+
+async def test_provider_normalizes_deepseek_open_page_action_url():
+    def handle(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "output": [
+                    {
+                        "type": "reasoning",
+                        "content": [
+                            {"type": "reasoning_text", "text": "redacted"}
+                        ],
+                    },
+                    {
+                        "type": "web_search_call",
+                        "action": {
+                            "type": "open_page",
+                            "url": "https://openai.com/",
+                        },
+                    },
+                    {
+                        "type": "message",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": "redacted",
+                                "annotations": [],
+                            }
+                        ],
+                    },
+                ]
+            },
+        )
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handle)
+    ) as client:
+        sources = await _provider(client).search(["safe query"])
+
+    assert [source.model_dump() for source in sources] == [
+        {
+            "title": "openai.com",
+            "url": "https://openai.com/",
+            "snippet": "",
+            "accessed_at": "2026-08-03T10:00:00Z",
+            "authoritative": False,
+        }
     ]
 
 
