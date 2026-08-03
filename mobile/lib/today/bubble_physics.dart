@@ -30,7 +30,7 @@ class Bubble {
 class BubbleField {
   BubbleField({
     required this.box,
-    required Rect dock,
+    Rect? dock,
     Offset gravity = const Offset(0, _gMag),
   }) : _world = World(Vector2(gravity.dx, gravity.dy)) {
     _buildBounds(dock);
@@ -57,7 +57,7 @@ class BubbleField {
   void step([double dt = 1 / 60]) => _world.stepDt(dt);
 
   // ── static bounds: closed box (floor+walls+ceiling) + the dock as a solid box ──
-  void _buildBounds(Rect dock) {
+  void _buildBounds(Rect? dock) {
     final w = box.width / _scale, h = box.height / _scale;
     final walls = _world.createBody(BodyDef()..type = BodyType.static);
     void edge(Vector2 a, Vector2 b) => walls.createFixture(
@@ -67,6 +67,7 @@ class BubbleField {
     edge(Vector2(0, 0), Vector2(0, h)); // left wall
     edge(Vector2(w, 0), Vector2(w, h)); // right wall
     edge(Vector2(0, 0), Vector2(w, 0)); // ceiling (flip-to-rise rests here)
+    if (dock == null) return;
     // The floating dock = a solid static box, extended down to the floor so no
     // bubble can wedge into the ~14px gap under the real (floating) dock. Bodies
     // collide with it: pile on top + in the two corners beside it.
