@@ -171,6 +171,44 @@ void main() {
     expect(tester.getSize(find.bySemanticsLabel('打开资产 Kevin')).width, 70);
   });
 
+  testWidgets('small bubble opens from the unrotated outer hit target once', (
+    tester,
+  ) async {
+    final assets = List.generate(
+      20,
+      (index) => PoolAsset(
+        id: 'asset-$index',
+        type: 'contact',
+        domain: 'work',
+        title: 'Contact $index',
+        payload: {'name': 'Contact $index'},
+        createdAt: DateTime(2026, 8, 3, 10, index),
+      ),
+    );
+    PoolAsset? opened;
+    var activationCount = 0;
+    await _pumpField(
+      tester,
+      assets: assets,
+      disableAnimations: true,
+      onOpenAsset: (value) {
+        opened = value;
+        activationCount++;
+      },
+    );
+    final smallBubble = find.byKey(
+      const ValueKey('theme-v2-asset-bubble-asset-19'),
+    );
+    final center = tester.getCenter(smallBubble);
+
+    expect(tester.getSize(smallBubble), const Size.square(44));
+    await tester.tapAt(center + const Offset(20, 0));
+    await tester.pump();
+
+    expect(opened?.id, 'asset-19');
+    expect(activationCount, 1);
+  });
+
   testWidgets('drag releases with throw velocity', (tester) async {
     await _pumpField(
       tester,
