@@ -4,12 +4,34 @@ import 'package:eureka/today/today_data.dart';
 void main() {
   final now = DateTime(2026, 6, 22, 15, 0); // 15:00
 
+  test('today pool keeps the newest 50 assets and the uncapped count', () {
+    final assets = List.generate(
+      51,
+      (index) => PoolAsset(
+        id: 'asset-$index',
+        type: 'notes',
+        domain: 'work',
+        title: 'Asset $index',
+        payload: const {},
+        createdAt: DateTime(2026, 8, 3, 10).add(Duration(minutes: index)),
+      ),
+    );
+
+    final selected = selectTodayPool(assets.reversed);
+
+    expect(selected.trueCount, 51);
+    expect(selected.pool, hasLength(50));
+    expect(selected.pool.first.id, 'asset-50');
+    expect(selected.pool.last.id, 'asset-1');
+    expect(selected.pool.any((asset) => asset.id == 'asset-0'), isFalse);
+  });
+
   ChainItem ev(String id, DateTime at) =>
       ChainItem(kind: 'event', id: id, title: id, at: at, timed: true);
   ChainItem timedTodo(String id, DateTime at) =>
       ChainItem(kind: 'todo', id: id, title: id, at: at, timed: true);
-  ChainItem noClockTodo(String id) => ChainItem(
-      kind: 'todo', id: id, title: id, at: now, timed: false);
+  ChainItem noClockTodo(String id) =>
+      ChainItem(kind: 'todo', id: id, title: id, at: now, timed: false);
 
   group('splitChain', () {
     test('upcoming timed event → chain', () {
@@ -19,7 +41,9 @@ void main() {
     });
 
     test('past timed todo (due 14:00, now 15:00) → dropped', () {
-      final r = splitChain([timedTodo('t1', DateTime(2026, 6, 22, 14, 0))], now);
+      final r = splitChain([
+        timedTodo('t1', DateTime(2026, 6, 22, 14, 0)),
+      ], now);
       expect(r.chain, isEmpty);
       expect(r.noTime, isEmpty);
     });
@@ -38,26 +62,34 @@ void main() {
       expect(r.chain.map((e) => e.id), ['soon', 'late']);
     });
 
-    test('in-progress event (started 10m ago, ends in 50m) stays, sorts first', () {
-      final inProgress = ChainItem(
+    test(
+      'in-progress event (started 10m ago, ends in 50m) stays, sorts first',
+      () {
+        final inProgress = ChainItem(
           kind: 'event',
           id: 'now',
           title: 'now',
           at: now.subtract(const Duration(minutes: 10)),
           timed: true,
-          dur: const Duration(hours: 1));
-      final r = splitChain([ev('later', now.add(const Duration(hours: 2))), inProgress], now);
-      expect(r.chain.map((e) => e.id), ['now', 'later']);
-    });
+          dur: const Duration(hours: 1),
+        );
+        final r = splitChain([
+          ev('later', now.add(const Duration(hours: 2))),
+          inProgress,
+        ], now);
+        expect(r.chain.map((e) => e.id), ['now', 'later']);
+      },
+    );
 
     test('event whose end already passed → dropped', () {
       final ended = ChainItem(
-          kind: 'event',
-          id: 'ended',
-          title: 'ended',
-          at: now.subtract(const Duration(hours: 2)),
-          timed: true,
-          dur: const Duration(hours: 1));
+        kind: 'event',
+        id: 'ended',
+        title: 'ended',
+        at: now.subtract(const Duration(hours: 2)),
+        timed: true,
+        dur: const Duration(hours: 1),
+      );
       expect(splitChain([ended], now).chain, isEmpty);
     });
   });

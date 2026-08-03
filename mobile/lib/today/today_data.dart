@@ -63,6 +63,18 @@ class PoolAsset {
   final DateTime createdAt;
 }
 
+({List<PoolAsset> pool, int trueCount}) selectTodayPool(
+  Iterable<PoolAsset> assets, {
+  int maxBodies = 50,
+}) {
+  final sorted = List<PoolAsset>.of(assets)
+    ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  return (
+    pool: sorted.take(maxBodies).toList(growable: false),
+    trueCount: sorted.length,
+  );
+}
+
 /// Everything the today page needs in one fetch.
 class TodayData {
   const TodayData({
@@ -513,9 +525,7 @@ Future<({List<PoolAsset> pool, int trueCount})> _loadPool(
     }
   } catch (_) {}
 
-  // newest first → the dashboard's "最新" row + the freshest 50 as bubbles.
-  all.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-  return (pool: all.take(50).toList(), trueCount: all.length);
+  return selectTodayPool(all);
 }
 
 class _CoreSkill {

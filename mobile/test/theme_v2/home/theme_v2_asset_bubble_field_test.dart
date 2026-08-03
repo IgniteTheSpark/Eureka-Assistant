@@ -526,6 +526,140 @@ void main() {
     );
   });
 
+  testWidgets('the 51st asset retires the oldest visible body in place', (
+    tester,
+  ) async {
+    final firstFifty = _assets(50);
+    final newestFifty = _assets(51).skip(1).toList();
+    const retiredKey = ValueKey('theme-v2-retiring-bubble-asset-0');
+    await _pumpField(
+      tester,
+      assets: firstFifty,
+      disableAnimations: false,
+      gravityStream: const Stream<Offset>.empty(),
+    );
+
+    await _pumpField(
+      tester,
+      assets: newestFifty,
+      disableAnimations: false,
+      gravityStream: const Stream<Offset>.empty(),
+    );
+
+    expect(find.byKey(retiredKey), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('theme-v2-asset-bubble-asset-50')),
+      findsOneWidget,
+    );
+    expect(find.bySemanticsLabel('打开资产 Contact 0'), findsNothing);
+
+    await tester.pump(const Duration(milliseconds: 280));
+    expect(find.byKey(retiredKey), findsNothing);
+  });
+
+  testWidgets('replacement waits until the retiring ball is released', (
+    tester,
+  ) async {
+    final oldAsset = _assets(1).single;
+    final newAsset = PoolAsset(
+      id: 'asset-50',
+      type: 'notes',
+      domain: 'work',
+      title: 'Contact 50',
+      payload: const {},
+      createdAt: DateTime(2026, 8, 3, 11),
+    );
+    const oldKey = ValueKey('theme-v2-asset-bubble-asset-0');
+    const oldVisualKey = ValueKey('theme-v2-asset-bubble-rotation-asset-0');
+    const newKey = ValueKey('theme-v2-asset-bubble-asset-50');
+    const retiredKey = ValueKey('theme-v2-retiring-bubble-asset-0');
+    await _pumpField(
+      tester,
+      assets: [oldAsset],
+      disableAnimations: false,
+      gravityStream: const Stream<Offset>.empty(),
+    );
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byKey(oldVisualKey)),
+    );
+    await gesture.moveBy(const Offset(30, 0));
+    await tester.pump();
+    await gesture.moveBy(const Offset(30, 0));
+    await tester.pump(const Duration(milliseconds: 16));
+
+    await _pumpField(
+      tester,
+      assets: [newAsset],
+      disableAnimations: false,
+      gravityStream: const Stream<Offset>.empty(),
+    );
+
+    expect(find.byKey(oldKey), findsOneWidget);
+    expect(find.byKey(newKey), findsNothing);
+    expect(find.byKey(retiredKey), findsNothing);
+
+    await gesture.up();
+    await tester.pump();
+
+    expect(find.byKey(oldKey), findsNothing);
+    expect(find.byKey(newKey), findsOneWidget);
+    expect(find.byKey(retiredKey), findsOneWidget);
+  });
+
+  testWidgets('Reduce Motion replaces the oldest body immediately', (
+    tester,
+  ) async {
+    await _pumpField(tester, assets: _assets(50), disableAnimations: true);
+
+    await _pumpField(
+      tester,
+      assets: _assets(51).skip(1).toList(),
+      disableAnimations: true,
+    );
+
+    expect(
+      find.byKey(const ValueKey('theme-v2-asset-bubble-asset-0')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('theme-v2-asset-bubble-asset-50')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('theme-v2-retiring-bubble-asset-0')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('backgrounding clears an in-flight retirement immediately', (
+    tester,
+  ) async {
+    addTearDown(
+      () => tester.binding.handleAppLifecycleStateChanged(
+        AppLifecycleState.resumed,
+      ),
+    );
+    await _pumpField(
+      tester,
+      assets: _assets(50),
+      disableAnimations: false,
+      gravityStream: const Stream<Offset>.empty(),
+    );
+    await _pumpField(
+      tester,
+      assets: _assets(51).skip(1).toList(),
+      disableAnimations: false,
+      gravityStream: const Stream<Offset>.empty(),
+    );
+    const retiredKey = ValueKey('theme-v2-retiring-bubble-asset-0');
+    expect(find.byKey(retiredKey), findsOneWidget);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+
+    expect(find.byKey(retiredKey), findsNothing);
+  });
+
   testWidgets(
     'same-id metadata refresh keeps body position and opens new data',
     (tester) async {
@@ -620,6 +754,7 @@ void main() {
     await gesture.moveBy(const Offset(20, 0));
     await tester.pump(const Duration(milliseconds: 16));
     await gesture.up();
+    await tester.pump();
 
     expect(tester.takeException(), isNull);
     expect(

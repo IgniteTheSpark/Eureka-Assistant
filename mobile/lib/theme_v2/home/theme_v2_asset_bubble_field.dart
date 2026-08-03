@@ -19,6 +19,24 @@ Offset themeV2GravityForAcceleration(double x, double y) {
   return Offset(-x / length, y / length) * magnitude;
 }
 
+void _noop() {}
+
+class _RetiringBubbleSnapshot {
+  const _RetiringBubbleSnapshot({
+    required this.asset,
+    required this.center,
+    required this.radius,
+    required this.angle,
+    required this.index,
+  });
+
+  final PoolAsset asset;
+  final Offset center;
+  final double radius;
+  final double angle;
+  final int index;
+}
+
 class ThemeV2AssetBubbleField extends StatefulWidget {
   const ThemeV2AssetBubbleField({
     super.key,
@@ -63,7 +81,10 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
   final ValueNotifier<int> _repaint = ValueNotifier(0);
   final Map<String, PoolAsset> _assetsById = {};
   final Map<String, double> _diametersById = {};
+  final List<_RetiringBubbleSnapshot> _retiring = [];
   BubbleField? _field;
+  String? _grabbedAssetId;
+  List<PoolAsset>? _pendingAssets;
   StreamSubscription<Offset>? _gravitySubscription;
   Size _box = Size.zero;
   bool _reduceMotion = false;
@@ -173,6 +194,12 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
     super.didChangeDependencies();
     final nextReduceMotion = MediaQuery.disableAnimationsOf(context);
     if (nextReduceMotion == _reduceMotion) return;
+    if (nextReduceMotion) {
+      _retiring.clear();
+      _grabbedAssetId = null;
+      _pendingAssets = null;
+      _field?.release();
+    }
     _reduceMotion = nextReduceMotion;
     _rebuildField(_box);
   }
@@ -180,19 +207,23 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
   @override
   void didUpdateWidget(covariant ThemeV2AssetBubbleField oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final crossedCompactThreshold =
-        _reduceMotion &&
-        (oldWidget.assets.length > _settledSlotCount) !=
-            (widget.assets.length > _settledSlotCount);
-    if (crossedCompactThreshold) {
-      _rebuildField(_box);
-    } else if (_assetKey(oldWidget.assets) != _assetKey(widget.assets)) {
-      _syncAssets();
-    } else {
-      _assetsById
-        ..clear()
-        ..addEntries(widget.assets.map((asset) => MapEntry(asset.id, asset)));
+    final nextIds = widget.assets.map((asset) => asset.id).toSet();
+    final grabbedAssetId = _grabbedAssetId;
+    final deferReplacement =
+        grabbedAssetId != null &&
+        _assetsById.containsKey(grabbedAssetId) &&
+        !nextIds.contains(grabbedAssetId);
+    if (deferReplacement) {
+      _pendingAssets = List<PoolAsset>.of(widget.assets);
+      for (final asset in widget.assets) {
+        if (_assetsById.containsKey(asset.id)) {
+          _assetsById[asset.id] = asset;
+        }
+      }
       _repaint.value++;
+    } else {
+      _pendingAssets = null;
+      _syncWidgetAssets(oldWidget);
     }
     if (oldWidget.gravityStream != widget.gravityStream) {
       unawaited(_gravitySubscription?.cancel());
@@ -204,8 +235,36 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
     }
   }
 
+  void _syncWidgetAssets(ThemeV2AssetBubbleField oldWidget) {
+    final crossedCompactThreshold =
+        _reduceMotion &&
+        (oldWidget.assets.length > _settledSlotCount) !=
+            (widget.assets.length > _settledSlotCount);
+    if (crossedCompactThreshold) {
+      _rebuildField(_box);
+    } else if (_assetKey(oldWidget.assets) != _assetKey(widget.assets)) {
+      _syncAssetsTo(widget.assets);
+    } else {
+      _assetsById
+        ..clear()
+        ..addEntries(widget.assets.map((asset) => MapEntry(asset.id, asset)));
+      _repaint.value++;
+    }
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed &&
+        (_retiring.isNotEmpty || _pendingAssets != null)) {
+      setState(() {
+        _retiring.clear();
+        _grabbedAssetId = null;
+        final pending = _pendingAssets;
+        _pendingAssets = null;
+        _field?.release();
+        if (pending != null) _syncAssetsTo(pending);
+      });
+    }
     _syncLifecycle();
   }
 
@@ -292,27 +351,44 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
     _syncLifecycle();
   }
 
-  void _syncAssets() {
+  void _syncAssetsTo(List<PoolAsset> nextAssets) {
     final field = _field;
     if (field == null || _box == Size.zero) {
       _rebuildField(_box);
       return;
     }
-    _assetsById
-      ..clear()
-      ..addEntries(widget.assets.map((asset) => MapEntry(asset.id, asset)));
-    final ids = widget.assets.map((asset) => asset.id).toSet();
+    final previousAssets = Map<String, PoolAsset>.of(_assetsById);
+    final nextById = {for (final asset in nextAssets) asset.id: asset};
+    final ids = nextById.keys.toSet();
     if (field.bubbles.any((bubble) => !ids.contains(bubble.id))) {
       field.release();
     }
-    for (final bubble in List<Bubble>.of(field.bubbles)) {
+    final currentBubbles = List<Bubble>.of(field.bubbles);
+    for (var index = 0; index < currentBubbles.length; index++) {
+      final bubble = currentBubbles[index];
       if (!ids.contains(bubble.id)) {
+        final asset = previousAssets[bubble.id];
+        if (asset != null && widget.active && !_reduceMotion && _foreground) {
+          _retiring.removeWhere((snapshot) => snapshot.asset.id == asset.id);
+          _retiring.add(
+            _RetiringBubbleSnapshot(
+              asset: asset,
+              center: Offset(bubble.x, bubble.y),
+              radius: bubble.r,
+              angle: bubble.angle,
+              index: index,
+            ),
+          );
+        }
         field.removeBubble(bubble);
         _diametersById.remove(bubble.id);
       }
     }
-    for (var index = 0; index < widget.assets.length; index++) {
-      final asset = widget.assets[index];
+    _assetsById
+      ..clear()
+      ..addAll(nextById);
+    for (var index = 0; index < nextAssets.length; index++) {
+      final asset = nextAssets[index];
       if (field.has(asset.id)) continue;
       final radius = _diameter(asset, index) / 2;
       field.addBubble(
@@ -325,6 +401,22 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
     }
     _repaint.value++;
     _syncLifecycle();
+  }
+
+  void _releaseGrab() {
+    _field?.release();
+    _grabbedAssetId = null;
+    final pending = _pendingAssets;
+    _pendingAssets = null;
+    if (pending == null) return;
+    setState(() => _syncAssetsTo(pending));
+  }
+
+  void _removeRetiring(String assetId) {
+    if (!mounted) return;
+    setState(() {
+      _retiring.removeWhere((snapshot) => snapshot.asset.id == assetId);
+    });
   }
 
   void _onTick(Duration elapsed) {
@@ -431,6 +523,43 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                   ),
                 ),
               ),
+            for (final snapshot in _retiring)
+              Positioned(
+                key: ValueKey('theme-v2-retiring-bubble-${snapshot.asset.id}'),
+                left: snapshot.center.dx - snapshot.radius,
+                top: snapshot.center.dy - snapshot.radius,
+                child: ExcludeSemantics(
+                  child: IgnorePointer(
+                    child: TweenAnimationBuilder<double>(
+                      tween: Tween(begin: 0, end: 1),
+                      duration: const Duration(milliseconds: 260),
+                      onEnd: () => _removeRetiring(snapshot.asset.id),
+                      builder: (context, progress, child) => Opacity(
+                        opacity: 1 - progress,
+                        child: Transform.translate(
+                          offset: Offset(0, 12 * progress),
+                          child: Transform.scale(
+                            scale: 1 - 0.28 * progress,
+                            child: child,
+                          ),
+                        ),
+                      ),
+                      child: Transform.rotate(
+                        angle: snapshot.angle,
+                        child: SizedBox.square(
+                          dimension: snapshot.radius * 2,
+                          child: _ThemeV2BubbleVisual(
+                            asset: snapshot.asset,
+                            skills: widget.skills,
+                            index: snapshot.index,
+                            onTap: _noop,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             if (_usesCompactGrid)
               Positioned.fill(
                 child: _ThemeV2CompactAssetGrid(
@@ -443,18 +572,32 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
               Positioned.fill(
                 child: GestureDetector(
                   behavior: HitTestBehavior.translucent,
-                  onTapUp: (details) {
+                  onPanDown: (details) {
                     final bubble = _hitBubbleAt(field, details.localPosition);
                     if (bubble == null) return;
-                    final asset = _assetsById[bubble.id];
+                    _grabbedAssetId = bubble.id;
+                    field.grab(bubble);
+                    _syncLifecycle();
+                  },
+                  onTapUp: (details) {
+                    final bubble = _hitBubbleAt(field, details.localPosition);
+                    final asset = bubble == null
+                        ? null
+                        : _assetsById[bubble.id];
+                    _releaseGrab();
                     if (asset != null) widget._openAsset(context, asset);
                   },
                   onPanStart: (details) {
-                    final bubble = _hitBubbleAt(field, details.localPosition);
-                    if (bubble == null) {
-                      field.release();
+                    if (_grabbedAssetId != null) {
+                      _syncLifecycle();
                       return;
                     }
+                    final bubble = _hitBubbleAt(field, details.localPosition);
+                    if (bubble == null) {
+                      _releaseGrab();
+                      return;
+                    }
+                    _grabbedAssetId = bubble.id;
                     field.grab(bubble);
                     _syncLifecycle();
                   },
@@ -462,18 +605,18 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                     field.dragTo(details.localPosition);
                     _syncLifecycle();
                   },
-                  onPanEnd: (_) => field.release(),
-                  onPanCancel: field.release,
+                  onPanEnd: (_) => _releaseGrab(),
+                  onPanCancel: _releaseGrab,
                   child: AnimatedBuilder(
                     animation: _repaint,
                     builder: (context, _) {
                       final indexById = <String, int>{
                         for (
                           var index = 0;
-                          index < widget.assets.length;
+                          index < field.bubbles.length;
                           index++
                         )
-                          widget.assets[index].id: index,
+                          field.bubbles[index].id: index,
                       };
                       return Stack(
                         fit: StackFit.expand,
