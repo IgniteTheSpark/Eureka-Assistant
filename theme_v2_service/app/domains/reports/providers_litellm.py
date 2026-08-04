@@ -159,6 +159,29 @@ def _response_format(model: str, *, name: str, schema: dict) -> dict[str, Any]:
     }
 
 
+def _drop_untrusted_due_times(
+    raw: Any,
+    *,
+    request: GeneratorRequest,
+    error: Exception,
+) -> GeneratorResult | None:
+    if str(error) != "suggested action due_at is not grounded":
+        return None
+    try:
+        candidate = GeneratorResult.model_validate(raw)
+        candidate = candidate.model_copy(
+            update={
+                "suggested_actions": [
+                    action.model_copy(update={"due_at": None})
+                    for action in candidate.suggested_actions
+                ]
+            }
+        )
+        return validate_generator_result(candidate, request=request)
+    except Exception:
+        return None
+
+
 class LiteLLMPlannerProvider:
     def __init__(
         self,
@@ -243,14 +266,23 @@ class LiteLLMGeneratorProvider:
                 raise RetryableProviderError("generator provider unavailable") from exc
             except Exception as exc:
                 raise RetryableProviderError("generator provider call failed") from exc
+            raw_result = None
             try:
+                raw_result = json.loads(_message_content(response))
                 result = validate_generator_result(
-                    json.loads(_message_content(response)),
+                    raw_result,
                     request=request,
                 )
                 break
             except Exception as exc:
                 if attempt == 1:
+                    result = _drop_untrusted_due_times(
+                        raw_result,
+                        request=request,
+                        error=exc,
+                    )
+                    if result is not None:
+                        break
                     raise PermanentProviderError(
                         "invalid generator provider response"
                     ) from exc

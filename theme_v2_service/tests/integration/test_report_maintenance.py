@@ -185,7 +185,7 @@ async def test_report_presentation_repair_is_bounded_safe_and_idempotent(session
             ],
             "stage_results": {
                 "web_search": {"sources": [source]},
-                "content_generation": {"suggested_actions": []},
+                "content_generation": {},
                 "chart_validation": {
                     "svgs": {
                         "pace": (

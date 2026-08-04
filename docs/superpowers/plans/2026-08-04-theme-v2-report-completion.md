@@ -41,7 +41,7 @@
 - Consumes: `GeneratorRequest.execution_plan.resolved_asset_ids`, `GeneratorRequest.external_sources`, validated `GeneratorResult.content_md`, and `GeneratorResult.suggested_actions`.
 - Produces: `GeneratedSuggestedAction`, `ReportCitation`, `ReportSuggestedAction`, `NormalizedReportContent`, `normalize_report_content`, `allowed_citation_tags`, and `allowed_action_due_times`.
 
-- [ ] **Step 1: Write failing normalization tests**
+- [x] **Step 1: Write failing normalization tests**
 
 Add tests that define the complete display boundary:
 
@@ -78,7 +78,7 @@ Add separate tests for stable action IDs, maximum five actions, legacy
 `:::actions` extraction when typed actions are empty, directive removal, typed
 action precedence, and unknown/malformed marker rejection.
 
-- [ ] **Step 2: Run the tests and verify RED**
+- [x] **Step 2: Run the tests and verify RED**
 
 Run:
 
@@ -91,7 +91,7 @@ docker compose -f docker-compose.theme-v2.yml --profile test run --rm test \
 Expected: collection/import failure for `normalization` and
 `GeneratedSuggestedAction`, proving the new boundary does not exist.
 
-- [ ] **Step 3: Add the typed contracts**
+- [x] **Step 3: Add the typed contracts**
 
 In `providers.py` add:
 
@@ -136,7 +136,7 @@ class ReportSpec(StrictModel):
     presentation_version: str = "report_html_v2"
 ```
 
-- [ ] **Step 4: Implement the pure normalizer**
+- [x] **Step 4: Implement the pure normalizer**
 
 Implement these exact public types and entry point in `normalization.py`:
 
@@ -167,7 +167,7 @@ whitespace and compute `action-<first 20 sha256 hex>` from
 empty, parse at most five list items from a legacy `:::actions` block; always
 remove legacy action blocks from display Markdown.
 
-- [ ] **Step 5: Strengthen generator validation**
+- [x] **Step 5: Strengthen generator validation**
 
 In `security.py`, add the exact public signatures
 `allowed_citation_tags(request: GeneratorRequest) -> set[str]` and
@@ -178,11 +178,11 @@ Include action titles in numeric-claim validation. Walk evidence and execution
 plan strings for ISO date/time values; normalize timezone-aware values to UTC
 and reject an action `due_at` outside that set. Reject non-HTTPS source markers.
 
-- [ ] **Step 6: Run normalization/security tests and verify GREEN**
+- [x] **Step 6: Run normalization/security tests and verify GREEN**
 
 Run the Step 2 command. Expected: all selected tests pass with no warnings.
 
-- [ ] **Step 7: Commit Task 1**
+- [x] **Step 7: Commit Task 1**
 
 Stage only the files listed in Task 1 and commit:
 
@@ -211,7 +211,7 @@ git commit -m "feat(report): normalize citations and actions"
 - Consumes: `GeneratorResult.suggested_actions` and the citation/due allowlists from Task 1.
 - Produces: a generator prompt that separates clean `content_md` from typed actions and eight official skills with explicit action quality rules.
 
-- [ ] **Step 1: Write failing prompt/template tests**
+- [x] **Step 1: Write failing prompt/template tests**
 
 Assert the serialized generator prompt contains all of:
 
@@ -225,7 +225,7 @@ assert "Do not emit :::actions" in serialized
 Load every Template Skill and assert it contains an `## Suggested actions`
 section, a maximum of five, and an explicit empty-list rule.
 
-- [ ] **Step 2: Run the tests and verify RED**
+- [x] **Step 2: Run the tests and verify RED**
 
 Run:
 
@@ -238,7 +238,7 @@ docker compose -f docker-compose.theme-v2.yml --profile test run --rm test \
 Expected: failures showing the current prompt and skills do not define typed
 action behavior.
 
-- [ ] **Step 3: Update the trusted generator prompt**
+- [x] **Step 3: Update the trusted generator prompt**
 
 Extend the system instruction in `build_generator_messages` with the exact
 behavior:
@@ -254,7 +254,7 @@ or execution context; otherwise use null. Never invent deadlines.
 Keep the existing DeepSeek `json_object` response mode, schema injection,
 numeric allowlist, citation allowlist, and one bounded repair attempt.
 
-- [ ] **Step 4: Add template-specific action rules**
+- [x] **Step 4: Add template-specific action rules**
 
 Append `## Suggested actions` to every official skill. Use these semantic rules:
 
@@ -270,11 +270,11 @@ Append `## Suggested actions` to every official skill. Use these semantic rules:
 Every section must state `0–5`, ban generic filler, require `due_at = null`
 unless an exact time is present, and permit an empty list.
 
-- [ ] **Step 5: Run prompt/template tests and verify GREEN**
+- [x] **Step 5: Run prompt/template tests and verify GREEN**
 
 Run the Step 2 command. Expected: all selected tests pass.
 
-- [ ] **Step 6: Commit Task 2**
+- [x] **Step 6: Commit Task 2**
 
 ```bash
 git commit -m "feat(report): define actionable template output"
@@ -300,7 +300,7 @@ git commit -m "feat(report): define actionable template output"
 - Consumes: clean Markdown, `base_family`, `seed`, trusted chart SVGs, owned media URL, `used_external_sources`, and `ReportSuggestedAction` values.
 - Produces: `PresentationRequest`, `PresentationResult`, `select_variant`, `render_presentation`, and the facade `render_report_presentation`.
 
-- [ ] **Step 1: Write failing catalog and renderer tests**
+- [x] **Step 1: Write failing catalog and renderer tests**
 
 Create a single rich fixture containing headings, a paragraph, `:::kpi`,
 `:::timeline`, `:::rank`, `:::callout{tone=insight}`, `:::quote`, `:::compare`,
@@ -338,7 +338,7 @@ Assert raw HTML/scripts/external images are absent, the selected surface and
 palette classes are present, actions render once, used sources render once,
 unknown directives are escaped, and identical inputs are byte-identical.
 
-- [ ] **Step 2: Run the presentation tests and verify RED**
+- [x] **Step 2: Run the presentation tests and verify RED**
 
 Run:
 
@@ -350,7 +350,7 @@ docker compose -f docker-compose.theme-v2.yml --profile test run --rm test \
 
 Expected: import failure for the new presentation package.
 
-- [ ] **Step 3: Implement the deterministic catalog**
+- [x] **Step 3: Implement the deterministic catalog**
 
 In `catalog.py` define:
 
@@ -391,7 +391,7 @@ def select_variant(base_family: str, seed: int) -> tuple[StyleVariant, bool]:
 
 Mark `pal-minimal` and `pal-warm` as light; all other listed palettes are dark.
 
-- [ ] **Step 4: Port the trusted block parser and renderer**
+- [x] **Step 4: Port the trusted block parser and renderer**
 
 Copy the proven escaping and directive parsing behavior from
 `backend/agents/report_render.py` and the design markup from
@@ -414,7 +414,7 @@ actions after the body. Keep chart replacement restricted to IDs in the trusted
 `chart_svgs` map. Keep media replacement restricted to the passed illustration
 URL.
 
-- [ ] **Step 5: Port the style system without runtime coupling**
+- [x] **Step 5: Port the style system without runtime coupling**
 
 Copy `BASE_CSS` and the eight named `SURFACE_CSS` entries from
 `backend/agents/report_styles.py` into `styles.py`. Preserve the semantic token
@@ -428,7 +428,7 @@ names and responsive rules, then make these Theme V2-specific edits:
 - retain reduced-motion behavior;
 - remove legacy pet signature runtime and arbitrary script injection.
 
-- [ ] **Step 6: Implement the presentation assembly**
+- [x] **Step 6: Implement the presentation assembly**
 
 Define in `renderer.py`:
 
@@ -459,7 +459,7 @@ section, used source list, and static REKA wordmark footer. Escape every title,
 action, source title, domain, accessed date, and URL attribute. Allow source
 links only when URL parsing confirms `https`.
 
-- [ ] **Step 7: Keep a compatibility facade**
+- [x] **Step 7: Keep a compatibility facade**
 
 In `rendering.py` expose a `render_report_presentation` function with the same
 keyword inputs as `PresentationRequest` plus `media_urls`, and retain the
@@ -491,11 +491,11 @@ continue to work. Retire the forced generic CSS path once all calls use the
 presentation result, but keep `report-v1.css` only for explicitly versioned
 legacy fallback if a stored report lacks Theme V2 presentation metadata.
 
-- [ ] **Step 8: Run presentation/rendering tests and verify GREEN**
+- [x] **Step 8: Run presentation/rendering tests and verify GREEN**
 
 Run the Step 2 command. Expected: all selected tests pass.
 
-- [ ] **Step 9: Commit Task 3**
+- [x] **Step 9: Commit Task 3**
 
 ```bash
 git commit -m "feat(report): port deterministic presentation engine"
@@ -519,7 +519,7 @@ git commit -m "feat(report): port deterministic presentation engine"
 - Consumes: `normalize_report_content` and `render_report_presentation` from Tasks 1 and 3.
 - Produces: clean `Report.content_md`, v2 HTML, actual `surface/palette`, citation manifest, typed actions, and clean future share snapshots.
 
-- [ ] **Step 1: Write failing pipeline/persistence/share assertions**
+- [x] **Step 1: Write failing pipeline/persistence/share assertions**
 
 Extend the real fake-provider pipeline test so the generator returns both raw
 citation markers and a typed action. Assert:
@@ -536,7 +536,7 @@ assert report.spec_json["presentation_version"] == "report_html_v2"
 Add share assertions that both `snapshot_content_md` and public HTML contain no
 raw markers and that only cited external sources appear under `参考来源`.
 
-- [ ] **Step 2: Run selected pipeline tests and verify RED**
+- [x] **Step 2: Run selected pipeline tests and verify RED**
 
 Run:
 
@@ -550,7 +550,7 @@ docker compose -f docker-compose.theme-v2.yml --profile test run --rm test \
 
 Expected: clean-content, action, citation, and presentation assertions fail.
 
-- [ ] **Step 3: Normalize inside the HTML-render stage**
+- [x] **Step 3: Normalize inside the HTML-render stage**
 
 In `html_render_stage`, call `normalize_report_content` after generator and chart
 validation. Pass the normalized Markdown, typed actions, used sources, family,
@@ -573,7 +573,7 @@ seed, trusted charts, and optional illustration URL to
 }
 ```
 
-- [ ] **Step 4: Persist the normalized truth**
+- [x] **Step 4: Persist the normalized truth**
 
 In `persist_stage`, use `rendered["content_md"]` rather than raw generator
 Markdown. Populate `ReportSpec.citations`, `suggested_actions`, actual surface,
@@ -581,7 +581,7 @@ actual palette, seed, and `presentation_version="report_html_v2"`. Preserve
 external sources and generated file IDs. Add presentation warnings to the
 existing generation-context warnings without duplicates.
 
-- [ ] **Step 5: Make API fallback and shares use v2 metadata**
+- [x] **Step 5: Make API fallback and shares use v2 metadata**
 
 When `Report.html` is missing, `view_report` and `public_share_html` must pass the
 stored family, seed, external sources, and suggested actions to the facade.
@@ -590,11 +590,11 @@ replacement of internal evidence IDs from report content because no ID is
 user-visible after normalization. Keep media token replacement and share-card
 identifier safety intact.
 
-- [ ] **Step 6: Run pipeline/persistence/share tests and verify GREEN**
+- [x] **Step 6: Run pipeline/persistence/share tests and verify GREEN**
 
 Run the Step 2 command. Expected: all selected tests pass.
 
-- [ ] **Step 7: Commit Task 4**
+- [x] **Step 7: Commit Task 4**
 
 ```bash
 git commit -m "feat(report): persist clean presented reports"
@@ -619,7 +619,7 @@ git commit -m "feat(report): persist clean presented reports"
 - Consumes: `Report.spec_json.suggested_actions` and existing baseline Todo skill provisioning.
 - Produces: `list_report_actions`, `create_report_action_todo`, two HTTP endpoints, and Report provenance on `AssetRead`.
 
-- [ ] **Step 1: Write failing owner/idempotency/provenance tests**
+- [x] **Step 1: Write failing owner/idempotency/provenance tests**
 
 Create one owned report with two stored actions and test:
 
@@ -645,7 +645,7 @@ canonical Todo payload, exact due date propagation, `source_report_id`,
 `source_report_action_id`, `source_report_title`, one Asset after concurrent
 requests, and missing Todo skill provisioned automatically.
 
-- [ ] **Step 2: Run action/API/migration tests and verify RED**
+- [x] **Step 2: Run action/API/migration tests and verify RED**
 
 Run:
 
@@ -658,7 +658,7 @@ docker compose -f docker-compose.theme-v2.yml --profile test run --rm test \
 
 Expected: endpoint 404 and missing provenance fields/migration.
 
-- [ ] **Step 3: Add the migration and model fields**
+- [x] **Step 3: Add the migration and model fields**
 
 Add nullable `source_report_id CHAR(36)` and
 `source_report_action_id VARCHAR(64)` to `assets`. Create:
@@ -673,14 +673,14 @@ Mirror those columns in `Asset`. Extend `AssetRead` with nullable
 `source_report_id`, `source_report_action_id`, and transient
 `source_report_title`.
 
-- [ ] **Step 4: Attach Report provenance in Asset service reads**
+- [x] **Step 4: Attach Report provenance in Asset service reads**
 
 Add a batched helper that loads owner-matched Report titles for Assets with a
 non-null `source_report_id`, then assigns `source_report_title` as a transient
 attribute. Call it from `get_asset`, `list_assets`, and the action-create return
 path. Never add provenance keys to editable `payload_json`.
 
-- [ ] **Step 5: Implement the action service**
+- [x] **Step 5: Implement the action service**
 
 In `actions.py` define:
 
@@ -710,7 +710,7 @@ the canonical Todo through `assets.service.create_asset`, set provenance before
 flush, and return the existing row on a retry. The row lock serializes concurrent
 actions for one Report and the unique key remains the database backstop.
 
-- [ ] **Step 6: Add thin API endpoints**
+- [x] **Step 6: Add thin API endpoints**
 
 Add GET `/api/reports/{report_id}/actions` and POST
 `/api/reports/{report_id}/actions/{action_id}`. Serialize UTC dates with the
@@ -720,11 +720,11 @@ existing `_timestamp` helper. Map missing Report/action to 404. Return:
 {"id":"action-7d4f","title":"准备访谈问题","due_at":null,"created":true,"todo_asset_id":"asset-42"}
 ```
 
-- [ ] **Step 7: Run action/API/migration tests and verify GREEN**
+- [x] **Step 7: Run action/API/migration tests and verify GREEN**
 
 Run the Step 2 command. Expected: all selected tests pass.
 
-- [ ] **Step 8: Commit Task 5**
+- [x] **Step 8: Commit Task 5**
 
 ```bash
 git commit -m "feat(report): create idempotent todos from actions"
@@ -749,7 +749,7 @@ git commit -m "feat(report): create idempotent todos from actions"
 - Consumes: Task 5 GET/POST action APIs and report `spec.palette`.
 - Produces: `ReportActionItem`, `ReportActionsController`, `ReportActionsTray`, `enableThemeV2Actions`, and palette-aware viewer chrome.
 
-- [ ] **Step 1: Write failing controller and widget tests**
+- [x] **Step 1: Write failing controller and widget tests**
 
 Cover: load, empty list, add one, add all sequentially, idempotent response,
 partial failure preserving completed rows, duplicate tap suppression, disabled
@@ -763,7 +763,7 @@ expect(page.enableThemeV2Actions, isTrue);
 expect(page.themeV2Palette, 'pal-ink');
 ```
 
-- [ ] **Step 2: Run Flutter tests and verify RED**
+- [x] **Step 2: Run Flutter tests and verify RED**
 
 Run from `mobile/`:
 
@@ -775,7 +775,7 @@ flutter test test/theme_v2/report/report_actions_test.dart \
 
 Expected: missing controller/widget/capability fields.
 
-- [ ] **Step 3: Implement the action model/controller**
+- [x] **Step 3: Implement the action model/controller**
 
 In `report_actions.dart` define immutable `ReportActionItem` with
 `id/title/dueAt/created/todoAssetId`, and a `ChangeNotifier` controller with:
@@ -792,14 +792,14 @@ POST to `/api/reports/$reportId/actions/$actionId` with an empty JSON object.
 Update only the returned row, keep prior successes on later failure, expose one
 concise error message, and invoke an injected `onTodoCreated` callback.
 
-- [ ] **Step 4: Extract the action tray widget**
+- [x] **Step 4: Extract the action tray widget**
 
 Render `ReportActionsTray` below the WebView with Theme V2/legacy-compatible
 colors. Use 48px minimum row/button height, at most a 240px scroll area, a
 single-line header, two-line action title, optional due label, `加入待办`, busy,
 and `已加入` states. Show `全部加入待办` only when `pendingCount >= 2`.
 
-- [ ] **Step 5: Decouple viewer capabilities**
+- [x] **Step 5: Decouple viewer capabilities**
 
 Keep `enableLegacyEnhancements` for legacy rerender only. Add:
 
@@ -819,18 +819,18 @@ bool get _lightReport => const {'pal-minimal', 'pal-warm'}
 Use light or dark Scaffold/AppBar/action-tray tokens accordingly while leaving
 the report HTML's own CSS variables untouched.
 
-- [ ] **Step 6: Pass Theme V2 capabilities from every entry point**
+- [x] **Step 6: Pass Theme V2 capabilities from every entry point**
 
 Parse `spec.palette` in `CompletedReportSummary`. In report container, completed
 run, and notification routes, pass `enableThemeV2Actions: true` and the stored
 palette. Preserve `enableLegacyEnhancements: false` so the legacy rerender button
 does not call an unsupported Theme V2 endpoint.
 
-- [ ] **Step 7: Run Flutter tests and verify GREEN**
+- [x] **Step 7: Run Flutter tests and verify GREEN**
 
 Run the Step 2 command. Expected: all selected tests pass.
 
-- [ ] **Step 8: Commit Task 6**
+- [x] **Step 8: Commit Task 6**
 
 ```bash
 git commit -m "feat(report): restore Theme V2 action tray"
@@ -854,7 +854,7 @@ git commit -m "feat(report): restore Theme V2 action tray"
 - Consumes: `AssetRead.source_report_id`, `source_report_action_id`, and `source_report_title` from Task 5.
 - Produces: `AssetDetailSourceKind.report`, `reportId`, readable provenance copy, and source Report navigation.
 
-- [ ] **Step 1: Write failing source parsing/navigation tests**
+- [x] **Step 1: Write failing source parsing/navigation tests**
 
 Given a Todo Asset response with Report provenance, assert the detail source is:
 
@@ -868,7 +868,7 @@ expect(detail.source.canOpen, isTrue);
 Test a deleted source response: the label remains but tapping is disabled/no-op
 without throwing.
 
-- [ ] **Step 2: Run source tests and verify RED**
+- [x] **Step 2: Run source tests and verify RED**
 
 Run from `mobile/`:
 
@@ -880,7 +880,7 @@ flutter test test/theme_v2/asset_detail/asset_detail_repository_test.dart \
 
 Expected: unsupported source kind and missing Report fields/navigation.
 
-- [ ] **Step 3: Extend the source model without overloading session fields**
+- [x] **Step 3: Extend the source model without overloading session fields**
 
 Add `report` to `AssetDetailSourceKind` and nullable `reportId` to
 `AssetDetailSource`. `canOpen` becomes:
@@ -899,24 +899,24 @@ Update JSON parsing for canonical details and `_coreSource` for direct
 over an actual capture/session source on records that were not created by the
 Report action API.
 
-- [ ] **Step 4: Open the source Report from Asset detail**
+- [x] **Step 4: Open the source Report from Asset detail**
 
 In `_openSource`, switch on source kind. For Report, fetch
 `/api/reports/$reportId`, build `ReportViewerPage` with Theme V2 actions and the
 stored palette, and push it. On 404, retain the detail surface and show
 `来源报告已不存在` once; do not pop or replace the current route.
 
-- [ ] **Step 5: Keep provenance outside editable fields/cards**
+- [x] **Step 5: Keep provenance outside editable fields/cards**
 
 Ensure Report provenance top-level response fields are never included in
 `AssetDetailField`, `AssetRecordField`, card secondary text, or edit payload.
 Only the sticky source row shows it.
 
-- [ ] **Step 6: Run source tests and verify GREEN**
+- [x] **Step 6: Run source tests and verify GREEN**
 
 Run the Step 2 command. Expected: all selected tests pass.
 
-- [ ] **Step 7: Commit Task 7**
+- [x] **Step 7: Commit Task 7**
 
 ```bash
 git commit -m "feat(assets): link report todos to their source"
@@ -935,7 +935,7 @@ git commit -m "feat(assets): link report todos to their source"
 - Consumes: stored Report, ReportGenerationRun checkpoint data, normalizer, presentation engine, and stored media IDs.
 - Produces: `ReportRepairResult`, `repair_report_presentations`, and a dry-run/apply CLI.
 
-- [ ] **Step 1: Write failing repair/idempotency tests**
+- [x] **Step 1: Write failing repair/idempotency tests**
 
 Create one legacy row containing raw evidence markers and a legacy actions block,
 plus one unsafe row containing an unknown marker. Assert:
@@ -953,7 +953,7 @@ assert (await repair_report_presentations(session, dry_run=False)).repaired == 0
 Also test `dry_run=True` makes no writes and chart SVG recovery reads the stored
 generation-job `chart_validation` checkpoint when available.
 
-- [ ] **Step 2: Run maintenance tests and verify RED**
+- [x] **Step 2: Run maintenance tests and verify RED**
 
 Run:
 
@@ -964,7 +964,7 @@ docker compose -f docker-compose.theme-v2.yml --profile test run --rm test \
 
 Expected: missing repair entry point.
 
-- [ ] **Step 3: Implement bounded, idempotent repair**
+- [x] **Step 3: Implement bounded, idempotent repair**
 
 Add:
 
@@ -990,7 +990,7 @@ the generation-job checkpoint, reconstruct owned illustration URLs from stored
 file IDs, rerender with stored family/seed, and update Markdown/HTML/spec only
 when not dry-run. Skip unknown markers and log only sanitized report/error codes.
 
-- [ ] **Step 4: Add the explicit CLI**
+- [x] **Step 4: Add the explicit CLI**
 
 The script supports:
 
@@ -1002,11 +1002,11 @@ python scripts/repair_report_presentations.py --apply
 Require exactly one mode, use `AsyncSessionFactory`, commit only in apply mode,
 and print JSON counts without report content or user identifiers.
 
-- [ ] **Step 5: Run maintenance tests and verify GREEN**
+- [x] **Step 5: Run maintenance tests and verify GREEN**
 
 Run the Step 2 command. Expected: all selected tests pass.
 
-- [ ] **Step 6: Commit Task 8**
+- [x] **Step 6: Commit Task 8**
 
 ```bash
 git commit -m "fix(report): repair stored report presentations"
@@ -1027,14 +1027,14 @@ git commit -m "fix(report): repair stored report presentations"
 - Consumes: all completed backend/mobile interfaces.
 - Produces: deterministic eight-variant HTML fixture gallery, full automated evidence, repaired live rows, and one connected-device workflow result.
 
-- [ ] **Step 1: Add the deterministic fixture gallery**
+- [x] **Step 1: Add the deterministic fixture gallery**
 
 The script reads one rich Markdown fixture and writes eight HTML files to an
 ignored temporary/output directory, one for every catalog entry. It must not
 call Planner, Generator, Web Search, or Seedream. Print a JSON manifest with
 family, seed, surface, palette, color scheme, path, and SHA-256.
 
-- [ ] **Step 2: Run focused backend suites**
+- [x] **Step 2: Run focused backend suites**
 
 Run:
 
@@ -1055,7 +1055,7 @@ docker compose -f docker-compose.theme-v2.yml --profile test run --rm test \
 
 Expected: zero failures/errors.
 
-- [ ] **Step 3: Run the complete Theme V2 backend suite**
+- [x] **Step 3: Run the complete Theme V2 backend suite**
 
 Run:
 
@@ -1067,7 +1067,7 @@ docker compose -f docker-compose.theme-v2.yml --profile test run --rm test \
 Expected: zero failures/errors. Record the test count in this plan's execution
 notes.
 
-- [ ] **Step 4: Run focused Flutter tests and static analysis**
+- [x] **Step 4: Run focused Flutter tests and static analysis**
 
 Run from `mobile/`:
 
@@ -1080,7 +1080,7 @@ flutter analyze lib/pages/report_viewer_page.dart lib/theme_v2/report \
 
 Expected: all tests pass and analyzer reports no issues.
 
-- [ ] **Step 5: Rebuild the independent Theme V2 runtime**
+- [x] **Step 5: Rebuild the independent Theme V2 runtime**
 
 Run:
 
@@ -1093,7 +1093,7 @@ curl -fsS http://127.0.0.1:8100/ready
 Expected: migration completes, API/worker are up, MySQL/API are healthy, and
 `/ready` returns `{"status":"ready"}`.
 
-- [ ] **Step 6: Dry-run and apply historical repair**
+- [x] **Step 6: Dry-run and apply historical repair**
 
 Run in the API container:
 
@@ -1107,12 +1107,14 @@ Expected: first dry-run reports the two current eligible rows; apply repairs
 them; second dry-run reports zero eligible rows. Query counts only and confirm
 no stored Markdown/HTML contains `[evidence:` or `[source:`.
 
-- [ ] **Step 7: Build and install the Android debug app**
+- [x] **Step 7: Build and install the Android debug app**
 
 Run from `mobile/`:
 
 ```bash
-flutter build apk --debug
+flutter build apk --debug \
+  --dart-define=THEME_V2=true \
+  --dart-define=API_BASE=http://localhost:8000
 adb -s RFCY71B21YK install -r build/app/outputs/flutter-apk/app-debug.apk
 adb -s RFCY71B21YK reverse tcp:8000 tcp:8000
 adb -s RFCY71B21YK shell am force-stop com.eureka.mindapp
@@ -1123,7 +1125,7 @@ adb -s RFCY71B21YK shell monkey -p com.eureka.mindapp \
 Expected: build/install succeeds and the app launches against the independent
 Theme V2 service.
 
-- [ ] **Step 8: Execute one real Report-to-Todo workflow**
+- [x] **Step 8: Execute one real Report-to-Todo workflow**
 
 Using the connected device and existing owned Theme V2 records:
 
@@ -1139,7 +1141,7 @@ Capture one screenshot each for report body, action tray, created Todo source,
 and returned Report. Record any unavailable external provider as a degraded
 capability, not a presentation/action failure.
 
-- [ ] **Step 9: Review the final diff against the design**
+- [x] **Step 9: Review the final diff against the design**
 
 Check every section of the design spec maps to code/tests. Run:
 
@@ -1152,7 +1154,7 @@ git diff --stat 374d8d0..HEAD
 Confirm unrelated dirty files are neither staged nor committed and no backend
 runtime import references `backend.agents`.
 
-- [ ] **Step 10: Commit final fixtures/acceptance notes**
+- [x] **Step 10: Commit final fixtures/acceptance notes**
 
 Stage only Task 9 files and any verified defect fixes, then commit:
 
@@ -1161,3 +1163,34 @@ git commit -m "test(report): close Theme V2 report acceptance"
 ```
 
 Do not push or merge.
+
+## Execution notes — 2026-08-04
+
+- Tasks 1–8 landed as eight scoped commits from `d7a9483` through `d7de311`.
+- Focused backend acceptance: 62 tests passed. Final complete Theme V2 backend
+  acceptance: 378 tests passed in 107.94 seconds.
+- Focused Flutter acceptance: 124 tests passed; selected static analysis
+  reported no issues.
+- The deterministic fixture gallery rendered all eight catalog variants. The
+  500 px browser captures had no horizontal overflow; the earlier 430 px crop
+  was a macOS headless-Chrome minimum-layout artifact, not report CSS overflow.
+- The independent Theme V2 runtime was rebuilt on port 8100 and `/ready`
+  returned `{"status":"ready"}`.
+- Historical repair changed 2 eligible reports; the second dry-run found 0.
+  Stored counts after repair: 2 reports, 0 raw Markdown markers, 0 raw HTML
+  markers, and 0 non-v2 presentation versions.
+- A synthetic isolated-account run exercised the configured real Planner and
+  Generator. It completed with two actions; the first action created one Todo,
+  the retry was idempotent, provenance matched the source Report, and shared
+  content was clean. Web Search was legitimately skipped by the Planner;
+  Seedream is not configured, so illustration generation was unavailable.
+- The first Android acceptance build omitted the compile-time `THEME_V2=true`
+  define and therefore selected the intentional legacy-shell default. The plan
+  command now pins both `THEME_V2=true` and the local API base; the corrected
+  APK rebuilt, installed, and visibly restored the Theme V2 shell.
+- Connected-device acceptance completed on `RFCY71B21YK`: readable report body,
+  no visible raw citation markers, one individual action followed by two
+  remaining bulk-created actions, all three persisted as `已加入`, a created
+  Todo showing `来自报告《验收演示·今日执行复盘》`, and navigation back to the
+  same Report with all action states retained. Backend acceptance separately
+  confirmed the clean share representation.

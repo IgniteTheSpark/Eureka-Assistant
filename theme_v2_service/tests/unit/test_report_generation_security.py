@@ -438,6 +438,48 @@ async def test_generator_repairs_one_invalid_structured_response():
     assert "unreferenced numeric claim" in repair_message
 
 
+async def test_generator_drops_untrusted_due_times_after_bounded_repair():
+    calls = []
+
+    async def completion(**kwargs):
+        calls.append(kwargs)
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            _result(
+                                suggested_actions=[
+                                    {
+                                        "title": "准备下一次复盘",
+                                        "due_at": "2026-08-10T09:00:00Z",
+                                    }
+                                ]
+                            )
+                        )
+                    }
+                }
+            ],
+            "usage": {"prompt_tokens": 7, "completion_tokens": 9},
+        }
+
+    provider = LiteLLMGeneratorProvider(
+        model="deepseek/deepseek-chat",
+        api_key="secret",
+        timeout_seconds=30,
+        completion=completion,
+    )
+
+    result = await provider.generate(_request_with_source_and_due_time())
+
+    assert len(calls) == 2
+    assert result.suggested_actions[0].title == "准备下一次复盘"
+    assert result.suggested_actions[0].due_at is None
+    assert "suggested action due_at is not grounded" in (
+        calls[1]["messages"][-1]["content"]
+    )
+
+
 async def test_image_adapter_sends_only_sanitized_prompt_and_rejects_non_image():
     payloads = []
 

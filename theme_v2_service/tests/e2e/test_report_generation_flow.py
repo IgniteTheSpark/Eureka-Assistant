@@ -182,6 +182,30 @@ async def test_report_flow_from_records_through_share_card_and_revocation(
         "安排下一次月度复盘"
     )
 
+    actions = await client.get(
+        f"/api/reports/{report_id}/actions",
+        headers=headers,
+    )
+    action_id = actions.json()["actions"][0]["id"]
+    created_action = await client.post(
+        f"/api/reports/{report_id}/actions/{action_id}",
+        headers=headers,
+    )
+    repeated_action = await client.post(
+        f"/api/reports/{report_id}/actions/{action_id}",
+        headers=headers,
+    )
+    assert created_action.json()["created"] is True
+    assert repeated_action.json() == {
+        **created_action.json(),
+        "created": False,
+    }
+    todo_id = created_action.json()["todo_asset_id"]
+    todo = await client.get(f"/api/assets/{todo_id}", headers=headers)
+    assert todo.json()["source_report_id"] == report_id
+    assert todo.json()["source_report_action_id"] == action_id
+    assert todo.json()["source_report_title"] == "Monthly reflection"
+
     created_share = await client.post(
         f"/api/reports/{report_id}/shares",
         headers=headers,

@@ -5,6 +5,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from pydantic import ValidationError
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -54,7 +55,11 @@ def _external_sources(spec: dict, stages: dict) -> list[dict]:
     raw = spec.get("external_sources")
     if not isinstance(raw, list):
         web = stages.get("web_search")
-        raw = web.get("sources") if isinstance(web, dict) else []
+        raw = web.get("sources", []) if isinstance(web, dict) else []
+    if raw is None:
+        raw = []
+    if not isinstance(raw, list):
+        raise ValueError("invalid stored external sources")
     return [item for item in raw if isinstance(item, dict)]
 
 
@@ -62,7 +67,15 @@ def _stored_actions(spec: dict, stages: dict) -> list[GeneratedSuggestedAction]:
     raw = spec.get("suggested_actions")
     if not isinstance(raw, list):
         content = stages.get("content_generation")
-        raw = content.get("suggested_actions") if isinstance(content, dict) else []
+        raw = (
+            content.get("suggested_actions", [])
+            if isinstance(content, dict)
+            else []
+        )
+    if raw is None:
+        raw = []
+    if not isinstance(raw, list):
+        raise ValueError("invalid stored report action")
     actions: list[GeneratedSuggestedAction] = []
     for item in raw:
         if not isinstance(item, dict):
@@ -103,6 +116,19 @@ def _repair_seed(run_id: str, spec: dict) -> int:
     if isinstance(raw, int) and not isinstance(raw, bool):
         return raw
     return int(hashlib.sha256(run_id.encode()).hexdigest()[:8], 16)
+
+
+def _repair_error_code(error: TypeError | ValueError) -> str:
+    if isinstance(error, ValidationError):
+        return "invalid_stored_action"
+    if isinstance(error, TypeError):
+        return "invalid_stored_type"
+    return {
+        "unknown report citation": "unknown_stored_citation",
+        "malformed report citation": "malformed_stored_citation",
+        "invalid stored report action": "invalid_stored_action",
+        "invalid stored external sources": "invalid_stored_external_sources",
+    }.get(str(error), "stored_report_validation_failed")
 
 
 async def _owned_illustration_file_id(
@@ -224,11 +250,13 @@ async def repair_report_presentations(
                 suggested_actions=normalized.suggested_actions,
                 illustration_file_id=illustration_file_id,
             )
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as error:
             skipped_unsafe += 1
+            error_code = _repair_error_code(error)
             logger.warning(
-                "report presentation repair skipped",
-                extra=sanitize_log_context(error_code="unsafe_stored_report"),
+                "report presentation repair skipped: %s",
+                error_code,
+                extra=sanitize_log_context(error_code=error_code),
             )
             continue
         repaired += 1
