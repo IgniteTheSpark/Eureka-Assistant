@@ -16,6 +16,7 @@ from app.domains.assets.schemas import (
     UserSkillCreate,
     UserSkillUpdate,
 )
+from app.domains.assets.validation import validate_asset_payload
 from app.domains.triggers.service import on_asset_created
 
 
@@ -264,6 +265,7 @@ async def create_asset(
     )
     if skill is None:
         raise UserSkillNotFound()
+    validate_asset_payload(command.payload, skill.schema_json)
 
     asset = Asset(
         user_id=user_id,
@@ -355,6 +357,10 @@ async def update_asset(
     if asset is None:
         return None
     if "payload" in command.model_fields_set and command.payload is not None:
+        skill = await session.get(UserSkill, asset.user_skill_id)
+        if skill is None:
+            raise UserSkillNotFound()
+        validate_asset_payload(command.payload, skill.schema_json)
         asset.payload_json = command.payload
     if "effective_at" in command.model_fields_set:
         asset.effective_at = _utc_naive(command.effective_at)

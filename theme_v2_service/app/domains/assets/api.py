@@ -24,6 +24,7 @@ from app.domains.assets.skill_design import (
     SkillDesignUnavailable,
     design_skill_draft,
 )
+from app.domains.assets.validation import AssetPayloadInvalid
 
 
 router = APIRouter(prefix="/api", tags=["core-records"])
@@ -117,6 +118,8 @@ async def create_asset(
         return await service.create_asset(session, user_id, command)
     except service.UserSkillNotFound as exc:
         raise _not_found() from exc
+    except AssetPayloadInvalid as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/assets", response_model=list[AssetRead])
@@ -157,7 +160,10 @@ async def update_asset(
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_session),
 ):
-    asset = await service.update_asset(session, user_id, asset_id, command)
+    try:
+        asset = await service.update_asset(session, user_id, asset_id, command)
+    except AssetPayloadInvalid as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if asset is None:
         raise _not_found()
     return asset

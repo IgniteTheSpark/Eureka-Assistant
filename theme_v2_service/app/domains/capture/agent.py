@@ -6,6 +6,7 @@ from typing import Any, Literal, Protocol
 from pydantic import BaseModel, Field, model_validator
 
 from app.db.models import UserSkill
+from app.domains.assets.validation import AssetPayloadInvalid, validate_asset_payload
 
 
 BASELINE_CAPTURE_SKILL_NAMES = {
@@ -144,66 +145,11 @@ def capture_skill_from_model(skill: UserSkill) -> CaptureSkill:
     )
 
 
-def _matches_type(value: Any, expected: str) -> bool:
-    if expected == "string":
-        return isinstance(value, str)
-    if expected == "number":
-        return isinstance(value, (int, float)) and not isinstance(value, bool)
-    if expected == "integer":
-        return isinstance(value, int) and not isinstance(value, bool)
-    if expected == "boolean":
-        return isinstance(value, bool)
-    if expected == "object":
-        return isinstance(value, dict)
-    if expected == "array":
-        return isinstance(value, list)
-    if expected == "null":
-        return value is None
-    return False
-
-
-def _validate_value(value: Any, schema: dict, path: str) -> None:
-    expected = schema.get("type")
-    if isinstance(expected, list):
-        if not any(_matches_type(value, item) for item in expected):
-            raise CaptureOutputError(f"{path} has invalid type")
-    elif isinstance(expected, str) and not _matches_type(value, expected):
-        raise CaptureOutputError(f"{path} has invalid type")
-    if "enum" in schema and value not in schema["enum"]:
-        raise CaptureOutputError(f"{path} is not an allowed value")
-    if isinstance(value, list) and isinstance(schema.get("items"), dict):
-        for index, item in enumerate(value):
-            _validate_value(item, schema["items"], f"{path}[{index}]")
-
-
 def _validate_payload(payload: dict[str, Any], schema: dict) -> None:
-    if schema.get("type", "object") != "object":
-        raise CaptureOutputError("skill schema root must be an object")
-    properties = schema.get("properties")
-    shorthand = not isinstance(properties, dict)
-    if shorthand:
-        properties = {
-            name: definition
-            for name, definition in schema.items()
-            if not name.startswith("x-") and isinstance(definition, dict)
-        }
-    if not isinstance(properties, dict) or not properties:
-        raise CaptureOutputError("skill schema properties are required")
-    required = schema.get("required") or []
-    if not isinstance(required, list):
-        raise CaptureOutputError("skill schema required must be a list")
-    missing = [name for name in required if name not in payload]
-    if missing:
-        raise CaptureOutputError(f"asset payload missing required field: {missing[0]}")
-    allows_additional = schema.get("additionalProperties", not shorthand)
-    if allows_additional is False:
-        unknown = [name for name in payload if name not in properties]
-        if unknown:
-            raise CaptureOutputError(f"asset payload has unknown field: {unknown[0]}")
-    for name, value in payload.items():
-        field_schema = properties.get(name)
-        if isinstance(field_schema, dict):
-            _validate_value(value, field_schema, f"payload.{name}")
+    try:
+        validate_asset_payload(payload, schema)
+    except AssetPayloadInvalid as exc:
+        raise CaptureOutputError(str(exc)) from exc
 
 
 def validate_capture_result(

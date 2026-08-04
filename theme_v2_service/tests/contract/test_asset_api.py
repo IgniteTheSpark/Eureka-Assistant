@@ -278,6 +278,59 @@ async def test_asset_rejects_unknown_fuzzy_period(client):
     assert response.status_code == 422
 
 
+async def test_asset_create_and_update_reject_fields_outside_closed_schema(client):
+    owner = await _register(client, "asset-schema-boundary@example.com")
+    skill_response = await client.post(
+        "/api/user-skills",
+        headers=_headers(owner),
+        json={
+            "machine_name": "running_log",
+            "display_name": "跑步记录",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "distance": {"type": "number"},
+                    "duration": {"type": "integer"},
+                },
+                "required": ["distance"],
+                "additionalProperties": False,
+            },
+        },
+    )
+    skill_id = skill_response.json()["id"]
+
+    rejected_create = await client.post(
+        "/api/assets",
+        headers=_headers(owner),
+        json={
+            "user_skill_id": skill_id,
+            "payload": {"distance": 5, "acceptance_marker": "forbidden"},
+        },
+    )
+    assert rejected_create.status_code == 422
+    assert "acceptance_marker" in rejected_create.json()["detail"]
+
+    created = await client.post(
+        "/api/assets",
+        headers=_headers(owner),
+        json={"user_skill_id": skill_id, "payload": {"distance": 5}},
+    )
+    assert created.status_code == 200
+    rejected_update = await client.patch(
+        f"/api/assets/{created.json()['id']}",
+        headers=_headers(owner),
+        json={
+            "payload": {"distance": 5, "acceptance_marker": "forbidden"},
+        },
+    )
+    assert rejected_update.status_code == 422
+    unchanged = await client.get(
+        f"/api/assets/{created.json()['id']}",
+        headers=_headers(owner),
+    )
+    assert unchanged.json()["payload"] == {"distance": 5}
+
+
 async def test_event_can_be_rescheduled_cancelled_and_physically_deleted(client):
     owner = await _register(client, "owner@example.com")
     foreign = await _register(client, "foreign@example.com")
