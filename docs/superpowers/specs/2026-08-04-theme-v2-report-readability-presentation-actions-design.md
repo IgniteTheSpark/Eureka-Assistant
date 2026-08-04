@@ -59,7 +59,7 @@ The older product implemented the complete Report-to-Todo loop:
 4. the server created a Todo idempotently;
 5. the Todo retained Report provenance.
 
-Theme V2 currently has none of those backend contracts. Its seven official
+Theme V2 currently has none of those backend contracts. Its eight official
 template skills do not request typed actions, the Report schema does not persist
 them, `/api/reports/{id}/actions` does not exist, and Theme V2 callers explicitly
 disable the legacy viewer action enhancement.
@@ -127,7 +127,7 @@ class GeneratorResult(ProviderModel):
     usage: GeneratorUsage
 ```
 
-All seven official Template Skills specify when an action is warranted and when
+All eight official Template Skills specify when an action is warranted and when
 the list must remain empty. `content_md` is presentation prose; actions are
 typed application data rather than button-like Markdown authored by the model.
 
