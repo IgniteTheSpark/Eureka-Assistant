@@ -48,6 +48,7 @@ class SkillDraftRequest(BaseModel):
 class AssetCreate(BaseModel):
     user_skill_id: str
     payload: dict
+    session_id: str | None = None
     effective_at: datetime | None = None
     period: Literal["凌晨", "上午", "中午", "下午", "晚上"] | None = None
     occurred_at: datetime | None = None
@@ -137,6 +138,7 @@ class AssetRead(BaseModel):
     created_at: datetime
     updated_at: datetime
     source_recording_id: str | None = None
+    session_id: str | None = None
     source_input_turn_id: str | None = None
     source_report_id: str | None = None
     source_report_action_id: str | None = None

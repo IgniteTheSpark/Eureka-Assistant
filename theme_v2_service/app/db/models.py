@@ -86,6 +86,10 @@ class Asset(Base):
     effective_at: Mapped[datetime | None] = mapped_column(mysql.DATETIME(fsp=6))
     period: Mapped[str | None] = mapped_column(String(8))
     occurred_at: Mapped[datetime | None] = mapped_column(mysql.DATETIME(fsp=6))
+    session_id: Mapped[str | None] = mapped_column(
+        CHAR(36), ForeignKey("chat_sessions.id", ondelete="SET NULL")
+    )
+    source_input_turn_id: Mapped[str | None] = mapped_column(CHAR(36))
     source_report_id: Mapped[str | None] = mapped_column(
         CHAR(36),
         ForeignKey("reports.id", ondelete="SET NULL"),

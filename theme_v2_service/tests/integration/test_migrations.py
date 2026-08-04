@@ -9,6 +9,7 @@ from app.db import models as domain_models  # noqa: F401
 from app.auth import models as auth_models  # noqa: F401
 from app.domains.capture import models as capture_models  # noqa: F401
 from app.domains.devices import models as device_models  # noqa: F401
+from app.domains.sessions import models as session_models  # noqa: F401
 
 
 def _sync_url(url: str) -> str:
@@ -52,6 +53,8 @@ def test_foundation_migration_round_trip_and_physical_types():
         "capture_recordings",
         "capture_turns",
         "flash_chat_messages",
+        "chat_sessions",
+        "session_messages",
     }.issubset(set(inspector.get_table_names()))
 
     asset_columns = {column["name"]: column for column in inspector.get_columns("assets")}
@@ -62,6 +65,8 @@ def test_foundation_migration_round_trip_and_physical_types():
     assert asset_columns["source_report_action_id"]["type"].length == 64
     assert asset_columns["period"]["type"].length == 8
     assert asset_columns["occurred_at"]["type"].fsp == 6
+    assert asset_columns["session_id"]["type"].length == 36
+    assert asset_columns["source_input_turn_id"]["type"].length == 36
 
     asset_indexes = {index["name"]: index for index in inspector.get_indexes("assets")}
     assert asset_indexes["ix_assets_user_source_report"]["column_names"] == [
@@ -86,5 +91,5 @@ def test_foundation_migration_round_trip_and_physical_types():
 
     with engine.connect() as connection:
         revision = connection.scalar(text("SELECT version_num FROM alembic_version"))
-    assert revision == "0012_asset_temporal"
+    assert revision == "0013_chat_sessions"
     engine.dispose()

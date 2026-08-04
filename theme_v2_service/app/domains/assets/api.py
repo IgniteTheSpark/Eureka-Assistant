@@ -118,6 +118,8 @@ async def create_asset(
         return await service.create_asset(session, user_id, command)
     except service.UserSkillNotFound as exc:
         raise _not_found() from exc
+    except service.ChatSessionNotFound as exc:
+        raise _not_found() from exc
     except AssetPayloadInvalid as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

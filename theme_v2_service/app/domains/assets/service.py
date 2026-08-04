@@ -24,6 +24,10 @@ class UserSkillNotFound(Exception):
     pass
 
 
+class ChatSessionNotFound(Exception):
+    pass
+
+
 _LEGACY_ATTENDEE_PATTERN = re.compile(
     r"(?:和|与)(?P<name>[\u4e00-\u9fffA-Za-z0-9·]{1,40}?)"
     r"(?=一起参加|共同参加|参加|出席)(?:一起参加|共同参加|参加|出席)"
@@ -267,6 +271,18 @@ async def create_asset(
         raise UserSkillNotFound()
     validate_asset_payload(command.payload, skill.schema_json)
 
+    if command.session_id:
+        from app.domains.sessions.models import ChatSession
+
+        owner_session = await session.scalar(
+            select(ChatSession).where(
+                ChatSession.id == command.session_id,
+                ChatSession.user_id == user_id,
+            )
+        )
+        if owner_session is None:
+            raise ChatSessionNotFound()
+
     asset = Asset(
         user_id=user_id,
         user_skill_id=skill.id,
@@ -274,6 +290,7 @@ async def create_asset(
         effective_at=_utc_naive(command.effective_at),
         period=command.period,
         occurred_at=_utc_naive(command.occurred_at),
+        session_id=command.session_id,
     )
     session.add(asset)
     await session.flush()

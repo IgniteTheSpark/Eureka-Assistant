@@ -509,19 +509,35 @@ class ChatController extends ChangeNotifier {
     labels: label == null ? const {} : {assetId: label},
   );
 
-  /// 沉淀为资产 — turn a Q&A answer into an asset of [skill] (todo/notes/idea/
-  /// misc), linked to this session. Throws on failure so the UI can show it.
+  /// 沉淀为资产 — resolve the Theme V2 skill id, then create a schema-valid
+  /// todo or note linked to this session. Throws on failure so the UI can show it.
   Future<void> precipitate(String text, String skill) async {
-    final payload = <String, dynamic>{'content': text};
-    if (skill == 'notes' || skill == 'idea') {
-      var title = text.trim().replaceAll(RegExp(r'\s+'), ' ');
-      if (title.length > 24) title = title.substring(0, 24);
-      payload['title'] = title;
+    final normalized = text.trim();
+    var title = normalized.replaceAll(RegExp(r'\s+'), ' ');
+    if (title.length > 24) title = title.substring(0, 24);
+    final payload = skill == 'todo'
+        ? <String, dynamic>{'title': normalized}
+        : <String, dynamic>{'title': title, 'content': normalized};
+    final response = await _api.getJson('/api/user-skills');
+    final rows = response is List
+        ? response
+        : response is Map
+        ? (response['skills'] as List? ?? const [])
+        : const [];
+    String? userSkillId;
+    for (final row in rows.whereType<Map>()) {
+      if (row['machine_name'] == skill) {
+        userSkillId = row['id'] as String?;
+        break;
+      }
+    }
+    if (userSkillId == null || userSkillId.isEmpty) {
+      throw StateError('未找到可用的$skill容器');
     }
     await _api.postJson('/api/assets', {
-      'user_skill_name': skill,
+      'user_skill_id': userSkillId,
       'payload': payload,
-      'session_id': sessionId ?? '',
+      if (sessionId case final id? when id.isNotEmpty) 'session_id': id,
     });
   }
 

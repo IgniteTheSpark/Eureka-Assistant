@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     capture_agent_api_key: str | None = None
     capture_agent_timeout_seconds: float = Field(default=60, gt=0)
     capture_agent_max_attempts: int = Field(default=3, ge=1)
+    chat_agent_enabled: bool = False
+    chat_agent_model: str | None = None
+    chat_agent_api_key: str | None = None
+    chat_agent_timeout_seconds: float = Field(default=60, gt=0)
     capture_flash_wait_seconds: float = Field(default=20, gt=0)
     capture_flash_poll_interval_seconds: float = Field(default=0.05, gt=0)
     report_planner_enabled: bool = False
@@ -81,6 +85,8 @@ class Settings(BaseSettings):
                 errors.append("REPORT_WEB_MODEL is required")
         if self.capture_agent_enabled and not self.capture_agent_model:
             errors.append("CAPTURE_AGENT_MODEL is required")
+        if self.chat_agent_enabled and not self.chat_agent_model:
+            errors.append("CHAT_AGENT_MODEL is required")
         return errors
 
     def report_planner_available(self) -> bool:
