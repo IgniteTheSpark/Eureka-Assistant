@@ -140,6 +140,61 @@ void main() {
     expect(find.text('这是闪念原文'), findsNothing);
   });
 
+  testWidgets('Schedule shows only events and todos and labels todo time', (
+    tester,
+  ) async {
+    final day = DateTime(2026, 7, 3);
+    final scheduleRecords = [
+      CalendarRecord.fromTimeline(
+        calendarFixtureItem(
+          id: 'meeting',
+          title: '产品会议',
+          at: day.add(const Duration(hours: 9)),
+          endAt: day.add(const Duration(hours: 10)),
+        ),
+      ),
+      CalendarRecord.fromTimeline(
+        calendarFixtureItem(
+          id: 'scheduled-todo',
+          title: '发送会议纪要',
+          at: day.add(const Duration(hours: 10, minutes: 30)),
+          kind: 'asset',
+          skillName: 'todo',
+          hasScheduledTime: true,
+          payload: const {'status': 'pending'},
+        ),
+      ),
+      CalendarRecord.fromTimeline(
+        calendarFixtureItem(
+          id: 'timed-note',
+          title: '不应出现在日程的随记',
+          at: day.add(const Duration(hours: 11)),
+          kind: 'asset',
+          skillName: 'notes',
+          hasClockTime: true,
+        ),
+      ),
+    ];
+
+    await tester.pumpWidget(grid(records: scheduleRecords));
+    await tester.pumpAndSettle();
+
+    expect(find.text('产品会议'), findsOneWidget);
+    expect(find.text('发送会议纪要'), findsOneWidget);
+    expect(find.text('不应出现在日程的随记'), findsNothing);
+    final todoBlock = find.byKey(
+      const ValueKey('calendar-grid-record-scheduled-todo'),
+    );
+    expect(
+      find.descendant(of: todoBlock, matching: find.text('10:30')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: todoBlock, matching: find.text('pending')),
+      findsNothing,
+    );
+  });
+
   testWidgets(
     'meeting training and same-minute todo band remain three blocks',
     (tester) async {

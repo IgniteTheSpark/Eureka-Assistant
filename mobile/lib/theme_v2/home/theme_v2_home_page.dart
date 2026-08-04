@@ -22,6 +22,7 @@ class ThemeV2HomePage extends StatefulWidget {
     this.repository,
     this.now,
     this.active = true,
+    this.onOpenReka,
   });
 
   static const panelKey = ValueKey<String>('theme-v2-home-panel');
@@ -29,6 +30,7 @@ class ThemeV2HomePage extends StatefulWidget {
   final ThemeV2HomeController? controller;
   final ThemeV2HomeRepository? repository;
   final bool active;
+  final VoidCallback? onOpenReka;
 
   /// Deterministic clock seam for visual tests. Production uses local time.
   final DateTime? now;
@@ -166,6 +168,7 @@ class _ThemeV2HomePageState extends State<ThemeV2HomePage> {
         active: widget.active,
         chamberHeight: chamberHeight,
         onOpenAgenda: _controller.openAgenda,
+        onOpenReka: widget.onOpenReka,
       ),
       HomePresentation.agenda => SizedBox(
         height: 720,

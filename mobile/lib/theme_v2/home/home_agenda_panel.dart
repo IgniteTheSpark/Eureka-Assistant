@@ -32,7 +32,7 @@ class HomeAgendaPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
     final currentDate = date ?? DateTime.now();
-    final items = supportedHomeQueueItems(data.chain)
+    final items = supportedHomeAgendaItems(data.chain)
       ..sort((a, b) => a.at.compareTo(b.at));
     final groups = _groupByMoment(items).take(_agendaSlots.length).toList();
     final currentMarkerTop = _markerTop(groups, currentDate);
@@ -205,12 +205,12 @@ class HomeAgendaPanel extends StatelessWidget {
             ),
             Positioned(
               right: 7,
-              top: 37,
+              top: 7,
               width: 44,
               height: 44,
               child: ThemeV2IconButton(
                 semanticLabel: '收起日程',
-                icon: Icons.keyboard_arrow_down_rounded,
+                icon: Icons.keyboard_arrow_up_rounded,
                 iconSize: 20,
                 color: tokens.muted,
                 onPressed: onCloseAgenda,
@@ -394,6 +394,7 @@ class _SingleAgendaCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
+    final meta = _agendaMeta(item);
     return Semantics(
       button: true,
       label: '打开 ${item.title}',
@@ -426,17 +427,19 @@ class _SingleAgendaCard extends StatelessWidget {
                       decoration: item.done ? TextDecoration.lineThrough : null,
                     ),
               ),
-              const SizedBox(height: 5),
-              Text(
-                _agendaMeta(item),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: _mono(
-                  color: tokens.muted,
-                  size: 7.5,
-                  weight: FontWeight.w600,
+              if (meta.isNotEmpty) ...[
+                const SizedBox(height: 5),
+                Text(
+                  meta,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: _mono(
+                    color: tokens.muted,
+                    size: 7.5,
+                    weight: FontWeight.w600,
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
         ),
@@ -605,10 +608,11 @@ String _dateLine(DateTime value) {
 }
 
 String _agendaMeta(ChainItem item) {
+  if (item.kind == 'todo') return '';
   final duration = item.dur;
   final prefix = duration == null ? '' : '${duration.inMinutes} 分钟';
   final sub = item.sub.trim();
-  if (prefix.isEmpty) return sub.isEmpty ? (item.done ? '已完成' : '待处理') : sub;
+  if (prefix.isEmpty) return sub;
   if (sub.isEmpty) return prefix;
   return '$prefix · $sub';
 }

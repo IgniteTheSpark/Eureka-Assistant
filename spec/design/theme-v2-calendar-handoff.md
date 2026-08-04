@@ -76,8 +76,12 @@ ease-fluid: cubic-bezier(0.22,1,0.36,1)
 
 - 固定于 viewport，基准尺寸 `169 × 60`，基准位置 `x=121, y=875`。
 - 不参与页面滚动。
-- 页面内容必须预留 Dock、视觉间距和 bottom safe area；最后一项不得被遮挡。
-- Calendar 一级表面保留 Dock。全屏 Edit、modal、键盘态隐藏 Dock。
+- Flow / Month / Year 一级表面保留 Dock，并为其预留视觉间距和 bottom safe area。
+- Day Detail 与 Schedule 属于 Calendar 二级表面，隐藏 Dock，并在页面顶部提供明确返回。
+- 全屏 Edit、modal、键盘态同样隐藏 Dock。
+
+Calendar 一级页面标题使用共享 `ThemeV2PageTitle`，标题文字底部与 Flow / Month / Year
+内容 viewport 顶部保持至少 `12px` 留白；三个尺度共享这一标题间距。
 
 ---
 
@@ -187,6 +191,10 @@ effective_time
 
 ## 7. Day Detail
 
+Day Detail 顶部先显示 `返回日历`，实际点击区域至少 `44 × 44`。这是返回 Calendar
+overview 的主路径，不得只依赖 Android back 或 iOS 侧滑。日期标题和既有操作位于返回行
+下方。
+
 ### 7.1 Populated layout
 
 411 Light 基准：
@@ -252,7 +260,7 @@ flash_count: 5
 - `日程`。
 - `手动记录`。
 - `闪念 5`。
-- Floating Dock。
+- 顶部 `返回日历`。
 
 内容区只显示：
 
@@ -318,6 +326,13 @@ effective_date
 ---
 
 ## 9. Schedule
+
+Schedule 顶部先显示 `返回每日详情`，实际点击区域至少 `44 × 44`。点击后返回同一日期的
+Day Detail；系统级返回遵循相同层级。Schedule 不显示 Floating Dock。
+
+Schedule 的业务记录只接受 Event 与 Todo。其他定时 Asset 不进入 Hour Grid。每个已排期
+Todo 在自己的 block 内显示 `HH:mm`，不依赖左侧时间轴推断；Todo 不展示独立 status 文案，
+checkbox / 删除线就是完成状态。
 
 ### 9.1 统一头部
 

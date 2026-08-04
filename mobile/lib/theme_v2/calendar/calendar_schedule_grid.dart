@@ -68,7 +68,8 @@ class _CalendarScheduleGridState extends State<CalendarScheduleGrid> {
   @override
   Widget build(BuildContext context) {
     final dayRecords = widget.records.where(
-      (record) => _sameDay(record.effectiveAt),
+      (record) =>
+          _sameDay(record.effectiveAt) && (record.isEvent || record.isTodo),
     );
     final timed = dayRecords.where((record) => record.isTimed).toList();
     final untimed = dayRecords
@@ -734,6 +735,17 @@ class _ScheduleTodoRow extends StatelessWidget {
             ),
           ),
         ),
+        if (record.isTimed) ...[
+          Text(
+            _scheduleClock(record.effectiveAt),
+            style: ThemeV2Typography.mono(
+              fontSize: compact ? 8 : 9,
+              color: tokens.muted,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(width: ThemeV2Spacing.xs),
+        ],
         Expanded(
           child: InkWell(
             onTap: onOpen,
@@ -755,3 +767,7 @@ class _ScheduleTodoRow extends StatelessWidget {
     );
   }
 }
+
+String _scheduleClock(DateTime value) =>
+    '${value.hour.toString().padLeft(2, '0')}:'
+    '${value.minute.toString().padLeft(2, '0')}';

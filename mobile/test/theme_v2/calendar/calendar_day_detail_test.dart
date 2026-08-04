@@ -10,6 +10,7 @@ void main() {
   Widget detail(
     CalendarDayData dayData, {
     Map<String, SkillMeta> skills = const {},
+    VoidCallback? onBack,
     VoidCallback? onOpenFlash,
     VoidCallback? onManualRecord,
     VoidCallback? onOpenSchedule,
@@ -18,7 +19,7 @@ void main() {
       CalendarDayDetail(
         dayData: dayData,
         skills: skills,
-        onBack: () {},
+        onBack: onBack ?? () {},
         onOpenSchedule: onOpenSchedule ?? () {},
         onOpenFlash: onOpenFlash ?? () {},
         onManualRecord: onManualRecord ?? () {},
@@ -65,6 +66,21 @@ void main() {
     await tester.tap(find.bySemanticsLabel('7月3日，0 条闪念，查看闪念'));
     expect(opened, isTrue);
     expect(find.text('闪念 0'), findsOneWidget);
+  });
+
+  testWidgets('Day Detail exposes a 44px top back action', (tester) async {
+    final day = DateTime(2026, 7, 3);
+    var backs = 0;
+
+    await tester.pumpWidget(
+      detail(CalendarData(const [], const {}).day(day), onBack: () => backs++),
+    );
+
+    final back = find.bySemanticsLabel('返回日历');
+    expect(back, findsOneWidget);
+    expect(tester.getSize(back).height, greaterThanOrEqualTo(44));
+    await tester.tap(back);
+    expect(backs, 1);
   });
 
   testWidgets('manual and Schedule actions expose 44px targets', (

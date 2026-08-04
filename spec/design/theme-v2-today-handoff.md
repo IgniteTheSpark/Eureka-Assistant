@@ -186,7 +186,20 @@ field，不在顶部留下空槽。
 
 ### 6.3 Reka Queue
 
-仅展示当前仍受支持的队列项。
+Reka Queue 是助手主动发现、提醒和工作流状态的显式信号区，不是 Todo
+列表的另一种呈现。Theme V2 当前从未读 Notification 映射以下类型：
+
+- `reminder`
+- `report_available`
+- `report_plan_ready`
+- `report_done`
+- `report_failed`
+
+不得把 `TodayData.noTimeTodos`、`task_done`、`task_failed` 或 `flash_done`
+映射为 Reka Queue。普通待办只进入 Agenda / Calendar；闪念整理回执只进入通知。
+
+同一 Queue 内所有记录使用相同高度、内边距和点击区域，不设置“首条大卡、后续小行”的
+视觉优先级。`查看全部` 进入 Reka Inbox / Notification，不得打开 Agenda。
 
 必须过滤：
 
@@ -238,6 +251,10 @@ x=8, y=54, w=395, h=790
 - 不把整个底部 chamber 随 Panel 顶部一起上移。
 - Agenda 内容可以垂直滚动。
 - Agenda 展开 / 收起保留。
+- 展开与收起使用同一个 `44 × 44` disclosure 位置；展开态只改变箭头方向和
+  accessibility label，不允许入口在两个状态之间跳位。
+- Agenda 只展示 Event 与 Todo。Todo 卡显示自身时间；不显示 `pending`、
+  `scheduled`、`待处理`、`已完成` 等独立状态文案，勾选/删除线即完成状态。
 - Home 跨层横向滑动被移除。
 - Agenda 内部若存在横向内容手势，不得被误识别为 Home 层切换。
 

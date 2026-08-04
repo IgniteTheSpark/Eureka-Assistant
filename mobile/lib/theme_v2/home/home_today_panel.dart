@@ -6,8 +6,10 @@ import 'package:flutter/material.dart';
 import '../../today/today_data.dart';
 import '../asset_detail/asset_entity_ref.dart';
 import '../asset_detail/open_asset_detail.dart';
+import '../foundation/theme_v2_semantics.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
+import '../report/report_notification_target.dart';
 import 'theme_v2_asset_bubble_field.dart';
 import 'theme_v2_gravity_chamber.dart';
 
@@ -41,6 +43,12 @@ List<ChainItem> supportedHomeQueueItems(Iterable<ChainItem> items) {
   return items.where((item) => !_hasGoalMetadata(item.card)).toList();
 }
 
+List<ChainItem> supportedHomeAgendaItems(Iterable<ChainItem> items) {
+  return supportedHomeQueueItems(
+    items,
+  ).where((item) => item.kind == 'event' || item.kind == 'todo').toList();
+}
+
 bool _hasGoalMetadata(Map<String, dynamic> metadata) {
   if (metadata['goal_id'] != null || metadata['goalId'] != null) return true;
   for (final entry in metadata.entries) {
@@ -69,6 +77,7 @@ class HomeTodayPanel extends StatelessWidget {
     required this.data,
     required this.onOpenAgenda,
     required this.chamberHeight,
+    this.onOpenReka,
     this.date,
     this.active = true,
   });
@@ -85,12 +94,13 @@ class HomeTodayPanel extends StatelessWidget {
   final TodayData data;
   final VoidCallback onOpenAgenda;
   final double chamberHeight;
+  final VoidCallback? onOpenReka;
   final DateTime? date;
   final bool active;
 
   @override
   Widget build(BuildContext context) {
-    final queue = supportedHomeQueueItems(data.noTimeTodos);
+    final queue = data.rekaQueue;
     final chain = supportedHomeQueueItems(data.chain);
     final now = date ?? DateTime.now();
     final todayCount = chain.length;
@@ -118,7 +128,7 @@ class HomeTodayPanel extends StatelessWidget {
           key: rekaQueueKey,
           width: double.infinity,
           height: 188,
-          child: _RekaQueue(items: queue, onOpenAgenda: onOpenAgenda),
+          child: _RekaQueue(items: queue, onOpenAll: onOpenReka),
         ),
         const SizedBox(height: 12),
         SizedBox(
@@ -218,7 +228,7 @@ class _NextMomentCard extends StatelessWidget {
                 Positioned(
                   left: 126,
                   top: 29,
-                  width: 220,
+                  width: 186,
                   child: GestureDetector(
                     behavior: HitTestBehavior.opaque,
                     onTap: () => unawaited(_openChainItem(context, value)),
@@ -287,30 +297,29 @@ class _NextMomentCard extends StatelessWidget {
                     ),
                   ),
                 Positioned(
-                  left: 4,
-                  bottom: 0,
-                  width: 116,
-                  height: 44,
-                  child: Semantics(
-                    button: true,
-                    label: '打开日程',
-                    onTap: onOpenAgenda,
-                    child: ExcludeSemantics(
-                      child: TextButton(
-                        onPressed: onOpenAgenda,
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.only(left: 12),
-                          alignment: Alignment.centerLeft,
-                          foregroundColor: tokens.muted,
-                          textStyle: _mono(
-                            color: tokens.muted,
-                            size: 9,
-                            weight: FontWeight.w600,
-                          ),
-                        ),
-                        child: Text('今日共 $todayCount 项  ↗'),
-                      ),
+                  left: 16,
+                  bottom: 14,
+                  width: 104,
+                  child: Text(
+                    '今日共 $todayCount 项',
+                    style: _mono(
+                      color: tokens.muted,
+                      size: 9,
+                      weight: FontWeight.w600,
                     ),
+                  ),
+                ),
+                Positioned(
+                  right: 7,
+                  top: 7,
+                  width: 44,
+                  height: 44,
+                  child: ThemeV2IconButton(
+                    semanticLabel: '打开日程',
+                    icon: Icons.keyboard_arrow_down_rounded,
+                    iconSize: 20,
+                    color: tokens.muted,
+                    onPressed: onOpenAgenda,
                   ),
                 ),
               ],
@@ -349,13 +358,16 @@ class _NextMomentEmpty extends StatelessWidget {
           ),
         ),
         Positioned(
-          left: 4,
-          bottom: 0,
-          width: 116,
+          right: 7,
+          top: 7,
+          width: 44,
           height: 44,
-          child: TextButton(
+          child: ThemeV2IconButton(
+            semanticLabel: '打开日程',
+            icon: Icons.keyboard_arrow_down_rounded,
+            iconSize: 20,
+            color: tokens.muted,
             onPressed: onOpenAgenda,
-            child: const Text('打开今日日程  ↗'),
           ),
         ),
       ],
@@ -364,19 +376,14 @@ class _NextMomentEmpty extends StatelessWidget {
 }
 
 class _RekaQueue extends StatelessWidget {
-  const _RekaQueue({
-    required this.items,
-    required this.onOpenAgenda,
-  });
+  const _RekaQueue({required this.items, required this.onOpenAll});
 
-  final List<ChainItem> items;
-  final VoidCallback onOpenAgenda;
+  final List<TodayRekaItem> items;
+  final VoidCallback? onOpenAll;
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
-    final priority = items.firstOrNull;
-    final secondary = items.skip(1).take(1).toList();
     return Material(
       color: tokens.surface,
       shape: RoundedRectangleBorder(
@@ -403,7 +410,7 @@ class _RekaQueue extends StatelessWidget {
             left: 58,
             top: 17,
             child: Text(
-              '${items.length} 条待处理',
+              '${items.length} 条发现',
               style: _mono(
                 color: tokens.muted,
                 size: 8.5,
@@ -417,7 +424,7 @@ class _RekaQueue extends StatelessWidget {
             width: 62,
             height: 44,
             child: TextButton(
-              onPressed: onOpenAgenda,
+              onPressed: onOpenAll,
               style: TextButton.styleFrom(
                 padding: EdgeInsets.zero,
                 foregroundColor: tokens.accent,
@@ -430,13 +437,24 @@ class _RekaQueue extends StatelessWidget {
               child: const Text('查看全部'),
             ),
           ),
-          if (priority != null)
+          if (items.isNotEmpty)
             Positioned(
               left: 12,
-              top: 42,
+              top: 44,
               width: 351,
-              height: 62,
-              child: _PriorityCandidate(item: priority),
+              height: 132,
+              child: ListView.separated(
+                key: const ValueKey('theme-v2-reka-signal-list'),
+                primary: false,
+                padding: EdgeInsets.zero,
+                itemCount: items.length,
+                separatorBuilder: (_, _) => const SizedBox(height: 8),
+                itemBuilder: (context, index) => SizedBox(
+                  key: ValueKey('theme-v2-reka-row-${items[index].id}'),
+                  height: 56,
+                  child: _RekaQueueRow(item: items[index]),
+                ),
+              ),
             )
           else
             Positioned(
@@ -446,53 +464,21 @@ class _RekaQueue extends StatelessWidget {
               height: 104,
               child: Center(
                 child: Text(
-                  '暂时没有待处理',
+                  '暂时没有新的发现',
                   style: _geist(color: tokens.muted, size: 11),
                 ),
               ),
             ),
-          for (var index = 0; index < secondary.length; index++)
-            Positioned(
-              left: 12,
-              top: 112 + index * 36,
-              width: 351,
-              height: 32,
-              child: _SecondaryCandidate(item: secondary[index]),
-            ),
-          if (items.length > 3) ...[
-            Positioned(
-              right: 4,
-              top: 45,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: tokens.background,
-                  borderRadius: BorderRadius.circular(1),
-                ),
-                child: const SizedBox(width: 2, height: 128),
-              ),
-            ),
-            Positioned(
-              right: 4,
-              top: 45,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: tokens.accent,
-                  borderRadius: BorderRadius.circular(1),
-                ),
-                child: const SizedBox(width: 2, height: 34),
-              ),
-            ),
-          ],
         ],
       ),
     );
   }
 }
 
-class _PriorityCandidate extends StatelessWidget {
-  const _PriorityCandidate({required this.item});
+class _RekaQueueRow extends StatelessWidget {
+  const _RekaQueueRow({required this.item});
 
-  final ChainItem item;
+  final TodayRekaItem item;
 
   @override
   Widget build(BuildContext context) {
@@ -505,61 +491,54 @@ class _PriorityCandidate extends StatelessWidget {
         borderRadius: BorderRadius.circular(ThemeV2Radii.md),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          onTap: () => unawaited(_openChainItem(context, item)),
-          child: Stack(
-            children: [
-              Positioned(
-                left: 12,
-                top: 12,
-                child: Icon(
-                  Icons.business_center_outlined,
+          onTap: item.link.isEmpty
+              ? null
+              : () => unawaited(_openRekaItem(context, item)),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              children: [
+                Icon(_rekaIcon(item.type), size: 18, color: tokens.accent),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: _geist(
+                          color: tokens.foreground,
+                          size: 11.5,
+                          weight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        item.body.isEmpty
+                            ? _rekaTypeLabel(item.type)
+                            : item.body,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: _mono(
+                          color: tokens.muted,
+                          size: 8,
+                          weight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Icon(
+                  Icons.chevron_right_rounded,
                   size: 18,
-                  color: tokens.accent,
+                  color: tokens.muted,
                 ),
-              ),
-              Positioned(
-                left: 40,
-                top: 8,
-                width: 236,
-                child: Text(
-                  item.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: _geist(
-                    color: tokens.foreground,
-                    size: 12,
-                    weight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              Positioned(
-                left: 40,
-                top: 29,
-                width: 236,
-                child: Text(
-                  _queueMeta(item),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: _mono(
-                    color: tokens.muted,
-                    size: 8.5,
-                    weight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              Positioned(
-                right: 12,
-                top: 22,
-                child: Text(
-                  '查看',
-                  style: _geist(
-                    color: tokens.accent,
-                    size: 10,
-                    weight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -567,49 +546,40 @@ class _PriorityCandidate extends StatelessWidget {
   }
 }
 
-class _SecondaryCandidate extends StatelessWidget {
-  const _SecondaryCandidate({required this.item});
+IconData _rekaIcon(String type) => switch (type) {
+  'reminder' => Icons.notifications_active_outlined,
+  'report_available' => Icons.auto_awesome_outlined,
+  'report_plan_ready' => Icons.fact_check_outlined,
+  'report_done' => Icons.insert_chart_outlined_rounded,
+  'report_failed' => Icons.error_outline_rounded,
+  _ => Icons.lightbulb_outline_rounded,
+};
 
-  final ChainItem item;
+String _rekaTypeLabel(String type) => switch (type) {
+  'reminder' => '提醒',
+  'report_available' => 'Reka 发现',
+  'report_plan_ready' => '等待确认',
+  'report_done' => '整理完成',
+  'report_failed' => '需要处理',
+  _ => 'Reka 信号',
+};
 
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.themeV2;
-    return Semantics(
-      button: true,
-      label: '打开 ${item.title}',
-      child: InkWell(
-        onTap: () => unawaited(_openChainItem(context, item)),
-        child: Row(
-          children: [
-            Icon(Icons.layers_outlined, size: 15, color: tokens.muted),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                item.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: _geist(
-                  color: tokens.foreground,
-                  size: 10.5,
-                  weight: FontWeight.w500,
-                ),
-              ),
-            ),
-            Text(
-              item.sub.trim().isEmpty ? '待处理' : item.sub,
-              style: _mono(
-                color: tokens.muted,
-                size: 7.5,
-                weight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(width: 36),
-          ],
-        ),
+Future<void> _openRekaItem(BuildContext context, TodayRekaItem item) async {
+  if (item.type == 'reminder') {
+    final parts = item.link.split(':');
+    final kind = parts.length > 1 ? parts[1] : '';
+    final id = parts.length > 2 ? parts[2] : '';
+    if (id.isEmpty) return;
+    return openAssetDetail(
+      context,
+      AssetEntityRef(
+        kind: kind == 'evt' ? AssetEntityKind.event : AssetEntityKind.asset,
+        id: id,
       ),
+      coreRecordsOnly: true,
     );
   }
+  await openReportNotificationTarget(context, item.link, type: item.type);
 }
 
 Future<void> _openChainItem(BuildContext context, ChainItem item) {
@@ -645,12 +615,6 @@ String _timeRange(ChainItem item) {
 String _sameTimeSummary(List<ChainItem> items) {
   if (items.isEmpty) return '同一时刻暂无其他事项';
   return items.take(2).map((item) => item.title).join(' · ');
-}
-
-String _queueMeta(ChainItem item) {
-  final time = item.timed ? _clock(item.at) : '待处理';
-  if (item.sub.trim().isEmpty) return time;
-  return '$time · ${item.sub}';
 }
 
 TextStyle _geist({

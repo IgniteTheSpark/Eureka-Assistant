@@ -142,8 +142,8 @@ class _CalendarYearViewState extends State<CalendarYearView> {
               builder: (context, constraints) {
                 const gap = ThemeV2Spacing.md;
                 final width = (constraints.maxWidth - gap * 2) / 3;
-                final gridHeight = (constraints.maxHeight - 218)
-                    .clamp(264.0, 452.0)
+                final gridHeight = (constraints.maxHeight - 212)
+                    .clamp(260.0, 452.0)
                     .toDouble();
                 final cellHeight = (gridHeight - gap * 3) / 4;
                 return Column(
@@ -313,7 +313,7 @@ class _YearOverview extends StatelessWidget {
     final eventCount = records.where((record) => record.isEvent).length;
     return Container(
       key: const ValueKey('calendar-year-summary'),
-      height: 206,
+      height: 200,
       width: double.infinity,
       padding: const EdgeInsets.all(ThemeV2Spacing.lg),
       decoration: BoxDecoration(

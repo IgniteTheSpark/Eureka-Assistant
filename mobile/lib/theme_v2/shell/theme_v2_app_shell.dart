@@ -239,10 +239,15 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
   List<ThemeV2PageScaffold> _pages() {
     return widget.pages ??
         [
-          ThemeV2PageScaffold(body: ThemeV2HomePage(active: _index == 0)),
+          ThemeV2PageScaffold(
+            body: ThemeV2HomePage(
+              active: _index == 0,
+              onOpenReka: () => _openNotifications(context),
+            ),
+          ),
           ThemeV2PageScaffold(
             body: ThemeV2CalendarPage(controller: _calendarController),
-            showDock: _calendarController.surface != CalendarSurface.schedule,
+            showDock: _calendarController.surface == CalendarSurface.overview,
           ),
           ThemeV2PageScaffold(
             body: ThemeV2LibraryPage(navigation: _libraryNavigation),

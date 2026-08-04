@@ -522,6 +522,7 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
         onCreateDraft: _createDraft,
         onOpenDraftEditor: _openDraftEditor,
         onManualRecord: () => _requestManualRecord(selectedDate),
+        onBack: () => setState(_controller.backToDay),
       );
     }
     final pages = PageView.builder(
@@ -621,7 +622,7 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Padding(
-          padding: EdgeInsets.fromLTRB(18, 14, 18, 0),
+          padding: EdgeInsets.fromLTRB(18, 14, 18, 12),
           child: ThemeV2PageTitle(
             key: ValueKey('theme-v2-page-title-calendar'),
             title: '日历',
@@ -702,6 +703,7 @@ class _CalendarScheduleRoute extends StatelessWidget {
     required this.onCreateDraft,
     required this.onOpenDraftEditor,
     required this.onManualRecord,
+    required this.onBack,
   });
 
   final DateTime day;
@@ -712,6 +714,7 @@ class _CalendarScheduleRoute extends StatelessWidget {
   final CalendarDraftMutation onCreateDraft;
   final ValueChanged<CalendarInlineDraft> onOpenDraftEditor;
   final VoidCallback onManualRecord;
+  final VoidCallback onBack;
 
   @override
   Widget build(BuildContext context) {
@@ -729,10 +732,25 @@ class _CalendarScheduleRoute extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             SizedBox(
-              height: 104,
+              height: 148,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: SizedBox(
+                      height: ThemeV2Sizes.minTouchTarget,
+                      child: TextButton.icon(
+                        onPressed: onBack,
+                        icon: const Icon(Icons.arrow_back_rounded, size: 18),
+                        label: const Text('返回每日详情'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: tokens.muted,
+                          padding: EdgeInsets.zero,
+                        ),
+                      ),
+                    ),
+                  ),
                   Text(
                     '${day.month}月${day.day}日　·　${_weekday(day)}',
                     style: ThemeV2Typography.mono(

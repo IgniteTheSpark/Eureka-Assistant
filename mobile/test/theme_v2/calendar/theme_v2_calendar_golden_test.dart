@@ -383,6 +383,7 @@ void main() {
             controller: controller,
             data: calendarHandoffOverviewData(),
           ),
+          showDock: false,
         ),
       );
       await expectLater(
@@ -401,6 +402,7 @@ void main() {
             controller: controller,
             data: calendarHandoffAssetEmptyData(),
           ),
+          showDock: false,
         ),
       );
       await expectLater(
@@ -445,7 +447,9 @@ void main() {
           showDock: false,
         ),
       );
-      await tester.tap(find.bySemanticsLabel('展开 3 个待办'));
+      final expandTodos = find.bySemanticsLabel('展开 3 个待办');
+      await tester.ensureVisible(expandTodos);
+      await tester.tap(expandTodos);
       await tester.pumpAndSettle();
       await expectLater(
         find.byKey(surface),

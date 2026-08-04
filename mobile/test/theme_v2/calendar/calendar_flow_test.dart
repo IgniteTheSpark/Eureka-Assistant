@@ -42,6 +42,11 @@ void main() {
     expect(title, findsOneWidget);
     expect(find.text('日历'), findsOneWidget);
     expect(tester.getTopLeft(title).dx, 18);
+    final pages = find.byKey(const ValueKey('calendar-mode-pages'));
+    expect(
+      tester.getTopLeft(pages).dy - tester.getBottomLeft(title).dy,
+      greaterThanOrEqualTo(12),
+    );
   });
 
   testWidgets('populated date opens Day Detail on the first tap', (
@@ -1427,6 +1432,36 @@ void main() {
     await tester.pumpAndSettle();
     expect(controller.surface, CalendarSurface.overview);
     expect(find.byKey(const ValueKey('calendar-flow-content')), findsOneWidget);
+  });
+
+  testWidgets('Schedule has an explicit top action back to Day Detail', (
+    tester,
+  ) async {
+    final controller = CalendarController()
+      ..openDay(DateTime(2026, 7, 3))
+      ..openSchedule();
+    await tester.pumpWidget(
+      calendarTestHost(
+        ThemeV2CalendarPage(
+          controller: controller,
+          today: DateTime(2026, 7, 3),
+          initialData: calendarFixtureData(),
+          onOpenRecord: (_) {},
+          onCreateDraft: (_) async {},
+          onOpenDraftEditor: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final back = find.bySemanticsLabel('返回每日详情');
+    expect(back, findsOneWidget);
+    expect(tester.getSize(back).height, greaterThanOrEqualTo(44));
+    await tester.tap(back);
+    await tester.pumpAndSettle();
+
+    expect(controller.surface, CalendarSurface.dayDetail);
+    expect(find.byType(CalendarDayDetail), findsOneWidget);
   });
 
   testWidgets('initial loading keeps Calendar scales mounted', (tester) async {

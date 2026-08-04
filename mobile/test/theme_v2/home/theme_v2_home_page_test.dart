@@ -103,7 +103,7 @@ void main() {
     expect(find.text('NEXT / 10:30'), findsOneWidget);
     expect(find.text('42'), findsOneWidget);
     expect(find.text('分钟后'), findsOneWidget);
-    expect(find.text('今日共 1 项  ↗'), findsOneWidget);
+    expect(find.text('今日共 1 项'), findsOneWidget);
     expect(find.text('下一时刻'), findsNothing);
     expect(find.text('今日生成'), findsOneWidget);
     expect(find.byType(ThemeV2AssetBubbleField), findsOneWidget);
@@ -233,6 +233,56 @@ void main() {
     expect(rails, findsNothing);
   });
 
+  testWidgets(
+    'Reka queue uses explicit signals instead of unscheduled todos and keeps rows equal',
+    (tester) async {
+      _setReferenceView(tester);
+      final data = TodayData(
+        chain: const [],
+        noTimeTodos: [_queueItem(title: '不应进入 Reka 的待办')],
+        pool: const [],
+        poolTrueCount: 0,
+        flashCount: 0,
+        rekaQueue: [
+          TodayRekaItem(
+            id: 'signal-1',
+            type: 'report_available',
+            title: '可以整理本周的跑步记录',
+            body: 'Reka 发现近七天已有足够记录',
+            link: 'report-start:execution-1:1',
+            createdAt: DateTime(2026, 8, 4, 9),
+          ),
+          TodayRekaItem(
+            id: 'signal-2',
+            type: 'report_plan_ready',
+            title: '会前调研方案等待确认',
+            body: '选择调研范围后继续',
+            link: 'report-run:run-1',
+            createdAt: DateTime(2026, 8, 4, 8),
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        _HomeHost(
+          child: ThemeV2HomePage(
+            repository: _FakeHomeRepository(data),
+            now: DateTime(2026, 8, 4, 10),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('不应进入 Reka 的待办'), findsNothing);
+      expect(find.text('可以整理本周的跑步记录'), findsOneWidget);
+      expect(find.text('会前调研方案等待确认'), findsOneWidget);
+      final first = find.byKey(const ValueKey('theme-v2-reka-row-signal-1'));
+      final second = find.byKey(const ValueKey('theme-v2-reka-row-signal-2'));
+      expect(tester.getSize(first), tester.getSize(second));
+      expect(tester.getSize(first).height, greaterThanOrEqualTo(44));
+    },
+  );
+
   testWidgets('Today chooses NEXT from the unfinished full-day chain', (
     tester,
   ) async {
@@ -250,7 +300,7 @@ void main() {
 
     expect(find.text('NEXT / 10:30'), findsOneWidget);
     expect(find.text('NEXT / 09:00'), findsNothing);
-    expect(find.text('今日共 2 项  ↗'), findsOneWidget);
+    expect(find.text('今日共 2 项'), findsOneWidget);
   });
 
   testWidgets('Agenda remains a bounded document section', (tester) async {
@@ -332,15 +382,70 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(tester.getSize(find.bySemanticsLabel('打开日程')), const Size(116, 44));
-    await tester.tap(find.bySemanticsLabel('打开日程'));
+    final openAction = find.bySemanticsLabel('打开日程');
+    expect(tester.getSize(openAction), const Size.square(44));
+    final openRect = tester.getRect(openAction);
+    await tester.tap(openAction);
     await tester.pumpAndSettle();
     expect(find.byType(HomeAgendaPanel), findsOneWidget);
 
-    await tester.tap(find.bySemanticsLabel('收起日程'));
+    final closeAction = find.bySemanticsLabel('收起日程');
+    expect(tester.getSize(closeAction), const Size.square(44));
+    expect(tester.getRect(closeAction), openRect);
+    await tester.tap(closeAction);
     await tester.pumpAndSettle();
     expect(find.byType(HomeTodayPanel), findsOneWidget);
   });
+
+  testWidgets(
+    'Agenda contains only events and todos without todo status copy',
+    (tester) async {
+      _setReferenceView(tester);
+      final controller = ThemeV2HomeController(
+        initialPresentation: HomePresentation.agenda,
+      );
+      addTearDown(controller.dispose);
+      final data = TodayData(
+        chain: [
+          ChainItem(
+            kind: 'todo',
+            id: 'todo-visible',
+            title: '提交费用单',
+            at: DateTime(2026, 8, 4, 10, 30),
+            timed: true,
+          ),
+          ChainItem(
+            kind: 'note',
+            id: 'note-hidden',
+            title: '不属于日程的随记',
+            at: DateTime(2026, 8, 4, 11),
+            timed: true,
+          ),
+        ],
+        noTimeTodos: const [],
+        pool: const [],
+        poolTrueCount: 0,
+        flashCount: 0,
+      );
+
+      await tester.pumpWidget(
+        _HomeHost(
+          child: ThemeV2HomePage(
+            controller: controller,
+            repository: _FakeHomeRepository(data),
+            now: DateTime(2026, 8, 4, 9),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('提交费用单'), findsOneWidget);
+      expect(find.text('10:30'), findsOneWidget);
+      expect(find.text('不属于日程的随记'), findsNothing);
+      expect(find.text('待处理'), findsNothing);
+      expect(find.text('已完成'), findsNothing);
+    },
+  );
 
   test('queue filtering uses explicit metadata and preserves user text', () {
     final ordinary = _queueItem(title: '更新个人目标');

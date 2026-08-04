@@ -40,7 +40,7 @@ class CalendarDayDetail extends StatelessWidget {
           ThemeV2Spacing.lg,
           ThemeV2Spacing.sm,
           ThemeV2Spacing.lg,
-          112,
+          ThemeV2Spacing.xl,
         ),
         children: [
           _DayHeader(
@@ -85,30 +85,31 @@ class _DayHeader extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Semantics(
-          label: '返回日历',
-          button: true,
-          onTap: onBack,
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: onBack,
-            child: SizedBox(
-              height: 24,
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  '${day.month}月 · ${_weekday(day)}',
-                  style: ThemeV2Typography.mono(
-                    fontSize: 10,
-                    color: tokens.muted,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 1.2,
-                  ),
-                ),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: SizedBox(
+            height: ThemeV2Sizes.minTouchTarget,
+            child: TextButton.icon(
+              onPressed: onBack,
+              icon: const Icon(Icons.arrow_back_rounded, size: 18),
+              label: const Text('返回日历'),
+              style: TextButton.styleFrom(
+                foregroundColor: tokens.muted,
+                padding: EdgeInsets.zero,
               ),
             ),
           ),
         ),
+        Text(
+          '${day.month}月 · ${_weekday(day)}',
+          style: ThemeV2Typography.mono(
+            fontSize: 10,
+            color: tokens.muted,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1.2,
+          ),
+        ),
+        const SizedBox(height: ThemeV2Spacing.xs),
         Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [

@@ -157,6 +157,24 @@ void main() {
 }
 
 final _homeFixture = TodayData(
+  rekaQueue: [
+    TodayRekaItem(
+      id: 'reka-brief',
+      type: 'reminder',
+      title: '会前简报已经准备好',
+      body: '14:00 · 客户需求拜访',
+      link: '/notifications/reka-brief',
+      createdAt: DateTime(2026, 7, 31, 13, 45),
+    ),
+    TodayRekaItem(
+      id: 'reka-report',
+      type: 'report_available',
+      title: '本周工作脉络可以生成报告',
+      body: '已聚合 9 条相关记录',
+      link: '/reports/reka-report',
+      createdAt: DateTime(2026, 7, 31, 11, 20),
+    ),
+  ],
   chain: [
     ChainItem(
       kind: 'event',

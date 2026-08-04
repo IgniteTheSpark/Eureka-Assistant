@@ -73,7 +73,7 @@ asset_count = 0
 - `日程`。
 - `＋ 手动记录`。
 - `⚡ 闪念 N`。
-- Floating Dock。
+- 顶部 `返回日历`；不显示 Floating Dock。
 
 内容区只显示：
 

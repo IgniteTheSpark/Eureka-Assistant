@@ -63,6 +63,29 @@ class PoolAsset {
   final DateTime createdAt;
 }
 
+/// A bounded, explicit Reka signal for the Today queue.
+///
+/// This is intentionally separate from [ChainItem]: calendar events and todos
+/// describe the user's agenda, while Reka signals describe discoveries,
+/// reminders, and report workflow states produced by the assistant.
+class TodayRekaItem {
+  const TodayRekaItem({
+    required this.id,
+    required this.type,
+    required this.title,
+    required this.body,
+    required this.link,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String type;
+  final String title;
+  final String body;
+  final String link;
+  final DateTime createdAt;
+}
+
 ({List<PoolAsset> pool, int trueCount}) selectTodayPool(
   Iterable<PoolAsset> assets, {
   int maxBodies = 50,
@@ -87,6 +110,7 @@ class TodayData {
     this.todoTotal = 0,
     this.flashLatestId,
     this.skills = const {},
+    this.rekaQueue = const [],
   });
 
   final List<ChainItem> chain;
@@ -102,6 +126,20 @@ class TodayData {
   /// The pool bubble glyph + dashboard category name resolve through this (via
   /// resolveMeta) so a **custom** skill shows ITS icon/name, not a hardcoded guess.
   final Map<String, SkillMeta> skills;
+  final List<TodayRekaItem> rekaQueue;
+
+  TodayData withRekaQueue(List<TodayRekaItem> value) => TodayData(
+    chain: chain,
+    noTimeTodos: noTimeTodos,
+    pool: pool,
+    poolTrueCount: poolTrueCount,
+    flashCount: flashCount,
+    todoDone: todoDone,
+    todoTotal: todoTotal,
+    flashLatestId: flashLatestId,
+    skills: skills,
+    rekaQueue: List<TodayRekaItem>.unmodifiable(value),
+  );
 
   static const empty = TodayData(
     chain: [],
