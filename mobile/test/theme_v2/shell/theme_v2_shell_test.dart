@@ -91,6 +91,42 @@ void main() {
     },
   );
 
+  testWidgets('connected device entries use accessible icon-only controls', (
+    tester,
+  ) async {
+    for (final summary in [
+      const DeviceStatusSummary.connected(
+        presence: ThemeV2DevicePresence.card,
+        label: '录音卡已连接',
+      ),
+      const DeviceStatusSummary.connected(
+        presence: ThemeV2DevicePresence.ring,
+        label: '戒指已连接',
+      ),
+      const DeviceStatusSummary.connected(
+        presence: ThemeV2DevicePresence.both,
+        label: '双设备已连接',
+      ),
+    ]) {
+      await tester.pumpWidget(
+        _TestHost(
+          child: ThemeV2GlobalTopNav(
+            deviceStatus: summary,
+            onDevicePressed: _noop,
+            onNotificationsPressed: _noop,
+          ),
+        ),
+      );
+
+      expect(find.text(summary.label), findsNothing);
+      final deviceEntry = find.bySemanticsLabel('设备：${summary.label}');
+      expect(deviceEntry, findsOneWidget);
+      final size = tester.getSize(deviceEntry);
+      expect(size.width, greaterThanOrEqualTo(44));
+      expect(size.height, greaterThanOrEqualTo(44));
+    }
+  });
+
   testWidgets('floating dock includes bottom safe area and fits 360px', (
     tester,
   ) async {
@@ -322,6 +358,8 @@ void main() {
 }
 
 void _noopIndex(int _) {}
+
+void _noop() {}
 
 class _TestHost extends StatelessWidget {
   const _TestHost({

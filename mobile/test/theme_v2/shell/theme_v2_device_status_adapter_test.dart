@@ -9,48 +9,56 @@ import 'package:flutter_test/flutter_test.dart';
 import '../theme_v2_test_app.dart';
 
 void main() {
-  test('maps card, ring, and card errors into stable summaries', () {
-    expect(
-      ThemeV2DeviceStatusAdapter.summarize(
-        const ThemeV2DeviceStatusSnapshot(),
-      ).kind,
-      DeviceStatusSummaryKind.disconnected,
+  test('maps device states into typed presence and direct targets', () {
+    final disconnected = ThemeV2DeviceStatusAdapter.summarize(
+      const ThemeV2DeviceStatusSnapshot(),
     );
-    expect(
-      ThemeV2DeviceStatusAdapter.summarize(
-        const ThemeV2DeviceStatusSnapshot(
-          cardState: DeviceConnState.connected,
-          cardIsBound: true,
-        ),
-      ).label,
-      '录音卡已连接',
+    final card = ThemeV2DeviceStatusAdapter.summarize(
+      const ThemeV2DeviceStatusSnapshot(
+        cardState: DeviceConnState.connected,
+        cardIsBound: true,
+      ),
     );
-    expect(
-      ThemeV2DeviceStatusAdapter.summarize(
-        const ThemeV2DeviceStatusSnapshot(ringConnected: true),
-      ).label,
-      '戒指已连接',
+    final ring = ThemeV2DeviceStatusAdapter.summarize(
+      const ThemeV2DeviceStatusSnapshot(ringConnected: true),
     );
-    expect(
-      ThemeV2DeviceStatusAdapter.summarize(
-        const ThemeV2DeviceStatusSnapshot(
-          cardState: DeviceConnState.connected,
-          cardIsBound: true,
-          ringConnected: true,
-        ),
-      ).label,
-      '双设备已连接',
+    final dual = ThemeV2DeviceStatusAdapter.summarize(
+      const ThemeV2DeviceStatusSnapshot(
+        cardState: DeviceConnState.connected,
+        cardIsBound: true,
+        ringConnected: true,
+      ),
     );
-    expect(
-      ThemeV2DeviceStatusAdapter.summarize(
-        const ThemeV2DeviceStatusSnapshot(
-          cardState: DeviceConnState.error,
-          cardError: '蓝牙权限不可用',
-          ringConnected: true,
-        ),
-      ).kind,
-      DeviceStatusSummaryKind.attention,
+
+    expect(disconnected.presence, ThemeV2DevicePresence.none);
+    expect(card.presence, ThemeV2DevicePresence.card);
+    expect(ring.presence, ThemeV2DevicePresence.ring);
+    expect(dual.presence, ThemeV2DevicePresence.both);
+    expect(card.directTarget, ThemeV2DeviceTarget.card);
+    expect(ring.directTarget, ThemeV2DeviceTarget.ring);
+    expect(dual.directTarget, isNull);
+  });
+
+  test('only surfaces card attention while the card remains bound', () {
+    final unboundError = ThemeV2DeviceStatusAdapter.summarize(
+      const ThemeV2DeviceStatusSnapshot(
+        cardState: DeviceConnState.error,
+        cardError: '蓝牙权限不可用',
+        ringConnected: true,
+      ),
     );
+    final boundError = ThemeV2DeviceStatusAdapter.summarize(
+      const ThemeV2DeviceStatusSnapshot(
+        cardState: DeviceConnState.error,
+        cardIsBound: true,
+        cardError: '蓝牙权限不可用',
+        ringConnected: true,
+      ),
+    );
+
+    expect(unboundError.presence, ThemeV2DevicePresence.ring);
+    expect(boundError.kind, DeviceStatusSummaryKind.attention);
+    expect(boundError.presence, ThemeV2DevicePresence.both);
   });
 
   testWidgets('production shell reacts to live device changes in place', (

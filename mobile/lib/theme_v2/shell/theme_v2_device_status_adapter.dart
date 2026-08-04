@@ -70,30 +70,53 @@ class ThemeV2DeviceStatusAdapter extends ChangeNotifier
   DeviceStatusSummary get value => _value;
 
   static DeviceStatusSummary summarize(ThemeV2DeviceStatusSnapshot snapshot) {
+    final presence = switch ((snapshot.cardIsBound, snapshot.ringConnected)) {
+      (false, false) => ThemeV2DevicePresence.none,
+      (true, false) => ThemeV2DevicePresence.card,
+      (false, true) => ThemeV2DevicePresence.ring,
+      (true, true) => ThemeV2DevicePresence.both,
+    };
     final cardNeedsAttention =
-        snapshot.cardState == DeviceConnState.error ||
-        snapshot.cardError != null;
+        snapshot.cardIsBound &&
+        (snapshot.cardState == DeviceConnState.error ||
+            snapshot.cardError != null);
     if (cardNeedsAttention) {
-      return const DeviceStatusSummary.attention(label: '录音卡需要处理');
+      return DeviceStatusSummary.attention(
+        presence: presence,
+        label: '录音卡需要处理',
+      );
     }
 
     final cardConnected =
         snapshot.cardState == DeviceConnState.connected && snapshot.cardIsBound;
     if (cardConnected && snapshot.ringConnected) {
-      return const DeviceStatusSummary.connected(label: '双设备已连接');
+      return const DeviceStatusSummary.connected(
+        presence: ThemeV2DevicePresence.both,
+        label: '双设备已连接',
+      );
     }
     if (snapshot.ringConnected) {
-      return const DeviceStatusSummary.connected(label: '戒指已连接');
+      return const DeviceStatusSummary.connected(
+        presence: ThemeV2DevicePresence.ring,
+        label: '戒指已连接',
+      );
     }
     if (cardConnected) {
-      return const DeviceStatusSummary.connected(label: '录音卡已连接');
+      return const DeviceStatusSummary.connected(
+        presence: ThemeV2DevicePresence.card,
+        label: '录音卡已连接',
+      );
     }
     return const DeviceStatusSummary.disconnected();
   }
 
   void _handleChanges() {
     final next = summarize(_readSnapshot());
-    if (next.kind == _value.kind && next.label == _value.label) return;
+    if (next.kind == _value.kind &&
+        next.label == _value.label &&
+        next.presence == _value.presence) {
+      return;
+    }
     _value = next;
     notifyListeners();
   }

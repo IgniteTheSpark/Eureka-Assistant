@@ -168,12 +168,8 @@ class _DeviceStatusButton extends StatelessWidget {
       DeviceStatusSummaryKind.attention => tokens.critical,
       DeviceStatusSummaryKind.disconnected => tokens.muted,
     };
-    final icon = switch (summary.kind) {
-      DeviceStatusSummaryKind.connected => Icons.devices,
-      DeviceStatusSummaryKind.attention => Icons.error_outline,
-      DeviceStatusSummaryKind.disconnected => Icons.devices_outlined,
-    };
     final semanticLabel = '设备：${summary.label}';
+    final iconOnly = summary.presence != ThemeV2DevicePresence.none;
 
     return Semantics(
       label: semanticLabel,
@@ -184,37 +180,43 @@ class _DeviceStatusButton extends StatelessWidget {
           constraints: BoxConstraints(
             minHeight: ThemeV2Sizes.minTouchTarget,
             minWidth: ThemeV2Sizes.minTouchTarget,
-            maxWidth: maxWidth,
+            maxWidth: iconOnly ? ThemeV2Sizes.minTouchTarget : maxWidth,
           ),
           child: Material(
             color: tokens.accentSoft,
-            borderRadius: BorderRadius.circular(ThemeV2Radii.pill),
+            borderRadius: BorderRadius.circular(
+              iconOnly ? ThemeV2Radii.md : ThemeV2Radii.pill,
+            ),
             child: InkWell(
               onTap: onPressed,
-              borderRadius: BorderRadius.circular(ThemeV2Radii.pill),
+              borderRadius: BorderRadius.circular(
+                iconOnly ? ThemeV2Radii.md : ThemeV2Radii.pill,
+              ),
               child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: ThemeV2Spacing.md,
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(icon, size: 18, color: color),
-                    const SizedBox(width: ThemeV2Spacing.sm),
-                    Flexible(
-                      child: Text(
-                        summary.label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.labelMedium
-                            ?.copyWith(
-                              color: color,
-                              fontWeight: FontWeight.w600,
+                padding: iconOnly
+                    ? EdgeInsets.zero
+                    : const EdgeInsets.symmetric(horizontal: ThemeV2Spacing.md),
+                child: iconOnly
+                    ? Center(child: connectedGlyph(summary.presence, color))
+                    : Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          connectedGlyph(summary.presence, color),
+                          const SizedBox(width: ThemeV2Spacing.sm),
+                          Flexible(
+                            child: Text(
+                              summary.label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.labelMedium
+                                  ?.copyWith(
+                                    color: color,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                             ),
+                          ),
+                        ],
                       ),
-                    ),
-                  ],
-                ),
               ),
             ),
           ),
@@ -222,4 +224,37 @@ class _DeviceStatusButton extends StatelessWidget {
       ),
     );
   }
+}
+
+Widget connectedGlyph(ThemeV2DevicePresence presence, Color color) {
+  return switch (presence) {
+    ThemeV2DevicePresence.card => Icon(
+      Icons.contactless_outlined,
+      size: 20,
+      color: color,
+    ),
+    ThemeV2DevicePresence.ring => Icon(
+      Icons.circle_outlined,
+      size: 20,
+      color: color,
+    ),
+    ThemeV2DevicePresence.both => Stack(
+      alignment: Alignment.center,
+      children: [
+        Transform.translate(
+          offset: const Offset(-4, 3),
+          child: Icon(Icons.contactless_outlined, size: 15, color: color),
+        ),
+        Transform.translate(
+          offset: const Offset(5, -4),
+          child: Icon(Icons.circle_outlined, size: 15, color: color),
+        ),
+      ],
+    ),
+    ThemeV2DevicePresence.none => Icon(
+      Icons.devices_outlined,
+      size: 18,
+      color: color,
+    ),
+  };
 }
