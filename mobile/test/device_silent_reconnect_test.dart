@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:eureka/api/auth_store.dart';
 import 'package:eureka/device/card_unbind_sync.dart';
 import 'package:eureka/device/device_controller.dart';
 import 'package:eureka/device/device_silent_reconnect.dart';
@@ -14,6 +16,7 @@ void main() {
       api: _FakeApi(const []),
       ble: ble,
       controller: controller,
+      unbindSync: _FakeUnbindSync(),
       scanTimeout: const Duration(milliseconds: 20),
     );
 
@@ -36,6 +39,7 @@ void main() {
         api: _FakeApi([_binding()]),
         ble: ble,
         controller: controller,
+        unbindSync: _FakeUnbindSync(),
         scanTimeout: const Duration(milliseconds: 100),
       );
 
@@ -60,6 +64,7 @@ void main() {
         api: _FakeApi([_binding()]),
         ble: ble,
         controller: controller,
+        unbindSync: _FakeUnbindSync(),
         scanTimeout: const Duration(milliseconds: 20),
       );
 
@@ -84,6 +89,7 @@ void main() {
         api: _FakeApi([_binding()]),
         ble: ble,
         controller: controller,
+        unbindSync: _FakeUnbindSync(),
         scanTimeout: const Duration(milliseconds: 100),
       );
 
@@ -122,6 +128,62 @@ void main() {
     expect(ble.startScanCalls, 0);
     expect(ble.connectCalls, 0);
     expect(controller.device, isNull);
+
+    controller.dispose();
+  });
+
+  test(
+    'unreadable pending state fails closed before scan or connect',
+    () async {
+      final ble = _FakeBle()
+        ..scanEvents = [_scanEvent(serial: 'SN1', cardMac: 'AA:BB')];
+      final sync = CardUnbindSyncCoordinator(
+        store: _ThrowingReadStore(),
+        api: _UnusedUnbindApi(),
+      );
+      final controller = DeviceController(MockDeviceTransport());
+      final reconnect = DeviceSilentReconnect(
+        api: _FakeApi([_binding()]),
+        ble: ble,
+        controller: controller,
+        unbindSync: sync,
+        scanTimeout: const Duration(milliseconds: 100),
+      );
+
+      await reconnect.tryReconnect(sessionKey: 1);
+
+      expect(ble.startScanCalls, 0);
+      expect(ble.connectCalls, 0);
+
+      controller.dispose();
+    },
+  );
+
+  test('malformed persisted pending state fails closed', () async {
+    SharedPreferences.setMockInitialValues({
+      'eureka:pending_card_unbind:owner': '[]',
+    });
+    AuthStore.userId = 'owner';
+    addTearDown(() => AuthStore.userId = null);
+    final ble = _FakeBle()
+      ..scanEvents = [_scanEvent(serial: 'SN1', cardMac: 'AA:BB')];
+    final sync = CardUnbindSyncCoordinator(
+      store: const SharedPreferencesCardUnbindSyncStore(),
+      api: _UnusedUnbindApi(),
+    );
+    final controller = DeviceController(MockDeviceTransport());
+    final reconnect = DeviceSilentReconnect(
+      api: _FakeApi([_binding()]),
+      ble: ble,
+      controller: controller,
+      unbindSync: sync,
+      scanTimeout: const Duration(milliseconds: 100),
+    );
+
+    await reconnect.tryReconnect(sessionKey: 1);
+
+    expect(ble.startScanCalls, 0);
+    expect(ble.connectCalls, 0);
 
     controller.dispose();
   });
@@ -275,12 +337,12 @@ class _FakeBle implements DeviceSilentReconnectBle {
 class _FakeUnbindSync extends CardUnbindSyncCoordinator {
   _FakeUnbindSync() : super(store: _UnusedStore(), api: _UnusedUnbindApi());
 
-  Set<String> pendingIds = {};
+  Set<String>? pendingIds = {};
   bool retrySucceeds = true;
   int retryCalls = 0;
 
   @override
-  Future<Set<String>> pendingBindingIds() async => pendingIds;
+  Future<Set<String>?> pendingBindingIds() async => pendingIds;
 
   @override
   Future<bool> retryPending() async {
@@ -292,13 +354,23 @@ class _FakeUnbindSync extends CardUnbindSyncCoordinator {
 
 class _UnusedStore implements CardUnbindSyncStore {
   @override
-  Future<void> clear() async {}
+  Future<void> clear({
+    String? accountScope,
+    PendingCardUnbind? expectedRequest,
+  }) async {}
 
   @override
-  Future<PendingCardUnbind?> read() async => null;
+  Future<PendingCardUnbind?> read({String? accountScope}) async => null;
 
   @override
-  Future<void> write(PendingCardUnbind request) async {}
+  Future<void> write(PendingCardUnbind request, {String? accountScope}) async {}
+}
+
+class _ThrowingReadStore extends _UnusedStore {
+  @override
+  Future<PendingCardUnbind?> read({String? accountScope}) async {
+    throw StateError('preferences unavailable');
+  }
 }
 
 class _UnusedUnbindApi implements CardUnbindSyncApi {

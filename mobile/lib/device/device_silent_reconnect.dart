@@ -145,6 +145,10 @@ class DeviceSilentReconnect {
     _log('load bindings start');
     try {
       final pendingIds = await _unbindSync.pendingBindingIds();
+      if (pendingIds == null) {
+        _log('load bindings blocked: pending unbind state unknown');
+        return const [];
+      }
       final res = await _api.getJson('/api/cards/bindings');
       final rows = (res is Map ? res['bindings'] as List? : null) ?? const [];
       final bindings =
