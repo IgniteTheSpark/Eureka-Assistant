@@ -42,6 +42,7 @@ Future<void> updateThemeV2CalendarTodo(
 class ThemeV2CalendarPage extends StatefulWidget {
   const ThemeV2CalendarPage({
     super.key,
+    this.api,
     this.dataLoader,
     this.initialData,
     this.controller,
@@ -54,6 +55,7 @@ class ThemeV2CalendarPage extends StatefulWidget {
     this.onOpenDraftEditor,
   });
 
+  final ApiClient? api;
   final CalendarDataLoader? dataLoader;
   final CalendarData? initialData;
   final CalendarController? controller;
@@ -72,8 +74,8 @@ class ThemeV2CalendarPage extends StatefulWidget {
 class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
   static const _pageSeed = 3000;
 
-  ApiClient? _api;
-  ApiClient get _apiClient => _api ??= ApiClient();
+  ApiClient? _ownedApi;
+  ApiClient get _apiClient => widget.api ?? (_ownedApi ??= ApiClient());
   late final bool _ownsController = widget.controller == null;
   late final CalendarController _controller =
       widget.controller ??
@@ -106,8 +108,8 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
 
   Future<CalendarData> _loadProduction() async {
     final result = await Future.wait([
-      fetchTimeline(_apiClient, coreRecordsOnly: true),
-      fetchSkills(_apiClient, coreRecordsOnly: true),
+      fetchTimeline(_apiClient),
+      fetchSkills(_apiClient),
     ]);
     return CalendarData(
       result[0] as List<TimelineItem>,
@@ -410,7 +412,7 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
     _scaleDragFeedback.dispose();
     _scaleConfirmation.dispose();
     _pages?.dispose();
-    _api?.close();
+    _ownedApi?.close();
     if (_ownsController) _controller.dispose();
     super.dispose();
   }
