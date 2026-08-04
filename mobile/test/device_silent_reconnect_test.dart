@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eureka/device/card_unbind_sync.dart';
 import 'package:eureka/device/device_controller.dart';
 import 'package:eureka/device/device_silent_reconnect.dart';
 
@@ -95,6 +96,59 @@ void main() {
 
       expect(ble.disconnectCalls, greaterThanOrEqualTo(1));
       expect(controller.device, isNull);
+
+      controller.dispose();
+    },
+  );
+
+  test('pending unbind blocks reconnect when server retry fails', () async {
+    final ble = _FakeBle()
+      ..scanEvents = [_scanEvent(serial: 'SN1', cardMac: 'AA:BB')];
+    final sync = _FakeUnbindSync()
+      ..pendingIds = {'binding-1'}
+      ..retrySucceeds = false;
+    final controller = DeviceController(MockDeviceTransport());
+    final reconnect = DeviceSilentReconnect(
+      api: _FakeApi([_binding()]),
+      ble: ble,
+      controller: controller,
+      unbindSync: sync,
+      scanTimeout: const Duration(milliseconds: 100),
+    );
+
+    await reconnect.tryReconnect(sessionKey: 1);
+
+    expect(sync.retryCalls, 1);
+    expect(ble.startScanCalls, 0);
+    expect(ble.connectCalls, 0);
+    expect(controller.device, isNull);
+
+    controller.dispose();
+  });
+
+  test(
+    'successful pending retry allows the active binding to reconnect',
+    () async {
+      final ble = _FakeBle()
+        ..scanEvents = [_scanEvent(serial: 'SN1', cardMac: 'AA:BB')];
+      final sync = _FakeUnbindSync()
+        ..pendingIds = {'binding-1'}
+        ..retrySucceeds = true;
+      final controller = DeviceController(MockDeviceTransport());
+      final reconnect = DeviceSilentReconnect(
+        api: _FakeApi([_binding()]),
+        ble: ble,
+        controller: controller,
+        unbindSync: sync,
+        scanTimeout: const Duration(milliseconds: 100),
+      );
+
+      await reconnect.tryReconnect(sessionKey: 1);
+
+      expect(sync.retryCalls, 1);
+      expect(sync.pendingIds, isEmpty);
+      expect(ble.startScanCalls, 1);
+      expect(ble.connectCalls, 1);
 
       controller.dispose();
     },
@@ -215,6 +269,42 @@ class _FakeBle implements DeviceSilentReconnectBle {
   @override
   Future<dynamic> disconnect() async {
     disconnectCalls += 1;
+  }
+}
+
+class _FakeUnbindSync extends CardUnbindSyncCoordinator {
+  _FakeUnbindSync() : super(store: _UnusedStore(), api: _UnusedUnbindApi());
+
+  Set<String> pendingIds = {};
+  bool retrySucceeds = true;
+  int retryCalls = 0;
+
+  @override
+  Future<Set<String>> pendingBindingIds() async => pendingIds;
+
+  @override
+  Future<bool> retryPending() async {
+    retryCalls += 1;
+    if (retrySucceeds) pendingIds = {};
+    return retrySucceeds;
+  }
+}
+
+class _UnusedStore implements CardUnbindSyncStore {
+  @override
+  Future<void> clear() async {}
+
+  @override
+  Future<PendingCardUnbind?> read() async => null;
+
+  @override
+  Future<void> write(PendingCardUnbind request) async {}
+}
+
+class _UnusedUnbindApi implements CardUnbindSyncApi {
+  @override
+  Future<dynamic> postJson(String path, Map<String, dynamic> body) async {
+    throw StateError('unexpected unbind API call');
   }
 }
 

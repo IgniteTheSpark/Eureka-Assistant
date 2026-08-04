@@ -241,8 +241,6 @@ async def unbind_card(
             .where(
                 CardBinding.id == binding_id,
                 CardBinding.user_id == user_id,
-                CardBinding.bind_status == "bound",
-                CardBinding.active_card_id.is_not(None),
             )
             .with_for_update()
         )
@@ -251,10 +249,11 @@ async def unbind_card(
         return None
 
     binding, card = row
-    now = utc_now()
-    binding.bind_status = "unbound"
-    binding.unbind_time = now
-    binding.active_card_id = None
-    binding.updated_at = now
-    await session.flush()
+    if binding.bind_status == "bound":
+        now = utc_now()
+        binding.bind_status = "unbound"
+        binding.unbind_time = now
+        binding.active_card_id = None
+        binding.updated_at = now
+        await session.flush()
     return UnbindResult(binding=binding, card=card)

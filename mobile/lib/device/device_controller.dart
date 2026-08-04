@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../api/api_client.dart';
+import 'card_unbind_sync.dart';
 
 /// Hardware-connection layer for the UReka 录音卡 (W1/W2 BLE card).
 ///
@@ -67,6 +68,16 @@ class DeviceOperationException implements Exception {
   String toString() => message;
 }
 
+@immutable
+class DeviceUnbindResult {
+  const DeviceUnbindResult({required this.serverSynced, this.message});
+
+  const DeviceUnbindResult.complete() : serverSynced = true, message = null;
+
+  final bool serverSynced;
+  final String? message;
+}
+
 abstract class DeviceTransport {
   Stream<String> get bluetoothStateStream;
 
@@ -86,16 +97,24 @@ abstract class DeviceTransport {
 
   Future<void> disconnect();
 
-  Future<void> unbind(DeviceInfo device, {required bool deleteData});
+  Future<DeviceUnbindResult> unbind(
+    DeviceInfo device, {
+    required bool deleteData,
+  });
 }
 
 class BleDeviceTransport implements DeviceTransport {
-  BleDeviceTransport({BrBluetoothPlugin? ble, ApiClient? api})
-    : _ble = ble ?? BrBluetoothPlugin.instance,
-      _api = api ?? ApiClient();
+  BleDeviceTransport({
+    BrBluetoothPlugin? ble,
+    ApiClient? api,
+    CardUnbindSyncCoordinator? unbindSync,
+  }) : _ble = ble ?? BrBluetoothPlugin.instance,
+       _api = api ?? ApiClient(),
+       _unbindSync = unbindSync ?? CardUnbindSyncCoordinator.production();
 
   final BrBluetoothPlugin _ble;
   final ApiClient _api;
+  final CardUnbindSyncCoordinator _unbindSync;
 
   @override
   Stream<String> get bluetoothStateStream => _ble.bluetoothStateChangedStream
@@ -306,7 +325,10 @@ class BleDeviceTransport implements DeviceTransport {
   }
 
   @override
-  Future<void> unbind(DeviceInfo device, {required bool deleteData}) async {
+  Future<DeviceUnbindResult> unbind(
+    DeviceInfo device, {
+    required bool deleteData,
+  }) async {
     try {
       await _bluetoothUnbindWithRetry(deleteData: deleteData);
       await _ble.clearBindInfo();
@@ -314,14 +336,15 @@ class BleDeviceTransport implements DeviceTransport {
       throw _toDeviceError(e);
     }
 
-    if (device.bindingId.isEmpty) return;
-    try {
-      await _api.postJson('/api/cards/${device.bindingId}/unbind', {
-        'delete_data': deleteData,
-      });
-    } on ApiException {
-      throw const DeviceOperationException('设备已解绑，但服务端同步失败，请稍后重试');
-    }
+    if (device.bindingId.isEmpty) return const DeviceUnbindResult.complete();
+    final serverSynced = await _unbindSync.sync(
+      PendingCardUnbind(bindingId: device.bindingId, deleteData: deleteData),
+    );
+    if (serverSynced) return const DeviceUnbindResult.complete();
+    return const DeviceUnbindResult(
+      serverSynced: false,
+      message: '设备已解绑，服务端同步待重试',
+    );
   }
 
   Future<void> _ensureBluetoothReady() async {
@@ -640,11 +663,15 @@ class MockDeviceTransport implements DeviceTransport {
   }
 
   @override
-  Future<void> unbind(DeviceInfo device, {required bool deleteData}) async {
+  Future<DeviceUnbindResult> unbind(
+    DeviceInfo device, {
+    required bool deleteData,
+  }) async {
     unbindCalls += 1;
     await Future<void>.delayed(const Duration(milliseconds: 400));
     deviceConnected = false;
     _boundDevice = null;
+    return const DeviceUnbindResult.complete();
   }
 }
 
@@ -678,6 +705,8 @@ class DeviceController extends ChangeNotifier {
   StreamSubscription<bool>? _connectionSub;
   bool _scanRequested = false;
   bool _startingScan = false;
+  bool _unbinding = false;
+  bool _preserveDeviceAfterUnbindFailure = false;
 
   bool get isBound => device != null;
 
@@ -832,6 +861,7 @@ class DeviceController extends ChangeNotifier {
   }
 
   Future<void> connect(DiscoveredDevice d) async {
+    _preserveDeviceAfterUnbindFailure = false;
     _scanRequested = false;
     await _scanSub?.cancel();
     _scanSub = null;
@@ -871,6 +901,7 @@ class DeviceController extends ChangeNotifier {
 
   void _handleConnectionState(bool connected) {
     if (!connected) {
+      if (_unbinding || _preserveDeviceAfterUnbindFailure) return;
       if (state != DeviceConnState.connected && device == null) return;
       device = null;
       discovered = const [];
@@ -880,6 +911,8 @@ class DeviceController extends ChangeNotifier {
       return;
     }
 
+    _preserveDeviceAfterUnbindFailure = false;
+
     if (state == DeviceConnState.connecting ||
         state == DeviceConnState.scanning ||
         isBound) {
@@ -888,25 +921,38 @@ class DeviceController extends ChangeNotifier {
     unawaited(refreshBoundDevice());
   }
 
-  Future<void> unbind({required bool deleteData}) async {
+  Future<DeviceUnbindResult?> unbind({required bool deleteData}) async {
     final current = device;
-    if (current == null) return;
+    if (current == null) return null;
     state = DeviceConnState.connecting;
     error = null;
+    _unbinding = true;
+    _preserveDeviceAfterUnbindFailure = false;
     notifyListeners();
     try {
-      await _transport.unbind(current, deleteData: deleteData);
+      final result = await _transport.unbind(current, deleteData: deleteData);
       device = null;
       discovered = const [];
       state = DeviceConnState.idle;
+      error = result.serverSynced || result.message == null
+          ? null
+          : DeviceOperationException(result.message!);
+      _unbinding = false;
+      notifyListeners();
+      return result;
     } catch (e) {
+      _unbinding = false;
+      _preserveDeviceAfterUnbindFailure = true;
       error = e;
       state = DeviceConnState.error;
+      notifyListeners();
+      return null;
     }
-    notifyListeners();
   }
 
   Future<void> disconnectForLogout() async {
+    _unbinding = false;
+    _preserveDeviceAfterUnbindFailure = false;
     _scanRequested = false;
     _startingScan = false;
     await _scanSub?.cancel();

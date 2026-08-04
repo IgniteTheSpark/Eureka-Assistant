@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../api/api_client.dart';
+import 'card_unbind_sync.dart';
 import 'device_controller.dart';
 
 /// 登录后一次性的静默重连任务。
@@ -17,10 +18,12 @@ class DeviceSilentReconnect {
     DeviceSilentReconnectApi? api,
     DeviceSilentReconnectBle? ble,
     DeviceController? controller,
+    CardUnbindSyncCoordinator? unbindSync,
     this.scanTimeout = const Duration(seconds: 20),
   }) : _api = api ?? _ApiClientReconnectApi(ApiClient()),
        _ble = ble ?? _BrPluginReconnectBle(BrBluetoothPlugin.instance),
-       _controller = controller ?? DeviceController.instance;
+       _controller = controller ?? DeviceController.instance,
+       _unbindSync = unbindSync ?? CardUnbindSyncCoordinator.production();
 
   static final DeviceSilentReconnect instance = DeviceSilentReconnect();
   static const _logTag = 'Auto Reconnect Ble';
@@ -28,6 +31,7 @@ class DeviceSilentReconnect {
   final DeviceSilentReconnectApi _api;
   final DeviceSilentReconnectBle _ble;
   final DeviceController _controller;
+  final CardUnbindSyncCoordinator _unbindSync;
   final Duration scanTimeout;
 
   Object? _lastSessionKey;
@@ -58,6 +62,8 @@ class DeviceSilentReconnect {
     _log('run#$runId start scanTimeout=${scanTimeout.inSeconds}s');
 
     try {
+      final retrySucceeded = await _unbindSync.retryPending();
+      _log('run#$runId pending unbind retry succeeded=$retrySucceeded');
       final bindings = await _loadBindings();
       _log('run#$runId bindings loaded count=${bindings.length}');
       if (!_isActive(runId)) {
@@ -138,15 +144,24 @@ class DeviceSilentReconnect {
   Future<List<_BoundCard>> _loadBindings() async {
     _log('load bindings start');
     try {
+      final pendingIds = await _unbindSync.pendingBindingIds();
       final res = await _api.getJson('/api/cards/bindings');
       final rows = (res is Map ? res['bindings'] as List? : null) ?? const [];
-      final bindings = [
-        for (final row in rows)
-          if (row is Map) _BoundCard.fromJson(row.cast<String, dynamic>()),
-      ].where((card) => card.serial.isNotEmpty).toList();
+      final bindings =
+          [
+                for (final row in rows)
+                  if (row is Map)
+                    _BoundCard.fromJson(row.cast<String, dynamic>()),
+              ]
+              .where(
+                (card) =>
+                    card.serial.isNotEmpty &&
+                    !pendingIds.contains(card.bindingId),
+              )
+              .toList();
       _log(
         'load bindings success rawCount=${rows.length} '
-        'usableCount=${bindings.length}',
+        'usableCount=${bindings.length} pendingCount=${pendingIds.length}',
       );
       return bindings;
     } catch (e) {

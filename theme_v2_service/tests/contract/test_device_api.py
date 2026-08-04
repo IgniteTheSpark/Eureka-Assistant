@@ -115,6 +115,20 @@ async def test_card_can_bind_list_and_unbind(client):
     assert removed.json()["binding"]["bind_status"] == "unbound"
     assert removed.json()["binding"]["unbind_time"] is not None
 
+    replayed = await client.post(
+        f"/api/cards/{binding['binding_id']}/unbind",
+        headers=headers,
+        json={"delete_data": False},
+    )
+    assert replayed.status_code == 200
+    assert replayed.json()["binding"]["bind_status"] == "unbound"
+    assert replayed.json()["binding"]["unbind_time"] == removed.json()["binding"][
+        "unbind_time"
+    ]
+    assert replayed.json()["binding"]["updated_at"] == removed.json()["binding"][
+        "updated_at"
+    ]
+
     assert (await client.get("/api/cards/bindings", headers=headers)).json() == {
         "ok": True,
         "bindings": [],
@@ -198,6 +212,13 @@ async def test_foreign_user_cannot_unbind(client):
         json={"delete_data": True},
     )
     assert response.status_code == 404
+
+    missing = await client.post(
+        "/api/cards/00000000-0000-0000-0000-000000000001/unbind",
+        headers=_headers(foreign),
+        json={"delete_data": False},
+    )
+    assert missing.status_code == 404
 
 
 @pytest.mark.parametrize(
