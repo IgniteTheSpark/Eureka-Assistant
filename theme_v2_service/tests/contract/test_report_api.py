@@ -160,3 +160,14 @@ async def test_private_file_requires_owner(client, session):
     assert own.headers["content-type"] == "image/png"
     assert cross.status_code == 404
     assert missing.status_code == 404
+
+
+async def test_report_action_contract_accepts_only_path_action_id(client):
+    schema = (await client.get("/openapi.json")).json()
+
+    list_operation = schema["paths"]["/api/reports/{report_id}/actions"]["get"]
+    create_operation = schema["paths"][
+        "/api/reports/{report_id}/actions/{action_id}"
+    ]["post"]
+    assert "requestBody" not in list_operation
+    assert "requestBody" not in create_operation

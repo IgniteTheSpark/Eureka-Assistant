@@ -132,6 +132,9 @@ class AssetRead(BaseModel):
     updated_at: datetime
     source_recording_id: str | None = None
     source_input_turn_id: str | None = None
+    source_report_id: str | None = None
+    source_report_action_id: str | None = None
+    source_report_title: str | None = None
 
     @field_serializer("effective_at", "created_at", "updated_at")
     def serialize_timestamp(self, value: datetime | None) -> str | None:

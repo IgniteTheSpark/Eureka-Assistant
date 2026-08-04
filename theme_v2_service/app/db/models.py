@@ -66,6 +66,13 @@ class Asset(Base):
             "user_skill_id",
             "effective_at",
         ),
+        Index("ix_assets_user_source_report", "user_id", "source_report_id"),
+        UniqueConstraint(
+            "user_id",
+            "source_report_id",
+            "source_report_action_id",
+            name="uq_assets_user_report_action",
+        ),
     )
 
     id: Mapped[str] = mapped_column(CHAR(36), primary_key=True, default=new_uuid)
@@ -77,6 +84,11 @@ class Asset(Base):
     )
     payload_json: Mapped[dict] = mapped_column(mysql.JSON, nullable=False)
     effective_at: Mapped[datetime | None] = mapped_column(mysql.DATETIME(fsp=6))
+    source_report_id: Mapped[str | None] = mapped_column(
+        CHAR(36),
+        ForeignKey("reports.id", ondelete="SET NULL"),
+    )
+    source_report_action_id: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(
         mysql.DATETIME(fsp=6),
         default=utc_now,

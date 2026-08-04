@@ -58,6 +58,22 @@ def test_foundation_migration_round_trip_and_physical_types():
     assert asset_columns["id"]["type"].length == 36
     assert isinstance(asset_columns["payload_json"]["type"], mysql.JSON)
     assert asset_columns["created_at"]["type"].fsp == 6
+    assert asset_columns["source_report_id"]["type"].length == 36
+    assert asset_columns["source_report_action_id"]["type"].length == 64
+
+    asset_indexes = {index["name"]: index for index in inspector.get_indexes("assets")}
+    assert asset_indexes["ix_assets_user_source_report"]["column_names"] == [
+        "user_id",
+        "source_report_id",
+    ]
+    assert asset_indexes["uq_assets_user_report_action"]["unique"] is True
+
+    asset_foreign_keys = inspector.get_foreign_keys("assets")
+    assert any(
+        key["referred_table"] == "reports"
+        and key["constrained_columns"] == ["source_report_id"]
+        for key in asset_foreign_keys
+    )
 
     skill_columns = {
         column["name"]: column
@@ -68,5 +84,5 @@ def test_foundation_migration_round_trip_and_physical_types():
 
     with engine.connect() as connection:
         revision = connection.scalar(text("SELECT version_num FROM alembic_version"))
-    assert revision == "0010_flash_chat_notes"
+    assert revision == "0011_report_actions"
     engine.dispose()

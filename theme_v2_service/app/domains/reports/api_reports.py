@@ -10,6 +10,12 @@ from app.auth.dependencies import get_current_user_id
 from app.config import get_settings
 from app.db.session import get_session
 from app.domains.reports.models import File, Report
+from app.domains.reports.actions import (
+    ReportActionNotFound,
+    ReportActionState,
+    create_report_action_todo,
+    list_report_actions,
+)
 from app.domains.reports.rendering import render_report_presentation
 from app.domains.reports.schemas import ReportSpec
 from app.domains.reports.shares import (
@@ -52,6 +58,16 @@ def _serialize_report(report: Report) -> dict:
     }
 
 
+def _serialize_action(action: ReportActionState) -> dict:
+    return {
+        "id": action.id,
+        "title": action.title,
+        "due_at": _timestamp(action.due_at) if action.due_at else None,
+        "created": action.created,
+        "todo_asset_id": action.todo_asset_id,
+    }
+
+
 @router.get("/api/reports")
 async def list_reports(
     user_id: str = Depends(get_current_user_id),
@@ -75,6 +91,42 @@ async def get_report(
     if report is None:
         raise HTTPException(status_code=404, detail="not found")
     return _serialize_report(report)
+
+
+@router.get("/api/reports/{report_id}/actions")
+async def get_report_actions(
+    report_id: str,
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    try:
+        actions = await list_report_actions(
+            session,
+            user_id=user_id,
+            report_id=report_id,
+        )
+    except ReportActionNotFound as exc:
+        raise HTTPException(status_code=404, detail="not found") from exc
+    return {"actions": [_serialize_action(action) for action in actions]}
+
+
+@router.post("/api/reports/{report_id}/actions/{action_id}")
+async def create_report_action(
+    report_id: str,
+    action_id: str,
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    try:
+        action, _ = await create_report_action_todo(
+            session,
+            user_id=user_id,
+            report_id=report_id,
+            action_id=action_id,
+        )
+    except ReportActionNotFound as exc:
+        raise HTTPException(status_code=404, detail="not found") from exc
+    return _serialize_action(action)
 
 
 @router.get("/app/reports/{report_id}", response_class=HTMLResponse)

@@ -291,6 +291,7 @@ async def get_asset(
         select(Asset).where(Asset.id == asset_id, Asset.user_id == user_id)
     )
     if asset is not None:
+        await attach_report_sources(session, user_id, [asset])
         await _attach_capture_source(session, user_id, "asset", asset.id, asset)
     return asset
 
@@ -314,7 +315,32 @@ async def list_assets(
     result = await session.scalars(
         query.order_by(Asset.created_at.desc(), Asset.id.desc()).limit(limit)
     )
-    return list(result)
+    assets = list(result)
+    await attach_report_sources(session, user_id, assets)
+    return assets
+
+
+async def attach_report_sources(
+    session: AsyncSession,
+    user_id: str,
+    assets: list[Asset],
+) -> None:
+    from app.domains.reports.models import Report
+
+    report_ids = {
+        asset.source_report_id for asset in assets if asset.source_report_id
+    }
+    titles: dict[str, str] = {}
+    if report_ids:
+        rows = await session.execute(
+            select(Report.id, Report.title).where(
+                Report.user_id == user_id,
+                Report.id.in_(report_ids),
+            )
+        )
+        titles = dict(rows.all())
+    for asset in assets:
+        asset.source_report_title = titles.get(asset.source_report_id)
 
 
 async def update_asset(
