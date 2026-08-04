@@ -8,7 +8,12 @@ import 'package:webview_flutter/webview_flutter.dart';
 import '../api/api_client.dart';
 import '../data_revision.dart';
 import '../theme/eureka_colors.dart';
+import '../theme_v2/report/report_actions.dart';
 import '../widgets/toast.dart';
+
+/// Theme V2 HTML owns its palette and color-scheme. Retained as a compatibility
+/// seam for older callers, but intentionally does not mutate report CSS.
+String applyThemeV2ReportViewerTheme(String html, {String? palette}) => html;
 
 /// Full-screen report viewer (§6.8.5). Renders the engine's single-file HTML in
 /// a locked-down WKWebView: JavaScript is ON and the bundled **GSAP** library is
@@ -32,6 +37,9 @@ class ReportViewerPage extends StatefulWidget {
   /// Legacy reports expose server-side action extraction and palette rerender.
   /// Theme V2 reports use the immutable report contract and disable both calls.
   final bool enableLegacyEnhancements;
+  final bool enableThemeV2Actions;
+  final String? themeV2Palette;
+  final ApiClient? api;
 
   const ReportViewerPage({
     super.key,
@@ -39,6 +47,9 @@ class ReportViewerPage extends StatefulWidget {
     required this.html,
     this.reportId,
     this.enableLegacyEnhancements = true,
+    this.enableThemeV2Actions = false,
+    this.themeV2Palette,
+    this.api,
   });
 
   @override
@@ -46,7 +57,10 @@ class ReportViewerPage extends StatefulWidget {
 }
 
 class _ReportViewerPageState extends State<ReportViewerPage> {
-  final _api = ApiClient();
+  late final ApiClient _api = widget.api ?? ApiClient();
+  late final bool _ownsApi = widget.api == null;
+  late final ReportActionsController _actionsController =
+      ReportActionsController(api: _api, onTodoCreated: bumpData);
   late final WebViewController _controller;
   late String _html = widget.html;
   String? _gsap; // bundled gsap.min.js, loaded once
@@ -56,19 +70,18 @@ class _ReportViewerPageState extends State<ReportViewerPage> {
   String? _mascot; // mascot.js — Mascot.mount() for the REKA band
   bool _busy = false;
 
-  // §6.13 / handoff Phase 1 — 报告 → 待办. The report's `:::actions` render as a
-  // NATIVE「✦ 接下来」bar below the WebView (the in-HTML checklist is read-only).
-  // Each row: [+ 待办] → POST /api/reports/{id}/actions (idempotent server-side);
-  // already-created rows show「已加 ✓」.
-  List<Map<String, dynamic>> _actions = [];
-  final Set<String> _adding = {};
+  bool get _lightReport =>
+      const {'pal-minimal', 'pal-warm'}.contains(widget.themeV2Palette);
+
+  Color get _reportBackground =>
+      _lightReport ? const Color(0xFFF3ECE0) : const Color(0xFF0B0E16);
 
   @override
   void initState() {
     super.initState();
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(const Color(0xFF0B0E16))
+      ..setBackgroundColor(_reportBackground)
       ..setNavigationDelegate(
         NavigationDelegate(
           onNavigationRequest: (req) {
@@ -81,61 +94,17 @@ class _ReportViewerPageState extends State<ReportViewerPage> {
         ),
       );
     _bootstrap();
-    _loadActions();
-  }
-
-  Future<void> _loadActions() async {
-    if (!widget.enableLegacyEnhancements) return;
     final id = widget.reportId;
-    if (id == null) return;
-    try {
-      final res = await _api.getJson('/api/reports/$id/actions');
-      final list = (res is Map ? res['actions'] : null) as List?;
-      if (list == null || !mounted) return;
-      setState(
-        () => _actions = list
-            .whereType<Map>()
-            .map((a) => Map<String, dynamic>.from(a))
-            .where((a) => (a['title'] as String?)?.isNotEmpty ?? false)
-            .toList(),
-      );
-    } catch (_) {
-      // actions bar is an enhancement — a fetch failure just means no bar
-    }
-  }
-
-  Future<void> _addAction(String title) async {
-    final id = widget.reportId;
-    if (id == null || _adding.contains(title)) return;
-    setState(() => _adding.add(title));
-    try {
-      final res = await _api.postJson('/api/reports/$id/actions', {
-        'title': title,
-      });
-      final created = res is Map && res['created'] == true;
-      if (!mounted) return;
-      setState(() {
-        for (final a in _actions) {
-          if (a['title'] == title) a['created'] = true;
-        }
-      });
-      showToast(context, created ? '已加入待办 ✓' : '已经在待办里了');
-      bumpData(); // 待办列表 / 流页面立刻能看到
-    } catch (e) {
-      if (mounted) showToast(context, '加待办失败：$e', error: true);
-    } finally {
-      if (mounted) setState(() => _adding.remove(title));
-    }
-  }
-
-  Future<void> _addAllActions() async {
-    for (final a in List<Map<String, dynamic>>.from(_actions)) {
-      if (a['created'] == true) continue;
-      await _addAction(a['title'] as String);
+    if (widget.enableThemeV2Actions && id != null) {
+      _actionsController.load(id);
     }
   }
 
   Future<void> _bootstrap() async {
+    if (!widget.enableLegacyEnhancements) {
+      await _controller.loadHtmlString(_html);
+      return;
+    }
     try {
       _gsap = await rootBundle.loadString('assets/js/gsap.min.js');
     } catch (_) {
@@ -162,6 +131,7 @@ class _ReportViewerPageState extends State<ReportViewerPage> {
   /// and `window.Mascot` (§6.6.1 REKA band) exist when the report's end-of-body
   /// scripts run (§6.6 "渲染前注入"). Each is independent + optional (graceful).
   String _withEngines(String html) {
+    if (!widget.enableLegacyEnhancements) return html;
     final buf = StringBuffer();
     // gsap MUST precede ScrollTrigger; register the plugin once both are present.
     for (final js in [_gsap, _scrolltrigger, _pixel, _mascot]) {
@@ -182,7 +152,8 @@ class _ReportViewerPageState extends State<ReportViewerPage> {
 
   @override
   void dispose() {
-    _api.close();
+    _actionsController.dispose();
+    if (_ownsApi) _api.close();
     super.dispose();
   }
 
@@ -229,15 +200,12 @@ class _ReportViewerPageState extends State<ReportViewerPage> {
 
   @override
   Widget build(BuildContext context) {
-    // 报告查看器是固定深色面(WebView/scaffold 背景硬编码 0xFF0B0E16,报告 HTML
-    // 按深色设计)。chrome(appbar + 原生「✦ 接下来」代办 bar)必须用深色主题色,
-    // 不能跟随 app 明暗 —— 否则默认浅色模式下 eu.textHi/textLo 变深色文字,压在
-    // 深色 bar 上不可读。固定用 EurekaColors.dark,与报告深色面一致。
-    final eu = EurekaColors.dark;
+    final eu = _lightReport ? EurekaColors.light : EurekaColors.dark;
+    final reportId = widget.reportId;
     return Scaffold(
-      backgroundColor: const Color(0xFF0B0E16),
+      backgroundColor: _reportBackground,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF0B0E16),
+        backgroundColor: _reportBackground,
         foregroundColor: eu.textHi,
         elevation: 0,
         title: Text(
@@ -280,128 +248,13 @@ class _ReportViewerPageState extends State<ReportViewerPage> {
               ],
             ),
           ),
-          if (_actions.isNotEmpty) _actionsBar(eu),
+          if (widget.enableThemeV2Actions && reportId != null)
+            ReportActionsTray(
+              reportId: reportId,
+              controller: _actionsController,
+              colors: eu,
+            ),
         ],
-      ),
-    );
-  }
-
-  /// §6.13 native「✦ 接下来」action bar — turns the report's suggested actions
-  /// into real todos with one tap (provenance: source_report_id, server-side).
-  Widget _actionsBar(EurekaColors eu) {
-    final pending = _actions.where((a) => a['created'] != true).length;
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF10141F),
-        border: Border(top: BorderSide(color: eu.rule, width: 0.5)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxHeight: 216),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 10, 8, 2),
-                child: Row(
-                  children: [
-                    Text(
-                      '✦ 接下来',
-                      style: TextStyle(
-                        color: eu.brand,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 1.5,
-                      ),
-                    ),
-                    const Spacer(),
-                    if (pending > 1)
-                      TextButton(
-                        onPressed: _adding.isEmpty ? _addAllActions : null,
-                        style: TextButton.styleFrom(
-                          visualDensity: VisualDensity.compact,
-                        ),
-                        child: Text(
-                          '全部加到待办',
-                          style: TextStyle(color: eu.brand, fontSize: 12),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              Flexible(
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  padding: const EdgeInsets.only(bottom: 8),
-                  itemCount: _actions.length,
-                  itemBuilder: (_, i) {
-                    final a = _actions[i];
-                    final title = a['title'] as String;
-                    final created = a['created'] == true;
-                    final busy = _adding.contains(title);
-                    return Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 4, 12, 4),
-                      child: Row(
-                        children: [
-                          Icon(
-                            created
-                                ? Icons.check_circle
-                                : Icons.radio_button_unchecked,
-                            size: 16,
-                            color: created ? eu.brand : eu.textLo,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              title,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: eu.textHi,
-                                fontSize: 13.5,
-                                height: 1.3,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          SizedBox(
-                            height: 28,
-                            child: created
-                                ? Text(
-                                    '已加 ✓',
-                                    style: TextStyle(
-                                      color: eu.textLo,
-                                      fontSize: 12,
-                                    ),
-                                  )
-                                : OutlinedButton(
-                                    onPressed: busy
-                                        ? null
-                                        : () => _addAction(title),
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: eu.brand,
-                                      side: BorderSide(
-                                        color: eu.brand.withValues(alpha: 0.5),
-                                      ),
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 10,
-                                      ),
-                                      visualDensity: VisualDensity.compact,
-                                      textStyle: const TextStyle(fontSize: 12),
-                                    ),
-                                    child: Text(busy ? '…' : '+ 待办'),
-                                  ),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

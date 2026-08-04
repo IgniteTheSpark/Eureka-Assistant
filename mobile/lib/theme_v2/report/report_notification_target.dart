@@ -148,6 +148,9 @@ Future<Widget?> loadReportNotificationTargetPage(
           html: report['html']?.toString() ?? '',
           reportId: target.id,
           enableLegacyEnhancements: false,
+          enableThemeV2Actions: true,
+          themeV2Palette: (report['spec'] as Map?)?['palette']?.toString(),
+          api: api,
         );
       } catch (_) {
         return null;

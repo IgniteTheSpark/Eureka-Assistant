@@ -96,6 +96,7 @@ class CompletedReportSummary {
     required this.html,
     required this.baseFamily,
     required this.createdAt,
+    this.palette,
   });
 
   final String id;
@@ -103,18 +104,21 @@ class CompletedReportSummary {
   final String summary;
   final String html;
   final String? baseFamily;
+  final String? palette;
   final DateTime? createdAt;
 
   static CompletedReportSummary? fromJson(Map<String, dynamic> json) {
     final id = _requiredString(json['id']);
     if (id == null) return null;
     final shareCard = _jsonMap(json['share_card']);
+    final spec = _jsonMap(json['spec']);
     return CompletedReportSummary(
       id: id,
       title: _optionalString(json['title']) ?? '报告',
       summary: _optionalString(shareCard?['summary']) ?? '',
       html: _optionalString(json['html']) ?? '',
       baseFamily: _optionalString(json['base_family']),
+      palette: _optionalString(spec?['palette']),
       createdAt: _date(json['created_at']),
     );
   }

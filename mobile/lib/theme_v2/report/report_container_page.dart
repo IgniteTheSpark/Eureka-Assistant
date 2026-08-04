@@ -152,6 +152,9 @@ class _ReportContainerPageState extends State<ReportContainerPage> {
           html: report.html,
           reportId: report.id,
           enableLegacyEnhancements: false,
+          enableThemeV2Actions: true,
+          themeV2Palette: report.palette,
+          api: _api,
         ),
       ),
     );

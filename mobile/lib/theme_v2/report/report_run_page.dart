@@ -78,6 +78,9 @@ class _ReportRunPageState extends State<ReportRunPage> {
             html: report['html']?.toString() ?? '',
             reportId: report['id']?.toString(),
             enableLegacyEnhancements: false,
+            enableThemeV2Actions: true,
+            themeV2Palette: (report['spec'] as Map?)?['palette']?.toString(),
+            api: widget.api,
           ),
         ),
       );

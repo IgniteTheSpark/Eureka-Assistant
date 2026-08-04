@@ -65,6 +65,7 @@ void main() {
                 'id': 'report-1',
                 'title': '七月网球战报',
                 'html': '<html>report</html>',
+                'spec': {'palette': 'pal-ink'},
               }),
             ),
             200,
@@ -83,6 +84,8 @@ void main() {
       expect(page, isA<ReportViewerPage>());
       expect((page as ReportViewerPage).title, '七月网球战报');
       expect(page.enableLegacyEnhancements, isFalse);
+      expect(page.enableThemeV2Actions, isTrue);
+      expect(page.themeV2Palette, 'pal-ink');
       expect(requested, ['GET /api/reports/report-1']);
     },
   );
