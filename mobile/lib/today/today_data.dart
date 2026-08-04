@@ -48,6 +48,7 @@ class ChainItem {
 class PoolAsset {
   const PoolAsset({
     required this.id,
+    this.entityKind = 'asset',
     required this.type,
     required this.domain,
     required this.title,
@@ -56,6 +57,7 @@ class PoolAsset {
   });
 
   final String id;
+  final String entityKind;
   final String type;
   final String domain;
   final String title;
@@ -525,6 +527,7 @@ Future<({List<PoolAsset> pool, int trueCount})> _loadPool(
       all.add(
         PoolAsset(
           id: (m['id'] ?? m['event_id']) as String? ?? '',
+          entityKind: 'event',
           type: 'event',
           domain: '',
           title: (t != null && t.isNotEmpty) ? t : '事件',
@@ -553,6 +556,7 @@ Future<({List<PoolAsset> pool, int trueCount})> _loadPool(
       all.add(
         PoolAsset(
           id: m['id'] as String? ?? '',
+          entityKind: 'contact',
           type: 'contact',
           domain: '社交',
           title: (nm != null && nm.isNotEmpty) ? nm : '名片',

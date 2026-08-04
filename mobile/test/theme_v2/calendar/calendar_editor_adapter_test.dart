@@ -112,15 +112,19 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(requests, ['GET /api/events/event-created']);
+    expect(
+      tester.widget<EventForm>(find.byType(EventForm)).coreRecordsOnly,
+      isTrue,
+    );
     expect(find.text('完整标题'), findsWidgets);
-    expect(find.text('会议室 A'), findsOneWidget);
-    expect(find.text('2026-07-03 09:00'), findsOneWidget);
-    expect(find.text('2026-07-03 10:30'), findsOneWidget);
+    expect(find.text('会议室 A'), findsWidgets);
+    expect(find.text('2026-07-03 09:00'), findsWidgets);
+    expect(find.text('2026-07-03 10:30'), findsWidgets);
     await tester.drag(find.byType(ListView).last, const Offset(0, -650));
     await tester.pumpAndSettle();
     expect(find.text('完整描述'), findsOneWidget);
 
-    await tester.tap(find.text('取消'));
+    await tester.tap(find.byKey(const ValueKey('theme-v2-event-cancel')));
     await tester.pumpAndSettle();
     expect(result, isNull);
     expect(tester.takeException(), isNull);
@@ -151,7 +155,7 @@ void main() {
     );
     await tester.tap(find.text('创建'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('取消'));
+    await tester.tap(find.byKey(const ValueKey('theme-v2-event-cancel')));
     await tester.pumpAndSettle();
 
     expect(await completed.future, isNull);

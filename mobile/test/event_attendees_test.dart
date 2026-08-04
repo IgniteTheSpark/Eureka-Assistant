@@ -862,7 +862,7 @@ void main() {
       ),
     );
     await tester.pump();
-    await tester.tap(find.widgetWithText(TextButton, '保存'));
+    await tester.tap(find.byKey(const ValueKey('theme-v2-event-save')));
     await tester.pump(const Duration(milliseconds: 100));
 
     expect(requests, hasLength(1));

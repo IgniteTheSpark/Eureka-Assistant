@@ -19,6 +19,15 @@ Offset themeV2GravityForAcceleration(double x, double y) {
   return Offset(-x / length, y / length) * magnitude;
 }
 
+AssetEntityRef assetEntityRefForPoolAsset(PoolAsset asset) => AssetEntityRef(
+  kind: switch (asset.entityKind) {
+    'event' => AssetEntityKind.event,
+    'contact' => AssetEntityKind.contact,
+    _ => AssetEntityKind.asset,
+  },
+  id: asset.id,
+);
+
 void _noop() {}
 
 class _RetiringBubbleSnapshot {
@@ -64,7 +73,7 @@ class ThemeV2AssetBubbleField extends StatefulWidget {
     unawaited(
       openAssetDetail(
         context,
-        AssetEntityRef(kind: AssetEntityKind.asset, id: asset.id),
+        assetEntityRefForPoolAsset(asset),
         coreRecordsOnly: true,
       ),
     );

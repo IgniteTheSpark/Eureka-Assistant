@@ -124,8 +124,12 @@ Future<String?> openCalendarInlineDraftEditor(
 
     final dynamic result = await Navigator.of(context).push<dynamic>(
       MaterialPageRoute(
-        builder: (_) =>
-            EventForm(eventId: eventId, existing: existing, api: api),
+        builder: (_) => EventForm(
+          eventId: eventId,
+          existing: existing,
+          api: api,
+          coreRecordsOnly: true,
+        ),
       ),
     );
     if (result == null) return null;

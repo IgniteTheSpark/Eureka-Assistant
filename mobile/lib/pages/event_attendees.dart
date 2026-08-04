@@ -5,6 +5,9 @@ import 'package:flutter/material.dart';
 import '../api/api_client.dart';
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
+import '../theme_v2/foundation/theme_v2_semantics.dart';
+import '../theme_v2/foundation/theme_v2_theme.dart';
+import '../theme_v2/foundation/theme_v2_tokens.dart';
 
 String _text(dynamic value) => value == null ? '' : '$value'.trim();
 
@@ -285,9 +288,13 @@ Future<List<ContactChoice>?> showEventAttendeeSelector(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    backgroundColor: context.eu.surfaceRaised,
+    backgroundColor: coreRecordsOnly
+        ? context.themeV2.background
+        : context.eu.surfaceRaised,
     shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      borderRadius: BorderRadius.vertical(
+        top: Radius.circular(ThemeV2Radii.lg),
+      ),
     ),
     builder: (_) => FractionallySizedBox(
       heightFactor: 0.82,
@@ -469,6 +476,7 @@ class _EventAttendeeSelectorState extends State<_EventAttendeeSelector> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.coreRecordsOnly) return _buildThemeV2(context);
     final eu = context.eu;
     return Column(
       children: [
@@ -602,6 +610,233 @@ class _EventAttendeeSelectorState extends State<_EventAttendeeSelector> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildThemeV2(BuildContext context) {
+    final tokens = context.themeV2;
+    return ColoredBox(
+      key: const ValueKey('theme-v2-contact-selector'),
+      color: tokens.background,
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              ThemeV2Spacing.xl,
+              ThemeV2Spacing.lg,
+              ThemeV2Spacing.md,
+              ThemeV2Spacing.md,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '选择联系人',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          color: tokens.foreground,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    ThemeV2IconButton(
+                      semanticLabel: '关闭联系人选择',
+                      icon: Icons.close_rounded,
+                      color: tokens.foreground,
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  ],
+                ),
+                Text(
+                  widget.singleSelect ? '选择一张联系人名片完成绑定' : '可选择多个联系人',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: tokens.muted),
+                ),
+                const SizedBox(height: ThemeV2Spacing.md),
+                TextField(
+                  key: const ValueKey('theme-v2-contact-search'),
+                  controller: _searchController,
+                  autofocus: false,
+                  decoration: const InputDecoration(
+                    hintText: '搜索姓名、公司、职位或电话',
+                    prefixIcon: Icon(Icons.search_rounded),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Divider(height: 1, color: tokens.border),
+          Expanded(child: _buildThemeV2Results(tokens)),
+          Divider(height: 1, color: tokens.border),
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                ThemeV2Spacing.xl,
+                ThemeV2Spacing.md,
+                ThemeV2Spacing.xl,
+                ThemeV2Spacing.md,
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _selected.isEmpty
+                        ? Text(
+                            '尚未选择',
+                            style: TextStyle(color: tokens.muted, fontSize: 13),
+                          )
+                        : SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: [
+                                for (final contact in _selected.values)
+                                  Container(
+                                    margin: const EdgeInsets.only(
+                                      right: ThemeV2Spacing.sm,
+                                    ),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: ThemeV2Spacing.md,
+                                      vertical: ThemeV2Spacing.sm,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: tokens.surface,
+                                      border: Border.all(color: tokens.border),
+                                      borderRadius: BorderRadius.circular(
+                                        ThemeV2Radii.pill,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      contact.name,
+                                      style: TextStyle(
+                                        color: tokens.foreground,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                  ),
+                  const SizedBox(width: ThemeV2Spacing.md),
+                  FilledButton(
+                    key: const ValueKey('theme-v2-contact-confirm'),
+                    onPressed: () =>
+                        Navigator.of(context).pop(_selected.values.toList()),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(112, ThemeV2Sizes.minTouchTarget),
+                    ),
+                    child: Text('确定 (${_selected.length})'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildThemeV2Results(ThemeV2Tokens tokens) {
+    if (_loading) {
+      return Center(child: CircularProgressIndicator(color: tokens.accent));
+    }
+    if (_error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(ThemeV2Spacing.xl),
+          child: Text(
+            _error!,
+            textAlign: TextAlign.center,
+            style: TextStyle(color: tokens.critical),
+          ),
+        ),
+      );
+    }
+    if (_contacts.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.people_outline_rounded, size: 30, color: tokens.muted),
+            const SizedBox(height: ThemeV2Spacing.sm),
+            Text('没有找到联系人', style: TextStyle(color: tokens.muted)),
+            if (_createError != null) ...[
+              const SizedBox(height: ThemeV2Spacing.sm),
+              Text(
+                _createError!,
+                style: TextStyle(color: tokens.critical, fontSize: 12),
+              ),
+            ],
+            const SizedBox(height: ThemeV2Spacing.sm),
+            TextButton.icon(
+              onPressed: _creating ? null : _createContact,
+              icon: _creating
+                  ? const SizedBox.square(
+                      dimension: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.person_add_alt_1_rounded, size: 18),
+              label: const Text('新增联系人'),
+            ),
+          ],
+        ),
+      );
+    }
+    return ListView.separated(
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      padding: const EdgeInsets.symmetric(vertical: ThemeV2Spacing.sm),
+      itemCount: _contacts.length,
+      separatorBuilder: (_, _) => Divider(height: 1, color: tokens.border),
+      itemBuilder: (context, index) {
+        final contact = _contacts[index];
+        final selected = _selected.containsKey(contact.id);
+        final summary = contact.summary;
+        final showPhone = contact.phone.isNotEmpty && contact.phone != summary;
+        return ListTile(
+          key: ValueKey(contact.id),
+          minTileHeight: ThemeV2Sizes.minTouchTarget,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: ThemeV2Spacing.xl,
+            vertical: ThemeV2Spacing.xs,
+          ),
+          onTap: () => _toggle(contact),
+          leading: Icon(
+            widget.singleSelect
+                ? (selected
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_unchecked)
+                : (selected
+                      ? Icons.check_circle_rounded
+                      : Icons.circle_outlined),
+            color: selected ? tokens.accent : tokens.muted,
+          ),
+          title: Text(
+            contact.name,
+            style: TextStyle(
+              color: tokens.foreground,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          subtitle: summary.isEmpty && !showPhone
+              ? null
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (summary.isNotEmpty)
+                      Text(summary, style: TextStyle(color: tokens.muted)),
+                    if (showPhone)
+                      Text(
+                        contact.phone,
+                        style: TextStyle(color: tokens.muted, fontSize: 12),
+                      ),
+                  ],
+                ),
+        );
+      },
     );
   }
 

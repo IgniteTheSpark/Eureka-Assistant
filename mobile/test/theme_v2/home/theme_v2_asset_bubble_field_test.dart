@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:eureka/theme_v2/asset_detail/asset_entity_ref.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/home/theme_v2_asset_bubble_field.dart';
 import 'package:eureka/timeline/timeline.dart';
@@ -20,6 +21,22 @@ void main() {
   test('acceleration maps to fixed-magnitude screen gravity', () {
     expect(themeV2GravityForAcceleration(0, 0), const Offset(0, 20));
     expect(themeV2GravityForAcceleration(-9.8, 0).dx, closeTo(20, 0.01));
+  });
+
+  test('pool bubbles preserve the canonical entity route', () {
+    final event = PoolAsset(
+      id: 'event-1',
+      entityKind: 'event',
+      type: 'event',
+      domain: '',
+      title: '产品评审',
+      payload: const {},
+      createdAt: DateTime(2026, 8, 5, 10),
+    );
+
+    expect(assetEntityRefForPoolAsset(event).kind, AssetEntityKind.event);
+    expect(assetEntityRefForPoolAsset(asset).kind, AssetEntityKind.asset);
+    expect(assetEntityRefForPoolAsset(event).id, 'event-1');
   });
 
   testWidgets('bubble renders canonical and custom skill glyphs', (

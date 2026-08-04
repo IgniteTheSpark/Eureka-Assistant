@@ -6,10 +6,14 @@ import '../render/render_spec.dart' show RenderSpec, normalizeTodoSpec;
 import '../render/skill_card.dart' show SkillCard, accentOf;
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
+import '../theme_v2/asset/asset_card.dart';
+import '../theme_v2/asset/asset_card_display.dart';
 import '../theme_v2/asset_detail/asset_entity_ref.dart';
 import '../theme_v2/asset_detail/markdown_field_editor.dart';
 import '../theme_v2/asset_detail/theme_v2_asset_edit_page.dart';
 import '../theme_v2/foundation/theme_v2_theme.dart';
+import '../theme_v2/foundation/theme_v2_tokens.dart';
+import '../theme_v2/foundation/theme_v2_typography.dart';
 import 'event_attendees.dart';
 
 /// Build the field-rendering RenderSpec for a skill from its payload_schema
@@ -783,8 +787,343 @@ class _EventFormState extends State<EventForm> {
         ),
       );
 
+  Widget _themeV2TimeField({
+    required Key key,
+    required String label,
+    required String value,
+    required VoidCallback onTap,
+  }) {
+    final tokens = context.themeV2;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: ThemeV2Typography.mono(
+            fontSize: 10,
+            color: tokens.muted,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: ThemeV2Spacing.sm),
+        Material(
+          color: tokens.surface,
+          borderRadius: BorderRadius.circular(ThemeV2Radii.md),
+          child: InkWell(
+            key: key,
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(ThemeV2Radii.md),
+            child: Container(
+              width: double.infinity,
+              constraints: const BoxConstraints(
+                minHeight: ThemeV2Sizes.minTouchTarget,
+              ),
+              padding: const EdgeInsets.symmetric(
+                horizontal: ThemeV2Spacing.md,
+                vertical: ThemeV2Spacing.md,
+              ),
+              decoration: BoxDecoration(
+                border: Border.all(color: tokens.border),
+                borderRadius: BorderRadius.circular(ThemeV2Radii.md),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.schedule_outlined, size: 18, color: tokens.muted),
+                  const SizedBox(width: ThemeV2Spacing.sm),
+                  Expanded(
+                    child: Text(
+                      value,
+                      style: TextStyle(color: tokens.foreground, fontSize: 14),
+                    ),
+                  ),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    color: tokens.muted,
+                    size: 18,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _themeV2AttendeeSection() {
+    final tokens = context.themeV2;
+    return Column(
+      key: const ValueKey('theme-v2-event-attendees'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '参与人',
+          style: ThemeV2Typography.mono(
+            fontSize: 10,
+            color: tokens.muted,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: ThemeV2Spacing.sm),
+        for (var index = 0; index < _attendees.length; index++)
+          Container(
+            key: ValueKey(
+              'theme-v2-event-attendee-'
+              '${_attendees[index].id ?? _attendees[index].contactId ?? index}',
+            ),
+            margin: const EdgeInsets.only(bottom: ThemeV2Spacing.sm),
+            padding: const EdgeInsets.only(
+              left: ThemeV2Spacing.md,
+              top: ThemeV2Spacing.sm,
+              bottom: ThemeV2Spacing.sm,
+            ),
+            decoration: BoxDecoration(
+              color: tokens.surface,
+              border: Border.all(color: tokens.border),
+              borderRadius: BorderRadius.circular(ThemeV2Radii.md),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 32,
+                  height: 32,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: tokens.accentSoft,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    Icons.person_outline_rounded,
+                    size: 18,
+                    color: tokens.accent,
+                  ),
+                ),
+                const SizedBox(width: ThemeV2Spacing.md),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _attendees[index].displayName,
+                        style: TextStyle(
+                          color: tokens.foreground,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      if (_attendees[index].contactSummary.isNotEmpty)
+                        Text(
+                          _attendees[index].contactSummary,
+                          style: TextStyle(color: tokens.muted, fontSize: 12),
+                        ),
+                      if (!_attendees[index].isResolved)
+                        Text(
+                          '未关联联系人',
+                          style: TextStyle(
+                            color: tokens.critical,
+                            fontSize: 12,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                if (_attendees[index].id != null &&
+                    !_attendees[index].isResolved)
+                  TextButton(
+                    onPressed: () => _bindAttendee(index),
+                    child: const Text('关联'),
+                  ),
+                IconButton(
+                  tooltip: '移除参与人',
+                  constraints: const BoxConstraints(
+                    minWidth: ThemeV2Sizes.minTouchTarget,
+                    minHeight: ThemeV2Sizes.minTouchTarget,
+                  ),
+                  onPressed: () => setState(() => _attendees.removeAt(index)),
+                  icon: Icon(
+                    Icons.close_rounded,
+                    size: 18,
+                    color: tokens.muted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            key: const ValueKey('theme-v2-event-add-contact'),
+            onPressed: _addAttendees,
+            icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
+            label: const Text('添加联系人'),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(ThemeV2Sizes.minTouchTarget),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildThemeV2(BuildContext context) {
+    final tokens = context.themeV2;
+    final previewSecondary = <String>[
+      _fmt(_start),
+      if (_location.text.trim().isNotEmpty) _location.text.trim(),
+      if (_attendees.isNotEmpty) '${_attendees.length} 位参与人',
+    ];
+    return Scaffold(
+      key: const ValueKey('theme-v2-event-editor'),
+      backgroundColor: tokens.background,
+      appBar: AppBar(
+        leading: BackButton(
+          key: const ValueKey('theme-v2-event-cancel'),
+          onPressed: () => Navigator.of(context).maybePop(),
+        ),
+        title: Text(_isEdit ? '编辑日程' : '创建日程'),
+      ),
+      body: SafeArea(
+        child: Column(
+          children: [
+            Expanded(
+              child: IgnorePointer(
+                ignoring: _busy,
+                child: ListView(
+                  key: const ValueKey('theme-v2-event-editor-scroll'),
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
+                  padding: const EdgeInsets.fromLTRB(
+                    ThemeV2Spacing.xl,
+                    ThemeV2Spacing.sm,
+                    ThemeV2Spacing.xl,
+                    ThemeV2Spacing.xl,
+                  ),
+                  children: [
+                    ThemeV2AssetCard(
+                      variant: AssetCardVariant.richCard,
+                      data: AssetCardViewData(
+                        mark: '📅',
+                        skillLabel: '日程',
+                        primaryValue: _title.text.trim().isEmpty
+                            ? '未命名日程'
+                            : _title.text.trim(),
+                        secondaryValues: previewSecondary,
+                      ),
+                      height: 86,
+                    ),
+                    const SizedBox(height: ThemeV2Spacing.xl),
+                    TextField(
+                      key: const ValueKey('theme-v2-event-title'),
+                      controller: _title,
+                      textInputAction: TextInputAction.next,
+                      style: TextStyle(
+                        color: tokens.foreground,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: '标题 *',
+                        hintText: '日程标题',
+                      ),
+                    ),
+                    const SizedBox(height: ThemeV2Spacing.lg),
+                    Material(
+                      color: tokens.surface,
+                      shape: RoundedRectangleBorder(
+                        side: BorderSide(color: tokens.border),
+                        borderRadius: BorderRadius.circular(ThemeV2Radii.md),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: SwitchListTile(
+                        key: const ValueKey('theme-v2-event-all-day'),
+                        title: const Text('全天'),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: ThemeV2Spacing.md,
+                        ),
+                        value: _allDay,
+                        onChanged: (value) => setState(() => _allDay = value),
+                      ),
+                    ),
+                    const SizedBox(height: ThemeV2Spacing.lg),
+                    _themeV2TimeField(
+                      key: const ValueKey('theme-v2-event-start'),
+                      label: '开始时间',
+                      value: _fmt(_start),
+                      onTap: () => _pick(isStart: true),
+                    ),
+                    if (!_allDay) ...[
+                      const SizedBox(height: ThemeV2Spacing.lg),
+                      _themeV2TimeField(
+                        key: const ValueKey('theme-v2-event-end'),
+                        label: '结束时间',
+                        value: _fmt(_end),
+                        onTap: () => _pick(isStart: false),
+                      ),
+                    ],
+                    const SizedBox(height: ThemeV2Spacing.lg),
+                    TextField(
+                      key: const ValueKey('theme-v2-event-location'),
+                      controller: _location,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(
+                        labelText: '地点',
+                        hintText: '可选',
+                      ),
+                    ),
+                    const SizedBox(height: ThemeV2Spacing.xl),
+                    _themeV2AttendeeSection(),
+                    const SizedBox(height: ThemeV2Spacing.xl),
+                    MarkdownFieldEditor(
+                      key: const ValueKey('theme-v2-event-description'),
+                      label: '备注',
+                      controller: _desc,
+                    ),
+                    if (_error != null) ...[
+                      const SizedBox(height: ThemeV2Spacing.lg),
+                      Text(
+                        _error!,
+                        style: TextStyle(color: tokens.critical, fontSize: 13),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                ThemeV2Spacing.xl,
+                ThemeV2Spacing.sm,
+                ThemeV2Spacing.xl,
+                ThemeV2Spacing.md + MediaQuery.paddingOf(context).bottom,
+              ),
+              child: SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  key: const ValueKey('theme-v2-event-save'),
+                  onPressed: _busy || _attendeeSyncBlocked ? null : _save,
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(
+                      ThemeV2Sizes.minTouchTarget,
+                    ),
+                  ),
+                  child: _busy
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('保存'),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (widget.coreRecordsOnly) return _buildThemeV2(context);
     final eu = context.eu;
     InputDecoration dec(String hint) => InputDecoration(
       hintText: hint,

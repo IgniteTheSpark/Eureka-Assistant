@@ -122,6 +122,11 @@ void main() {
       'asset-todo',
       'asset-note',
     ]);
+    expect(data.pool.map((item) => item.entityKind), [
+      'event',
+      'asset',
+      'asset',
+    ]);
     expect(data.poolTrueCount, 3);
     expect(data.flashCount, 2);
     expect(data.flashLatestId, '2026-08-02');
