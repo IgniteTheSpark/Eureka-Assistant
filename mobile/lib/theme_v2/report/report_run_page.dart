@@ -31,6 +31,7 @@ class _ReportRunPageState extends State<ReportRunPage> {
     api: widget.api,
   )..addListener(_changed);
   var _openingReport = false;
+  String? _openReportError;
 
   @override
   void initState() {
@@ -53,10 +54,23 @@ class _ReportRunPageState extends State<ReportRunPage> {
   }
 
   Future<void> _openCompletedReport() async {
-    _openingReport = true;
+    if (mounted) {
+      setState(() {
+        _openingReport = true;
+        _openReportError = null;
+      });
+    }
     try {
+      if (_controller.reportId == null) await _controller.refresh();
       final report = await _controller.loadReport();
-      if (!mounted || report == null) return;
+      if (!mounted) return;
+      if (report == null) {
+        setState(() {
+          _openingReport = false;
+          _openReportError = _controller.error ?? '报告内容暂时无法打开';
+        });
+        return;
+      }
       await Navigator.of(context).pushReplacement(
         MaterialPageRoute<void>(
           builder: (_) => ReportViewerPage(
@@ -68,7 +82,12 @@ class _ReportRunPageState extends State<ReportRunPage> {
         ),
       );
     } catch (_) {
-      if (mounted) setState(() => _openingReport = false);
+      if (mounted) {
+        setState(() {
+          _openingReport = false;
+          _openReportError = '报告内容暂时无法打开';
+        });
+      }
     }
   }
 
@@ -118,13 +137,23 @@ class _ReportRunPageState extends State<ReportRunPage> {
                         ? _clarification()
                         : _planSelection(),
                   'failed' => _message(
-                    _controller.error ?? '报告生成没有完成',
+                    _controller.error ??
+                        _controller.failureMessage ??
+                        '报告生成没有完成',
                     actionLabel: '重试',
                     actionKey: const ValueKey('report-run-retry'),
                     onAction: _controller.retry,
                   ),
                   'cancelled' => _message('报告任务已取消'),
-                  'completed' => _message('报告已完成，正在打开…'),
+                  'completed' =>
+                    _openReportError == null
+                        ? _message('报告已完成，正在打开…')
+                        : _message(
+                            _openReportError!,
+                            actionLabel: '重试打开',
+                            actionKey: const ValueKey('report-run-open-retry'),
+                            onAction: _openCompletedReport,
+                          ),
                   'generating' => _progress('正在生成报告…'),
                   _ when _controller.error != null => _message(
                     _controller.error!,

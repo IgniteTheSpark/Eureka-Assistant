@@ -23,6 +23,36 @@ void main() {
     expect(reportExecutionIdFromLink('report:abc'), isNull);
   });
 
+  test('report link ids reject reserved characters and whitespace', () {
+    for (final id in [
+      'id/child',
+      'id?query',
+      'id#fragment',
+      'id%2Fchild',
+      'id with-space',
+      ' id',
+      'id ',
+    ]) {
+      expect(
+        reportExecutionIdFromLink('report-start:$id:1'),
+        isNull,
+        reason: 'execution id "$id" must not be actionable',
+      );
+      expect(
+        reportRunIdFromLink('report-run:$id'),
+        isNull,
+        reason: 'run id "$id" must not be actionable',
+      );
+      expect(
+        reportIdFromLink('report:$id'),
+        isNull,
+        reason: 'report id "$id" must not be actionable',
+      );
+    }
+
+    expect(reportRunIdFromLink('report-run:run_1.v2~draft'), 'run_1.v2~draft');
+  });
+
   test('report-start revision must be a canonical positive integer', () {
     for (final revision in ['0', '-1', '01', '+1', '1.0', 'one', '']) {
       expect(

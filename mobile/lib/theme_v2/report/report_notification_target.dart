@@ -21,26 +21,29 @@ class ReportNotificationTarget {
   int get hashCode => Object.hash(kind, id);
 }
 
+final RegExp _safeReportLinkId = RegExp(r'^[A-Za-z0-9._~-]+$');
+
+String? _validatedReportLinkId(String value) =>
+    _safeReportLinkId.hasMatch(value) ? value : null;
+
 String? reportExecutionIdFromLink(String link) {
-  final parts = link.trim().split(':');
+  final parts = link.split(':');
   if (parts.length != 3 || parts.first != 'report-start') return null;
-  final id = parts[1].trim();
+  final id = _validatedReportLinkId(parts[1]);
   final revision = parts[2];
-  return id.isEmpty || !RegExp(r'^[1-9][0-9]*$').hasMatch(revision) ? null : id;
+  return id == null || !RegExp(r'^[1-9][0-9]*$').hasMatch(revision) ? null : id;
 }
 
 String? reportRunIdFromLink(String link) {
-  final parts = link.trim().split(':');
+  final parts = link.split(':');
   if (parts.length != 2 || parts.first != 'report-run') return null;
-  final id = parts[1].trim();
-  return id.isEmpty ? null : id;
+  return _validatedReportLinkId(parts[1]);
 }
 
 String? reportIdFromLink(String link) {
-  final parts = link.trim().split(':');
+  final parts = link.split(':');
   if (parts.length != 2 || parts.first != 'report') return null;
-  final id = parts[1].trim();
-  return id.isEmpty ? null : id;
+  return _validatedReportLinkId(parts[1]);
 }
 
 ReportNotificationTarget? resolveReportNotificationTarget(

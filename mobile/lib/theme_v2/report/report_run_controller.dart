@@ -29,6 +29,13 @@ class ReportRunController extends ChangeNotifier {
   String get runId => _run?['id']?.toString() ?? '';
   String get state => _run?['state']?.toString() ?? 'idle';
   String? get reportId => _run?['report_id']?.toString();
+  String? get failureMessage {
+    final failure = _run?['failure'];
+    if (failure is! Map) return null;
+    final message = failure['message']?.toString().trim();
+    return message == null || message.isEmpty ? null : message;
+  }
+
   List<Map<String, dynamic>> get planOptions =>
       (_run?['plan_options'] as List? ?? const [])
           .whereType<Map>()

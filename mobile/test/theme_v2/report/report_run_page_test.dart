@@ -44,7 +44,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('报告'), findsOneWidget);
-    expect(find.text('报告生成没有完成'), findsOneWidget);
+    expect(find.text('模型暂时不可用'), findsOneWidget);
     expect(find.textContaining('会前调研'), findsNothing);
     expect(find.byKey(const ValueKey('report-run-cancel')), findsOneWidget);
     expect(
@@ -55,6 +55,34 @@ void main() {
       tester.getSize(find.byKey(const ValueKey('report-run-retry'))).height,
       greaterThanOrEqualTo(ThemeV2Sizes.minTouchTarget),
     );
+  });
+
+  testWidgets('completed run without report id shows a recoverable error', (
+    tester,
+  ) async {
+    var runLoads = 0;
+    final api = ApiClient(
+      baseUrl: 'https://reports.test',
+      enableLogging: false,
+      client: MockClient((request) async {
+        runLoads++;
+        return _json({'id': 'run-missing-report', 'state': 'completed'});
+      }),
+    );
+    addTearDown(api.close);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildThemeV2Theme(Brightness.light),
+        home: ReportRunPage(runId: 'run-missing-report', api: api),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('报告内容暂时无法打开'), findsOneWidget);
+    expect(find.byKey(const ValueKey('report-run-open-retry')), findsOneWidget);
+    expect(find.text('报告已完成，正在打开…'), findsNothing);
+    expect(runLoads, greaterThanOrEqualTo(1));
   });
 
   testWidgets('cancelling an active run returns to its report container', (
