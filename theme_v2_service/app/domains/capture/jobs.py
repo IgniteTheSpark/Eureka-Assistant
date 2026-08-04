@@ -21,6 +21,7 @@ from app.domains.capture.agent import (
     capture_skill_from_model,
     validate_capture_result,
 )
+from app.domains.capture.temporal import date_anchor_field, extract_temporal_hints
 from app.domains.capture.asr import (
     AsrPollResult,
     AsrProvider,
@@ -355,7 +356,7 @@ def capture_asr_handler(
 async def _prepare_capture_processing(
     *,
     recording_id: str,
-) -> tuple[str, str, list] | None:
+) -> tuple[str, str, list, datetime] | None:
     async with session_scope() as session:
         recording = await session.scalar(
             select(CaptureRecording)
@@ -407,7 +408,46 @@ async def _prepare_capture_processing(
                 status="agent_processing",
                 message="正在整理语音内容",
             )
-        return recording.user_id, transcript, skills
+        return (
+            recording.user_id,
+            transcript,
+            skills,
+            recording.accepted_at or recording.created_at,
+        )
+
+
+def _reference_in_timezone(value: datetime, timezone_name: str) -> datetime:
+    aware = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    return aware.astimezone(ZoneInfo(timezone_name))
+
+
+def _apply_asset_temporal_hints(
+    result: CaptureAgentResult,
+    skills: list,
+    *,
+    transcript: str,
+    reference_datetime: datetime,
+) -> None:
+    skill_by_name = {skill.machine_name: skill for skill in skills}
+    for command in result.records:
+        if command.kind != "asset":
+            continue
+        source_text = command.source_text.strip()
+        if not source_text and len(result.records) == 1:
+            source_text = transcript
+        if not source_text:
+            continue
+        hints = extract_temporal_hints(source_text, reference_datetime)
+        if command.period is None:
+            command.period = hints.period
+        if command.occurred_at is None:
+            command.occurred_at = hints.occurred_at
+        skill = skill_by_name.get(command.skill_machine_name or "")
+        if skill is None or hints.anchor_date is None:
+            continue
+        anchor_field = date_anchor_field(skill.schema_definition)
+        if anchor_field and not command.payload.get(anchor_field):
+            command.payload[anchor_field] = hints.anchor_date.isoformat()
 
 
 async def _fail_agent_capture(
@@ -481,6 +521,8 @@ async def _persist_capture_result(
                         user_skill_id=skill.id,
                         payload=command.payload,
                         effective_at=command.effective_at,
+                        period=command.period,
+                        occurred_at=command.occurred_at,
                     ),
                 )
                 references.append(
@@ -537,11 +579,6 @@ async def _persist_capture_result(
         )
 
 
-def _date_in_timezone(now: datetime, timezone_name: str) -> date:
-    aware = now if now.tzinfo is not None else now.replace(tzinfo=timezone.utc)
-    return aware.astimezone(ZoneInfo(timezone_name)).date()
-
-
 def capture_process_handler(
     provider: CaptureAgentProvider,
     *,
@@ -558,16 +595,23 @@ def capture_process_handler(
         prepared = await _prepare_capture_processing(recording_id=recording_id)
         if prepared is None:
             return
-        _, transcript, skills = prepared
+        _, transcript, skills, captured_at = prepared
         now = clock()
+        reference_datetime = _reference_in_timezone(captured_at, timezone_name)
         try:
             result = await provider.organize(
                 transcript=transcript,
-                local_date=_date_in_timezone(now, timezone_name),
+                reference_datetime=reference_datetime,
                 skills=skills,
             )
             if not isinstance(result, CaptureAgentResult):
                 raise CaptureOutputError("capture provider returned invalid result")
+            _apply_asset_temporal_hints(
+                result,
+                skills,
+                transcript=transcript,
+                reference_datetime=reference_datetime,
+            )
             validate_capture_result(result, skills)
         except PermanentCaptureAgentError as exc:
             await _fail_agent_capture(

@@ -1,6 +1,6 @@
 import json
 from collections.abc import Awaitable, Callable
-from datetime import date
+from datetime import datetime
 from typing import Any
 
 import litellm
@@ -20,12 +20,12 @@ Completion = Callable[..., Awaitable[Any]]
 def build_capture_messages(
     *,
     transcript: str,
-    local_date: date,
+    reference_datetime: datetime,
     skills: list[CaptureSkill],
 ) -> list[dict[str, str]]:
     trusted = json.dumps(
         {
-            "local_date": local_date.isoformat(),
+            "reference_datetime": reference_datetime.isoformat(),
             "timezone": "Asia/Shanghai",
             "required_output_schema": CaptureAgentResult.model_json_schema(),
             "enabled_asset_skills": [
@@ -49,7 +49,10 @@ def build_capture_messages(
                 "types. Questions return a short summary and zero records. "
                 "Asset records must omit every event-only field: title, description, "
                 "location, start_at, end_at, and all_day. They may contain only kind, "
-                "skill_machine_name, payload, and optional effective_at. Event records "
+                "skill_machine_name, payload, source_text, and optional temporal fields. "
+                "source_text must quote the smallest exact transcript fragment that supports "
+                "that record. Preserve precise times in occurred_at and fuzzy time-of-day "
+                "phrases in period; never invent a clock. Event records "
                 "must omit skill_machine_name, payload, and effective_at. Omit unused "
                 "keys instead of returning null or default values. "
                 "For an event, extract explicitly named participants into attendees. "
@@ -121,7 +124,7 @@ class LiteLLMCaptureAgentProvider:
         self,
         *,
         transcript: str,
-        local_date: date,
+        reference_datetime: datetime,
         skills: list[CaptureSkill],
     ) -> CaptureAgentResult:
         normalized_transcript = transcript.strip()
@@ -131,7 +134,7 @@ class LiteLLMCaptureAgentProvider:
             "model": self.model,
             "messages": build_capture_messages(
                 transcript=normalized_transcript,
-                local_date=local_date,
+                reference_datetime=reference_datetime,
                 skills=skills,
             ),
             "response_format": _response_format(self.model),

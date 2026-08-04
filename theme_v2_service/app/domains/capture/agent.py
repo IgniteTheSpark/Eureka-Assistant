@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import datetime
 from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field, model_validator
@@ -38,7 +38,7 @@ class CaptureSkill(BaseModel):
 
 class CaptureAgentRequest(BaseModel):
     transcript: str = Field(min_length=1)
-    local_date: date
+    reference_datetime: datetime
     skills: list[CaptureSkill]
 
 
@@ -47,6 +47,9 @@ class CaptureRecordCommand(BaseModel):
     skill_machine_name: str | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
     effective_at: datetime | None = None
+    source_text: str = Field(default="", max_length=4000)
+    period: Literal["凌晨", "上午", "中午", "下午", "晚上"] | None = None
+    occurred_at: datetime | None = None
     title: str | None = None
     description: str | None = None
     location: str | None = None
@@ -71,8 +74,12 @@ class CaptureRecordCommand(BaseModel):
                 )
             ) or self.all_day or self.attendees:
                 raise ValueError("asset command contains event fields")
-            if self.effective_at is not None and self.effective_at.tzinfo is None:
-                raise ValueError("effective_at must include a timezone")
+            for name, value in (
+                ("effective_at", self.effective_at),
+                ("occurred_at", self.occurred_at),
+            ):
+                if value is not None and value.tzinfo is None:
+                    raise ValueError(f"{name} must include a timezone")
             return self
 
         if self.skill_machine_name is not None:
@@ -89,6 +96,8 @@ class CaptureRecordCommand(BaseModel):
             raise ValueError("end_at must be after start_at")
         if self.effective_at is not None:
             raise ValueError("event command must not set effective_at")
+        if self.occurred_at is not None or self.period is not None:
+            raise ValueError("event command must not set asset temporal fields")
         self.attendees = list(
             dict.fromkeys(name.strip() for name in self.attendees if name.strip())
         )
@@ -105,7 +114,7 @@ class CaptureAgentProvider(Protocol):
         self,
         *,
         transcript: str,
-        local_date: date,
+        reference_datetime: datetime,
         skills: list[CaptureSkill],
     ) -> CaptureAgentResult: ...
 
@@ -115,7 +124,7 @@ class UnavailableCaptureAgentProvider:
         self,
         *,
         transcript: str,
-        local_date: date,
+        reference_datetime: datetime,
         skills: list[CaptureSkill],
     ) -> CaptureAgentResult:
         raise PermanentCaptureAgentError("capture agent is not configured")

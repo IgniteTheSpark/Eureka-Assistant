@@ -529,6 +529,40 @@ async def test_unknown_skill_output_permanently_fails_without_partial_records(se
     assert asset_count == 0
 
 
+async def test_capture_process_persists_transcript_grounded_asset_time(session):
+    provider = FakeCaptureAgentProvider(
+        CaptureAgentResult(
+            summary="已记录昨天晚上的消费。",
+            records=[
+                CaptureRecordCommand(
+                    kind="asset",
+                    skill_machine_name="expense",
+                    payload={"amount": 30, "currency": "CNY"},
+                    source_text="昨天晚上8点花了30元",
+                )
+            ],
+        )
+    )
+    await _seed_transcribed_capture("昨天晚上8点花了30元")
+
+    await run_worker_once(
+        _process_registry(provider),
+        owner="worker-a",
+        lease_seconds=60,
+        now=NOW,
+    )
+
+    async with AsyncSessionFactory() as database_session:
+        asset = await database_session.scalar(select(Asset))
+
+    assert provider.calls[0]["reference_datetime"].isoformat() == (
+        "2026-08-02T17:00:00+08:00"
+    )
+    assert "local_date" not in provider.calls[0]
+    assert asset.period == "晚上"
+    assert asset.occurred_at == datetime(2026, 8, 1, 12, 0)
+
+
 async def test_retryable_capture_provider_error_requeues_without_outputs(session):
     provider = FakeCaptureAgentProvider(
         RetryableCaptureAgentError("temporary provider issue")
