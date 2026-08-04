@@ -25,7 +25,12 @@ async def _skill(session) -> UserSkill:
         UserSkillCreate(
             machine_name="notes",
             display_name="Notes",
-            schema={},
+            schema={
+                "type": "object",
+                "properties": {"content": {"type": "string"}},
+                "required": ["content"],
+                "additionalProperties": False,
+            },
         ),
     )
 

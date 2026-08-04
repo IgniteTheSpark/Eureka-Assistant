@@ -13,7 +13,12 @@ async def test_asset_is_scoped_to_owner(session):
         UserSkillCreate(
             machine_name="notes",
             display_name="笔记",
-            schema={},
+            schema={
+                "type": "object",
+                "properties": {"content": {"type": "string"}},
+                "required": ["content"],
+                "additionalProperties": False,
+            },
         ),
     )
     asset = await create_asset(
@@ -37,7 +42,12 @@ async def test_create_asset_does_not_commit(session):
         UserSkillCreate(
             machine_name="notes",
             display_name="笔记",
-            schema={},
+            schema={
+                "type": "object",
+                "properties": {"content": {"type": "string"}},
+                "required": ["content"],
+                "additionalProperties": False,
+            },
         ),
     )
     asset = await create_asset(
