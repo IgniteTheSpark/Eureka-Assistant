@@ -8,6 +8,7 @@ from app.db.models import Asset, UserSkill, WorkflowJob
 from app.db.session import AsyncSessionFactory
 from app.domains.notifications.models import Notification, OutboxEvent
 from app.domains.reports.models import ReportGenerationRun
+from app.domains.reports.providers import RetryableProviderError
 from app.domains.reports.planner import (
     InvalidPlannerResult,
     PlannerLimits,
@@ -40,6 +41,11 @@ class FakePlannerProvider:
         self.calls += 1
         self.request = request
         return self.result
+
+
+class FailingPlannerProvider:
+    async def plan(self, request):
+        raise RetryableProviderError("private provider detail")
 
 
 def _skill(
@@ -289,6 +295,50 @@ async def test_planner_can_request_clarification_and_notification_is_deduplicate
     assert run.pending_decision["type"] == "clarification"
     assert await session.scalar(select(func.count()).select_from(Notification)) == 1
     assert await session.scalar(select(func.count()).select_from(OutboxEvent)) == 1
+
+
+async def test_planner_exhaustion_marks_run_failed_instead_of_leaving_it_planning(
+    session,
+):
+    skill = _skill(user_id="user-1", name="Failure")
+    session.add(skill)
+    await session.flush()
+    asset = _asset(user_id="user-1", skill=skill, index=1)
+    session.add(asset)
+    await session.flush()
+    run = _run(user_id="user-1", skill=skill, asset=asset)
+    session.add(run)
+    await session.flush()
+    job = WorkflowJob(
+        run_id=run.id,
+        job_type="report_planner",
+        status="running",
+        attempt=3,
+        max_attempts=3,
+        lease_owner="worker-1",
+    )
+    session.add(job)
+    await session.flush()
+    run.planner_job_id = job.id
+    await session.commit()
+
+    with pytest.raises(RetryableProviderError):
+        await execute_report_planner_job(
+            job,
+            provider=FailingPlannerProvider(),
+            registry=TemplateRegistry.load(TEMPLATES),
+            session_factory=AsyncSessionFactory,
+        )
+
+    await session.refresh(run)
+    assert run.state == "failed"
+    assert run.failure_stage == "planning"
+    assert run.retry_from == "planning"
+    assert run.error_message == "报告方案生成失败，请重试。"
+    notifications = list(await session.scalars(select(Notification)))
+    assert [(item.type, item.link) for item in notifications] == [
+        ("report_failed", f"report-run:{run.id}")
+    ]
 
 
 async def test_planner_rejects_stale_write_and_non_primary_baseline(session):

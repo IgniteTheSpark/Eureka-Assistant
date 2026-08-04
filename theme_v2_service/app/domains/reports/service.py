@@ -551,6 +551,63 @@ async def persist_completed_report(
     return report
 
 
+async def record_planner_failure(
+    session: AsyncSession,
+    *,
+    run_id: str,
+    job_id: str,
+    lease_owner: str | None,
+    error_code: str,
+    error_message: str,
+    now: datetime | None = None,
+) -> bool:
+    run = await session.scalar(
+        select(ReportGenerationRun)
+        .where(
+            ReportGenerationRun.id == run_id,
+            ReportGenerationRun.state == "planning",
+            ReportGenerationRun.planner_job_id == job_id,
+        )
+        .with_for_update()
+    )
+    job_query = select(WorkflowJob).where(
+        WorkflowJob.id == job_id,
+        WorkflowJob.run_id == run_id,
+        WorkflowJob.status == "running",
+    )
+    if lease_owner is not None:
+        job_query = job_query.where(WorkflowJob.lease_owner == lease_owner)
+    job = await session.scalar(job_query.with_for_update())
+    if run is None or job is None:
+        return False
+
+    failed_at = now or utc_now()
+    run.failure_stage = "planning"
+    run.error_code = error_code
+    run.error_message = error_message
+    run.retry_from = "planning"
+    run.active_stage = None
+    transition_run(run, "failed", now=failed_at)
+    job.status = "failed"
+    job.lease_owner = None
+    job.lease_expires_at = None
+    job.error_code = error_code
+    job.error_message = error_message
+    job.completed_at = failed_at
+    job.updated_at = failed_at
+    await _ensure_report_notification(
+        session,
+        run=run,
+        notification_type="report_failed",
+        title="报告生成失败",
+        body="报告方案生成失败，可以重试。",
+        link=f"report-run:{run.id}",
+    )
+    metrics.increment("run_failed_total", labels={"failure_stage": "planning"})
+    await session.flush()
+    return True
+
+
 async def record_report_failure(
     session: AsyncSession,
     *,

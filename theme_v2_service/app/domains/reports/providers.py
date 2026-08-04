@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -40,10 +41,19 @@ class GeneratorUsage(ProviderModel):
     model_profile: str = "report_generator"
 
 
+class GeneratedSuggestedAction(ProviderModel):
+    title: str = Field(min_length=1, max_length=200)
+    due_at: datetime | None = None
+
+
 class GeneratorResult(ProviderModel):
     content_md: str = Field(min_length=1)
     chart_directives: list[ChartDirective] = Field(default_factory=list)
     illustration_prompt: str | None = None
+    suggested_actions: list[GeneratedSuggestedAction] = Field(
+        default_factory=list,
+        max_length=5,
+    )
     share_card_spec: ShareCardSpec
     usage: GeneratorUsage = Field(default_factory=GeneratorUsage)
 

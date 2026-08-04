@@ -16,6 +16,9 @@ from app.domains.reports.schemas import CapabilityExecution
 
 
 TEMPLATE_ROOT = Path(__file__).resolve().parents[2] / "templates"
+REPORT_CSS = (
+    Path(__file__).resolve().parents[2] / "static" / "report-v1.css"
+).read_text(encoding="utf-8")
 SCRIPT_BLOCK_RE = re.compile(
     r"<\s*(script|style)\b[^>]*>.*?<\s*/\s*\1\s*>",
     re.IGNORECASE | re.DOTALL,
@@ -128,7 +131,11 @@ def render_report_html(
 
     safe_body = CHART_PARAGRAPH_RE.sub(replace_chart, safe_body)
     template = _template_environment().get_template("report.html.j2")
-    return template.render(title=title, body_html=safe_body)
+    return template.render(
+        title=title,
+        body_html=safe_body,
+        report_css=REPORT_CSS,
+    )
 
 
 async def generate_optional_illustration(

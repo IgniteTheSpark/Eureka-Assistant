@@ -53,7 +53,7 @@ class IllustrationPolicy(StrictModel):
 
 class ReportPlanOption(StrictModel):
     id: str
-    recommended: bool = False
+    recommended: bool
     title: str
     summary: str
     report_goal: str
@@ -107,6 +107,30 @@ class GenerationContext(StrictModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class ReportCitation(StrictModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+        frozen=True,
+    )
+
+    paragraph_hash: str
+    asset_ids: list[str] = Field(default_factory=list)
+    source_urls: list[str] = Field(default_factory=list)
+
+
+class ReportSuggestedAction(StrictModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+        frozen=True,
+    )
+
+    id: str
+    title: str = Field(min_length=1, max_length=200)
+    due_at: datetime | None = None
+
+
 class ReportSpec(StrictModel):
     template_id: str
     template_version: str
@@ -121,6 +145,9 @@ class ReportSpec(StrictModel):
     surface: str = "report"
     palette: str = "calm"
     seed: int = 0
+    citations: list[ReportCitation] = Field(default_factory=list)
+    suggested_actions: list[ReportSuggestedAction] = Field(default_factory=list)
+    presentation_version: str = "report_html_v2"
 
 
 class ShareCardSpec(StrictModel):

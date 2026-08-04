@@ -1,10 +1,20 @@
 :root {
-  color-scheme: light;
+  color-scheme: light dark;
   --paper: #f7f5ef;
   --ink: #26383d;
   --muted: #63757a;
   --line: #d9dedb;
   --accent: #46636b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #0b0e16;
+    --ink: #f5f7fa;
+    --muted: #aab4be;
+    --line: #28303d;
+    --accent: #55bed4;
+  }
 }
 
 * { box-sizing: border-box; }

@@ -40,7 +40,12 @@ def test_renderer_strips_scripts_events_and_uncontrolled_images():
     assert "tracker.example" not in html
     assert 'src="/api/files/file-1"' in html
     assert 'loading="lazy"' in html
-    assert "/static/report-v1.css" in html
+    assert "<style>" in html
+    assert "--paper: #f7f5ef" in html
+    assert "color-scheme: light dark" in html
+    assert "@media (prefers-color-scheme: dark)" in html
+    assert "--ink: #f5f7fa" in html
+    assert "/static/report-v1.css" not in html
 
 
 def test_renderer_injects_only_known_deterministic_chart_svg():

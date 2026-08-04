@@ -388,8 +388,21 @@ async def execute_report_planner_job(
                 1.0 if request.related_skills else 0.0,
             )
         return written
-    except Exception:
+    except Exception as exc:
         metrics.increment("planner_failed_total")
+        if job.attempt >= job.max_attempts:
+            from app.domains.reports.service import record_planner_failure
+
+            async with session_factory() as failure_session:
+                await record_planner_failure(
+                    failure_session,
+                    run_id=job.run_id,
+                    job_id=job.id,
+                    lease_owner=job.lease_owner,
+                    error_code=type(exc).__name__,
+                    error_message="报告方案生成失败，请重试。",
+                )
+                await failure_session.commit()
         raise
     finally:
         metrics.observe("planner_duration_ms", (perf_counter() - started) * 1000)
