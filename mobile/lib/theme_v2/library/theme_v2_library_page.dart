@@ -168,7 +168,6 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
       onConfigurePinned: () =>
           _navigation.open(LibrarySurface.pinnedConfiguration),
       onCreateSkill: widget.onCreateSkill ?? _openCreateSkill,
-      onOpenReports: _openReports,
       onOpenRecent: widget.onOpenRecent ?? _openRecent,
     ),
     LibrarySurface.containerIndex => ContainerIndex(
@@ -217,6 +216,10 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
   }
 
   void _openContainer(LibraryContainerSummary container) {
+    if (container.type == LibraryContainerType.report) {
+      _openReports();
+      return;
+    }
     _selectedContainer = container;
     _navigation.open(LibrarySurface.assetContainer);
   }
@@ -253,6 +256,8 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
           onBack: _navigation.back,
           contentBottomPadding: ThemeV2Spacing.lg,
         );
+      case LibraryContainerType.report:
+        return ReportContainerPage(api: _reportApi);
       case LibraryContainerType.todo:
       case LibraryContainerType.notes:
       case LibraryContainerType.custom:

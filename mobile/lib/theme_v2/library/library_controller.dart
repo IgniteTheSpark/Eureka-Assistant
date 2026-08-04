@@ -14,12 +14,23 @@ abstract interface class LibraryPinnedStore {
 class SharedPreferencesLibraryPinnedStore implements LibraryPinnedStore {
   const SharedPreferencesLibraryPinnedStore();
 
-  static const _key = 'theme_v2.library.pinned_order';
+  static const _legacyKey = 'theme_v2.library.pinned_order';
+  static const _key = 'theme_v2.library.pinned_order.v2_reports';
+  static const _reportId = 'system:report';
 
   @override
   Future<List<String>?> load() async {
     final preferences = await SharedPreferences.getInstance();
-    return preferences.getStringList(_key);
+    final current = preferences.getStringList(_key);
+    if (current != null) return current;
+    final legacy = preferences.getStringList(_legacyKey);
+    if (legacy == null) return null;
+    final migrated = legacy.isEmpty
+        ? <String>[]
+        : <String>[...legacy.where((id) => id != _reportId).take(5), _reportId];
+    final saved = await preferences.setStringList(_key, migrated);
+    if (!saved) throw StateError('无法迁移常驻容器配置');
+    return migrated;
   }
 
   @override

@@ -41,6 +41,10 @@ class ApiLibraryRepository implements LibraryRepository {
             ? Future<dynamic>.value(null)
             : _optionalNotFound(() => api.getJson('/api/assets/counts')),
       ),
+      _capture(
+        'reports',
+        () => _optionalNotFound(() => api.getJson('/api/reports')),
+      ),
     ]);
     final failures = [
       for (final source in sources)
@@ -58,6 +62,7 @@ class ApiLibraryRepository implements LibraryRepository {
     final events = _rows(sources[2].value, 'events');
     final contacts = _rows(sources[3].value, 'contacts');
     final serverCounts = _counts(sources[4].value);
+    final reports = _rows(sources[5].value, 'reports');
     final counts = serverCounts.isNotEmpty
         ? serverCounts
         : _countsFromAssets(assets);
@@ -68,6 +73,7 @@ class ApiLibraryRepository implements LibraryRepository {
         counts: counts,
         events: events,
         contacts: contacts,
+        reports: reports,
       ),
       customContainers: _customContainers(skills, counts),
       recentAssets: _recentAssets(assets, skills),
@@ -202,6 +208,7 @@ class ApiLibraryRepository implements LibraryRepository {
     required Map<String, int> counts,
     required List<Map<String, dynamic>> events,
     required List<Map<String, dynamic>> contacts,
+    required List<Map<String, dynamic>> reports,
   }) => [
     _systemContainer(
       id: 'todo',
@@ -234,6 +241,14 @@ class ApiLibraryRepository implements LibraryRepository {
       type: LibraryContainerType.contact,
       skill: skills['contact'],
       count: counts['contact'] ?? contacts.length,
+    ),
+    _systemContainer(
+      id: 'system:report',
+      label: '报告',
+      fallbackMark: '▤',
+      type: LibraryContainerType.report,
+      skill: null,
+      count: reports.length,
     ),
   ];
 

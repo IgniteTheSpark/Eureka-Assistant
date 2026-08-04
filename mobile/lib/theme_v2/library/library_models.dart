@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 
-enum LibraryContainerType { todo, notes, event, contact, custom }
+enum LibraryContainerType { todo, notes, event, contact, report, custom }
 
 @immutable
 class LibraryContainerSummary {

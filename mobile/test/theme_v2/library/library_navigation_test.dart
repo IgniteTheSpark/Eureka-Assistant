@@ -102,37 +102,40 @@ void main() {
     );
   });
 
-  testWidgets('report entry is independent from pinned asset containers', (
-    tester,
-  ) async {
-    final controller = await _controller();
-    var opened = 0;
-    await _pumpHost(
-      tester,
-      LibraryHub(
-        controller: controller,
-        onOpenContainer: (_) {},
-        onOpenContainerIndex: () {},
-        onOpenAllContainers: () {},
-        onConfigurePinned: () {},
-        onCreateSkill: () {},
-        onOpenReports: () => opened++,
-      ),
-    );
+  testWidgets(
+    'report is a normal pinned container without a standalone entry',
+    (tester) async {
+      final controller = await _controller();
+      String? opened;
+      await _pumpHost(
+        tester,
+        LibraryHub(
+          controller: controller,
+          onOpenContainer: (container) => opened = container.id,
+          onOpenContainerIndex: () {},
+          onOpenAllContainers: () {},
+          onConfigurePinned: () {},
+          onCreateSkill: () {},
+        ),
+      );
 
-    final reportEntry = find.byKey(const ValueKey('library-report-entry'));
-    expect(reportEntry, findsOneWidget);
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('library-pinned-mosaic')),
-        matching: reportEntry,
-      ),
-      findsNothing,
-    );
+      expect(find.byKey(const ValueKey('library-report-entry')), findsNothing);
+      final reportTile = find.byKey(
+        const ValueKey('library-pinned-tile-system:report'),
+      );
+      expect(reportTile, findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('library-pinned-mosaic')),
+          matching: reportTile,
+        ),
+        findsOneWidget,
+      );
 
-    await tester.tap(reportEntry);
-    expect(opened, 1);
-  });
+      await tester.tap(reportTile);
+      expect(opened, 'system:report');
+    },
+  );
 
   testWidgets('hub uses canonical title stats and one 50-asset row', (
     tester,
@@ -425,7 +428,7 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('report entry opens an independent report container', (
+  testWidgets('report container tile opens the existing report container', (
     tester,
   ) async {
     final controller = await _controller();
@@ -440,14 +443,16 @@ void main() {
       ),
     );
 
-    await tester.tap(find.byKey(const ValueKey('library-report-entry')));
+    await tester.tap(
+      find.byKey(const ValueKey('library-pinned-tile-system:report')),
+    );
     await tester.pumpAndSettle();
 
     expect(find.byType(ReportContainerPage), findsOneWidget);
     expect(find.byType(ThemeV2AssetListPage), findsNothing);
   });
 
-  testWidgets('library overview omits reports until the report entry opens', (
+  testWidgets('library overview counts reports before its container opens', (
     tester,
   ) async {
     final libraryRequests = <String>[];
@@ -485,10 +490,12 @@ void main() {
     expect(libraryRequests, isNotEmpty);
     expect(
       libraryRequests.where((request) => request.endsWith('/api/reports')),
-      isEmpty,
+      hasLength(1),
     );
     expect(reportRequests, isEmpty);
-    await tester.tap(find.byKey(const ValueKey('library-report-entry')));
+    await tester.tap(
+      find.byKey(const ValueKey('library-pinned-tile-system:report')),
+    );
     await tester.pumpAndSettle();
 
     expect(find.byType(ReportContainerPage), findsOneWidget);
@@ -638,7 +645,7 @@ void main() {
     expect(find.text('你正在使用的容器'), findsNothing);
     expect(find.text('系统容器'), findsOneWidget);
     expect(find.text('自定义技能'), findsOneWidget);
-    expect(find.byType(LibrarySystemContainerCard), findsNWidgets(4));
+    expect(find.byType(LibrarySystemContainerCard), findsNWidgets(5));
     expect(find.byType(LibraryCustomContainerRow), findsNWidgets(3));
     expect(find.text('查看全部容器'), findsNothing);
     expect(
@@ -742,7 +749,7 @@ void main() {
         tester.getSize(find.byKey(const ValueKey('library-all-search'))).height,
         42,
       );
-      expect(find.byType(LibraryDirectoryRow), findsNWidgets(7));
+      expect(find.byType(LibraryDirectoryRow), findsNWidgets(8));
       expect(tester.getSize(find.byType(LibraryDirectoryRow).first).height, 54);
       expect(tester.getSize(find.byTooltip('返回')), const Size(44, 44));
       await tester.tap(find.byTooltip('返回'));
@@ -821,7 +828,7 @@ void main() {
     expect(find.text('资产库'), findsOneWidget);
     expect(find.textContaining('LIBRARY /'), findsNothing);
     expect(find.textContaining('长按拖动常驻容器'), findsNothing);
-    expect(find.text('CONFIGURE / 05 · 长按拖动'), findsOneWidget);
+    expect(find.text('CONFIGURE / 06 · 长按拖动'), findsOneWidget);
     expect(find.text('01'), findsOneWidget);
     expect(find.textContaining('/ A'), findsNothing);
     expect(
@@ -1292,6 +1299,14 @@ Future<LibraryController> _controller({
             isSystem: true,
             userSkillId: 's-contact',
           ),
+          LibraryContainerSummary(
+            id: 'system:report',
+            label: '报告',
+            mark: '▤',
+            type: LibraryContainerType.report,
+            totalCount: 2,
+            isSystem: true,
+          ),
         ],
         customContainers: const [
           LibraryContainerSummary(
@@ -1472,7 +1487,16 @@ class _RefreshRepository implements LibraryRepository {
 }
 
 class _Store implements LibraryPinnedStore {
-  _Store([this.value = const ['todo', 'notes', 'tennis', 'event', 'contact']]);
+  _Store([
+    this.value = const [
+      'todo',
+      'notes',
+      'tennis',
+      'event',
+      'contact',
+      'system:report',
+    ],
+  ]);
 
   List<String> value;
   bool failNext = false;

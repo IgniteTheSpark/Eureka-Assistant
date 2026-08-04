@@ -4,6 +4,7 @@ import 'package:eureka/theme_v2/library/library_controller.dart';
 import 'package:eureka/theme_v2/library/library_models.dart';
 import 'package:eureka/theme_v2/library/library_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   group('LibraryController', () {
@@ -35,7 +36,7 @@ void main() {
           pinnedStore: _PinnedStore(),
         );
         await defaults.load();
-        expect(defaults.pinnedContainers, hasLength(5));
+        expect(defaults.pinnedContainers, hasLength(6));
 
         final empty = LibraryController(
           repository: _Repository(_overview()),
@@ -45,6 +46,57 @@ void main() {
         expect(empty.pinnedContainers, isEmpty);
       },
     );
+
+    test('report is a normal default pin and remains removable', () async {
+      final store = _PinnedStore();
+      final controller = LibraryController(
+        repository: _Repository(_overview()),
+        pinnedStore: store,
+      );
+      await controller.load();
+
+      expect(
+        controller.pinnedContainers.map((item) => item.id),
+        contains('system:report'),
+      );
+      expect(controller.pinnedContainers, hasLength(6));
+
+      expect(await controller.removePinned('system:report'), isTrue);
+      expect(
+        controller.pinnedContainers.map((item) => item.id),
+        isNot(contains('system:report')),
+      );
+      expect(await controller.addPinned('system:report'), isTrue);
+      expect(
+        controller.pinnedContainers.map((item) => item.id),
+        contains('system:report'),
+      );
+    });
+
+    test('shared preferences migrates the legacy order exactly once', () async {
+      SharedPreferences.setMockInitialValues({
+        'theme_v2.library.pinned_order': [
+          'todo',
+          'notes',
+          'event',
+          'contact',
+          'one',
+          'two',
+        ],
+      });
+      const store = SharedPreferencesLibraryPinnedStore();
+
+      expect(await store.load(), [
+        'todo',
+        'notes',
+        'event',
+        'contact',
+        'one',
+        'system:report',
+      ]);
+      await store.save(['todo']);
+      expect(await store.load(), ['todo']);
+    });
 
     test(
       'directory queries are independent and clear without reload',
@@ -60,7 +112,7 @@ void main() {
         expect(controller.indexCustomContainers.map((item) => item.id), [
           'tennis',
         ]);
-        expect(controller.allSystemContainers, hasLength(4));
+        expect(controller.allSystemContainers, hasLength(5));
 
         controller.setAllQuery('事件');
         expect(controller.allSystemContainers.map((item) => item.id), [
@@ -334,6 +386,7 @@ LibraryContainerSummary _summary(
     'notes' => '随记',
     'event' => '事件',
     'contact' => '联系人',
+    'system:report' => '报告',
     'tennis' => '网球',
     _ => id,
   },
@@ -348,6 +401,7 @@ List<LibraryContainerSummary> _systemContainers({int total = 1}) => [
   _summary('notes', LibraryContainerType.notes, total: total),
   _summary('event', LibraryContainerType.event, total: total),
   _summary('contact', LibraryContainerType.contact, total: total),
+  _summary('system:report', LibraryContainerType.report, total: total),
 ];
 
 LibraryOverview _overview({

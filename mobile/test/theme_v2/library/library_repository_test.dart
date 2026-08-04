@@ -70,6 +70,10 @@ void main() {
             '/api/assets/counts' => {
               'counts': {'todo': 48, 'notes': 23, 'tennis': 3},
             },
+            '/api/reports' => [
+              {'id': 'report-1'},
+              {'id': 'report-2'},
+            ],
             _ => throw StateError('unexpected ${request.url}'),
           };
           return _json(body);
@@ -78,10 +82,10 @@ void main() {
 
         final overview = await ApiLibraryRepository(api).loadOverview();
 
-        expect(calls, hasLength(5));
+        expect(calls, hasLength(6));
         expect(calls.values, everyElement(1));
         expect(calls['/api/skills'], 1);
-        expect(calls, isNot(contains('/api/reports')));
+        expect(calls['/api/reports'], 1);
         expect(
           requestedUris
               .singleWhere((uri) => uri.path == '/api/assets')
@@ -97,7 +101,7 @@ void main() {
         expect(overview.customContainers.map((container) => container.id), [
           'tennis',
         ]);
-        expect(overview.containerCount, 5);
+        expect(overview.containerCount, 6);
         expect(overview.customContainerCount, 1);
         expect(overview.totalAssetCount, 74);
         expect(
@@ -116,6 +120,14 @@ void main() {
               .mark,
           '👤',
         );
+        expect(
+          overview.systemContainers
+              .singleWhere(
+                (container) => container.type == LibraryContainerType.report,
+              )
+              .totalCount,
+          2,
+        );
         expect(overview.recentAssets, hasLength(50));
         expect(overview.recentAssets.first.id, 'asset-54');
         expect(overview.recentAssets.first.primaryValue, '自定义主标题 54');
@@ -127,7 +139,7 @@ void main() {
       },
     );
 
-    test('keeps four system containers when optional sources fail', () async {
+    test('keeps five system containers when optional sources fail', () async {
       final api = _api((request) async {
         if (request.url.path == '/api/events' ||
             request.url.path == '/api/assets/counts') {
@@ -146,6 +158,7 @@ void main() {
             ],
           },
           '/api/contacts' => {'contacts': <Object>[]},
+          '/api/reports' => <Object>[],
           _ => throw StateError('unexpected ${request.url}'),
         };
         return _json(body);
@@ -154,7 +167,7 @@ void main() {
 
       final overview = await ApiLibraryRepository(api).loadOverview();
 
-      expect(overview.systemContainers, hasLength(4));
+      expect(overview.systemContainers, hasLength(5));
       expect(
         overview.systemContainers.map((container) => container.type),
         LibraryContainerType.values.where(
@@ -217,6 +230,8 @@ void main() {
             case '/api/contacts':
             case '/api/assets/counts':
               return _json({'detail': 'Not Found'}, statusCode: 404);
+            case '/api/reports':
+              return _json([]);
             default:
               throw StateError('unexpected ${request.url}');
           }

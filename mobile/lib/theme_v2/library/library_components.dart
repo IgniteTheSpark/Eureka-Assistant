@@ -17,6 +17,7 @@ IconData libraryContainerIcon(LibraryContainerSummary container) =>
       LibraryContainerType.contact => Icons.person_outline,
       LibraryContainerType.todo => Icons.checklist_outlined,
       LibraryContainerType.notes => Icons.notes_outlined,
+      LibraryContainerType.report => Icons.description_outlined,
       LibraryContainerType.custom => Icons.auto_awesome_mosaic_outlined,
     };
 
