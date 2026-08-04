@@ -15,6 +15,12 @@ class RingConnection extends ChangeNotifier {
   RingConnState conn = RingConnState.disconnected;
   bool get isConnected => conn == RingConnState.connected;
 
+  void markUnbound() {
+    if (conn == RingConnState.disconnected) return;
+    conn = RingConnState.disconnected;
+    notifyListeners();
+  }
+
   /// Idempotent — begins mirroring ring state. Call once after login.
   void ensureStarted() {
     _sub ??= _ring.state.listen((s) {
