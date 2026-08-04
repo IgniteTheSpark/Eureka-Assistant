@@ -4,8 +4,11 @@ from sqlalchemy import select
 
 from app.db.models import WorkflowJob
 from app.domains.notifications.models import Notification
-from app.domains.reports.maintenance import run_report_maintenance
-from app.domains.reports.models import Report, ReportGenerationRun, ReportShare
+from app.domains.reports.maintenance import (
+    repair_report_presentations,
+    run_report_maintenance,
+)
+from app.domains.reports.models import File, Report, ReportGenerationRun, ReportShare
 
 
 NOW = datetime(2026, 7, 31, 10, 0, 0)
@@ -145,3 +148,154 @@ async def test_maintenance_marks_expired_shares_idempotently(session):
     assert first.expired_shares == 1
     assert second.expired_shares == 0
     assert share.status == "expired"
+
+
+async def test_report_presentation_repair_is_bounded_safe_and_idempotent(session):
+    source = {
+        "title": "训练方法",
+        "url": "https://example.com/training",
+        "snippet": "可执行的训练建议",
+        "accessed_at": "2026-07-31T09:00:00Z",
+    }
+    run = _run("completed", age=timedelta(days=1))
+    run.resolved_asset_ids = ["asset-allowed"]
+    session.add(run)
+    await session.flush()
+    illustration = File(
+        user_id=run.user_id,
+        purpose="report_illustration",
+        mime_type="image/png",
+        size_bytes=4,
+        sha256="a" * 64,
+        storage_key="reports/user-1/illustration.png",
+    )
+    session.add(illustration)
+    await session.flush()
+    job = WorkflowJob(
+        run_id=run.id,
+        job_type="report_pipeline",
+        status="succeeded",
+        available_at=NOW - timedelta(days=1),
+        checkpoint_json={
+            "completed_stages": [
+                "web_search",
+                "content_generation",
+                "chart_validation",
+                "illustration",
+            ],
+            "stage_results": {
+                "web_search": {"sources": [source]},
+                "content_generation": {"suggested_actions": []},
+                "chart_validation": {
+                    "svgs": {
+                        "pace": (
+                            '<svg xmlns="http://www.w3.org/2000/svg" '
+                            'data-recovered-chart="pace"></svg>'
+                        )
+                    }
+                },
+                "illustration": {"file_id": illustration.id},
+            },
+        },
+    )
+    session.add(job)
+    await session.flush()
+    run.generation_job_id = job.id
+    legacy = Report(
+        id="report-legacy",
+        user_id=run.user_id,
+        generation_run_id=run.id,
+        title="训练复盘",
+        template_id="general_period_review",
+        template_version="1.0.0",
+        base_family="theme_synthesis",
+        content_md=(
+            "# 训练复盘\n\n"
+            "训练节奏稳定。[evidence:asset-allowed]\n\n"
+            "可继续增加间歇训练。"
+            "[source:https://example.com/training]\n\n"
+            "[[chart:pace]]\n\n"
+            ":::actions\n- 准备下次训练计划\n:::"
+        ),
+        html="<html>legacy [evidence:asset-allowed]</html>",
+        spec_json={
+            "template_id": "general_period_review",
+            "template_version": "1.0.0",
+            "base_family": "theme_synthesis",
+            "source_asset_ids": ["asset-allowed"],
+            "external_sources": [source],
+            "web_policy": "optional",
+            "generated_file_ids": [illustration.id],
+            "surface": "report",
+            "palette": "calm",
+            "seed": 7,
+            "presentation_version": "report_html_v1",
+        },
+        share_card_spec={"illustration_file_id": illustration.id},
+        tokens_used=0,
+        gen_ms=0,
+        created_at=NOW - timedelta(days=1),
+    )
+    session.add(legacy)
+    await session.flush()
+    run.report_id = legacy.id
+
+    unsafe_run = _run("completed", age=timedelta(days=1))
+    unsafe_run.resolved_asset_ids = ["asset-allowed"]
+    session.add(unsafe_run)
+    await session.flush()
+    unsafe = Report(
+        id="report-unsafe",
+        user_id=unsafe_run.user_id,
+        generation_run_id=unsafe_run.id,
+        title="Unsafe",
+        template_id="general_period_review",
+        template_version="1.0.0",
+        base_family="briefing_research",
+        content_md="Unknown [evidence:asset-not-allowed]",
+        html="<html>unsafe</html>",
+        spec_json={
+            "source_asset_ids": ["asset-allowed"],
+            "external_sources": [],
+            "seed": 0,
+            "presentation_version": "report_html_v1",
+        },
+        share_card_spec={},
+        tokens_used=0,
+        gen_ms=0,
+        created_at=NOW - timedelta(days=1),
+    )
+    session.add(unsafe)
+    await session.commit()
+
+    dry_run = await repair_report_presentations(session, dry_run=True)
+    await session.refresh(legacy)
+    assert dry_run.eligible == 2
+    assert dry_run.repaired == 1
+    assert dry_run.skipped_unsafe == 1
+    assert legacy.spec_json["presentation_version"] == "report_html_v1"
+    assert "[evidence:" in legacy.content_md
+
+    applied = await repair_report_presentations(session, dry_run=False)
+    await session.commit()
+    await session.refresh(legacy)
+    assert applied.eligible == 2
+    assert applied.repaired == 1
+    assert applied.skipped_unsafe == 1
+    assert "[evidence:" not in legacy.content_md
+    assert "[source:" not in legacy.content_md
+    assert ":::actions" not in legacy.content_md
+    assert "[evidence:" not in legacy.html
+    assert "[source:" not in legacy.html
+    assert legacy.spec_json["presentation_version"] == "report_html_v2"
+    assert legacy.spec_json["surface"] == "surface-note"
+    assert legacy.spec_json["palette"] == "pal-warm"
+    assert legacy.spec_json["suggested_actions"][0]["title"] == "准备下次训练计划"
+    assert legacy.spec_json["citations"]
+    assert legacy.spec_json["external_sources"] == [source]
+    assert 'data-recovered-chart="pace"' in legacy.html
+    assert f'src="/api/files/{illustration.id}"' in legacy.html
+
+    repeated = await repair_report_presentations(session, dry_run=False)
+    assert repeated.repaired == 0
+    assert repeated.skipped_unsafe == 1
