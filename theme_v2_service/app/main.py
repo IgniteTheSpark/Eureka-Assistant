@@ -18,6 +18,7 @@ from app.domains.reports.api_runs import router as report_runs_router
 from app.domains.reports.api_reports import router as reports_router
 from app.domains.reports.templates import get_template_registry
 from app.domains.triggers.api import router as trigger_router
+from app.domains.timeline.api import router as timeline_router
 from app.observability import metrics
 
 
@@ -53,6 +54,7 @@ app.include_router(notification_router)
 app.include_router(trigger_router)
 app.include_router(report_runs_router)
 app.include_router(reports_router)
+app.include_router(timeline_router)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 

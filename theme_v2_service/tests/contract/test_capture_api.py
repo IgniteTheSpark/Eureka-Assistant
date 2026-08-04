@@ -230,6 +230,8 @@ async def test_flash_sessions_group_recordings_by_local_capture_day(client):
     ]
     assert history.json()["sessions"][1]["title"] == "8月2日 闪念"
     assert history.json()["sessions"][1]["recording_count"] == 2
+    assert history.json()["sessions"][1]["created_at"].endswith("Z")
+    assert history.json()["sessions"][1]["updated_at"].endswith("Z")
 
     detail = await client.get(
         "/api/flash/sessions/2026-08-02",
@@ -241,6 +243,12 @@ async def test_flash_sessions_group_recordings_by_local_capture_day(client):
         recording_ids[0],
         recording_ids[1],
     ]
+    assert detail.json()["session"]["created_at"].endswith("Z")
+    assert detail.json()["session"]["updated_at"].endswith("Z")
+    assert all(
+        item["created_at"].endswith("Z")
+        for item in detail.json()["session"]["recordings"]
+    )
 
     archive = await client.get(
         "/api/flash/recordings",
@@ -252,9 +260,10 @@ async def test_flash_sessions_group_recordings_by_local_capture_day(client):
     }
     assert archived_by_id[recording_ids[0]]["session_date"] == "2026-08-02"
     assert archived_by_id[recording_ids[2]]["session_date"] == "2026-08-03"
-    assert archived_by_id[recording_ids[0]]["captured_at"].startswith(
-        "2026-08-02T01:00:00"
+    assert archived_by_id[recording_ids[0]]["captured_at"] == (
+        "2026-08-02T01:00:00Z"
     )
+    assert archived_by_id[recording_ids[0]]["created_at"].endswith("Z")
 
     deleted = await client.delete(
         "/api/flash/sessions/2026-08-02",

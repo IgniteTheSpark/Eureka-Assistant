@@ -63,6 +63,13 @@ def _recording_timestamp(recording: CaptureRecording) -> datetime:
     return recording.capture_started_at or recording.created_at
 
 
+def _as_utc_z(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    aware = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    return aware.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 def _local_capture_date(
     recording: CaptureRecording,
     *,
@@ -811,8 +818,8 @@ def recording_payload(result: RecordingResult) -> dict:
                 recording,
                 timezone_name=get_settings().default_user_timezone,
             ).isoformat(),
-            "created_at": recording.created_at,
-            "updated_at": recording.updated_at,
+            "created_at": _as_utc_z(recording.created_at),
+            "updated_at": _as_utc_z(recording.updated_at),
         },
     }
 
@@ -857,8 +864,10 @@ async def list_daily_sessions(
                 "date": local_date.isoformat(),
                 "title": f"{local_date.month}月{local_date.day}日 闪念",
                 "recording_count": len(rows),
-                "created_at": min(_recording_timestamp(row) for row in rows),
-                "updated_at": max(row.updated_at for row in rows),
+                "created_at": _as_utc_z(
+                    min(_recording_timestamp(row) for row in rows)
+                ),
+                "updated_at": _as_utc_z(max(row.updated_at for row in rows)),
             }
         )
     return sessions
@@ -905,10 +914,14 @@ async def get_daily_session(
         "id": local_date.isoformat(),
         "date": local_date.isoformat(),
         "title": f"{local_date.month}月{local_date.day}日 闪念",
-        "created_at": min(_recording_timestamp(row) for row in recordings),
-        "updated_at": max(
-            [row.updated_at for row in recordings]
-            + [message.created_at for message in chat_messages]
+        "created_at": _as_utc_z(
+            min(_recording_timestamp(row) for row in recordings)
+        ),
+        "updated_at": _as_utc_z(
+            max(
+                [row.updated_at for row in recordings]
+                + [message.created_at for message in chat_messages]
+            )
         ),
         "recordings": [_recording_detail_item(result) for result in results],
         "chat_messages": [flash_chat_message_payload(item) for item in chat_messages],
@@ -943,7 +956,7 @@ def flash_chat_message_payload(message: FlashChatMessage) -> dict:
         "role": message.role,
         "text": message.text,
         "status": message.status,
-        "created_at": message.created_at,
+        "created_at": _as_utc_z(message.created_at),
     }
 
 
@@ -970,7 +983,7 @@ async def create_flash_chat_message(
 
 def _json_value(value):
     if isinstance(value, datetime):
-        return value.replace(tzinfo=timezone.utc).isoformat()
+        return _as_utc_z(value)
     if isinstance(value, date):
         return value.isoformat()
     raise TypeError(f"unsupported context value: {type(value).__name__}")
@@ -1117,8 +1130,8 @@ def recording_archive_item(recording: CaptureRecording) -> dict:
             recording,
             timezone_name=get_settings().default_user_timezone,
         ).isoformat(),
-        "captured_at": captured_at,
-        "created_at": recording.created_at,
+        "captured_at": _as_utc_z(captured_at),
+        "created_at": _as_utc_z(recording.created_at),
         "process_status": recording.process_status,
     }
 
