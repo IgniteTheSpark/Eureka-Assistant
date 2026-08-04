@@ -200,6 +200,169 @@ void main() {
 
     expect(detail.skill.icon, '💳');
   });
+
+  test(
+    'core report todo exposes report provenance outside editable fields',
+    () async {
+      final api = ApiClient(
+        baseUrl: 'http://theme-v2.test',
+        enableLogging: false,
+        client: MockClient((request) async {
+          if (request.url.path == '/api/user-skills/skill-todo') {
+            return http.Response(
+              jsonEncode({
+                'id': 'skill-todo',
+                'machine_name': 'todo',
+                'display_name': '待办',
+                'schema': {
+                  'type': 'object',
+                  'properties': {
+                    'title': {'type': 'string'},
+                    'due_date': {'type': 'string'},
+                  },
+                },
+              }),
+              200,
+              headers: const {'content-type': 'application/json'},
+            );
+          }
+          return http.Response(
+            jsonEncode({
+              'id': 'todo-report-1',
+              'user_skill_id': 'skill-todo',
+              'payload': {'title': '整理验收清单'},
+              'source_report_id': 'report-1',
+              'source_report_action_id': 'action-1',
+              'source_report_title': '月度复盘',
+              'created_at': '2026-08-03T03:00:00Z',
+              'updated_at': '2026-08-03T03:00:00Z',
+            }),
+            200,
+            headers: const {'content-type': 'application/json'},
+          );
+        }),
+      );
+      addTearDown(api.close);
+      final repository = ApiAssetDetailRepository(api, coreRecordsOnly: true);
+
+      final detail = await repository.load(
+        const AssetEntityRef(kind: AssetEntityKind.asset, id: 'todo-report-1'),
+      );
+
+      expect(detail.source.kind, AssetDetailSourceKind.report);
+      expect(detail.source.label, '来自报告《月度复盘》');
+      expect(detail.source.reportId, 'report-1');
+      expect(detail.source.canOpen, isTrue);
+      expect(
+        detail.fields.map((field) => field.id),
+        isNot(
+          containsAll(const [
+            'source_report_id',
+            'source_report_action_id',
+            'source_report_title',
+          ]),
+        ),
+      );
+      expect(detail.values, isNot(contains('source_report_id')));
+    },
+  );
+
+  test('deleted source report keeps its title but cannot be opened', () async {
+    final api = ApiClient(
+      baseUrl: 'http://theme-v2.test',
+      enableLogging: false,
+      client: MockClient((request) async {
+        if (request.url.path == '/api/user-skills/skill-todo') {
+          return http.Response(
+            jsonEncode({
+              'id': 'skill-todo',
+              'machine_name': 'todo',
+              'display_name': '待办',
+              'schema': const {},
+            }),
+            200,
+            headers: const {'content-type': 'application/json'},
+          );
+        }
+        return http.Response(
+          jsonEncode({
+            'id': 'todo-report-deleted',
+            'user_skill_id': 'skill-todo',
+            'payload': {'title': '跟进事项'},
+            'source_report_id': null,
+            'source_report_action_id': 'action-deleted',
+            'source_report_title': '月度复盘',
+            'created_at': '2026-08-03T03:00:00Z',
+          }),
+          200,
+          headers: const {'content-type': 'application/json'},
+        );
+      }),
+    );
+    addTearDown(api.close);
+    final repository = ApiAssetDetailRepository(api, coreRecordsOnly: true);
+
+    final detail = await repository.load(
+      const AssetEntityRef(
+        kind: AssetEntityKind.asset,
+        id: 'todo-report-deleted',
+      ),
+    );
+
+    expect(detail.source.kind, AssetDetailSourceKind.report);
+    expect(detail.source.label, '来自报告《月度复盘》');
+    expect(detail.source.reportId, isNull);
+    expect(detail.source.canOpen, isFalse);
+  });
+
+  test('capture provenance takes priority over report provenance', () async {
+    final api = ApiClient(
+      baseUrl: 'http://theme-v2.test',
+      enableLogging: false,
+      client: MockClient((request) async {
+        if (request.url.path == '/api/user-skills/skill-todo') {
+          return http.Response(
+            jsonEncode({
+              'id': 'skill-todo',
+              'machine_name': 'todo',
+              'display_name': '待办',
+              'schema': const {},
+            }),
+            200,
+            headers: const {'content-type': 'application/json'},
+          );
+        }
+        return http.Response(
+          jsonEncode({
+            'id': 'todo-mixed-source',
+            'user_skill_id': 'skill-todo',
+            'payload': {'title': '跟进事项'},
+            'source_recording_id': 'recording-1',
+            'source_input_turn_id': 'turn-1',
+            'source_report_id': 'report-1',
+            'source_report_action_id': 'action-1',
+            'source_report_title': '月度复盘',
+            'created_at': '2026-08-03T03:00:00Z',
+          }),
+          200,
+          headers: const {'content-type': 'application/json'},
+        );
+      }),
+    );
+    addTearDown(api.close);
+    final repository = ApiAssetDetailRepository(api, coreRecordsOnly: true);
+
+    final detail = await repository.load(
+      const AssetEntityRef(
+        kind: AssetEntityKind.asset,
+        id: 'todo-mixed-source',
+      ),
+    );
+
+    expect(detail.source.kind, AssetDetailSourceKind.flash);
+    expect(detail.source.sessionId, 'recording-1');
+    expect(detail.source.reportId, isNull);
+  });
 }
 
 Map<String, dynamic> _detailJson({

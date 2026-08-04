@@ -95,6 +95,44 @@ void main() {
       expect(record.completed, isTrue);
       expect(record.dueAt, DateTime.parse('2026-07-29T18:30:00+08:00'));
     });
+
+    test('report provenance never becomes card or editable payload data', () {
+      final record = AssetRecordAdapter.asset(
+        asset: AssetItem(
+          id: 'todo-report-1',
+          skillName: 'todo',
+          payload: const {
+            'title': '整理验收清单',
+            'source_report_id': 'report-1',
+            'source_report_action_id': 'action-1',
+            'source_report_title': '月度复盘',
+          },
+          createdAt: DateTime(2026, 8, 4),
+        ),
+        skillLabel: '待办',
+        spec: const RenderSpec(
+          cardLayout: 'horizontal',
+          icon: '✓',
+          accentColor: 'neutral',
+          primaryField: 'title',
+          schemaFields: [
+            'title',
+            'source_report_id',
+            'source_report_action_id',
+            'source_report_title',
+          ],
+        ),
+      );
+
+      expect(record.card.primaryValue, '整理验收清单');
+      expect(
+        record.fields.map((field) => field.id),
+        isNot(contains('source_report_id')),
+      );
+      expect(record.payload, isNot(contains('source_report_id')));
+      expect(record.payload, isNot(contains('source_report_action_id')));
+      expect(record.payload, isNot(contains('source_report_title')));
+    });
   });
 
   group('Todo record classification', () {

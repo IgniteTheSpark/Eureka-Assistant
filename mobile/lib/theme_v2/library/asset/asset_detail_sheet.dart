@@ -11,6 +11,7 @@ import '../../foundation/theme_v2_semantics.dart';
 import '../../foundation/theme_v2_theme.dart';
 import '../../foundation/theme_v2_tokens.dart';
 import '../../foundation/theme_v2_typography.dart';
+import '../../report/report_notification_target.dart';
 import '../../session/theme_v2_session_page.dart';
 import 'asset_detail_content.dart';
 import 'asset_detail_presentation.dart';
@@ -305,6 +306,11 @@ class _DetailBody extends StatelessWidget {
     final offset = controller.scrollController.hasClients
         ? controller.scrollController.offset
         : 0.0;
+    if (controller.sourceKind == AssetDetailSourceKind.report) {
+      await _openReportSource(context);
+      controller.restoreScrollOffset(offset);
+      return;
+    }
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (_) => controller.sourceKind == AssetDetailSourceKind.flash
@@ -319,6 +325,33 @@ class _DetailBody extends StatelessWidget {
       ),
     );
     controller.restoreScrollOffset(offset);
+  }
+
+  Future<void> _openReportSource(BuildContext context) async {
+    final reportId = controller.reportId;
+    if (reportId == null) return;
+    final ownedClient = api == null ? ApiClient() : null;
+    final client = api ?? ownedClient!;
+    try {
+      final response = await client.getJson('/api/reports/$reportId');
+      if (response is! Map || !context.mounted) return;
+      final page = buildThemeV2ReportViewerPage(
+        response,
+        reportId: reportId,
+        api: api,
+      );
+      await Navigator.of(
+        context,
+      ).push<void>(MaterialPageRoute(builder: (_) => page));
+    } on ApiException catch (error) {
+      if (!context.mounted) return;
+      final message = error.statusCode == 404 ? '来源报告已不存在' : '报告暂时无法加载';
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(SnackBar(content: Text(message)));
+    } finally {
+      ownedClient?.close();
+    }
   }
 }
 

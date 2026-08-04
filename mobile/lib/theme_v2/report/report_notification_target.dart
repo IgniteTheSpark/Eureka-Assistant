@@ -124,6 +124,24 @@ Widget reportNotificationTargetPage(String link, {String? type}) {
   };
 }
 
+ReportViewerPage buildThemeV2ReportViewerPage(
+  Map<dynamic, dynamic> response, {
+  required String reportId,
+  ApiClient? api,
+}) {
+  final wrapped = response['report'];
+  final report = wrapped is Map ? wrapped : response;
+  return ReportViewerPage(
+    title: report['title']?.toString() ?? '报告',
+    html: report['html']?.toString() ?? '',
+    reportId: reportId,
+    enableLegacyEnhancements: false,
+    enableThemeV2Actions: true,
+    themeV2Palette: (report['spec'] as Map?)?['palette']?.toString(),
+    api: api,
+  );
+}
+
 Future<Widget?> loadReportNotificationTargetPage(
   String? type,
   String link, {
@@ -141,15 +159,9 @@ Future<Widget?> loadReportNotificationTargetPage(
       try {
         final response = await client.getJson('/api/reports/${target.id}');
         if (response is! Map) return null;
-        final wrapped = response['report'];
-        final report = wrapped is Map ? wrapped : response;
-        return ReportViewerPage(
-          title: report['title']?.toString() ?? '报告',
-          html: report['html']?.toString() ?? '',
+        return buildThemeV2ReportViewerPage(
+          response,
           reportId: target.id,
-          enableLegacyEnhancements: false,
-          enableThemeV2Actions: true,
-          themeV2Palette: (report['spec'] as Map?)?['palette']?.toString(),
           api: api,
         );
       } catch (_) {

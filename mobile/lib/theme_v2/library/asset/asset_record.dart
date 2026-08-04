@@ -116,6 +116,11 @@ class AssetRecordAdapter {
     Map<String, dynamic> renderSpec = const {},
     Map<String, dynamic> payloadSchema = const {},
   }) {
+    final payload = Map<String, dynamic>.unmodifiable({
+      for (final entry in asset.payload.entries)
+        if (!_reportProvenanceFields.contains(entry.key))
+          entry.key: entry.value,
+    });
     final kind = switch (asset.skillName) {
       'todo' => AssetRecordKind.todo,
       'notes' || 'note' => AssetRecordKind.note,
@@ -124,27 +129,27 @@ class AssetRecordAdapter {
     final display = _displayFromSpec(
       renderSpec: renderSpec,
       spec: spec,
-      payload: asset.payload,
+      payload: payload,
     );
     return AssetRecordViewModel(
       id: asset.id,
       containerId: asset.skillName,
       kind: kind,
       card: AssetCardViewData.fromPayload(
-        payload: asset.payload,
+        payload: payload,
         display: display,
         spec: spec,
         skillLabel: skillLabel,
         timeLabel: _clockLabel(asset.effectiveAt),
       ),
-      fields: _fieldsFromSpec(asset.payload, spec, payloadSchema),
-      payload: Map.unmodifiable(asset.payload),
+      fields: _fieldsFromSpec(payload, spec, payloadSchema),
+      payload: payload,
       createdAt: asset.createdAt,
       effectiveAt: asset.effectiveAt,
       source: _assetSource(asset),
-      dueAt: kind == AssetRecordKind.todo ? _todoDueAt(asset.payload) : null,
+      dueAt: kind == AssetRecordKind.todo ? _todoDueAt(payload) : null,
       completed: kind == AssetRecordKind.todo
-          ? todoPayloadIsDone(asset.payload)
+          ? todoPayloadIsDone(payload)
           : false,
       userSkillId: asset.userSkillId,
       sessionId: asset.sessionId,
@@ -274,7 +279,7 @@ class AssetRecordAdapter {
     ];
     return List.unmodifiable([
       for (final id in ids)
-        if (id != 'id' && id != 'uuid')
+        if (id != 'id' && id != 'uuid' && !_reportProvenanceFields.contains(id))
           AssetRecordField(
             id: id,
             label: spec.fieldLabels[id] ?? id,
@@ -323,6 +328,12 @@ class AssetRecordAdapter {
     return source.isEmpty ? null : AssetSource(label: source);
   }
 }
+
+const _reportProvenanceFields = {
+  'source_report_id',
+  'source_report_action_id',
+  'source_report_title',
+};
 
 bool matchesTodoFilter(
   AssetRecordViewModel record,

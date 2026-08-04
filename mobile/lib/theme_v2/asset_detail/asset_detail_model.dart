@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import 'asset_entity_ref.dart';
 
-enum AssetDetailSourceKind { manual, flash, session }
+enum AssetDetailSourceKind { manual, flash, session, report }
 
 @immutable
 class AssetDetailField {
@@ -84,6 +84,7 @@ class AssetDetailSource {
     required this.label,
     required this.sessionId,
     required this.inputTurnId,
+    required this.reportId,
   });
 
   factory AssetDetailSource.fromJson(Map<String, dynamic> json) =>
@@ -92,6 +93,7 @@ class AssetDetailSource {
           'manual' => AssetDetailSourceKind.manual,
           'flash' => AssetDetailSourceKind.flash,
           'session' => AssetDetailSourceKind.session,
+          'report' => AssetDetailSourceKind.report,
           final value => throw FormatException(
             'unsupported asset detail source kind: $value',
           ),
@@ -99,17 +101,21 @@ class AssetDetailSource {
         label: _requiredString(json, 'label'),
         sessionId: _optionalString(json['session_id']),
         inputTurnId: _optionalString(json['input_turn_id']),
+        reportId: _optionalString(json['report_id']),
       );
 
   final AssetDetailSourceKind kind;
   final String label;
   final String? sessionId;
   final String? inputTurnId;
+  final String? reportId;
 
-  bool get canOpen =>
-      kind != AssetDetailSourceKind.manual &&
-      sessionId != null &&
-      inputTurnId != null;
+  bool get canOpen => switch (kind) {
+    AssetDetailSourceKind.manual => false,
+    AssetDetailSourceKind.report => reportId != null,
+    AssetDetailSourceKind.flash ||
+    AssetDetailSourceKind.session => sessionId != null && inputTurnId != null,
+  };
 }
 
 @immutable

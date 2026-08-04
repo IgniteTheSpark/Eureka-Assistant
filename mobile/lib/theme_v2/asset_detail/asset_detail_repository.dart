@@ -244,6 +244,7 @@ AssetDetailModel _coreDetail({
     label: '手动创建',
     sessionId: null,
     inputTurnId: null,
+    reportId: null,
   ),
 }) => AssetDetailModel(
   ref: ref,
@@ -330,24 +331,41 @@ List<Map<String, dynamic>> _coreEventAttendees(dynamic raw) => [
 AssetDetailSource _coreSource(Map<String, dynamic> record) {
   final recordingId = record['source_recording_id']?.toString().trim() ?? '';
   final inputTurnId = record['source_input_turn_id']?.toString().trim() ?? '';
-  if (recordingId.isEmpty) {
-    return const AssetDetailSource(
-      kind: AssetDetailSourceKind.manual,
-      label: '手动创建',
-      sessionId: null,
-      inputTurnId: null,
+  if (recordingId.isNotEmpty) {
+    final createdAt = DateTime.tryParse(
+      record['created_at']?.toString() ?? '',
+    )?.toLocal();
+    final dateLabel = createdAt == null
+        ? '闪念'
+        : '${createdAt.month}月${createdAt.day}日闪念';
+    return AssetDetailSource(
+      kind: AssetDetailSourceKind.flash,
+      label: '来自 $dateLabel',
+      sessionId: recordingId,
+      inputTurnId: inputTurnId.isEmpty ? null : inputTurnId,
+      reportId: null,
     );
   }
-  final createdAt = DateTime.tryParse(
-    record['created_at']?.toString() ?? '',
-  )?.toLocal();
-  final dateLabel = createdAt == null
-      ? '闪念'
-      : '${createdAt.month}月${createdAt.day}日闪念';
-  return AssetDetailSource(
-    kind: AssetDetailSourceKind.flash,
-    label: '来自 $dateLabel',
-    sessionId: recordingId,
-    inputTurnId: inputTurnId.isEmpty ? null : inputTurnId,
+
+  final reportId = record['source_report_id']?.toString().trim() ?? '';
+  final actionId = record['source_report_action_id']?.toString().trim() ?? '';
+  final reportTitle = record['source_report_title']?.toString().trim() ?? '';
+  if (reportId.isNotEmpty || actionId.isNotEmpty || reportTitle.isNotEmpty) {
+    final displayTitle = reportTitle.isEmpty ? '报告' : reportTitle;
+    return AssetDetailSource(
+      kind: AssetDetailSourceKind.report,
+      label: '来自报告《$displayTitle》',
+      sessionId: null,
+      inputTurnId: null,
+      reportId: reportId.isEmpty ? null : reportId,
+    );
+  }
+
+  return const AssetDetailSource(
+    kind: AssetDetailSourceKind.manual,
+    label: '手动创建',
+    sessionId: null,
+    inputTurnId: null,
+    reportId: null,
   );
 }

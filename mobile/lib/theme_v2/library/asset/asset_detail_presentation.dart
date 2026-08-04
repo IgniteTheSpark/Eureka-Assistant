@@ -42,6 +42,7 @@ class AssetDetailController extends ChangeNotifier {
   String? get userSkillId => _detail?.skill.id;
   String? get sessionId => _detail?.source.sessionId;
   String? get inputTurnId => _detail?.source.inputTurnId;
+  String? get reportId => _detail?.source.reportId;
   bool get coreRecordsOnly => switch (repository) {
     ApiAssetDetailRepository value => value.coreRecordsOnly,
     _ => false,

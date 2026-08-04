@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:eureka/api/api_client.dart';
+import 'package:eureka/pages/report_viewer_page.dart';
 import 'package:eureka/theme_v2/asset_detail/asset_detail_model.dart';
 import 'package:eureka/theme_v2/asset_detail/asset_detail_repository.dart';
 import 'package:eureka/theme_v2/asset_detail/asset_entity_ref.dart';
@@ -210,6 +212,129 @@ void main() {
     );
   });
 
+  testWidgets('report source opens the original report with Theme V2 actions', (
+    tester,
+  ) async {
+    final observer = _ReportRouteObserver();
+    final requested = <String>[];
+    final api = ApiClient(
+      baseUrl: 'http://theme-v2.test',
+      enableLogging: false,
+      client: MockClient((request) async {
+        requested.add('${request.method} ${request.url.path}');
+        return _jsonResponse({
+          'id': 'report-1',
+          'title': '月度复盘',
+          'html': '<html><body>月度复盘</body></html>',
+          'spec': {'palette': 'pal-ink'},
+        });
+      }),
+    );
+    addTearDown(api.close);
+    final json = _assetEnvelope();
+    json['source'] = {
+      'kind': 'report',
+      'label': '来自报告《月度复盘》',
+      'session_id': null,
+      'input_turn_id': null,
+      'report_id': 'report-1',
+    };
+    final model = AssetDetailModel.fromJson(json);
+    final controller = AssetDetailController(
+      repository: _FakeRepository(model),
+      ref: model.ref,
+    );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      _host(
+        ThemeV2AssetDetailSurface(controller, api: api),
+        navigatorObservers: [observer],
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('asset-detail-source')));
+    final route = await tester.runAsync(() => observer.reportRoute.future);
+    final page = route!.builder(route.navigator!.context) as ReportViewerPage;
+
+    expect(page.reportId, 'report-1');
+    expect(page.enableLegacyEnhancements, isFalse);
+    expect(page.enableThemeV2Actions, isTrue);
+    expect(page.themeV2Palette, 'pal-ink');
+    expect(requested, ['GET /api/reports/report-1']);
+    route.navigator!.pop();
+    await tester.pump();
+  });
+
+  testWidgets('missing source report stays on detail and explains deletion', (
+    tester,
+  ) async {
+    final api = ApiClient(
+      baseUrl: 'http://theme-v2.test',
+      enableLogging: false,
+      client: MockClient((_) async => http.Response('not found', 404)),
+    );
+    addTearDown(api.close);
+    final json = _assetEnvelope();
+    json['source'] = {
+      'kind': 'report',
+      'label': '来自报告《已删除报告》',
+      'session_id': null,
+      'input_turn_id': null,
+      'report_id': 'deleted-report',
+    };
+    final model = AssetDetailModel.fromJson(json);
+    final controller = AssetDetailController(
+      repository: _FakeRepository(model),
+      ref: model.ref,
+    );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      _host(ThemeV2AssetDetailSurface(controller, api: api)),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('asset-detail-source')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ThemeV2AssetDetailSurface), findsOneWidget);
+    expect(find.byType(ReportViewerPage), findsNothing);
+    expect(find.text('来源报告已不存在'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('deleted report provenance is visible without navigation', (
+    tester,
+  ) async {
+    final json = _assetEnvelope();
+    json['source'] = {
+      'kind': 'report',
+      'label': '来自报告《月度复盘》',
+      'session_id': null,
+      'input_turn_id': null,
+      'report_id': null,
+    };
+    final model = AssetDetailModel.fromJson(json);
+    final controller = AssetDetailController(
+      repository: _FakeRepository(model),
+      ref: model.ref,
+    );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(_host(ThemeV2AssetDetailSurface(controller)));
+    await tester.pumpAndSettle();
+
+    expect(find.text('来自报告《月度复盘》'), findsOneWidget);
+    expect(find.byIcon(Icons.chevron_right), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('asset-detail-source')),
+        matching: find.byType(InkWell),
+      ),
+      findsNothing,
+    );
+  });
+
   testWidgets('event detail renders only its declared business fields', (
     tester,
   ) async {
@@ -371,7 +496,25 @@ http.Response _jsonResponse(Object body) => http.Response.bytes(
   headers: const {'content-type': 'application/json; charset=utf-8'},
 );
 
-Widget _host(Widget child) => MaterialApp(
+class _ReportRouteObserver extends NavigatorObserver {
+  final reportRoute = Completer<MaterialPageRoute<void>>();
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    super.didPush(route, previousRoute);
+    if (previousRoute != null &&
+        route is MaterialPageRoute<void> &&
+        !reportRoute.isCompleted) {
+      reportRoute.complete(route);
+    }
+  }
+}
+
+Widget _host(
+  Widget child, {
+  List<NavigatorObserver> navigatorObservers = const [],
+}) => MaterialApp(
+  navigatorObservers: navigatorObservers,
   theme: ThemeData.light(),
   home: Theme(
     data: buildThemeV2Theme(Brightness.light),
