@@ -11,8 +11,7 @@ import '../../pet/reka_notifications.dart';
 import '../../theme/app_theme.dart';
 import '../calendar/calendar_controller.dart';
 import '../calendar/theme_v2_calendar_page.dart';
-import '../device/theme_v2_card_device_detail_page.dart';
-import '../device/theme_v2_ring_device_detail_page.dart';
+import '../device/theme_v2_device_route.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../home/theme_v2_home_page.dart';
 import '../inbox/reka_inbox_controller.dart';
@@ -186,12 +185,20 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
       callback(target);
       return;
     }
-    final page = switch (target) {
-      ThemeV2DeviceTarget.pairing => const DevicePairingPage(),
-      ThemeV2DeviceTarget.card => const ThemeV2CardDeviceDetailPage(),
-      ThemeV2DeviceTarget.ring => const ThemeV2RingDeviceDetailPage(),
+    final route = switch (target) {
+      ThemeV2DeviceTarget.pairing => MaterialPageRoute<void>(
+        builder: (_) => const DevicePairingPage(),
+      ),
+      ThemeV2DeviceTarget.card => themeV2DeviceRoute(
+        context: context,
+        target: ThemeV2DeviceTarget.card,
+      ),
+      ThemeV2DeviceTarget.ring => themeV2DeviceRoute(
+        context: context,
+        target: ThemeV2DeviceTarget.ring,
+      ),
     };
-    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
+    Navigator.of(context).push(route);
   }
 
   void _openNotifications(BuildContext context) {

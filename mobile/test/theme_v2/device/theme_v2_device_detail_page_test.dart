@@ -3,12 +3,29 @@ import 'dart:async';
 import 'package:eureka/device/device_controller.dart';
 import 'package:eureka/ring/ring_device_service.dart';
 import 'package:eureka/theme_v2/device/theme_v2_card_device_detail_page.dart';
+import 'package:eureka/theme_v2/device/theme_v2_device_route.dart';
 import 'package:eureka/theme_v2/device/theme_v2_ring_device_detail_page.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
+import 'package:eureka/theme_v2/shell/device_status_summary.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('typed detail mapping keeps card and ring destinations distinct', () {
+    expect(
+      themeV2DeviceDetailPage(ThemeV2DeviceTarget.card),
+      isA<ThemeV2CardDeviceDetailPage>(),
+    );
+    expect(
+      themeV2DeviceDetailPage(ThemeV2DeviceTarget.ring),
+      isA<ThemeV2RingDeviceDetailPage>(),
+    );
+    expect(
+      () => themeV2DeviceDetailPage(ThemeV2DeviceTarget.pairing),
+      throwsArgumentError,
+    );
+  });
+
   group('Theme V2 card device detail', () {
     testWidgets('renders card fields and only the supported action', (
       tester,

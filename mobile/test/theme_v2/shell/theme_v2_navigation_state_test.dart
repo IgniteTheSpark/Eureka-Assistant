@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:eureka/pages/device_pairing_page.dart';
 import 'package:eureka/theme/app_theme.dart';
 import 'package:eureka/theme/eureka_colors.dart';
@@ -258,30 +256,19 @@ void main() {
 
       expect(find.byType(pageType), findsOneWidget);
       expect(tester.takeException(), isNull);
+      if (pageType != DevicePairingPage) {
+        final detailContext = tester.element(find.byType(pageType));
+        expect(
+          Theme.of(detailContext).textTheme.bodyMedium?.fontFamily,
+          ThemeV2Typography.primaryFont,
+        );
+        expect(Theme.of(detailContext).extension<EurekaTheme>(), isNotNull);
+      }
 
       Navigator.of(tester.element(find.byType(pageType))).pop();
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
     }
-  });
-
-  test('pairing success hands off to Theme V2 device details', () {
-    final source = File(
-      'lib/pages/device_pairing_page.dart',
-    ).readAsStringSync();
-
-    expect(
-      source,
-      contains('../theme_v2/device/theme_v2_card_device_detail_page.dart'),
-    );
-    expect(
-      source,
-      contains('../theme_v2/device/theme_v2_ring_device_detail_page.dart'),
-    );
-    expect(source, contains('const ThemeV2CardDeviceDetailPage()'));
-    expect(source, contains('const ThemeV2RingDeviceDetailPage()'));
-    expect(source, isNot(contains('const MyDevicePage()')));
-    expect(source, isNot(contains('const MyRingPage()')));
   });
 
   testWidgets('Schedule hides the dock and Day Detail restores it', (

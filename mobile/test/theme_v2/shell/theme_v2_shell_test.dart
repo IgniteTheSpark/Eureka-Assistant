@@ -190,6 +190,7 @@ void main() {
 
         final entry = find.bySemanticsLabel('设备：双设备已连接');
         final entrySize = tester.getSize(entry);
+        final entryRect = tester.getRect(entry);
         expect(entrySize.width, greaterThanOrEqualTo(44));
         expect(entrySize.height, greaterThanOrEqualTo(44));
         await tester.tap(entry);
@@ -199,6 +200,36 @@ void main() {
         expect(find.text('UReka 录音卡'), findsOneWidget);
         expect(find.text('UReka 戒指'), findsOneWidget);
         expect(find.text('已连接'), findsNWidgets(2));
+        final menuItems = find.byType(PopupMenuItem<ThemeV2DeviceTarget>);
+        expect(menuItems, findsNWidgets(2));
+        final itemRects = [
+          for (final item in menuItems.evaluate())
+            tester.getRect(find.byWidget(item.widget)),
+        ];
+        final popupBounds = itemRects.reduce(
+          (bounds, rect) => bounds.expandToInclude(rect),
+        );
+        expect(popupBounds.top, greaterThanOrEqualTo(entryRect.bottom));
+        expect(
+          (popupBounds.left - entryRect.left).abs() <= 12 ||
+              (popupBounds.right - entryRect.right).abs() <= 12,
+          isTrue,
+          reason: 'popup must align to the device button at width $width',
+        );
+        expect(
+          find.descendant(
+            of: menuItems,
+            matching: find.byIcon(Icons.contactless_outlined),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: menuItems,
+            matching: find.byIcon(Icons.circle_outlined),
+          ),
+          findsOneWidget,
+        );
         expect(tester.takeException(), isNull, reason: 'width $width');
 
         await tester.tap(

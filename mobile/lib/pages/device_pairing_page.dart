@@ -10,12 +10,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../device/device_controller.dart';
 import '../device/device_silent_reconnect.dart';
 import '../theme/app_theme.dart';
-import '../theme_v2/device/theme_v2_card_device_detail_page.dart';
-import '../theme_v2/device/theme_v2_ring_device_detail_page.dart';
+import '../theme_v2/device/theme_v2_device_route.dart';
+import '../theme_v2/shell/device_status_summary.dart';
 
 /// First-run pairing flow for the UReka 录音卡.
 /// Top search pill + a 2-step onboarding pager; when the scan surfaces a device
-/// a 发现设备 sheet slides up to confirm + 连接 → 我的设备.
+/// a 发现设备 sheet slides up to confirm + 连接 → Theme V2 设备详情.
 
 enum _PairTarget { card, ring }
 
@@ -126,8 +126,9 @@ class _DevicePairingPageState extends State<DevicePairingPage> {
     _sheetOpen = false;
     if (connected == true && mounted) {
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute<void>(
-          builder: (_) => const ThemeV2CardDeviceDetailPage(),
+        themeV2DeviceRoute(
+          context: context,
+          target: ThemeV2DeviceTarget.card,
         ),
       );
     }
@@ -152,8 +153,9 @@ class _DevicePairingPageState extends State<DevicePairingPage> {
     _ringSheetOpen = false;
     if (connected == true && mounted) {
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute<void>(
-          builder: (_) => const ThemeV2RingDeviceDetailPage(),
+        themeV2DeviceRoute(
+          context: context,
+          target: ThemeV2DeviceTarget.ring,
         ),
       );
     }
