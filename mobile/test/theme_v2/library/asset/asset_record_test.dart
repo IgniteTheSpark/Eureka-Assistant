@@ -133,6 +133,31 @@ void main() {
       expect(record.payload, isNot(contains('source_report_action_id')));
       expect(record.payload, isNot(contains('source_report_title')));
     });
+
+    test('custom record fields stay bounded by its declared schema', () {
+      final record = AssetRecordAdapter.custom(
+        asset: AssetItem(
+          id: 'run-1',
+          skillName: 'running_log',
+          payload: const {
+            'distance': 5,
+            'acceptance_marker': 'must not render',
+          },
+          createdAt: DateTime(2026, 8, 3),
+        ),
+        skillLabel: '跑步记录',
+        renderSpec: const {'icon': '🏃', 'primary_field': 'distance'},
+        payloadSchema: const {
+          'distance': {'label': '距离', 'type': 'number'},
+        },
+      );
+
+      expect(record.fields.map((field) => field.id), ['distance']);
+      expect(
+        record.fields.map((field) => field.id),
+        isNot(contains('acceptance_marker')),
+      );
+    });
   });
 
   group('Todo record classification', () {

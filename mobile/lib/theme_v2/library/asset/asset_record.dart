@@ -116,9 +116,24 @@ class AssetRecordAdapter {
     Map<String, dynamic> renderSpec = const {},
     Map<String, dynamic> payloadSchema = const {},
   }) {
-    final payload = Map<String, dynamic>.unmodifiable({
+    final rawPayload = <String, dynamic>{
       for (final entry in asset.payload.entries)
         if (!_reportProvenanceFields.contains(entry.key))
+          entry.key: entry.value,
+    };
+    final schemaProperties =
+        (payloadSchema['properties'] as Map?)?.cast<String, dynamic>() ??
+        payloadSchema;
+    final isSchemaEnvelope = payloadSchema['properties'] is Map;
+    final hasDeclaredSchema = schemaProperties.isNotEmpty;
+    final isClosedSchema =
+        hasDeclaredSchema &&
+        (isSchemaEnvelope
+            ? payloadSchema['additionalProperties'] == false
+            : true);
+    final payload = Map<String, dynamic>.unmodifiable({
+      for (final entry in rawPayload.entries)
+        if (!isClosedSchema || schemaProperties.containsKey(entry.key))
           entry.key: entry.value,
     });
     final kind = switch (asset.skillName) {
@@ -272,10 +287,19 @@ class AssetRecordAdapter {
     RenderSpec spec,
     Map<String, dynamic> payloadSchema,
   ) {
+    final schemaProperties =
+        (payloadSchema['properties'] as Map?)?.cast<String, dynamic>() ??
+        payloadSchema;
+    final isSchemaEnvelope = payloadSchema['properties'] is Map;
+    final hasDeclaredSchema = schemaProperties.isNotEmpty;
+    final allowsPayloadOnlyFields =
+        !hasDeclaredSchema ||
+        (isSchemaEnvelope && payloadSchema['additionalProperties'] != false);
     final ids = <String>[
       ...spec.schemaFields,
-      for (final key in payload.keys)
-        if (!spec.schemaFields.contains(key)) key,
+      if (allowsPayloadOnlyFields)
+        for (final key in payload.keys)
+          if (!spec.schemaFields.contains(key)) key,
     ];
     return List.unmodifiable([
       for (final id in ids)
@@ -286,11 +310,12 @@ class AssetRecordAdapter {
             value: payload[id],
             type:
                 spec.fieldTypes[id] ??
-                ((payloadSchema[id] as Map?)?['type']?.toString() ?? 'string'),
+                ((schemaProperties[id] as Map?)?['type']?.toString() ??
+                    'string'),
             required: spec.requiredFields.contains(id),
             long:
                 spec.longFields.contains(id) ||
-                ((payloadSchema[id] as Map?)?['long'] == true),
+                ((schemaProperties[id] as Map?)?['long'] == true),
           ),
     ]);
   }

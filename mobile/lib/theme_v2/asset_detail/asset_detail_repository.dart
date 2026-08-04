@@ -107,6 +107,13 @@ class ApiAssetDetailRepository implements AssetDetailRepository {
         (skill['schema'] as Map?)?.cast<String, dynamic>() ?? const {};
     final schema =
         (rawSchema['properties'] as Map?)?.cast<String, dynamic>() ?? rawSchema;
+    final isSchemaEnvelope = rawSchema['properties'] is Map;
+    final hasDeclaredFields = schema.keys.any(
+      (id) => !_coreMetadataFields.contains(id),
+    );
+    final isClosedSchema =
+        hasDeclaredFields &&
+        (isSchemaEnvelope ? rawSchema['additionalProperties'] == false : true);
     final requiredFields = (rawSchema['required'] as List? ?? const [])
         .map((value) => value.toString())
         .toSet();
@@ -115,7 +122,8 @@ class ApiAssetDetailRepository implements AssetDetailRepository {
         ? const <String>{'title', 'due_date', 'content', 'status'}
         : <String>{
             ...schema.keys.where((id) => !_coreMetadataFields.contains(id)),
-            ...payload.keys.where((id) => !_coreMetadataFields.contains(id)),
+            if (!isClosedSchema)
+              ...payload.keys.where((id) => !_coreMetadataFields.contains(id)),
           };
     final fields = <AssetDetailField>[];
     var order = 0;

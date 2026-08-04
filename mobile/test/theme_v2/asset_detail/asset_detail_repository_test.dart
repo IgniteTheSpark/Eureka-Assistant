@@ -201,6 +201,55 @@ void main() {
     expect(detail.skill.icon, '💳');
   });
 
+  test('closed custom schema hides polluted payload-only fields', () async {
+    final api = ApiClient(
+      baseUrl: 'http://theme-v2.test',
+      enableLogging: false,
+      client: MockClient((request) async {
+        if (request.url.path == '/api/user-skills/skill-running') {
+          return http.Response(
+            jsonEncode({
+              'id': 'skill-running',
+              'machine_name': 'running_log',
+              'display_name': '跑步记录',
+              'schema': {
+                'type': 'object',
+                'properties': {
+                  'distance': {'type': 'number', 'label': '距离'},
+                },
+                'required': ['distance'],
+                'additionalProperties': false,
+              },
+            }),
+            200,
+            headers: const {'content-type': 'application/json'},
+          );
+        }
+        return http.Response(
+          jsonEncode({
+            'id': 'run-1',
+            'user_skill_id': 'skill-running',
+            'payload': {'distance': 5, 'acceptance_marker': 'must not render'},
+            'created_at': '2026-08-03T03:00:00Z',
+            'updated_at': '2026-08-03T03:00:00Z',
+          }),
+          200,
+          headers: const {'content-type': 'application/json'},
+        );
+      }),
+    );
+    addTearDown(api.close);
+    final repository = ApiAssetDetailRepository(api, coreRecordsOnly: true);
+
+    final detail = await repository.load(
+      const AssetEntityRef(kind: AssetEntityKind.asset, id: 'run-1'),
+    );
+
+    expect(detail.fields.map((field) => field.id), ['distance']);
+    expect(detail.values, {'distance': 5});
+    expect(detail.values, isNot(contains('acceptance_marker')));
+  });
+
   test(
     'core report todo exposes report provenance outside editable fields',
     () async {
