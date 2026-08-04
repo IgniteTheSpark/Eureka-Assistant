@@ -168,7 +168,7 @@ void main() {
     final ble = _FakeBle()
       ..scanEvents = [_scanEvent(serial: 'SN1', cardMac: 'AA:BB')];
     final sync = CardUnbindSyncCoordinator(
-      store: const SharedPreferencesCardUnbindSyncStore(),
+      store: SharedPreferencesCardUnbindSyncStore(),
       api: _UnusedUnbindApi(),
     );
     final controller = DeviceController(MockDeviceTransport());
@@ -356,11 +356,13 @@ class _UnusedStore implements CardUnbindSyncStore {
   @override
   Future<void> clear({
     String? accountScope,
-    PendingCardUnbind? expectedRequest,
+    required PendingCardUnbind expectedRequest,
   }) async {}
 
   @override
-  Future<PendingCardUnbind?> read({String? accountScope}) async => null;
+  Future<Map<String, PendingCardUnbind>> readAll({
+    String? accountScope,
+  }) async => const {};
 
   @override
   Future<void> write(PendingCardUnbind request, {String? accountScope}) async {}
@@ -368,7 +370,7 @@ class _UnusedStore implements CardUnbindSyncStore {
 
 class _ThrowingReadStore extends _UnusedStore {
   @override
-  Future<PendingCardUnbind?> read({String? accountScope}) async {
+  Future<Map<String, PendingCardUnbind>> readAll({String? accountScope}) async {
     throw StateError('preferences unavailable');
   }
 }

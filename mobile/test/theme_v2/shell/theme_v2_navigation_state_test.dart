@@ -256,14 +256,13 @@ void main() {
 
       expect(find.byType(pageType), findsOneWidget);
       expect(tester.takeException(), isNull);
-      if (pageType != DevicePairingPage) {
-        final detailContext = tester.element(find.byType(pageType));
-        expect(
-          Theme.of(detailContext).textTheme.bodyMedium?.fontFamily,
-          ThemeV2Typography.primaryFont,
-        );
-        expect(Theme.of(detailContext).extension<EurekaTheme>(), isNotNull);
-      }
+      final routeContext = tester.element(find.byType(pageType));
+      expect(
+        Theme.of(routeContext).textTheme.bodyMedium?.fontFamily,
+        ThemeV2Typography.primaryFont,
+      );
+      expect(Theme.of(routeContext).extension<ThemeV2Tokens>(), isNotNull);
+      expect(Theme.of(routeContext).extension<EurekaTheme>(), isNotNull);
 
       Navigator.of(tester.element(find.byType(pageType))).pop();
       await tester.pump();

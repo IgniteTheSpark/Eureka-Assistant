@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:eureka/device/card_unbind_sync.dart';
 import 'package:eureka/device/device_controller.dart';
 import 'package:eureka/ring/ring_device_service.dart';
 import 'package:eureka/theme_v2/device/theme_v2_card_device_detail_page.dart';
@@ -174,6 +175,73 @@ void main() {
       completer.complete(const DeviceUnbindResult.complete());
       await tester.pumpAndSettle();
     });
+
+    testWidgets(
+      'server compensation runs after the detail route closes and warns later',
+      (tester) async {
+        final serverSync = Completer<CardUnbindSyncResult>();
+        final transport = _CardTransport(serverSyncCompleter: serverSync);
+        final controller = _cardController(transport);
+        addTearDown(controller.dispose);
+
+        await _pumpDetailRoute(
+          tester,
+          ThemeV2CardDeviceDetailPage(
+            controller: controller,
+            refreshOnLoad: false,
+            stopSilentReconnect: () async {},
+          ),
+        );
+
+        await tester.tap(find.text('解除绑定'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('仅解除绑定，保留录音'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('route home'), findsOneWidget);
+        expect(controller.device, isNull);
+        expect(controller.state, DeviceConnState.idle);
+        expect(transport.unbindCalls, 1);
+
+        serverSync.complete(const CardUnbindSyncResult.pending('binding-1'));
+        await tester.pumpAndSettle();
+
+        expect(find.text(cardUnbindSyncPendingWarning), findsOneWidget);
+        expect(controller.errorMessage, cardUnbindSyncPendingWarning);
+        expect(transport.unbindCalls, 1);
+      },
+    );
+
+    testWidgets(
+      'deferred page refresh cannot restore a successfully unbound card',
+      (tester) async {
+        final load = Completer<DeviceInfo?>();
+        final transport = _CardTransport(loadCompleter: load);
+        final controller = _cardController(transport);
+        addTearDown(controller.dispose);
+
+        await _pumpDetailRoute(
+          tester,
+          ThemeV2CardDeviceDetailPage(
+            controller: controller,
+            stopSilentReconnect: () async {},
+          ),
+        );
+        await transport.loadStarted.future;
+
+        await tester.tap(find.text('解除绑定'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('仅解除绑定，保留录音'));
+        await tester.pumpAndSettle();
+        expect(find.text('route home'), findsOneWidget);
+
+        load.complete(_card);
+        await tester.pump();
+
+        expect(controller.device, isNull);
+        expect(controller.state, DeviceConnState.idle);
+      },
+    );
 
     testWidgets(
       'pending card unbind blocks app-bar and system back until success',
@@ -398,11 +466,20 @@ Future<void> _pumpDetailRoute(WidgetTester tester, Widget detail) async {
 }
 
 class _CardTransport implements DeviceTransport {
-  _CardTransport({this.operations, this.unbindError, this.unbindCompleter});
+  _CardTransport({
+    this.operations,
+    this.unbindError,
+    this.unbindCompleter,
+    this.serverSyncCompleter,
+    this.loadCompleter,
+  });
 
   final List<String>? operations;
   final Object? unbindError;
   final Completer<DeviceUnbindResult>? unbindCompleter;
+  final Completer<CardUnbindSyncResult>? serverSyncCompleter;
+  final Completer<DeviceInfo?>? loadCompleter;
+  final loadStarted = Completer<void>();
   var unbindCalls = 0;
 
   @override
@@ -427,7 +504,10 @@ class _CardTransport implements DeviceTransport {
   Future<bool> isDeviceConnected() async => true;
 
   @override
-  Future<DeviceInfo?> loadBoundDevice() async => _card;
+  Future<DeviceInfo?> loadBoundDevice() {
+    if (!loadStarted.isCompleted) loadStarted.complete();
+    return loadCompleter?.future ?? Future<DeviceInfo?>.value(_card);
+  }
 
   @override
   Stream<List<DiscoveredDevice>> scan() => const Stream.empty();
@@ -442,6 +522,10 @@ class _CardTransport implements DeviceTransport {
     if (unbindError case final error?) throw error;
     final pending = unbindCompleter;
     if (pending != null) return pending.future;
+    final backgroundSync = serverSyncCompleter;
+    if (backgroundSync != null) {
+      return DeviceUnbindResult.pending(serverSync: backgroundSync.future);
+    }
     return const DeviceUnbindResult.complete();
   }
 }

@@ -3,6 +3,20 @@ import 'dart:async';
 import 'package:chiplet_ring/chiplet_ring.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+abstract interface class RingReconnectGateway {
+  Stream<RingState> get state;
+
+  Future<void> startScan();
+
+  Future<void> stopScan();
+
+  Future<void> connect(String id);
+}
+
+abstract interface class RingReconnectBindingStore {
+  Future<String?> readMac();
+}
+
 /// Keeps the ring connected by SCANNING for the saved MAC and connecting when it
 /// appears — the same robust pattern the card uses (DeviceSilentReconnect).
 ///
@@ -13,14 +27,25 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// Singleton so the pairing page can [pause] it while the user manually scans
 /// (two scanners on one BLE stack would fight), then [resume] on exit.
 class RingReconnect {
-  RingReconnect._();
-  static final RingReconnect instance = RingReconnect._();
+  RingReconnect({
+    required RingReconnectGateway gateway,
+    required RingReconnectBindingStore bindingStore,
+  }) : _gateway = gateway,
+       _bindingStore = bindingStore;
 
-  final ChipletRing _ring = ChipletRing();
+  RingReconnect._production()
+    : _gateway = _ChipletRingReconnectGateway(ChipletRing()),
+      _bindingStore = const _SharedPreferencesRingReconnectBindingStore();
+
+  static final RingReconnect instance = RingReconnect._production();
+
+  final RingReconnectGateway _gateway;
+  final RingReconnectBindingStore _bindingStore;
   StreamSubscription<RingState>? _sub;
   Timer? _retryTimer;
   Timer? _scanTimer;
   int _backoff = 3; // seconds between retry rounds
+  int _operationRevision = 0;
   String? _mac;
   bool _connected = false;
   bool _scanning = false;
@@ -28,8 +53,11 @@ class RingReconnect {
 
   /// Begin keeping the ring connected. Idempotent.
   Future<void> start() async {
-    _mac = (await SharedPreferences.getInstance()).getString('ring_mac');
-    _sub ??= _ring.state.listen(_onState);
+    final revision = ++_operationRevision;
+    _sub ??= _gateway.state.listen(_onState);
+    final mac = await _bindingStore.readMac();
+    if (revision != _operationRevision) return;
+    _mac = mac;
     _ensureReconnecting();
   }
 
@@ -37,7 +65,10 @@ class RingReconnect {
 
   /// Refresh the saved MAC (call after a fresh pairing).
   Future<void> refreshMac() async {
-    _mac = (await SharedPreferences.getInstance()).getString('ring_mac');
+    final revision = ++_operationRevision;
+    final mac = await _bindingStore.readMac();
+    if (revision != _operationRevision) return;
+    _mac = mac;
     _ensureReconnecting();
   }
 
@@ -45,6 +76,7 @@ class RingReconnect {
   /// reconnect activity so it won't auto-reconnect until a new pairing. The
   /// caller is responsible for removing 'ring_mac' from prefs (for cold start).
   void forget() {
+    _operationRevision++;
     _mac = null;
     _stopScan();
     _retryTimer?.cancel();
@@ -53,6 +85,7 @@ class RingReconnect {
 
   /// Pause auto-reconnect (e.g. while the pairing page does its own scan).
   void pause() {
+    _operationRevision++;
     _paused = true;
     _stopScan();
     _retryTimer?.cancel();
@@ -63,18 +96,30 @@ class RingReconnect {
   /// (it may have changed if the user just paired a different ring).
   void resume() {
     _paused = false;
-    SharedPreferences.getInstance().then((sp) {
-      _mac = sp.getString('ring_mac');
-      _ensureReconnecting();
-    });
+    final revision = ++_operationRevision;
+    unawaited(_resumeFromSavedMac(revision));
   }
 
-  void _onState(RingState s) {
-    final nowConnected = s.conn == RingConnState.connected;
+  Future<void> _resumeFromSavedMac(int revision) async {
+    try {
+      final mac = await _bindingStore.readMac();
+      if (revision != _operationRevision) return;
+      _mac = mac;
+      _ensureReconnecting();
+    } catch (_) {
+      // Resume is best effort and must not create an unhandled async error.
+    }
+  }
+
+  void _onState(RingState state) {
+    final nowConnected = state.conn == RingConnState.connected;
     // While scanning for reconnect, connect as soon as the saved ring shows up.
-    if (!nowConnected && _scanning && _hasMac && s.devices.any((d) => d.id == _mac)) {
+    if (!nowConnected &&
+        _scanning &&
+        _hasMac &&
+        state.devices.any((device) => device.id == _mac)) {
       _stopScan();
-      _ring.connect(_mac!);
+      unawaited(_gateway.connect(_mac!));
     }
     _connected = nowConnected;
     if (_connected) {
@@ -97,7 +142,7 @@ class RingReconnect {
   void _beginScanRound() {
     if (_paused || _connected || !_hasMac || _scanning) return;
     _scanning = true;
-    _ring.startScan();
+    unawaited(_gateway.startScan());
     _scanTimer?.cancel();
     _scanTimer = Timer(const Duration(seconds: 20), () {
       _stopScan();
@@ -116,17 +161,49 @@ class RingReconnect {
   void _stopScan() {
     if (_scanning) {
       _scanning = false;
-      _ring.stopScan();
+      unawaited(_gateway.stopScan());
     }
     _scanTimer?.cancel();
     _scanTimer = null;
   }
 
   Future<void> dispose() async {
+    _operationRevision++;
     await _sub?.cancel();
     _sub = null;
     _retryTimer?.cancel();
+    _retryTimer = null;
     _stopScan();
     _connected = false;
+    _mac = null;
+  }
+}
+
+class _ChipletRingReconnectGateway implements RingReconnectGateway {
+  const _ChipletRingReconnectGateway(this._ring);
+
+  final ChipletRing _ring;
+
+  @override
+  Stream<RingState> get state => _ring.state;
+
+  @override
+  Future<void> connect(String id) => _ring.connect(id);
+
+  @override
+  Future<void> startScan() => _ring.startScan();
+
+  @override
+  Future<void> stopScan() => _ring.stopScan();
+}
+
+class _SharedPreferencesRingReconnectBindingStore
+    implements RingReconnectBindingStore {
+  const _SharedPreferencesRingReconnectBindingStore();
+
+  @override
+  Future<String?> readMac() async {
+    final preferences = await SharedPreferences.getInstance();
+    return preferences.getString('ring_mac');
   }
 }

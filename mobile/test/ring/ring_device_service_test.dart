@@ -57,6 +57,47 @@ void main() {
   });
 
   test(
+    'loadInfo keeps version fields when the battery gateway throws',
+    () async {
+      final service = RingDeviceService(
+        gateway: _FakeRingGateway(
+          <String>[],
+          batteryError: StateError('battery unavailable'),
+          version: {'fw': '1.2', 'hw': 'A3'},
+        ),
+        bindingStore: _FakeRingBindingStore(<String>[], mac: 'AA:BB'),
+        forgetReconnect: () {},
+        markUnbound: () {},
+      );
+
+      final info = await service.loadInfo();
+
+      expect(info.batteryPct, isNull);
+      expect(info.firmwareVersion, '1.2');
+      expect(info.hardwareVersion, 'A3');
+    },
+  );
+
+  test('loadInfo keeps battery when the version gateway throws', () async {
+    final service = RingDeviceService(
+      gateway: _FakeRingGateway(
+        <String>[],
+        battery: 82,
+        versionError: StateError('version unavailable'),
+      ),
+      bindingStore: _FakeRingBindingStore(<String>[], mac: 'AA:BB'),
+      forgetReconnect: () {},
+      markUnbound: () {},
+    );
+
+    final info = await service.loadInfo();
+
+    expect(info.batteryPct, 82);
+    expect(info.firmwareVersion, isNull);
+    expect(info.hardwareVersion, isNull);
+  });
+
+  test(
     'unbind clears local binding and reports a warning if disconnect fails',
     () async {
       final operations = <String>[];
@@ -84,19 +125,29 @@ class _FakeRingGateway implements RingDeviceGateway {
     this.operations, {
     this.battery,
     this.version,
+    this.batteryError,
+    this.versionError,
     this.disconnectError,
   });
 
   final List<String> operations;
   final int? battery;
   final Map? version;
+  final Object? batteryError;
+  final Object? versionError;
   final Object? disconnectError;
 
   @override
-  Future<int?> getBattery() async => battery;
+  Future<int?> getBattery() async {
+    if (batteryError != null) throw batteryError!;
+    return battery;
+  }
 
   @override
-  Future<Map?> getVersion() async => version;
+  Future<Map?> getVersion() async {
+    if (versionError != null) throw versionError!;
+    return version;
+  }
 
   @override
   Future<void> disconnect() async {

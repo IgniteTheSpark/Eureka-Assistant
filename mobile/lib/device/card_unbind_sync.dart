@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -5,6 +6,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/api_client.dart';
 import '../api/auth_store.dart';
+
+const cardUnbindSyncPendingWarning = '设备已解绑，服务端同步待重试';
 
 @immutable
 class PendingCardUnbind {
@@ -39,14 +42,40 @@ class PendingCardUnbind {
   int get hashCode => Object.hash(bindingId, deleteData);
 }
 
+@immutable
+class CardUnbindSyncTicket {
+  const CardUnbindSyncTicket({
+    required this.request,
+    required this.accountScope,
+  });
+
+  final PendingCardUnbind request;
+  final String accountScope;
+}
+
+@immutable
+class CardUnbindSyncResult {
+  const CardUnbindSyncResult.synced(this.bindingId)
+    : serverSynced = true,
+      message = null;
+
+  const CardUnbindSyncResult.pending(this.bindingId)
+    : serverSynced = false,
+      message = cardUnbindSyncPendingWarning;
+
+  final String bindingId;
+  final bool serverSynced;
+  final String? message;
+}
+
 abstract interface class CardUnbindSyncStore {
-  Future<PendingCardUnbind?> read({String? accountScope});
+  Future<Map<String, PendingCardUnbind>> readAll({String? accountScope});
 
   Future<void> write(PendingCardUnbind request, {String? accountScope});
 
   Future<void> clear({
     String? accountScope,
-    PendingCardUnbind? expectedRequest,
+    required PendingCardUnbind expectedRequest,
   });
 }
 
@@ -63,17 +92,21 @@ abstract interface class CardUnbindSyncPreferences {
 }
 
 class CardUnbindSyncCoordinator {
+  static final Set<String> _unknownAccountScopes = {};
+
   CardUnbindSyncCoordinator({
     required CardUnbindSyncStore store,
     required CardUnbindSyncApi api,
     String Function()? accountScope,
-  }) : _store = store,
+    this.requestTimeout = const Duration(seconds: 5),
+  }) : assert(requestTimeout > Duration.zero),
+       _store = store,
        _api = api,
        _accountScope = accountScope ?? _currentAccountScope;
 
   factory CardUnbindSyncCoordinator.production() {
     return CardUnbindSyncCoordinator(
-      store: const SharedPreferencesCardUnbindSyncStore(),
+      store: SharedPreferencesCardUnbindSyncStore(),
       api: _ApiClientCardUnbindSyncApi(ApiClient()),
     );
   }
@@ -81,22 +114,43 @@ class CardUnbindSyncCoordinator {
   final CardUnbindSyncStore _store;
   final CardUnbindSyncApi _api;
   final String Function() _accountScope;
+  final Duration requestTimeout;
 
-  Future<bool> sync(PendingCardUnbind request) async {
-    return _sync(request, accountScope: _accountScope());
-  }
-
-  Future<bool> _sync(
-    PendingCardUnbind request, {
-    required String accountScope,
-  }) async {
+  Future<CardUnbindSyncTicket> enqueue(PendingCardUnbind request) async {
+    final accountScope = _accountScope();
     try {
       await _store.write(request, accountScope: accountScope);
-      await _api.postJson('/api/cards/${request.bindingId}/unbind', {
-        'delete_data': request.deleteData,
-      });
-      await _store.clear(accountScope: accountScope, expectedRequest: request);
-      return true;
+      return CardUnbindSyncTicket(request: request, accountScope: accountScope);
+    } catch (_) {
+      _unknownAccountScopes.add(accountScope);
+      rethrow;
+    }
+  }
+
+  Future<CardUnbindSyncResult> flush(CardUnbindSyncTicket ticket) async {
+    final request = ticket.request;
+    try {
+      await _api
+          .postJson('/api/cards/${request.bindingId}/unbind', {
+            'delete_data': request.deleteData,
+          })
+          .timeout(requestTimeout);
+      await _store.clear(
+        accountScope: ticket.accountScope,
+        expectedRequest: request,
+      );
+      return CardUnbindSyncResult.synced(request.bindingId);
+    } catch (_) {
+      return CardUnbindSyncResult.pending(request.bindingId);
+    }
+  }
+
+  /// Backward-compatible blocking helper for legacy callers. The wait is always
+  /// bounded by [requestTimeout]; new unbind flows use [enqueue] then [flush].
+  Future<bool> sync(PendingCardUnbind request) async {
+    try {
+      final ticket = await enqueue(request);
+      return (await flush(ticket)).serverSynced;
     } catch (_) {
       return false;
     }
@@ -104,22 +158,31 @@ class CardUnbindSyncCoordinator {
 
   Future<bool> retryPending() async {
     final accountScope = _accountScope();
+    if (_unknownAccountScopes.contains(accountScope)) return false;
     try {
-      final request = await _store.read(accountScope: accountScope);
-      if (request == null) return true;
-      return _sync(request, accountScope: accountScope);
+      final requests = await _store.readAll(accountScope: accountScope);
+      if (requests.isEmpty) return true;
+      final results = await Future.wait([
+        for (final request in requests.values)
+          flush(
+            CardUnbindSyncTicket(request: request, accountScope: accountScope),
+          ),
+      ]);
+      return results.every((result) => result.serverSynced);
     } catch (_) {
+      _unknownAccountScopes.add(accountScope);
       return false;
     }
   }
 
   Future<Set<String>?> pendingBindingIds() async {
     final accountScope = _accountScope();
+    if (_unknownAccountScopes.contains(accountScope)) return null;
     try {
-      final request = await _store.read(accountScope: accountScope);
-      if (request == null || request.bindingId.isEmpty) return const {};
-      return {request.bindingId};
+      final requests = await _store.readAll(accountScope: accountScope);
+      return requests.keys.toSet();
     } catch (_) {
+      _unknownAccountScopes.add(accountScope);
       return null;
     }
   }
@@ -128,9 +191,11 @@ class CardUnbindSyncCoordinator {
 }
 
 class SharedPreferencesCardUnbindSyncStore implements CardUnbindSyncStore {
-  const SharedPreferencesCardUnbindSyncStore({
-    CardUnbindSyncPreferences? preferences,
-  }) : _preferences = preferences;
+  SharedPreferencesCardUnbindSyncStore({CardUnbindSyncPreferences? preferences})
+    : _preferences = preferences;
+
+  static const _formatVersion = 2;
+  static Future<void> _operationTail = Future<void>.value();
 
   final CardUnbindSyncPreferences? _preferences;
 
@@ -139,46 +204,116 @@ class SharedPreferencesCardUnbindSyncStore implements CardUnbindSyncStore {
   @override
   Future<void> clear({
     String? accountScope,
-    PendingCardUnbind? expectedRequest,
-  }) async {
-    final preferences = await _loadPreferences();
-    final key = _keyForScope(accountScope);
-    if (expectedRequest != null) {
+    required PendingCardUnbind expectedRequest,
+  }) {
+    return _serialized(() async {
+      final preferences = await _loadPreferences();
+      final key = _keyForScope(accountScope);
       final raw = preferences.getString(key);
       if (raw == null) return;
-      final decoded = jsonDecode(raw);
-      if (decoded is! Map) {
-        throw const FormatException('invalid pending card unbind');
+      final decoded = _decode(raw);
+      if (decoded.requests[expectedRequest.bindingId] != expectedRequest) {
+        return;
       }
-      final current = PendingCardUnbind.fromJson(
-        decoded.cast<String, dynamic>(),
-      );
-      if (current != expectedRequest) return;
-    }
-    final removed = await preferences.remove(key);
-    if (!removed) throw StateError('pending card unbind was not cleared');
+
+      decoded.requests.remove(expectedRequest.bindingId);
+      if (decoded.requests.isEmpty) {
+        final removed = await preferences.remove(key);
+        if (!removed) {
+          throw StateError('pending card unbind was not cleared');
+        }
+        return;
+      }
+      await _persist(preferences, key, decoded.requests);
+    });
   }
 
   @override
-  Future<PendingCardUnbind?> read({String? accountScope}) async {
-    final preferences = await _loadPreferences();
-    final raw = preferences.getString(_keyForScope(accountScope));
-    if (raw == null) return null;
-    final decoded = jsonDecode(raw);
-    if (decoded is! Map) {
-      throw const FormatException('invalid pending card unbind');
-    }
-    return PendingCardUnbind.fromJson(decoded.cast<String, dynamic>());
+  Future<Map<String, PendingCardUnbind>> readAll({String? accountScope}) {
+    return _serialized(() async {
+      final preferences = await _loadPreferences();
+      final key = _keyForScope(accountScope);
+      final raw = preferences.getString(key);
+      if (raw == null) return const <String, PendingCardUnbind>{};
+      final decoded = _decode(raw);
+      if (decoded.legacy) {
+        await _persist(preferences, key, decoded.requests);
+      }
+      return Map<String, PendingCardUnbind>.unmodifiable(decoded.requests);
+    });
   }
 
   @override
-  Future<void> write(PendingCardUnbind request, {String? accountScope}) async {
-    final preferences = await _loadPreferences();
+  Future<void> write(PendingCardUnbind request, {String? accountScope}) {
+    return _serialized(() async {
+      final preferences = await _loadPreferences();
+      final key = _keyForScope(accountScope);
+      final raw = preferences.getString(key);
+      final requests = raw == null
+          ? <String, PendingCardUnbind>{}
+          : _decode(raw).requests;
+      requests[request.bindingId] = request;
+      await _persist(preferences, key, requests);
+    });
+  }
+
+  Future<T> _serialized<T>(Future<T> Function() operation) {
+    final result = Completer<T>();
+    _operationTail = _operationTail.then((_) async {
+      try {
+        result.complete(await operation());
+      } catch (error, stackTrace) {
+        result.completeError(error, stackTrace);
+      }
+    });
+    return result.future;
+  }
+
+  Future<void> _persist(
+    CardUnbindSyncPreferences preferences,
+    String key,
+    Map<String, PendingCardUnbind> requests,
+  ) async {
     final stored = await preferences.setString(
-      _keyForScope(accountScope),
-      jsonEncode(request.toJson()),
+      key,
+      jsonEncode({
+        'version': _formatVersion,
+        'requests': {
+          for (final entry in requests.entries) entry.key: entry.value.toJson(),
+        },
+      }),
     );
     if (!stored) throw StateError('pending card unbind was not persisted');
+  }
+
+  ({Map<String, PendingCardUnbind> requests, bool legacy}) _decode(String raw) {
+    final decoded = jsonDecode(raw);
+    if (decoded is! Map) {
+      throw const FormatException('invalid pending card unbind collection');
+    }
+    final root = Map<String, dynamic>.from(decoded);
+    if (root.containsKey('binding_id')) {
+      final request = PendingCardUnbind.fromJson(root);
+      return (requests: {request.bindingId: request}, legacy: true);
+    }
+    if (root['version'] != _formatVersion || root['requests'] is! Map) {
+      throw const FormatException('invalid pending card unbind collection');
+    }
+
+    final requests = <String, PendingCardUnbind>{};
+    for (final entry in (root['requests'] as Map).entries) {
+      if (entry.key is! String || entry.value is! Map) {
+        throw const FormatException('invalid pending card unbind collection');
+      }
+      final request = PendingCardUnbind.fromJson(
+        Map<String, dynamic>.from(entry.value as Map),
+      );
+      if (request.bindingId != entry.key) {
+        throw const FormatException('invalid pending card unbind collection');
+      }
+      requests[request.bindingId] = request;
+    }
+    return (requests: requests, legacy: false);
   }
 
   Future<CardUnbindSyncPreferences> _loadPreferences() async {

@@ -16,12 +16,12 @@ Widget themeV2DeviceDetailPage(ThemeV2DeviceTarget target) => switch (target) {
   ),
 };
 
-MaterialPageRoute<void> themeV2DeviceRoute({
+MaterialPageRoute<T> themeV2Route<T>({
   required BuildContext context,
-  required ThemeV2DeviceTarget target,
+  required WidgetBuilder builder,
 }) {
   final originLegacyTheme = Theme.of(context).extension<EurekaTheme>();
-  return MaterialPageRoute<void>(
+  return MaterialPageRoute<T>(
     builder: (routeContext) {
       final ambientTheme = Theme.of(routeContext);
       var routeTheme = buildThemeV2Theme(ambientTheme.brightness);
@@ -32,7 +32,15 @@ MaterialPageRoute<void> themeV2DeviceRoute({
           extensions: [...routeTheme.extensions.values, legacyTheme],
         );
       }
-      return Theme(data: routeTheme, child: themeV2DeviceDetailPage(target));
+      return Theme(data: routeTheme, child: builder(routeContext));
     },
   );
 }
+
+MaterialPageRoute<void> themeV2DeviceRoute({
+  required BuildContext context,
+  required ThemeV2DeviceTarget target,
+}) => themeV2Route<void>(
+  context: context,
+  builder: (_) => themeV2DeviceDetailPage(target),
+);

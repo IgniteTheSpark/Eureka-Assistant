@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../device/card_unbind_sync.dart';
 import '../../device/device_controller.dart';
 import '../../device/device_silent_reconnect.dart';
 import '../foundation/theme_v2_theme.dart';
@@ -106,7 +107,28 @@ class _ThemeV2CardDeviceDetailPageState
       await stop();
       final result = await _controller.unbind(deleteData: deleteData);
       if (result == null || !mounted || route?.isCurrent != true) return;
-      if (!result.serverSynced && result.message != null) {
+      final serverSync = result.serverSync;
+      if (serverSync != null) {
+        unawaited(
+          serverSync.then(
+            (syncResult) {
+              if (syncResult.serverSynced) return;
+              messenger.showSnackBar(
+                SnackBar(
+                  content: Text(
+                    syncResult.message ?? cardUnbindSyncPendingWarning,
+                  ),
+                ),
+              );
+            },
+            onError: (_) {
+              messenger.showSnackBar(
+                const SnackBar(content: Text(cardUnbindSyncPendingWarning)),
+              );
+            },
+          ),
+        );
+      } else if (!result.serverSynced && result.message != null) {
         messenger.showSnackBar(SnackBar(content: Text(result.message!)));
       }
       Navigator.of(context).pop();

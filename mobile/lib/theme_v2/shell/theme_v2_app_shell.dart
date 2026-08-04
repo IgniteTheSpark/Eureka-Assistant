@@ -186,7 +186,8 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
       return;
     }
     final route = switch (target) {
-      ThemeV2DeviceTarget.pairing => MaterialPageRoute<void>(
+      ThemeV2DeviceTarget.pairing => themeV2Route<void>(
+        context: context,
         builder: (_) => const DevicePairingPage(),
       ),
       ThemeV2DeviceTarget.card => themeV2DeviceRoute(
