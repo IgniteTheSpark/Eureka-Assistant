@@ -40,6 +40,7 @@ void main() {
         return switch (request.url.path) {
           '/ready' => _json({'status': 'ready'}),
           '/api/user-skills' || '/api/assets' || '/api/events' => _json([]),
+          '/api/notifications' => _json({'notifications': <Object>[]}),
           '/api/flash/recordings' => _json({'recordings': <Object>[]}),
           final path when path.startsWith('/api/flash/sessions/') => _json({
             'detail': 'flash session not found',
@@ -69,6 +70,7 @@ void main() {
             '/api/user-skills',
             '/api/assets',
             '/api/events',
+            '/api/notifications',
             '/api/flash/recordings',
           }),
           startsWith('/api/flash/sessions/'),
