@@ -19,6 +19,7 @@ class ReportRunController extends ChangeNotifier {
 
   Map<String, dynamic>? _run;
   String? error;
+  String? cancellationError;
   bool busy = false;
   String? selectedOptionId;
   final Map<String, dynamic> clarificationAnswers = {};
@@ -60,9 +61,10 @@ class ReportRunController extends ChangeNotifier {
 
   Future<void> startUserInitiated(String intent) async {
     final normalized = intent.trim();
-    if (normalized.isEmpty || busy) return;
+    if (_disposed || normalized.isEmpty || busy) return;
     busy = true;
     error = null;
+    cancellationError = null;
     _notify();
     try {
       final response = await _api.postJson('/api/report-generation-runs', {
@@ -73,13 +75,12 @@ class ReportRunController extends ChangeNotifier {
     } catch (exception) {
       _setError(exception);
     } finally {
-      busy = false;
-      _notify();
+      _finishRequest();
     }
   }
 
   Future<void> startFromTrigger(String triggerExecutionId) async {
-    if (busy) return;
+    if (_disposed || busy) return;
     busy = true;
     error = null;
     _notify();
@@ -92,14 +93,13 @@ class ReportRunController extends ChangeNotifier {
     } catch (exception) {
       _setError(exception);
     } finally {
-      busy = false;
-      _notify();
+      _finishRequest();
     }
   }
 
   Future<void> refresh() async {
     final id = runId;
-    if (id.isEmpty || busy) return;
+    if (_disposed || id.isEmpty || busy) return;
     try {
       final response = await _api.getJson('/api/report-generation-runs/$id');
       _applyRun(response);
@@ -111,7 +111,7 @@ class ReportRunController extends ChangeNotifier {
   }
 
   Future<void> loadRun(String id) async {
-    if (id.trim().isEmpty || busy) return;
+    if (_disposed || id.trim().isEmpty || busy) return;
     busy = true;
     error = null;
     _notify();
@@ -123,8 +123,7 @@ class ReportRunController extends ChangeNotifier {
     } catch (exception) {
       _setError(exception);
     } finally {
-      busy = false;
-      _notify();
+      _finishRequest();
     }
   }
 
@@ -136,7 +135,7 @@ class ReportRunController extends ChangeNotifier {
 
   Future<void> submitClarification() async {
     final id = runId;
-    if (id.isEmpty || !canSubmitClarification || busy) return;
+    if (_disposed || id.isEmpty || !canSubmitClarification || busy) return;
     busy = true;
     error = null;
     _notify();
@@ -150,8 +149,7 @@ class ReportRunController extends ChangeNotifier {
     } catch (exception) {
       _setError(exception);
     } finally {
-      busy = false;
-      _notify();
+      _finishRequest();
     }
   }
 
@@ -165,7 +163,13 @@ class ReportRunController extends ChangeNotifier {
   Future<void> generate() async {
     final id = runId;
     final optionId = selectedOptionId;
-    if (id.isEmpty || optionId == null || optionId.isEmpty || busy) return;
+    if (_disposed ||
+        id.isEmpty ||
+        optionId == null ||
+        optionId.isEmpty ||
+        busy) {
+      return;
+    }
     busy = true;
     error = null;
     _notify();
@@ -178,14 +182,13 @@ class ReportRunController extends ChangeNotifier {
     } catch (exception) {
       _setError(exception);
     } finally {
-      busy = false;
-      _notify();
+      _finishRequest();
     }
   }
 
   Future<void> retry() async {
     final id = runId;
-    if (id.isEmpty || busy) return;
+    if (_disposed || id.isEmpty || busy) return;
     busy = true;
     error = null;
     _notify();
@@ -198,16 +201,16 @@ class ReportRunController extends ChangeNotifier {
     } catch (exception) {
       _setError(exception);
     } finally {
-      busy = false;
-      _notify();
+      _finishRequest();
     }
   }
 
   Future<void> cancel() async {
     final id = runId;
-    if (!canCancel || busy) return;
+    if (_disposed || !canCancel || busy) return;
     busy = true;
     error = null;
+    cancellationError = null;
     _notify();
     try {
       final response = await _api.postJson(
@@ -216,10 +219,9 @@ class ReportRunController extends ChangeNotifier {
       );
       _applyRun(response);
     } catch (exception) {
-      _setError(exception);
+      if (!_disposed) cancellationError = _errorMessage(exception);
     } finally {
-      busy = false;
-      _notify();
+      _finishRequest();
     }
   }
 
@@ -231,6 +233,7 @@ class ReportRunController extends ChangeNotifier {
   }
 
   void _applyRun(dynamic response) {
+    if (_disposed) return;
     if (response is! Map) {
       throw const FormatException('报告任务返回格式不正确');
     }
@@ -255,19 +258,29 @@ class ReportRunController extends ChangeNotifier {
   }
 
   void _schedulePoll() {
+    if (_disposed) return;
     _pollTimer?.cancel();
     if (!autoPoll || !const {'planning', 'generating'}.contains(state)) return;
     _pollTimer = Timer(pollInterval, refresh);
   }
 
   void _setError(Object exception) {
+    if (_disposed) return;
     _pollTimer?.cancel();
-    error = switch (exception) {
-      ApiException(statusCode: 410) => '这次报告任务已经过期',
-      ApiException(statusCode: 503) => '报告服务尚未配置完成',
-      ApiException() => '报告任务暂时无法处理，请稍后重试',
-      _ => '报告任务暂时无法处理，请稍后重试',
-    };
+    error = _errorMessage(exception);
+  }
+
+  String _errorMessage(Object exception) => switch (exception) {
+    ApiException(statusCode: 410) => '这次报告任务已经过期',
+    ApiException(statusCode: 503) => '报告服务尚未配置完成',
+    ApiException() => '报告任务暂时无法处理，请稍后重试',
+    _ => '报告任务暂时无法处理，请稍后重试',
+  };
+
+  void _finishRequest() {
+    if (_disposed) return;
+    busy = false;
+    _notify();
   }
 
   void _notify() {

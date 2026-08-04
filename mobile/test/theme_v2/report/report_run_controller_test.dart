@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:eureka/api/api_client.dart';
@@ -84,6 +85,58 @@ void main() {
     expect(controller.state, 'completed');
     expect(requested, ['GET /api/report-generation-runs/run-completed']);
   });
+
+  test(
+    'disposing during manual creation ignores a delayed run response',
+    () async {
+      final response = Completer<http.Response>();
+      var requestCount = 0;
+      final api = _api((request) {
+        requestCount++;
+        return response.future;
+      });
+      final controller = ReportRunController(
+        api: api,
+        pollInterval: const Duration(milliseconds: 1),
+      );
+      addTearDown(api.close);
+
+      final started = controller.startUserInitiated('总结最近的跑步训练');
+      controller.dispose();
+      response.complete(_json({'id': 'run-delayed', 'state': 'planning'}));
+      await started;
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(controller.runId, isEmpty);
+      expect(requestCount, 1);
+    },
+  );
+
+  test(
+    'disposing during cancellation ignores a delayed cancel response',
+    () async {
+      final cancelResponse = Completer<http.Response>();
+      var requestCount = 0;
+      final api = _api((request) {
+        requestCount++;
+        if (request.method == 'GET') {
+          return Future.value(_json({'id': 'run-1', 'state': 'planning'}));
+        }
+        return cancelResponse.future;
+      });
+      final controller = ReportRunController(api: api, autoPoll: false);
+      addTearDown(api.close);
+      await controller.loadRun('run-1');
+
+      final cancelled = controller.cancel();
+      controller.dispose();
+      cancelResponse.complete(_json({'id': 'run-1', 'state': 'cancelled'}));
+      await cancelled;
+
+      expect(controller.state, 'planning');
+      expect(requestCount, 2);
+    },
+  );
 }
 
 ApiClient _api(Future<http.Response> Function(http.Request request) handler) =>

@@ -119,6 +119,9 @@ class _ReportCreateSheetState extends State<ReportCreateSheet> {
             FilledButton(
               key: const ValueKey('report-create-submit'),
               onPressed: canSubmit ? _submit : null,
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(ThemeV2Sizes.minTouchTarget),
+              ),
               child: Text(_controller.busy ? '正在创建…' : '开始准备'),
             ),
           ],

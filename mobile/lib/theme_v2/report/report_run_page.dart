@@ -83,6 +83,7 @@ class _ReportRunPageState extends State<ReportRunPage> {
   @override
   Widget build(BuildContext context) {
     final state = _controller.state;
+    final cancellationError = _controller.cancellationError;
     return Scaffold(
       backgroundColor: context.themeV2.background,
       appBar: AppBar(
@@ -93,6 +94,10 @@ class _ReportRunPageState extends State<ReportRunPage> {
               key: const ValueKey('report-run-cancel'),
               tooltip: '取消报告任务',
               onPressed: _controller.busy ? null : _cancel,
+              constraints: const BoxConstraints(
+                minWidth: ThemeV2Sizes.minTouchTarget,
+                minHeight: ThemeV2Sizes.minTouchTarget,
+              ),
               icon: const Icon(Icons.close_rounded),
             ),
         ],
@@ -100,31 +105,41 @@ class _ReportRunPageState extends State<ReportRunPage> {
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(ThemeV2Spacing.xl),
-          child: switch (state) {
-            'awaiting_selection' =>
-              _controller.needsClarification
-                  ? _clarification()
-                  : _planSelection(),
-            'failed' => _message(
-              _controller.error ?? '报告生成没有完成',
-              actionLabel: '重试',
-              onAction: _controller.retry,
-            ),
-            'cancelled' => _message('报告任务已取消'),
-            'completed' => _message('报告已完成，正在打开…'),
-            'generating' => _progress('正在生成报告…'),
-            _ when _controller.error != null => _message(
-              _controller.error!,
-              actionLabel: '重试',
-              onAction: widget.runId != null
-                  ? () => _controller.loadRun(widget.runId!)
-                  : widget.triggerExecutionId != null
-                  ? () =>
-                        _controller.startFromTrigger(widget.triggerExecutionId!)
-                  : () => _controller.startUserInitiated(widget.intent!),
-            ),
-            _ => _progress('正在准备报告方案…'),
-          },
+          child: cancellationError != null
+              ? _message(
+                  cancellationError,
+                  actionLabel: '重试取消',
+                  actionKey: const ValueKey('report-run-cancel-retry'),
+                  onAction: _cancel,
+                )
+              : switch (state) {
+                  'awaiting_selection' =>
+                    _controller.needsClarification
+                        ? _clarification()
+                        : _planSelection(),
+                  'failed' => _message(
+                    _controller.error ?? '报告生成没有完成',
+                    actionLabel: '重试',
+                    actionKey: const ValueKey('report-run-retry'),
+                    onAction: _controller.retry,
+                  ),
+                  'cancelled' => _message('报告任务已取消'),
+                  'completed' => _message('报告已完成，正在打开…'),
+                  'generating' => _progress('正在生成报告…'),
+                  _ when _controller.error != null => _message(
+                    _controller.error!,
+                    actionLabel: '重试',
+                    actionKey: const ValueKey('report-run-retry'),
+                    onAction: widget.runId != null
+                        ? () => _controller.loadRun(widget.runId!)
+                        : widget.triggerExecutionId != null
+                        ? () => _controller.startFromTrigger(
+                            widget.triggerExecutionId!,
+                          )
+                        : () => _controller.startUserInitiated(widget.intent!),
+                  ),
+                  _ => _progress('正在准备报告方案…'),
+                },
         ),
       ),
     );
@@ -151,6 +166,7 @@ class _ReportRunPageState extends State<ReportRunPage> {
   Widget _message(
     String message, {
     String? actionLabel,
+    Key? actionKey,
     Future<void> Function()? onAction,
   }) => Center(
     child: Column(
@@ -159,7 +175,14 @@ class _ReportRunPageState extends State<ReportRunPage> {
         Text(message, textAlign: TextAlign.center),
         if (actionLabel != null && onAction != null) ...[
           const SizedBox(height: ThemeV2Spacing.lg),
-          FilledButton(onPressed: onAction, child: Text(actionLabel)),
+          FilledButton(
+            key: actionKey,
+            onPressed: onAction,
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(ThemeV2Sizes.minTouchTarget),
+            ),
+            child: Text(actionLabel),
+          ),
         ],
       ],
     ),
@@ -201,9 +224,13 @@ class _ReportRunPageState extends State<ReportRunPage> {
           ),
         ),
         FilledButton(
+          key: const ValueKey('report-run-generate'),
           onPressed: _controller.busy || _controller.selectedOptionId == null
               ? null
               : _controller.generate,
+          style: FilledButton.styleFrom(
+            minimumSize: const Size.fromHeight(ThemeV2Sizes.minTouchTarget),
+          ),
           child: Text(_controller.busy ? '启动中…' : '开始生成'),
         ),
       ],
@@ -270,9 +297,13 @@ class _ReportRunPageState extends State<ReportRunPage> {
           ),
         ),
         FilledButton(
+          key: const ValueKey('report-run-clarification-submit'),
           onPressed: _controller.busy || !_controller.canSubmitClarification
               ? null
               : _controller.submitClarification,
+          style: FilledButton.styleFrom(
+            minimumSize: const Size.fromHeight(ThemeV2Sizes.minTouchTarget),
+          ),
           child: Text(_controller.busy ? '提交中…' : '继续准备方案'),
         ),
       ],
