@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-color-scheme="{{ color_scheme }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -8,8 +8,15 @@
   <style>{{ report_css | safe }}</style>
 </head>
 <body>
-  <main class="report-shell">
-    <article class="report-content">{{ body_html | safe }}</article>
+  <main class="report {{ palette }} {{ surface }}">
+    {{ masthead_html | safe }}
+    <article class="r-body">{{ body_html | safe }}</article>
+    {{ actions_html | safe }}
+    {{ sources_html | safe }}
+    <footer class="r-sign">
+      <div class="r-sign-mark">REKA INSIGHTS</div>
+      <div class="r-sign-tag">Reka 为你整理</div>
+    </footer>
   </main>
 </body>
 </html>

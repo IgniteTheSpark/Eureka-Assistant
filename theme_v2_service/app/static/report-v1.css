@@ -1,3 +1,4 @@
+/* Legacy report_html_v1 fallback only. New reports inline Theme V2 presentation CSS. */
 :root {
   color-scheme: light dark;
   --paper: #f7f5ef;
@@ -46,6 +47,7 @@ body {
 .report-content th,
 .report-content td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; }
 .report-content a { color: var(--accent); text-underline-offset: 3px; }
+.report-content .r-action { min-height: 48px; }
 
 @media (max-width: 600px) {
   .report-shell { width: min(100% - 24px, 820px); padding-top: 36px; }
