@@ -43,6 +43,7 @@ class ApiReportRepository implements ReportRepository {
       activeRuns: _rows(sources[0].value)
           .map(ReportRunSummary.fromJson)
           .whereType<ReportRunSummary>()
+          .where((run) => _activeStates.contains(run.state))
           .toList(growable: false),
       completedReports: _rows(sources[1].value)
           .map(CompletedReportSummary.fromJson)
@@ -77,6 +78,13 @@ class ApiReportRepository implements ReportRepository {
     }
   }
 }
+
+const _activeStates = {
+  'planning',
+  'awaiting_selection',
+  'generating',
+  'failed',
+};
 
 class _CapturedReportSource {
   const _CapturedReportSource({this.value, this.failure});

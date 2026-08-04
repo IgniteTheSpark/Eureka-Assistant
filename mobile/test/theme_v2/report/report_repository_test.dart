@@ -157,17 +157,26 @@ void main() {
     });
 
     test(
-      'does not treat completed runs as completed report summaries',
+      'fails closed to the backend active run states without synthesis',
       () async {
         final api = _api((request) async {
           if (request.url.path == '/api/report-generation-runs') {
             return _json([
+              for (final state in [
+                'planning',
+                'awaiting_selection',
+                'generating',
+                'failed',
+              ])
+                {'id': 'run-$state', 'state': state, 'intent': state},
               {
                 'id': 'run-completed',
                 'state': 'completed',
                 'intent': '不应从运行列表生成报告',
                 'report_id': 'report-not-returned',
               },
+              for (final state in ['cancelled', 'expired', ' planning '])
+                {'id': 'run-$state', 'state': state, 'intent': state},
             ]);
           }
           return _json([]);
@@ -176,8 +185,99 @@ void main() {
 
         final overview = await ApiReportRepository(api).loadOverview();
 
-        expect(overview.activeRuns.single.reportId, 'report-not-returned');
+        expect(overview.activeRuns.map((run) => run.state), [
+          'planning',
+          'awaiting_selection',
+          'generating',
+          'failed',
+        ]);
+        expect(
+          overview.activeRuns.map((run) => run.id),
+          isNot(contains('run-completed')),
+        );
         expect(overview.completedReports, isEmpty);
+      },
+    );
+
+    test('freezes nested JSON fields in run summaries', () async {
+      final api = _api((request) async {
+        if (request.url.path == '/api/report-generation-runs') {
+          return _json([
+            {
+              'id': 'run-frozen',
+              'state': 'awaiting_selection',
+              'pending_decision': {
+                'details': {
+                  'labels': ['priority'],
+                },
+              },
+              'plan_options': [
+                {
+                  'title': '不可变方案',
+                  'metadata': {
+                    'labels': ['recommended'],
+                  },
+                },
+              ],
+            },
+          ]);
+        }
+        return _json([]);
+      });
+      addTearDown(api.close);
+
+      final run = (await ApiReportRepository(
+        api,
+      ).loadOverview()).activeRuns.single;
+      final pendingDetails = run.pendingDecision['details'] as Map;
+      final pendingLabels = pendingDetails['labels'] as List;
+      final optionMetadata = run.planOptions.single['metadata'] as Map;
+      final optionLabels = optionMetadata['labels'] as List;
+
+      expect(() => run.pendingDecision['new'] = true, throwsUnsupportedError);
+      expect(() => pendingDetails['new'] = true, throwsUnsupportedError);
+      expect(() => pendingLabels.add('mutated'), throwsUnsupportedError);
+      expect(() => run.planOptions.add(const {}), throwsUnsupportedError);
+      expect(
+        () => run.planOptions.single['new'] = true,
+        throwsUnsupportedError,
+      );
+      expect(() => optionMetadata['new'] = true, throwsUnsupportedError);
+      expect(() => optionLabels.add('mutated'), throwsUnsupportedError);
+    });
+
+    test(
+      'rejects malformed scalar display fields instead of stringifying JSON',
+      () async {
+        final api = _api((request) async {
+          if (request.url.path == '/api/report-generation-runs') {
+            return _json([
+              {
+                'id': 'run-malformed-fields',
+                'origin': {'unexpected': true},
+                'state': 'planning',
+                'intent': ['unexpected'],
+                'active_stage': {'unexpected': true},
+              },
+            ]);
+          }
+          return _json([
+            {
+              'id': 'report-malformed-fields',
+              'title': ['unexpected'],
+              'html': {'unexpected': true},
+            },
+          ]);
+        });
+        addTearDown(api.close);
+
+        final overview = await ApiReportRepository(api).loadOverview();
+
+        expect(overview.activeRuns.single.origin, isEmpty);
+        expect(overview.activeRuns.single.intent, isEmpty);
+        expect(overview.activeRuns.single.activeStage, isNull);
+        expect(overview.completedReports.single.title, '报告');
+        expect(overview.completedReports.single.html, isEmpty);
       },
     );
 
