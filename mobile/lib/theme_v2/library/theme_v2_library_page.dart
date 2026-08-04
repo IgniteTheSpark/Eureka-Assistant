@@ -10,6 +10,7 @@ import '../asset_detail/asset_entity_ref.dart';
 import '../asset_detail/open_asset_detail.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
+import '../report/report_container_page.dart';
 import 'asset/asset_list_page.dart';
 import 'container_index.dart';
 import 'create_skill_action.dart';
@@ -31,6 +32,7 @@ class ThemeV2LibraryPage extends ConsumerStatefulWidget {
     this.onOpenRecent,
     this.onCreateSkill,
     this.navigation,
+    this.reportApi,
   });
 
   final LibraryController? controller;
@@ -39,6 +41,7 @@ class ThemeV2LibraryPage extends ConsumerStatefulWidget {
   final ValueChanged<LibraryRecentAsset>? onOpenRecent;
   final VoidCallback? onCreateSkill;
   final LibraryNavigationController? navigation;
+  final ApiClient? reportApi;
 
   @override
   ConsumerState<ThemeV2LibraryPage> createState() => _ThemeV2LibraryPageState();
@@ -46,7 +49,8 @@ class ThemeV2LibraryPage extends ConsumerStatefulWidget {
 
 class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
   ApiClient? _ownedApi;
-  final ApiClient _detailApi = ApiClient();
+  late final ApiClient _detailApi;
+  var _ownsDetailApi = false;
   late final LibraryController _controller;
   late final bool _ownsController;
   late final LibraryNavigationController _navigation;
@@ -57,6 +61,8 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
   @override
   void initState() {
     super.initState();
+    _detailApi = widget.reportApi ?? ApiClient();
+    _ownsDetailApi = widget.reportApi == null;
     _ownsController = widget.controller == null;
     if (_ownsController) {
       final api = ApiClient();
@@ -85,7 +91,7 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
       _ownedApi?.close();
     }
     if (_ownsNavigation) _navigation.dispose();
-    _detailApi.close();
+    if (_ownsDetailApi) _detailApi.close();
     super.dispose();
   }
 
@@ -162,6 +168,7 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
       onConfigurePinned: () =>
           _navigation.open(LibrarySurface.pinnedConfiguration),
       onCreateSkill: widget.onCreateSkill ?? _openCreateSkill,
+      onOpenReports: _openReports,
       onOpenRecent: widget.onOpenRecent ?? _openRecent,
     ),
     LibrarySurface.containerIndex => ContainerIndex(
@@ -191,6 +198,14 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
 
   void _openCreateSkill() {
     showThemeV2CreateSkillLaunch(context);
+  }
+
+  Future<void> _openReports() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ReportContainerPage(api: _detailApi),
+      ),
+    );
   }
 
   Future<void> _openRecent(LibraryRecentAsset item) async {

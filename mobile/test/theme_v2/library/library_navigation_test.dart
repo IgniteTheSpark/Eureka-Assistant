@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:eureka/api/api_client.dart';
 import 'package:eureka/pages/category_detail_page.dart';
 import 'package:eureka/pages/library_page.dart';
 import 'package:eureka/render/skill_card.dart';
@@ -20,10 +21,13 @@ import 'package:eureka/theme_v2/library/library_repository.dart';
 import 'package:eureka/theme_v2/library/library_states.dart';
 import 'package:eureka/theme_v2/library/pinned_configuration.dart';
 import 'package:eureka/theme_v2/library/theme_v2_library_page.dart';
+import 'package:eureka/theme_v2/report/report_container_page.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_app_shell.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -93,6 +97,38 @@ void main() {
       ),
       findsNothing,
     );
+  });
+
+  testWidgets('report entry is independent from pinned asset containers', (
+    tester,
+  ) async {
+    final controller = await _controller();
+    var opened = 0;
+    await _pumpHost(
+      tester,
+      LibraryHub(
+        controller: controller,
+        onOpenContainer: (_) {},
+        onOpenContainerIndex: () {},
+        onOpenAllContainers: () {},
+        onConfigurePinned: () {},
+        onCreateSkill: () {},
+        onOpenReports: () => opened++,
+      ),
+    );
+
+    final reportEntry = find.byKey(const ValueKey('library-report-entry'));
+    expect(reportEntry, findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('library-pinned-mosaic')),
+        matching: reportEntry,
+      ),
+      findsNothing,
+    );
+
+    await tester.tap(reportEntry);
+    expect(opened, 1);
   });
 
   testWidgets('hub uses canonical title stats and one 50-asset row', (
@@ -385,6 +421,66 @@ void main() {
     await tester.tap(find.bySemanticsLabel('关闭 Skill Builder'));
     await tester.pumpAndSettle();
   });
+
+  testWidgets('report entry opens an independent report container', (
+    tester,
+  ) async {
+    final controller = await _controller();
+    final api = _emptyReportApi();
+    addTearDown(api.close);
+    await _pumpHost(
+      tester,
+      ThemeV2LibraryPage(
+        controller: controller,
+        autoLoad: false,
+        reportApi: api,
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('library-report-entry')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ReportContainerPage), findsOneWidget);
+    expect(find.byType(ThemeV2AssetListPage), findsNothing);
+  });
+
+  testWidgets(
+    'report entry uses its injected API after library overview loads',
+    (tester) async {
+      final requests = <String>[];
+      final api = ApiClient(
+        client: MockClient((request) async {
+          requests.add('${request.method} ${request.url.path}');
+          return http.Response('[]', 200);
+        }),
+        baseUrl: 'https://reports.test',
+        enableLogging: false,
+      );
+      addTearDown(api.close);
+      final controller = await _controller();
+      await _pumpHost(
+        tester,
+        ThemeV2LibraryPage(
+          controller: controller,
+          autoLoad: false,
+          reportApi: api,
+        ),
+      );
+
+      expect(requests, isEmpty);
+      await tester.tap(find.byKey(const ValueKey('library-report-entry')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ReportContainerPage), findsOneWidget);
+      expect(
+        requests,
+        containsAll(<String>[
+          'GET /api/report-generation-runs',
+          'GET /api/reports',
+        ]),
+      );
+    },
+  );
 
   testWidgets('page routes hub to index all containers and pinned configure', (
     tester,
@@ -1208,6 +1304,12 @@ Widget _host(Widget child, {Size size = const Size(411, 960)}) {
     ),
   );
 }
+
+ApiClient _emptyReportApi() => ApiClient(
+  client: MockClient((_) async => http.Response('[]', 200)),
+  baseUrl: 'https://reports.test',
+  enableLogging: false,
+);
 
 class _Repository implements LibraryRepository {
   _Repository(this.overview);

@@ -21,6 +21,7 @@ class LibraryHub extends StatelessWidget {
     required this.onOpenAllContainers,
     required this.onConfigurePinned,
     required this.onCreateSkill,
+    this.onOpenReports,
     this.onOpenRecent,
   });
 
@@ -30,6 +31,7 @@ class LibraryHub extends StatelessWidget {
   final VoidCallback onOpenAllContainers;
   final VoidCallback onConfigurePinned;
   final VoidCallback onCreateSkill;
+  final VoidCallback? onOpenReports;
   final ValueChanged<LibraryRecentAsset>? onOpenRecent;
 
   @override
@@ -53,6 +55,10 @@ class LibraryHub extends StatelessWidget {
               onOpenContainerIndex: onOpenContainerIndex,
               onOpenAllContainers: onOpenAllContainers,
             ),
+            if (onOpenReports != null) ...[
+              const SizedBox(height: ThemeV2Spacing.sm),
+              _ReportEntry(onTap: onOpenReports!),
+            ],
             if (controller.statusMessage case final message?) ...[
               const SizedBox(height: ThemeV2Spacing.sm),
               LibraryPartialBanner(message: message, onRetry: controller.retry),
@@ -91,6 +97,69 @@ class LibraryHub extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+}
+
+class _ReportEntry extends StatelessWidget {
+  const _ReportEntry({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.themeV2;
+    return Material(
+      color: tokens.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(ThemeV2Radii.lg),
+        side: BorderSide(color: tokens.border),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        key: const ValueKey('library-report-entry'),
+        onTap: onTap,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 58),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: ThemeV2Spacing.md,
+              vertical: ThemeV2Spacing.sm,
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 34,
+                  height: 34,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: tokens.accentSoft,
+                    borderRadius: BorderRadius.circular(ThemeV2Radii.md),
+                  ),
+                  child: Icon(
+                    Icons.description_outlined,
+                    size: 19,
+                    color: tokens.accent,
+                  ),
+                ),
+                const SizedBox(width: ThemeV2Spacing.md),
+                const Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('报告', style: TextStyle(fontWeight: FontWeight.w700)),
+                      SizedBox(height: 2),
+                      Text('待确认、生成中与已完成报告'),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right_rounded, color: tokens.muted),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
