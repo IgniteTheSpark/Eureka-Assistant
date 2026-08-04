@@ -42,10 +42,11 @@ class _DevicePairingPageState extends State<DevicePairingPage> {
   // pop its full-screen sheet over the picker). Pick card/ring first, then scan.
   _PairTarget? _target;
   final _ring = ChipletRing();
-  RingState _ringState = const RingState(conn: RingConnState.disconnected, devices: []);
+  RingState _ringState = const RingState(
+    conn: RingConnState.disconnected,
+    devices: [],
+  );
   StreamSubscription<RingState>? _ringSub;
-  String? _lastRingId;
-  bool _ringNavigated = false;
   bool _ringSheetOpen = false;
 
   @override
@@ -93,7 +94,8 @@ class _DevicePairingPageState extends State<DevicePairingPage> {
     _pager.dispose();
     _ringSub?.cancel();
     _ring.stopScan();
-    RingReconnect.instance.resume(); // re-enable auto-reconnect (re-reads saved MAC)
+    RingReconnect.instance
+        .resume(); // re-enable auto-reconnect (re-reads saved MAC)
     super.dispose();
   }
 
@@ -126,10 +128,7 @@ class _DevicePairingPageState extends State<DevicePairingPage> {
     _sheetOpen = false;
     if (connected == true && mounted) {
       Navigator.of(context).pushReplacement(
-        themeV2DeviceRoute(
-          context: context,
-          target: ThemeV2DeviceTarget.card,
-        ),
+        themeV2DeviceRoute(context: context, target: ThemeV2DeviceTarget.card),
       );
     }
     // On dismiss: stay on the pairing page (don't pop it) so the user can switch
@@ -153,10 +152,7 @@ class _DevicePairingPageState extends State<DevicePairingPage> {
     _ringSheetOpen = false;
     if (connected == true && mounted) {
       Navigator.of(context).pushReplacement(
-        themeV2DeviceRoute(
-          context: context,
-          target: ThemeV2DeviceTarget.ring,
-        ),
+        themeV2DeviceRoute(context: context, target: ThemeV2DeviceTarget.ring),
       );
     }
     // On dismiss: stay on the page (user can re-pick or re-scan).
@@ -175,7 +171,6 @@ class _DevicePairingPageState extends State<DevicePairingPage> {
   }
 
   Future<void> _connectRing(String id) async {
-    _lastRingId = id;
     await _ring.connect(id);
     final sp = await SharedPreferences.getInstance();
     await sp.setString('ring_mac', id);
@@ -203,8 +198,10 @@ class _DevicePairingPageState extends State<DevicePairingPage> {
                       if (_target != null) {
                         setState(() {
                           _target = null;
-                          _ringState = const RingState(conn: RingConnState.disconnected, devices: []);
-                          _ringNavigated = false;
+                          _ringState = const RingState(
+                            conn: RingConnState.disconnected,
+                            devices: [],
+                          );
                         });
                         _dev.stopScan();
                         _ring.stopScan();
@@ -292,14 +289,23 @@ class _DevicePairingPageState extends State<DevicePairingPage> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.bluetooth_searching, size: 22, color: eu.brand),
+                      Icon(
+                        Icons.bluetooth_searching,
+                        size: 22,
+                        color: eu.brand,
+                      ),
                       const SizedBox(height: 12),
                       Text(
-                        _ringState.conn == RingConnState.connecting ? '正在连接戒指…' : '正在搜索戒指…',
+                        _ringState.conn == RingConnState.connecting
+                            ? '正在连接戒指…'
+                            : '正在搜索戒指…',
                         style: TextStyle(color: eu.textMid, fontSize: 15),
                       ),
                       const SizedBox(height: 6),
-                      Text('请将戒指靠近手机', style: TextStyle(color: eu.textLo, fontSize: 13)),
+                      Text(
+                        '请将戒指靠近手机',
+                        style: TextStyle(color: eu.textLo, fontSize: 13),
+                      ),
                     ],
                   ),
                 ),
@@ -800,8 +806,14 @@ class _DeviceChooser extends StatelessWidget {
       child: Column(
         children: [
           const SizedBox(height: 8),
-          Text('选择要连接的设备',
-              style: TextStyle(color: eu.textHi, fontSize: 18, fontWeight: FontWeight.w700)),
+          Text(
+            '选择要连接的设备',
+            style: TextStyle(
+              color: eu.textHi,
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
           const SizedBox(height: 24),
           Expanded(
             child: _ChoiceCard(
@@ -828,7 +840,11 @@ class _ChoiceCard extends StatelessWidget {
   final String label;
   final Widget art;
   final VoidCallback onTap;
-  const _ChoiceCard({required this.label, required this.art, required this.onTap});
+  const _ChoiceCard({
+    required this.label,
+    required this.art,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -855,8 +871,14 @@ class _ChoiceCard extends StatelessWidget {
             ),
             Padding(
               padding: const EdgeInsets.only(bottom: 16),
-              child: Text(label,
-                  style: TextStyle(color: eu.textHi, fontSize: 17, fontWeight: FontWeight.w700)),
+              child: Text(
+                label,
+                style: TextStyle(
+                  color: eu.textHi,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             ),
           ],
         ),
@@ -877,7 +899,10 @@ class _RingDiscoverSheet extends StatefulWidget {
 }
 
 class _RingDiscoverSheetState extends State<_RingDiscoverSheet> {
-  RingState _state = const RingState(conn: RingConnState.disconnected, devices: []);
+  RingState _state = const RingState(
+    conn: RingConnState.disconnected,
+    devices: [],
+  );
   StreamSubscription<RingState>? _sub;
 
   @override
@@ -920,27 +945,42 @@ class _RingDiscoverSheetState extends State<_RingDiscoverSheet> {
           children: [
             Row(
               children: [
-                Text('发现戒指',
-                    style: TextStyle(color: eu.textHi, fontSize: 20, fontWeight: FontWeight.w700)),
+                Text(
+                  '发现戒指',
+                  style: TextStyle(
+                    color: eu.textHi,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
                 const Spacer(),
                 GestureDetector(
                   onTap: () => Navigator.of(context).maybePop(false),
                   behavior: HitTestBehavior.opaque,
-                  child: SizedBox(width: 36, height: 36, child: Icon(Icons.close, color: eu.textMid)),
+                  child: SizedBox(
+                    width: 36,
+                    height: 36,
+                    child: Icon(Icons.close, color: eu.textMid),
+                  ),
                 ),
               ],
             ),
             const SizedBox(height: 6),
-            Text('请确认要连接的戒指。', style: TextStyle(color: eu.textMid, fontSize: 13)),
+            Text(
+              '请确认要连接的戒指。',
+              style: TextStyle(color: eu.textMid, fontSize: 13),
+            ),
             const SizedBox(height: 16),
             Expanded(
               child: devices.isEmpty
-                  ? Center(child: Text('正在搜索…', style: TextStyle(color: eu.textMid)))
+                  ? Center(
+                      child: Text('正在搜索…', style: TextStyle(color: eu.textMid)),
+                    )
                   : ListView.separated(
                       padding: EdgeInsets.zero,
                       primary: false,
                       itemCount: devices.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 12),
+                      separatorBuilder: (_, _) => const SizedBox(height: 12),
                       itemBuilder: (context, index) {
                         final d = devices[index];
                         return Container(
@@ -952,35 +992,70 @@ class _RingDiscoverSheetState extends State<_RingDiscoverSheet> {
                           ),
                           child: Row(
                             children: [
-                              Icon(Icons.radio_button_checked, color: eu.brand, size: 26),
+                              Icon(
+                                Icons.radio_button_checked,
+                                color: eu.brand,
+                                size: 26,
+                              ),
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(d.name.isEmpty ? '戒指设备' : d.name,
-                                        maxLines: 1, overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(color: eu.textHi, fontSize: 15, fontWeight: FontWeight.w600)),
+                                    Text(
+                                      d.name.isEmpty ? '戒指设备' : d.name,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: eu.textHi,
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
                                     const SizedBox(height: 2),
-                                    Text('${d.id}  RSSI:${d.rssi}',
-                                        maxLines: 1, overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(color: eu.textLo, fontSize: 11)),
+                                    Text(
+                                      '${d.id}  RSSI:${d.rssi}',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: eu.textLo,
+                                        fontSize: 11,
+                                      ),
+                                    ),
                                   ],
                                 ),
                               ),
                               const SizedBox(width: 8),
                               GestureDetector(
-                                onTap: connecting ? null : () => widget.onConnect(d.id),
+                                onTap: connecting
+                                    ? null
+                                    : () => widget.onConnect(d.id),
                                 behavior: HitTestBehavior.opaque,
                                 child: Container(
-                                  width: 68, height: 36, alignment: Alignment.center,
+                                  width: 68,
+                                  height: 36,
+                                  alignment: Alignment.center,
                                   decoration: BoxDecoration(
                                     color: connecting ? eu.textLo : eu.brand,
                                     borderRadius: BorderRadius.circular(999),
                                   ),
                                   child: connecting
-                                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                                      : const Text('连接', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
+                                      ? const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: Colors.white,
+                                          ),
+                                        )
+                                      : const Text(
+                                          '连接',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
                                 ),
                               ),
                             ],
