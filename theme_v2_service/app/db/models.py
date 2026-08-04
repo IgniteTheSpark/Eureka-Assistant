@@ -84,6 +84,8 @@ class Asset(Base):
     )
     payload_json: Mapped[dict] = mapped_column(mysql.JSON, nullable=False)
     effective_at: Mapped[datetime | None] = mapped_column(mysql.DATETIME(fsp=6))
+    period: Mapped[str | None] = mapped_column(String(8))
+    occurred_at: Mapped[datetime | None] = mapped_column(mysql.DATETIME(fsp=6))
     source_report_id: Mapped[str | None] = mapped_column(
         CHAR(36),
         ForeignKey("reports.id", ondelete="SET NULL"),

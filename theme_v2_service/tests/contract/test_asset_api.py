@@ -212,6 +212,72 @@ async def test_asset_list_validates_limit(client):
     assert too_large.status_code == 422
 
 
+async def test_asset_persists_precise_and_fuzzy_occurrence_time(client):
+    owner = await _register(client, "asset-time@example.com")
+    skill_response = await client.post(
+        "/api/user-skills",
+        headers=_headers(owner),
+        json={
+            "machine_name": "water_log",
+            "display_name": "喝水记录",
+            "schema": {
+                "type": "object",
+                "properties": {"amount_ml": {"type": "number"}},
+                "required": ["amount_ml"],
+                "additionalProperties": False,
+            },
+        },
+    )
+    assert skill_response.status_code == 200
+
+    created = await client.post(
+        "/api/assets",
+        headers=_headers(owner),
+        json={
+            "user_skill_id": skill_response.json()["id"],
+            "payload": {"amount_ml": 300},
+            "period": "晚上",
+            "occurred_at": "2026-08-04T20:00:00+08:00",
+        },
+    )
+
+    assert created.status_code == 200
+    assert created.json()["period"] == "晚上"
+    assert created.json()["occurred_at"] == "2026-08-04T12:00:00Z"
+
+    updated = await client.patch(
+        f"/api/assets/{created.json()['id']}",
+        headers=_headers(owner),
+        json={"period": "下午", "occurred_at": None},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["period"] == "下午"
+    assert updated.json()["occurred_at"] is None
+
+
+async def test_asset_rejects_unknown_fuzzy_period(client):
+    owner = await _register(client, "asset-time-invalid@example.com")
+    skill_response = await client.post(
+        "/api/user-skills",
+        headers=_headers(owner),
+        json={
+            "machine_name": "notes_time",
+            "display_name": "随记时间",
+            "schema": {"content": {"type": "string"}},
+        },
+    )
+    response = await client.post(
+        "/api/assets",
+        headers=_headers(owner),
+        json={
+            "user_skill_id": skill_response.json()["id"],
+            "payload": {"content": "测试"},
+            "period": "傍晚",
+        },
+    )
+    assert response.status_code == 422
+
+
 async def test_event_can_be_rescheduled_cancelled_and_physically_deleted(client):
     owner = await _register(client, "owner@example.com")
     foreign = await _register(client, "foreign@example.com")

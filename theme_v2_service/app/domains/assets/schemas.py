@@ -49,11 +49,15 @@ class AssetCreate(BaseModel):
     user_skill_id: str
     payload: dict
     effective_at: datetime | None = None
+    period: Literal["凌晨", "上午", "中午", "下午", "晚上"] | None = None
+    occurred_at: datetime | None = None
 
 
 class AssetUpdate(BaseModel):
     payload: dict | None = None
     effective_at: datetime | None = None
+    period: Literal["凌晨", "上午", "中午", "下午", "晚上"] | None = None
+    occurred_at: datetime | None = None
 
 
 class EventAttendeeCreate(BaseModel):
@@ -128,6 +132,8 @@ class AssetRead(BaseModel):
         serialization_alias="payload",
     )
     effective_at: datetime | None
+    period: str | None
+    occurred_at: datetime | None
     created_at: datetime
     updated_at: datetime
     source_recording_id: str | None = None
@@ -136,7 +142,7 @@ class AssetRead(BaseModel):
     source_report_action_id: str | None = None
     source_report_title: str | None = None
 
-    @field_serializer("effective_at", "created_at", "updated_at")
+    @field_serializer("effective_at", "occurred_at", "created_at", "updated_at")
     def serialize_timestamp(self, value: datetime | None) -> str | None:
         return _as_utc_z(value)
 

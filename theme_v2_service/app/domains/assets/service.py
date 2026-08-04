@@ -270,6 +270,8 @@ async def create_asset(
         user_skill_id=skill.id,
         payload_json=command.payload,
         effective_at=_utc_naive(command.effective_at),
+        period=command.period,
+        occurred_at=_utc_naive(command.occurred_at),
     )
     session.add(asset)
     await session.flush()
@@ -356,6 +358,10 @@ async def update_asset(
         asset.payload_json = command.payload
     if "effective_at" in command.model_fields_set:
         asset.effective_at = _utc_naive(command.effective_at)
+    if "period" in command.model_fields_set:
+        asset.period = command.period
+    if "occurred_at" in command.model_fields_set:
+        asset.occurred_at = _utc_naive(command.occurred_at)
     asset.updated_at = utc_now()
     await session.flush()
     return asset

@@ -60,6 +60,8 @@ def test_foundation_migration_round_trip_and_physical_types():
     assert asset_columns["created_at"]["type"].fsp == 6
     assert asset_columns["source_report_id"]["type"].length == 36
     assert asset_columns["source_report_action_id"]["type"].length == 64
+    assert asset_columns["period"]["type"].length == 8
+    assert asset_columns["occurred_at"]["type"].fsp == 6
 
     asset_indexes = {index["name"]: index for index in inspector.get_indexes("assets")}
     assert asset_indexes["ix_assets_user_source_report"]["column_names"] == [
@@ -84,5 +86,5 @@ def test_foundation_migration_round_trip_and_physical_types():
 
     with engine.connect() as connection:
         revision = connection.scalar(text("SELECT version_num FROM alembic_version"))
-    assert revision == "0011_report_actions"
+    assert revision == "0012_asset_temporal"
     engine.dispose()
