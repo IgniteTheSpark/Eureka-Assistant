@@ -750,14 +750,15 @@ class DeviceController extends ChangeNotifier {
   bool _unbinding = false;
   bool _preserveDeviceAfterUnbindFailure = false;
   int _operationRevision = 0;
+  String? _cardUnbindSyncWarning;
 
   bool get isBound => device != null;
 
   String? get errorMessage {
     final e = error;
-    if (e == null) return null;
     if (e is DeviceOperationException) return e.message;
-    return e.toString();
+    if (e != null) return e.toString();
+    return _cardUnbindSyncWarning;
   }
 
   Future<void> refreshBoundDevice() async {
@@ -789,6 +790,7 @@ class DeviceController extends ChangeNotifier {
 
   Future<DeviceEntryTarget> resolveEntryTarget() async {
     final revision = ++_operationRevision;
+    _cardUnbindSyncWarning = null;
     error = null;
     final poweredOn = await _transport.isBluetoothPoweredOn();
     if (revision != _operationRevision) return DeviceEntryTarget.pairing;
@@ -825,6 +827,7 @@ class DeviceController extends ChangeNotifier {
 
   Future<void> ensurePermissionAndStartScan() async {
     if (device != null) return;
+    _cardUnbindSyncWarning = null;
     _scanRequested = true;
     if (_startingScan) return;
     _startingScan = true;
@@ -914,6 +917,7 @@ class DeviceController extends ChangeNotifier {
 
   Future<void> connect(DiscoveredDevice d) async {
     final revision = ++_operationRevision;
+    _cardUnbindSyncWarning = null;
     _preserveDeviceAfterUnbindFailure = false;
     _scanRequested = false;
     await _scanSub?.cancel();
@@ -982,6 +986,7 @@ class DeviceController extends ChangeNotifier {
     final current = device;
     if (current == null) return null;
     final revision = ++_operationRevision;
+    _cardUnbindSyncWarning = null;
     state = DeviceConnState.connecting;
     error = null;
     _unbinding = true;
@@ -993,9 +998,10 @@ class DeviceController extends ChangeNotifier {
       device = null;
       discovered = const [];
       state = DeviceConnState.idle;
-      error = result.serverSynced || result.message == null
+      _cardUnbindSyncWarning = result.serverSynced ? null : result.message;
+      error = _cardUnbindSyncWarning == null
           ? null
-          : DeviceOperationException(result.message!);
+          : DeviceOperationException(_cardUnbindSyncWarning!);
       _unbinding = false;
       notifyListeners();
       _observeServerSync(result, revision: revision);
@@ -1018,13 +1024,14 @@ class DeviceController extends ChangeNotifier {
       serverSync.then(
         (syncResult) {
           if (revision != _operationRevision || syncResult.serverSynced) return;
-          error = DeviceOperationException(
-            syncResult.message ?? cardUnbindSyncPendingWarning,
-          );
+          _cardUnbindSyncWarning =
+              syncResult.message ?? cardUnbindSyncPendingWarning;
+          error = DeviceOperationException(_cardUnbindSyncWarning!);
           notifyListeners();
         },
         onError: (_) {
           if (revision != _operationRevision) return;
+          _cardUnbindSyncWarning = cardUnbindSyncPendingWarning;
           error = const DeviceOperationException(cardUnbindSyncPendingWarning);
           notifyListeners();
         },
@@ -1034,6 +1041,7 @@ class DeviceController extends ChangeNotifier {
 
   Future<void> disconnectForLogout() async {
     _operationRevision++;
+    _cardUnbindSyncWarning = null;
     _unbinding = false;
     _preserveDeviceAfterUnbindFailure = false;
     _scanRequested = false;

@@ -176,13 +176,39 @@ void main() {
         ..state = DeviceConnState.connected;
 
       await controller.unbind(deleteData: false);
-      await controller.refreshBoundDevice();
       serverSync.complete(const CardUnbindSyncResult.pending('binding-1'));
       await Future<void>.delayed(Duration.zero);
+
+      expect(controller.errorMessage, cardUnbindSyncPendingWarning);
+
+      await controller.refreshBoundDevice();
 
       expect(controller.device, isNull);
       expect(controller.state, DeviceConnState.idle);
       expect(controller.errorMessage, cardUnbindSyncPendingWarning);
+
+      controller.dispose();
+    },
+  );
+
+  test(
+    'new device entry operation clears the background sync warning',
+    () async {
+      final serverSync = Completer<CardUnbindSyncResult>();
+      final transport = _BackgroundUnbindTransport(serverSync.future);
+      final controller = DeviceController(transport)
+        ..device = _boundDevice
+        ..state = DeviceConnState.connected;
+
+      await controller.unbind(deleteData: false);
+      serverSync.complete(const CardUnbindSyncResult.pending('binding-1'));
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.errorMessage, cardUnbindSyncPendingWarning);
+
+      final target = await controller.resolveEntryTarget();
+
+      expect(target, DeviceEntryTarget.pairing);
+      expect(controller.errorMessage, isNull);
 
       controller.dispose();
     },

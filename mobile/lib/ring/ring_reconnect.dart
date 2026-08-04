@@ -11,6 +11,8 @@ abstract interface class RingReconnectGateway {
   Future<void> stopScan();
 
   Future<void> connect(String id);
+
+  Future<void> disconnect();
 }
 
 abstract interface class RingReconnectBindingStore {
@@ -48,6 +50,7 @@ class RingReconnect {
   int _operationRevision = 0;
   String? _mac;
   bool _connected = false;
+  bool _connecting = false;
   bool _scanning = false;
   bool _paused = false;
 
@@ -116,10 +119,11 @@ class RingReconnect {
     // While scanning for reconnect, connect as soon as the saved ring shows up.
     if (!nowConnected &&
         _scanning &&
+        !_connecting &&
         _hasMac &&
         state.devices.any((device) => device.id == _mac)) {
       _stopScan();
-      unawaited(_gateway.connect(_mac!));
+      _beginConnect(_mac!);
     }
     _connected = nowConnected;
     if (_connected) {
@@ -134,13 +138,13 @@ class RingReconnect {
 
   /// Drive a scan round whenever we should be reconnecting but aren't already.
   void _ensureReconnecting() {
-    if (_paused || _connected || !_hasMac) return;
+    if (_paused || _connected || _connecting || !_hasMac) return;
     if (_scanning || _retryTimer != null) return; // already working on it
     _beginScanRound();
   }
 
   void _beginScanRound() {
-    if (_paused || _connected || !_hasMac || _scanning) return;
+    if (_paused || _connected || _connecting || !_hasMac || _scanning) return;
     _scanning = true;
     unawaited(_gateway.startScan());
     _scanTimer?.cancel();
@@ -167,6 +171,31 @@ class RingReconnect {
     _scanTimer = null;
   }
 
+  void _beginConnect(String mac) {
+    final revision = _operationRevision;
+    _connecting = true;
+    unawaited(_connect(mac, revision));
+  }
+
+  Future<void> _connect(String mac, int revision) async {
+    var succeeded = false;
+    try {
+      await _gateway.connect(mac);
+      succeeded = true;
+    } catch (_) {}
+
+    final stale = revision != _operationRevision || _paused || _mac != mac;
+    if (stale && succeeded) {
+      try {
+        await _gateway.disconnect();
+      } catch (_) {}
+      _connected = false;
+    }
+
+    _connecting = false;
+    if (stale || !succeeded) _ensureReconnecting();
+  }
+
   Future<void> dispose() async {
     _operationRevision++;
     await _sub?.cancel();
@@ -189,6 +218,9 @@ class _ChipletRingReconnectGateway implements RingReconnectGateway {
 
   @override
   Future<void> connect(String id) => _ring.connect(id);
+
+  @override
+  Future<void> disconnect() => _ring.disconnect();
 
   @override
   Future<void> startScan() => _ring.startScan();

@@ -131,3 +131,51 @@ The pre-existing modified `spec/design/redesignureka.pen` and unrelated untracke
 ## Concerns
 
 No functional blocker was found in the review-fix scope. The branch remains available for the controller's whole-branch merge/push workflow; this task does not merge, push, or clean up the workspace.
+
+---
+
+## Second Final Re-review Fix Addendum
+
+### Findings addressed
+
+1. **Stable card compensation warning ordering**
+   - The pending card-unbind server-sync warning now has dedicated controller state instead of relying only on the ordinary `error` slot.
+   - A successful disconnected `refreshBoundDevice()` may clear a transient refresh error, but it cannot clear the pending compensation warning.
+   - A genuine new device-entry, scan, connect, unbind, or logout operation clears the warning so it is not immortal.
+   - The regression now uses the real ordering: background sync fails first, the warning is asserted, then a disconnected refresh runs and the same warning remains while the controller stays null/idle.
+
+2. **In-flight ring connect invalidation**
+   - Ring reconnect now tracks an active connect attempt and prevents a second scan/retry round while that attempt is unresolved.
+   - Each connect captures the reconnect operation revision. If `forget`, `pause`, dispose, or a newer reconnect operation invalidates a connect before it completes, a stale successful connection is actively disconnected.
+   - Stale cleanup leaves `_connected` false and resumes reconnect work only if the current, non-paused operation still has a saved MAC.
+   - The gateway seam now includes `disconnect`, backed by the existing Chiplet Ring SDK disconnect call.
+   - Normal reconnect success remains connected without cleanup disconnect or an immediate duplicate scan.
+
+### RED evidence
+
+- Command: `flutter test test/device_controller_test.dart test/ring/ring_reconnect_test.dart`
+- Stable warning regression failed with expected `设备已解绑，服务端同步待重试` but actual `null` after the later disconnected refresh.
+- Deferred connect → `forget` regression failed with expected one cleanup disconnect but actual zero.
+- Normal reconnect regression failed with expected one scan start but actual two, proving the in-flight connect immediately restarted scanning.
+- Result before production changes: **14 passed, 3 failed**.
+
+### GREEN evidence
+
+- Focused controller/reconnect rerun: `flutter test test/device_controller_test.dart test/ring/ring_reconnect_test.dart` — **17 tests passed**.
+- Requested covering command: `flutter test test/device_controller_test.dart test/ring/ring_reconnect_test.dart test/ring/ring_device_service_test.dart test/theme_v2/device/theme_v2_device_detail_page_test.dart` — **40 tests passed**.
+- Broader focused device-entry rerun (required because both edited controllers are shared): `flutter test test/device_controller_test.dart test/device/card_unbind_sync_test.dart test/device_silent_reconnect_test.dart test/ring/ring_device_service_test.dart test/ring/ring_reconnect_test.dart test/theme_v2/shell test/theme_v2/device` — **85 tests passed**.
+- Focused analysis: `flutter analyze lib/device/device_controller.dart lib/ring/ring_reconnect.dart test/device_controller_test.dart test/ring/ring_reconnect_test.dart` — **No issues found**.
+- `dart format` covered both production files and both changed test files.
+- `git diff --check` passed for both the complete working tree and the five-file fix scope.
+- No backend files or contracts changed; the prior isolated Docker device result remains **12/12 passed**.
+- No physical-device, ADB, recording deletion, or real unbind action was performed.
+
+### Second-fix commit scope
+
+- `.superpowers/sdd/final-review-fix-report-device-entry.md`
+- `mobile/lib/device/device_controller.dart`
+- `mobile/lib/ring/ring_reconnect.dart`
+- `mobile/test/device_controller_test.dart`
+- `mobile/test/ring/ring_reconnect_test.dart`
+
+The modified Pen file and unrelated untracked design plans/specifications remain excluded.
