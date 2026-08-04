@@ -138,29 +138,32 @@ class _ThemeV2RingDeviceDetailPageState
   @override
   Widget build(BuildContext context) {
     final info = _info;
-    return ThemeV2DeviceDetailScaffold(
-      title: '戒指详情',
-      deviceName: 'UReka 智能戒指',
-      connected: _connected,
-      hero: const RingArt(size: 132),
-      information: [
-        ThemeV2DeviceInfoRow(label: 'MAC', value: _fallback(info?.mac)),
-        ThemeV2DeviceInfoRow(
-          label: '电量',
-          value: info?.batteryPct == null ? '--' : '${info!.batteryPct}%',
-        ),
-        ThemeV2DeviceInfoRow(
-          label: '固件版本',
-          value: _fallback(info?.firmwareVersion),
-        ),
-        ThemeV2DeviceInfoRow(
-          label: '硬件版本',
-          value: _fallback(info?.hardwareVersion),
-        ),
-        if (_error != null) ThemeV2DeviceInfoRow(label: '异常', value: _error!),
-      ],
-      unbinding: _unbinding,
-      onUnbind: _unbind,
+    return PopScope(
+      canPop: !_unbinding,
+      child: ThemeV2DeviceDetailScaffold(
+        title: '戒指详情',
+        deviceName: 'UReka 智能戒指',
+        connected: _connected,
+        hero: const RingArt(size: 132),
+        information: [
+          ThemeV2DeviceInfoRow(label: 'MAC', value: _fallback(info?.mac)),
+          ThemeV2DeviceInfoRow(
+            label: '电量',
+            value: info?.batteryPct == null ? '--' : '${info!.batteryPct}%',
+          ),
+          ThemeV2DeviceInfoRow(
+            label: '固件版本',
+            value: _fallback(info?.firmwareVersion),
+          ),
+          ThemeV2DeviceInfoRow(
+            label: '硬件版本',
+            value: _fallback(info?.hardwareVersion),
+          ),
+          if (_error != null) ThemeV2DeviceInfoRow(label: '异常', value: _error!),
+        ],
+        unbinding: _unbinding,
+        onUnbind: _unbind,
+      ),
     );
   }
 }

@@ -30,10 +30,39 @@ void main() {
       expect(find.text('3.5GB / 64GB'), findsOneWidget);
       expect(find.text('已连接'), findsOneWidget);
       expect(find.text('解除绑定'), findsOneWidget);
+      expect(find.text('MAC'), findsNothing);
       expect(find.text('设备设置'), findsNothing);
       expect(find.text('固件更新'), findsNothing);
       expect(find.text('录音管理'), findsNothing);
     });
+
+    for (final storage in const [
+      (used: null, total: 64.0, expected: '-- / 64GB'),
+      (used: 3.5, total: null, expected: '3.5GB / --'),
+      (used: null, total: null, expected: '-- / --'),
+    ]) {
+      testWidgets(
+        'formats storage sides independently as ${storage.expected}',
+        (tester) async {
+          final transport = _CardTransport();
+          final controller = _cardController(
+            transport,
+            device: _cardWithStorage(storage.used, storage.total),
+          );
+          addTearDown(controller.dispose);
+
+          await _pumpDetailRoute(
+            tester,
+            ThemeV2CardDeviceDetailPage(
+              controller: controller,
+              refreshOnLoad: false,
+            ),
+          );
+
+          expect(find.text(storage.expected), findsOneWidget);
+        },
+      );
+    }
 
     for (final choice in const [
       (label: '仅解除绑定，保留录音', deleteData: false),
@@ -128,6 +157,44 @@ void main() {
       completer.complete(const DeviceUnbindResult.complete());
       await tester.pumpAndSettle();
     });
+
+    testWidgets(
+      'pending card unbind blocks app-bar and system back until success',
+      (tester) async {
+        final completer = Completer<DeviceUnbindResult>();
+        final transport = _CardTransport(unbindCompleter: completer);
+        final controller = _cardController(transport);
+        addTearDown(controller.dispose);
+
+        await _pumpDetailRoute(
+          tester,
+          ThemeV2CardDeviceDetailPage(
+            controller: controller,
+            refreshOnLoad: false,
+            stopSilentReconnect: () async {},
+          ),
+        );
+
+        await tester.tap(find.text('解除绑定'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('仅解除绑定，保留录音'));
+        await tester.pump();
+
+        await tester.tap(find.byType(BackButton));
+        await tester.pump();
+        expect(find.text('录音卡详情'), findsOneWidget);
+        expect(find.text('route home'), findsNothing);
+
+        await tester.binding.handlePopRoute();
+        await tester.pump();
+        expect(find.text('录音卡详情'), findsOneWidget);
+        expect(find.text('route home'), findsNothing);
+
+        completer.complete(const DeviceUnbindResult.complete());
+        await tester.pumpAndSettle();
+        expect(find.text('route home'), findsOneWidget);
+      },
+    );
   });
 
   group('Theme V2 ring device detail', () {
@@ -222,6 +289,47 @@ void main() {
       expect(find.text('route home'), findsOneWidget);
       expect(find.text('本地绑定已解除，蓝牙断开可能未完成'), findsOneWidget);
     });
+
+    testWidgets(
+      'pending ring unbind blocks app-bar and system back until warning closes',
+      (tester) async {
+        final disconnect = Completer<void>();
+        final gateway = _RingGateway(
+          disconnectCompleter: disconnect,
+          disconnectError: StateError('bluetooth already lost'),
+        );
+        final connection = ValueNotifier<bool>(true);
+        addTearDown(connection.dispose);
+
+        await _pumpDetailRoute(
+          tester,
+          ThemeV2RingDeviceDetailPage(
+            service: _ringService(gateway: gateway, mac: 'CC:DD'),
+            connection: connection,
+          ),
+        );
+
+        await tester.tap(find.text('解除绑定'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(TextButton, '解除绑定'));
+        await tester.pump();
+
+        await tester.tap(find.byType(BackButton));
+        await tester.pump();
+        expect(find.text('戒指详情'), findsOneWidget);
+        expect(find.text('route home'), findsNothing);
+
+        await tester.binding.handlePopRoute();
+        await tester.pump();
+        expect(find.text('戒指详情'), findsOneWidget);
+        expect(find.text('route home'), findsNothing);
+
+        disconnect.complete();
+        await tester.pumpAndSettle();
+        expect(find.text('route home'), findsOneWidget);
+        expect(find.text('本地绑定已解除，蓝牙断开可能未完成'), findsOneWidget);
+      },
+    );
   });
 }
 
@@ -238,10 +346,25 @@ const _card = DeviceInfo(
   storageTotalGb: 64,
 );
 
-DeviceController _cardController(_CardTransport transport) =>
-    DeviceController(transport)
-      ..device = _card
-      ..state = DeviceConnState.connected;
+DeviceInfo _cardWithStorage(double? used, double? total) => DeviceInfo(
+  id: _card.id,
+  bindingId: _card.bindingId,
+  name: _card.name,
+  serial: _card.serial,
+  cardDeviceUuid: _card.cardDeviceUuid,
+  cardAppUuid: _card.cardAppUuid,
+  cardMac: _card.cardMac,
+  batteryPct: _card.batteryPct,
+  storageUsedGb: used,
+  storageTotalGb: total,
+);
+
+DeviceController _cardController(
+  _CardTransport transport, {
+  DeviceInfo device = _card,
+}) => DeviceController(transport)
+  ..device = device
+  ..state = DeviceConnState.connected;
 
 Future<void> _pumpDetailRoute(WidgetTester tester, Widget detail) async {
   await tester.pumpWidget(
@@ -321,16 +444,23 @@ RingDeviceService _ringService({
 }
 
 class _RingGateway implements RingDeviceGateway {
-  _RingGateway({this.battery, this.version, this.disconnectError});
+  _RingGateway({
+    this.battery,
+    this.version,
+    this.disconnectError,
+    this.disconnectCompleter,
+  });
 
   final int? battery;
   final Map? version;
   final Object? disconnectError;
+  final Completer<void>? disconnectCompleter;
   var disconnectCalls = 0;
 
   @override
   Future<void> disconnect() async {
     disconnectCalls += 1;
+    await disconnectCompleter?.future;
     if (disconnectError case final error?) throw error;
   }
 

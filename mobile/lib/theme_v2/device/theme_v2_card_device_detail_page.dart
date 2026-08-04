@@ -121,24 +121,26 @@ class _ThemeV2CardDeviceDetailPageState
   Widget build(BuildContext context) {
     final device = _controller.device;
     final error = _controller.errorMessage;
-    return ThemeV2DeviceDetailScaffold(
-      title: '录音卡详情',
-      deviceName: device?.name ?? 'UReka 录音卡',
-      connected:
-          device != null && _controller.state == DeviceConnState.connected,
-      hero: const _CardDeviceIllustration(),
-      information: [
-        ThemeV2DeviceInfoRow(label: 'SN', value: _fallback(device?.serial)),
-        ThemeV2DeviceInfoRow(label: 'MAC', value: _fallback(device?.cardMac)),
-        ThemeV2DeviceInfoRow(
-          label: '电量',
-          value: device?.batteryPct == null ? '--' : '${device!.batteryPct}%',
-        ),
-        ThemeV2DeviceInfoRow(label: '存储空间', value: _formatStorage(device)),
-        if (error != null) ThemeV2DeviceInfoRow(label: '异常', value: error),
-      ],
-      unbinding: _unbinding,
-      onUnbind: device == null ? null : _unbind,
+    return PopScope(
+      canPop: !_unbinding,
+      child: ThemeV2DeviceDetailScaffold(
+        title: '录音卡详情',
+        deviceName: device?.name ?? 'UReka 录音卡',
+        connected:
+            device != null && _controller.state == DeviceConnState.connected,
+        hero: const _CardDeviceIllustration(),
+        information: [
+          ThemeV2DeviceInfoRow(label: 'SN', value: _fallback(device?.serial)),
+          ThemeV2DeviceInfoRow(
+            label: '电量',
+            value: device?.batteryPct == null ? '--' : '${device!.batteryPct}%',
+          ),
+          ThemeV2DeviceInfoRow(label: '存储空间', value: _formatStorage(device)),
+          if (error != null) ThemeV2DeviceInfoRow(label: '异常', value: error),
+        ],
+        unbinding: _unbinding,
+        onUnbind: device == null ? null : _unbind,
+      ),
     );
   }
 }
@@ -175,11 +177,12 @@ String _fallback(String? value) {
 }
 
 String _formatStorage(DeviceInfo? device) {
-  final used = device?.storageUsedGb;
-  final total = device?.storageTotalGb;
-  if (used == null || total == null) return '--';
-  return '${_formatGb(used)}GB / ${_formatGb(total)}GB';
+  return '${_formatStorageSide(device?.storageUsedGb)} / '
+      '${_formatStorageSide(device?.storageTotalGb)}';
 }
+
+String _formatStorageSide(double? value) =>
+    value == null ? '--' : '${_formatGb(value)}GB';
 
 String _formatGb(double value) => value == value.truncateToDouble()
     ? value.toInt().toString()
