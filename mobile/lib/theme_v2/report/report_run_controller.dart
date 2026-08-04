@@ -49,6 +49,34 @@ class ReportRunController extends ChangeNotifier {
         final answer = clarificationAnswers[question['id']?.toString()];
         return answer != null && answer.toString().trim().isNotEmpty;
       });
+  bool get canCancel =>
+      runId.isNotEmpty &&
+      const {
+        'planning',
+        'awaiting_selection',
+        'generating',
+        'failed',
+      }.contains(state);
+
+  Future<void> startUserInitiated(String intent) async {
+    final normalized = intent.trim();
+    if (normalized.isEmpty || busy) return;
+    busy = true;
+    error = null;
+    _notify();
+    try {
+      final response = await _api.postJson('/api/report-generation-runs', {
+        'origin': 'user_initiated',
+        'intent': normalized,
+      });
+      _applyRun(response);
+    } catch (exception) {
+      _setError(exception);
+    } finally {
+      busy = false;
+      _notify();
+    }
+  }
 
   Future<void> startFromTrigger(String triggerExecutionId) async {
     if (busy) return;
@@ -175,6 +203,26 @@ class ReportRunController extends ChangeNotifier {
     }
   }
 
+  Future<void> cancel() async {
+    final id = runId;
+    if (!canCancel || busy) return;
+    busy = true;
+    error = null;
+    _notify();
+    try {
+      final response = await _api.postJson(
+        '/api/report-generation-runs/$id/cancel',
+        const {},
+      );
+      _applyRun(response);
+    } catch (exception) {
+      _setError(exception);
+    } finally {
+      busy = false;
+      _notify();
+    }
+  }
+
   Future<Map<String, dynamic>?> loadReport() async {
     final id = reportId;
     if (id == null || id.isEmpty) return null;
@@ -215,7 +263,7 @@ class ReportRunController extends ChangeNotifier {
   void _setError(Object exception) {
     _pollTimer?.cancel();
     error = switch (exception) {
-      ApiException(statusCode: 410) => '这次会前调研已经过期',
+      ApiException(statusCode: 410) => '这次报告任务已经过期',
       ApiException(statusCode: 503) => '报告服务尚未配置完成',
       ApiException() => '报告任务暂时无法处理，请稍后重试',
       _ => '报告任务暂时无法处理，请稍后重试',

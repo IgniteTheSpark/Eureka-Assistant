@@ -13,11 +13,13 @@ class ReportRunPage extends StatefulWidget {
     super.key,
     this.triggerExecutionId,
     this.runId,
+    this.intent,
     this.api,
-  }) : assert(triggerExecutionId != null || runId != null);
+  }) : assert(triggerExecutionId != null || runId != null || intent != null);
 
   final String? triggerExecutionId;
   final String? runId;
+  final String? intent;
   final ApiClient? api;
 
   @override
@@ -36,8 +38,10 @@ class _ReportRunPageState extends State<ReportRunPage> {
     final runId = widget.runId;
     if (runId != null) {
       unawaited(_controller.loadRun(runId));
-    } else {
+    } else if (widget.triggerExecutionId != null) {
       unawaited(_controller.startFromTrigger(widget.triggerExecutionId!));
+    } else {
+      unawaited(_controller.startUserInitiated(widget.intent!));
     }
   }
 
@@ -56,7 +60,7 @@ class _ReportRunPageState extends State<ReportRunPage> {
       await Navigator.of(context).pushReplacement(
         MaterialPageRoute<void>(
           builder: (_) => ReportViewerPage(
-            title: report['title']?.toString() ?? '会前调研',
+            title: report['title']?.toString() ?? '报告',
             html: report['html']?.toString() ?? '',
             reportId: report['id']?.toString(),
             enableLegacyEnhancements: false,
@@ -81,7 +85,18 @@ class _ReportRunPageState extends State<ReportRunPage> {
     final state = _controller.state;
     return Scaffold(
       backgroundColor: context.themeV2.background,
-      appBar: AppBar(title: const Text('会前调研')),
+      appBar: AppBar(
+        title: const Text('报告'),
+        actions: [
+          if (_controller.canCancel)
+            IconButton(
+              key: const ValueKey('report-run-cancel'),
+              tooltip: '取消报告任务',
+              onPressed: _controller.busy ? null : _cancel,
+              icon: const Icon(Icons.close_rounded),
+            ),
+        ],
+      ),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(ThemeV2Spacing.xl),
@@ -91,22 +106,24 @@ class _ReportRunPageState extends State<ReportRunPage> {
                   ? _clarification()
                   : _planSelection(),
             'failed' => _message(
-              _controller.error ?? '调研生成没有完成',
+              _controller.error ?? '报告生成没有完成',
               actionLabel: '重试',
               onAction: _controller.retry,
             ),
-            'completed' => _message('调研已完成，正在打开…'),
-            'generating' => _progress('正在进行会前调研…'),
+            'cancelled' => _message('报告任务已取消'),
+            'completed' => _message('报告已完成，正在打开…'),
+            'generating' => _progress('正在生成报告…'),
             _ when _controller.error != null => _message(
               _controller.error!,
               actionLabel: '重试',
               onAction: widget.runId != null
                   ? () => _controller.loadRun(widget.runId!)
-                  : () => _controller.startFromTrigger(
-                      widget.triggerExecutionId!,
-                    ),
+                  : widget.triggerExecutionId != null
+                  ? () =>
+                        _controller.startFromTrigger(widget.triggerExecutionId!)
+                  : () => _controller.startUserInitiated(widget.intent!),
             ),
-            _ => _progress('正在准备调研方案…'),
+            _ => _progress('正在准备报告方案…'),
           },
         ),
       ),
@@ -123,6 +140,13 @@ class _ReportRunPageState extends State<ReportRunPage> {
       ],
     ),
   );
+
+  Future<void> _cancel() async {
+    await _controller.cancel();
+    if (mounted && _controller.state == 'cancelled') {
+      Navigator.of(context).maybePop();
+    }
+  }
 
   Widget _message(
     String message, {
@@ -147,11 +171,11 @@ class _ReportRunPageState extends State<ReportRunPage> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const Text(
-          '选择调研方向',
+          '选择报告方向',
           style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: ThemeV2Spacing.sm),
-        const Text('方案已结合当前日程和已有记录生成。'),
+        const Text('方案已结合当前资料和已有记录生成。'),
         const SizedBox(height: ThemeV2Spacing.xl),
         Expanded(
           child: ListView.separated(
@@ -170,7 +194,7 @@ class _ReportRunPageState extends State<ReportRunPage> {
                       ? Icons.radio_button_checked
                       : Icons.radio_button_unchecked,
                 ),
-                title: Text(option['title']?.toString() ?? '调研方案'),
+                title: Text(option['title']?.toString() ?? '报告方案'),
                 subtitle: Text(option['summary']?.toString() ?? ''),
               );
             },
@@ -180,7 +204,7 @@ class _ReportRunPageState extends State<ReportRunPage> {
           onPressed: _controller.busy || _controller.selectedOptionId == null
               ? null
               : _controller.generate,
-          child: Text(_controller.busy ? '启动中…' : '开始调研'),
+          child: Text(_controller.busy ? '启动中…' : '开始生成'),
         ),
       ],
     );
@@ -196,7 +220,7 @@ class _ReportRunPageState extends State<ReportRunPage> {
           style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: ThemeV2Spacing.sm),
-        const Text('回答后，Reka 会继续准备调研方案。'),
+        const Text('回答后，Reka 会继续准备报告方案。'),
         const SizedBox(height: ThemeV2Spacing.xl),
         Expanded(
           child: ListView.separated(
