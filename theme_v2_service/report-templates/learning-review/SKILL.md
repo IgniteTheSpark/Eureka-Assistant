@@ -23,3 +23,7 @@ Avoid psychological or ability diagnoses and make uncertainty explicit.
 ## Share card
 
 Highlight safe topics and progress; omit institution, teacher and private assessment details.
+
+## Suggested actions
+
+Suggest only concrete practice, review or learning-loop follow-ups grounded in observed topics and blockers. Return 0–5 suggested actions. Return an empty list when no grounded action exists. Use `due_at = null` unless an exact date or timestamp appears in the supplied evidence or execution context. Never emit generic filler actions.

@@ -23,3 +23,7 @@ Suggestions are reflective prompts, not injury or medical guidance.
 ## Share card
 
 Use broad progress highlights; omit opponent identities and exact locations.
+
+## Suggested actions
+
+Suggest only specific practice or reflection follow-ups grounded in recorded sessions; never infer injury treatment. Return 0–5 suggested actions. Return an empty list when no grounded action exists. Use `due_at = null` unless an exact date or timestamp appears in the supplied evidence or execution context. Never emit generic filler actions.

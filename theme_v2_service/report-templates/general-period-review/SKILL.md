@@ -23,3 +23,7 @@ This is an organizational synthesis, not professional advice.
 ## Share card
 
 Use a generic headline and at most three non-sensitive findings without raw quotes or identifiers.
+
+## Suggested actions
+
+Suggest only specific follow-ups that are directly supported by an open thread, commitment or reflection prompt in the evidence. Return 0–5 suggested actions. Return an empty list when no grounded action exists. Use `due_at = null` unless an exact date or timestamp appears in the supplied evidence or execution context. Never emit generic filler actions.

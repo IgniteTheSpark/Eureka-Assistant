@@ -264,6 +264,15 @@ def test_generator_messages_define_numeric_and_evidence_citation_contract():
     assert "Never use digits to number list items" in serialized
 
 
+def test_generator_prompt_separates_readable_prose_from_typed_actions():
+    serialized = str(build_generator_messages(_request()))
+
+    assert "suggested_actions" in serialized
+    assert "Do not put citation tags into suggested action titles" in serialized
+    assert "Use due_at only when" in serialized
+    assert "Do not emit :::actions" in serialized
+
+
 def test_illustration_prompt_removes_text_chart_and_sensitive_values():
     prompt = sanitize_illustration_prompt(
         "Draw a chart with text 42 for 果果 at 南京西路",

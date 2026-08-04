@@ -23,3 +23,7 @@ Synthesis is interpretive and should not be presented as the user's settled view
 ## Share card
 
 Use one thesis and up to three safe themes without quoting private note text.
+
+## Suggested actions
+
+Suggest only concrete experiments, validations or synthesis follow-ups grounded in the supplied notes; do not invent a project commitment. Return 0–5 suggested actions. Return an empty list when no grounded action exists. Use `due_at = null` unless an exact date or timestamp appears in the supplied evidence or execution context. Never emit generic filler actions.

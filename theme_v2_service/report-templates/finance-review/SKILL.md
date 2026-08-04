@@ -23,3 +23,7 @@ This report organizes records and is not financial, tax or investment advice.
 ## Share card
 
 Prefer percentages and broad categories; omit counterparties, account identifiers and exact balances.
+
+## Suggested actions
+
+Suggest only record reconciliation, review or clearly evidenced administrative follow-ups; never recommend investments or unsupported financial decisions. Return 0–5 suggested actions. Return an empty list when no grounded action exists. Use `due_at = null` unless an exact date or timestamp appears in the supplied evidence or execution context. Never emit generic filler actions.

@@ -115,3 +115,16 @@ def test_repository_contains_exact_phase_one_packages():
     }
     assert all(package.skill_markdown for package in registry.packages)
     assert get_template_registry().template_ids == registry.template_ids
+
+
+def test_official_templates_define_bounded_optional_actions():
+    root = Path(__file__).parents[2] / "report-templates"
+    registry = TemplateRegistry.load(root)
+
+    assert len(registry.packages) == 8
+    for package in registry.packages:
+        skill = package.skill_markdown
+        assert "## Suggested actions" in skill
+        assert "Return 0–5 suggested actions." in skill
+        assert "Return an empty list when no grounded action exists." in skill
+        assert "Use `due_at = null`" in skill

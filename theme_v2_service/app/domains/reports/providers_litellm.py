@@ -96,7 +96,14 @@ def build_generator_messages(request: GeneratorRequest) -> list[dict[str, str]]:
                 " In content_md, every numeric claim must be copied exactly from "
                 "allowed_numeric_claims and supported with an exact tag from "
                 "allowed_citation_tags. Never use digits to number list items; use "
-                "Markdown bullets instead. Do not infer or calculate new counts."
+                "Markdown bullets instead. Do not infer or calculate new counts. "
+                "Keep suggested_actions separate from content_md. Return zero to "
+                "five concise, concrete suggested_actions, or an empty list when "
+                "the evidence does not support a useful next step. Do not put "
+                "citation tags into suggested action titles. Use due_at only when "
+                "the exact date or timestamp appears in the supplied evidence or "
+                "execution context; otherwise return null. Do not emit :::actions "
+                "or any other action markup in content_md."
             ),
         },
         {"role": "user", "content": f"TRUSTED_CONFIG\n{trusted}"},

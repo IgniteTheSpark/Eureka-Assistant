@@ -23,3 +23,7 @@ Avoid evaluating people or inferring performance beyond the supplied evidence.
 ## Share card
 
 Use safe outcome summaries and omit client names, colleague names and confidential metrics.
+
+## Suggested actions
+
+Suggest only concrete next-month priorities, risk follow-ups or commitments grounded in the supplied work evidence. Return 0–5 suggested actions. Return an empty list when no grounded action exists. Use `due_at = null` unless an exact date or timestamp appears in the supplied evidence or execution context. Never emit generic filler actions.

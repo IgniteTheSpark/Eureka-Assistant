@@ -23,3 +23,7 @@ This is an organization and observation aid, not medical advice. Recommend quali
 ## Share card
 
 Use at most three non-sensitive observations. Do not include names, diagnoses or exact addresses.
+
+## Suggested actions
+
+Suggest only neutral observation, logging or qualified-care follow-ups; never turn a diagnosis or unverified health inference into an action. Return 0–5 suggested actions. Return an empty list when no grounded action exists. Use `due_at = null` unless an exact date or timestamp appears in the supplied evidence or execution context. Never emit generic filler actions.
