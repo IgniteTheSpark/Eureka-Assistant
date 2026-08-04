@@ -13,21 +13,53 @@ void main() {
     const link = 'report-start:execution-123:2';
 
     expect(reportExecutionIdFromLink(link), 'execution-123');
-    final page = reportNotificationTargetPage(link);
+    final page = reportNotificationTargetPage(link, type: 'report_available');
     expect(page, isA<ReportRunPage>());
     expect((page as ReportRunPage).triggerExecutionId, 'execution-123');
   });
 
   test('malformed report-start link is not actionable', () {
     expect(reportExecutionIdFromLink('report-start::1'), isNull);
+    expect(reportExecutionIdFromLink('report-start:execution-123:0'), isNull);
+    expect(reportExecutionIdFromLink('report-start:execution-123:-1'), isNull);
     expect(reportExecutionIdFromLink('report:abc'), isNull);
+  });
+
+  test(
+    'recognized report notification types do not fall back to another link',
+    () {
+      expect(
+        resolveReportNotificationTarget('report_available', 'report-run:run-1'),
+        isNull,
+      );
+      expect(
+        resolveReportNotificationTarget('report_plan_ready', 'report:report-1'),
+        isNull,
+      );
+      expect(
+        resolveReportNotificationTarget('report_done', 'report-run:run-1'),
+        isNull,
+      );
+      expect(
+        resolveReportNotificationTarget(
+          'report_failed',
+          'report-start:execution-1:1',
+        ),
+        isNull,
+      );
+    },
+  );
+
+  test('unrecognized notification types do not resolve report links', () {
+    expect(resolveReportNotificationTarget('', 'report-run:run-1'), isNull);
+    expect(resolveReportNotificationTarget('other', 'report:report-1'), isNull);
   });
 
   test('report plan-ready notification reopens the existing run', () {
     const link = 'report-run:run-123';
 
     expect(reportRunIdFromLink(link), 'run-123');
-    final page = reportNotificationTargetPage(link);
+    final page = reportNotificationTargetPage(link, type: 'report_plan_ready');
     expect(page, isA<ReportRunPage>());
     expect((page as ReportRunPage).runId, 'run-123');
   });

@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
-import 'api/api_client.dart';
 import 'config.dart';
 import 'api/sse_client.dart';
 import 'ble_flash/flash_file_status_controller.dart';
@@ -11,7 +10,6 @@ import 'ble_flash/flash_file_workflow.dart';
 import 'data_revision.dart';
 import 'flash/flash_processing_state.dart';
 import 'pages/calendar_page.dart';
-import 'pages/report_viewer_page.dart';
 import 'theme_v2/capture/flash_notification_target.dart';
 import 'theme_v2/report/report_notification_target.dart';
 import 'pet/reka_notifications.dart';
@@ -239,38 +237,10 @@ Future<void> openNotificationTarget(String type, String link) async {
     if (context != null) await openFlashNotificationTarget(context, link);
     return;
   }
-  if (type == 'report_available' || type == 'report_plan_ready') {
+  if (isReportNotificationType(type)) {
     final context = navigatorKey.currentContext;
-    if (context != null) await openReportNotificationTarget(context, link);
-    return;
-  }
-  if (type == 'report_done') {
-    try {
-      final api = ApiClient();
-      final reportId = link.startsWith('report:')
-          ? link.substring('report:'.length)
-          : link;
-      final res = await api.getJson('/api/reports/$reportId');
-      api.close();
-      final r = res is Map
-          ? (AppConfig.themeV2
-                ? res
-                : (res['report'] is Map ? res['report'] as Map : res))
-          : null;
-      if (r != null) {
-        nav.push(
-          MaterialPageRoute(
-            builder: (_) => ReportViewerPage(
-              title: r['title'] as String? ?? '报告',
-              html: r['html'] as String? ?? '',
-              reportId: reportId,
-              enableLegacyEnhancements: false,
-            ),
-          ),
-        );
-      }
-    } catch (_) {
-      /* best-effort — a deleted report just doesn't open */
+    if (context != null) {
+      await openReportNotificationTarget(context, link, type: type);
     }
     return;
   }

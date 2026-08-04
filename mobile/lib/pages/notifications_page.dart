@@ -110,10 +110,9 @@ class _NotificationsPageState extends State<NotificationsPage> {
         // Theme V2 uses /library?recording_id=...; legacy uses a bare session id.
         if (!mounted) return;
         await openFlashNotificationTarget(context, link);
-      } else if (n.type == 'report_available' ||
-          n.type == 'report_plan_ready') {
+      } else if (isReportNotificationType(n.type)) {
         if (!mounted) return;
-        await openReportNotificationTarget(context, link);
+        await openReportNotificationTarget(context, link, type: n.type);
       } else if (n.type == 'reminder') {
         // The scheduler stores a composite key, not a bare id:
         // "reminder:evt:<event_id>:<thr>" or "reminder:todo:<asset_id>:<thr>"
