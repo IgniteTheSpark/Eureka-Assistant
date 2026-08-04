@@ -11,6 +11,8 @@ import '../../pet/reka_notifications.dart';
 import '../../theme/app_theme.dart';
 import '../calendar/calendar_controller.dart';
 import '../calendar/theme_v2_calendar_page.dart';
+import '../device/theme_v2_card_device_detail_page.dart';
+import '../device/theme_v2_ring_device_detail_page.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../home/theme_v2_home_page.dart';
 import '../inbox/reka_inbox_controller.dart';
@@ -34,7 +36,7 @@ class ThemeV2AppShell extends StatefulWidget {
     this.pages,
     this.deviceStatus,
     this.deviceStatusAdapter,
-    this.onDevicePressed,
+    this.onDeviceSelected,
     this.onNotificationsPressed,
     this.inboxController,
     this.enableLegacyInbox = false,
@@ -51,7 +53,7 @@ class ThemeV2AppShell extends StatefulWidget {
   /// Production leaves this null and listens to the shared controllers.
   @visibleForTesting
   final ThemeV2DeviceStatusAdapter? deviceStatusAdapter;
-  final VoidCallback? onDevicePressed;
+  final ValueChanged<ThemeV2DeviceTarget>? onDeviceSelected;
   final VoidCallback? onNotificationsPressed;
   final RekaInboxController? inboxController;
 
@@ -178,15 +180,18 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
     if (_index != index) setState(() => _index = index);
   }
 
-  void _openDevice(BuildContext context) {
-    final callback = widget.onDevicePressed;
+  void _openDevice(BuildContext context, ThemeV2DeviceTarget target) {
+    final callback = widget.onDeviceSelected;
     if (callback != null) {
-      callback();
+      callback(target);
       return;
     }
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => const DevicePairingPage()));
+    final page = switch (target) {
+      ThemeV2DeviceTarget.pairing => const DevicePairingPage(),
+      ThemeV2DeviceTarget.card => const ThemeV2CardDeviceDetailPage(),
+      ThemeV2DeviceTarget.ring => const ThemeV2RingDeviceDetailPage(),
+    };
+    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
   }
 
   void _openNotifications(BuildContext context) {
@@ -264,7 +269,7 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
       unreadNotificationCount: widget.usesLegacyInbox
           ? _inboxController.unreadCount
           : RekaNotifications.instance.unread,
-      onDevicePressed: () => _openDevice(context),
+      onDeviceSelected: (target) => _openDevice(context, target),
       onNotificationsPressed: () => _openNotifications(context),
     );
     final dock = ThemeV2FloatingDock(

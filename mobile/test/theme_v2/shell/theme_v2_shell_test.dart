@@ -39,7 +39,7 @@ void main() {
   testWidgets(
     'global top nav exposes logo, device, theme, and notification actions',
     (tester) async {
-      var deviceTaps = 0;
+      final selected = <ThemeV2DeviceTarget>[];
       var notificationTaps = 0;
       final semantics = tester.ensureSemantics();
 
@@ -47,7 +47,7 @@ void main() {
         _TestHost(
           child: ThemeV2GlobalTopNav(
             deviceStatus: const DeviceStatusSummary.disconnected(),
-            onDevicePressed: () => deviceTaps++,
+            onDeviceSelected: selected.add,
             onNotificationsPressed: () => notificationTaps++,
           ),
         ),
@@ -84,7 +84,7 @@ void main() {
 
       await tester.tap(find.bySemanticsLabel('设备：未连接'));
       await tester.tap(find.bySemanticsLabel('通知'));
-      expect(deviceTaps, 1);
+      expect(selected, [ThemeV2DeviceTarget.pairing]);
       expect(notificationTaps, 1);
 
       semantics.dispose();
@@ -112,7 +112,7 @@ void main() {
         _TestHost(
           child: ThemeV2GlobalTopNav(
             deviceStatus: summary,
-            onDevicePressed: _noop,
+            onDeviceSelected: _noopDeviceTarget,
             onNotificationsPressed: _noop,
           ),
         ),
@@ -124,6 +124,93 @@ void main() {
       final size = tester.getSize(deviceEntry);
       expect(size.width, greaterThanOrEqualTo(44));
       expect(size.height, greaterThanOrEqualTo(44));
+    }
+  });
+
+  testWidgets('device entry emits direct pairing, card, and ring targets', (
+    tester,
+  ) async {
+    final selected = <ThemeV2DeviceTarget>[];
+    const cases = <(DeviceStatusSummary, ThemeV2DeviceTarget)>[
+      (DeviceStatusSummary.disconnected(), ThemeV2DeviceTarget.pairing),
+      (
+        DeviceStatusSummary.connected(
+          presence: ThemeV2DevicePresence.card,
+          label: '录音卡已连接',
+        ),
+        ThemeV2DeviceTarget.card,
+      ),
+      (
+        DeviceStatusSummary.connected(
+          presence: ThemeV2DevicePresence.ring,
+          label: '戒指已连接',
+        ),
+        ThemeV2DeviceTarget.ring,
+      ),
+    ];
+
+    for (final (summary, target) in cases) {
+      await tester.pumpWidget(
+        _TestHost(
+          child: ThemeV2GlobalTopNav(
+            deviceStatus: summary,
+            onDeviceSelected: selected.add,
+            onNotificationsPressed: _noop,
+          ),
+        ),
+      );
+
+      await tester.tap(find.bySemanticsLabel('设备：${summary.label}'));
+      expect(selected.removeLast(), target);
+    }
+  });
+
+  testWidgets('dual-device entry chooses a target from an anchored menu', (
+    tester,
+  ) async {
+    for (final width in [360.0, 411.0]) {
+      for (final target in [
+        ThemeV2DeviceTarget.card,
+        ThemeV2DeviceTarget.ring,
+      ]) {
+        final selected = <ThemeV2DeviceTarget>[];
+        await tester.pumpWidget(
+          _TestHost(
+            size: Size(width, 800),
+            child: ThemeV2GlobalTopNav(
+              deviceStatus: const DeviceStatusSummary.connected(
+                presence: ThemeV2DevicePresence.both,
+                label: '双设备已连接',
+              ),
+              onDeviceSelected: selected.add,
+              onNotificationsPressed: _noop,
+            ),
+          ),
+        );
+
+        final entry = find.bySemanticsLabel('设备：双设备已连接');
+        final entrySize = tester.getSize(entry);
+        expect(entrySize.width, greaterThanOrEqualTo(44));
+        expect(entrySize.height, greaterThanOrEqualTo(44));
+        await tester.tap(entry);
+        await tester.pumpAndSettle();
+
+        expect(selected, isEmpty);
+        expect(find.text('UReka 录音卡'), findsOneWidget);
+        expect(find.text('UReka 戒指'), findsOneWidget);
+        expect(find.text('已连接'), findsNWidgets(2));
+        expect(tester.takeException(), isNull, reason: 'width $width');
+
+        await tester.tap(
+          find.text(
+            target == ThemeV2DeviceTarget.card ? 'UReka 录音卡' : 'UReka 戒指',
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(selected, [target]);
+        expect(tester.takeException(), isNull, reason: 'width $width');
+      }
     }
   });
 
@@ -358,6 +445,8 @@ void main() {
 }
 
 void _noopIndex(int _) {}
+
+void _noopDeviceTarget(ThemeV2DeviceTarget _) {}
 
 void _noop() {}
 

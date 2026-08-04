@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:eureka/pages/device_pairing_page.dart';
 import 'package:eureka/theme/app_theme.dart';
 import 'package:eureka/theme/eureka_colors.dart';
 import 'package:eureka/theme/theme_controller.dart';
@@ -7,6 +10,8 @@ import 'package:eureka/theme_v2/foundation/theme_v2_typography.dart';
 import 'package:eureka/theme_v2/home/theme_v2_home_page.dart';
 import 'package:eureka/theme_v2/calendar/theme_v2_calendar_page.dart';
 import 'package:eureka/theme_v2/library/library_navigation.dart';
+import 'package:eureka/theme_v2/device/theme_v2_card_device_detail_page.dart';
+import 'package:eureka/theme_v2/device/theme_v2_ring_device_detail_page.dart';
 import 'package:eureka/theme_v2/shell/device_status_summary.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_app_shell.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_floating_dock.dart';
@@ -177,7 +182,7 @@ void main() {
   testWidgets('production Today exposes top navigation and floating dock', (
     tester,
   ) async {
-    var deviceTaps = 0;
+    final selected = <ThemeV2DeviceTarget>[];
     var notificationTaps = 0;
     await tester.pumpWidget(
       _ThemeHost(
@@ -185,7 +190,7 @@ void main() {
           initialIndex: 0,
           showStartupOverlays: false,
           deviceStatus: const DeviceStatusSummary.disconnected(),
-          onDevicePressed: () => deviceTaps++,
+          onDeviceSelected: selected.add,
           onNotificationsPressed: () => notificationTaps++,
         ),
       ),
@@ -199,7 +204,7 @@ void main() {
 
     await tester.tap(find.bySemanticsLabel('设备：未连接'));
     await tester.tap(find.bySemanticsLabel('通知'));
-    expect(deviceTaps, 1);
+    expect(selected, [ThemeV2DeviceTarget.pairing]);
     expect(notificationTaps, 1);
     expect(tester.takeException(), isNull);
 
@@ -208,6 +213,75 @@ void main() {
     await tester.tap(find.bySemanticsLabel('今日'));
     await tester.pump();
     expect(find.byType(ThemeV2GlobalTopNav), findsOneWidget);
+  });
+
+  testWidgets('production shell routes each direct device target', (
+    tester,
+  ) async {
+    const cases = <(DeviceStatusSummary, Type)>[
+      (DeviceStatusSummary.disconnected(), DevicePairingPage),
+      (
+        DeviceStatusSummary.connected(
+          presence: ThemeV2DevicePresence.card,
+          label: '录音卡已连接',
+        ),
+        ThemeV2CardDeviceDetailPage,
+      ),
+      (
+        DeviceStatusSummary.connected(
+          presence: ThemeV2DevicePresence.ring,
+          label: '戒指已连接',
+        ),
+        ThemeV2RingDeviceDetailPage,
+      ),
+    ];
+
+    for (final (summary, pageType) in cases) {
+      await tester.pumpWidget(
+        _ThemeHost(
+          child: ThemeV2AppShell(
+            showStartupOverlays: false,
+            deviceStatus: summary,
+            pages: const [
+              ThemeV2PageScaffold(body: Text('today')),
+              ThemeV2PageScaffold(body: Text('calendar')),
+              ThemeV2PageScaffold(body: Text('library')),
+            ],
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.bySemanticsLabel('设备：${summary.label}'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.byType(pageType), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      Navigator.of(tester.element(find.byType(pageType))).pop();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+  });
+
+  test('pairing success hands off to Theme V2 device details', () {
+    final source = File(
+      'lib/pages/device_pairing_page.dart',
+    ).readAsStringSync();
+
+    expect(
+      source,
+      contains('../theme_v2/device/theme_v2_card_device_detail_page.dart'),
+    );
+    expect(
+      source,
+      contains('../theme_v2/device/theme_v2_ring_device_detail_page.dart'),
+    );
+    expect(source, contains('const ThemeV2CardDeviceDetailPage()'));
+    expect(source, contains('const ThemeV2RingDeviceDetailPage()'));
+    expect(source, isNot(contains('const MyDevicePage()')));
+    expect(source, isNot(contains('const MyRingPage()')));
   });
 
   testWidgets('Schedule hides the dock and Day Detail restores it', (

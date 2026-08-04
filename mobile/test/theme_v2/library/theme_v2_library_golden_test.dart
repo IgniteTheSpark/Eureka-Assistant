@@ -90,7 +90,7 @@ void main() {
                 showDock: navigation.chrome.dock,
                 topNav: ThemeV2GlobalTopNav(
                   deviceStatus: const DeviceStatusSummary.disconnected(),
-                  onDevicePressed: () {},
+                  onDeviceSelected: (_) {},
                   onNotificationsPressed: () {},
                 ),
                 dock: ThemeV2FloatingDock(

@@ -11,13 +11,13 @@ class ThemeV2GlobalTopNav extends StatelessWidget {
   const ThemeV2GlobalTopNav({
     super.key,
     required this.deviceStatus,
-    required this.onDevicePressed,
+    required this.onDeviceSelected,
     required this.onNotificationsPressed,
     this.unreadNotificationCount = 0,
   });
 
   final DeviceStatusSummary deviceStatus;
-  final VoidCallback onDevicePressed;
+  final ValueChanged<ThemeV2DeviceTarget> onDeviceSelected;
   final VoidCallback onNotificationsPressed;
   final int unreadNotificationCount;
 
@@ -60,7 +60,7 @@ class ThemeV2GlobalTopNav extends StatelessWidget {
                 const Spacer(),
                 _DeviceStatusButton(
                   summary: deviceStatus,
-                  onPressed: onDevicePressed,
+                  onDeviceSelected: onDeviceSelected,
                   maxWidth: narrow ? 100 : 124,
                 ),
                 const SizedBox(width: ThemeV2Spacing.xs),
@@ -152,13 +152,52 @@ class _ThemeV2ThemeToggle extends StatelessWidget {
 class _DeviceStatusButton extends StatelessWidget {
   const _DeviceStatusButton({
     required this.summary,
-    required this.onPressed,
+    required this.onDeviceSelected,
     required this.maxWidth,
   });
 
   final DeviceStatusSummary summary;
-  final VoidCallback onPressed;
+  final ValueChanged<ThemeV2DeviceTarget> onDeviceSelected;
   final double maxWidth;
+
+  Future<void> _handlePressed(BuildContext context) async {
+    final directTarget = summary.directTarget;
+    if (directTarget != null) {
+      onDeviceSelected(directTarget);
+      return;
+    }
+
+    final button = context.findRenderObject()! as RenderBox;
+    final overlay =
+        Navigator.of(context).overlay!.context.findRenderObject()! as RenderBox;
+    final buttonOrigin = button.localToGlobal(Offset.zero, ancestor: overlay);
+    final anchor = Rect.fromLTWH(
+      buttonOrigin.dx,
+      buttonOrigin.dy + button.size.height,
+      button.size.width,
+      0,
+    );
+    final selected = await showMenu<ThemeV2DeviceTarget>(
+      context: context,
+      position: RelativeRect.fromRect(anchor, Offset.zero & overlay.size),
+      items: const [
+        PopupMenuItem(
+          value: ThemeV2DeviceTarget.card,
+          child: _DeviceMenuRow(
+            icon: Icons.contactless_outlined,
+            name: 'UReka 录音卡',
+          ),
+        ),
+        PopupMenuItem(
+          value: ThemeV2DeviceTarget.ring,
+          child: _DeviceMenuRow(icon: Icons.circle_outlined, name: 'UReka 戒指'),
+        ),
+      ],
+    );
+    if (selected != null && context.mounted) {
+      onDeviceSelected(selected);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -174,7 +213,7 @@ class _DeviceStatusButton extends StatelessWidget {
     return Semantics(
       label: semanticLabel,
       button: true,
-      onTap: onPressed,
+      onTap: () => _handlePressed(context),
       child: ExcludeSemantics(
         child: ConstrainedBox(
           constraints: BoxConstraints(
@@ -188,7 +227,7 @@ class _DeviceStatusButton extends StatelessWidget {
               iconOnly ? ThemeV2Radii.md : ThemeV2Radii.pill,
             ),
             child: InkWell(
-              onTap: onPressed,
+              onTap: () => _handlePressed(context),
               borderRadius: BorderRadius.circular(
                 iconOnly ? ThemeV2Radii.md : ThemeV2Radii.pill,
               ),
@@ -222,6 +261,37 @@ class _DeviceStatusButton extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _DeviceMenuRow extends StatelessWidget {
+  const _DeviceMenuRow({required this.icon, required this.name});
+
+  final IconData icon;
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.themeV2;
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: tokens.accent),
+        const SizedBox(width: ThemeV2Spacing.sm),
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(name),
+            Text(
+              '已连接',
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: tokens.muted),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

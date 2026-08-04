@@ -60,7 +60,7 @@ void main() {
       body: child,
       topNav: ThemeV2GlobalTopNav(
         deviceStatus: const DeviceStatusSummary.disconnected(),
-        onDevicePressed: () {},
+        onDeviceSelected: (_) {},
         onNotificationsPressed: () {},
       ),
       dock: ThemeV2FloatingDock(

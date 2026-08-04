@@ -136,7 +136,7 @@ void main() {
       ThemeV2GlobalTopNav(
         deviceStatus: const DeviceStatusSummary.disconnected(),
         unreadNotificationCount: 3,
-        onDevicePressed: () {},
+        onDeviceSelected: (_) {},
         onNotificationsPressed: () {},
       ),
     );

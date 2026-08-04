@@ -10,8 +10,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../device/device_controller.dart';
 import '../device/device_silent_reconnect.dart';
 import '../theme/app_theme.dart';
-import 'my_device_page.dart';
-import 'my_ring_page.dart';
+import '../theme_v2/device/theme_v2_card_device_detail_page.dart';
+import '../theme_v2/device/theme_v2_ring_device_detail_page.dart';
 
 /// First-run pairing flow for the UReka 录音卡.
 /// Top search pill + a 2-step onboarding pager; when the scan surfaces a device
@@ -126,7 +126,9 @@ class _DevicePairingPageState extends State<DevicePairingPage> {
     _sheetOpen = false;
     if (connected == true && mounted) {
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const MyDevicePage()),
+        MaterialPageRoute<void>(
+          builder: (_) => const ThemeV2CardDeviceDetailPage(),
+        ),
       );
     }
     // On dismiss: stay on the pairing page (don't pop it) so the user can switch
@@ -150,7 +152,9 @@ class _DevicePairingPageState extends State<DevicePairingPage> {
     _ringSheetOpen = false;
     if (connected == true && mounted) {
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const MyRingPage()),
+        MaterialPageRoute<void>(
+          builder: (_) => const ThemeV2RingDeviceDetailPage(),
+        ),
       );
     }
     // On dismiss: stay on the page (user can re-pick or re-scan).
