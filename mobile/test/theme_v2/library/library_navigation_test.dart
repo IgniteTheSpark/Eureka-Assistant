@@ -21,7 +21,10 @@ import 'package:eureka/theme_v2/library/library_repository.dart';
 import 'package:eureka/theme_v2/library/library_states.dart';
 import 'package:eureka/theme_v2/library/pinned_configuration.dart';
 import 'package:eureka/theme_v2/library/theme_v2_library_page.dart';
+import 'package:eureka/theme_v2/report/report_container_controller.dart';
 import 'package:eureka/theme_v2/report/report_container_page.dart';
+import 'package:eureka/theme_v2/report/report_repository.dart';
+import 'package:eureka/theme_v2/report/report_run_page.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_app_shell.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -444,43 +447,142 @@ void main() {
     expect(find.byType(ThemeV2AssetListPage), findsNothing);
   });
 
-  testWidgets(
-    'report entry uses its injected API after library overview loads',
-    (tester) async {
-      final requests = <String>[];
-      final api = ApiClient(
-        client: MockClient((request) async {
-          requests.add('${request.method} ${request.url.path}');
-          return http.Response('[]', 200);
-        }),
-        baseUrl: 'https://reports.test',
-        enableLogging: false,
-      );
-      addTearDown(api.close);
-      final controller = await _controller();
-      await _pumpHost(
-        tester,
-        ThemeV2LibraryPage(
-          controller: controller,
-          autoLoad: false,
-          reportApi: api,
-        ),
-      );
+  testWidgets('library overview omits reports until the report entry opens', (
+    tester,
+  ) async {
+    final libraryRequests = <String>[];
+    final libraryApi = ApiClient(
+      client: MockClient((request) async {
+        libraryRequests.add('${request.method} ${request.url.path}');
+        return http.Response('{}', 200);
+      }),
+      baseUrl: 'https://library.test',
+      enableLogging: false,
+    );
+    final reportRequests = <String>[];
+    final reportApi = ApiClient(
+      client: MockClient((request) async {
+        reportRequests.add('${request.method} ${request.url.path}');
+        return http.Response('[]', 200);
+      }),
+      baseUrl: 'https://reports.test',
+      enableLogging: false,
+    );
+    addTearDown(() {
+      libraryApi.close();
+      reportApi.close();
+    });
+    final controller = LibraryController(
+      repository: ApiLibraryRepository(libraryApi, coreRecordsOnly: true),
+      pinnedStore: _Store(),
+    );
+    await _pumpHost(
+      tester,
+      ThemeV2LibraryPage(controller: controller, reportApi: reportApi),
+    );
+    await tester.pumpAndSettle();
 
-      expect(requests, isEmpty);
-      await tester.tap(find.byKey(const ValueKey('library-report-entry')));
-      await tester.pumpAndSettle();
+    expect(libraryRequests, isNotEmpty);
+    expect(
+      libraryRequests.where((request) => request.endsWith('/api/reports')),
+      isEmpty,
+    );
+    expect(reportRequests, isEmpty);
+    await tester.tap(find.byKey(const ValueKey('library-report-entry')));
+    await tester.pumpAndSettle();
 
-      expect(find.byType(ReportContainerPage), findsOneWidget);
-      expect(
-        requests,
-        containsAll(<String>[
-          'GET /api/report-generation-runs',
-          'GET /api/reports',
-        ]),
-      );
-    },
-  );
+    expect(find.byType(ReportContainerPage), findsOneWidget);
+    expect(
+      reportRequests,
+      unorderedEquals(<String>[
+        'GET /api/report-generation-runs',
+        'GET /api/reports',
+      ]),
+    );
+    expect(reportRequests, everyElement(startsWith('GET ')));
+  });
+
+  testWidgets('injected report API never serves ordinary asset details', (
+    tester,
+  ) async {
+    final reportRequests = <String>[];
+    final reportApi = ApiClient(
+      client: MockClient((request) async {
+        reportRequests.add('${request.method} ${request.url.path}');
+        return http.Response('{}', 200);
+      }),
+      baseUrl: 'https://reports.test',
+      enableLogging: false,
+    );
+    addTearDown(reportApi.close);
+    final controller = await _controller();
+    await _pumpHost(
+      tester,
+      ThemeV2LibraryPage(
+        controller: controller,
+        autoLoad: false,
+        reportApi: reportApi,
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('library-recent-a1')));
+    await tester.pumpAndSettle();
+
+    expect(reportRequests, isEmpty);
+  });
+
+  testWidgets('active report run returns to a refreshed report container', (
+    tester,
+  ) async {
+    final repository = _CountingReportRepository(
+      ReportOverview(
+        activeRuns: [
+          ReportRunSummary(
+            id: 'active-run',
+            origin: 'user_initiated',
+            state: 'generating',
+            intent: '整理本周记录',
+            activeStage: 'content_generation',
+            pendingDecision: {},
+            planOptions: [],
+            failureMessage: null,
+            reportId: null,
+            createdAt: null,
+            updatedAt: null,
+          ),
+        ],
+      ),
+    );
+    final controller = ReportContainerController(repository: repository);
+    final api = ApiClient(
+      client: MockClient(
+        (_) async => http.Response('{"id":"active-run","state":"failed"}', 200),
+      ),
+      baseUrl: 'https://reports.test',
+      enableLogging: false,
+    );
+    addTearDown(() {
+      controller.dispose();
+      api.close();
+    });
+    await controller.load();
+    await _pumpHost(
+      tester,
+      ReportContainerPage(controller: controller, autoLoad: false, api: api),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('report-run-active-run')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ReportRunPage), findsOneWidget);
+    expect(repository.loadCount, 1);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ReportContainerPage), findsOneWidget);
+    expect(repository.loadCount, 2);
+  });
 
   testWidgets('page routes hub to index all containers and pinned configure', (
     tester,
@@ -1339,6 +1441,19 @@ class _SequenceRepository implements LibraryRepository {
     final result = results[index++];
     if (result is LibraryLoadFailure) throw result;
     return result as LibraryOverview;
+  }
+}
+
+class _CountingReportRepository implements ReportRepository {
+  _CountingReportRepository(this.overview);
+
+  final ReportOverview overview;
+  var loadCount = 0;
+
+  @override
+  Future<ReportOverview> loadOverview() async {
+    loadCount += 1;
+    return overview;
   }
 }
 

@@ -50,7 +50,7 @@ class ThemeV2LibraryPage extends ConsumerStatefulWidget {
 class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
   ApiClient? _ownedApi;
   late final ApiClient _detailApi;
-  var _ownsDetailApi = false;
+  late final ApiClient _reportApi;
   late final LibraryController _controller;
   late final bool _ownsController;
   late final LibraryNavigationController _navigation;
@@ -61,8 +61,8 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
   @override
   void initState() {
     super.initState();
-    _detailApi = widget.reportApi ?? ApiClient();
-    _ownsDetailApi = widget.reportApi == null;
+    _detailApi = ApiClient();
+    _reportApi = widget.reportApi ?? _detailApi;
     _ownsController = widget.controller == null;
     if (_ownsController) {
       final api = ApiClient();
@@ -91,7 +91,7 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
       _ownedApi?.close();
     }
     if (_ownsNavigation) _navigation.dispose();
-    if (_ownsDetailApi) _detailApi.close();
+    _detailApi.close();
     super.dispose();
   }
 
@@ -203,7 +203,7 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
   Future<void> _openReports() async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => ReportContainerPage(api: _detailApi),
+        builder: (_) => ReportContainerPage(api: _reportApi),
       ),
     );
   }
