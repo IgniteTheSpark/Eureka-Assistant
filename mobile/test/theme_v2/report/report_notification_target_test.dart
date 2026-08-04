@@ -20,9 +20,21 @@ void main() {
 
   test('malformed report-start link is not actionable', () {
     expect(reportExecutionIdFromLink('report-start::1'), isNull);
-    expect(reportExecutionIdFromLink('report-start:execution-123:0'), isNull);
-    expect(reportExecutionIdFromLink('report-start:execution-123:-1'), isNull);
     expect(reportExecutionIdFromLink('report:abc'), isNull);
+  });
+
+  test('report-start revision must be a canonical positive integer', () {
+    for (final revision in ['0', '-1', '01', '+1', '1.0', 'one', '']) {
+      expect(
+        reportExecutionIdFromLink('report-start:execution-123:$revision'),
+        isNull,
+        reason: 'revision $revision must not be actionable',
+      );
+    }
+    expect(
+      reportExecutionIdFromLink('report-start:execution-123:1'),
+      'execution-123',
+    );
   });
 
   test(
@@ -63,6 +75,24 @@ void main() {
     expect(page, isA<ReportRunPage>());
     expect((page as ReportRunPage).runId, 'run-123');
   });
+
+  test(
+    'legacy page helper still resolves report-start and report-run links',
+    () {
+      final triggerPage = reportNotificationTargetPage(
+        'report-start:execution-legacy:3',
+      );
+      final runPage = reportNotificationTargetPage('report-run:run-legacy');
+
+      expect(triggerPage, isA<ReportRunPage>());
+      expect(
+        (triggerPage as ReportRunPage).triggerExecutionId,
+        'execution-legacy',
+      );
+      expect(runPage, isA<ReportRunPage>());
+      expect((runPage as ReportRunPage).runId, 'run-legacy');
+    },
+  );
 
   test(
     'dismissing report availability updates trigger before notification',

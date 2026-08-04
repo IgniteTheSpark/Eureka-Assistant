@@ -49,14 +49,17 @@ class NotifItem {
 /// Notifications surface (pushed from the bell). Tap a row to mark it read;
 /// "全部已读" clears all.
 class NotificationsPage extends StatefulWidget {
-  const NotificationsPage({super.key});
+  const NotificationsPage({super.key, this.api});
+
+  final ApiClient? api;
 
   @override
   State<NotificationsPage> createState() => _NotificationsPageState();
 }
 
 class _NotificationsPageState extends State<NotificationsPage> {
-  final _api = ApiClient();
+  late final ApiClient _api;
+  late final bool _ownsApi;
   List<NotifItem> _items = [];
   bool _loading = true;
   String? _error;
@@ -64,6 +67,8 @@ class _NotificationsPageState extends State<NotificationsPage> {
   @override
   void initState() {
     super.initState();
+    _ownsApi = widget.api == null;
+    _api = widget.api ?? ApiClient();
     _load();
   }
 
@@ -112,7 +117,12 @@ class _NotificationsPageState extends State<NotificationsPage> {
         await openFlashNotificationTarget(context, link);
       } else if (isReportNotificationType(n.type)) {
         if (!mounted) return;
-        await openReportNotificationTarget(context, link, type: n.type);
+        await openReportNotificationTarget(
+          context,
+          link,
+          type: n.type,
+          api: _api,
+        );
       } else if (n.type == 'reminder') {
         // The scheduler stores a composite key, not a bare id:
         // "reminder:evt:<event_id>:<thr>" or "reminder:todo:<asset_id>:<thr>"
@@ -184,7 +194,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
 
   @override
   void dispose() {
-    _api.close();
+    if (_ownsApi) _api.close();
     super.dispose();
   }
 

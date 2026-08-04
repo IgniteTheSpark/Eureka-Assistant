@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
+import 'api/api_client.dart';
 import 'config.dart';
 import 'api/sse_client.dart';
 import 'ble_flash/flash_file_status_controller.dart';
@@ -191,7 +192,11 @@ class AppEvents {
 
 /// Route a notification (from the toast OR the REKA 通知 panel) to its target.
 /// Best-effort + async (report_done fetches html); unknown types no-op.
-Future<void> openNotificationTarget(String type, String link) async {
+Future<void> openNotificationTarget(
+  String type,
+  String link, {
+  ApiClient? reportApi,
+}) async {
   final nav = navigatorKey.currentState;
   if (nav == null || link.isEmpty) return;
 
@@ -240,7 +245,12 @@ Future<void> openNotificationTarget(String type, String link) async {
   if (isReportNotificationType(type)) {
     final context = navigatorKey.currentContext;
     if (context != null) {
-      await openReportNotificationTarget(context, link, type: type);
+      await openReportNotificationTarget(
+        context,
+        link,
+        type: type,
+        api: reportApi,
+      );
     }
     return;
   }

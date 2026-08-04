@@ -78,6 +78,30 @@ ReportNotificationTarget? resolveReportNotificationTarget(
   }
 }
 
+ReportNotificationTarget? _resolveLegacyReportNotificationTarget(String link) {
+  final executionId = reportExecutionIdFromLink(link);
+  if (executionId != null) {
+    return ReportNotificationTarget(
+      kind: ReportNotificationTargetKind.triggerRun,
+      id: executionId,
+    );
+  }
+  final runId = reportRunIdFromLink(link);
+  return runId == null
+      ? null
+      : ReportNotificationTarget(
+          kind: ReportNotificationTargetKind.run,
+          id: runId,
+        );
+}
+
+ReportNotificationTarget? _resolveReportNotificationTarget(
+  String? type,
+  String link,
+) => type == null
+    ? _resolveLegacyReportNotificationTarget(link)
+    : resolveReportNotificationTarget(type, link);
+
 bool isReportNotificationType(String type) => switch (type) {
   'report_available' ||
   'report_plan_ready' ||
@@ -86,8 +110,8 @@ bool isReportNotificationType(String type) => switch (type) {
   _ => false,
 };
 
-Widget reportNotificationTargetPage(String link, {required String type}) {
-  final target = resolveReportNotificationTarget(type, link);
+Widget reportNotificationTargetPage(String link, {String? type}) {
+  final target = _resolveReportNotificationTarget(type, link);
   return switch (target?.kind) {
     ReportNotificationTargetKind.triggerRun => ReportRunPage(
       triggerExecutionId: target!.id,
@@ -98,17 +122,17 @@ Widget reportNotificationTargetPage(String link, {required String type}) {
 }
 
 Future<Widget?> loadReportNotificationTargetPage(
-  String type,
+  String? type,
   String link, {
   ApiClient? api,
 }) async {
-  final target = resolveReportNotificationTarget(type, link);
+  final target = _resolveReportNotificationTarget(type, link);
   if (target == null) return null;
   switch (target.kind) {
     case ReportNotificationTargetKind.triggerRun:
-      return ReportRunPage(triggerExecutionId: target.id);
+      return ReportRunPage(triggerExecutionId: target.id, api: api);
     case ReportNotificationTargetKind.run:
-      return ReportRunPage(runId: target.id);
+      return ReportRunPage(runId: target.id, api: api);
     case ReportNotificationTargetKind.completedReport:
       final client = api ?? ApiClient();
       try {
@@ -149,7 +173,7 @@ Future<void> dismissReportAvailableNotification(
 Future<void> openReportNotificationTarget(
   BuildContext context,
   String link, {
-  String type = '',
+  String? type,
   ApiClient? api,
 }) async {
   try {
