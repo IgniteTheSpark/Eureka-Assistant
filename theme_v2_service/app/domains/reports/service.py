@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.config import get_settings
 from app.db.base import new_uuid, utc_now
@@ -62,6 +62,13 @@ class CompletedReportData(BaseModel):
     share_card_spec: ShareCardSpec
     tokens_used: int = Field(default=0, ge=0)
     gen_ms: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def reject_internal_citation_markers(self) -> "CompletedReportData":
+        visible = f"{self.content_md}\n{self.html or ''}".casefold()
+        if "[evidence:" in visible or "[source:" in visible:
+            raise ValueError("internal citation marker cannot be persisted")
+        return self
 
 
 def _planner_key(run_id: str, reason: str) -> str:

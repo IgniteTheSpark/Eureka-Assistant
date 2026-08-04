@@ -7,6 +7,7 @@ from app.domains.reports.shares import (
     create_report_share,
     get_active_share,
     hash_share_token,
+    public_share_html,
     revoke_report_share,
 )
 
@@ -40,8 +41,8 @@ async def _report(session, *, user_id="user-1") -> Report:
         template_id="general_period_review",
         template_version="1.0.0",
         base_family="theme_synthesis",
-        content_md="# Original\n\n[evidence:asset-private]",
-        html='<html><img src="/api/files/file-private">asset-private</html>',
+        content_md="# Original\n\nClean body with public research.",
+        html=None,
         spec_json={
             "template_id": "general_period_review",
             "template_version": "1.0.0",
@@ -50,12 +51,26 @@ async def _report(session, *, user_id="user-1") -> Report:
             "unavailable_asset_ids": [],
             "field_bindings": {"private": "payload.secret"},
             "time_range": None,
-            "external_sources": [],
+            "external_sources": [
+                {
+                    "title": "Used research",
+                    "url": "https://example.com/used",
+                    "accessed_at": "2026-07-31T08:00:00Z",
+                }
+            ],
             "web_policy": "none",
             "generated_file_ids": ["file-private"],
             "surface": "report",
             "palette": "calm",
-            "seed": 1,
+            "seed": 0,
+            "suggested_actions": [
+                {
+                    "id": "action-share",
+                    "title": "准备下一步",
+                    "due_at": None,
+                }
+            ],
+            "presentation_version": "report_html_v2",
         },
         share_card_spec={
             "headline": "Original title",
@@ -103,8 +118,15 @@ async def test_share_persists_hash_snapshot_and_thirty_day_expiry(session):
     assert created.token not in str(share.snapshot_html)
     assert share.expires_at == NOW + timedelta(days=30)
     assert list(share.media_map_json.values()) == ["file-private"]
-    assert "file-private" not in share.snapshot_html
+    assert share.snapshot_html is None
     assert "asset-private" not in share.snapshot_content_md
+
+    public_html = public_share_html(share, token=created.token)
+    assert "参考来源" in public_html
+    assert public_html.count("Used research") == 1
+    assert "https://example.com/used" in public_html
+    assert "准备下一步" in public_html
+    assert 'class="report pal-ink surface-editorial"' in public_html
 
     report.title = "Changed title"
     report.content_md = "Changed content"

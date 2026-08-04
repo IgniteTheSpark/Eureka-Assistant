@@ -12,8 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import utc_now
 from app.domains.reports.models import File, Report, ReportShare
-from app.domains.reports.rendering import render_report_html
-from app.domains.reports.schemas import ShareCardSpec
+from app.domains.reports.rendering import render_report_presentation
+from app.domains.reports.schemas import ReportSuggestedAction, ShareCardSpec
 from app.domains.reports.share_cards import RenderedShareCard, render_share_card
 from app.domains.reports.storage import Storage, persist_owned_file
 from app.observability import metrics
@@ -153,8 +153,13 @@ async def create_report_share(
         report.share_card_spec.get("illustration_file_id")
     )
     public_spec = {
+        "base_family": spec.get("base_family", report.base_family),
         "surface": spec.get("surface", "report"),
         "palette": spec.get("palette", "calm"),
+        "seed": int(spec.get("seed", 0)),
+        "presentation_version": spec.get(
+            "presentation_version", "report_html_v1"
+        ),
         "time_range": spec.get("time_range"),
         "web_policy": spec.get("web_policy", "none"),
         "external_sources": _safe_external_sources(
@@ -162,6 +167,10 @@ async def create_report_share(
         ),
         "share_card": share_card.model_dump(mode="json"),
         "illustration_media_key": illustration_media_key,
+        "suggested_actions": [
+            ReportSuggestedAction.model_validate(action).model_dump(mode="json")
+            for action in spec.get("suggested_actions", [])[:5]
+        ],
     }
     issued_at = _utc_naive(now or utc_now())
     token = issue_share_token()
@@ -376,12 +385,21 @@ def public_share_html(share: ReportShare, *, token: str) -> str:
             snapshot = snapshot.replace(f"share-media:{media_key}", url)
     else:
         share_card = share.snapshot_spec_json.get("share_card", {})
-        snapshot = render_report_html(
+        spec = share.snapshot_spec_json
+        snapshot = render_report_presentation(
             title=share_card.get("headline", "Eureka Report"),
             content_md=share.snapshot_content_md,
             chart_svgs={},
             media_urls=media_urls,
-        )
+            base_family=spec.get("base_family", "briefing_research"),
+            seed=int(spec.get("seed", 0)),
+            external_sources=spec.get("external_sources", []),
+            suggested_actions=[
+                ReportSuggestedAction.model_validate(action)
+                for action in spec.get("suggested_actions", [])[:5]
+            ],
+            illustration_file_id=spec.get("illustration_media_key"),
+        ).html
     share_card_key = next(
         (
             media_key

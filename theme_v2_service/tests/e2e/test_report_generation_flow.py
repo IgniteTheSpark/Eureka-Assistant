@@ -11,7 +11,11 @@ from app.db.session import AsyncSessionFactory
 from app.domains.reports.models import ReportGenerationRun
 from app.domains.reports.pipeline import report_pipeline_handler
 from app.domains.reports.planner import PlannerResult, execute_report_planner_job
-from app.domains.reports.providers import GeneratedImage, GeneratorResult
+from app.domains.reports.providers import (
+    GeneratedImage,
+    GeneratedSuggestedAction,
+    GeneratorResult,
+)
 from app.domains.reports.schemas import (
     CapabilityPolicy,
     EvidenceScope,
@@ -142,6 +146,9 @@ async def test_report_flow_from_records_through_share_card_and_revocation(
         generator=FakeGeneratorProvider(
             GeneratorResult(
                 content_md=f"Monthly reflection complete. [evidence:{asset_id}]",
+                suggested_actions=[
+                    GeneratedSuggestedAction(title="安排下一次月度复盘")
+                ],
                 share_card_spec={
                     "headline": "Monthly reflection",
                     "summary": "The month is now easier to understand.",
@@ -168,6 +175,12 @@ async def test_report_flow_from_records_through_share_card_and_revocation(
     report_id = completed.json()["report_id"]
     private_report = await client.get(f"/api/reports/{report_id}", headers=headers)
     assert private_report.status_code == 200
+    assert "[evidence:" not in private_report.json()["content_md"]
+    assert "[evidence:" not in private_report.json()["html"]
+    assert private_report.json()["spec"]["citations"]
+    assert private_report.json()["spec"]["suggested_actions"][0]["title"] == (
+        "安排下一次月度复盘"
+    )
 
     created_share = await client.post(
         f"/api/reports/{report_id}/shares",

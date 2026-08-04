@@ -10,7 +10,8 @@ from app.auth.dependencies import get_current_user_id
 from app.config import get_settings
 from app.db.session import get_session
 from app.domains.reports.models import File, Report
-from app.domains.reports.rendering import render_report_html
+from app.domains.reports.rendering import render_report_presentation
+from app.domains.reports.schemas import ReportSpec
 from app.domains.reports.shares import (
     create_report_share,
     generate_share_card_for_share,
@@ -89,12 +90,26 @@ async def view_report(
     )
     if report is None:
         raise HTTPException(status_code=404, detail="not found")
-    html = report.html or render_report_html(
-        title=report.title,
-        content_md=report.content_md,
-        chart_svgs={},
-        media_urls={},
-    )
+    html = report.html
+    if html is None:
+        spec = ReportSpec.model_validate(report.spec_json)
+        media_urls = {
+            file_id: f"/api/files/{file_id}"
+            for file_id in spec.generated_file_ids
+        }
+        html = render_report_presentation(
+            title=report.title,
+            content_md=report.content_md,
+            chart_svgs={},
+            media_urls=media_urls,
+            base_family=spec.base_family,
+            seed=spec.seed,
+            external_sources=spec.external_sources,
+            suggested_actions=spec.suggested_actions,
+            illustration_file_id=(
+                spec.generated_file_ids[0] if spec.generated_file_ids else None
+            ),
+        ).html
     return HTMLResponse(
         html,
         headers={"Cache-Control": "private, no-store"},

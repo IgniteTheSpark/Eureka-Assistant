@@ -2,6 +2,7 @@ from pathlib import Path
 from datetime import datetime
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import func, select
 
 from app.db.models import Asset, UserSkill, WorkflowJob
@@ -9,7 +10,11 @@ from app.db.session import AsyncSessionFactory
 from app.domains.notifications.models import Notification, OutboxEvent
 from app.domains.reports.models import Report, ReportGenerationRun
 from app.domains.reports.pipeline import report_pipeline_handler
-from app.domains.reports.providers import GeneratedImage, GeneratorResult
+from app.domains.reports.providers import (
+    GeneratedImage,
+    GeneratedSuggestedAction,
+    GeneratorResult,
+)
 from app.domains.reports.service import (
     CompletedReportData,
     PersistRejected,
@@ -95,6 +100,14 @@ def _data() -> CompletedReportData:
         tokens_used=30,
         gen_ms=120,
     )
+
+
+def test_completed_report_data_rejects_internal_citation_markers():
+    values = _data().model_dump()
+    values["content_md"] = "Visible [evidence:asset-private]"
+
+    with pytest.raises(ValidationError, match="citation marker"):
+        CompletedReportData.model_validate(values)
 
 
 async def test_persist_retry_creates_exactly_one_report_and_notification(session):
@@ -254,6 +267,9 @@ async def test_real_pipeline_stages_close_workflow_with_fake_providers(session, 
             content_md=f"记录值为 12。[evidence:{asset.id}]",
             chart_directives=[],
             illustration_prompt=None,
+            suggested_actions=[
+                GeneratedSuggestedAction(title="复盘下一次训练")
+            ],
             share_card_spec={
                 "headline": "Period report",
                 "summary": "A safe summary",
@@ -291,3 +307,13 @@ async def test_real_pipeline_stages_close_workflow_with_fake_providers(session, 
     assert web.calls == 0
     assert illustration.calls == 0
     assert "Period report" in report.html
+    assert "[evidence:" not in report.content_md
+    assert "[evidence:" not in report.html
+    assert report.spec_json["citations"]
+    assert report.spec_json["suggested_actions"][0]["title"] == "复盘下一次训练"
+    expected_surface = (
+        "surface-editorial" if report.spec_json["seed"] % 2 == 0 else "surface-note"
+    )
+    assert report.spec_json["surface"] == expected_surface
+    assert report.spec_json["palette"] in {"pal-ink", "pal-warm"}
+    assert report.spec_json["presentation_version"] == "report_html_v2"

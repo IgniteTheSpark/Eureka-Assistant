@@ -13,6 +13,7 @@ from app.domains.reports.charts import ChartDirective, render_chart
 from app.domains.reports.evidence import InsufficientEvidence, load_latest_evidence
 from app.domains.reports.models import ReportGenerationRun
 from app.domains.reports.providers import (
+    GeneratedSuggestedAction,
     GeneratorRequest,
     IllustrationProvider,
     PermanentProviderError,
@@ -22,8 +23,9 @@ from app.domains.reports.providers import (
 )
 from app.domains.reports.rendering import (
     generate_optional_illustration,
-    render_report_html,
+    render_report_presentation,
 )
+from app.domains.reports.normalization import normalize_report_content
 from app.domains.reports.schemas import ReportExecutionPlan, ReportSpec
 from app.domains.reports.security import validate_generator_result
 from app.domains.reports.storage import Storage, persist_owned_file
@@ -264,6 +266,10 @@ def _image_extension(mime_type: str) -> str:
     }.get(mime_type, "bin")
 
 
+def _report_seed(run_id: str) -> int:
+    return int(hashlib.sha256(run_id.encode()).hexdigest()[:8], 16)
+
+
 def build_pipeline_handlers(
     *,
     job: WorkflowJob,
@@ -389,17 +395,48 @@ def build_pipeline_handlers(
         content = context.checkpoints["content_generation"]
         charts = context.checkpoints["chart_validation"]
         illustration_result = context.checkpoints["illustration"]
+        web_result = context.checkpoints["web_search"]
+        normalized = normalize_report_content(
+            content_md=content["content_md"],
+            allowed_asset_ids=context.execution_plan.resolved_asset_ids,
+            external_sources=web_result.get("sources", []),
+            suggested_actions=[
+                GeneratedSuggestedAction.model_validate(item)
+                for item in content.get("suggested_actions", [])
+            ],
+        )
         file_id = illustration_result.get("file_id")
         media_urls = {file_id: f"/api/files/{file_id}"} if file_id else {}
         title = content["share_card_spec"]["headline"]
-        html = render_report_html(
+        presentation = render_report_presentation(
             title=title,
-            content_md=content["content_md"],
+            content_md=normalized.content_md,
             chart_svgs=charts.get("svgs", {}),
             media_urls=media_urls,
+            base_family=context.execution_plan.base_family,
+            seed=_report_seed(context.run_id),
+            external_sources=normalized.used_external_sources,
+            suggested_actions=normalized.suggested_actions,
+            illustration_file_id=file_id,
         )
         metrics.observe("render_duration_ms", (perf_counter() - started) * 1000)
-        return {"title": title, "html": html}
+        return {
+            "title": title,
+            "content_md": normalized.content_md,
+            "citations": [
+                item.model_dump(mode="json") for item in normalized.citations
+            ],
+            "suggested_actions": [
+                item.model_dump(mode="json")
+                for item in normalized.suggested_actions
+            ],
+            "external_sources": normalized.used_external_sources,
+            "html": presentation.html,
+            "surface": presentation.surface,
+            "palette": presentation.palette,
+            "color_scheme": presentation.color_scheme,
+            "warnings": presentation.warnings,
+        }
 
     async def persist_stage(context: PipelineContext) -> StageResult:
         from app.domains.reports.service import (
@@ -414,7 +451,7 @@ def build_pipeline_handlers(
         illustration_result = context.checkpoints["illustration"]
         rendered = context.checkpoints["html_render"]
         file_id = illustration_result.get("file_id")
-        seed = int(hashlib.sha256(context.run_id.encode()).hexdigest()[:8], 16)
+        seed = _report_seed(context.run_id)
         spec = ReportSpec(
             template_id=context.execution_plan.template_id,
             template_version=context.execution_plan.template_version,
@@ -425,10 +462,15 @@ def build_pipeline_handlers(
             unavailable_asset_ids=evidence.get("unavailable_asset_ids", []),
             field_bindings=context.execution_plan.field_bindings,
             time_range=context.execution_plan.time_range,
-            external_sources=web_result.get("sources", []),
+            external_sources=rendered.get("external_sources", []),
             web_policy=context.execution_plan.web_policy,
             generated_file_ids=[file_id] if file_id else [],
+            surface=rendered["surface"],
+            palette=rendered["palette"],
             seed=seed,
+            citations=rendered.get("citations", []),
+            suggested_actions=rendered.get("suggested_actions", []),
+            presentation_version="report_html_v2",
         )
         usage = content.get("usage", {})
         try:
@@ -440,7 +482,7 @@ def build_pipeline_handlers(
                     lease_owner=job.lease_owner,
                     data=CompletedReportData(
                         title=rendered["title"],
-                        content_md=content["content_md"],
+                        content_md=rendered["content_md"],
                         html=rendered["html"],
                         spec_json=spec,
                         share_card_spec=content["share_card_spec"],
