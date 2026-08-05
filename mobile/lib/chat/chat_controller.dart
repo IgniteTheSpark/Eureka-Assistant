@@ -309,27 +309,22 @@ class ChatController extends ChangeNotifier {
           ),
         );
       } else if (m['role'] == 'agent') {
-        final running = (m['status'] as String? ?? 'done') == 'running';
+        final status = m['status'] as String? ?? 'done';
+        final running = status == 'running';
         final msg = ChatMessage.agent(
           m['id'] as String? ?? 'a',
           inputTurnId: m['input_turn_id'] as String?,
         );
         msg.streaming = running; // running → 「分析中…」 (chat_page renders it)
-        final tc = m['tool_call'];
-        if (tc is Map) {
-          msg.parts.add(ToolCallPart(tc['name'] as String? ?? '?'));
-        }
-        final tr = m['tool_result'];
-        if (tr is Map) {
-          msg.parts.add(
-            ToolResultPart(
-              tr['name'] as String? ?? '?',
-              (tr['response'] as Map?)?.cast<String, dynamic>() ?? {},
-            ),
-          );
-        }
+        _appendStoredToolCalls(msg, m['tool_call']);
+        _appendStoredToolResults(msg, m['tool_result']);
         final text = m['text'] as String?;
-        if (text != null && text.isNotEmpty) {
+        if (status == 'failed') {
+          msg.parts.add(
+            ErrorPart(text?.isNotEmpty == true ? text! : '回答失败，请重试'),
+          );
+          msg.text = text ?? '';
+        } else if (text != null && text.isNotEmpty) {
           msg.parts.add(TextPart(text));
           msg.text = text;
         }
@@ -346,10 +341,33 @@ class ChatController extends ChangeNotifier {
         }
         final el = m['elapsed_ms'];
         if (el is num) msg.elapsedMs = el.toInt();
+        final tokens = m['total_tokens'];
+        if (tokens is num) msg.tokens = tokens.toInt();
         restored.add(msg);
       }
     }
     return restored;
+  }
+
+  void _appendStoredToolCalls(ChatMessage message, dynamic raw) {
+    if (raw is! Map) return;
+    final calls = raw['calls'] is List ? raw['calls'] as List : [raw];
+    for (final call in calls.whereType<Map>()) {
+      message.parts.add(ToolCallPart(call['name']?.toString() ?? '?'));
+    }
+  }
+
+  void _appendStoredToolResults(ChatMessage message, dynamic raw) {
+    if (raw is! Map) return;
+    final results = raw['results'] is List ? raw['results'] as List : [raw];
+    for (final result in results.whereType<Map>()) {
+      message.parts.add(
+        ToolResultPart(
+          result['name']?.toString() ?? '?',
+          (result['response'] as Map?)?.cast<String, dynamic>() ?? const {},
+        ),
+      );
+    }
   }
 
   void _applyMessages(List raw) {

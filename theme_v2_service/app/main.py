@@ -22,12 +22,17 @@ from app.domains.sessions.api import router as sessions_router
 from app.domains.sessions.api_chat import router as session_chat_router
 from app.domains.triggers.api import router as trigger_router
 from app.domains.timeline.api import router as timeline_router
+from app.internal_mcp.runtime import get_internal_mcp_runtime
 from app.observability import metrics
 
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     application.state.report_template_registry = get_template_registry()
+    settings = get_settings()
+    internal_mcp_runtime = get_internal_mcp_runtime()
+    if settings.chat_agent_enabled or settings.capture_agent_enabled:
+        await internal_mcp_runtime.start()
     registry = SubscriberRegistry()
     dispatcher_task = asyncio.create_task(
         run_outbox_dispatcher(AsyncSessionFactory, registry)
@@ -37,6 +42,7 @@ async def lifespan(application: FastAPI):
     try:
         yield
     finally:
+        await internal_mcp_runtime.close()
         dispatcher_task.cancel()
         try:
             await dispatcher_task

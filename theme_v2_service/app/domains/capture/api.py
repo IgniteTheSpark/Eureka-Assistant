@@ -1,3 +1,4 @@
+import asyncio
 from uuid import UUID
 from datetime import date
 
@@ -19,12 +20,8 @@ from app.domains.capture.schemas import (
     TencentAsrS3UploadRequest,
     TencentAsrSyncResultRequest,
 )
-from app.domains.capture.chat import (
-    FlashChatProvider,
-    PermanentFlashChatError,
-    RetryableFlashChatError,
-    get_flash_chat_provider,
-)
+from app.domains.sessions.chat import SessionChatProvider, get_session_chat_provider
+from app.domains.sessions.turns import prepare_chat_turn, start_chat_turn
 from app.domains.notifications.subscribers import (
     SubscriberFrame,
     SubscriberRegistry,
@@ -185,61 +182,33 @@ async def chat_with_flash_session(
     session_date: date,
     command: FlashChatRequest,
     user_id: str = Depends(get_current_user_id),
-    provider: FlashChatProvider = Depends(get_flash_chat_provider),
+    provider: SessionChatProvider = Depends(get_session_chat_provider),
 ):
-    settings = get_settings()
     async with session_scope() as session:
-        context = await service.build_flash_chat_context(
+        daily = await service.get_daily_session(
             session,
             user_id,
             session_date,
-            timezone_name=settings.default_user_timezone,
+            timezone_name=get_settings().default_user_timezone,
         )
-        if context is None:
+        if daily is None or not daily.get("physical_session_id"):
             raise HTTPException(status_code=404, detail="flash session not found")
-        history_models = await service.list_flash_chat_messages(
-            session,
-            user_id,
-            session_date,
-        )
-        history = [
-            {"role": message.role, "text": message.text}
-            for message in history_models
-            if message.status == "done"
-        ]
-        user_message = await service.create_flash_chat_message(
-            session,
-            user_id,
-            session_date,
-            role="user",
-            text=command.user_text,
-        )
-
-    try:
-        reply = await provider.answer(
-            session_date=session_date.isoformat(),
-            context=context,
-            history=history,
-            question=command.user_text,
-        )
-    except RetryableFlashChatError as exc:
-        raise HTTPException(status_code=503, detail="session assistant unavailable") from exc
-    except PermanentFlashChatError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-
-    async with session_scope() as session:
-        agent_message = await service.create_flash_chat_message(
-            session,
-            user_id,
-            session_date,
-            role="agent",
-            text=reply,
-        )
+        physical_session_id = str(daily["physical_session_id"])
+    prepared = await prepare_chat_turn(
+        user_id=user_id,
+        session_id=physical_session_id,
+        question=command.user_text,
+    )
+    completed = await asyncio.shield(
+        start_chat_turn(provider=provider, prepared=prepared)
+    )
+    if completed.result is None:
+        raise HTTPException(status_code=503, detail=completed.public_error)
     return FlashChatResponse(
-        session_id=session_date.isoformat(),
-        input_turn_id=user_message.id,
-        message_id=agent_message.id,
-        reply=reply,
+        session_id=prepared.session_id,
+        input_turn_id=prepared.input_turn_id,
+        message_id=prepared.agent_message_id,
+        reply=completed.result.text,
     )
 
 

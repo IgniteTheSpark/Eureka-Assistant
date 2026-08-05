@@ -1055,10 +1055,21 @@ async def get_daily_session(
             select(CaptureTurn).where(CaptureTurn.recording_id == recording.id)
         )
         results.append(RecordingResult(recording=recording, file=file, turn=turn))
-    chat_messages = await list_flash_chat_messages(session, user_id, local_date)
     physical_session_id = next(
         (row.session_id for row in recordings if row.session_id),
         None,
+    )
+    legacy_chat_messages = await list_flash_chat_messages(
+        session, user_id, local_date
+    )
+    unified_chat_messages = (
+        await list_unified_typed_chat_messages(
+            session,
+            user_id,
+            physical_session_id,
+        )
+        if physical_session_id
+        else []
     )
     physical_session = (
         await session.get(ChatSession, physical_session_id)
@@ -1079,12 +1090,48 @@ async def get_daily_session(
         "updated_at": _as_utc_z(
             max(
                 [row.updated_at for row in recordings]
-                + [message.created_at for message in chat_messages]
+                + [message.created_at for message in legacy_chat_messages]
+                + [message.created_at for message in unified_chat_messages]
             )
         ),
         "recordings": [_recording_detail_item(result) for result in results],
-        "chat_messages": [flash_chat_message_payload(item) for item in chat_messages],
+        "chat_messages": sorted(
+            [
+                flash_chat_message_payload(item)
+                for item in legacy_chat_messages
+            ]
+            + [session_service.message_payload(item) for item in unified_chat_messages],
+            key=lambda item: (item.get("created_at") or "", item.get("id") or ""),
+        ),
     }
+
+
+async def list_unified_typed_chat_messages(
+    session: AsyncSession,
+    user_id: str,
+    physical_session_id: str,
+    *,
+    limit: int = 80,
+) -> list[SessionMessage]:
+    messages = list(
+        await session.scalars(
+            select(SessionMessage)
+            .join(InputTurn, SessionMessage.input_turn_id == InputTurn.id)
+            .where(
+                SessionMessage.user_id == user_id,
+                SessionMessage.session_id == physical_session_id,
+                InputTurn.user_id == user_id,
+                InputTurn.source == "typed",
+            )
+            .order_by(
+                SessionMessage.created_at.desc(),
+                SessionMessage.id.desc(),
+            )
+            .limit(limit)
+        )
+    )
+    messages.reverse()
+    return messages
 
 
 async def list_flash_chat_messages(

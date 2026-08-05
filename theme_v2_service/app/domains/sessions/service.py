@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 
 import json
 
@@ -9,8 +10,9 @@ from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import new_uuid, utc_now
-from app.db.models import Asset, Event, UserSkill
+from app.db.models import Asset, Contact, Event, UserSkill
 from app.domains.notifications.service import publish_domain_event
+from app.domains.sessions.legacy_assistant import LegacyChatContext
 from app.domains.sessions.models import ChatSession, InputTurn, SessionMessage
 from app.domains.sessions.schemas import SessionContextUpdate, SessionCreate
 
@@ -275,8 +277,13 @@ async def list_messages(
 
 
 async def build_chat_context(
-    database: AsyncSession, model: ChatSession, *, limit: int = 30
-) -> str:
+    database: AsyncSession,
+    model: ChatSession,
+    *,
+    input_turn_id: str,
+    timezone_name: str,
+    limit: int = 30,
+) -> LegacyChatContext:
     context_ids = [str(value) for value in (model.context_asset_ids_json or [])]
     asset_query = (
         select(Asset, UserSkill)
@@ -291,6 +298,12 @@ async def build_chat_context(
             "id": asset.id,
             "skill": skill.display_name,
             "payload": asset.payload_json,
+            "machine_name": skill.machine_name,
+            "display_name": skill.display_name,
+            "domain": asset.domain,
+            "period": asset.period,
+            "source_input_turn_id": asset.source_input_turn_id,
+            "from_this_session": asset.session_id == model.id,
             "occurred_at": (
                 _utc_z(asset.occurred_at) if asset.occurred_at is not None else None
             ),
@@ -307,20 +320,109 @@ async def build_chat_context(
             .limit(limit)
         )
     )
+    contacts = list(
+        await database.scalars(
+            select(Contact)
+            .where(Contact.user_id == model.user_id)
+            .order_by(Contact.updated_at.desc(), Contact.id.desc())
+            .limit(limit)
+        )
+    )
+    skills = list(
+        await database.scalars(
+            select(UserSkill)
+            .where(UserSkill.user_id == model.user_id, UserSkill.enabled.is_(True))
+            .order_by(UserSkill.position, UserSkill.created_at, UserSkill.id)
+        )
+    )
+    turns = list(
+        await database.scalars(
+            select(InputTurn)
+            .where(
+                InputTurn.user_id == model.user_id,
+                InputTurn.session_id == model.id,
+            )
+            .order_by(InputTurn.turn_index.desc())
+            .limit(limit)
+        )
+    )
+    turns.reverse()
     payload = {
+        "session": {
+            "id": model.id,
+            "type": model.session_type,
+            "date": model.session_date.isoformat() if model.session_date else None,
+            "subject_type": model.subject_type,
+            "subject_id": model.subject_id,
+            "attached_asset_ids": context_ids,
+        },
+        "enabled_skills": [
+            {
+                "machine_name": skill.machine_name,
+                "display_name": skill.display_name,
+                "description": skill.description,
+                "domain": skill.domain,
+                "schema": skill.schema_json,
+                "queryable_fields": skill.queryable_fields_json,
+            }
+            for skill in skills
+        ],
+        "session_input_turns": [
+            {
+                "id": turn.id,
+                "index": turn.turn_index,
+                "source": turn.source,
+                "text": turn.text,
+                "created_at": _utc_z(turn.created_at),
+            }
+            for turn in turns
+        ],
         "assets": assets,
         "events": [
             {
                 "id": event.id,
                 "title": event.title,
                 "description": event.description,
+                "location": event.location,
                 "start_at": _utc_z(event.start_at),
                 "end_at": _utc_z(event.end_at),
+                "status": event.status,
+                "source_input_turn_id": event.source_input_turn_id,
+                "attendees": [
+                    {
+                        "id": attendee.id,
+                        "name": attendee.name_raw,
+                        "contact_id": attendee.contact_id,
+                    }
+                    for attendee in event.attendees
+                ],
             }
             for event in events
         ],
+        "contacts": [
+            {
+                "id": contact.id,
+                "name": contact.name,
+                "phone": contact.phone,
+                "company": contact.company,
+                "title": contact.title,
+                "email": contact.email,
+                "notes": contact.notes_json,
+                "socials": contact.socials_json,
+                "source_input_turn_id": contact.source_input_turn_id,
+                "from_this_session": contact.session_id == model.id,
+            }
+            for contact in contacts
+        ],
     }
-    return json.dumps(payload, ensure_ascii=False, default=str)
+    now_local = datetime.now(ZoneInfo(timezone_name)).isoformat()
+    return LegacyChatContext(
+        session_id=model.id,
+        input_turn_id=input_turn_id,
+        session_type=model.session_type,
+        now_local=now_local,
+        records_json=json.dumps(payload, ensure_ascii=False, default=str),
+    )
 
 
 def message_payload(message: SessionMessage) -> dict:

@@ -11,8 +11,9 @@ from app.db.session import AsyncSessionFactory
 from app.domains.notifications.models import OutboxEvent
 from app.domains.capture.agent import CaptureAgentResult, CaptureRecordCommand
 from app.domains.capture.jobs import capture_process_handler
-from app.domains.capture.models import CaptureRecording
-from app.domains.capture.chat import get_flash_chat_provider
+from app.domains.capture.models import CaptureRecording, FlashChatMessage
+from app.domains.sessions.chat import SessionChatResult, get_session_chat_provider
+from app.domains.sessions.models import InputTurn, SessionMessage
 from app.domains.notifications.subscribers import SubscriberRegistry
 from app.jobs.registry import JobHandlerRegistry
 from app.jobs.runner import run_worker_once
@@ -635,16 +636,19 @@ async def test_daily_flash_session_chat_answers_and_persists(client):
     )
     assert capture.status_code == 200
 
-    class FakeFlashChatProvider:
+    physical_session_id = capture.json()["physical_session_id"]
+    assert physical_session_id
+
+    class FakeSessionChatProvider:
         def __init__(self):
             self.calls = []
 
         async def answer(self, **command):
             self.calls.append(command)
-            return "今天有一项待办：提交评审稿。"
+            return SessionChatResult(text="今天有一项待办：提交评审稿。")
 
-    provider = FakeFlashChatProvider()
-    app.dependency_overrides[get_flash_chat_provider] = lambda: provider
+    provider = FakeSessionChatProvider()
+    app.dependency_overrides[get_session_chat_provider] = lambda: provider
     try:
         response = await client.post(
             "/api/flash/sessions/2026-08-03/chat",
@@ -652,15 +656,40 @@ async def test_daily_flash_session_chat_answers_and_persists(client):
             json={"user_text": "今天有什么待办？"},
         )
     finally:
-        app.dependency_overrides.pop(get_flash_chat_provider, None)
+        app.dependency_overrides.pop(get_session_chat_provider, None)
 
     assert response.status_code == 200
-    assert response.json()["session_id"] == "2026-08-03"
+    assert response.json()["session_id"] == physical_session_id
     assert response.json()["reply"] == "今天有一项待办：提交评审稿。"
     assert response.json()["input_turn_id"]
     assert response.json()["message_id"]
     assert provider.calls[0]["question"] == "今天有什么待办？"
-    assert "今天要提交评审稿" in provider.calls[0]["context"]
+    assert provider.calls[0]["context"].session_id == physical_session_id
+    assert provider.calls[0]["context"].session_type == "flash"
+    assert "今天要提交评审稿" in provider.calls[0]["context"].records_json
+
+    async with AsyncSessionFactory() as database:
+        typed_turn = await database.scalar(
+            select(InputTurn)
+            .where(InputTurn.session_id == physical_session_id)
+            .order_by(InputTurn.created_at.desc())
+        )
+        capture_count = await database.scalar(
+            select(func.count()).select_from(CaptureRecording)
+        )
+        legacy_chat_count = await database.scalar(
+            select(func.count()).select_from(FlashChatMessage)
+        )
+        persisted_agent = await database.get(
+            SessionMessage, response.json()["message_id"]
+        )
+    assert typed_turn is not None
+    assert typed_turn.source == "typed"
+    assert typed_turn.session_id == physical_session_id
+    assert capture_count == 1
+    assert legacy_chat_count == 0
+    assert persisted_agent is not None
+    assert persisted_agent.text == response.json()["reply"]
 
     daily = await client.get(
         "/api/flash/sessions/2026-08-03",

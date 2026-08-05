@@ -4,6 +4,10 @@ from fastmcp import Client
 
 from app.config import get_settings
 from app.db.models import Contact
+from app.internal_mcp.runtime import (
+    InternalMCPRuntime,
+    InternalMCPTrustedContext,
+)
 
 
 async def test_internal_mcp_stdio_process_lists_and_calls_owner_scoped_tool(session):
@@ -38,3 +42,25 @@ async def test_internal_mcp_stdio_process_lists_and_calls_owner_scoped_tool(sess
     payload = json.loads(result.content[0].text)
     assert payload["ok"] is True
     assert [item["name"] for item in payload["exact_contacts"]] == ["冯总"]
+
+
+async def test_lifecycle_runtime_round_trips_real_stdio_payload(session):
+    session.add(Contact(user_id="runtime-owner", name="王总"))
+    await session.commit()
+    runtime = InternalMCPRuntime()
+
+    try:
+        definitions = await runtime.list_openai_tools()
+        result = await runtime.call_tool(
+            "tool_query_contact",
+            {"name_query": "王总", "user_id": "model-selected-owner"},
+            trusted=InternalMCPTrustedContext(user_id="runtime-owner"),
+        )
+    finally:
+        await runtime.close()
+
+    assert "tool_query_contact" in {
+        item["function"]["name"] for item in definitions
+    }
+    assert result["ok"] is True
+    assert [item["name"] for item in result["exact_contacts"]] == ["王总"]

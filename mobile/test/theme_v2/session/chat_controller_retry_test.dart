@@ -259,6 +259,73 @@ void main() {
     expect(controller.messages.single.inputTurnId, 'turn-2');
   });
 
+  test('history replay restores every persisted tool round', () async {
+    final api = ApiClient(
+      client: MockClient((request) async {
+        if (request.url.path.endsWith('/messages')) {
+          return http.Response.bytes(
+            utf8.encode(
+              jsonEncode({
+                'messages': [
+                  {
+                    'id': 'a1',
+                    'role': 'agent',
+                    'status': 'done',
+                    'text': '已经找到并更新了刚才的记录。',
+                    'tool_call': {
+                      'calls': [
+                        {'name': 'tool_query_assets'},
+                        {'name': 'tool_update_asset'},
+                      ],
+                    },
+                    'tool_result': {
+                      'results': [
+                        {
+                          'name': 'tool_query_assets',
+                          'response': {'count': 1},
+                        },
+                        {
+                          'name': 'tool_update_asset',
+                          'response': {'ok': true},
+                        },
+                      ],
+                    },
+                    'elapsed_ms': 88,
+                    'total_tokens': 31,
+                    'cards': const [],
+                  },
+                ],
+              }),
+            ),
+            200,
+          );
+        }
+        return http.Response(jsonEncode({'session': {}}), 200);
+      }),
+      baseUrl: 'http://test',
+      enableLogging: false,
+    );
+    final controller = ChatController(api: api);
+    addTearDown(() {
+      controller.dispose();
+      api.close();
+    });
+
+    await controller.loadSession('session-1');
+
+    final agent = controller.messages.single;
+    expect(agent.parts.whereType<ToolCallPart>().map((part) => part.name), [
+      'tool_query_assets',
+      'tool_update_asset',
+    ]);
+    expect(agent.parts.whereType<ToolResultPart>().map((part) => part.name), [
+      'tool_query_assets',
+      'tool_update_asset',
+    ]);
+    expect(agent.elapsedMs, 88);
+    expect(agent.tokens, 31);
+  });
+
   test('a session cannot be restored after deletion has started', () async {
     final deleteResponse = Completer<http.Response>();
     final messagesResponse = Completer<http.Response>();

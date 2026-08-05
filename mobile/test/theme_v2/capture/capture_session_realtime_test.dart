@@ -46,6 +46,32 @@ void main() {
               headers: {'content-type': 'application/json'},
             );
           }
+          if (request.url.path == '/api/sessions/physical-session-1/messages') {
+            return http.Response(
+              jsonEncode({
+                'messages': [
+                  {
+                    'id': 'capture-user-1',
+                    'role': 'user',
+                    'status': 'done',
+                    'text': '跑了两公里',
+                    'input_turn_id': 'turn-1',
+                    'cards': const [],
+                  },
+                  {
+                    'id': 'capture-agent-1',
+                    'role': 'agent',
+                    'status': dailyLoads == 1 ? 'running' : 'done',
+                    'text': dailyLoads == 1 ? '' : '已记录跑步。',
+                    'input_turn_id': 'turn-1',
+                    'cards': const [],
+                  },
+                ],
+              }),
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }
           return http.Response('not found', 404);
         }),
       );

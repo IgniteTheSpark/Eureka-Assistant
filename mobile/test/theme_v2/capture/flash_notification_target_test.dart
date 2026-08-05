@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:eureka/api/api_client.dart';
+import 'package:eureka/api/sse_client.dart';
 import 'package:eureka/chat/chat_models.dart';
 import 'package:eureka/pages/session_detail_page.dart';
 import 'package:eureka/render/render_spec.dart';
@@ -357,6 +358,7 @@ void main() {
                   {
                     'id': '2026-08-02',
                     'date': '2026-08-02',
+                    'physical_session_id': 'physical-session-2',
                     'title': '8月2日 闪念',
                     'created_at': '2026-08-02T13:43:21Z',
                   },
@@ -368,22 +370,6 @@ void main() {
           }
           if (request.method == 'DELETE') {
             return http.Response('{}', 200);
-          }
-          if (request.method == 'POST' &&
-              request.url.path == '/api/flash/sessions/2026-08-02/chat') {
-            final payload = jsonDecode(request.body) as Map<String, dynamic>;
-            expect(payload['user_text'], '今天有什么待办？');
-            return http.Response(
-              jsonEncode({
-                'ok': true,
-                'session_id': '2026-08-02',
-                'input_turn_id': 'chat-user-1',
-                'message_id': 'chat-agent-1',
-                'reply': '今天有一项待办：提交评审稿。',
-              }),
-              200,
-              headers: {'content-type': 'application/json'},
-            );
           }
           if (request.method == 'GET' &&
               request.url.path == '/api/flash/sessions/2026-08-02') {
@@ -412,24 +398,44 @@ void main() {
           return http.Response('not found', 404);
         }),
       );
-      final controller = CaptureSessionController(api: api);
+      final controller = CaptureSessionController(
+        api: api,
+        turnStream: (path, body) {
+          expect(path, '/api/chat');
+          expect(body, {
+            'session_id': 'physical-session-2',
+            'user_text': '今天有什么待办？',
+          });
+          return Stream<SseEvent>.fromIterable([
+            SseEvent('meta', {
+              'session_id': 'physical-session-2',
+              'input_turn_id': 'chat-user-1',
+            }),
+            SseEvent('token', {'text': '今天有一项待办：提交评审稿。'}),
+            SseEvent('done', const {}),
+          ]);
+        },
+      );
       addTearDown(() {
         controller.dispose();
         api.close();
       });
-      controller.sessionId = '2026-08-02';
+      controller.sessionId = 'physical-session-2';
 
       final sessions = await controller.listSessions();
-      expect(sessions.single.id, '2026-08-02');
+      expect(sessions.single.id, 'physical-session-2');
       expect(await controller.deleteSession('2026-08-01'), isTrue);
       await controller.send('今天有什么待办？');
 
-      expect(controller.sessionId, '2026-08-02');
+      expect(controller.sessionId, 'physical-session-2');
       expect(controller.messages.first.text, '今天有什么待办？');
       expect(controller.messages.last.text, '今天有一项待办：提交评审稿。');
       expect(requested, contains('GET /api/flash/sessions'));
       expect(requested, contains('DELETE /api/flash/sessions/2026-08-01'));
-      expect(requested, contains('POST /api/flash/sessions/2026-08-02/chat'));
+      expect(
+        requested,
+        isNot(contains('POST /api/flash/sessions/2026-08-02/chat')),
+      );
     },
   );
 
@@ -445,17 +451,25 @@ void main() {
         return http.Response('not found', 404);
       }),
     );
-    final controller = CaptureSessionController(api: api);
+    final controller = CaptureSessionController(
+      api: api,
+      turnStream: (_, _) =>
+          Stream<SseEvent>.error(StateError('upstream unavailable')),
+    );
     addTearDown(() {
       controller.dispose();
       api.close();
     });
-    controller.sessionId = '2026-08-02';
+    controller.sessionId = 'physical-session-2';
 
     await controller.send('今天有什么待办？');
 
     expect(controller.streaming, isFalse);
-    expect(controller.error, '发送失败，请稍后重试');
-    expect(controller.messages.single.text, '今天有什么待办？');
+    expect(controller.error, isNull);
+    expect(controller.messages.first.text, '今天有什么待办？');
+    expect(
+      controller.messages.last.parts.whereType<ErrorPart>().single.message,
+      '发送失败，请稍后重试',
+    );
   });
 }

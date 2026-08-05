@@ -9,13 +9,18 @@ from app.auth.models import UserAccount
 from app.db.session import AsyncSessionFactory
 from app.domains.capture.models import CaptureRecording
 from app.domains.sessions.chat import SessionChatResult, get_session_chat_provider
+from app.domains.sessions.legacy_assistant import LegacyChatContext
 from app.domains.sessions.models import InputTurn, SessionMessage
 from app.domains.sessions import service as session_service
 from app.main import app
 
 
 class _Provider:
+    def __init__(self):
+        self.calls = []
+
     async def answer(self, **command):
+        self.calls.append(command)
         assert command["question"] == "今天记录了什么？"
         return SessionChatResult(text="你今天有一条随记。")
 
@@ -27,7 +32,9 @@ class _UnexpectedFailureProvider:
 
 @pytest_asyncio.fixture
 async def client(session):
-    app.dependency_overrides[get_session_chat_provider] = lambda: _Provider()
+    provider = _Provider()
+    app.dependency_overrides[get_session_chat_provider] = lambda: provider
+    app.state.test_session_chat_provider = provider
     try:
         async with AsyncClient(
             transport=ASGITransport(app=app),
@@ -35,6 +42,7 @@ async def client(session):
         ) as http_client:
             yield http_client
     finally:
+        del app.state.test_session_chat_provider
         app.dependency_overrides.pop(get_session_chat_provider, None)
 
 
@@ -100,6 +108,80 @@ async def test_chat_sse_creates_and_persists_a_durable_turn(client):
         "route": "/api/chat",
     }
     assert capture_count == 0
+    provider = app.state.test_session_chat_provider
+    assert len(provider.calls) == 1
+    assert isinstance(provider.calls[0]["context"], LegacyChatContext)
+    assert provider.calls[0]["context"].session_id == session_id
+    assert provider.calls[0]["context"].input_turn_id == input_turn_id
+    assert provider.calls[0]["context"].session_type == "chat"
+
+
+async def test_chat_persists_all_tool_call_and_result_snapshots(client):
+    token = await _register(client)
+
+    class _ToolProvider:
+        async def answer(self, **_):
+            return SessionChatResult(
+                text="两项都改好了。",
+                tool_events=[
+                    {
+                        "event": "tool_call",
+                        "data": {
+                            "id": "call-1",
+                            "name": "tool_update_asset",
+                            "arguments": {"asset_id": "asset-1"},
+                        },
+                    },
+                    {
+                        "event": "tool_result",
+                        "data": {
+                            "id": "call-1",
+                            "name": "tool_update_asset",
+                            "response": {"ok": True, "asset_id": "asset-1"},
+                        },
+                    },
+                    {
+                        "event": "tool_call",
+                        "data": {
+                            "id": "call-2",
+                            "name": "tool_update_event",
+                            "arguments": {"event_id": "event-1"},
+                        },
+                    },
+                    {
+                        "event": "tool_result",
+                        "data": {
+                            "id": "call-2",
+                            "name": "tool_update_event",
+                            "response": {"ok": True, "event_id": "event-1"},
+                        },
+                    },
+                ],
+            )
+
+    app.dependency_overrides[get_session_chat_provider] = lambda: _ToolProvider()
+    response = await client.post(
+        "/api/chat",
+        headers=_headers(token),
+        json={"user_text": "把刚才两项都改一下", "session_id": ""},
+    )
+
+    assert response.status_code == 200
+    async with AsyncSessionFactory() as database:
+        message = await database.scalar(
+            select(SessionMessage)
+            .where(SessionMessage.role == "agent")
+            .order_by(SessionMessage.created_at.desc())
+        )
+    assert message is not None
+    assert [item["id"] for item in message.tool_call_json["calls"]] == [
+        "call-1",
+        "call-2",
+    ]
+    assert [item["id"] for item in message.tool_result_json["results"]] == [
+        "call-1",
+        "call-2",
+    ]
 
 
 async def test_chat_reuses_an_existing_session(client):
@@ -196,4 +278,4 @@ async def test_chat_persists_unexpected_provider_failure_as_terminal(client):
         )
     assert message is not None
     assert message.status == "failed"
-    assert message.text == ""
+    assert message.text == "Agent 暂时不可用，请重试"

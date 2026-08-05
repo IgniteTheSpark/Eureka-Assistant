@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.internal_mcp.tools import EurekaToolContext, execute_tool
+from app.internal_mcp.runtime import (
+    InternalMCPRuntime,
+    InternalMCPTrustedContext,
+    get_internal_mcp_runtime,
+)
 
 
 CHAT_TOOL_DEFINITIONS = [
@@ -92,10 +97,15 @@ class SessionToolExecutor:
         user_id: str,
         session_id: str,
         input_turn_id: str | None,
+        runtime: InternalMCPRuntime | None = None,
     ) -> None:
         self.user_id = user_id
         self.session_id = session_id
         self.input_turn_id = input_turn_id
+        self.runtime = runtime or get_internal_mcp_runtime()
+
+    async def definitions(self) -> list[dict[str, Any]]:
+        return await self.runtime.list_openai_tools()
 
     async def execute(
         self,
@@ -109,22 +119,23 @@ class SessionToolExecutor:
             "create_asset": "tool_create_asset",
             "query_events": "tool_query_event",
             "create_event": "tool_create_event",
-        }.get(name)
-        if internal_name is None:
-            raise ValueError("unsupported chat tool")
+        }.get(name, name)
         normalized = dict(arguments)
         if "skill_machine_name" in normalized:
             normalized["user_skill_name"] = normalized.pop("skill_machine_name")
-        result = await execute_tool(
+        if isinstance(normalized.get("payload"), dict):
+            normalized["payload"] = json.dumps(
+                normalized["payload"], ensure_ascii=False
+            )
+        result = await self.runtime.call_tool(
             internal_name,
             normalized,
-            context=EurekaToolContext(
+            trusted=InternalMCPTrustedContext(
                 user_id=self.user_id,
                 session_id=self.session_id,
                 input_turn_id=self.input_turn_id,
-                idempotency_prefix=f"chat:{self.input_turn_id or self.session_id}",
+                tool_call_id=tool_call_id,
             ),
-            tool_call_id=tool_call_id,
         )
         return ToolOutcome(
             response=result,
@@ -135,7 +146,7 @@ class SessionToolExecutor:
 def _cards_for_result(name: str, result: dict[str, Any]) -> list[dict]:
     if not result.get("ok"):
         return []
-    if name in {"tool_create_asset", "tool_update_asset"}:
+    if result.get("asset_id") and isinstance(result.get("payload"), dict):
         return [
             {
                 "id": result.get("asset_id"),
@@ -144,7 +155,7 @@ def _cards_for_result(name: str, result: dict[str, Any]) -> list[dict]:
                 "payload": result.get("payload") or {},
             }
         ]
-    if name in {"tool_create_event", "tool_update_event"}:
+    if result.get("event_id") and result.get("title"):
         return [
             {
                 "id": result.get("event_id"),
@@ -159,8 +170,32 @@ def _cards_for_result(name: str, result: dict[str, Any]) -> list[dict]:
                 },
             }
         ]
-    if name == "tool_query_asset":
+    if result.get("contact_id") and result.get("name"):
+        return [
+            {
+                "id": result.get("contact_id"),
+                "contact_id": result.get("contact_id"),
+                "card_type": "contact",
+                **{
+                    key: value
+                    for key, value in result.items()
+                    if key
+                    not in {"ok", "contact_action", "contact_id"}
+                },
+            }
+        ]
+    if isinstance(result.get("assets"), list):
         return [dict(item) for item in result.get("assets") or []]
-    if name == "tool_query_event":
+    if isinstance(result.get("events"), list):
         return [dict(item) for item in result.get("events") or []]
+    if isinstance(result.get("contacts"), list):
+        return [
+            {
+                "id": item.get("contact_id"),
+                "card_type": "contact",
+                **dict(item),
+            }
+            for item in result.get("contacts") or []
+            if isinstance(item, dict)
+        ]
     return []
