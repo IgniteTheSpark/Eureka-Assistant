@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Any
 
 
 class AssetPayloadInvalid(ValueError):
     pass
+
+
+class AssetWriteProfile(StrEnum):
+    manual = "manual"
+    agent = "agent"
 
 
 def normalize_payload_schema(schema_json: dict | None) -> dict:
@@ -88,10 +94,26 @@ def _validate_object(payload: dict, schema: dict, path: str) -> None:
             _validate_value(value, definition, f"{path}.{name}")
 
 
-def validate_asset_payload(payload: dict, schema_json: dict | None) -> None:
+def validate_asset_payload(
+    payload: dict,
+    schema_json: dict | None,
+    *,
+    profile: AssetWriteProfile = AssetWriteProfile.manual,
+) -> None:
     if not isinstance(payload, dict):
         raise AssetPayloadInvalid("payload must be an object")
     schema = normalize_payload_schema(schema_json)
     if schema.get("type") != "object":
         raise AssetPayloadInvalid("skill schema root must be an object")
+    if profile == AssetWriteProfile.agent:
+        # Agent extraction is intentionally best-effort for custom skills.
+        # Missing fields and additional source-grounded keys must not discard a
+        # physical capture. Known fields still receive type/enum validation so
+        # we never silently coerce or invent values.
+        properties = schema.get("properties") or {}
+        for name, value in payload.items():
+            definition = properties.get(name)
+            if isinstance(definition, dict):
+                _validate_value(value, definition, f"payload.{name}")
+        return
     _validate_object(payload, schema, "payload")

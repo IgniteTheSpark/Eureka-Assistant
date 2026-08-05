@@ -2,7 +2,7 @@ import pytest
 
 from app.db.models import UserSkill
 from app.domains.assets.validation import AssetPayloadInvalid
-from app.domains.sessions.models import ChatSession
+from app.domains.sessions.models import ChatSession, InputTurn
 from app.domains.sessions.tools import SessionToolExecutor
 
 
@@ -21,8 +21,17 @@ async def test_create_asset_tool_is_owner_scoped_and_schema_validated(session):
     chat = ChatSession(user_id="owner", session_type="chat")
     session.add_all([skill, chat])
     await session.commit()
+    turn = InputTurn(
+        user_id="owner",
+        session_id=chat.id,
+        turn_index=0,
+        text="记录跑步五公里",
+        source="typed",
+    )
+    session.add(turn)
+    await session.commit()
     executor = SessionToolExecutor(
-        user_id="owner", session_id=chat.id, input_turn_id="turn-1"
+        user_id="owner", session_id=chat.id, input_turn_id=turn.id
     )
 
     with pytest.raises(AssetPayloadInvalid):

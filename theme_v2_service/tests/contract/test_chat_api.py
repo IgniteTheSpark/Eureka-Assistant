@@ -1,9 +1,16 @@
 import json
+from datetime import date
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import func, select
 
+from app.auth.models import UserAccount
+from app.db.session import AsyncSessionFactory
+from app.domains.capture.models import CaptureRecording
 from app.domains.sessions.chat import SessionChatResult, get_session_chat_provider
+from app.domains.sessions.models import InputTurn, SessionMessage
+from app.domains.sessions import service as session_service
 from app.main import app
 
 
@@ -11,6 +18,11 @@ class _Provider:
     async def answer(self, **command):
         assert command["question"] == "今天记录了什么？"
         return SessionChatResult(text="你今天有一条随记。")
+
+
+class _UnexpectedFailureProvider:
+    async def answer(self, **command):
+        raise RuntimeError("unexpected provider failure")
 
 
 @pytest_asyncio.fixture
@@ -73,6 +85,21 @@ async def test_chat_sse_creates_and_persists_a_durable_turn(client):
     ]
     assert messages.json()["messages"][0]["input_turn_id"] == input_turn_id
     assert messages.json()["messages"][1]["text"] == "你今天有一条随记。"
+    async with AsyncSessionFactory() as database:
+        turn = await database.get(InputTurn, input_turn_id)
+        capture_count = await database.scalar(
+            select(func.count()).select_from(CaptureRecording)
+        )
+    assert turn is not None
+    assert turn.session_id == session_id
+    assert turn.turn_index == 0
+    assert turn.source == "typed"
+    assert turn.text == "今天记录了什么？"
+    assert turn.provenance_json == {
+        "kind": "session_chat",
+        "route": "/api/chat",
+    }
+    assert capture_count == 0
 
 
 async def test_chat_reuses_an_existing_session(client):
@@ -101,8 +128,72 @@ async def test_chat_reuses_an_existing_session(client):
     assert missing.status_code == 404
 
 
+async def test_chat_inside_physical_flash_session_uses_chat_without_new_capture(
+    client,
+):
+    token = await _register(client)
+    async with AsyncSessionFactory() as database:
+        user_id = await database.scalar(
+            select(UserAccount.id).where(UserAccount.email == "chat@example.com")
+        )
+        assert user_id is not None
+        physical = await session_service.get_or_create_daily_flash_session(
+            database,
+            user_id,
+            date(2026, 8, 5),
+        )
+        session_id = physical.id
+        await database.commit()
+
+    response = await client.post(
+        "/api/chat",
+        headers=_headers(token),
+        json={"user_text": "今天记录了什么？", "session_id": session_id},
+    )
+
+    assert response.status_code == 200
+    meta = _frames(response.text)[0][1]
+    assert meta["session_id"] == session_id
+    async with AsyncSessionFactory() as database:
+        turn = await database.get(InputTurn, meta["input_turn_id"])
+        capture_count = await database.scalar(
+            select(func.count()).select_from(CaptureRecording)
+        )
+    assert turn is not None
+    assert turn.source == "typed"
+    assert turn.session_id == session_id
+    assert capture_count == 0
+
+
 async def test_chat_requires_authentication(client):
     response = await client.post(
         "/api/chat", json={"user_text": "hello", "session_id": ""}
     )
     assert response.status_code == 401
+
+
+async def test_chat_persists_unexpected_provider_failure_as_terminal(client):
+    token = await _register(client)
+    app.dependency_overrides[get_session_chat_provider] = (
+        lambda: _UnexpectedFailureProvider()
+    )
+
+    response = await client.post(
+        "/api/chat",
+        headers=_headers(token),
+        json={"user_text": "今天记录了什么？", "session_id": ""},
+    )
+
+    assert response.status_code == 200
+    frames = _frames(response.text)
+    assert [event for event, _ in frames] == ["meta", "error"]
+    assert frames[-1][1]["message"] == "Agent 暂时不可用，请重试"
+    async with AsyncSessionFactory() as database:
+        message = await database.scalar(
+            select(SessionMessage)
+            .where(SessionMessage.role == "agent")
+            .order_by(SessionMessage.created_at.desc())
+        )
+    assert message is not None
+    assert message.status == "failed"
+    assert message.text == ""

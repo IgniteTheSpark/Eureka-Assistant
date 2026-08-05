@@ -20,6 +20,7 @@ from app.domains.capture.agent import (
 from app.domains.capture.jobs import capture_asr_handler, capture_process_handler
 from app.domains.capture.models import CaptureFile, CaptureRecording, CaptureTurn
 from app.domains.notifications.models import Notification, OutboxEvent
+from app.domains.sessions.models import SessionMessage
 from app.jobs.queue import enqueue_job
 from app.jobs.registry import JobHandlerRegistry
 from app.jobs.runner import run_worker_once
@@ -345,6 +346,32 @@ async def test_retryable_transport_error_uses_queue_backoff(session):
     assert job.available_at > NOW
 
 
+async def test_exhausted_asr_retry_persists_terminal_capture_failure(session):
+    provider = FakeAsrProvider([RetryableAsrError("temporary ASR outage")])
+    recording_id, job_id = await _seed_s3_recording(
+        external_task_id="tencent-7"
+    )
+    async with AsyncSessionFactory() as database_session:
+        job = await database_session.get(WorkflowJob, job_id)
+        job.max_attempts = 1
+        await database_session.commit()
+
+    await run_worker_once(
+        _registry(provider),
+        owner="worker-a",
+        lease_seconds=60,
+        now=NOW,
+    )
+
+    async with AsyncSessionFactory() as database_session:
+        recording = await database_session.get(CaptureRecording, recording_id)
+        job = await database_session.get(WorkflowJob, job_id)
+    assert recording.process_status == "failed"
+    assert recording.error_message == "temporary ASR outage"
+    assert recording.session_id is None
+    assert job.status == "failed"
+
+
 async def test_permanent_invalid_provider_response_does_not_retry(session):
     provider = FakeAsrProvider([PermanentAsrError("invalid provider response")])
     recording_id, job_id = await _seed_s3_recording(
@@ -416,6 +443,110 @@ async def test_capture_job_creates_multiple_records_and_notification(session):
         "contact",
         "notes",
     }
+
+
+async def test_custom_partial_record_does_not_discard_valid_sibling_intent(session):
+    async with AsyncSessionFactory() as database_session:
+        database_session.add_all(
+            [
+                UserSkill(
+                    user_id="user-1",
+                    machine_name="running_training_log",
+                    display_name="跑步训练",
+                    description="跑步记录",
+                    domain="fitness",
+                    schema_json={
+                        "type": "object",
+                        "properties": {
+                            "distance": {"type": "number"},
+                            "duration": {"type": "integer"},
+                            "run_date": {"type": "string"},
+                        },
+                        "required": ["distance", "duration", "run_date"],
+                        "additionalProperties": False,
+                        "x-capture-enabled": True,
+                    },
+                ),
+                UserSkill(
+                    user_id="user-1",
+                    machine_name="daily_water_intake",
+                    display_name="喝水记录",
+                    description="每日饮水",
+                    domain="fitness",
+                    schema_json={
+                        "type": "object",
+                        "properties": {
+                            "amount_ml": {"type": "integer"},
+                            "date": {"type": "string"},
+                        },
+                        "required": ["amount_ml", "date"],
+                        "additionalProperties": False,
+                        "x-capture-enabled": True,
+                    },
+                ),
+            ]
+        )
+        await database_session.commit()
+
+    provider = FakeCaptureAgentProvider(
+        CaptureAgentResult(
+            summary="已记录跑步和饮水。",
+            records=[
+                CaptureRecordCommand(
+                    kind="asset",
+                    skill_machine_name="running_training_log",
+                    payload={
+                        "distance": 2,
+                        "location": "深圳湾人才公园",
+                    },
+                    source_text="跑了两公里，在深圳湾人才公园",
+                ),
+                CaptureRecordCommand(
+                    kind="asset",
+                    skill_machine_name="daily_water_intake",
+                    payload={"amount_ml": 1000},
+                    source_text="喝了一公升水",
+                ),
+            ],
+        )
+    )
+    recording_id, _ = await _seed_transcribed_capture(
+        "刚刚我跑了两公里，在深圳湾人才公园，然后喝了一公升水。"
+    )
+
+    await run_worker_once(
+        _process_registry(provider),
+        owner="worker-a",
+        lease_seconds=60,
+        now=NOW,
+    )
+
+    async with AsyncSessionFactory() as database_session:
+        recording = await database_session.get(CaptureRecording, recording_id)
+        rows = (
+            await database_session.execute(
+                select(Asset, UserSkill)
+                .join(UserSkill, UserSkill.id == Asset.user_skill_id)
+                .where(
+                    UserSkill.machine_name.in_(
+                        ["running_training_log", "daily_water_intake"]
+                    )
+                )
+            )
+        ).all()
+    by_skill = {skill.machine_name: asset for asset, skill in rows}
+    assert recording.process_status == "done"
+    assert set(by_skill) == {"running_training_log", "daily_water_intake"}
+    assert by_skill["running_training_log"].payload_json == {
+        "distance": 2,
+        "location": "深圳湾人才公园",
+    }
+    assert by_skill["daily_water_intake"].payload_json == {"amount_ml": 1000}
+    assert all(asset.session_id == recording.session_id for asset in by_skill.values())
+    assert all(
+        asset.source_input_turn_id == recording.input_turn_id
+        for asset in by_skill.values()
+    )
 
 
 async def test_capture_qa_result_completes_without_records(session):
@@ -585,6 +716,37 @@ async def test_retryable_capture_provider_error_requeues_without_outputs(session
     assert recording.process_status == "agent_processing"
     assert job.status == "queued"
     assert asset_count == 0
+
+
+async def test_exhausted_agent_retry_updates_persisted_agent_message(session):
+    provider = FakeCaptureAgentProvider(
+        RetryableCaptureAgentError("temporary agent outage")
+    )
+    recording_id, job_id = await _seed_transcribed_capture()
+    async with AsyncSessionFactory() as database_session:
+        job = await database_session.get(WorkflowJob, job_id)
+        job.max_attempts = 1
+        await database_session.commit()
+
+    await run_worker_once(
+        _process_registry(provider),
+        owner="worker-a",
+        lease_seconds=60,
+        now=NOW,
+    )
+
+    async with AsyncSessionFactory() as database_session:
+        recording = await database_session.get(CaptureRecording, recording_id)
+        job = await database_session.get(WorkflowJob, job_id)
+        agent_message = await database_session.get(
+            SessionMessage,
+            recording.agent_message_id,
+        )
+    assert recording.process_status == "failed"
+    assert recording.error_message == "temporary agent outage"
+    assert agent_message.status == "failed"
+    assert agent_message.text == "temporary agent outage"
+    assert job.status == "failed"
 
 
 async def test_permanent_capture_provider_error_fails_without_retry(session):

@@ -80,7 +80,7 @@ void main() {
           'x-long': false,
         },
       },
-      'required': ['distance'],
+      'required': <String>[],
       'additionalProperties': false,
       'x-capture-enabled': true,
     });

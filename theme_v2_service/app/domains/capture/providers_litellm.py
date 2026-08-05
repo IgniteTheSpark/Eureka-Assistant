@@ -7,6 +7,7 @@ import litellm
 
 from app.domains.capture.agent import (
     CaptureAgentResult,
+    CaptureOutputError,
     CaptureSkill,
     PermanentCaptureAgentError,
     RetryableCaptureAgentError,
@@ -153,7 +154,7 @@ class LiteLLMCaptureAgentProvider:
                 _message_content(response)
             )
             return validate_capture_result(result, skills)
-        except PermanentCaptureAgentError:
+        except (CaptureOutputError, PermanentCaptureAgentError):
             raise
         except Exception as exc:
             raise PermanentCaptureAgentError(

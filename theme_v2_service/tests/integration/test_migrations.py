@@ -55,6 +55,7 @@ def test_foundation_migration_round_trip_and_physical_types():
         "flash_chat_messages",
         "chat_sessions",
         "session_messages",
+        "input_turns",
     }.issubset(set(inspector.get_table_names()))
 
     asset_columns = {column["name"]: column for column in inspector.get_columns("assets")}
@@ -74,11 +75,20 @@ def test_foundation_migration_round_trip_and_physical_types():
         "source_report_id",
     ]
     assert asset_indexes["uq_assets_user_report_action"]["unique"] is True
+    assert asset_indexes["ix_assets_user_source_input_turn"]["column_names"] == [
+        "user_id",
+        "source_input_turn_id",
+    ]
 
     asset_foreign_keys = inspector.get_foreign_keys("assets")
     assert any(
         key["referred_table"] == "reports"
         and key["constrained_columns"] == ["source_report_id"]
+        for key in asset_foreign_keys
+    )
+    assert any(
+        key["referred_table"] == "input_turns"
+        and key["constrained_columns"] == ["source_input_turn_id"]
         for key in asset_foreign_keys
     )
 
@@ -91,5 +101,5 @@ def test_foundation_migration_round_trip_and_physical_types():
 
     with engine.connect() as connection:
         revision = connection.scalar(text("SELECT version_num FROM alembic_version"))
-    assert revision == "0013_chat_sessions"
+    assert revision == "0014_agent_session_foundation"
     engine.dispose()

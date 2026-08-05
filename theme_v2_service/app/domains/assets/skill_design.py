@@ -63,7 +63,10 @@ def _normalize_draft(raw: dict, description: str) -> dict:
             "type": field_type,
             "label": str(metadata.get("label") or key)[:80],
             "description": str(metadata.get("description") or "")[:500],
-            "required": metadata.get("required") is True,
+            # A custom Skill describes what may be captured; it does not make
+            # every spoken Flash satisfy a form contract. Importance belongs
+            # in presentation metadata, never a hard Agent-write prerequisite.
+            "required": False,
             "long": metadata.get("long") is True,
         }
     name = str(raw.get("name") or "").strip().lower()
@@ -119,7 +122,8 @@ async def design_skill_draft(description: str, answers=None) -> dict:
                 "只返回 JSON 对象，包含 name、display_name、payload_schema、"
                 "render_spec、sample_payload。name 和字段 key 使用小写英文 snake_case。"
                 "payload_schema 是字段映射，每个字段必须含 type、label、description、"
-                "required、long；type 仅可为 string/number/integer/date/datetime/boolean。"
+                "required、long；required 必须为 false，所有字段默认可选；"
+                "type 仅可为 string/number/integer/date/datetime/boolean。"
                 "字段控制在 2 到 6 个。render_spec 至少含 icon、primary_field，"
                 "primary_field 必须是 payload_schema 中的字段。不要输出 Markdown。"
             ),

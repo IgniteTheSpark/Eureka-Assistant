@@ -152,6 +152,9 @@ async def test_bound_card_sync_asr_result_is_idempotently_accepted(client):
     assert first.json()["asr_status"] == "completed"
     assert first.json()["asr_text"] == "明天下午三点项目会"
     assert first.json()["pipeline_status"] == "asr_done"
+    physical_session_id = first.json()["physical_session_id"]
+    assert physical_session_id
+    assert first.json()["input_turn_id"]
     assert second.status_code == 200
     assert second.json()["recording_id"] == first.json()["recording_id"]
     assert second.json()["file_id"] == first.json()["file_id"]
@@ -164,6 +167,19 @@ async def test_bound_card_sync_asr_result_is_idempotently_accepted(client):
     assert recording.status_code == 200
     assert recording.json()["recording"]["process_status"] == "asr_done"
     assert recording.json()["recording"]["asr_text"] == "明天下午三点项目会"
+    assert (
+        recording.json()["recording"]["physical_session_id"]
+        == physical_session_id
+    )
+    sessions = await client.get("/api/sessions", headers=_headers(token))
+    physical = next(
+        item
+        for item in sessions.json()["sessions"]
+        if item["id"] == physical_session_id
+    )
+    assert physical["session_type"] == "flash"
+    assert physical["session_date"] == "2026-08-02"
+    assert physical["revision"] == 1
 
     jobs = await _jobs()
     assert [(job.job_type, job.run_id) for job in jobs] == [
@@ -230,6 +246,7 @@ async def test_flash_sessions_group_recordings_by_local_capture_day(client):
     ]
     assert history.json()["sessions"][1]["title"] == "8月2日 闪念"
     assert history.json()["sessions"][1]["recording_count"] == 2
+    assert history.json()["sessions"][1]["physical_session_id"]
     assert history.json()["sessions"][1]["created_at"].endswith("Z")
     assert history.json()["sessions"][1]["updated_at"].endswith("Z")
 
@@ -239,6 +256,10 @@ async def test_flash_sessions_group_recordings_by_local_capture_day(client):
     )
     assert detail.status_code == 200
     assert detail.json()["session"]["id"] == "2026-08-02"
+    assert (
+        detail.json()["session"]["physical_session_id"]
+        == history.json()["sessions"][1]["physical_session_id"]
+    )
     assert [item["id"] for item in detail.json()["session"]["recordings"]] == [
         recording_ids[0],
         recording_ids[1],
@@ -420,6 +441,10 @@ async def test_s3_upload_is_idempotently_accepted_for_async_asr(client):
     assert second.status_code == 200
     assert second.json()["duplicate"] is True
     assert second.json()["recording_id"] == first.json()["recording_id"]
+    assert first.json()["physical_session_id"] is None
+    assert first.json()["input_turn_id"] is None
+    history = await client.get("/api/flash/sessions", headers=_headers(token))
+    assert history.json() == {"sessions": []}
 
     jobs = await _jobs()
     assert [(job.job_type, job.run_id) for job in jobs] == [

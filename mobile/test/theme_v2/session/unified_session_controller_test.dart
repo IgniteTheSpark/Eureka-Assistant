@@ -61,6 +61,30 @@ void main() {
     },
   );
 
+  test('physical flash session appears once and keeps flash routing', () async {
+    final physical = SessionInfo(
+      'physical-flash-1',
+      '8月5日 闪念',
+      DateTime(2026, 8, 5),
+    );
+    final chat = _FakeSessionController(sessions: [physical]);
+    final flash = _FakeSessionController(sessions: [physical]);
+    final controller = UnifiedSessionController(
+      chatController: chat,
+      flashController: flash,
+      ownsChatController: false,
+      ownsFlashController: false,
+    );
+
+    final history = await controller.listSessions();
+    await controller.loadSession(physical.id);
+
+    expect(history.map((item) => item.id), [physical.id]);
+    expect(flash.loadedIds, [physical.id]);
+    expect(chat.loadedIds, isEmpty);
+    controller.dispose();
+  });
+
   test('a capture entry loads directly through the flash workflow', () async {
     final chat = _FakeSessionController();
     final flash = _FakeSessionController();

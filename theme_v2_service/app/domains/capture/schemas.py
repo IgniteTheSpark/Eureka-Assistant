@@ -108,6 +108,8 @@ class CaptureAcceptance(BaseModel):
     duplicate: bool
     recording_id: str
     file_id: str
+    physical_session_id: str | None = None
+    input_turn_id: str | None = None
     asr_status: str
     asr_text: str
     pipeline_status: str
@@ -134,6 +136,7 @@ class FlashRequest(BaseModel):
 class FlashResponse(BaseModel):
     ok: bool
     session_id: str
+    physical_session_id: str = ""
     input_turn_id: str
     reply: str = ""
     summary: str = ""

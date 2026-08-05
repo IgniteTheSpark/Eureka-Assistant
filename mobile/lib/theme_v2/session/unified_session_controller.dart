@@ -94,7 +94,14 @@ class UnifiedSessionController extends ChangeNotifier
     for (final session in flashSessions) {
       _sourceBySessionId[session.id] = UnifiedSessionSource.flash;
     }
-    return [...chatSessions, ...flashSessions]
+    // Physical daily Flash Sessions now also appear in /api/sessions. Prefer
+    // the Flash adapter for the shared UUID until its compatibility surface is
+    // fully retired, and never show the same Session twice in history.
+    final byId = <String, SessionInfo>{
+      for (final session in chatSessions) session.id: session,
+      for (final session in flashSessions) session.id: session,
+    };
+    return byId.values.toList()
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
   }
 

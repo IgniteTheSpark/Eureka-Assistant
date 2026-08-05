@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 
+from app.config import get_settings
 from app.db.base import utc_now
 from app.db.models import UserSkill, WorkflowJob
 from app.db.session import session_scope
@@ -13,11 +14,13 @@ from app.domains.assets.service import (
     create_event,
     ensure_capture_skills,
 )
+from app.domains.assets.validation import AssetWriteProfile
 from app.domains.capture.agent import (
     CaptureAgentProvider,
     CaptureAgentResult,
     CaptureOutputError,
     PermanentCaptureAgentError,
+    RetryableCaptureAgentError,
     capture_skill_from_model,
     validate_capture_result,
 )
@@ -26,9 +29,15 @@ from app.domains.capture.asr import (
     AsrPollResult,
     AsrProvider,
     PermanentAsrError,
+    RetryableAsrError,
 )
-from app.domains.capture.models import CaptureFile, CaptureRecording, CaptureTurn
-from app.domains.capture.service import publish_capture_status
+from app.domains.capture.models import CaptureFile, CaptureRecording
+from app.domains.capture.service import (
+    materialize_final_capture,
+    publish_capture_status,
+)
+from app.domains.sessions import service as session_service
+from app.domains.sessions.models import ChatSession, SessionMessage
 from app.domains.notifications.schemas import NotificationCreate
 from app.domains.notifications.service import create_notification
 from app.jobs.models import JobDeferred, JobPermanentFailure
@@ -111,6 +120,23 @@ async def _fail_capture(
         recording.error_message = safe_message
         recording.processed_at = now
         recording.updated_at = now
+        if recording.agent_message_id:
+            agent_message = await session.get(
+                SessionMessage,
+                recording.agent_message_id,
+            )
+            if agent_message is not None:
+                agent_message.status = "failed"
+                agent_message.text = safe_message
+                agent_message.updated_at = now
+        if recording.session_id:
+            daily_session = await session.get(ChatSession, recording.session_id)
+            if daily_session is not None:
+                await session_service.publish_session_changed(
+                    session,
+                    daily_session,
+                    reason="capture_asr_failed",
+                )
         if file is not None:
             file.asr_status = "failed"
             file.updated_at = now
@@ -212,29 +238,10 @@ async def _complete_capture(
             return
 
         recording.process_status = "asr_done"
-        existing_turn = await session.scalar(
-            select(CaptureTurn).where(CaptureTurn.recording_id == recording.id)
-        )
-        if existing_turn is None:
-            session.add(
-                CaptureTurn(
-                    recording_id=recording.id,
-                    user_id=recording.user_id,
-                    transcript=text,
-                    source=recording.source,
-                    provenance_json={
-                        "kind": "hardware_audio",
-                        "card_sn": recording.card_sn,
-                        "device_file_name": recording.device_file_name,
-                        "asr_provider": recording.asr_provider,
-                    },
-                )
-            )
-        await enqueue_job(
+        await materialize_final_capture(
             session,
-            job_type="capture_process",
-            run_id=recording.id,
-            dedupe_key=f"capture-process:{recording.id}",
+            recording,
+            timezone_name=get_settings().default_user_timezone,
         )
         await publish_capture_status(
             session,
@@ -323,6 +330,19 @@ def capture_asr_handler(
                 "capture_asr_permanent",
                 "Tencent ASR permanently failed",
             ) from exc
+        except RetryableAsrError as exc:
+            if job.attempt >= job.max_attempts:
+                await _fail_capture(
+                    recording_id=recording_id,
+                    message=str(exc),
+                    raw_response=None,
+                    now=now,
+                )
+                raise JobPermanentFailure(
+                    "capture_asr_retries_exhausted",
+                    "Tencent ASR retry budget exhausted",
+                ) from exc
+            raise
 
         if result.status in {"pending", "running"}:
             await _defer_poll(
@@ -381,6 +401,11 @@ async def _prepare_capture_processing(
                 "capture_transcript_missing",
                 "capture transcript is missing",
             )
+        materialized = await materialize_final_capture(
+            session,
+            recording,
+            timezone_name=get_settings().default_user_timezone,
+        )
         baseline = await ensure_capture_skills(session, recording.user_id)
         baseline_names = {skill.machine_name for skill in baseline}
         custom = list(
@@ -402,11 +427,20 @@ async def _prepare_capture_processing(
         if recording.process_status == "asr_done":
             recording.process_status = "agent_processing"
             recording.updated_at = utc_now()
+            materialized.agent_message.status = "running"
+            materialized.agent_message.text = ""
+            materialized.agent_message.cards_json = []
+            materialized.agent_message.updated_at = utc_now()
             await publish_capture_status(
                 session,
                 recording,
                 status="agent_processing",
                 message="正在整理语音内容",
+            )
+            await session_service.publish_session_changed(
+                session,
+                materialized.session,
+                reason="capture_agent_processing",
             )
         return (
             recording.user_id,
@@ -469,6 +503,23 @@ async def _fail_agent_capture(
         recording.error_message = safe_message
         recording.processed_at = now
         recording.updated_at = now
+        if recording.agent_message_id:
+            agent_message = await session.get(
+                SessionMessage,
+                recording.agent_message_id,
+            )
+            if agent_message is not None:
+                agent_message.status = "failed"
+                agent_message.text = safe_message
+                agent_message.updated_at = now
+        if recording.session_id:
+            daily_session = await session.get(ChatSession, recording.session_id)
+            if daily_session is not None:
+                await session_service.publish_session_changed(
+                    session,
+                    daily_session,
+                    reason="capture_agent_failed",
+                )
         await publish_capture_status(
             session,
             recording,
@@ -523,14 +574,28 @@ async def _persist_capture_result(
                         effective_at=command.effective_at,
                         period=command.period,
                         occurred_at=command.occurred_at,
+                        session_id=recording.session_id,
+                    ),
+                    write_profile=(
+                        AssetWriteProfile.manual
+                        if skill.machine_name in {
+                            "todo",
+                            "expense",
+                            "contact",
+                            "notes",
+                        }
+                        else AssetWriteProfile.agent
                     ),
                 )
+                asset.source_input_turn_id = recording.input_turn_id
                 references.append(
                     {
                         "kind": "asset",
                         "asset_id": asset.id,
                         "user_skill_id": skill.id,
                         "skill_machine_name": skill.machine_name,
+                        "source_text": command.source_text.strip()
+                        or (recording.asr_text or "").strip(),
                     }
                 )
             else:
@@ -552,6 +617,8 @@ async def _persist_capture_result(
                     {
                         "kind": "event",
                         "event_id": event.id,
+                        "source_text": command.source_text.strip()
+                        or (recording.asr_text or "").strip(),
                     }
                 )
 
@@ -561,6 +628,24 @@ async def _persist_capture_result(
         recording.error_message = None
         recording.processed_at = now
         recording.updated_at = now
+        if recording.agent_message_id:
+            agent_message = await session.get(
+                SessionMessage,
+                recording.agent_message_id,
+            )
+            if agent_message is not None:
+                agent_message.status = "done"
+                agent_message.text = recording.result_summary
+                agent_message.cards_json = references
+                agent_message.updated_at = now
+        if recording.session_id:
+            daily_session = await session.get(ChatSession, recording.session_id)
+            if daily_session is not None:
+                await session_service.publish_session_changed(
+                    session,
+                    daily_session,
+                    reason="capture_agent_done",
+                )
         await create_notification(
             session,
             NotificationCreate(
@@ -623,6 +708,18 @@ def capture_process_handler(
                 "capture_agent_permanent",
                 "capture agent permanently failed",
             ) from exc
+        except RetryableCaptureAgentError as exc:
+            if job.attempt >= job.max_attempts:
+                await _fail_agent_capture(
+                    recording_id=recording_id,
+                    message=str(exc),
+                    now=now,
+                )
+                raise JobPermanentFailure(
+                    "capture_agent_retries_exhausted",
+                    "capture agent retry budget exhausted",
+                ) from exc
+            raise
         except CaptureOutputError as exc:
             await _fail_agent_capture(
                 recording_id=recording_id,

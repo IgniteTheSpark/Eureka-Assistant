@@ -26,6 +26,8 @@ from app.domains.capture.schemas import (
 )
 from app.domains.devices.models import Card, CardBinding
 from app.domains.notifications.service import publish_domain_event
+from app.domains.sessions import service as session_service
+from app.domains.sessions.models import ChatSession, InputTurn, SessionMessage
 from app.jobs.queue import enqueue_job, enqueue_or_requeue_job
 
 
@@ -59,6 +61,14 @@ class TextCaptureResult:
     turn: CaptureTurn
 
 
+@dataclass(frozen=True)
+class CaptureSessionMaterialization:
+    session: ChatSession
+    input_turn: InputTurn
+    user_message: SessionMessage
+    agent_message: SessionMessage
+
+
 def _recording_timestamp(recording: CaptureRecording) -> datetime:
     return recording.capture_started_at or recording.created_at
 
@@ -79,6 +89,118 @@ def _local_capture_date(
     if timestamp.tzinfo is None:
         timestamp = timestamp.replace(tzinfo=timezone.utc)
     return timestamp.astimezone(ZoneInfo(timezone_name)).date()
+
+
+async def materialize_final_capture(
+    session: AsyncSession,
+    recording: CaptureRecording,
+    *,
+    timezone_name: str,
+) -> CaptureSessionMaterialization:
+    """Persist the visible Flash turn before Agent organization starts.
+
+    The recording links are the idempotency checkpoint. All rows, the process
+    job, and the Session invalidation are committed by the caller together.
+    """
+    text = (recording.asr_text or "").strip()
+    if not text:
+        raise ValueError("cannot materialize an empty capture")
+
+    if recording.session_id and recording.input_turn_id and recording.agent_message_id:
+        daily_session = await session.get(ChatSession, recording.session_id)
+        input_turn = await session.get(InputTurn, recording.input_turn_id)
+        agent_message = await session.get(SessionMessage, recording.agent_message_id)
+        user_message = await session.scalar(
+            select(SessionMessage).where(
+                SessionMessage.session_id == recording.session_id,
+                SessionMessage.input_turn_id == recording.input_turn_id,
+                SessionMessage.role == "user",
+            )
+        )
+        if all((daily_session, input_turn, user_message, agent_message)):
+            return CaptureSessionMaterialization(
+                session=daily_session,
+                input_turn=input_turn,
+                user_message=user_message,
+                agent_message=agent_message,
+            )
+
+    local_date = _local_capture_date(recording, timezone_name=timezone_name)
+    daily_session = await session_service.get_or_create_daily_flash_session(
+        session,
+        recording.user_id,
+        local_date,
+    )
+    input_turn = await session_service.create_input_turn(
+        session,
+        daily_session,
+        text=text,
+        source="voice",
+        file_id=recording.file_id,
+        recording_id=recording.id,
+        segments=recording.asr_segments_json or [],
+        asr_provider=recording.asr_provider,
+        provenance={
+            "kind": "hardware_audio",
+            "recording_id": recording.id,
+            "card_sn": recording.card_sn,
+            "device_file_name": recording.device_file_name,
+            "capture_source": recording.source,
+        },
+    )
+    user_message = SessionMessage(
+        session_id=daily_session.id,
+        user_id=recording.user_id,
+        role="user",
+        status="done",
+        text=text,
+        input_turn_id=input_turn.id,
+    )
+    agent_message = SessionMessage(
+        session_id=daily_session.id,
+        user_id=recording.user_id,
+        role="agent",
+        status="running",
+        text="",
+        input_turn_id=input_turn.id,
+    )
+    session.add_all([user_message, agent_message])
+    await session.flush()
+    recording.session_id = daily_session.id
+    recording.input_turn_id = input_turn.id
+    recording.agent_message_id = agent_message.id
+
+    existing_capture_turn = await session.scalar(
+        select(CaptureTurn).where(CaptureTurn.recording_id == recording.id)
+    )
+    if existing_capture_turn is None:
+        session.add(
+            CaptureTurn(
+                recording_id=recording.id,
+                user_id=recording.user_id,
+                transcript=text,
+                source=recording.source,
+                provenance_json=input_turn.provenance_json,
+            )
+        )
+    await enqueue_job(
+        session,
+        job_type="capture_process",
+        run_id=recording.id,
+        dedupe_key=f"capture-process:{recording.id}",
+    )
+    await session_service.publish_session_changed(
+        session,
+        daily_session,
+        reason="capture_asr_final",
+    )
+    await session.flush()
+    return CaptureSessionMaterialization(
+        session=daily_session,
+        input_turn=input_turn,
+        user_message=user_message,
+        agent_message=agent_message,
+    )
 
 
 async def publish_capture_status(
@@ -276,11 +398,10 @@ async def accept_sync_result(
         _assert_same_sync_result(existing, command)
         file = await _file_for_recording(session, existing)
         if existing.process_status == "asr_done":
-            await enqueue_job(
+            await materialize_final_capture(
                 session,
-                job_type="capture_process",
-                run_id=existing.id,
-                dedupe_key=f"capture-process:{existing.id}",
+                existing,
+                timezone_name=get_settings().default_user_timezone,
             )
         return CaptureAcceptanceResult(
             recording=existing,
@@ -364,27 +485,11 @@ async def accept_sync_result(
             "语音识别完成" if process_status == "asr_done" else message
         ),
     )
-    if text:
-        session.add(
-            CaptureTurn(
-                recording_id=recording.id,
-                user_id=user_id,
-                transcript=text,
-                source=command.source,
-                provenance_json={
-                    "kind": "hardware_audio",
-                    "card_sn": command.card_sn,
-                    "device_file_name": command.device_file_name,
-                    "asr_provider": command.asr_provider,
-                },
-            )
-        )
     if process_status == "asr_done":
-        await enqueue_job(
+        await materialize_final_capture(
             session,
-            job_type="capture_process",
-            run_id=recording.id,
-            dedupe_key=f"capture-process:{recording.id}",
+            recording,
+            timezone_name=get_settings().default_user_timezone,
         )
     await session.flush()
     return CaptureAcceptanceResult(
@@ -550,26 +655,17 @@ async def accept_text_capture(
     )
     session.add(recording)
     await session.flush()
-    turn = CaptureTurn(
-        recording_id=recording.id,
-        user_id=user_id,
-        transcript=command.text,
-        source=command.source,
-        provenance_json={
-            "kind": "text_flash" if command.source == "typed" else "ring_asr",
-            "capture_session_type": command.capture_session_type,
-            "parent_session_id": command.session_id.strip(),
-        },
-        created_at=now,
-    )
-    session.add(turn)
-    await session.flush()
-    await enqueue_job(
+    await materialize_final_capture(
         session,
-        job_type="capture_process",
-        run_id=recording.id,
-        dedupe_key=f"capture-process:{recording.id}",
+        recording,
+        timezone_name=get_settings().default_user_timezone,
     )
+    await session.flush()
+    turn = await session.scalar(
+        select(CaptureTurn).where(CaptureTurn.recording_id == recording.id)
+    )
+    if turn is None:
+        raise RuntimeError("capture compatibility turn missing")
     await publish_capture_status(
         session,
         recording,
@@ -618,6 +714,8 @@ def acceptance_payload(result: CaptureAcceptanceResult) -> dict:
         "duplicate": result.duplicate,
         "recording_id": recording.id,
         "file_id": recording.file_id,
+        "physical_session_id": recording.session_id,
+        "input_turn_id": recording.input_turn_id,
         "asr_status": asr_status(recording, result.file),
         "asr_text": recording.asr_text or "",
         "pipeline_status": recording.process_status,
@@ -710,7 +808,11 @@ def flash_response_payload(
     return {
         "ok": not failed,
         "session_id": recording.id,
-        "input_turn_id": result.turn.id if result.turn is not None else "",
+        "physical_session_id": recording.session_id or "",
+        "input_turn_id": (
+            recording.input_turn_id
+            or (result.turn.id if result.turn is not None else "")
+        ),
         "reply": summary if not references and not pending and not failed else "",
         "summary": summary,
         "cards": cards,
@@ -778,6 +880,25 @@ async def retry_recording(
         dedupe_key=dedupe_key,
         available_at=now,
     )
+    if mode == "pipeline" and recording.agent_message_id:
+        agent_message = await session.get(SessionMessage, recording.agent_message_id)
+        if agent_message is not None:
+            agent_message.status = "running"
+            agent_message.text = ""
+            agent_message.cards_json = []
+            agent_message.updated_at = now
+    if recording.session_id:
+        daily_session = await session.get(ChatSession, recording.session_id)
+        if daily_session is not None:
+            await session_service.publish_session_changed(
+                session,
+                daily_session,
+                reason=(
+                    "capture_agent_retry"
+                    if mode == "pipeline"
+                    else "capture_asr_retry"
+                ),
+            )
     await publish_capture_status(
         session,
         recording,
@@ -811,7 +932,12 @@ def recording_payload(result: RecordingResult) -> dict:
             "asr_text": recording.asr_text or "",
             "asr_error": recording.asr_error or "",
             "session_id": recording.id,
-            "input_turn_id": result.turn.id if result.turn is not None else None,
+            "physical_session_id": recording.session_id,
+            "session_revision": None,
+            "input_turn_id": (
+                recording.input_turn_id
+                or (result.turn.id if result.turn is not None else None)
+            ),
             "result_summary": _display_result_summary(recording),
             "result_cards": recording.result_records_json or [],
             "session_date": _local_capture_date(
@@ -838,7 +964,13 @@ async def list_daily_sessions(
     recordings = list(
         await session.scalars(
             select(CaptureRecording)
-            .where(CaptureRecording.user_id == user_id)
+            .where(
+                CaptureRecording.user_id == user_id,
+                func.length(
+                    func.trim(func.coalesce(CaptureRecording.asr_text, ""))
+                )
+                > 0,
+            )
             .order_by(
                 func.coalesce(
                     CaptureRecording.capture_started_at,
@@ -858,9 +990,19 @@ async def list_daily_sessions(
     sessions = []
     for local_date in sorted(grouped, reverse=True)[:limit]:
         rows = grouped[local_date]
+        physical_session = next(
+            (row.session_id for row in rows if row.session_id),
+            None,
+        )
+        revision = None
+        if physical_session:
+            model = await session.get(ChatSession, physical_session)
+            revision = model.revision if model is not None else None
         sessions.append(
             {
                 "id": local_date.isoformat(),
+                "physical_session_id": physical_session,
+                "session_revision": revision,
                 "date": local_date.isoformat(),
                 "title": f"{local_date.month}月{local_date.day}日 闪念",
                 "recording_count": len(rows),
@@ -894,6 +1036,10 @@ async def get_daily_session(
             select(CaptureRecording)
             .where(
                 CaptureRecording.user_id == user_id,
+                func.length(
+                    func.trim(func.coalesce(CaptureRecording.asr_text, ""))
+                )
+                > 0,
                 timestamp >= start_utc,
                 timestamp < end_utc,
             )
@@ -910,8 +1056,21 @@ async def get_daily_session(
         )
         results.append(RecordingResult(recording=recording, file=file, turn=turn))
     chat_messages = await list_flash_chat_messages(session, user_id, local_date)
+    physical_session_id = next(
+        (row.session_id for row in recordings if row.session_id),
+        None,
+    )
+    physical_session = (
+        await session.get(ChatSession, physical_session_id)
+        if physical_session_id
+        else None
+    )
     return {
         "id": local_date.isoformat(),
+        "physical_session_id": physical_session_id,
+        "session_revision": (
+            physical_session.revision if physical_session is not None else None
+        ),
         "date": local_date.isoformat(),
         "title": f"{local_date.month}月{local_date.day}日 闪念",
         "created_at": _as_utc_z(

@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import json
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
+from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import new_uuid, utc_now
 from app.db.models import Asset, Event, UserSkill
-from app.domains.sessions.models import ChatSession, SessionMessage
+from app.domains.notifications.service import publish_domain_event
+from app.domains.sessions.models import ChatSession, InputTurn, SessionMessage
 from app.domains.sessions.schemas import SessionContextUpdate, SessionCreate
 
 
@@ -26,6 +28,122 @@ async def get_session(
         select(ChatSession).where(
             ChatSession.id == session_id, ChatSession.user_id == user_id
         )
+    )
+
+
+async def get_or_create_daily_flash_session(
+    database: AsyncSession,
+    user_id: str,
+    session_date: date,
+) -> ChatSession:
+    """Return the physical daily Flash Session under a row lock.
+
+    MySQL's upsert closes the absent-row race without rolling back the caller's
+    capture transaction. The unique key is scoped to flash + local date, while
+    ordinary chat sessions keep a null date.
+    """
+    now = utc_now()
+    candidate_id = new_uuid()
+    statement = mysql_insert(ChatSession).values(
+        id=candidate_id,
+        user_id=user_id,
+        session_type="flash",
+        session_date=session_date,
+        revision=0,
+        title=f"{session_date.month}月{session_date.day}日 闪念",
+        subject_type=None,
+        subject_id=None,
+        context_asset_ids_json=[],
+        created_at=now,
+        updated_at=now,
+    )
+    await database.execute(
+        statement.on_duplicate_key_update(id=ChatSession.id)
+    )
+    model = await database.scalar(
+        select(ChatSession)
+        .where(
+            ChatSession.user_id == user_id,
+            ChatSession.session_type == "flash",
+            ChatSession.session_date == session_date,
+        )
+        .with_for_update()
+    )
+    if model is None:
+        raise RuntimeError("daily flash session upsert failed")
+    return model
+
+
+async def create_input_turn(
+    database: AsyncSession,
+    model: ChatSession,
+    *,
+    text: str,
+    source: str,
+    file_id: str | None = None,
+    recording_id: str | None = None,
+    segments: list | None = None,
+    asr_provider: str | None = None,
+    language: str | None = None,
+    provenance: dict | None = None,
+) -> InputTurn:
+    # The Session row is the allocation lock for monotonically ordered turns.
+    locked = await database.scalar(
+        select(ChatSession)
+        .where(
+            ChatSession.id == model.id,
+            ChatSession.user_id == model.user_id,
+        )
+        .with_for_update()
+    )
+    if locked is None:
+        raise LookupError("session not found")
+    latest = await database.scalar(
+        select(func.max(InputTurn.turn_index)).where(
+            InputTurn.session_id == model.id
+        )
+    )
+    turn = InputTurn(
+        user_id=model.user_id,
+        session_id=model.id,
+        turn_index=int(latest) + 1 if latest is not None else 0,
+        file_id=file_id,
+        recording_id=recording_id,
+        text=text,
+        segments_json=segments or [],
+        source=source,
+        asr_provider=asr_provider,
+        language=language,
+        provenance_json=provenance or {},
+    )
+    database.add(turn)
+    await database.flush()
+    return turn
+
+
+async def publish_session_changed(
+    database: AsyncSession,
+    model: ChatSession,
+    *,
+    reason: str,
+) -> None:
+    model.revision = int(model.revision or 0) + 1
+    model.updated_at = utc_now()
+    await database.flush()
+    await publish_domain_event(
+        database,
+        event_type="session_changed",
+        aggregate_type="chat_session",
+        aggregate_id=model.id,
+        user_id=model.user_id,
+        payload={
+            "session_id": model.id,
+            "session_date": (
+                model.session_date.isoformat() if model.session_date else None
+            ),
+            "revision": model.revision,
+            "reason": reason,
+        },
     )
 
 
@@ -72,6 +190,8 @@ def session_list_item(model: ChatSession) -> dict:
         "id": model.id,
         "title": model.title,
         "session_type": model.session_type,
+        "session_date": model.session_date.isoformat() if model.session_date else None,
+        "revision": model.revision,
         "subject_type": model.subject_type,
         "subject_id": model.subject_id,
         "created_at": _utc_z(model.created_at),
@@ -224,14 +344,20 @@ async def create_turn(
     model: ChatSession,
     user_text: str,
 ) -> tuple[SessionMessage, SessionMessage]:
-    turn_id = new_uuid()
+    turn = await create_input_turn(
+        database,
+        model,
+        text=user_text,
+        source="typed",
+        provenance={"kind": "session_chat", "route": "/api/chat"},
+    )
     user_message = SessionMessage(
         session_id=model.id,
         user_id=model.user_id,
         role="user",
         status="done",
         text=user_text,
-        input_turn_id=turn_id,
+        input_turn_id=turn.id,
     )
     agent_message = SessionMessage(
         session_id=model.id,
@@ -239,7 +365,7 @@ async def create_turn(
         role="agent",
         status="running",
         text="",
-        input_turn_id=turn_id,
+        input_turn_id=turn.id,
     )
     database.add_all([user_message, agent_message])
     if not model.title:
@@ -247,6 +373,7 @@ async def create_turn(
         model.title = normalized[:30] + ("…" if len(normalized) > 30 else "")
     model.updated_at = utc_now()
     await database.flush()
+    await publish_session_changed(database, model, reason="chat_turn_created")
     return user_message, agent_message
 
 

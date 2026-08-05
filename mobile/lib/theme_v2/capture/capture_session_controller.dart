@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../../api/api_client.dart';
 import '../../chat/chat_models.dart';
 import '../session/session_controller.dart';
+import '../session/session_invalidation.dart';
 
 /// Adapter that projects Theme V2 capture recordings onto the
 /// established Session transcript surface.
@@ -13,12 +16,21 @@ import '../session/session_controller.dart';
 /// the exact transcript, organization summary, and derived records.
 class CaptureSessionController extends ChangeNotifier
     implements ThemeV2SessionController, FlashSessionWorkflow {
-  CaptureSessionController({ApiClient? api})
-    : _api = api ?? ApiClient(),
-      _ownsApi = api == null;
+  CaptureSessionController({
+    ApiClient? api,
+    ValueListenable<SessionInvalidation?>? invalidations,
+    Duration invalidationDebounce = const Duration(milliseconds: 200),
+  }) : _api = api ?? ApiClient(),
+       _ownsApi = api == null,
+       _invalidations = invalidations ?? SessionInvalidations.instance,
+       _invalidationDebounce = invalidationDebounce {
+    _invalidations.addListener(_onInvalidation);
+  }
 
   final ApiClient _api;
   final bool _ownsApi;
+  final ValueListenable<SessionInvalidation?> _invalidations;
+  final Duration _invalidationDebounce;
 
   @override
   final List<ChatMessage> messages = [];
@@ -34,6 +46,11 @@ class CaptureSessionController extends ChangeNotifier
 
   DateTime? _createdAt;
   String? _retryRecordingId;
+  String? _physicalSessionId;
+  String? _sessionDate;
+  int _sessionRevision = 0;
+  Timer? _invalidationTimer;
+  final Map<String, String> _dateByPhysicalSessionId = {};
   var _loadRevision = 0;
   var _disposed = false;
 
@@ -48,13 +65,26 @@ class CaptureSessionController extends ChangeNotifier
 
   @override
   Future<void> loadSession(String id, {String? title}) async {
+    await _loadSession(id, title: title, background: false);
+  }
+
+  Future<void> _loadSession(
+    String id, {
+    String? title,
+    required bool background,
+  }) async {
     final revision = ++_loadRevision;
-    streaming = true;
-    error = null;
-    _notify();
+    if (!background) {
+      _invalidationTimer?.cancel();
+      streaming = true;
+      error = null;
+      _notify();
+    }
     try {
       Map<String, dynamic>? linkedRecording;
-      var sessionDate = _isSessionDate(id) ? id : '';
+      var sessionDate = _isSessionDate(id)
+          ? id
+          : _dateByPhysicalSessionId[id] ?? '';
       if (sessionDate.isEmpty) {
         final response = await _api.getJson('/api/flash/recordings/$id');
         linkedRecording = ((response as Map)['recording'] as Map?)
@@ -171,6 +201,17 @@ class CaptureSessionController extends ChangeNotifier
         ..clear()
         ..addAll(nextMessages);
       sessionId = sessionDate;
+      _sessionDate = sessionDate;
+      _physicalSessionId =
+          dailySession['physical_session_id']?.toString().trim().isNotEmpty ==
+              true
+          ? dailySession['physical_session_id'].toString().trim()
+          : linkedRecording?['physical_session_id']?.toString().trim();
+      final rawSessionRevision = dailySession['session_revision'];
+      _sessionRevision = rawSessionRevision is num
+          ? rawSessionRevision.toInt()
+          : int.tryParse(rawSessionRevision?.toString() ?? '') ??
+                _sessionRevision;
       _createdAt = DateTime.tryParse(sessionDate);
       _retryRecordingId = retryRecordingId;
       streaming = hasPending;
@@ -178,17 +219,38 @@ class CaptureSessionController extends ChangeNotifier
       _notify();
     } on ApiException catch (exception) {
       if (_disposed || revision != _loadRevision) return;
+      if (background) return;
       streaming = false;
       error = exception.statusCode == 404 ? '这条闪念不存在或已失效' : '闪念加载失败，请稍后重试';
       _notify();
       rethrow;
     } catch (_) {
       if (_disposed || revision != _loadRevision) return;
+      if (background) return;
       streaming = false;
       error = '闪念加载失败，请稍后重试';
       _notify();
       rethrow;
     }
+  }
+
+  void _onInvalidation() {
+    if (_disposed) return;
+    final event = _invalidations.value;
+    if (event == null || event.revision <= _sessionRevision) return;
+    final physicalMatch =
+        _physicalSessionId != null && event.sessionId == _physicalSessionId;
+    final dateMatch =
+        _sessionDate != null &&
+        event.sessionDate.isNotEmpty &&
+        event.sessionDate == _sessionDate;
+    if (!physicalMatch && !dateMatch) return;
+    _invalidationTimer?.cancel();
+    _invalidationTimer = Timer(_invalidationDebounce, () {
+      final activeDate = _sessionDate;
+      if (_disposed || activeDate == null) return;
+      unawaited(_loadSession(activeDate, background: true));
+    });
   }
 
   bool _isSessionDate(String value) =>
@@ -276,6 +338,15 @@ class CaptureSessionController extends ChangeNotifier
         .whereType<Map>()
         .map((value) {
           final recording = value.cast<String, dynamic>();
+          final date =
+              recording['date']?.toString().trim() ??
+              recording['id']?.toString().trim() ??
+              '';
+          final physicalId =
+              recording['physical_session_id']?.toString().trim() ?? '';
+          if (physicalId.isNotEmpty && date.isNotEmpty) {
+            _dateByPhysicalSessionId[physicalId] = date;
+          }
           final createdAt =
               DateTime.tryParse(
                 recording['created_at']?.toString() ??
@@ -285,7 +356,7 @@ class CaptureSessionController extends ChangeNotifier
               DateTime.now();
           final declaredTitle = recording['title']?.toString().trim() ?? '';
           return SessionInfo(
-            recording['id']?.toString() ?? '',
+            physicalId.isNotEmpty ? physicalId : date,
             declaredTitle.isEmpty
                 ? '${createdAt.month}月${createdAt.day}日 闪念'
                 : declaredTitle,
@@ -299,8 +370,10 @@ class CaptureSessionController extends ChangeNotifier
   @override
   Future<bool> deleteSession(String id) async {
     try {
-      await _api.deleteJson('/api/flash/sessions/$id');
-      if (sessionId == id) reset();
+      final date = _dateByPhysicalSessionId[id] ?? id;
+      await _api.deleteJson('/api/flash/sessions/$date');
+      _dateByPhysicalSessionId.remove(id);
+      if (sessionId == date) reset();
       return true;
     } catch (_) {
       return false;
@@ -369,6 +442,10 @@ class CaptureSessionController extends ChangeNotifier
     sessionId = null;
     _createdAt = null;
     _retryRecordingId = null;
+    _physicalSessionId = null;
+    _sessionDate = null;
+    _sessionRevision = 0;
+    _invalidationTimer?.cancel();
     streaming = false;
     error = null;
     _notify();
@@ -383,6 +460,8 @@ class CaptureSessionController extends ChangeNotifier
     if (_disposed) return;
     _disposed = true;
     _loadRevision++;
+    _invalidationTimer?.cancel();
+    _invalidations.removeListener(_onInvalidation);
     if (_ownsApi) _api.close();
     super.dispose();
   }

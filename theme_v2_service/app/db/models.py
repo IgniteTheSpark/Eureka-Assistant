@@ -67,6 +67,11 @@ class Asset(Base):
             "effective_at",
         ),
         Index("ix_assets_user_source_report", "user_id", "source_report_id"),
+        Index(
+            "ix_assets_user_source_input_turn",
+            "user_id",
+            "source_input_turn_id",
+        ),
         UniqueConstraint(
             "user_id",
             "source_report_id",
@@ -89,7 +94,10 @@ class Asset(Base):
     session_id: Mapped[str | None] = mapped_column(
         CHAR(36), ForeignKey("chat_sessions.id", ondelete="SET NULL")
     )
-    source_input_turn_id: Mapped[str | None] = mapped_column(CHAR(36))
+    source_input_turn_id: Mapped[str | None] = mapped_column(
+        CHAR(36),
+        ForeignKey("input_turns.id", ondelete="SET NULL"),
+    )
     source_report_id: Mapped[str | None] = mapped_column(
         CHAR(36),
         ForeignKey("reports.id", ondelete="SET NULL"),

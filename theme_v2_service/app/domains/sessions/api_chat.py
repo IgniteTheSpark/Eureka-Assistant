@@ -12,11 +12,7 @@ from app.auth.dependencies import get_current_user_id
 from app.db.base import utc_now
 from app.db.session import session_scope
 from app.domains.sessions import service
-from app.domains.sessions.chat import (
-    SessionChatError,
-    SessionChatProvider,
-    get_session_chat_provider,
-)
+from app.domains.sessions.chat import SessionChatProvider, get_session_chat_provider
 from app.domains.sessions.models import SessionMessage
 from app.domains.sessions.schemas import ChatRequest, SessionCreate
 from app.domains.sessions.tools import SessionToolExecutor
@@ -36,6 +32,7 @@ async def _complete_turn(
     history: list[dict[str, str]],
     question: str,
     agent_message_id: str,
+    session_id: str,
     user_id: str,
     started: float,
     tool_executor: SessionToolExecutor,
@@ -62,8 +59,15 @@ async def _complete_turn(
                 stored.elapsed_ms = elapsed_ms
                 stored.token_count = result.total_tokens
                 stored.updated_at = utc_now()
+                model = await service.get_session(database, user_id, session_id)
+                if model is not None:
+                    await service.publish_session_changed(
+                        database,
+                        model,
+                        reason="chat_agent_done",
+                    )
         return result, elapsed_ms, None
-    except SessionChatError:
+    except Exception:
         async with session_scope() as database:
             stored = await database.scalar(
                 select(SessionMessage).where(
@@ -75,6 +79,13 @@ async def _complete_turn(
                 stored.status = "failed"
                 stored.text = ""
                 stored.updated_at = utc_now()
+                model = await service.get_session(database, user_id, session_id)
+                if model is not None:
+                    await service.publish_session_changed(
+                        database,
+                        model,
+                        reason="chat_agent_failed",
+                    )
         return None, None, "Agent 暂时不可用，请重试"
 
 
@@ -130,6 +141,7 @@ async def chat(
                 history=history,
                 question=command.user_text.strip(),
                 agent_message_id=agent_message_id,
+                session_id=session_id,
                 user_id=user_id,
                 started=started,
                 tool_executor=SessionToolExecutor(

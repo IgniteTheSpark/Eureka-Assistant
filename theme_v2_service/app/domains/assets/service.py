@@ -16,7 +16,7 @@ from app.domains.assets.schemas import (
     UserSkillCreate,
     UserSkillUpdate,
 )
-from app.domains.assets.validation import validate_asset_payload
+from app.domains.assets.validation import AssetWriteProfile, validate_asset_payload
 from app.domains.triggers.service import on_asset_created
 
 
@@ -260,6 +260,8 @@ async def create_asset(
     session: AsyncSession,
     user_id: str,
     command: AssetCreate,
+    *,
+    write_profile: AssetWriteProfile = AssetWriteProfile.manual,
 ) -> Asset:
     skill = await session.scalar(
         select(UserSkill).where(
@@ -269,7 +271,11 @@ async def create_asset(
     )
     if skill is None:
         raise UserSkillNotFound()
-    validate_asset_payload(command.payload, skill.schema_json)
+    validate_asset_payload(
+        command.payload,
+        skill.schema_json,
+        profile=write_profile,
+    )
 
     if command.session_id:
         from app.domains.sessions.models import ChatSession
@@ -591,7 +597,10 @@ async def _attach_capture_source(
             for reference in references
         ):
             record.source_recording_id = recording.id
-            record.source_input_turn_id = turn.id if turn is not None else None
+            record.source_input_turn_id = (
+                recording.input_turn_id
+                or (turn.id if turn is not None else None)
+            )
             return
     record.source_recording_id = None
     record.source_input_turn_id = None

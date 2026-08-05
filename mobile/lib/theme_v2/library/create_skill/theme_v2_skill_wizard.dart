@@ -855,15 +855,6 @@ class _SkillFieldEditor extends StatelessWidget {
             onChanged: (value) => onChanged(meaning: value),
             decoration: const InputDecoration(labelText: '含义'),
           ),
-          Row(
-            children: [
-              const Expanded(child: Text('必填')),
-              Switch(
-                value: field.required,
-                onChanged: (value) => onChanged(required: value),
-              ),
-            ],
-          ),
         ],
       ),
     );

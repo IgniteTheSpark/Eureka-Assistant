@@ -140,7 +140,6 @@ class ApiSkillWizardRepository implements SkillWizardRepository {
 
 Map<String, dynamic> _themeV2SkillSchema(Map<String, dynamic> payloadSchema) {
   final properties = <String, dynamic>{};
-  final required = <String>[];
   for (final entry in payloadSchema.entries) {
     final metadata = (entry.value as Map?)?.cast<String, dynamic>() ?? const {};
     final sourceType = metadata['type']?.toString() ?? 'string';
@@ -157,12 +156,13 @@ Map<String, dynamic> _themeV2SkillSchema(Map<String, dynamic> payloadSchema) {
       'x-long': metadata['long'] == true,
     };
     properties[entry.key] = property;
-    if (metadata['required'] == true) required.add(entry.key);
   }
   return {
     'type': 'object',
     'properties': properties,
-    'required': required,
+    // Custom capture fields are always optional. `primary_field` and field
+    // ordering remain presentation hints, never Agent-write invariants.
+    'required': const <String>[],
     'additionalProperties': false,
     'x-capture-enabled': true,
   };

@@ -6,7 +6,11 @@ from typing import Any, Literal, Protocol
 from pydantic import BaseModel, Field, model_validator
 
 from app.db.models import UserSkill
-from app.domains.assets.validation import AssetPayloadInvalid, validate_asset_payload
+from app.domains.assets.validation import (
+    AssetPayloadInvalid,
+    AssetWriteProfile,
+    validate_asset_payload,
+)
 
 
 BASELINE_CAPTURE_SKILL_NAMES = {
@@ -145,9 +149,14 @@ def capture_skill_from_model(skill: UserSkill) -> CaptureSkill:
     )
 
 
-def _validate_payload(payload: dict[str, Any], schema: dict) -> None:
+def _validate_payload(
+    payload: dict[str, Any],
+    schema: dict,
+    *,
+    profile: AssetWriteProfile,
+) -> None:
     try:
-        validate_asset_payload(payload, schema)
+        validate_asset_payload(payload, schema, profile=profile)
     except AssetPayloadInvalid as exc:
         raise CaptureOutputError(str(exc)) from exc
 
@@ -169,5 +178,14 @@ def validate_capture_result(
             raise CaptureOutputError(
                 f"unknown or disabled skill: {command.skill_machine_name}"
             )
-        _validate_payload(command.payload, skill.schema_definition)
+        profile = (
+            AssetWriteProfile.manual
+            if skill.machine_name in BASELINE_CAPTURE_SKILL_NAMES
+            else AssetWriteProfile.agent
+        )
+        _validate_payload(
+            command.payload,
+            skill.schema_definition,
+            profile=profile,
+        )
     return result

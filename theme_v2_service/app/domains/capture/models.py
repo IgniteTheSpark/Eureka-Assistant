@@ -72,6 +72,8 @@ class CaptureRecording(Base):
             "created_at",
         ),
         Index("ix_capture_recordings_user_file", "user_id", "file_id"),
+        Index("ix_capture_recordings_user_session", "user_id", "session_id"),
+        Index("ix_capture_recordings_input_turn", "input_turn_id"),
         Index("ix_capture_recordings_s3_key", "s3_key"),
     )
 
@@ -81,6 +83,18 @@ class CaptureRecording(Base):
         CHAR(36),
         ForeignKey("capture_files.id", ondelete="CASCADE"),
         nullable=False,
+    )
+    session_id: Mapped[str | None] = mapped_column(
+        CHAR(36),
+        ForeignKey("chat_sessions.id", ondelete="SET NULL"),
+    )
+    input_turn_id: Mapped[str | None] = mapped_column(
+        CHAR(36),
+        ForeignKey("input_turns.id", ondelete="SET NULL"),
+    )
+    agent_message_id: Mapped[str | None] = mapped_column(
+        CHAR(36),
+        ForeignKey("session_messages.id", ondelete="SET NULL"),
     )
     card_sn: Mapped[str] = mapped_column(String(160), nullable=False)
     device_file_name: Mapped[str] = mapped_column(String(255), nullable=False)

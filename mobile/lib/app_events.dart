@@ -13,6 +13,7 @@ import 'flash/flash_processing_state.dart';
 import 'pages/calendar_page.dart';
 import 'theme_v2/capture/flash_notification_target.dart';
 import 'theme_v2/report/report_notification_target.dart';
+import 'theme_v2/session/session_invalidation.dart';
 import 'pet/reka_notifications.dart';
 import 'pet/reka_nudges.dart';
 import 'theme/app_theme.dart';
@@ -93,6 +94,13 @@ class AppEvents {
         // Input turn persisted → refresh so the flash session shows it +「正在整理」.
         _flashLog('capture event session=${ev.json['session_id']}');
         FlashProcessingStatus.instance.applyCapture(ev.json);
+        bumpData();
+      case 'session_changed':
+        _flashLog(
+          'session_changed session=${ev.json['session_id']} '
+          'revision=${ev.json['revision']} reason=${ev.json['reason']}',
+        );
+        SessionInvalidations.instance.apply(ev.json);
         bumpData();
       case 'flash_file_status':
         _flashLog(
