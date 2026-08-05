@@ -334,6 +334,13 @@ async def test_asset_create_and_update_reject_fields_outside_closed_schema(clien
 async def test_event_can_be_rescheduled_cancelled_and_physically_deleted(client):
     owner = await _register(client, "owner@example.com")
     foreign = await _register(client, "foreign@example.com")
+    contact = await client.post(
+        "/api/contacts",
+        headers=_headers(owner),
+        json={"name": "王总"},
+    )
+    assert contact.status_code == 200
+    contact_id = contact.json()["id"]
 
     created = await client.post(
         "/api/events",
@@ -380,7 +387,7 @@ async def test_event_can_be_rescheduled_cancelled_and_physically_deleted(client)
             "status": "cancelled",
             "attendees": [
                 {"name": "冯总", "contact_id": None},
-                {"name": "王总", "contact_id": "contact-asset-id"},
+                {"name": "王总", "contact_id": contact_id},
             ],
         },
     )
@@ -391,7 +398,7 @@ async def test_event_can_be_rescheduled_cancelled_and_physically_deleted(client)
         "冯总",
         "王总",
     ]
-    assert changed.json()["attendees"][1]["contact_id"] == "contact-asset-id"
+    assert changed.json()["attendees"][1]["contact_id"] == contact_id
 
     listed = await client.get(
         "/api/events",

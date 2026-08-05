@@ -7,7 +7,7 @@ from sqlalchemy.orm import selectinload
 
 from app.config import get_settings
 from app.db.base import utc_now
-from app.db.models import Asset, Event, EventAttendee, UserSkill
+from app.db.models import Asset, Event, EventAttendee, GlobalSkill, UserSkill
 from app.domains.assets.schemas import (
     AssetCreate,
     AssetUpdate,
@@ -16,8 +16,13 @@ from app.domains.assets.schemas import (
     UserSkillCreate,
     UserSkillUpdate,
 )
+from app.domains.assets.indexing import rebuild_asset_fields
 from app.domains.assets.validation import AssetWriteProfile, validate_asset_payload
 from app.domains.triggers.service import on_asset_created
+from app.domains.sessions.provenance import (
+    ProvenanceNotOwned,
+    validate_owned_provenance,
+)
 
 
 class UserSkillNotFound(Exception):
@@ -25,6 +30,18 @@ class UserSkillNotFound(Exception):
 
 
 class ChatSessionNotFound(Exception):
+    pass
+
+
+class EventNotFound(Exception):
+    pass
+
+
+class ContactNotFound(Exception):
+    pass
+
+
+class EventAttendeeNotFound(Exception):
     pass
 
 
@@ -134,17 +151,35 @@ async def ensure_capture_skills(
         )
     )
     by_name = {skill.machine_name: skill for skill in existing}
+    global_skills = {
+        skill.machine_name: skill
+        for skill in await session.scalars(
+            select(GlobalSkill).where(GlobalSkill.machine_name.in_(machine_names))
+        )
+    }
     for definition in BASELINE_CAPTURE_SKILLS:
         machine_name = definition["machine_name"]
         if machine_name in by_name:
+            if by_name[machine_name].global_skill_id is None:
+                global_skill = global_skills.get(machine_name)
+                if global_skill is not None:
+                    by_name[machine_name].global_skill_id = global_skill.id
             continue
         skill = UserSkill(
             user_id=user_id,
+            global_skill_id=(
+                global_skills[machine_name].id
+                if machine_name in global_skills
+                else None
+            ),
             machine_name=machine_name,
             display_name=definition["display_name"],
             description=definition["description"],
             domain=definition["domain"],
             schema_json=definition["schema"],
+            queryable_fields_json=list(
+                (definition["schema"].get("properties") or {}).keys()
+            ),
         )
         session.add(skill)
         by_name[machine_name] = skill
@@ -163,8 +198,15 @@ async def create_user_skill(
     user_id: str,
     command: UserSkillCreate,
 ) -> UserSkill:
+    global_skill = await session.scalar(
+        select(GlobalSkill).where(
+            GlobalSkill.machine_name == command.machine_name,
+            GlobalSkill.system_enabled.is_(True),
+        )
+    )
     skill = UserSkill(
         user_id=user_id,
+        global_skill_id=global_skill.id if global_skill is not None else None,
         machine_name=command.machine_name,
         display_name=command.display_name,
         description=command.description,
@@ -172,6 +214,9 @@ async def create_user_skill(
         schema_json=command.schema_definition,
         render_spec_json=command.render_spec,
         chat_starters_json=command.chat_starters,
+        queryable_fields_json=command.queryable_fields,
+        position=command.position,
+        enabled=command.enabled,
     )
     session.add(skill)
     await session.flush()
@@ -224,6 +269,15 @@ async def update_user_skill(
         skill.render_spec_json = command.render_spec
     if "chat_starters" in command.model_fields_set and command.chat_starters is not None:
         skill.chat_starters_json = command.chat_starters
+    if (
+        "queryable_fields" in command.model_fields_set
+        and command.queryable_fields is not None
+    ):
+        skill.queryable_fields_json = command.queryable_fields
+    if "position" in command.model_fields_set and command.position is not None:
+        skill.position = command.position
+    if "enabled" in command.model_fields_set and command.enabled is not None:
+        skill.enabled = command.enabled
     skill.updated_at = utc_now()
     await session.flush()
     return skill
@@ -277,29 +331,30 @@ async def create_asset(
         profile=write_profile,
     )
 
-    if command.session_id:
-        from app.domains.sessions.models import ChatSession
-
-        owner_session = await session.scalar(
-            select(ChatSession).where(
-                ChatSession.id == command.session_id,
-                ChatSession.user_id == user_id,
-            )
+    try:
+        provenance = await validate_owned_provenance(
+            session,
+            user_id,
+            session_id=command.session_id,
+            input_turn_id=command.source_input_turn_id,
         )
-        if owner_session is None:
-            raise ChatSessionNotFound()
+    except ProvenanceNotOwned as exc:
+        raise ChatSessionNotFound() from exc
 
     asset = Asset(
         user_id=user_id,
         user_skill_id=skill.id,
         payload_json=command.payload,
+        domain=command.domain or skill.domain,
         effective_at=_utc_naive(command.effective_at),
         period=command.period,
         occurred_at=_utc_naive(command.occurred_at),
-        session_id=command.session_id,
+        session_id=provenance.session_id,
+        source_input_turn_id=provenance.input_turn_id,
     )
     session.add(asset)
     await session.flush()
+    await rebuild_asset_fields(session, asset=asset, skill=skill)
     await on_asset_created(
         session,
         asset=asset,
@@ -375,6 +430,8 @@ async def update_asset(
     user_id: str,
     asset_id: str,
     command: AssetUpdate,
+    *,
+    write_profile: AssetWriteProfile = AssetWriteProfile.manual,
 ) -> Asset | None:
     asset = await get_asset(session, user_id, asset_id)
     if asset is None:
@@ -383,14 +440,21 @@ async def update_asset(
         skill = await session.get(UserSkill, asset.user_skill_id)
         if skill is None:
             raise UserSkillNotFound()
-        validate_asset_payload(command.payload, skill.schema_json)
+        validate_asset_payload(
+            command.payload,
+            skill.schema_json,
+            profile=write_profile,
+        )
         asset.payload_json = command.payload
+        await rebuild_asset_fields(session, asset=asset, skill=skill)
     if "effective_at" in command.model_fields_set:
         asset.effective_at = _utc_naive(command.effective_at)
     if "period" in command.model_fields_set:
         asset.period = command.period
     if "occurred_at" in command.model_fields_set:
         asset.occurred_at = _utc_naive(command.occurred_at)
+    if "domain" in command.model_fields_set:
+        asset.domain = command.domain
     asset.updated_at = utc_now()
     await session.flush()
     return asset
@@ -414,6 +478,12 @@ async def create_event(
     user_id: str,
     command: EventCreate,
 ) -> Event:
+    provenance = await validate_owned_provenance(
+        session,
+        user_id,
+        session_id=None,
+        input_turn_id=command.source_input_turn_id,
+    )
     event = Event(
         user_id=user_id,
         title=command.title,
@@ -423,16 +493,29 @@ async def create_event(
         end_at=_utc_naive(command.end_at),
         all_day=command.all_day,
         status=command.status,
+        recurrence_rule=command.recurrence_rule,
+        source_input_turn_id=provenance.input_turn_id,
     )
-    event.attendees = [
-        EventAttendee(
+    event.attendees = []
+    for attendee in command.attendees:
+        if not attendee.name.strip() and not attendee.contact_id:
+            continue
+        resolved_contact = await _resolve_attendee_contact(
+            session,
+            user_id,
+            name=attendee.name,
             contact_id=attendee.contact_id,
-            name_raw=attendee.name.strip(),
-            role=attendee.role,
         )
-        for attendee in command.attendees
-        if attendee.name.strip()
-    ]
+        if attendee.contact_id and resolved_contact is None:
+            raise ContactNotFound()
+        event.attendees.append(
+            EventAttendee(
+                contact_id=resolved_contact.id if resolved_contact else None,
+                name_raw=attendee.name.strip()
+                or (resolved_contact.name if resolved_contact else ""),
+                role=attendee.role,
+            )
+        )
     session.add(event)
     await session.flush()
     _decorate_event(event)
@@ -496,7 +579,14 @@ async def update_event(
     event = await get_event(session, user_id, event_id)
     if event is None:
         return None
-    for field in ("title", "description", "location", "all_day", "status"):
+    for field in (
+        "title",
+        "description",
+        "location",
+        "all_day",
+        "status",
+        "recurrence_rule",
+    ):
         if field in command.model_fields_set:
             setattr(event, field, getattr(command, field))
     if "start_at" in command.model_fields_set and command.start_at is not None:
@@ -504,15 +594,26 @@ async def update_event(
     if "end_at" in command.model_fields_set and command.end_at is not None:
         event.end_at = _utc_naive(command.end_at)
     if "attendees" in command.model_fields_set and command.attendees is not None:
-        event.attendees = [
-            EventAttendee(
+        event.attendees = []
+        for attendee in command.attendees:
+            if not attendee.name.strip() and not attendee.contact_id:
+                continue
+            resolved_contact = await _resolve_attendee_contact(
+                session,
+                user_id,
+                name=attendee.name,
                 contact_id=attendee.contact_id,
-                name_raw=attendee.name.strip(),
-                role=attendee.role,
             )
-            for attendee in command.attendees
-            if attendee.name.strip()
-        ]
+            if attendee.contact_id and resolved_contact is None:
+                raise ContactNotFound()
+            event.attendees.append(
+                EventAttendee(
+                    contact_id=resolved_contact.id if resolved_contact else None,
+                    name_raw=attendee.name.strip()
+                    or (resolved_contact.name if resolved_contact else ""),
+                    role=attendee.role,
+                )
+            )
     event.updated_at = utc_now()
     await session.flush()
     _decorate_event(event)
@@ -530,6 +631,109 @@ async def delete_event(
     await session.delete(event)
     await session.flush()
     return True
+
+
+async def add_event_attendee(
+    session: AsyncSession,
+    user_id: str,
+    event_id: str,
+    *,
+    name: str = "",
+    contact_id: str | None = None,
+    role: str = "attendee",
+) -> EventAttendee:
+    event = await get_event(session, user_id, event_id)
+    if event is None:
+        raise EventNotFound()
+    contact = await _resolve_attendee_contact(
+        session,
+        user_id,
+        name=name,
+        contact_id=contact_id,
+    )
+    if contact_id and contact is None:
+        raise ContactNotFound()
+    display_name = name.strip() or (contact.name if contact is not None else "")
+    if not display_name:
+        raise ValueError("attendee requires a contact or display name")
+    attendee = EventAttendee(
+        event_id=event.id,
+        contact_id=contact.id if contact is not None else None,
+        name_raw=display_name,
+        role=role.strip() or "attendee",
+    )
+    session.add(attendee)
+    await session.flush()
+    return attendee
+
+
+async def update_event_attendee(
+    session: AsyncSession,
+    user_id: str,
+    event_id: str,
+    attendee_id: str,
+    *,
+    name: str | None = None,
+    contact_id: str | None = None,
+    role: str | None = None,
+) -> EventAttendee:
+    event = await get_event(session, user_id, event_id)
+    if event is None:
+        raise EventNotFound()
+    attendee = await session.scalar(
+        select(EventAttendee).where(
+            EventAttendee.id == attendee_id,
+            EventAttendee.event_id == event.id,
+        )
+    )
+    if attendee is None:
+        raise EventAttendeeNotFound()
+    contact = None
+    if contact_id is not None and contact_id.strip():
+        contact = await _resolve_attendee_contact(
+            session,
+            user_id,
+            name=name or attendee.name_raw,
+            contact_id=contact_id,
+        )
+        if contact is None:
+            raise ContactNotFound()
+        attendee.contact_id = contact.id
+    elif contact_id is not None:
+        attendee.contact_id = None
+    if name is not None:
+        attendee.name_raw = name.strip() or (
+            contact.name if contact is not None else attendee.name_raw
+        )
+    if role is not None:
+        attendee.role = role.strip() or attendee.role
+    if not attendee.name_raw.strip() and attendee.contact_id is None:
+        raise ValueError("attendee requires a contact or display name")
+    attendee.updated_at = utc_now()
+    await session.flush()
+    return attendee
+
+
+async def delete_event_attendee(
+    session: AsyncSession,
+    user_id: str,
+    event_id: str,
+    attendee_id: str,
+) -> EventAttendee:
+    event = await get_event(session, user_id, event_id)
+    if event is None:
+        raise EventNotFound()
+    attendee = await session.scalar(
+        select(EventAttendee).where(
+            EventAttendee.id == attendee_id,
+            EventAttendee.event_id == event.id,
+        )
+    )
+    if attendee is None:
+        raise EventAttendeeNotFound()
+    await session.delete(attendee)
+    await session.flush()
+    return attendee
 
 
 def _decorate_event(event: Event) -> None:
@@ -569,6 +773,34 @@ def _decorate_event(event: Event) -> None:
             for name in dict.fromkeys(legacy_names)
         ]
     event.attendee_payload = persisted
+
+
+async def _resolve_attendee_contact(
+    session: AsyncSession,
+    user_id: str,
+    *,
+    name: str,
+    contact_id: str | None,
+):
+    from app.db.models import Contact
+    from app.domains.contacts.service import normalize_contact_name
+
+    if contact_id:
+        return await session.scalar(
+            select(Contact).where(Contact.id == contact_id, Contact.user_id == user_id)
+        )
+    normalized = normalize_contact_name(name)
+    if not normalized:
+        return None
+    contacts = list(
+        await session.scalars(select(Contact).where(Contact.user_id == user_id))
+    )
+    exact = [
+        contact
+        for contact in contacts
+        if normalize_contact_name(contact.name) == normalized
+    ]
+    return exact[0] if len(exact) == 1 else None
 
 
 async def _attach_capture_source(

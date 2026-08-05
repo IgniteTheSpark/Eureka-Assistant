@@ -412,6 +412,69 @@ void main() {
     expect(detail.source.sessionId, 'recording-1');
     expect(detail.source.reportId, isNull);
   });
+
+  test('first-class contact detail loads and saves through core API', () async {
+    final requests = <http.Request>[];
+    final api = ApiClient(
+      baseUrl: 'http://theme-v2.test',
+      enableLogging: false,
+      client: MockClient((request) async {
+        requests.add(request);
+        final patch = request.method == 'PATCH'
+            ? (jsonDecode(request.body) as Map<String, dynamic>)
+            : const <String, dynamic>{};
+        return http.Response(
+          jsonEncode({
+            'id': 'contact-1',
+            'name': patch['name'] ?? '冯总',
+            'phone': '13800000000',
+            'company': '远山科技',
+            'title': 'CEO',
+            'email': null,
+            'notes': patch['notes'] ?? ['行业会上认识'],
+            'socials': patch['socials'] ?? {'wechat': 'feng_88'},
+            'session_id': 'session-1',
+            'source_input_turn_id': 'turn-1',
+            'created_at': '2026-08-05T02:00:00Z',
+            'updated_at': '2026-08-05T03:00:00Z',
+          }),
+          200,
+          headers: const {'content-type': 'application/json'},
+        );
+      }),
+    );
+    addTearDown(api.close);
+    final repository = ApiAssetDetailRepository(api);
+
+    final detail = await repository.load(
+      const AssetEntityRef(kind: AssetEntityKind.contact, id: 'contact-1'),
+    );
+    final saved = await repository.save(detail, const {
+      'name': '冯先生',
+      'notes': '行业会上认识\n喜欢越野跑',
+      'wechat': 'feng_new',
+    });
+
+    expect(detail.skill.machineName, 'contact');
+    expect(detail.display.primaryFieldId, 'name');
+    expect(detail.values['notes'], '行业会上认识');
+    expect(detail.values['wechat'], 'feng_88');
+    expect(detail.source.kind, AssetDetailSourceKind.session);
+    expect(detail.source.sessionId, 'session-1');
+    expect(detail.source.inputTurnId, 'turn-1');
+    expect(saved.values['name'], '冯先生');
+    expect(saved.values['notes'], '行业会上认识\n喜欢越野跑');
+    expect(saved.values['wechat'], 'feng_new');
+    expect(requests.map((request) => request.url.path), [
+      '/api/contacts/contact-1',
+      '/api/contacts/contact-1',
+    ]);
+    expect(jsonDecode(requests.last.body), {
+      'name': '冯先生',
+      'notes': ['行业会上认识', '喜欢越野跑'],
+      'socials': {'wechat': 'feng_new'},
+    });
+  });
 }
 
 Map<String, dynamic> _detailJson({

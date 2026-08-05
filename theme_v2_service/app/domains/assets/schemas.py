@@ -22,6 +22,9 @@ class UserSkillCreate(BaseModel):
     schema_definition: dict = Field(default_factory=dict, alias="schema")
     render_spec: dict = Field(default_factory=dict)
     chat_starters: list[str] = Field(default_factory=list, max_length=12)
+    queryable_fields: list[str] = Field(default_factory=list, max_length=100)
+    position: int = Field(default=0, ge=0)
+    enabled: bool = True
 
 
 class UserSkillUpdate(BaseModel):
@@ -33,6 +36,9 @@ class UserSkillUpdate(BaseModel):
     schema_definition: dict | None = Field(default=None, alias="schema")
     render_spec: dict | None = None
     chat_starters: list[str] | None = Field(default=None, max_length=12)
+    queryable_fields: list[str] | None = Field(default=None, max_length=100)
+    position: int | None = Field(default=None, ge=0)
+    enabled: bool | None = None
 
 
 class SkillDraftAnswer(BaseModel):
@@ -52,6 +58,8 @@ class AssetCreate(BaseModel):
     effective_at: datetime | None = None
     period: Literal["凌晨", "上午", "中午", "下午", "晚上"] | None = None
     occurred_at: datetime | None = None
+    domain: str | None = Field(default=None, max_length=100)
+    source_input_turn_id: str | None = None
 
 
 class AssetUpdate(BaseModel):
@@ -59,6 +67,7 @@ class AssetUpdate(BaseModel):
     effective_at: datetime | None = None
     period: Literal["凌晨", "上午", "中午", "下午", "晚上"] | None = None
     occurred_at: datetime | None = None
+    domain: str | None = Field(default=None, max_length=100)
 
 
 class EventAttendeeCreate(BaseModel):
@@ -86,8 +95,10 @@ class EventCreate(BaseModel):
     start_at: datetime
     end_at: datetime
     all_day: bool = False
-    status: Literal["scheduled", "cancelled"] = "scheduled"
+    status: Literal["scheduled", "cancelled", "done"] = "scheduled"
     attendees: list[EventAttendeeCreate] = Field(default_factory=list)
+    recurrence_rule: str | None = Field(default=None, max_length=500)
+    source_input_turn_id: str | None = None
 
 
 class EventUpdate(BaseModel):
@@ -97,8 +108,9 @@ class EventUpdate(BaseModel):
     start_at: datetime | None = None
     end_at: datetime | None = None
     all_day: bool | None = None
-    status: Literal["scheduled", "cancelled"] | None = None
+    status: Literal["scheduled", "cancelled", "done"] | None = None
     attendees: list[EventAttendeeCreate] | None = None
+    recurrence_rule: str | None = Field(default=None, max_length=500)
 
 
 class UserSkillRead(BaseModel):
@@ -115,6 +127,12 @@ class UserSkillRead(BaseModel):
     )
     render_spec: dict = Field(validation_alias="render_spec_json")
     chat_starters: list[str] = Field(validation_alias="chat_starters_json")
+    queryable_fields: list[str] = Field(
+        default_factory=list,
+        validation_alias="queryable_fields_json",
+    )
+    position: int = 0
+    enabled: bool = True
     created_at: datetime
     updated_at: datetime
 
@@ -143,6 +161,7 @@ class AssetRead(BaseModel):
     source_report_id: str | None = None
     source_report_action_id: str | None = None
     source_report_title: str | None = None
+    domain: str | None = None
 
     @field_serializer("effective_at", "occurred_at", "created_at", "updated_at")
     def serialize_timestamp(self, value: datetime | None) -> str | None:
@@ -170,6 +189,7 @@ class EventRead(BaseModel):
     )
     source_recording_id: str | None = None
     source_input_turn_id: str | None = None
+    recurrence_rule: str | None = None
 
     @field_serializer("start_at", "end_at", "created_at", "updated_at")
     def serialize_timestamp(self, value: datetime) -> str:

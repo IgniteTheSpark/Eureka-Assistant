@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from inspect import Parameter, signature
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -148,6 +149,26 @@ def _tokens(response: Any) -> int | None:
     return int(value) if isinstance(value, (int, float)) else None
 
 
+async def _execute_tool_call(
+    tool_executor: Any,
+    name: str,
+    arguments: dict[str, Any],
+    *,
+    tool_call_id: str,
+):
+    """Keep older injected executors working while passing stable IDs in production."""
+    execute = tool_executor.execute
+    parameters = signature(execute).parameters.values()
+    supports_tool_call_id = any(
+        parameter.name == "tool_call_id"
+        or parameter.kind == Parameter.VAR_KEYWORD
+        for parameter in parameters
+    )
+    if supports_tool_call_id:
+        return await execute(name, arguments, tool_call_id=tool_call_id)
+    return await execute(name, arguments)
+
+
 class LiteLLMSessionChatProvider:
     def __init__(
         self,
@@ -209,7 +230,12 @@ class LiteLLMSessionChatProvider:
         for call_id, name, arguments in calls:
             tool_events.append({"event": "tool_call", "data": {"name": name}})
             try:
-                outcome = await tool_executor.execute(name, arguments)
+                outcome = await _execute_tool_call(
+                    tool_executor,
+                    name,
+                    arguments,
+                    tool_call_id=call_id,
+                )
                 response_payload = outcome.response
                 cards.extend(outcome.cards)
             except Exception as exc:

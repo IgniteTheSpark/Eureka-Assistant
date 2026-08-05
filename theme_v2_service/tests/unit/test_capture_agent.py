@@ -16,11 +16,22 @@ from app.domains.capture.agent import (
     capture_skill_from_model,
     validate_capture_result,
 )
-from app.db.models import UserSkill
+from app.db.models import GlobalSkill, UserSkill
 from app.domains.capture.providers_litellm import LiteLLMCaptureAgentProvider
 
 
 async def test_baseline_capture_skills_are_idempotent(session):
+    session.add_all(
+        [
+            GlobalSkill(
+                machine_name=name,
+                display_name=name,
+                entity_kind="contact" if name == "contact" else "asset",
+            )
+            for name in ("todo", "expense", "contact", "notes")
+        ]
+    )
+    await session.flush()
     first = await ensure_capture_skills(session, "user-1")
     second = await ensure_capture_skills(session, "user-1")
 
@@ -32,6 +43,7 @@ async def test_baseline_capture_skills_are_idempotent(session):
     ]
     assert [skill.id for skill in second] == [skill.id for skill in first]
     assert all(skill.schema_json["x-capture-enabled"] is True for skill in first)
+    assert all(skill.global_skill_id is not None for skill in first)
     notes = next(skill for skill in first if skill.machine_name == "notes")
     assert "tags" not in notes.schema_json["properties"]
     assert notes.schema_json["required"] == ["title", "content"]

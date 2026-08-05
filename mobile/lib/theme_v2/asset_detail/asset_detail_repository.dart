@@ -22,6 +22,7 @@ class ApiAssetDetailRepository implements AssetDetailRepository {
 
   @override
   Future<AssetDetailModel> load(AssetEntityRef ref) async {
+    if (ref.kind == AssetEntityKind.contact) return _loadCoreRecord(ref);
     if (coreRecordsOnly) return _loadCoreRecord(ref);
     try {
       final response = await api.getJson(_canonicalPath(ref));
@@ -29,7 +30,7 @@ class ApiAssetDetailRepository implements AssetDetailRepository {
         (response as Map).cast<String, dynamic>(),
       );
     } on ApiException catch (error) {
-      if (error.statusCode != 404 || ref.kind == AssetEntityKind.contact) {
+      if (error.statusCode != 404) {
         rethrow;
       }
       return _loadCoreRecord(ref);
@@ -48,10 +49,67 @@ class ApiAssetDetailRepository implements AssetDetailRepository {
         (await api.getJson('/api/assets/${ref.id}') as Map)
             .cast<String, dynamic>(),
       ),
-      AssetEntityKind.contact => throw StateError(
-        'core contact details are unavailable',
+      AssetEntityKind.contact => _contactDetail(
+        ref,
+        (await api.getJson('/api/contacts/${ref.id}') as Map)
+            .cast<String, dynamic>(),
       ),
     };
+  }
+
+  AssetDetailModel _contactDetail(
+    AssetEntityRef ref,
+    Map<String, dynamic> contact,
+  ) {
+    final fields = <AssetDetailField>[
+      _field('name', '姓名', order: 0, required: true),
+      _field('phone', '电话', order: 1),
+      _field('company', '公司', order: 2),
+      _field('title', '职位', order: 3),
+      _field('email', '邮箱', order: 4),
+      for (var index = 0; index < _contactSocialFields.length; index++)
+        _field(
+          _contactSocialFields[index],
+          _contactSocialLabels[_contactSocialFields[index]]!,
+          order: 5 + index,
+        ),
+      _field('notes', '备注', order: 20, long: true),
+    ];
+    final socials =
+        (contact['socials'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final notes = contact['notes'] is List
+        ? (contact['notes'] as List)
+              .map((value) => value.toString().trim())
+              .where((value) => value.isNotEmpty)
+              .join('\n')
+        : contact['notes']?.toString() ?? '';
+    return _coreDetail(
+      ref: ref,
+      version: _version(contact),
+      skill: const AssetDetailSkill(
+        id: null,
+        machineName: 'contact',
+        displayName: '联系人',
+        icon: '👤',
+      ),
+      fields: fields,
+      values: {
+        'name': contact['name'],
+        'phone': contact['phone'],
+        'company': contact['company'],
+        'title': contact['title'],
+        'email': contact['email'],
+        for (final platform in _contactSocialFields)
+          platform: socials[platform],
+        'notes': notes,
+      },
+      primaryFieldId: 'name',
+      secondaryFieldIds: [
+        for (final field in fields)
+          if (field.id != 'name') field.id,
+      ],
+      source: _coreSource(contact),
+    );
   }
 
   AssetDetailModel _eventDetail(
@@ -189,6 +247,9 @@ class ApiAssetDetailRepository implements AssetDetailRepository {
     AssetDetailModel current,
     Map<String, dynamic> valuesPatch,
   ) async {
+    if (current.ref.kind == AssetEntityKind.contact) {
+      return _saveCoreContact(current, valuesPatch);
+    }
     if (coreRecordsOnly) {
       switch (current.ref.kind) {
         case AssetEntityKind.asset:
@@ -218,7 +279,7 @@ class ApiAssetDetailRepository implements AssetDetailRepository {
             (response as Map).cast<String, dynamic>(),
           );
         case AssetEntityKind.contact:
-          throw StateError('core contact updates are unavailable');
+          return _saveCoreContact(current, valuesPatch);
       }
     }
     final response = await api.putJson(_canonicalPath(current.ref), {
@@ -226,6 +287,46 @@ class ApiAssetDetailRepository implements AssetDetailRepository {
       'values_patch': valuesPatch,
     });
     return AssetDetailModel.fromJson((response as Map).cast<String, dynamic>());
+  }
+
+  Future<AssetDetailModel> _saveCoreContact(
+    AssetDetailModel current,
+    Map<String, dynamic> valuesPatch,
+  ) async {
+    final patch = <String, dynamic>{};
+    for (final field in const ['name', 'phone', 'company', 'title', 'email']) {
+      if (valuesPatch.containsKey(field)) patch[field] = valuesPatch[field];
+    }
+    if (valuesPatch.containsKey('notes')) {
+      final rawNotes = valuesPatch['notes'];
+      patch['notes'] = rawNotes is List
+          ? rawNotes
+          : rawNotes
+                .toString()
+                .split('\n')
+                .map((value) => value.trim())
+                .where((value) => value.isNotEmpty)
+                .toList();
+    }
+    if (_contactSocialFields.any(valuesPatch.containsKey)) {
+      final socials = <String, String>{};
+      for (final platform in _contactSocialFields) {
+        final rawValue = valuesPatch.containsKey(platform)
+            ? valuesPatch[platform]
+            : current.values[platform];
+        final value = rawValue?.toString().trim() ?? '';
+        if (value.isNotEmpty) socials[platform] = value;
+      }
+      patch['socials'] = socials;
+    }
+    final response = await api.patchJson(
+      '/api/contacts/${current.ref.id}',
+      patch,
+    );
+    return _contactDetail(
+      current.ref,
+      (response as Map).cast<String, dynamic>(),
+    );
   }
 
   @override
@@ -328,6 +429,24 @@ bool _hasCoreValue(dynamic value) =>
 
 const _coreMetadataFields = {'period', 'occurred_at', 'domain'};
 
+const _contactSocialFields = [
+  'wechat',
+  'x',
+  'telegram',
+  'linkedin',
+  'xiaohongshu',
+  'instagram',
+];
+
+const _contactSocialLabels = {
+  'wechat': '微信',
+  'x': 'X',
+  'telegram': 'Telegram',
+  'linkedin': 'LinkedIn',
+  'xiaohongshu': '小红书',
+  'instagram': 'Instagram',
+};
+
 String _coreAssetIcon(String machineName) =>
     resolveMeta(machineName, const <String, SkillMeta>{}).icon;
 
@@ -351,6 +470,17 @@ AssetDetailSource _coreSource(Map<String, dynamic> record) {
       label: '来自 $dateLabel',
       sessionId: recordingId,
       inputTurnId: inputTurnId.isEmpty ? null : inputTurnId,
+      reportId: null,
+    );
+  }
+
+  final sessionId = record['session_id']?.toString().trim() ?? '';
+  if (sessionId.isNotEmpty && inputTurnId.isNotEmpty) {
+    return AssetDetailSource(
+      kind: AssetDetailSourceKind.session,
+      label: '来自会话',
+      sessionId: sessionId,
+      inputTurnId: inputTurnId,
       reportId: null,
     );
   }

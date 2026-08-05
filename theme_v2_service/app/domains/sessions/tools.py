@@ -3,12 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from sqlalchemy import select
-
-from app.db.models import Asset, Event, UserSkill
-from app.db.session import session_scope
-from app.domains.assets import service as asset_service
-from app.domains.assets.schemas import AssetCreate, EventCreate
+from app.internal_mcp.tools import EurekaToolContext, execute_tool
 
 
 CHAT_TOOL_DEFINITIONS = [
@@ -31,7 +26,7 @@ CHAT_TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "create_asset",
-            "description": "Create a schema-valid current-user asset.",
+            "description": "Create a current-user asset through Eureka CRUD.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -40,6 +35,7 @@ CHAT_TOOL_DEFINITIONS = [
                     "effective_at": {"type": "string"},
                     "period": {"type": "string"},
                     "occurred_at": {"type": "string"},
+                    "domain": {"type": "string"},
                 },
                 "required": ["skill_machine_name", "payload"],
                 "additionalProperties": False,
@@ -74,7 +70,6 @@ CHAT_TOOL_DEFINITIONS = [
                     "start_at": {"type": "string"},
                     "end_at": {"type": "string"},
                     "all_day": {"type": "boolean"},
-                    "attendees": {"type": "array", "items": {"type": "object"}},
                 },
                 "required": ["title", "start_at", "end_at"],
                 "additionalProperties": False,
@@ -92,116 +87,80 @@ class ToolOutcome:
 
 class SessionToolExecutor:
     def __init__(
-        self, *, user_id: str, session_id: str, input_turn_id: str | None
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        input_turn_id: str | None,
     ) -> None:
         self.user_id = user_id
         self.session_id = session_id
         self.input_turn_id = input_turn_id
 
-    async def execute(self, name: str, arguments: dict[str, Any]) -> ToolOutcome:
-        if name == "query_assets":
-            return await self._query_assets(arguments)
-        if name == "create_asset":
-            return await self._create_asset(arguments)
-        if name == "query_events":
-            return await self._query_events(arguments)
-        if name == "create_event":
-            return await self._create_event(arguments)
-        raise ValueError("unsupported chat tool")
-
-    async def _query_assets(self, arguments: dict[str, Any]) -> ToolOutcome:
-        limit = min(max(int(arguments.get("limit", 10)), 1), 20)
-        machine_name = str(arguments.get("skill_machine_name", "")).strip()
-        async with session_scope() as database:
-            query = (
-                select(Asset, UserSkill)
-                .join(UserSkill, UserSkill.id == Asset.user_skill_id)
-                .where(Asset.user_id == self.user_id, UserSkill.user_id == self.user_id)
-            )
-            if machine_name:
-                query = query.where(UserSkill.machine_name == machine_name)
-            rows = (
-                await database.execute(
-                    query.order_by(Asset.created_at.desc(), Asset.id.desc()).limit(limit)
-                )
-            ).all()
-        cards = [
-            {
-                "id": asset.id,
-                "asset_id": asset.id,
-                "user_skill_id": skill.id,
-                "user_skill_name": skill.machine_name,
-                "payload": asset.payload_json,
-            }
-            for asset, skill in rows
-        ]
-        return ToolOutcome(response={"assets": cards, "count": len(cards)}, cards=cards)
-
-    async def _create_asset(self, arguments: dict[str, Any]) -> ToolOutcome:
-        machine_name = str(arguments.get("skill_machine_name", "")).strip()
-        async with session_scope() as database:
-            skill = await database.scalar(
-                select(UserSkill).where(
-                    UserSkill.user_id == self.user_id,
-                    UserSkill.machine_name == machine_name,
-                )
-            )
-            if skill is None:
-                raise LookupError("skill not found")
-            command = AssetCreate(
-                user_skill_id=skill.id,
-                payload=arguments.get("payload") or {},
-                effective_at=arguments.get("effective_at"),
-                period=arguments.get("period"),
-                occurred_at=arguments.get("occurred_at"),
+    async def execute(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+        *,
+        tool_call_id: str | None = None,
+    ) -> ToolOutcome:
+        internal_name = {
+            "query_assets": "tool_query_asset",
+            "create_asset": "tool_create_asset",
+            "query_events": "tool_query_event",
+            "create_event": "tool_create_event",
+        }.get(name)
+        if internal_name is None:
+            raise ValueError("unsupported chat tool")
+        normalized = dict(arguments)
+        if "skill_machine_name" in normalized:
+            normalized["user_skill_name"] = normalized.pop("skill_machine_name")
+        result = await execute_tool(
+            internal_name,
+            normalized,
+            context=EurekaToolContext(
+                user_id=self.user_id,
                 session_id=self.session_id,
-            )
-            asset = await asset_service.create_asset(database, self.user_id, command)
-            asset.source_input_turn_id = self.input_turn_id
-            await database.flush()
-            card = {
-                "id": asset.id,
-                "asset_id": asset.id,
-                "user_skill_id": skill.id,
-                "user_skill_name": skill.machine_name,
-                "payload": asset.payload_json,
-            }
-        return ToolOutcome(response={"asset": card}, cards=[card])
+                input_turn_id=self.input_turn_id,
+                idempotency_prefix=f"chat:{self.input_turn_id or self.session_id}",
+            ),
+            tool_call_id=tool_call_id,
+        )
+        return ToolOutcome(
+            response=result,
+            cards=_cards_for_result(internal_name, result),
+        )
 
-    async def _query_events(self, arguments: dict[str, Any]) -> ToolOutcome:
-        limit = min(max(int(arguments.get("limit", 10)), 1), 20)
-        async with session_scope() as database:
-            rows = list(
-                await database.scalars(
-                    select(Event)
-                    .where(Event.user_id == self.user_id)
-                    .order_by(Event.start_at.desc(), Event.id.desc())
-                    .limit(limit)
-                )
-            )
-        events = [
+
+def _cards_for_result(name: str, result: dict[str, Any]) -> list[dict]:
+    if not result.get("ok"):
+        return []
+    if name in {"tool_create_asset", "tool_update_asset"}:
+        return [
             {
-                "id": event.id,
-                "title": event.title,
-                "start_at": event.start_at.isoformat(),
-                "end_at": event.end_at.isoformat(),
+                "id": result.get("asset_id"),
+                "asset_id": result.get("asset_id"),
+                "user_skill_name": result.get("user_skill_name"),
+                "payload": result.get("payload") or {},
             }
-            for event in rows
         ]
-        return ToolOutcome(response={"events": events, "count": len(events)})
-
-    async def _create_event(self, arguments: dict[str, Any]) -> ToolOutcome:
-        command = EventCreate.model_validate(arguments)
-        async with session_scope() as database:
-            event = await asset_service.create_event(database, self.user_id, command)
-            card = {
-                "id": event.id,
+    if name in {"tool_create_event", "tool_update_event"}:
+        return [
+            {
+                "id": result.get("event_id"),
+                "event_id": result.get("event_id"),
                 "user_skill_name": "event",
                 "payload": {
-                    "title": event.title,
-                    "description": event.description,
-                    "start_at": event.start_at.isoformat(),
-                    "end_at": event.end_at.isoformat(),
+                    "title": result.get("title"),
+                    "description": result.get("description"),
+                    "start_at": result.get("start_at"),
+                    "end_at": result.get("end_at"),
+                    "location": result.get("location"),
                 },
             }
-        return ToolOutcome(response={"event": card}, cards=[card])
+        ]
+    if name == "tool_query_asset":
+        return [dict(item) for item in result.get("assets") or []]
+    if name == "tool_query_event":
+        return [dict(item) for item in result.get("events") or []]
+    return []
