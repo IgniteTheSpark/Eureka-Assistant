@@ -4,6 +4,14 @@
 
 **Status:** Approved for direct implementation
 
+> **Superseded in part:** Agent runtime, Chat-provider, Flash Session chat, and
+> Agent-write schema-validation decisions in this document are superseded by
+> `2026-08-05-theme-v2-legacy-agent-migration-design.md`. The newer spec restores
+> the legacy Flash Capture pipeline, one unified Chat pipeline for every Session
+> type, the internal CRUD MCP runtime, and permissive custom-skill Agent writes.
+> Time, Timeline, Flash-count, Report-container, and unrelated presentation
+> decisions here remain valid.
+
 ## Goal
 
 Restore the mature legacy behavior that was lost when Theme V2 moved onto its
