@@ -277,6 +277,70 @@ void main() {
   });
 
   test(
+    'failed capture is attached to its own turn, not the session tail',
+    () async {
+      final api = ApiClient(
+        baseUrl: 'http://test',
+        enableLogging: false,
+        client: MockClient((request) async {
+          if (request.url.path == '/api/flash/sessions/2026-08-05') {
+            return http.Response(
+              jsonEncode({
+                'session': {
+                  'id': '2026-08-05',
+                  'date': '2026-08-05',
+                  'recordings': [
+                    {
+                      'id': 'recording-failed',
+                      'process_status': 'failed',
+                      'asr_text': '刚刚跑了两公里。',
+                      'input_turn_id': 'turn-failed',
+                      'error_message': 'invalid capture provider response',
+                      'result_cards': const [],
+                    },
+                    {
+                      'id': 'recording-done',
+                      'process_status': 'done',
+                      'asr_text': '喝了两百毫升水。',
+                      'input_turn_id': 'turn-done',
+                      'result_summary': '已记录喝水。',
+                      'result_cards': const [],
+                    },
+                  ],
+                },
+              }),
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          return http.Response('not found', 404);
+        }),
+      );
+      final controller = CaptureSessionController(api: api);
+      addTearDown(() {
+        controller.dispose();
+        api.close();
+      });
+
+      await controller.loadSession('2026-08-05');
+
+      expect(controller.error, isNull);
+      expect(controller.messages.map((message) => message.text), [
+        '刚刚跑了两公里。',
+        '',
+        '喝了两百毫升水。',
+        '已记录喝水。',
+      ]);
+      expect(
+        controller.messages[1].parts.whereType<ErrorPart>().single.message,
+        '整理失败，原始录音已保留',
+      );
+      expect(controller.messages[1].inputTurnId, 'turn-failed');
+      expect(controller.messages[3].parts.whereType<ErrorPart>(), isEmpty);
+    },
+  );
+
+  test(
     'capture session lists history, deletes, and accepts typed input',
     () async {
       final requested = <String>[];

@@ -131,7 +131,6 @@ class CaptureSessionController extends ChangeNotifier
       }
       final nextMessages = <ChatMessage>[];
       var hasPending = false;
-      String? nextError;
       String? retryRecordingId;
       for (final recording in recordings) {
         final recordingId = recording['id']?.toString() ?? '';
@@ -153,7 +152,8 @@ class CaptureSessionController extends ChangeNotifier
             ),
           );
         }
-        if (summary.isNotEmpty || cards.isNotEmpty) {
+        final failed = status == 'failed';
+        if (summary.isNotEmpty || cards.isNotEmpty || failed) {
           final agent = ChatMessage.agent(
             'capture-$recordingId-agent',
             inputTurnId: inputTurnId,
@@ -164,16 +164,15 @@ class CaptureSessionController extends ChangeNotifier
               ..parts.add(TextPart(summary));
           }
           if (cards.isNotEmpty) agent.parts.add(CardsPart(cards));
+          if (failed) {
+            agent.parts.add(const ErrorPart('整理失败，原始录音已保留'));
+          }
           nextMessages.add(agent);
         }
         hasPending =
             hasPending || !const {'done', 'empty', 'failed'}.contains(status);
         if (status == 'failed') {
           retryRecordingId = recordingId;
-          nextError =
-              recording['error_message']?.toString().trim().isNotEmpty == true
-              ? recording['error_message'].toString().trim()
-              : '闪念整理失败';
         }
       }
       final chatMessages = (dailySession['chat_messages'] as List? ?? const [])
@@ -215,7 +214,7 @@ class CaptureSessionController extends ChangeNotifier
       _createdAt = DateTime.tryParse(sessionDate);
       _retryRecordingId = retryRecordingId;
       streaming = hasPending;
-      error = nextError;
+      error = null;
       _notify();
     } on ApiException catch (exception) {
       if (_disposed || revision != _loadRevision) return;

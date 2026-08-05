@@ -17,6 +17,40 @@ class InvalidSkillDraft(RuntimeError):
 
 _FIELD_TYPES = {"string", "number", "integer", "date", "datetime", "boolean"}
 
+_ICON_ALIASES = {
+    "fire": "🔥",
+    "flame": "🔥",
+    "water": "💧",
+    "drop": "💧",
+    "water_drop": "💧",
+    "run": "🏃",
+    "running": "🏃",
+    "directions_run": "🏃",
+    "expense": "💳",
+    "payment": "💳",
+    "credit_card": "💳",
+    "calendar": "📅",
+    "event": "📅",
+    "todo": "📋",
+    "task": "📋",
+    "checklist": "📋",
+    "note": "✍️",
+    "notes": "✍️",
+    "contact": "👤",
+    "person": "👤",
+    "food": "🍽️",
+    "meal": "🍽️",
+    "restaurant": "🍽️",
+}
+
+
+def _normalize_icon(value) -> str:
+    icon = str(value or "").strip()
+    if not icon:
+        return "•"
+    alias = re.sub(r"[\s-]+", "_", icon.lower())
+    return _ICON_ALIASES.get(alias, icon[:8])
+
 
 def _parse_json_object(content: str) -> dict:
     text = (content or "").strip()
@@ -88,9 +122,9 @@ def _normalize_draft(raw: dict, description: str) -> dict:
         "payload_schema": normalized_schema,
         "render_spec": {
             "card_layout": "horizontal",
-            "icon": str(render_spec.get("icon") or "•")[:8],
             "accent_color": str(render_spec.get("accent_color") or "gray"),
             **render_spec,
+            "icon": _normalize_icon(render_spec.get("icon")),
             "primary_field": primary,
         },
         "sample_payload": raw.get("sample_payload")
@@ -125,6 +159,7 @@ async def design_skill_draft(description: str, answers=None) -> dict:
                 "required、long；required 必须为 false，所有字段默认可选；"
                 "type 仅可为 string/number/integer/date/datetime/boolean。"
                 "字段控制在 2 到 6 个。render_spec 至少含 icon、primary_field，"
+                "icon 必须是一个语义匹配的 emoji，不能返回 fire、water、running 等英文图标名；"
                 "primary_field 必须是 payload_schema 中的字段。不要输出 Markdown。"
             ),
         },

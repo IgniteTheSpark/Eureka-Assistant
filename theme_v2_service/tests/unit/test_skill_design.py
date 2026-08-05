@@ -26,3 +26,23 @@ def test_custom_skill_draft_forces_generated_fields_optional():
     assert draft["payload_schema"]["distance"]["required"] is False
     assert draft["payload_schema"]["duration"]["required"] is False
     assert draft["render_spec"]["primary_field"] == "distance"
+
+
+def test_custom_skill_draft_normalizes_named_fire_icon_to_emoji():
+    draft = _normalize_draft(
+        {
+            "name": "calorie_log",
+            "display_name": "卡路里记录",
+            "payload_schema": {
+                "calories": {"type": "number", "label": "卡路里"},
+                "food_name": {"type": "string", "label": "食物"},
+            },
+            "render_spec": {
+                "icon": "fire",
+                "primary_field": "food_name",
+            },
+        },
+        "记录每天摄入的卡路里",
+    )
+
+    assert draft["render_spec"]["icon"] == "🔥"
