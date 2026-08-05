@@ -309,6 +309,75 @@ async def test_invalid_provider_json_is_permanent():
         )
 
 
+async def test_provider_accepts_json_inside_markdown_fence():
+    async def completion(**kwargs):
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": """```json
+{"summary":"已记录跑步。","records":[]}
+```"""
+                    }
+                }
+            ]
+        }
+
+    provider = LiteLLMCaptureAgentProvider(
+        model="deepseek/deepseek-chat",
+        api_key=None,
+        timeout_seconds=3,
+        completion=completion,
+    )
+
+    result = await provider.organize(
+        transcript="刚刚跑了两公里",
+        reference_datetime=datetime(2026, 8, 2, tzinfo=timezone.utc),
+        skills=[_skill("running")],
+    )
+
+    assert result.summary == "已记录跑步。"
+
+
+async def test_schema_invalid_provider_result_is_retryable():
+    async def completion(**kwargs):
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "summary": "已记录跑步。",
+                                "records": [
+                                    {
+                                        "kind": "asset",
+                                        "skill_machine_name": "running",
+                                        "payload": "not-an-object",
+                                    }
+                                ],
+                            },
+                            ensure_ascii=False,
+                        )
+                    }
+                }
+            ]
+        }
+
+    provider = LiteLLMCaptureAgentProvider(
+        model="deepseek/deepseek-chat",
+        api_key=None,
+        timeout_seconds=3,
+        completion=completion,
+    )
+
+    with pytest.raises(RetryableCaptureAgentError):
+        await provider.organize(
+            transcript="刚刚跑了两公里",
+            reference_datetime=datetime(2026, 8, 2, tzinfo=timezone.utc),
+            skills=[_skill("running")],
+        )
+
+
 async def test_provider_call_failure_is_retryable():
     async def completion(**kwargs):
         raise TimeoutError("private timeout detail")

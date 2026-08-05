@@ -341,6 +341,15 @@ List _coreList(dynamic response, String key) => switch (response) {
   _ => const [],
 };
 
+bool _skillEnabled(dynamic value) => switch (value) {
+  null => true,
+  bool enabled => enabled,
+  num enabled => enabled != 0,
+  String enabled =>
+    enabled.trim().toLowerCase() != 'false' && enabled.trim() != '0',
+  _ => true,
+};
+
 String _coreTitle(Map<String, dynamic> value, String fallback) {
   final candidate =
       value['title'] ?? value['content'] ?? value['name'] ?? value['amount'];
@@ -384,7 +393,7 @@ Future<Map<String, SkillMeta>> fetchSkills(
       s['display_name'] as String? ?? name,
       rs?['accent_color'] as String? ?? coreSpec?.accentColor ?? 'gray',
       (s['user_skill_id'] ?? s['id']) as String?,
-      (s['enabled'] as int? ?? 1) != 0,
+      _skillEnabled(s['enabled']),
     );
   }
   return out;

@@ -163,6 +163,11 @@ class ApiAssetDetailRepository implements AssetDetailRepository {
         (asset['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
     final rawSchema =
         (skill['schema'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final renderSpec =
+        (skill['render_spec'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final cardDisplay =
+        (renderSpec['card_display'] as Map?)?.cast<String, dynamic>() ??
+        const {};
     final schema =
         (rawSchema['properties'] as Map?)?.cast<String, dynamic>() ?? rawSchema;
     final isSchemaEnvelope = rawSchema['properties'] is Map;
@@ -193,7 +198,11 @@ class ApiAssetDetailRepository implements AssetDetailRepository {
       fields.add(
         _field(
           id,
-          _coreFieldLabel(machineName, id, metadata?['label']),
+          _coreFieldLabel(
+            machineName,
+            id,
+            metadata?['label'] ?? metadata?['title'],
+          ),
           type: metadata?['type']?.toString() ?? 'string',
           required:
               metadata?['required'] == true || requiredFields.contains(id),
@@ -204,7 +213,7 @@ class ApiAssetDetailRepository implements AssetDetailRepository {
         ),
       );
     }
-    final primary = const ['title', 'content', 'name'].firstWhere(
+    final fallbackPrimary = const ['title', 'content', 'name'].firstWhere(
       (id) => _hasCoreValue(payload[id]),
       orElse: () {
         for (final field in fields) {
@@ -213,6 +222,25 @@ class ApiAssetDetailRepository implements AssetDetailRepository {
         return fields.isEmpty ? 'content' : fields.first.id;
       },
     );
+    final configuredPrimary =
+        renderSpec['primary_field']?.toString().trim() ??
+        cardDisplay['primary_field_id']?.toString().trim();
+    final primary =
+        configuredPrimary != null &&
+            configuredPrimary.isNotEmpty &&
+            fields.any((field) => field.id == configuredPrimary)
+        ? configuredPrimary
+        : fallbackPrimary;
+    final configuredSecondary = <String>[
+      if (renderSpec['secondary_field']?.toString().trim() case final value?
+          when value.isNotEmpty)
+        value,
+      for (final value
+          in cardDisplay['secondary_field_ids'] is List
+              ? cardDisplay['secondary_field_ids'] as List
+              : const [])
+        if (value.toString().trim().isNotEmpty) value.toString().trim(),
+    ];
     final values = <String, dynamic>{
       for (final id in fieldIds)
         if (payload.containsKey(id)) id: payload[id],
@@ -229,14 +257,19 @@ class ApiAssetDetailRepository implements AssetDetailRepository {
         id: skillId.isEmpty ? null : skillId,
         machineName: machineName,
         displayName: skill['display_name']?.toString() ?? '资产',
-        icon: _coreAssetIcon(machineName),
+        icon: renderSpec['icon']?.toString().trim().isNotEmpty == true
+            ? renderSpec['icon'].toString().trim()
+            : _coreAssetIcon(machineName),
       ),
       fields: fields,
       values: values,
       primaryFieldId: primary,
       secondaryFieldIds: [
+        for (final id in configuredSecondary)
+          if (id != primary && fields.any((field) => field.id == id)) id,
         for (final field in fields)
-          if (field.id != primary) field.id,
+          if (field.id != primary && !configuredSecondary.contains(field.id))
+            field.id,
       ],
       source: _coreSource(asset),
     );

@@ -8,7 +8,6 @@ import 'package:http/testing.dart';
 
 import 'calendar_test_fixtures.dart';
 
-
 void main() {
   testWidgets('production Calendar consumes the authoritative Timeline feed', (
     tester,
@@ -39,8 +38,8 @@ void main() {
                 {
                   'kind': 'input_turn',
                   'id': 'capture-$index',
-                  'effective_at': '2026-08-04T16:0${index}:00Z',
-                  'created_at': '2026-08-04T16:0${index}:00Z',
+                  'effective_at': '2026-08-04T16:0$index:00Z',
+                  'created_at': '2026-08-04T16:0$index:00Z',
                   'title': '硬件闪念 $index',
                   'subtitle': '',
                   'session_id': '2026-08-05',
@@ -59,20 +58,20 @@ void main() {
               'id': 'water-skill',
               'machine_name': 'daily_water_intake',
               'display_name': '喝水记录',
+              'enabled': true,
               'schema': {
                 'type': 'object',
                 'properties': {
                   'amount_ml': {'type': 'number'},
                 },
               },
-              'render_spec': {
-                'icon': '💧',
-                'primary_field': 'amount_ml',
-              },
+              'render_spec': {'icon': '💧', 'primary_field': 'amount_ml'},
             },
           ]);
         }
-        return _json({'detail': 'unexpected ${request.url.path}'}, statusCode: 500);
+        return _json({
+          'detail': 'unexpected ${request.url.path}',
+        }, statusCode: 500);
       }),
     );
     addTearDown(api.close);
@@ -97,7 +96,6 @@ void main() {
     expect(find.text('✦ 3'), findsOneWidget);
   });
 }
-
 
 http.Response _json(Object body, {int statusCode = 200}) => http.Response(
   jsonEncode(body),

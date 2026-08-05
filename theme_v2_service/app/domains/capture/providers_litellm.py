@@ -107,6 +107,23 @@ def _response_format(model: str) -> dict[str, Any]:
     }
 
 
+def _decode_capture_json(content: str) -> Any:
+    normalized = content.strip()
+    if normalized.startswith("```"):
+        first_line_end = normalized.find("\n")
+        if first_line_end < 0 or not normalized.endswith("```"):
+            raise PermanentCaptureAgentError(
+                "capture provider returned malformed JSON"
+            )
+        normalized = normalized[first_line_end + 1 : -3].strip()
+    try:
+        return json.loads(normalized)
+    except json.JSONDecodeError as exc:
+        raise PermanentCaptureAgentError(
+            "capture provider returned malformed JSON"
+        ) from exc
+
+
 class LiteLLMCaptureAgentProvider:
     def __init__(
         self,
@@ -149,14 +166,17 @@ class LiteLLMCaptureAgentProvider:
             raise RetryableCaptureAgentError(
                 "capture provider unavailable"
             ) from exc
+        payload = _decode_capture_json(_message_content(response))
         try:
-            result = CaptureAgentResult.model_validate_json(
-                _message_content(response)
-            )
-            return validate_capture_result(result, skills)
-        except (CaptureOutputError, PermanentCaptureAgentError):
-            raise
+            result = CaptureAgentResult.model_validate(payload)
         except Exception as exc:
-            raise PermanentCaptureAgentError(
-                "invalid capture provider response"
+            # A syntactically valid response that misses the bounded schema is
+            # model-output drift. Let the durable job retry it instead of
+            # permanently ending the user's capture on the first attempt.
+            raise RetryableCaptureAgentError(
+                "capture provider returned incompatible JSON"
             ) from exc
+        try:
+            return validate_capture_result(result, skills)
+        except CaptureOutputError:
+            raise

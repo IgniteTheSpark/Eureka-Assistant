@@ -38,6 +38,8 @@ class LibraryHub extends StatelessWidget {
       animation: controller,
       builder: (context, _) {
         final overview = controller.overview;
+        final customSkills =
+            overview?.customContainers ?? const <LibraryContainerSummary>[];
         return ListView(
           key: const PageStorageKey('theme-v2-library-hub'),
           padding: const EdgeInsets.fromLTRB(18, 14, 18, 112),
@@ -79,6 +81,16 @@ class LibraryHub extends StatelessWidget {
                 onTap: onOpenContainer,
                 onLongPress: onConfigurePinned,
               ),
+            if (customSkills.isNotEmpty) ...[
+              const SizedBox(height: ThemeV2Spacing.xl),
+              const LibrarySectionLabel(label: '我的技能'),
+              const SizedBox(height: 8),
+              for (final item in customSkills)
+                LibraryCustomContainerRow(
+                  container: item,
+                  onTap: () => onOpenContainer(item),
+                ),
+            ],
             const SizedBox(height: ThemeV2Spacing.lg),
             CreateSkillAction.primary(onPressed: onCreateSkill),
             const SizedBox(height: ThemeV2Spacing.xl),

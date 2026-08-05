@@ -192,9 +192,9 @@ bool _todoDone(Map<String, dynamic> p) =>
 
 /// A human title for a pool bubble's summary preview (the detail sheet reuses
 /// the canonical asset-detail launcher for full rendering). Mirrors the
-/// timeline's fallback chain
-/// minus render_spec.primary_field (which the asset list doesn't carry).
-String _poolTitle(Map<String, dynamic> p, String type) {
+/// timeline's fallback chain and uses the skill's configured primary field for
+/// custom payloads that do not carry a conventional content/title/name field.
+String _poolTitle(Map<String, dynamic> p, String type, {_CoreSkill? skill}) {
   final cand =
       p['content'] ??
       p['title'] ??
@@ -206,7 +206,21 @@ String _poolTitle(Map<String, dynamic> p, String type) {
   } else if (cand != null) {
     return cand.toString();
   }
-  return type;
+  final primaryField = skill?.primaryField;
+  final primaryValue = primaryField == null ? null : p[primaryField];
+  if (primaryValue != null) {
+    final unit = skill?.primaryUnit;
+    final suffix = unit == null || unit.isEmpty ? '' : ' $unit';
+    return '${skill!.displayName} · ${_displayValue(primaryValue)}$suffix';
+  }
+  return skill?.displayName ?? type;
+}
+
+String _displayValue(dynamic value) {
+  if (value is double && value == value.roundToDouble()) {
+    return value.toInt().toString();
+  }
+  return value.toString();
 }
 
 /// One fetch feeding all three of today's sections. Resilient: a failure in any
@@ -428,7 +442,7 @@ _loadCoreRecordChain(
     final done = _todoDone(payload);
     if (done) todoDone++;
     final id = asset['id']?.toString() ?? '';
-    final title = _poolTitle(payload, skill!.machineName);
+    final title = _poolTitle(payload, skill!.machineName, skill: skill);
     candidates.add(
       ChainItem(
         kind: 'todo',
@@ -507,7 +521,7 @@ Future<({List<PoolAsset> pool, int trueCount})> _loadPool(
           id: m['id'] as String? ?? '',
           type: type,
           domain: m['domain'] as String? ?? coreSkill?.domain ?? '',
-          title: _poolTitle(payload, type),
+          title: _poolTitle(payload, type, skill: coreSkill),
           payload: payload,
           createdAt:
               DateTime.tryParse(m['created_at'] as String? ?? '')?.toLocal() ??
@@ -571,10 +585,19 @@ Future<({List<PoolAsset> pool, int trueCount})> _loadPool(
 }
 
 class _CoreSkill {
-  const _CoreSkill({required this.machineName, required this.domain});
+  const _CoreSkill({
+    required this.machineName,
+    required this.displayName,
+    required this.domain,
+    this.primaryField,
+    this.primaryUnit,
+  });
 
   final String machineName;
+  final String displayName;
   final String domain;
+  final String? primaryField;
+  final String? primaryUnit;
 }
 
 Future<Map<String, _CoreSkill>> _loadCoreSkills(ApiClient api) async {
@@ -585,9 +608,21 @@ Future<Map<String, _CoreSkill>> _loadCoreSkills(ApiClient api) async {
     final id = value['id']?.toString();
     final machineName = value['machine_name']?.toString();
     if (id == null || machineName == null || machineName.isEmpty) continue;
+    final renderSpec = (value['render_spec'] as Map?)?.cast<String, dynamic>();
+    final cardDisplay = (renderSpec?['card_display'] as Map?)
+        ?.cast<String, dynamic>();
+    final primaryField =
+        renderSpec?['primary_field']?.toString().trim() ??
+        cardDisplay?['primary_field_id']?.toString().trim();
+    final primaryUnit = renderSpec?['primary_unit']?.toString().trim();
     out[id] = _CoreSkill(
       machineName: machineName,
+      displayName: value['display_name']?.toString().trim().isNotEmpty == true
+          ? value['display_name'].toString().trim()
+          : machineName,
       domain: value['domain']?.toString() ?? '',
+      primaryField: primaryField?.isEmpty == true ? null : primaryField,
+      primaryUnit: primaryUnit?.isEmpty == true ? null : primaryUnit,
     );
   }
   return out;

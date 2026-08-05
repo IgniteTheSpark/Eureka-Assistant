@@ -34,6 +34,7 @@ void main() {
                 'id': 'skill-notes',
                 'machine_name': 'notes',
                 'display_name': '随记',
+                'enabled': true,
                 'description': '短笔记',
                 'domain': 'knowledge',
                 'schema': {
@@ -46,6 +47,7 @@ void main() {
                 'id': 'skill-todo',
                 'machine_name': 'todo',
                 'display_name': '待办',
+                'enabled': true,
                 'description': '任务',
                 'domain': 'work',
                 'schema': {
@@ -166,6 +168,65 @@ void main() {
     await future!;
 
     expect(uncaught, isEmpty);
+  });
+
+  test('uses custom skill metadata for a Theme V2 home asset', () async {
+    final api = ApiClient(
+      baseUrl: 'http://theme-v2.test',
+      enableLogging: false,
+      client: MockClient((request) async {
+        switch (request.url.path) {
+          case '/api/user-skills':
+            return _json([
+              {
+                'id': 'skill-water',
+                'machine_name': 'daily_water_intake',
+                'display_name': '每日喝水量',
+                'enabled': true,
+                'domain': '健康',
+                'schema': {
+                  'type': 'object',
+                  'properties': {
+                    'amount_ml': {'type': 'number', 'title': '饮水量'},
+                  },
+                },
+                'render_spec': {
+                  'icon': '💧',
+                  'primary_field': 'amount_ml',
+                  'primary_unit': 'ml',
+                },
+              },
+            ]);
+          case '/api/assets':
+            return _json([
+              {
+                'id': 'water-1',
+                'user_skill_id': 'skill-water',
+                'payload': {'amount_ml': 1000},
+                'created_at': '2026-08-05T02:00:00Z',
+                'updated_at': '2026-08-05T02:00:00Z',
+              },
+            ]);
+          case '/api/events':
+            return _json([]);
+          case '/api/flash/sessions/2026-08-05':
+            return http.Response('{"detail":"not found"}', 404);
+          default:
+            return http.Response('{"detail":"unexpected"}', 500);
+        }
+      }),
+    );
+    addTearDown(api.close);
+
+    final data = await loadToday(
+      api,
+      nowOverride: DateTime(2026, 8, 5, 12),
+      coreRecordsOnly: true,
+    );
+
+    expect(data.skills['daily_water_intake']?.label, '每日喝水量');
+    expect(data.skills['daily_water_intake']?.icon, '💧');
+    expect(data.pool.single.title, '每日喝水量 · 1000 ml');
   });
 }
 

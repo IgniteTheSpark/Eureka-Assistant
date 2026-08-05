@@ -192,6 +192,60 @@ void main() {
   });
 
   test(
+    'core custom asset keeps its configured presentation metadata',
+    () async {
+      final api = ApiClient(
+        baseUrl: 'http://theme-v2.test',
+        enableLogging: false,
+        client: MockClient((request) async {
+          if (request.url.path == '/api/assets/water-1') {
+            return _json({
+              'id': 'water-1',
+              'user_skill_id': 'skill-water',
+              'payload': {'date': '2026-08-05', 'amount_ml': 200},
+              'created_at': '2026-08-05T12:00:00Z',
+              'updated_at': '2026-08-05T12:00:00Z',
+            });
+          }
+          if (request.url.path == '/api/user-skills/skill-water') {
+            return _json({
+              'id': 'skill-water',
+              'machine_name': 'daily_water_intake',
+              'display_name': '每日喝水量',
+              'schema': {
+                'type': 'object',
+                'properties': {
+                  'date': {'type': 'string', 'title': '日期'},
+                  'amount_ml': {'type': 'number', 'title': '饮水量'},
+                },
+              },
+              'render_spec': {
+                'icon': '💧',
+                'primary_field': 'amount_ml',
+                'secondary_field': 'date',
+              },
+            });
+          }
+          return http.Response('{"detail":"unexpected"}', 500);
+        }),
+      );
+      addTearDown(api.close);
+
+      final detail = await ApiAssetDetailRepository(
+        api,
+        coreRecordsOnly: true,
+      ).load(const AssetEntityRef(kind: AssetEntityKind.asset, id: 'water-1'));
+
+      expect(detail.skill.icon, '💧');
+      expect(detail.display.primaryFieldId, 'amount_ml');
+      expect(
+        detail.fields.singleWhere((field) => field.id == 'amount_ml').label,
+        '饮水量',
+      );
+    },
+  );
+
+  test(
     'aligns a core expense detail with the legacy content contract',
     () async {
       final api = ApiClient(
