@@ -447,6 +447,45 @@ void main() {
     },
   );
 
+  testWidgets('Agenda event card shows its full time range', (tester) async {
+    _setReferenceView(tester);
+    final controller = ThemeV2HomeController(
+      initialPresentation: HomePresentation.agenda,
+    );
+    addTearDown(controller.dispose);
+    final data = TodayData(
+      chain: [
+        ChainItem(
+          kind: 'event',
+          id: 'event-range',
+          title: '周会',
+          at: DateTime(2026, 8, 6, 15, 30),
+          dur: const Duration(minutes: 30),
+          timed: true,
+          sub: '事件',
+        ),
+      ],
+      noTimeTodos: const [],
+      pool: const [],
+      poolTrueCount: 0,
+      flashCount: 0,
+    );
+
+    await tester.pumpWidget(
+      _HomeHost(
+        child: ThemeV2HomePage(
+          controller: controller,
+          repository: _FakeHomeRepository(data),
+          now: DateTime(2026, 8, 6, 9),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('15:30–16:00'), findsOneWidget);
+    expect(find.text('周会'), findsOneWidget);
+  });
+
   test('queue filtering uses explicit metadata and preserves user text', () {
     final ordinary = _queueItem(title: '更新个人目标');
     final goalDerived = _queueItem(

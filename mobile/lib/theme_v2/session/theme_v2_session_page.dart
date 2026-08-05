@@ -275,7 +275,10 @@ class _ThemeV2SessionPageState extends State<ThemeV2SessionPage> {
     final title = _subjectLabel?.trim().isNotEmpty == true
         ? _subjectLabel!.trim()
         : _controller.displayTitle;
-    final turnCount = sessionTurnCount(state.messages);
+    final activeController = _controller;
+    final turnCount = activeController is SessionTurnCountSource
+        ? (activeController as SessionTurnCountSource).sessionTurnCount
+        : sessionTurnCount(state.messages);
     return Scaffold(
       key: _scaffoldKey,
       resizeToAvoidBottomInset: false,

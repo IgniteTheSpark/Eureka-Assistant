@@ -4,6 +4,8 @@ import 'package:eureka/api/api_client.dart';
 import 'package:eureka/api/sse_client.dart';
 import 'package:eureka/chat/chat_models.dart';
 import 'package:eureka/theme_v2/capture/capture_session_controller.dart';
+import 'package:eureka/theme_v2/session/theme_v2_session_page.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -174,5 +176,84 @@ void main() {
       controller.messages.last.parts.whereType<ErrorPart>().single.message,
       '发送失败，请稍后重试',
     );
+  });
+
+  testWidgets('flash header counts hardware recordings, not typed chat turns', (
+    tester,
+  ) async {
+    final api = ApiClient(
+      baseUrl: 'http://theme-v2.test',
+      enableLogging: false,
+      client: MockClient((request) async {
+        if (request.url.path == '/api/flash/sessions/2026-08-05') {
+          return http.Response(
+            jsonEncode({
+              'session': {
+                'id': '2026-08-05',
+                'date': '2026-08-05',
+                'physical_session_id': 'physical-session-1',
+                'recordings': [
+                  {
+                    'id': 'recording-1',
+                    'process_status': 'done',
+                    'asr_text': '硬件闪念',
+                    'input_turn_id': 'turn-voice-1',
+                    'result_cards': const [],
+                  },
+                ],
+              },
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        if (request.url.path == '/api/sessions/physical-session-1/messages') {
+          return http.Response(
+            jsonEncode({
+              'messages': [
+                {
+                  'id': 'voice-user-1',
+                  'role': 'user',
+                  'status': 'done',
+                  'text': '硬件闪念',
+                  'input_turn_id': 'turn-voice-1',
+                  'cards': const [],
+                },
+                {
+                  'id': 'typed-user-1',
+                  'role': 'user',
+                  'status': 'done',
+                  'text': '这是一条会话消息',
+                  'input_turn_id': 'turn-typed-1',
+                  'cards': const [],
+                },
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response('not found', 404);
+      }),
+    );
+    final controller = CaptureSessionController(api: api);
+    addTearDown(() {
+      controller.dispose();
+      api.close();
+    });
+    await controller.loadSession('2026-08-05');
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ThemeV2SessionPage(
+          controller: controller,
+          initializeController: false,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('01'), findsNWidgets(2));
+    expect(find.text('02'), findsNothing);
   });
 }

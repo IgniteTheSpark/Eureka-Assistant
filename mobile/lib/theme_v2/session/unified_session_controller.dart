@@ -10,7 +10,7 @@ enum UnifiedSessionSource { chat, flash }
 /// Presents ordinary agent chats and daily Flash sessions as one archive while
 /// preserving their separate, established API workflows.
 class UnifiedSessionController extends ChangeNotifier
-    implements ThemeV2SessionController {
+    implements ThemeV2SessionController, SessionTurnCountSource {
   UnifiedSessionController({
     ThemeV2SessionController? chatController,
     ThemeV2SessionController? flashController,
@@ -79,6 +79,15 @@ class UnifiedSessionController extends ChangeNotifier
   @override
   List<({String id, String label})> get contextAssets =>
       _activeController.contextAssets;
+
+  @override
+  int get sessionTurnCount {
+    final active = _activeController;
+    if (active is SessionTurnCountSource) {
+      return (active as SessionTurnCountSource).sessionTurnCount;
+    }
+    return active.messages.where((message) => message.isUser).length;
+  }
 
   @override
   Future<List<SessionInfo>> listSessions() async {

@@ -18,7 +18,10 @@ typedef CaptureChatTurnStream =
 /// and typed follow-ups therefore replay from the same durable SessionMessage
 /// log and share the ordinary `/api/chat` turn pipeline.
 class CaptureSessionController extends ChangeNotifier
-    implements ThemeV2SessionController, FlashSessionWorkflow {
+    implements
+        ThemeV2SessionController,
+        FlashSessionWorkflow,
+        SessionTurnCountSource {
   CaptureSessionController({
     ApiClient? api,
     ValueListenable<SessionInvalidation?>? invalidations,
@@ -55,6 +58,7 @@ class CaptureSessionController extends ChangeNotifier
   String? _physicalSessionId;
   String? _sessionDate;
   int _sessionRevision = 0;
+  int _captureTurnCount = 0;
   Timer? _invalidationTimer;
   StreamSubscription<SseEvent>? _activeTurnSubscription;
   final Map<String, String> _dateByPhysicalSessionId = {};
@@ -69,6 +73,9 @@ class CaptureSessionController extends ChangeNotifier
 
   @override
   List<({String id, String label})> get contextAssets => const [];
+
+  @override
+  int get sessionTurnCount => _captureTurnCount;
 
   @override
   Future<void> loadSession(String id, {String? title}) async {
@@ -229,6 +236,7 @@ class CaptureSessionController extends ChangeNotifier
       messages
         ..clear()
         ..addAll(nextMessages);
+      _captureTurnCount = recordings.length;
       sessionId = declaredPhysicalSessionId.isNotEmpty
           ? declaredPhysicalSessionId
           : sessionDate;
@@ -609,6 +617,7 @@ class CaptureSessionController extends ChangeNotifier
     _physicalSessionId = null;
     _sessionDate = null;
     _sessionRevision = 0;
+    _captureTurnCount = 0;
     _invalidationTimer?.cancel();
     final activeTurn = _activeTurnSubscription;
     _activeTurnSubscription = null;

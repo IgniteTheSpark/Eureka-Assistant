@@ -381,7 +381,11 @@ class _TimedRecordBlock extends StatelessWidget {
         height: visualHeight,
         padding: EdgeInsets.symmetric(
           horizontal: entry.record.isTodo ? 2 : ThemeV2Spacing.sm,
-          vertical: entry.record.isTodo ? 0 : ThemeV2Spacing.sm,
+          vertical: entry.record.isTodo
+              ? 0
+              : visualHeight >= ThemeV2Sizes.minTouchTarget
+              ? ThemeV2Spacing.xs
+              : 1,
         ),
         decoration: BoxDecoration(
           color: tokens.surface,
@@ -397,14 +401,9 @@ class _TimedRecordBlock extends StatelessWidget {
               )
             : InkWell(
                 onTap: onTap,
-                child: Text(
-                  entry.record.item.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: tokens.foreground,
-                    fontWeight: FontWeight.w700,
-                  ),
+                child: _ScheduleEventLabel(
+                  entry: entry,
+                  compact: visualHeight < 32,
                 ),
               ),
       ),
@@ -424,6 +423,66 @@ class _TimedRecordBlock extends StatelessWidget {
             ),
     );
   }
+}
+
+class _ScheduleEventLabel extends StatelessWidget {
+  const _ScheduleEventLabel({required this.entry, required this.compact});
+
+  final CalendarTimeLayoutEntry entry;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.themeV2;
+    final range = _scheduleEventRange(entry);
+    final titleStyle = Theme.of(context).textTheme.labelSmall?.copyWith(
+      color: tokens.foreground,
+      fontWeight: FontWeight.w700,
+    );
+    if (compact) {
+      return Text(
+        '$range  ${entry.record.item.title}',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: ThemeV2Typography.mono(
+          fontSize: 8,
+          color: tokens.foreground,
+          fontWeight: FontWeight.w700,
+        ),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          range,
+          maxLines: 1,
+          style: ThemeV2Typography.mono(
+            fontSize: 8,
+            color: tokens.muted,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        Expanded(
+          child: Text(
+            entry.record.item.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: titleStyle,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+String _scheduleEventRange(CalendarTimeLayoutEntry entry) {
+  final start = entry.record.effectiveAt;
+  final declaredEnd = entry.record.endAt;
+  final end = declaredEnd != null && declaredEnd.isAfter(start)
+      ? declaredEnd
+      : start.add(entry.duration);
+  return '${_scheduleClock(start)}–${_scheduleClock(end)}';
 }
 
 class _TodoBandBlock extends StatelessWidget {

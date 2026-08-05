@@ -195,6 +195,33 @@ void main() {
     );
   });
 
+  testWidgets('every timed event shows its start and end time', (tester) async {
+    final day = DateTime(2026, 7, 3);
+    final event = CalendarRecord.fromTimeline(
+      calendarFixtureItem(
+        id: 'afternoon-review',
+        title: '方案评审',
+        at: day.add(const Duration(hours: 15, minutes: 30)),
+        endAt: day.add(const Duration(hours: 16)),
+      ),
+    );
+
+    await tester.pumpWidget(grid(records: [event]));
+    await tester.pumpAndSettle();
+
+    final block = find.byKey(
+      const ValueKey('calendar-grid-record-afternoon-review'),
+    );
+    expect(
+      find.descendant(of: block, matching: find.text('15:30–16:00')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: block, matching: find.text('方案评审')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets(
     'meeting training and same-minute todo band remain three blocks',
     (tester) async {

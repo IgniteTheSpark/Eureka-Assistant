@@ -32,6 +32,12 @@ abstract interface class ThemeV2SessionController implements Listenable {
 /// the product-wide unified archive.
 abstract interface class FlashSessionWorkflow {}
 
+/// Supplies a product-specific turn count when visible messages and the
+/// product count differ. Daily Flash counts hardware recordings only.
+abstract interface class SessionTurnCountSource {
+  int get sessionTurnCount;
+}
+
 class ChatControllerSessionAdapter extends ChangeNotifier
     implements ThemeV2SessionController {
   ChatControllerSessionAdapter(this.chat, {this.ownsChat = false}) {

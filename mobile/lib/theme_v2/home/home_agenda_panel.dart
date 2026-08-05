@@ -406,7 +406,7 @@ class _SingleAgendaCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                _clock(item.at),
+                _agendaTimeLabel(item),
                 style: _mono(
                   color: tokens.accent,
                   size: 8.5,
@@ -610,11 +610,17 @@ String _dateLine(DateTime value) {
 String _agendaMeta(ChainItem item) {
   if (item.kind == 'todo') return '';
   final duration = item.dur;
-  final prefix = duration == null ? '' : '${duration.inMinutes} 分钟';
   final sub = item.sub.trim();
-  if (prefix.isEmpty) return sub;
-  if (sub.isEmpty) return prefix;
-  return '$prefix · $sub';
+  if (duration != null && sub == '${duration.inMinutes} 分钟') return '';
+  return sub;
+}
+
+String _agendaTimeLabel(ChainItem item) {
+  final duration = item.dur;
+  if (item.kind != 'event' || duration == null || duration <= Duration.zero) {
+    return _clock(item.at);
+  }
+  return '${_clock(item.at)}–${_clock(item.at.add(duration))}';
 }
 
 LinearGradient _agendaBubbleGradient(BuildContext context, int index) {
