@@ -13,6 +13,7 @@ import '../theme/eureka_colors.dart';
 import '../widgets/asset_picker.dart';
 import '../widgets/toast.dart';
 import '../theme_v2/session/theme_v2_session_page.dart';
+import '../theme_v2/session/unified_session_controller.dart';
 
 /// Agent chat surface — streams POST /api/chat over SSE, renders the agent's
 /// markdown text + created cards, and offers 沉淀为资产 on pure Q&A answers.
@@ -52,7 +53,7 @@ class ChatPage extends StatefulWidget {
 
 class _ChatPageState extends State<ChatPage> {
   final _chat = ChatController();
-  late final ChatControllerSessionAdapter _themeV2Controller;
+  late final UnifiedSessionController _themeV2Controller;
   final List<({String id, String label})> _context = [];
   // The anchored subject (🔗 常驻关联资产). Mutable so 新建对话 can clear it — the
   // widget param is immutable, so we mirror it here and drive the chip/header
@@ -72,7 +73,9 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void initState() {
     super.initState();
-    _themeV2Controller = ChatControllerSessionAdapter(_chat);
+    _themeV2Controller = UnifiedSessionController(
+      chatController: ChatControllerSessionAdapter(_chat),
+    );
     _anchorLabel = widget.subjectLabel;
     _chat.addListener(_onChange);
     if (widget.startBlank) {
@@ -97,7 +100,7 @@ class _ChatPageState extends State<ChatPage> {
   void _newConversation() {
     _context.clear();
     _anchorLabel = null;
-    _chat.reset(); // clears contextAssets + subject + session, then notifies
+    _themeV2Controller.reset();
     setState(() {});
   }
 

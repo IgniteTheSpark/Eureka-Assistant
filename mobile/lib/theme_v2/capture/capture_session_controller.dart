@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../api/api_client.dart';
 import '../../chat/chat_models.dart';
-import '../session/theme_v2_session_page.dart';
+import '../session/session_controller.dart';
 
 /// Adapter that projects Theme V2 capture recordings onto the
 /// established Session transcript surface.
@@ -12,7 +12,7 @@ import '../session/theme_v2_session_page.dart';
 /// a second session store while still letting notification recipients replay
 /// the exact transcript, organization summary, and derived records.
 class CaptureSessionController extends ChangeNotifier
-    implements ThemeV2SessionController {
+    implements ThemeV2SessionController, FlashSessionWorkflow {
   CaptureSessionController({ApiClient? api})
     : _api = api ?? ApiClient(),
       _ownsApi = api == null;
