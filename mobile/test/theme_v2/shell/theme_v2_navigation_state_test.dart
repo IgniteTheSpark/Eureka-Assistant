@@ -270,9 +270,7 @@ void main() {
     }
   });
 
-  testWidgets('Schedule hides the dock and Day Detail restores it', (
-    tester,
-  ) async {
+  testWidgets('Calendar secondary surfaces hide the dock', (tester) async {
     final controller = CalendarController()
       ..openDay(DateTime(2026, 7, 3))
       ..openSchedule();
@@ -293,8 +291,12 @@ void main() {
 
     controller.backToDay();
     await tester.pump();
-    expect(find.byKey(ThemeV2FloatingDock.dockKey), findsOneWidget);
+    expect(find.byKey(ThemeV2FloatingDock.dockKey), findsNothing);
     expect(find.byType(ThemeV2GlobalTopNav), findsOneWidget);
+
+    controller.backToOverview();
+    await tester.pump();
+    expect(find.byKey(ThemeV2FloatingDock.dockKey), findsOneWidget);
   });
 
   testWidgets('Library surfaces coordinate shell chrome and local back', (

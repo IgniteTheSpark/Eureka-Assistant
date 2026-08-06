@@ -1,10 +1,11 @@
 import '../api/api_client.dart';
 import '../render/render_spec.dart';
+import '../theme_v2/foundation/canonical_entity_identity.dart';
 
-const todoAssetIcon = '📋';
-const eventAssetIcon = '📅';
-const contactAssetIcon = '👤';
-const notesAssetIcon = '✍️';
+const todoAssetIcon = canonicalTodoAssetIcon;
+const eventAssetIcon = canonicalEventAssetIcon;
+const contactAssetIcon = canonicalContactAssetIcon;
+const notesAssetIcon = canonicalNotesAssetIcon;
 
 /// Icon + label + accent for a skill / derived kind.
 class SkillMeta {
@@ -147,28 +148,21 @@ const _builtin = <String, SkillMeta>{
   'external_ref': SkillMeta('🔗', '外部', 'purple'),
 };
 
-/// Built-in glyphs the client pins regardless of the server's render_spec — the
-/// seed mirrors these, but the client owns the canonical look. 待办 must read as
-/// "to-do" (📋), not "done" (✅). Custom user skills are unaffected.
-const _pinnedIcons = <String, String>{'todo': todoAssetIcon};
-
-String _canonicalSkillKey(String key) => switch (key.trim().toLowerCase()) {
-  'calendar' => 'event',
-  'note' || 'idea' || 'misc' => 'notes',
-  final normalized => normalized,
-};
-
 /// Resolve a skill / derived key to its icon + label. Custom skills live only
 /// in the registry, so look there first (mirrors the web derivedMeta fix).
 SkillMeta resolveMeta(String key, Map<String, SkillMeta> registry) {
   final normalized = key.trim().toLowerCase();
-  final registered = registry[normalized] ?? registry[key];
-  final canonical = _canonicalSkillKey(normalized);
+  final canonical = canonicalEntityKey(normalized);
+  final registered =
+      registry[normalized] ?? registry[key] ?? registry[canonical];
   final m = registered ?? _builtin[canonical] ?? SkillMeta('•', key);
-  final pin = _pinnedIcons[canonical];
-  return pin == null
-      ? m
-      : SkillMeta(pin, m.label, m.accentColor, m.userSkillId, m.enabled);
+  return SkillMeta(
+    resolveEntityIcon(canonical, configuredIcon: m.icon),
+    m.label,
+    m.accentColor,
+    m.userSkillId,
+    m.enabled,
+  );
 }
 
 /// Resolve the canonical identity for an Asset-like timeline entry.
@@ -214,6 +208,7 @@ Future<List<TimelineItem>> _fetchCoreRecordTimeline(ApiClient api) async {
     api.getJson('/api/assets', query: const {'limit': 100}),
     api.getJson('/api/events', query: const {'limit': 100}),
     api.getJson('/api/flash/recordings', query: const {'limit': 200}),
+    api.getJson('/api/contacts', query: const {'limit': 100}),
   ]);
   final skillsById = <String, ({String name, String domain})>{};
   for (final raw in _coreList(responses[0], 'skills').whereType<Map>()) {
@@ -292,6 +287,41 @@ Future<List<TimelineItem>> _fetchCoreRecordTimeline(ApiClient api) async {
             skill.name == 'todo' &&
             (hasExplicitClock || due?.contains('T') == true),
         domain: skill.domain,
+      ),
+    );
+  }
+
+  for (final raw in _coreList(responses[4], 'contacts').whereType<Map>()) {
+    final contact = raw.cast<String, dynamic>();
+    final created = _firstCoreDate([contact['created_at']]);
+    if (created == null) continue;
+    final id = contact['id']?.toString() ?? '';
+    final name = contact['name']?.toString().trim() ?? '';
+    final company = contact['company']?.toString().trim() ?? '';
+    final title = contact['title']?.toString().trim() ?? '';
+    final identity = [
+      company,
+      title,
+    ].where((part) => part.isNotEmpty).join(' · ');
+    final fallback = contact['phone']?.toString().trim().isNotEmpty == true
+        ? contact['phone']!.toString().trim()
+        : contact['email']?.toString().trim() ?? '';
+    items.add(
+      TimelineItem(
+        kind: 'contact',
+        id: id,
+        effectiveAt: created,
+        title: name.isEmpty ? '联系人' : name,
+        subtitle: identity.isNotEmpty ? identity : fallback,
+        skillName: 'contact',
+        sessionId: null,
+        derived: const {},
+        contactId: id,
+        payload: contact,
+        period: '',
+        hasClockTime: false,
+        hasScheduledTime: false,
+        domain: '社交',
       ),
     );
   }
@@ -387,9 +417,10 @@ Future<Map<String, SkillMeta>> fetchSkills(
         ? coreRecordRenderSpec(name, s['schema'])
         : null;
     out[name] = SkillMeta(
-      // Pin built-in glyphs (待办 → 📋) even for surfaces that read the meta map
-      // directly (e.g. 资产库 container tiles), not just via resolveMeta.
-      _pinnedIcons[name] ?? (rs?['icon'] as String? ?? coreSpec?.icon ?? '•'),
+      resolveEntityIcon(
+        name,
+        configuredIcon: rs?['icon'] as String? ?? coreSpec?.icon,
+      ),
       s['display_name'] as String? ?? name,
       rs?['accent_color'] as String? ?? coreSpec?.accentColor ?? 'gray',
       (s['user_skill_id'] ?? s['id']) as String?,

@@ -13,7 +13,12 @@ from app.db.base import new_uuid, utc_now
 from app.db.models import Asset, Contact, Event, UserSkill
 from app.domains.notifications.service import publish_domain_event
 from app.domains.sessions.legacy_assistant import LegacyChatContext
-from app.domains.sessions.models import ChatSession, InputTurn, SessionMessage
+from app.domains.sessions.models import (
+    AgentPendingAction,
+    ChatSession,
+    InputTurn,
+    SessionMessage,
+)
 from app.domains.sessions.schemas import SessionContextUpdate, SessionCreate
 
 
@@ -224,6 +229,7 @@ async def session_detail(
                     Asset.user_id == model.user_id,
                     UserSkill.user_id == model.user_id,
                     Asset.id.in_(ids),
+                    Asset.migrated_contact_id.is_(None),
                 )
             )
         ).all()
@@ -247,7 +253,9 @@ async def update_context(
         owned = set(
             await database.scalars(
                 select(Asset.id).where(
-                    Asset.user_id == model.user_id, Asset.id.in_(command.add)
+                    Asset.user_id == model.user_id,
+                    Asset.id.in_(command.add),
+                    Asset.migrated_contact_id.is_(None),
                 )
             )
         )
@@ -288,7 +296,11 @@ async def build_chat_context(
     asset_query = (
         select(Asset, UserSkill)
         .join(UserSkill, UserSkill.id == Asset.user_skill_id)
-        .where(Asset.user_id == model.user_id, UserSkill.user_id == model.user_id)
+        .where(
+            Asset.user_id == model.user_id,
+            UserSkill.user_id == model.user_id,
+            Asset.migrated_contact_id.is_(None),
+        )
         .order_by(Asset.created_at.desc(), Asset.id.desc())
         .limit(limit)
     )
@@ -347,6 +359,18 @@ async def build_chat_context(
         )
     )
     turns.reverse()
+    pending_actions = list(
+        await database.scalars(
+            select(AgentPendingAction)
+            .where(
+                AgentPendingAction.user_id == model.user_id,
+                AgentPendingAction.session_id == model.id,
+                AgentPendingAction.status == "pending",
+            )
+            .order_by(AgentPendingAction.created_at, AgentPendingAction.id)
+            .limit(limit)
+        )
+    )
     payload = {
         "session": {
             "id": model.id,
@@ -376,6 +400,17 @@ async def build_chat_context(
                 "created_at": _utc_z(turn.created_at),
             }
             for turn in turns
+        ],
+        "pending_actions": [
+            {
+                "id": action.id,
+                "kind": action.kind,
+                "operation": action.operation,
+                "input_turn_id": action.input_turn_id,
+                "candidates": action.candidates_json or [],
+                "intent": action.intent_json or {},
+            }
+            for action in pending_actions
         ],
         "assets": assets,
         "events": [

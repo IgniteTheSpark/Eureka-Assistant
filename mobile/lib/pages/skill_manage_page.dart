@@ -4,6 +4,7 @@ import '../api/api_client.dart';
 import '../data_revision.dart';
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
+import '../theme_v2/foundation/canonical_entity_identity.dart';
 import '../widgets/skeleton_loader.dart';
 import '../widgets/toast.dart';
 import 'add_skill.dart';
@@ -90,7 +91,7 @@ class _SkillManagePageState extends State<SkillManagePage> {
             s['user_skill_id'] as String? ?? '',
             name,
             s['display_name'] as String? ?? name,
-            rs['icon'] as String? ?? '•',
+            resolveEntityIcon(name, configuredIcon: rs['icon'] as String?),
             rs['accent_color'] as String? ?? 'gray',
             (s['enabled'] as int? ?? 1) != 0,
             counts[name] ?? 0,

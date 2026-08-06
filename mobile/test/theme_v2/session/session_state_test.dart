@@ -236,6 +236,25 @@ void main() {
     );
   });
 
+  testWidgets('switching sessions clears the previous session draft', (
+    tester,
+  ) async {
+    final controller = FakeSessionController(
+      sessions: [SessionInfo('other', '其他会话', DateTime(2026, 8, 6))],
+    );
+    await _pumpSession(tester, controller: controller);
+
+    final field = find.byKey(const ValueKey('session-composer-field'));
+    await tester.enterText(field, '不应串到其他会话的草稿');
+    await tester.tap(find.bySemanticsLabel('历史会话'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('其他会话'));
+    await tester.pumpAndSettle();
+
+    expect(tester.widget<TextField>(field).controller!.text, isEmpty);
+    expect(controller.loadedSessionIds, ['other']);
+  });
+
   testWidgets('header controls expose explicit 44px semantics', (tester) async {
     final controller = FakeSessionController();
     await _pumpSession(tester, controller: controller);

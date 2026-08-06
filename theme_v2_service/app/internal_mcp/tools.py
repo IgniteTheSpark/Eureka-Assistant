@@ -26,6 +26,10 @@ from app.domains.assets.validation import AssetPayloadInvalid, AssetWriteProfile
 from app.domains.contacts import service as contact_service
 from app.domains.contacts.schemas import ContactCreate
 from app.domains.notifications.service import publish_domain_event
+# The stdio MCP process does not import the FastAPI report routers. Register the
+# Report tables explicitly so Asset.source_report_id can resolve its foreign key
+# when SQLAlchemy builds an Asset INSERT inside this isolated process.
+from app.domains.reports import models as _report_models  # noqa: F401
 from app.domains.sessions.models import InputTurn
 from app.domains.sessions.provenance import (
     ProvenanceNotOwned,
@@ -242,7 +246,7 @@ async def _create_asset(
                 payload=payload,
                 session_id=provenance.session_id,
                 source_input_turn_id=provenance.input_turn_id,
-                effective_at=arguments.get("effective_at"),
+                effective_at=arguments.get("effective_at") or None,
                 period=arguments.get("period") or None,
                 occurred_at=arguments.get("occurred_at") or None,
                 domain=str(arguments.get("domain") or "").strip() or None,
@@ -304,7 +308,11 @@ async def _query_asset(database, arguments, context):
     query = (
         select(Asset, UserSkill)
         .join(UserSkill, UserSkill.id == Asset.user_skill_id)
-        .where(Asset.user_id == context.user_id, UserSkill.user_id == context.user_id)
+        .where(
+            Asset.user_id == context.user_id,
+            UserSkill.user_id == context.user_id,
+            Asset.migrated_contact_id.is_(None),
+        )
     )
     if machine_name:
         query = query.where(UserSkill.machine_name == machine_name)
@@ -374,7 +382,11 @@ async def _update_asset(database, arguments, context):
         await database.execute(
             select(Asset, UserSkill)
             .join(UserSkill, UserSkill.id == Asset.user_skill_id)
-            .where(Asset.id == asset_id, Asset.user_id == context.user_id)
+            .where(
+                Asset.id == asset_id,
+                Asset.user_id == context.user_id,
+                Asset.migrated_contact_id.is_(None),
+            )
         )
     ).first()
     if row is None:

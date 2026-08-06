@@ -1,5 +1,6 @@
 import '../../api/api_client.dart';
 import '../../timeline/timeline.dart';
+import '../foundation/canonical_entity_identity.dart';
 import 'asset_detail_model.dart';
 import 'asset_entity_ref.dart';
 
@@ -257,9 +258,13 @@ class ApiAssetDetailRepository implements AssetDetailRepository {
         id: skillId.isEmpty ? null : skillId,
         machineName: machineName,
         displayName: skill['display_name']?.toString() ?? '资产',
-        icon: renderSpec['icon']?.toString().trim().isNotEmpty == true
-            ? renderSpec['icon'].toString().trim()
-            : _coreAssetIcon(machineName),
+        icon: resolveEntityIcon(
+          machineName,
+          configuredIcon:
+              renderSpec['icon']?.toString().trim().isNotEmpty == true
+              ? renderSpec['icon'].toString().trim()
+              : _coreAssetIcon(machineName),
+        ),
       ),
       fields: fields,
       values: values,

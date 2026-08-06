@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:eureka/api/api_client.dart';
 import 'package:eureka/api/sse_client.dart';
 import 'package:eureka/chat/chat_models.dart';
-import 'package:eureka/pages/session_detail_page.dart';
 import 'package:eureka/render/render_spec.dart';
 import 'package:eureka/render/skill_card.dart';
 import 'package:eureka/theme_v2/asset_detail/asset_entity_ref.dart';
@@ -32,6 +31,26 @@ void main() {
     expect(data.title, 'Kevin');
   });
 
+  test('persisted built-in card snapshots use canonical icons', () {
+    final expense = resolveSkillCardData({
+      'card_type': 'expense',
+      'title': '咖啡',
+      'icon': '🍔',
+      'accent_color': 'green',
+      'meta_fields': const [],
+    }, const {});
+    final contact = resolveSkillCardData({
+      'card_type': 'contact',
+      'title': 'Alex',
+      'icon': '🪪',
+      'accent_color': 'neutral',
+      'meta_fields': const [],
+    }, const {});
+
+    expect(expense.icon, '💳');
+    expect(contact.icon, '👤');
+  });
+
   test('Theme V2 library deep-link resolves to its recording session', () {
     const recordingId = 'd727c76c-2d36-4b1f-8507-7f84c5a3e242';
     const link = '/library?recording_id=$recordingId';
@@ -42,13 +61,13 @@ void main() {
     expect((page as CaptureSessionPage).recordingId, recordingId);
   });
 
-  test('legacy bare session id keeps the legacy session target', () {
+  test('bare flash session id uses the unified Theme V2 session target', () {
     const sessionId = 'legacy-session-id';
 
     expect(flashRecordingIdFromLink(sessionId), isNull);
     final page = flashNotificationTargetPage(sessionId);
-    expect(page, isA<SessionDetailPage>());
-    expect((page as SessionDetailPage).sessionId, sessionId);
+    expect(page, isA<CaptureSessionPage>());
+    expect((page as CaptureSessionPage).recordingId, sessionId);
   });
 
   test(

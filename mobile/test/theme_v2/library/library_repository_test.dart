@@ -190,6 +190,96 @@ void main() {
     });
 
     test(
+      'pins expense and contact icons while preserving custom icons',
+      () async {
+        final api = _api((request) async {
+          final body = switch (request.url.path) {
+            '/api/assets' => {
+              'assets': [
+                {
+                  'id': 'expense-1',
+                  'user_skill_id': 'skill-expense',
+                  'payload': {'amount': 38, 'description': '咖啡'},
+                  'created_at': '2026-08-06T08:00:00Z',
+                },
+                {
+                  'id': 'run-1',
+                  'user_skill_id': 'skill-running_training',
+                  'payload': {'headline': '五公里轻松跑'},
+                  'created_at': '2026-08-06T07:00:00Z',
+                },
+              ],
+            },
+            '/api/skills' => {
+              'skills': [
+                _skill(
+                  name: 'expense',
+                  label: '消费',
+                  mark: '🍔',
+                  primaryField: 'amount',
+                ),
+                _skill(
+                  name: 'contact',
+                  label: '联系人',
+                  mark: '🪪',
+                  primaryField: 'name',
+                ),
+                _skill(
+                  name: 'running_training',
+                  label: '跑步训练',
+                  mark: '🏃',
+                  primaryField: 'headline',
+                ),
+              ],
+            },
+            '/api/events' => {'events': <Object>[]},
+            '/api/contacts' => {'contacts': <Object>[]},
+            '/api/assets/counts' => {
+              'counts': {'expense': 1, 'running_training': 1},
+            },
+            '/api/reports' => <Object>[],
+            _ => throw StateError('unexpected ${request.url}'),
+          };
+          return _json(body);
+        });
+        addTearDown(api.close);
+
+        final overview = await ApiLibraryRepository(api).loadOverview();
+
+        expect(
+          overview.systemContainers
+              .singleWhere((container) => container.id == 'contact')
+              .mark,
+          '👤',
+        );
+        expect(
+          overview.customContainers
+              .singleWhere((container) => container.id == 'expense')
+              .mark,
+          '💳',
+        );
+        expect(
+          overview.customContainers
+              .singleWhere((container) => container.id == 'running_training')
+              .mark,
+          '🏃',
+        );
+        expect(
+          overview.recentAssets
+              .singleWhere((asset) => asset.skillName == 'expense')
+              .mark,
+          '💳',
+        );
+        expect(
+          overview.recentAssets
+              .singleWhere((asset) => asset.skillName == 'running_training')
+              .mark,
+          '🏃',
+        );
+      },
+    );
+
+    test(
       'adapts Theme V2 core-record lists without a false partial state',
       () async {
         final api = _api((request) async {
@@ -263,6 +353,67 @@ void main() {
         );
       },
     );
+
+    test('preserves custom skill render icon in core-record mode', () async {
+      final api = _api((request) async {
+        final body = switch (request.url.path) {
+          '/api/assets' => [
+            {
+              'id': 'run-1',
+              'user_skill_id': 'skill-running',
+              'payload': {'title': '五公里轻松跑'},
+              'created_at': '2026-08-04T07:30:00Z',
+            },
+          ],
+          '/api/user-skills' => [
+            {
+              'id': 'skill-running',
+              'machine_name': 'running_training',
+              'display_name': '跑步训练',
+              'domain': 'health',
+              'schema': {
+                'title': {'type': 'string'},
+              },
+              'render_spec': {
+                'icon': '🏃',
+                'accent_color': 'green',
+                'primary_field': 'title',
+              },
+            },
+          ],
+          '/api/events' => <Object>[],
+          '/api/contacts' => {
+            'contacts': [
+              {'id': 'contact-alex-1', 'name': 'Alex'},
+              {'id': 'contact-alex-2', 'name': 'Alex'},
+            ],
+          },
+          '/api/reports' => <Object>[],
+          _ => throw StateError('unexpected ${request.url}'),
+        };
+        return _json(body);
+      });
+      addTearDown(api.close);
+
+      final overview = await ApiLibraryRepository(
+        api,
+        coreRecordsOnly: true,
+      ).loadOverview();
+
+      expect(
+        overview.customContainers
+            .singleWhere((container) => container.id == 'running_training')
+            .mark,
+        '🏃',
+      );
+      expect(overview.recentAssets.single.mark, '🏃');
+      expect(
+        overview.systemContainers
+            .singleWhere((container) => container.id == 'contact')
+            .totalCount,
+        2,
+      );
+    });
 
     test('all offline sources produce a typed offline failure', () async {
       final api = _api(

@@ -23,6 +23,16 @@ void main() {
     expect(resolveMeta('tennis', registry).icon, '🎾');
   });
 
+  test('stale registry glyphs cannot override built-in identities', () {
+    const registry = {
+      'expense': SkillMeta('🍔', '消费', 'green'),
+      'contact': SkillMeta('🪪', '联系人', 'neutral'),
+    };
+
+    expect(resolveMeta('expense', registry).icon, '💳');
+    expect(resolveMeta('contact', registry).icon, '👤');
+  });
+
   test('loads Calendar timeline from Theme V2 core records', () async {
     final api = ApiClient(
       baseUrl: 'http://theme-v2.test',
@@ -76,6 +86,18 @@ void main() {
                 'updated_at': '2026-08-01T17:07:00Z',
               },
             ]);
+          case '/api/contacts':
+            return _json({
+              'contacts': [
+                {
+                  'id': 'contact-alex',
+                  'name': 'Alex',
+                  'company': 'Acme',
+                  'title': '设计师',
+                  'created_at': '2026-08-02T02:30:00Z',
+                },
+              ],
+            });
           case '/api/flash/recordings':
             return _json({
               'recordings': [
@@ -100,6 +122,7 @@ void main() {
     expect(items.map((item) => item.id), [
       'event-review',
       'asset-todo',
+      'contact-alex',
       'recording-1',
     ]);
     expect(items.first.kind, 'event');
@@ -108,6 +131,10 @@ void main() {
     expect(items[1].skillName, 'todo');
     expect(items[1].domain, 'work');
     expect(items[1].hasScheduledTime, isTrue);
+    expect(items[2].kind, 'contact');
+    expect(items[2].contactId, 'contact-alex');
+    expect(items[2].title, 'Alex');
+    expect(items[2].subtitle, 'Acme · 设计师');
     expect(items.last.kind, 'input_turn');
     expect(items.last.sessionId, '2026-08-02');
     expect(items.last.title, 'Theme V2 闪念');
@@ -160,6 +187,8 @@ void main() {
             ]);
           case '/api/events':
             return _json([]);
+          case '/api/contacts':
+            return _json({'contacts': <Object>[]});
           case '/api/flash/recordings':
             return _json({'recordings': <Object>[]});
           default:

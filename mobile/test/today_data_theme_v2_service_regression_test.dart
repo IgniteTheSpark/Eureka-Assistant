@@ -95,6 +95,18 @@ void main() {
                 'updated_at': '2026-08-01T17:07:00Z',
               },
             ]);
+          case '/api/contacts':
+            return _json({
+              'contacts': [
+                {
+                  'id': 'contact-alex',
+                  'name': 'Alex',
+                  'company': 'Acme',
+                  'title': '设计师',
+                  'created_at': '2026-08-01T17:08:00Z',
+                },
+              ],
+            });
           case '/api/flash/sessions/2026-08-02':
             return _json({
               'session': {
@@ -120,16 +132,20 @@ void main() {
 
     expect(data.chain.map((item) => item.id), ['event-review', 'asset-todo']);
     expect(data.pool.map((item) => item.id), [
+      'contact-alex',
       'event-review',
       'asset-todo',
       'asset-note',
     ]);
     expect(data.pool.map((item) => item.entityKind), [
+      'contact',
       'event',
       'asset',
       'asset',
     ]);
-    expect(data.poolTrueCount, 3);
+    expect(data.pool.first.type, 'contact');
+    expect(data.pool.first.domain, '社交');
+    expect(data.poolTrueCount, 4);
     expect(data.flashCount, 2);
     expect(data.flashLatestId, '2026-08-02');
     expect(data.skills['notes']?.label, '随记');

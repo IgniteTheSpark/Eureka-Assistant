@@ -8,6 +8,7 @@ import '../../render/render_spec.dart';
 import '../../timeline/timeline.dart'
     show contactAssetIcon, eventAssetIcon, notesAssetIcon, todoAssetIcon;
 import '../asset/asset_card_display.dart';
+import '../foundation/canonical_entity_identity.dart';
 import 'library_models.dart';
 
 abstract interface class LibraryRepository {
@@ -31,9 +32,9 @@ class ApiLibraryRepository implements LibraryRepository {
       _capture('events', () => api.getJson('/api/events')),
       _capture(
         'contacts',
-        () => coreRecordsOnly
-            ? Future<dynamic>.value(null)
-            : _optionalNotFound(() => api.getJson('/api/contacts')),
+        () => _optionalNotFound(
+          () => api.getJson('/api/contacts', query: const {'limit': 100}),
+        ),
       ),
       _capture(
         'counts',
@@ -152,12 +153,14 @@ class ApiLibraryRepository implements LibraryRepository {
       if (name.isEmpty || !_enabled(row['enabled'])) continue;
       final renderMap =
           (row['render_spec'] as Map?)?.cast<String, dynamic>() ?? const {};
-      var spec = coreRecordsOnly
-          ? coreRecordRenderSpec(name, row['schema'])
-          : RenderSpec.fromJson(
-              renderMap,
-            ).withSchema(row['payload_schema'] ?? row['schema']);
+      final schema = row['payload_schema'] ?? row['schema'];
+      var spec = coreRecordsOnly && renderMap.isEmpty
+          ? coreRecordRenderSpec(name, schema)
+          : RenderSpec.fromJson(renderMap).withSchema(schema);
       if (name == 'todo') spec = normalizeTodoSpec(spec);
+      spec = spec.copyWith(
+        icon: resolveEntityIcon(name, configuredIcon: spec.icon),
+      );
       result[name] = _SkillDefinition(
         name: name,
         label: row['display_name']?.toString().trim().isNotEmpty == true
@@ -262,7 +265,7 @@ class ApiLibraryRepository implements LibraryRepository {
   }) => LibraryContainerSummary(
     id: id,
     label: skill?.label ?? label,
-    mark: _mark(skill, fallbackMark),
+    mark: _mark(skill, fallbackMark, identity: id),
     type: type,
     totalCount: count,
     isSystem: true,
@@ -280,7 +283,7 @@ class ApiLibraryRepository implements LibraryRepository {
           LibraryContainerSummary(
             id: skill.name,
             label: skill.label,
-            mark: _mark(skill, '•'),
+            mark: _mark(skill, '•', identity: skill.name),
             type: LibraryContainerType.custom,
             totalCount: counts[skill.name] ?? 0,
             isSystem: false,
@@ -351,9 +354,17 @@ class ApiLibraryRepository implements LibraryRepository {
     return CardDisplayConfig(primaryFieldId: primary);
   }
 
-  String _mark(_SkillDefinition? skill, String fallback) {
+  String _mark(
+    _SkillDefinition? skill,
+    String fallback, {
+    required String identity,
+  }) {
     final value = skill?.spec.icon.trim() ?? '';
-    return value.isEmpty ? fallback : value;
+    return resolveEntityIcon(
+      identity,
+      configuredIcon: value.isEmpty ? fallback : value,
+      fallback: fallback,
+    );
   }
 
   bool _enabled(dynamic value) =>

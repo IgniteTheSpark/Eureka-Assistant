@@ -331,6 +331,22 @@ class CaptureSessionController extends ChangeNotifier
           'core_records_only': true,
         };
       }
+      if (kind == 'contact') {
+        final id = reference['contact_id']?.toString() ?? '';
+        if (id.isEmpty) return _fallbackCard(reference);
+        final contact = (await _api.getJson('/api/contacts/$id') as Map)
+            .cast<String, dynamic>();
+        return {
+          ...contact,
+          ...reference,
+          'contact_id': id,
+          'card_type': 'contact',
+          'core_records_only': true,
+        };
+      }
+      if (kind == 'pending_contact') {
+        return {...reference, 'card_type': 'pending_contact'};
+      }
     } catch (_) {
       // A derived record may have been deleted after the capture. The session
       // itself still replays, with a stable reference card for provenance.
@@ -410,11 +426,19 @@ class CaptureSessionController extends ChangeNotifier
 
   Map<String, dynamic> _fallbackCard(Map<String, dynamic> reference) {
     final event = reference['kind'] == 'event';
+    final contact = reference['kind'] == 'contact';
+    final pendingContact = reference['kind'] == 'pending_contact';
     final skill = reference['skill_machine_name']?.toString() ?? 'asset';
     return {
       ...reference,
-      'card_type': event ? 'event' : skill,
-      if (!event) 'user_skill_name': skill,
+      'card_type': pendingContact
+          ? 'pending_contact'
+          : contact
+          ? 'contact'
+          : event
+          ? 'event'
+          : skill,
+      if (!event && !contact && !pendingContact) 'user_skill_name': skill,
       'core_records_only': true,
     };
   }

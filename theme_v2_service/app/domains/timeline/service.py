@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Asset, Event, UserSkill
+from app.db.models import Asset, Contact, Event, UserSkill
 from app.domains.capture.models import CaptureRecording, CaptureTurn
 
 
@@ -172,7 +172,10 @@ async def assemble_timeline(
         await session.execute(
             select(Asset, UserSkill)
             .join(UserSkill, Asset.user_skill_id == UserSkill.id)
-            .where(Asset.user_id == user_id)
+            .where(
+                Asset.user_id == user_id,
+                Asset.migrated_contact_id.is_(None),
+            )
         )
     ).all()
     events = list(
@@ -180,6 +183,11 @@ async def assemble_timeline(
             select(Event)
             .options(selectinload(Event.attendees))
             .where(Event.user_id == user_id, Event.status != "cancelled")
+        )
+    )
+    contacts = list(
+        await session.scalars(
+            select(Contact).where(Contact.user_id == user_id)
         )
     )
     capture_rows = (
@@ -195,6 +203,7 @@ async def assemble_timeline(
 
     asset_sources: dict[str, tuple[CaptureRecording, CaptureTurn | None]] = {}
     event_sources: dict[str, tuple[CaptureRecording, CaptureTurn | None]] = {}
+    contact_sources: dict[str, tuple[CaptureRecording, CaptureTurn | None]] = {}
     for recording, turn in capture_rows:
         for reference in recording.result_records_json or []:
             if not isinstance(reference, dict):
@@ -203,6 +212,8 @@ async def assemble_timeline(
                 asset_sources[str(reference["asset_id"])] = (recording, turn)
             elif reference.get("kind") == "event" and reference.get("event_id"):
                 event_sources[str(reference["event_id"])] = (recording, turn)
+            elif reference.get("kind") == "contact" and reference.get("contact_id"):
+                contact_sources[str(reference["contact_id"])] = (recording, turn)
 
     for asset, skill in asset_rows:
         effective = effective_at_for_asset(
@@ -292,6 +303,52 @@ async def assemble_timeline(
                 else None,
                 "source_recording_id": source_recording.id if source_recording else None,
                 "source_input_turn_id": source_turn.id if source_turn else None,
+            }
+        )
+
+    for contact in contacts:
+        source = contact_sources.get(contact.id)
+        source_recording, _source_turn = source if source else (None, None)
+        subtitle = " · ".join(
+            value.strip()
+            for value in (contact.company or "", contact.title or "")
+            if value.strip()
+        )
+        if not subtitle:
+            subtitle = (contact.phone or contact.email or "").strip()
+        items.append(
+            {
+                "kind": "contact",
+                "id": contact.id,
+                "contact_id": contact.id,
+                "effective_at": _iso_z(contact.created_at),
+                "created_at": _iso_z(contact.created_at),
+                "title": contact.name,
+                "subtitle": subtitle,
+                "skill_name": "contact",
+                "period": "",
+                "has_clock_time": False,
+                "has_scheduled_time": False,
+                "domain": "社交",
+                "payload": {
+                    "name": contact.name,
+                    "phone": contact.phone,
+                    "company": contact.company,
+                    "title": contact.title,
+                    "email": contact.email,
+                    "notes": list(contact.notes_json or []),
+                    "socials": dict(contact.socials_json or {}),
+                },
+                "session_id": _local_date(
+                    source_recording.capture_started_at or source_recording.created_at,
+                    zone=zone,
+                )
+                if source_recording
+                else None,
+                "source_recording_id": source_recording.id
+                if source_recording
+                else None,
+                "source_input_turn_id": contact.source_input_turn_id,
             }
         )
 

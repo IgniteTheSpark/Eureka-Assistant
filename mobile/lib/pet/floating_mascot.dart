@@ -12,10 +12,10 @@ import '../chat/recent_session.dart';
 import '../pages/chat_page.dart';
 import '../pages/pet_page.dart';
 import '../pages/pet_spawn_page.dart';
-import '../pages/session_detail_page.dart';
 import '../render/pet_view.dart';
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
+import '../theme_v2/capture/capture_session_page.dart';
 import 'pet_controller.dart';
 import 'pet_cosmetics.dart' show rekaGlow;
 import 'reka_chat.dart';
@@ -482,7 +482,7 @@ class _FloatingMascotState extends State<FloatingMascot>
     }
     switch (latest.type) {
       case 'flash':
-        _push(SessionDetailPage(sessionId: latest.id, title: '闪念'));
+        _push(CaptureSessionPage(recordingId: latest.id));
         return;
       case 'chat':
         _push(ChatPage(boundSessionId: latest.id));

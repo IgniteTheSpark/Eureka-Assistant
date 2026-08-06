@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
+import '../theme_v2/capture/capture_session_page.dart';
 import '../timeline/timeline.dart';
-import 'session_detail_page.dart';
 
 /// §4.5.0b 当日闪念视图 — the day's raw flash captures, pulled OUT of the timeline
 /// bands (DayRender excludes `input_turn`) and gathered here behind the ⚡N pill.
@@ -23,7 +23,8 @@ class DayFlashView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final eu = context.eu;
-    final items = [...flashes]..sort((a, b) => b.effectiveAt.compareTo(a.effectiveAt));
+    final items = [...flashes]
+      ..sort((a, b) => b.effectiveAt.compareTo(a.effectiveAt));
     return Scaffold(
       backgroundColor: eu.bg,
       body: SafeArea(
@@ -42,20 +43,31 @@ class DayFlashView extends StatelessWidget {
                   const SizedBox(width: 2),
                   Text('⚡', style: const TextStyle(fontSize: 16)),
                   const SizedBox(width: 7),
-                  Text('${day.month}月${day.day}日 · ${items.length} 条闪念',
-                      style: TextStyle(color: eu.textHi, fontSize: 17, fontWeight: FontWeight.w700)),
+                  Text(
+                    '${day.month}月${day.day}日 · ${items.length} 条闪念',
+                    style: TextStyle(
+                      color: eu.textHi,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ],
               ),
             ),
             Expanded(
               child: items.isEmpty
                   ? Center(
-                      child: Text('这天还没有闪念', style: TextStyle(color: eu.textLo, fontSize: 14)))
+                      child: Text(
+                        '这天还没有闪念',
+                        style: TextStyle(color: eu.textLo, fontSize: 14),
+                      ),
+                    )
                   : ListView.separated(
                       padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
                       itemCount: items.length,
                       separatorBuilder: (_, _) => const SizedBox(height: 9),
-                      itemBuilder: (_, i) => _FlashRow(item: items[i], skills: skills),
+                      itemBuilder: (_, i) =>
+                          _FlashRow(item: items[i], skills: skills),
                     ),
             ),
           ],
@@ -79,8 +91,8 @@ class _FlashRow extends StatelessWidget {
     final summary = item.title.isNotEmpty
         ? item.title
         : item.subtitle.isNotEmpty
-            ? item.subtitle
-            : '闪念';
+        ? item.subtitle
+        : '闪念';
     final produced = item.derived.entries.where((e) => e.value > 0).toList();
     final sid = item.sessionId;
 
@@ -88,10 +100,11 @@ class _FlashRow extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       onTap: sid == null || sid.isEmpty
           ? null
-          : () => Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => SessionDetailPage(
-                    sessionId: sid, title: '${item.effectiveAt.month}月${item.effectiveAt.day}日 闪念'),
-              )),
+          : () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => CaptureSessionPage(recordingId: sid),
+              ),
+            ),
       child: Container(
         decoration: BoxDecoration(
           color: eu.surfaceRaised,
@@ -112,8 +125,10 @@ class _FlashRow extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 7),
-            Text(summary,
-                style: TextStyle(color: eu.textHi, fontSize: 14, height: 1.35)),
+            Text(
+              summary,
+              style: TextStyle(color: eu.textHi, fontSize: 14, height: 1.35),
+            ),
             if (produced.isNotEmpty) ...[
               const SizedBox(height: 9),
               Wrap(
@@ -122,14 +137,19 @@ class _FlashRow extends StatelessWidget {
                 children: [
                   for (final e in produced)
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
                       decoration: BoxDecoration(
                         color: eu.surface,
                         borderRadius: BorderRadius.circular(999),
                         border: Border.all(color: eu.border),
                       ),
-                      child: Text('${resolveMeta(e.key, skills).icon} ${resolveMeta(e.key, skills).label}×${e.value}',
-                          style: TextStyle(color: eu.textMid, fontSize: 10.5)),
+                      child: Text(
+                        '${resolveMeta(e.key, skills).icon} ${resolveMeta(e.key, skills).label}×${e.value}',
+                        style: TextStyle(color: eu.textMid, fontSize: 10.5),
+                      ),
                     ),
                 ],
               ),
@@ -170,24 +190,36 @@ class FlashPill extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       onTap: () => _open(context),
       child: Container(
-        padding: EdgeInsets.symmetric(horizontal: compact ? 8 : 12, vertical: compact ? 5 : 7),
+        padding: EdgeInsets.symmetric(
+          horizontal: compact ? 8 : 12,
+          vertical: compact ? 5 : 7,
+        ),
         constraints: BoxConstraints(minHeight: compact ? 28 : 34),
         // §design 闪念表达:白底浅蓝描边胶囊「⚡ N 闪念」(= chat 入口)。
         decoration: BoxDecoration(
-          color: Color.alphaBlend(eu.brand.withValues(alpha: 0.10), eu.surfaceRaised),
+          color: Color.alphaBlend(
+            eu.brand.withValues(alpha: 0.10),
+            eu.surfaceRaised,
+          ),
           borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: eu.brand.withValues(alpha: 0.5), width: 1.3),
+          border: Border.all(
+            color: eu.brand.withValues(alpha: 0.5),
+            width: 1.3,
+          ),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text('⚡', style: TextStyle(fontSize: compact ? 13 : 15)),
             SizedBox(width: compact ? 3 : 4),
-            Text('$n',
-                style: euMono(
-                    fontSize: compact ? 12.5 : 13.5,
-                    fontWeight: FontWeight.w700,
-                    color: eu.brand)),
+            Text(
+              '$n',
+              style: euMono(
+                fontSize: compact ? 12.5 : 13.5,
+                fontWeight: FontWeight.w700,
+                color: eu.brand,
+              ),
+            ),
           ],
         ),
       ),
@@ -197,15 +229,16 @@ class FlashPill extends StatelessWidget {
   void _open(BuildContext context) {
     // §design 闪念 = chat 入口:直接进当天的「X月X日 闪念」session,不再过当日列表页。
     // 多条 → 进最近一条有 session 的捕捉(就是那天的 闪念 对话)。
-    final sorted = [...flashes]..sort((a, b) => b.effectiveAt.compareTo(a.effectiveAt));
+    final sorted = [...flashes]
+      ..sort((a, b) => b.effectiveAt.compareTo(a.effectiveAt));
     final f = sorted.firstWhere(
-        (x) => (x.sessionId?.isNotEmpty ?? false),
-        orElse: () => sorted.first);
+      (x) => (x.sessionId?.isNotEmpty ?? false),
+      orElse: () => sorted.first,
+    );
     final sid = f.sessionId;
     if (sid == null || sid.isEmpty) return;
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => SessionDetailPage(
-          sessionId: sid, title: '${day.month}月${day.day}日 闪念'),
-    ));
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => CaptureSessionPage(recordingId: sid)),
+    );
   }
 }

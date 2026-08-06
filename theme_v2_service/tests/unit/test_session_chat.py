@@ -170,3 +170,93 @@ async def test_provider_executes_dependent_legacy_tool_rounds():
     definitions = await executor.definitions()
     assert all(call["tools"] == definitions for call in calls)
     assert "BEGIN_UNTRUSTED_USER_QUESTION" in calls[0]["messages"][-1]["content"]
+
+
+async def test_provider_can_resolve_a_stored_pending_contact_from_chat():
+    calls = []
+
+    async def completion(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": None,
+                            "tool_calls": [
+                                {
+                                    "id": "resolve-1",
+                                    "function": {
+                                        "name": "resolve_pending_contact",
+                                        "arguments": (
+                                            '{"pending_action_id":"pending-1",'
+                                            '"contact_id":"contact-acme"}'
+                                        ),
+                                    },
+                                }
+                            ],
+                        }
+                    }
+                ]
+            }
+        return {
+            "choices": [{"message": {"content": "好的，已更新 Acme 的 Alex。"}}]
+        }
+
+    class _PendingExecutor:
+        def __init__(self):
+            self.calls = []
+
+        async def definitions(self):
+            return [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "resolve_pending_contact",
+                        "description": "Resolve a pending contact action",
+                        "parameters": {"type": "object", "properties": {}},
+                    },
+                }
+            ]
+
+        async def execute(self, name, arguments, *, tool_call_id=None):
+            self.calls.append((name, arguments, tool_call_id))
+            return ToolOutcome(
+                response={
+                    "ok": True,
+                    "pending_action": {"id": "pending-1", "status": "resolved"},
+                }
+            )
+
+    provider = LiteLLMSessionChatProvider(
+        model="deepseek/chat",
+        api_key="test-key",
+        timeout_seconds=3,
+        completion=completion,
+    )
+    executor = _PendingExecutor()
+    result = await provider.answer(
+        context=LegacyChatContext(
+            session_id="session-1",
+            input_turn_id="turn-1",
+            session_type="flash",
+            now_local="2026-08-06T10:00:00+08:00",
+            records_json=(
+                '{"pending_actions":[{"id":"pending-1",'
+                '"candidates":[{"contact_id":"contact-acme",'
+                '"name":"Alex","company":"Acme"}]}]}'
+            ),
+        ),
+        history=[],
+        question="选 Acme 的 Alex",
+        tool_executor=executor,
+    )
+
+    assert result.text == "好的，已更新 Acme 的 Alex。"
+    assert executor.calls == [
+        (
+            "resolve_pending_contact",
+            {"pending_action_id": "pending-1", "contact_id": "contact-acme"},
+            "resolve-1",
+        )
+    ]

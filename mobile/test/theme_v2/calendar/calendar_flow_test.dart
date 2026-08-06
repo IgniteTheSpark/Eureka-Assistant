@@ -376,6 +376,42 @@ void main() {
     );
   });
 
+  testWidgets('shared daily Flash pill opens the unified Theme V2 session', (
+    tester,
+  ) async {
+    final day = DateTime(2026, 7, 3);
+    await tester.pumpWidget(
+      calendarLegacyRouteTestHost(
+        Scaffold(
+          body: FlashPill(
+            day: day,
+            flashes: [
+              calendarFixtureItem(
+                id: 'flash-a',
+                at: day,
+                kind: 'input_turn',
+                sessionId: '2026-07-03',
+              ),
+            ],
+            skills: const {},
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byType(FlashPill));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SessionDetailPage), findsNothing);
+    expect(find.byType(CaptureSessionPage), findsOneWidget);
+    expect(
+      tester
+          .widget<CaptureSessionPage>(find.byType(CaptureSessionPage))
+          .recordingId,
+      '2026-07-03',
+    );
+  });
+
   testWidgets('sticky rail and scroll content are sibling layout regions', (
     tester,
   ) async {

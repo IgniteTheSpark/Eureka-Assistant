@@ -20,6 +20,7 @@ from app.domains.reports.api_reports import router as reports_router
 from app.domains.reports.templates import get_template_registry
 from app.domains.sessions.api import router as sessions_router
 from app.domains.sessions.api_chat import router as session_chat_router
+from app.domains.sessions.api_pending_actions import router as pending_actions_router
 from app.domains.triggers.api import router as trigger_router
 from app.domains.timeline.api import router as timeline_router
 from app.internal_mcp.runtime import get_internal_mcp_runtime
@@ -67,6 +68,7 @@ app.include_router(reports_router)
 app.include_router(timeline_router)
 app.include_router(sessions_router)
 app.include_router(session_chat_router)
+app.include_router(pending_actions_router)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 

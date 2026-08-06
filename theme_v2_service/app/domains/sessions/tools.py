@@ -84,6 +84,47 @@ CHAT_TOOL_DEFINITIONS = [
 ]
 
 
+PENDING_ACTION_TOOL_DEFINITIONS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "resolve_pending_contact",
+            "description": (
+                "Resolve a contact confirmation already present in pending_actions. "
+                "Both IDs must be copied from that stored context."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pending_action_id": {"type": "string"},
+                    "contact_id": {"type": "string"},
+                },
+                "required": ["pending_action_id", "contact_id"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "cancel_pending_action",
+            "description": (
+                "Cancel a confirmation already present in pending_actions without "
+                "mutating any contact."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pending_action_id": {"type": "string"},
+                },
+                "required": ["pending_action_id"],
+                "additionalProperties": False,
+            },
+        },
+    },
+]
+
+
 @dataclass(frozen=True)
 class ToolOutcome:
     response: dict[str, Any]
@@ -105,7 +146,10 @@ class SessionToolExecutor:
         self.runtime = runtime or get_internal_mcp_runtime()
 
     async def definitions(self) -> list[dict[str, Any]]:
-        return await self.runtime.list_openai_tools()
+        return [
+            *(await self.runtime.list_openai_tools()),
+            *PENDING_ACTION_TOOL_DEFINITIONS,
+        ]
 
     async def execute(
         self,
@@ -114,6 +158,8 @@ class SessionToolExecutor:
         *,
         tool_call_id: str | None = None,
     ) -> ToolOutcome:
+        if name in {"resolve_pending_contact", "cancel_pending_action"}:
+            return await self._execute_pending_action(name, arguments)
         internal_name = {
             "query_assets": "tool_query_asset",
             "create_asset": "tool_create_asset",
@@ -123,10 +169,11 @@ class SessionToolExecutor:
         normalized = dict(arguments)
         if "skill_machine_name" in normalized:
             normalized["user_skill_name"] = normalized.pop("skill_machine_name")
-        if isinstance(normalized.get("payload"), dict):
-            normalized["payload"] = json.dumps(
-                normalized["payload"], ensure_ascii=False
-            )
+        for json_field in ("payload", "payload_patch", "patch"):
+            if isinstance(normalized.get(json_field), dict):
+                normalized[json_field] = json.dumps(
+                    normalized[json_field], ensure_ascii=False
+                )
         result = await self.runtime.call_tool(
             internal_name,
             normalized,
@@ -141,6 +188,55 @@ class SessionToolExecutor:
             response=result,
             cards=_cards_for_result(internal_name, result),
         )
+
+    async def _execute_pending_action(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+    ) -> ToolOutcome:
+        from app.db.session import session_scope
+        from app.domains.sessions import pending_actions
+
+        action_id = arguments.get("pending_action_id")
+        if not isinstance(action_id, str) or not action_id:
+            return ToolOutcome(
+                response={"ok": False, "error": "pending_action_id is required"}
+            )
+        try:
+            async with session_scope() as database:
+                if name == "resolve_pending_contact":
+                    contact_id = arguments.get("contact_id")
+                    if not isinstance(contact_id, str) or not contact_id:
+                        return ToolOutcome(
+                            response={
+                                "ok": False,
+                                "error": "contact_id is required",
+                            }
+                        )
+                    action = await pending_actions.resolve_contact_pending_action(
+                        database,
+                        self.user_id,
+                        action_id,
+                        contact_id=contact_id,
+                        resolution_source="chat",
+                        session_id=self.session_id,
+                    )
+                else:
+                    action = await pending_actions.cancel_pending_action(
+                        database,
+                        self.user_id,
+                        action_id,
+                        resolution_source="chat",
+                        session_id=self.session_id,
+                    )
+                payload = pending_actions.pending_action_payload(action)
+        except (
+            pending_actions.PendingActionNotFound,
+            pending_actions.PendingActionInvalid,
+            pending_actions.PendingActionConflict,
+        ) as exc:
+            return ToolOutcome(response={"ok": False, "error": str(exc)})
+        return ToolOutcome(response={"ok": True, "pending_action": payload})
 
 
 def _cards_for_result(name: str, result: dict[str, Any]) -> list[dict]:

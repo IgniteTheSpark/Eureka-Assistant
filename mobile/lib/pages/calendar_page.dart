@@ -15,23 +15,19 @@ import '../theme_v2/calendar/calendar_mode_state.dart';
 import '../theme_v2/calendar/calendar_time_layout.dart';
 import '../theme_v2/asset_detail/asset_entity_ref.dart';
 import '../theme_v2/asset_detail/open_asset_detail.dart';
+import '../theme_v2/capture/capture_session_page.dart';
 import '../timeline/timeline.dart';
 import '../widgets/skeleton_loader.dart';
 import 'create_asset.dart';
 import 'day_flash_view.dart';
-import 'session_detail_page.dart';
 
-/// Open a flash capture's session as a read-only replay (web parity: tapping a
-/// ⚡ row opens the capture session). No-op when the item has no session.
+/// Open a flash capture in the unified Theme V2 session. No-op when the item
+/// has no session.
 void _openFlashSession(BuildContext context, TimelineItem item) {
   final sid = item.sessionId;
   if (sid == null || sid.isEmpty) return;
-  final d = item.effectiveAt;
   Navigator.of(context).push(
-    MaterialPageRoute(
-      builder: (_) =>
-          SessionDetailPage(sessionId: sid, title: '${d.month}月${d.day}日 闪念'),
-    ),
+    MaterialPageRoute(builder: (_) => CaptureSessionPage(recordingId: sid)),
   );
 }
 

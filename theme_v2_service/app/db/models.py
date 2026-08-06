@@ -108,6 +108,11 @@ class Asset(Base):
         Index("ix_assets_user_source_report", "user_id", "source_report_id"),
         Index("ix_assets_user_domain_created", "user_id", "domain", "created_at"),
         Index(
+            "uq_assets_migrated_contact_id",
+            "migrated_contact_id",
+            unique=True,
+        ),
+        Index(
             "ix_assets_user_source_input_turn",
             "user_id",
             "source_input_turn_id",
@@ -144,6 +149,7 @@ class Asset(Base):
         ForeignKey("reports.id", ondelete="SET NULL"),
     )
     source_report_action_id: Mapped[str | None] = mapped_column(String(64))
+    migrated_contact_id: Mapped[str | None] = mapped_column(CHAR(36))
     created_at: Mapped[datetime] = mapped_column(
         mysql.DATETIME(fsp=6),
         default=utc_now,

@@ -202,6 +202,8 @@ class _ThemeV2SessionPageState extends State<ThemeV2SessionPage> {
 
   void _newConversation() {
     _sessionSelectionRevision++;
+    _inputController.clear();
+    _inputFocusNode.unfocus();
     _contexts.clear();
     _subjectLabel = null;
     final callback = widget.onNewConversation;
@@ -227,6 +229,8 @@ class _ThemeV2SessionPageState extends State<ThemeV2SessionPage> {
       return;
     }
     if (!mounted || revision != _sessionSelectionRevision) return;
+    _inputController.clear();
+    _inputFocusNode.unfocus();
     _subjectLabel = null;
     if (_historyOpen) Navigator.of(context).pop();
   }

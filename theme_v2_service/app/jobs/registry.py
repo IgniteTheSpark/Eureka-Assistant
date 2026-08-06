@@ -53,9 +53,9 @@ registry.register(
     ),
 )
 if _settings.capture_agent_enabled and _settings.capture_agent_model:
-    from app.domains.capture.providers_litellm import LiteLLMCaptureAgentProvider
+    from app.domains.capture.providers_legacy_flash import LiteLLMLegacyFlashProvider
 
-    capture_agent_provider = LiteLLMCaptureAgentProvider(
+    capture_agent_provider = LiteLLMLegacyFlashProvider(
         model=_settings.capture_agent_model,
         api_key=_settings.capture_agent_api_key,
         timeout_seconds=_settings.capture_agent_timeout_seconds,

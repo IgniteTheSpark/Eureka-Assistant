@@ -8,13 +8,9 @@ from app.config import get_settings
 from app.db.base import utc_now
 from app.db.models import UserSkill, WorkflowJob
 from app.db.session import session_scope
-from app.domains.assets.schemas import AssetCreate, EventCreate
 from app.domains.assets.service import (
-    create_asset,
-    create_event,
     ensure_capture_skills,
 )
-from app.domains.assets.validation import AssetWriteProfile
 from app.domains.capture.agent import (
     CaptureAgentProvider,
     CaptureAgentResult,
@@ -24,6 +20,8 @@ from app.domains.capture.agent import (
     capture_skill_from_model,
     validate_capture_result,
 )
+from app.domains.capture.presenter import present_capture_references
+from app.domains.capture.pipeline import LegacyFlashPipeline
 from app.domains.capture.temporal import date_anchor_field, extract_temporal_hints
 from app.domains.capture.asr import (
     AsrPollResult,
@@ -37,7 +35,12 @@ from app.domains.capture.service import (
     publish_capture_status,
 )
 from app.domains.sessions import service as session_service
-from app.domains.sessions.models import ChatSession, SessionMessage
+from app.domains.sessions.models import (
+    AgentPendingAction,
+    ChatSession,
+    SessionMessage,
+)
+from app.domains.sessions.tools import SessionToolExecutor
 from app.domains.notifications.schemas import NotificationCreate
 from app.domains.notifications.service import create_notification
 from app.jobs.models import JobDeferred, JobPermanentFailure
@@ -533,6 +536,7 @@ async def _persist_capture_result(
     recording_id: str,
     result: CaptureAgentResult,
     now: datetime,
+    tool_runtime=None,
 ) -> None:
     async with session_scope() as session:
         recording = await session.scalar(
@@ -562,68 +566,150 @@ async def _persist_capture_result(
         skill_by_name = {skill.machine_name: skill for skill in skill_models}
 
         references: list[dict] = []
-        for command in result.records:
+        has_pending = False
+        tool_executor = SessionToolExecutor(
+            user_id=recording.user_id,
+            session_id=recording.session_id or "",
+            input_turn_id=recording.input_turn_id,
+            runtime=tool_runtime,
+        )
+        pipeline_result = await LegacyFlashPipeline(tool_executor).run(
+            result,
+            tool_call_prefix=f"capture-{recording.id}",
+        )
+        for item in pipeline_result.items:
+            command = item.command
+            skill_result = item.execution
+            source_text = command.source_text.strip() or (
+                recording.asr_text or ""
+            ).strip()
             if command.kind == "asset":
                 skill = skill_by_name[command.skill_machine_name or ""]
-                asset = await create_asset(
-                    session,
-                    recording.user_id,
-                    AssetCreate(
-                        user_skill_id=skill.id,
-                        payload=command.payload,
-                        effective_at=command.effective_at,
-                        period=command.period,
-                        occurred_at=command.occurred_at,
-                        session_id=recording.session_id,
-                    ),
-                    write_profile=(
-                        AssetWriteProfile.manual
-                        if skill.machine_name in {
-                            "todo",
-                            "expense",
-                            "contact",
-                            "notes",
+                if skill_result.status == "error":
+                    references.append(
+                        {
+                            "kind": "error",
+                            "card_type": "error",
+                            "title": skill.display_name,
+                            "subtitle": skill_result.error or "记录处理失败",
+                            "source_text": source_text,
                         }
-                        else AssetWriteProfile.agent
-                    ),
-                )
-                asset.source_input_turn_id = recording.input_turn_id
-                references.append(
-                    {
-                        "kind": "asset",
-                        "asset_id": asset.id,
-                        "user_skill_id": skill.id,
-                        "skill_machine_name": skill.machine_name,
-                        "source_text": command.source_text.strip()
-                        or (recording.asr_text or "").strip(),
-                    }
-                )
+                    )
+                    continue
+                snapshots = skill_result.snapshots or [skill_result.snapshot]
+                for snapshot in snapshots:
+                    asset_id = str(snapshot.get("asset_id") or "")
+                    references.append(
+                        {
+                            **{
+                                key: value
+                                for key, value in snapshot.items()
+                                if key != "ok"
+                            },
+                            "kind": "asset",
+                            "asset_id": asset_id or skill_result.entity_id,
+                            "user_skill_id": skill.id,
+                            "skill_machine_name": skill.machine_name,
+                            "operation": skill_result.operation,
+                            "source_text": source_text,
+                        }
+                    )
+            elif command.kind == "event":
+                if skill_result.status == "error":
+                    references.append(
+                        {
+                            "kind": "error",
+                            "card_type": "error",
+                            "title": command.title or "日程",
+                            "subtitle": skill_result.error or "日程处理失败",
+                            "source_text": source_text,
+                        }
+                    )
+                    continue
+                snapshots = skill_result.snapshots or [skill_result.snapshot]
+                for snapshot in snapshots:
+                    event_id = str(snapshot.get("event_id") or "")
+                    references.append(
+                        {
+                            **{
+                                key: value
+                                for key, value in snapshot.items()
+                                if key != "ok"
+                            },
+                            "kind": "event",
+                            "event_id": event_id or skill_result.entity_id,
+                            "operation": skill_result.operation,
+                            "source_text": source_text,
+                        }
+                    )
             else:
-                event = await create_event(
-                    session,
-                    recording.user_id,
-                    EventCreate(
-                        title=command.title or "",
-                        description=command.description,
-                        location=command.location,
-                        start_at=command.start_at,
-                        end_at=command.end_at,
-                        all_day=command.all_day,
-                        status="scheduled",
-                        attendees=[{"name": name} for name in command.attendees],
-                    ),
-                )
+                if skill_result.status == "pending_confirmation":
+                    pending = AgentPendingAction(
+                        user_id=recording.user_id,
+                        session_id=recording.session_id or "",
+                        input_turn_id=recording.input_turn_id,
+                        agent_message_id=recording.agent_message_id,
+                        kind="contact",
+                        operation=command.operation or "create_or_update",
+                        status="pending",
+                        candidates_json=skill_result.candidates,
+                        intent_json={
+                            "name": command.name,
+                            "patch": command.contact_patch,
+                            "source_text": source_text,
+                        },
+                    )
+                    session.add(pending)
+                    await session.flush()
+                    has_pending = True
+                    references.append(
+                        {
+                            "kind": "pending_contact",
+                            "card_type": "pending_contact",
+                            "pending_action_id": pending.id,
+                            "title": command.name or "联系人",
+                            "subtitle": (
+                                f"找到 {len(skill_result.candidates)} 个同名联系人，请确认"
+                            ),
+                            "icon": "👤",
+                            "accent_color": "neutral",
+                            "candidates": skill_result.candidates,
+                            "source_text": source_text,
+                        }
+                    )
+                    continue
+                if skill_result.status == "error":
+                    references.append(
+                        {
+                            "kind": "error",
+                            "card_type": "error",
+                            "title": command.name or "联系人",
+                            "subtitle": skill_result.error or "联系人处理失败",
+                            "source_text": source_text,
+                        }
+                    )
+                    continue
+                contact = skill_result.snapshot
                 references.append(
                     {
-                        "kind": "event",
-                        "event_id": event.id,
-                        "source_text": command.source_text.strip()
-                        or (recording.asr_text or "").strip(),
+                        "kind": "contact",
+                        "card_type": "contact",
+                        "contact_id": skill_result.entity_id,
+                        "contact_action": skill_result.action,
+                        "name": contact.get("name") or command.name,
+                        "company": contact.get("company"),
+                        "title": contact.get("title"),
+                        "phone": contact.get("phone"),
+                        "email": contact.get("email"),
+                        "source_text": source_text,
+                        "icon": "👤",
+                        "accent_color": "neutral",
                     }
                 )
 
+        references = present_capture_references(references, skills=skill_models)
         recording.process_status = "done"
-        recording.result_summary = result.summary.strip()
+        recording.result_summary = pipeline_result.summary.strip()
         recording.result_records_json = references
         recording.error_message = None
         recording.processed_at = now
@@ -634,7 +720,9 @@ async def _persist_capture_result(
                 recording.agent_message_id,
             )
             if agent_message is not None:
-                agent_message.status = "done"
+                agent_message.status = (
+                    "waiting_confirmation" if has_pending else "done"
+                )
                 agent_message.text = recording.result_summary
                 agent_message.cards_json = references
                 agent_message.updated_at = now
@@ -669,6 +757,7 @@ def capture_process_handler(
     *,
     clock: Callable[[], datetime] = utc_now,
     timezone_name: str = "Asia/Shanghai",
+    tool_runtime=None,
 ):
     async def handle(job: WorkflowJob) -> None:
         recording_id = job.run_id
@@ -734,6 +823,7 @@ def capture_process_handler(
             recording_id=recording_id,
             result=result,
             now=now,
+            tool_runtime=tool_runtime,
         )
 
     return handle

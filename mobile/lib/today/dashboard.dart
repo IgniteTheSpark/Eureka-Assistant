@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../pages/session_detail_page.dart';
 import '../theme/app_theme.dart'; // context.eu
+import '../theme_v2/capture/capture_session_page.dart';
 import '../timeline/timeline.dart' show SkillMeta, resolveMeta;
 import 'bubble_pool.dart' show openAssetSheet;
 import 'charts.dart';
@@ -125,10 +125,8 @@ class _DashboardState extends State<Dashboard> {
         ? null
         : () => Navigator.of(context).push(
             MaterialPageRoute(
-              builder: (_) => SessionDetailPage(
-                sessionId: widget.flashLatestId!,
-                title: '今日闪念',
-              ),
+              builder: (_) =>
+                  CaptureSessionPage(recordingId: widget.flashLatestId!),
             ),
           ),
     child: Container(

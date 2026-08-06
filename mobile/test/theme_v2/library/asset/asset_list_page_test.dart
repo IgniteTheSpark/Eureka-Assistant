@@ -5,6 +5,7 @@ import 'package:eureka/assets/assets.dart';
 import 'package:eureka/render/render_spec.dart';
 import 'package:eureka/theme_v2/asset/asset_card.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
+import 'package:eureka/theme_v2/foundation/theme_v2_tokens.dart';
 import 'package:eureka/theme_v2/library/asset/asset_list_page.dart';
 import 'package:eureka/timeline/timeline.dart';
 import 'package:flutter/material.dart';
@@ -13,6 +14,32 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 void main() {
+  testWidgets('todo filter pills meet the minimum tap target', (tester) async {
+    await tester.pumpWidget(
+      _host(
+        ThemeV2AssetListPage.assets(
+          meta: const SkillMeta('✓', '待办', 'gray', 'skill-todo'),
+          skillName: 'todo',
+          initialAssets: const [],
+          specs: const {
+            'todo': RenderSpec(
+              cardLayout: 'horizontal',
+              icon: '✓',
+              accentColor: 'gray',
+              primaryField: 'title',
+            ),
+          },
+          autoLoad: false,
+        ),
+      ),
+    );
+
+    for (final key in const ['all', 'today', 'completed', 'unscheduled']) {
+      final size = tester.getSize(find.byKey(ValueKey('todo-filter-$key')));
+      expect(size.height, greaterThanOrEqualTo(ThemeV2Sizes.minTouchTarget));
+    }
+  });
+
   testWidgets(
     'Todo list exposes four counted tabs and keeps unscheduled last',
     (tester) async {

@@ -293,7 +293,11 @@ async def list_recent_manual_skill_names(
         await session.execute(
             select(UserSkill.machine_name, Asset.created_at)
             .join(Asset, Asset.user_skill_id == UserSkill.id)
-            .where(UserSkill.user_id == user_id, Asset.user_id == user_id)
+            .where(
+                UserSkill.user_id == user_id,
+                Asset.user_id == user_id,
+                Asset.migrated_contact_id.is_(None),
+            )
             .order_by(Asset.created_at.desc(), Asset.id.desc())
             .limit(100)
         )
@@ -370,7 +374,11 @@ async def get_asset(
     asset_id: str,
 ) -> Asset | None:
     asset = await session.scalar(
-        select(Asset).where(Asset.id == asset_id, Asset.user_id == user_id)
+        select(Asset).where(
+            Asset.id == asset_id,
+            Asset.user_id == user_id,
+            Asset.migrated_contact_id.is_(None),
+        )
     )
     if asset is not None:
         await attach_report_sources(session, user_id, [asset])
@@ -387,7 +395,10 @@ async def list_assets(
     created_to: datetime | None = None,
     limit: int = 50,
 ) -> list[Asset]:
-    query = select(Asset).where(Asset.user_id == user_id)
+    query = select(Asset).where(
+        Asset.user_id == user_id,
+        Asset.migrated_contact_id.is_(None),
+    )
     if user_skill_id is not None:
         query = query.where(Asset.user_skill_id == user_skill_id)
     if created_from is not None:

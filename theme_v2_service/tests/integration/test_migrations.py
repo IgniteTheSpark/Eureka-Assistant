@@ -62,6 +62,7 @@ def test_foundation_migration_round_trip_and_physical_types():
         "asset_fields",
         "contacts",
         "agent_tool_executions",
+        "agent_pending_actions",
     }.issubset(set(inspector.get_table_names()))
 
     asset_columns = {column["name"]: column for column in inspector.get_columns("assets")}
@@ -75,6 +76,7 @@ def test_foundation_migration_round_trip_and_physical_types():
     assert asset_columns["session_id"]["type"].length == 36
     assert asset_columns["source_input_turn_id"]["type"].length == 36
     assert asset_columns["domain"]["type"].length == 100
+    assert asset_columns["migrated_contact_id"]["type"].length == 36
 
     asset_indexes = {index["name"]: index for index in inspector.get_indexes("assets")}
     assert asset_indexes["ix_assets_user_source_report"]["column_names"] == [
@@ -114,6 +116,25 @@ def test_foundation_migration_round_trip_and_physical_types():
     assert isinstance(contact_columns["notes_json"]["type"], mysql.JSON)
     assert isinstance(contact_columns["socials_json"]["type"], mysql.JSON)
 
+    message_columns = {
+        column["name"]: column
+        for column in inspector.get_columns("session_messages")
+    }
+    assert message_columns["status"]["type"].length == 24
+
+    pending_columns = {
+        column["name"]: column
+        for column in inspector.get_columns("agent_pending_actions")
+    }
+    assert isinstance(pending_columns["candidates_json"]["type"], mysql.JSON)
+    assert isinstance(pending_columns["intent_json"]["type"], mysql.JSON)
+
+    legacy_flash_columns = {
+        column["name"]: column
+        for column in inspector.get_columns("flash_chat_messages")
+    }
+    assert legacy_flash_columns["migrated_session_message_id"]["type"].length == 36
+
     attendee_foreign_keys = inspector.get_foreign_keys("event_attendees")
     assert any(
         key["referred_table"] == "contacts"
@@ -123,7 +144,7 @@ def test_foundation_migration_round_trip_and_physical_types():
 
     with engine.connect() as connection:
         revision = connection.scalar(text("SELECT version_num FROM alembic_version"))
-    assert revision == "0015_internal_mcp_domain"
+    assert revision == "0017_legacy_agent_data_backfill"
     engine.dispose()
 
 
@@ -301,5 +322,247 @@ def test_internal_mcp_migration_backfills_existing_domain_data():
         revision = connection.execute(
             text("SELECT version_num FROM alembic_version")
         ).scalar_one()
-    assert revision == "0015_internal_mcp_domain"
+    assert revision == "0017_legacy_agent_data_backfill"
+    engine.dispose()
+
+
+def test_legacy_agent_data_backfill_preserves_same_name_contacts_and_chat():
+    engine = create_engine(_sync_url(get_settings().database_url))
+    Base.metadata.drop_all(bind=engine)
+    with engine.begin() as connection:
+        connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
+
+    config = Config("alembic.ini")
+    command.upgrade(config, "0016_agent_pending_actions")
+    timestamp = "2026-08-06 01:00:00.000000"
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO user_skills (
+                    id, user_id, machine_name, display_name, description, domain,
+                    schema_json, render_spec_json, chat_starters_json,
+                    global_skill_id, queryable_fields_json, position, enabled,
+                    created_at, updated_at
+                ) VALUES (
+                    'skill-contact', 'owner', 'contact', '联系人', NULL, 'people',
+                    :schema, '{}', '[]',
+                    (SELECT id FROM global_skills WHERE machine_name='contact'),
+                    '["name"]', 0, 1, :created_at, :updated_at
+                )
+                """
+            ),
+            {
+                "schema": json.dumps(
+                    {"type": "object", "properties": {"name": {"type": "string"}}}
+                ),
+                "created_at": timestamp,
+                "updated_at": timestamp,
+            },
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO chat_sessions (
+                    id, user_id, session_type, session_date, revision, title,
+                    subject_type, subject_id, context_asset_ids_json,
+                    created_at, updated_at
+                ) VALUES (
+                    'flash-session', 'owner', 'flash', '2026-08-06', 0,
+                    '8月6日 闪念', NULL, NULL, '[]', :created_at, :updated_at
+                )
+                """
+            ),
+            {"created_at": timestamp, "updated_at": timestamp},
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO assets (
+                    id, user_id, user_skill_id, payload_json, domain,
+                    effective_at, period, occurred_at, session_id,
+                    source_input_turn_id, source_report_id,
+                    source_report_action_id, created_at, updated_at
+                ) VALUES
+                    ('asset-alex-acme', 'owner', 'skill-contact', :acme, 'people',
+                     NULL, NULL, NULL, 'flash-session', NULL, NULL, NULL,
+                     :created_at, :updated_at),
+                    ('asset-alex-byte', 'owner', 'skill-contact', :byte, 'people',
+                     NULL, NULL, NULL, 'flash-session', NULL, NULL, NULL,
+                     :created_at, :updated_at),
+                    ('asset-invalid-contact', 'owner', 'skill-contact', :invalid, 'people',
+                     NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+                     :created_at, :updated_at)
+                """
+            ),
+            {
+                "acme": json.dumps(
+                    {
+                        "name": "Alex",
+                        "company": "Acme",
+                        "title": "设计师",
+                        "notes": "第一次见面",
+                        "socials": {"linkedin": "alex-acme"},
+                    },
+                    ensure_ascii=False,
+                ),
+                "byte": json.dumps(
+                    {"name": "Alex", "company": "字节", "phone": "10086"},
+                    ensure_ascii=False,
+                ),
+                "invalid": json.dumps({"company": "无姓名公司"}, ensure_ascii=False),
+                "created_at": timestamp,
+                "updated_at": timestamp,
+            },
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO events (
+                    id, user_id, title, description, location, start_at, end_at,
+                    all_day, status, recurrence_rule, sync_source,
+                    sync_external_id, source_input_turn_id, created_at, updated_at
+                ) VALUES (
+                    'event-1', 'owner', '产品会', NULL, NULL,
+                    '2026-08-06 02:00:00', '2026-08-06 03:00:00',
+                    0, 'scheduled', NULL, NULL, NULL, NULL,
+                    :created_at, :updated_at
+                )
+                """
+            ),
+            {"created_at": timestamp, "updated_at": timestamp},
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO event_attendees (
+                    id, event_id, contact_id, legacy_contact_asset_id,
+                    name_raw, role, created_at, updated_at
+                ) VALUES (
+                    'attendee-1', 'event-1', NULL, 'asset-alex-acme',
+                    'Alex', 'attendee', :created_at, :updated_at
+                )
+                """
+            ),
+            {"created_at": timestamp, "updated_at": timestamp},
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO session_messages (
+                    id, session_id, user_id, role, status, text, input_turn_id,
+                    tool_call_json, tool_result_json, cards_json, elapsed_ms,
+                    token_count, created_at, updated_at
+                ) VALUES (
+                    'legacy-card-message', 'flash-session', 'owner', 'agent',
+                    'done', '已保存联系人', NULL, NULL, NULL, :cards,
+                    NULL, NULL, :created_at, :updated_at
+                )
+                """
+            ),
+            {
+                "cards": json.dumps(
+                    [
+                        {
+                            "kind": "asset",
+                            "card_type": "contact",
+                            "asset_id": "asset-alex-acme",
+                            "user_skill_name": "contact",
+                            "title": "Alex",
+                        }
+                    ],
+                    ensure_ascii=False,
+                ),
+                "created_at": timestamp,
+                "updated_at": timestamp,
+            },
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO flash_chat_messages (
+                    id, user_id, session_date, role, text, status, created_at
+                ) VALUES
+                    ('legacy-chat-user', 'owner', '2026-08-06', 'user',
+                     'Alex 在哪家公司？', 'done', '2026-08-06 01:10:00'),
+                    ('legacy-chat-agent', 'owner', '2026-08-06', 'agent',
+                     '目前有两位 Alex。', 'done', '2026-08-06 01:10:01')
+                """
+            )
+        )
+
+    command.upgrade(config, "head")
+    command.upgrade(config, "head")
+
+    with engine.connect() as connection:
+        contacts = connection.execute(
+            text(
+                """
+                SELECT id, name, company, title, phone, notes_json, socials_json
+                FROM contacts WHERE user_id='owner' ORDER BY company
+                """
+            )
+        ).mappings().all()
+        mappings = connection.execute(
+            text(
+                """
+                SELECT id, migrated_contact_id FROM assets
+                WHERE id IN (
+                    'asset-alex-acme', 'asset-alex-byte', 'asset-invalid-contact'
+                ) ORDER BY id
+                """
+            )
+        ).mappings().all()
+        attendee_contact_id = connection.scalar(
+            text("SELECT contact_id FROM event_attendees WHERE id='attendee-1'")
+        )
+        cards = connection.scalar(
+            text("SELECT cards_json FROM session_messages WHERE id='legacy-card-message'")
+        )
+        migrated_chat = connection.execute(
+            text(
+                """
+                SELECT legacy.id, legacy.migrated_session_message_id,
+                       message.role, message.text, message.input_turn_id
+                FROM flash_chat_messages AS legacy
+                JOIN session_messages AS message
+                  ON message.id=legacy.migrated_session_message_id
+                ORDER BY legacy.created_at
+                """
+            )
+        ).mappings().all()
+        typed_turn_count = connection.scalar(
+            text(
+                """
+                SELECT COUNT(*) FROM input_turns
+                WHERE session_id='flash-session' AND source='typed'
+                """
+            )
+        )
+
+    assert len(contacts) == 2
+    assert [row["name"] for row in contacts] == ["Alex", "Alex"]
+    assert {row["company"] for row in contacts} == {"Acme", "字节"}
+    acme = next(row for row in contacts if row["company"] == "Acme")
+    assert acme["title"] == "设计师"
+    assert json.loads(acme["notes_json"]) == ["第一次见面"]
+    assert json.loads(acme["socials_json"]) == {"linkedin": "alex-acme"}
+    mapping_by_asset = {row["id"]: row["migrated_contact_id"] for row in mappings}
+    assert mapping_by_asset["asset-alex-acme"] == acme["id"]
+    assert mapping_by_asset["asset-alex-byte"] not in {None, acme["id"]}
+    assert mapping_by_asset["asset-invalid-contact"] is None
+    assert attendee_contact_id == acme["id"]
+    card = json.loads(cards)[0]
+    assert card["kind"] == "contact"
+    assert card["card_type"] == "contact"
+    assert card["contact_id"] == acme["id"]
+    assert card["legacy_asset_id"] == "asset-alex-acme"
+    assert "asset_id" not in card
+    assert [(row["role"], row["text"]) for row in migrated_chat] == [
+        ("user", "Alex 在哪家公司？"),
+        ("agent", "目前有两位 Alex。"),
+    ]
+    assert migrated_chat[0]["input_turn_id"] is not None
+    assert migrated_chat[1]["input_turn_id"] == migrated_chat[0]["input_turn_id"]
+    assert typed_turn_count == 1
     engine.dispose()

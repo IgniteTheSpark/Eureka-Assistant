@@ -218,6 +218,11 @@ class FlashChatMessage(Base):
             "session_date",
             "created_at",
         ),
+        Index(
+            "uq_flash_chat_migrated_message_id",
+            "migrated_session_message_id",
+            unique=True,
+        ),
     )
 
     id: Mapped[str] = mapped_column(CHAR(36), primary_key=True, default=new_uuid)
@@ -226,6 +231,7 @@ class FlashChatMessage(Base):
     role: Mapped[str] = mapped_column(String(16), nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(16), default="done", nullable=False)
+    migrated_session_message_id: Mapped[str | None] = mapped_column(CHAR(36))
     created_at: Mapped[datetime] = mapped_column(
         mysql.DATETIME(fsp=6),
         default=utc_now,

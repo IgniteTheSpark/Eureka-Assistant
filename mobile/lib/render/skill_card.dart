@@ -10,6 +10,7 @@ import '../theme/domains.dart';
 import '../theme/eureka_colors.dart';
 import '../theme_v2/asset_detail/asset_entity_ref.dart';
 import '../theme_v2/asset_detail/open_asset_detail.dart';
+import '../theme_v2/foundation/canonical_entity_identity.dart';
 import '../theme/ureka_tokens.dart';
 import '../widgets/toast.dart';
 import 'render_spec.dart';
@@ -82,10 +83,18 @@ CardData resolveSkillCardData(
         card['user_skill_name'] == 'todo' ||
         card['skill_name'] == 'todo';
     final done = todoPayloadIsDone(card) || todoPayloadIsDone(payload);
+    final identity =
+        card['card_type']?.toString() ??
+        card['user_skill_name']?.toString() ??
+        card['skill_name']?.toString() ??
+        '';
     return CardData(
       layout:
           (card['card_layout'] ?? card['layout']) as String? ?? 'horizontal',
-      icon: card['icon'] as String? ?? '•',
+      icon: resolveEntityIcon(
+        identity,
+        configuredIcon: card['icon'] as String?,
+      ),
       accentColor: card['accent_color'] as String? ?? 'gray',
       title: card['title'] as String? ?? '资产',
       subtitle: eventSummary.isNotEmpty
@@ -177,6 +186,7 @@ class _SkillCardState extends ConsumerState<SkillCard> {
   // card it returns (which replaces this 随记 card in place).
   bool _promoting = false;
   bool _promoted = false;
+  bool _pendingActionBusy = false;
   Map<String, dynamic>? _replacedCard;
 
   Map<String, dynamic> get card => _replacedCard ?? widget.card;
@@ -265,6 +275,9 @@ class _SkillCardState extends ConsumerState<SkillCard> {
   @override
   Widget build(BuildContext context) {
     if (_deleted) return const SizedBox.shrink();
+    if (card['card_type'] == 'pending_contact') {
+      return _pendingContactCard(context);
+    }
     final eu = context.eu;
     final specs = ref.watch(renderSpecsProvider).valueOrNull ?? const {};
     var data = resolveSkillCardData(card, specs);
@@ -316,6 +329,141 @@ class _SkillCardState extends ConsumerState<SkillCard> {
       mainAxisSize: MainAxisSize.min,
       children: [cardWidget, _promoteChip(eu, suggest)],
     );
+  }
+
+  Widget _pendingContactCard(BuildContext context) {
+    final eu = context.eu;
+    final candidates = (card['candidates'] as List? ?? const [])
+        .whereType<Map>()
+        .map((value) => value.cast<String, dynamic>())
+        .toList(growable: false);
+    final actionId = card['pending_action_id']?.toString() ?? '';
+    return Container(
+      key: ValueKey('pending-contact-card-$actionId'),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: eu.surfaceRaised,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: eu.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Text('👤', style: TextStyle(fontSize: 18)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  card['title']?.toString() ?? '请选择联系人',
+                  style: TextStyle(
+                    color: eu.textHi,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            card['subtitle']?.toString() ?? '找到多个同名联系人，请确认',
+            style: TextStyle(color: eu.textMid, fontSize: 12),
+          ),
+          const SizedBox(height: 10),
+          for (final candidate in candidates)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: OutlinedButton(
+                key: ValueKey(
+                  'pending-contact-candidate-${candidate['contact_id']}',
+                ),
+                onPressed: _pendingActionBusy || actionId.isEmpty
+                    ? null
+                    : () => _resolvePendingContact(actionId, candidate),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(_contactCandidateLabel(candidate)),
+                ),
+              ),
+            ),
+          TextButton(
+            key: ValueKey('pending-contact-cancel-$actionId'),
+            onPressed: _pendingActionBusy || actionId.isEmpty
+                ? null
+                : () => _cancelPendingContact(actionId),
+            child: Text(_pendingActionBusy ? '处理中…' : '都不是，取消本次修改'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _contactCandidateLabel(Map<String, dynamic> candidate) {
+    final name = candidate['name']?.toString().trim() ?? '联系人';
+    final details = [
+      candidate['company']?.toString().trim() ?? '',
+      candidate['title']?.toString().trim() ?? '',
+      candidate['phone']?.toString().trim() ?? '',
+    ].where((value) => value.isNotEmpty).take(2).join(' · ');
+    return details.isEmpty ? name : '$name · $details';
+  }
+
+  Future<void> _resolvePendingContact(
+    String actionId,
+    Map<String, dynamic> candidate,
+  ) async {
+    final contactId = candidate['contact_id']?.toString() ?? '';
+    if (contactId.isEmpty) return;
+    setState(() => _pendingActionBusy = true);
+    try {
+      await _api.postJson('/api/agent-pending-actions/$actionId/resolve', {
+        'contact_id': contactId,
+        'resolution_source': 'card',
+      });
+      if (!mounted) return;
+      setState(() {
+        _pendingActionBusy = false;
+        _replacedCard = {
+          'card_type': 'contact',
+          'contact_id': contactId,
+          'title': candidate['name']?.toString() ?? '联系人',
+          'subtitle': '已更新',
+          'icon': '👤',
+          'accent_color': 'neutral',
+          'meta_fields': const [],
+        };
+      });
+      bumpData();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _pendingActionBusy = false);
+      showToast(context, '联系人更新失败，请重试', error: true);
+    }
+  }
+
+  Future<void> _cancelPendingContact(String actionId) async {
+    setState(() => _pendingActionBusy = true);
+    try {
+      await _api.postJson('/api/agent-pending-actions/$actionId/cancel', {
+        'resolution_source': 'card',
+      });
+      if (!mounted) return;
+      setState(() {
+        _pendingActionBusy = false;
+        _replacedCard = {
+          'card_type': 'pending_cancelled',
+          'title': card['title']?.toString() ?? '联系人',
+          'subtitle': '已取消本次修改',
+          'icon': '👤',
+          'accent_color': 'neutral',
+          'meta_fields': const [],
+        };
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _pendingActionBusy = false);
+      showToast(context, '取消失败，请重试', error: true);
+    }
   }
 
   Widget _promoteChip(EurekaColors eu, String suggest) {

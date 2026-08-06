@@ -40,6 +40,8 @@ void main() {
         return switch (request.url.path) {
           '/ready' => _json({'status': 'ready'}),
           '/api/user-skills' || '/api/assets' || '/api/events' => _json([]),
+          '/api/contacts' => _json({'contacts': <Object>[]}),
+          '/api/reports' => _json({'reports': <Object>[]}),
           '/api/notifications' => _json({'notifications': <Object>[]}),
           '/api/flash/recordings' => _json({'recordings': <Object>[]}),
           final path when path.startsWith('/api/flash/sessions/') => _json({
@@ -58,7 +60,7 @@ void main() {
 
     expect(calls, isNot(contains('/api/timeline')));
     expect(calls, isNot(contains('/api/skills')));
-    expect(calls, isNot(contains('/api/contacts')));
+    expect(calls, contains('/api/contacts'));
     expect(calls, isNot(contains('/api/sessions')));
     expect(calls, isNot(contains('/api/assets/counts')));
     expect(
@@ -70,6 +72,8 @@ void main() {
             '/api/user-skills',
             '/api/assets',
             '/api/events',
+            '/api/contacts',
+            '/api/reports',
             '/api/notifications',
             '/api/flash/recordings',
           }),

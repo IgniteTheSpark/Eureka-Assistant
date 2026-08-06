@@ -497,9 +497,11 @@ Future<({List<PoolAsset> pool, int trueCount})> _loadPool(
     '/api/events',
     query: {'created_from': from, 'created_to': to, 'limit': 200},
   );
-  final contactsF = coreRecordsOnly
-      ? Future<dynamic>.value(null)
-      : _safeGetWithLimit(api, '/api/contacts', query: {'limit': 200});
+  final contactsF = _safeGetWithLimit(
+    api,
+    '/api/contacts',
+    query: {'limit': 100},
+  );
   final skillsF = _loadCoreSkills(api);
 
   final all = <PoolAsset>[];

@@ -173,6 +173,7 @@ void main() {
               'machine_name': 'expense',
               'display_name': '记账',
               'schema': const {},
+              'render_spec': const {'icon': '🍔'},
             }),
             200,
             headers: const {'content-type': 'application/json'},

@@ -48,7 +48,7 @@ class CaptureAgentRequest(BaseModel):
 
 
 class CaptureRecordCommand(BaseModel):
-    kind: Literal["asset", "event"]
+    kind: Literal["asset", "event", "contact"]
     skill_machine_name: str | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
     effective_at: datetime | None = None
@@ -62,6 +62,18 @@ class CaptureRecordCommand(BaseModel):
     end_at: datetime | None = None
     all_day: bool = False
     attendees: list[str] = Field(default_factory=list, max_length=50)
+    operation: Literal[
+        "create",
+        "create_or_update",
+        "query",
+        "update",
+        "delete",
+    ] | None = None
+    target_id: str | None = Field(default=None, max_length=64)
+    match_text: str | None = Field(default=None, max_length=500)
+    domain: str | None = Field(default=None, max_length=64)
+    name: str | None = Field(default=None, max_length=320)
+    contact_patch: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_kind_shape(self) -> "CaptureRecordCommand":
@@ -79,6 +91,21 @@ class CaptureRecordCommand(BaseModel):
                 )
             ) or self.all_day or self.attendees:
                 raise ValueError("asset command contains event fields")
+            if self.operation == "create_or_update":
+                raise ValueError("asset command does not support create_or_update")
+            if self.name is not None or self.contact_patch:
+                raise ValueError("asset command contains contact fields")
+            operation = self.operation or "create"
+            if operation in {"update", "delete"} and not (
+                (self.target_id or "").strip() or (self.match_text or "").strip()
+            ):
+                raise ValueError(
+                    "asset update/delete requires target_id or match_text"
+                )
+            if operation == "update" and not self.payload:
+                raise ValueError("asset update requires payload patch")
+            if operation in {"query", "delete"} and self.payload:
+                raise ValueError("asset query/delete payload must be empty")
             for name, value in (
                 ("effective_at", self.effective_at),
                 ("occurred_at", self.occurred_at),
@@ -87,22 +114,80 @@ class CaptureRecordCommand(BaseModel):
                     raise ValueError(f"{name} must include a timezone")
             return self
 
+        if self.kind == "contact":
+            if self.skill_machine_name is not None or self.payload:
+                raise ValueError("contact command must not contain asset fields")
+            if any(
+                value is not None
+                for value in (
+                    self.effective_at,
+                    self.occurred_at,
+                    self.title,
+                    self.description,
+                    self.location,
+                    self.start_at,
+                    self.end_at,
+                )
+            ) or self.period is not None or self.all_day or self.attendees:
+                raise ValueError("contact command contains non-contact fields")
+            if self.operation not in {"create_or_update", "delete"}:
+                raise ValueError("contact operation is required")
+            if self.target_id is not None or self.match_text is not None:
+                raise ValueError("contact command contains generic target fields")
+            self.name = (self.name or "").strip()
+            if not self.name:
+                raise ValueError("contact name is required")
+            allowed = {"phone", "company", "title", "email", "notes", "socials"}
+            unknown = set(self.contact_patch) - allowed
+            if unknown:
+                raise ValueError(
+                    f"contact patch contains unknown fields: {sorted(unknown)}"
+                )
+            if self.operation == "delete" and self.contact_patch:
+                raise ValueError("delete contact command must not contain a patch")
+            return self
+
         if self.skill_machine_name is not None:
             raise ValueError("event command must not name an asset skill")
         if self.payload:
             raise ValueError("event command payload must be empty")
-        if not (self.title or "").strip():
-            raise ValueError("event title is required")
-        if self.start_at is None or self.end_at is None:
-            raise ValueError("event start_at and end_at are required")
-        if self.start_at.tzinfo is None or self.end_at.tzinfo is None:
-            raise ValueError("event timestamps must include a timezone")
-        if self.end_at <= self.start_at:
-            raise ValueError("end_at must be after start_at")
+        operation = self.operation or "create"
+        if operation == "create_or_update":
+            raise ValueError("event command does not support create_or_update")
+        if operation == "create":
+            if not (self.title or "").strip():
+                raise ValueError("event title is required")
+            if self.start_at is None or self.end_at is None:
+                raise ValueError("event start_at and end_at are required")
+        if operation in {"update", "delete"} and not (
+            (self.target_id or "").strip()
+            or (self.match_text or "").strip()
+            or (self.title or "").strip()
+        ):
+            raise ValueError("event update/delete requires a target")
+        if operation == "update" and not any(
+            value is not None
+            for value in (
+                self.title,
+                self.description,
+                self.location,
+                self.start_at,
+                self.end_at,
+            )
+        ):
+            raise ValueError("event update requires a patch")
+        for name, value in (("start_at", self.start_at), ("end_at", self.end_at)):
+            if value is not None and value.tzinfo is None:
+                raise ValueError(f"event {name} must include a timezone")
+        if self.start_at is not None and self.end_at is not None:
+            if self.end_at <= self.start_at:
+                raise ValueError("end_at must be after start_at")
         if self.effective_at is not None:
             raise ValueError("event command must not set effective_at")
         if self.occurred_at is not None or self.period is not None:
             raise ValueError("event command must not set asset temporal fields")
+        if self.name is not None or self.contact_patch:
+            raise ValueError("event command contains contact fields")
         self.attendees = list(
             dict.fromkeys(name.strip() for name in self.attendees if name.strip())
         )
@@ -178,9 +263,12 @@ def validate_capture_result(
             raise CaptureOutputError(
                 f"unknown or disabled skill: {command.skill_machine_name}"
             )
+        if command.operation in {"query", "delete"}:
+            continue
         profile = (
             AssetWriteProfile.manual
             if skill.machine_name in BASELINE_CAPTURE_SKILL_NAMES
+            and command.operation != "update"
             else AssetWriteProfile.agent
         )
         _validate_payload(

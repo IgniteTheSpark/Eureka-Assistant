@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 import pytest
 from sqlalchemy import func, select
 
-from app.db.models import Asset, Event, EventAttendee, UserSkill, WorkflowJob
+from app.db.models import Asset, Contact, Event, EventAttendee, UserSkill, WorkflowJob
 from app.db.session import AsyncSessionFactory
 from app.domains.capture.asr import (
     AsrPollResult,
@@ -21,6 +21,9 @@ from app.domains.capture.jobs import capture_asr_handler, capture_process_handle
 from app.domains.capture.models import CaptureFile, CaptureRecording, CaptureTurn
 from app.domains.notifications.models import Notification, OutboxEvent
 from app.domains.sessions.models import SessionMessage
+from app.domains.sessions.models import AgentPendingAction
+from app.internal_mcp.runtime import InternalMCPTrustedContext
+from app.internal_mcp.tools import EurekaToolContext, execute_tool
 from app.jobs.queue import enqueue_job
 from app.jobs.registry import JobHandlerRegistry
 from app.jobs.runner import run_worker_once
@@ -189,13 +192,46 @@ def _registry(provider: FakeAsrProvider) -> JobHandlerRegistry:
     return registry
 
 
-def _process_registry(provider: FakeCaptureAgentProvider) -> JobHandlerRegistry:
+def _process_registry(
+    provider: FakeCaptureAgentProvider,
+    *,
+    tool_runtime=None,
+) -> JobHandlerRegistry:
     registry = JobHandlerRegistry()
     registry.register(
         "capture_process",
-        capture_process_handler(provider, clock=lambda: NOW),
+        capture_process_handler(
+            provider,
+            clock=lambda: NOW,
+            tool_runtime=tool_runtime,
+        ),
     )
     return registry
+
+
+class _InProcessToolRuntime:
+    def __init__(self):
+        self.calls = []
+
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict,
+        *,
+        trusted: InternalMCPTrustedContext,
+    ) -> dict:
+        self.calls.append((name, dict(arguments), trusted))
+        return await execute_tool(
+            name,
+            arguments,
+            context=EurekaToolContext(
+                user_id=trusted.user_id,
+                session_id=trusted.session_id,
+                input_turn_id=trusted.input_turn_id,
+                idempotency_prefix=f"turn:{trusted.input_turn_id}",
+            ),
+            tool_call_id=trusted.tool_call_id,
+        )
 
 
 def _event_and_expense_result() -> CaptureAgentResult:
@@ -395,10 +431,11 @@ async def test_permanent_invalid_provider_response_does_not_retry(session):
 
 async def test_capture_job_creates_multiple_records_and_notification(session):
     provider = FakeCaptureAgentProvider(_event_and_expense_result())
+    tool_runtime = _InProcessToolRuntime()
     recording_id, job_id = await _seed_transcribed_capture()
 
     assert await run_worker_once(
-        _process_registry(provider),
+        _process_registry(provider, tool_runtime=tool_runtime),
         owner="worker-a",
         lease_seconds=60,
         now=NOW,
@@ -443,6 +480,19 @@ async def test_capture_job_creates_multiple_records_and_notification(session):
         "contact",
         "notes",
     }
+    tool_names = [call[0] for call in tool_runtime.calls]
+    assert tool_names.count("tool_create_asset") == 1
+    assert [name for name in tool_names if name != "tool_create_asset"] == [
+        "tool_create_event",
+        "tool_query_contact",
+        "tool_add_event_attendee",
+        "tool_get_event",
+    ]
+    assert all(call[2].session_id == recording.session_id for call in tool_runtime.calls)
+    assert all(
+        call[2].input_turn_id == recording.input_turn_id
+        for call in tool_runtime.calls
+    )
 
 
 async def test_custom_partial_record_does_not_discard_valid_sibling_intent(session):
@@ -536,7 +586,10 @@ async def test_custom_partial_record_does_not_discard_valid_sibling_intent(sessi
         ).all()
     by_skill = {skill.machine_name: asset for asset, skill in rows}
     assert recording.process_status == "done"
-    assert set(by_skill) == {"running_training_log", "daily_water_intake"}
+    assert set(by_skill) == {
+        "running_training_log",
+        "daily_water_intake",
+    }, recording.result_records_json
     assert by_skill["running_training_log"].payload_json == {
         "distance": 2,
         "location": "深圳湾人才公园",
@@ -547,6 +600,137 @@ async def test_custom_partial_record_does_not_discard_valid_sibling_intent(sessi
         asset.source_input_turn_id == recording.input_turn_id
         for asset in by_skill.values()
     )
+
+
+async def test_capture_contact_creates_first_class_contact_not_asset(session):
+    provider = FakeCaptureAgentProvider(
+        CaptureAgentResult(
+            summary="已添加 Alex。",
+            records=[
+                CaptureRecordCommand(
+                    kind="contact",
+                    operation="create_or_update",
+                    name="Alex",
+                    contact_patch={"company": "Acme"},
+                    source_text="添加 Alex，他在 Acme 工作",
+                )
+            ],
+        )
+    )
+    recording_id, _ = await _seed_transcribed_capture(
+        "添加 Alex，他在 Acme 工作"
+    )
+
+    await run_worker_once(
+        _process_registry(provider, tool_runtime=_InProcessToolRuntime()),
+        owner="worker-a",
+        lease_seconds=60,
+        now=NOW,
+    )
+
+    async with AsyncSessionFactory() as database_session:
+        recording = await database_session.get(CaptureRecording, recording_id)
+        contacts = list(await database_session.scalars(select(Contact)))
+        asset_count = await database_session.scalar(
+            select(func.count()).select_from(Asset)
+        )
+    assert recording.process_status == "done"
+    assert asset_count == 0
+    assert len(contacts) == 1
+    assert contacts[0].name == "Alex"
+    assert contacts[0].company == "Acme"
+    assert recording.result_records_json[0]["kind"] == "contact"
+    assert recording.result_records_json[0]["icon"] == "👤"
+
+
+async def test_capture_contact_updates_the_only_exact_alex(session):
+    async with AsyncSessionFactory() as database_session:
+        database_session.add(Contact(user_id="user-1", name="Alex"))
+        await database_session.commit()
+    provider = FakeCaptureAgentProvider(
+        CaptureAgentResult(
+            summary="已更新 Alex 的职业。",
+            records=[
+                CaptureRecordCommand(
+                    kind="contact",
+                    operation="create_or_update",
+                    name="Alex",
+                    contact_patch={"title": "设计师"},
+                    source_text="Alex 的职业改成设计师",
+                )
+            ],
+        )
+    )
+    await _seed_transcribed_capture("Alex 的职业改成设计师")
+
+    await run_worker_once(
+        _process_registry(provider, tool_runtime=_InProcessToolRuntime()),
+        owner="worker-a",
+        lease_seconds=60,
+        now=NOW,
+    )
+
+    async with AsyncSessionFactory() as database_session:
+        contacts = list(await database_session.scalars(select(Contact)))
+    assert len(contacts) == 1
+    assert contacts[0].title == "设计师"
+
+
+async def test_capture_contact_persists_pending_when_alex_is_ambiguous(session):
+    async with AsyncSessionFactory() as database_session:
+        database_session.add_all(
+            [
+                Contact(user_id="user-1", name="Alex", company="Acme"),
+                Contact(user_id="user-1", name="Alex", company="字节"),
+            ]
+        )
+        await database_session.commit()
+    provider = FakeCaptureAgentProvider(
+        CaptureAgentResult(
+            summary="请确认要更新哪一位 Alex。",
+            records=[
+                CaptureRecordCommand(
+                    kind="contact",
+                    operation="create_or_update",
+                    name="Alex",
+                    contact_patch={"title": "设计师"},
+                    source_text="Alex 的职业改成设计师",
+                )
+            ],
+        )
+    )
+    recording_id, _ = await _seed_transcribed_capture(
+        "Alex 的职业改成设计师"
+    )
+
+    await run_worker_once(
+        _process_registry(provider, tool_runtime=_InProcessToolRuntime()),
+        owner="worker-a",
+        lease_seconds=60,
+        now=NOW,
+    )
+
+    async with AsyncSessionFactory() as database_session:
+        contacts = list(
+            await database_session.scalars(
+                select(Contact).order_by(Contact.company)
+            )
+        )
+        pending = await database_session.scalar(select(AgentPendingAction))
+        recording = await database_session.get(CaptureRecording, recording_id)
+        message = await database_session.get(
+            SessionMessage,
+            recording.agent_message_id,
+        )
+    assert [contact.title for contact in contacts] == [None, None]
+    assert pending.status == "pending"
+    assert pending.operation == "create_or_update"
+    assert {item["contact_id"] for item in pending.candidates_json} == {
+        contact.id for contact in contacts
+    }
+    assert pending.intent_json["patch"] == {"title": "设计师"}
+    assert message.status == "waiting_confirmation"
+    assert message.cards_json[0]["card_type"] == "pending_contact"
 
 
 async def test_capture_qa_result_completes_without_records(session):
@@ -685,11 +869,13 @@ async def test_capture_process_persists_transcript_grounded_asset_time(session):
 
     async with AsyncSessionFactory() as database_session:
         asset = await database_session.scalar(select(Asset))
+        recording = await database_session.scalar(select(CaptureRecording))
 
     assert provider.calls[0]["reference_datetime"].isoformat() == (
         "2026-08-02T17:00:00+08:00"
     )
     assert "local_date" not in provider.calls[0]
+    assert asset is not None, recording.result_records_json
     assert asset.period == "晚上"
     assert asset.occurred_at == datetime(2026, 8, 1, 12, 0)
 
@@ -770,19 +956,25 @@ async def test_permanent_capture_provider_error_fails_without_retry(session):
     assert job.attempt == 1
 
 
-async def test_capture_output_transaction_rolls_back_all_records(
+async def test_capture_output_retry_reuses_successful_mcp_mutations(
     session,
     monkeypatch,
 ):
     provider = FakeCaptureAgentProvider(_event_and_expense_result())
     recording_id, job_id = await _seed_transcribed_capture()
+    from app.domains.capture import jobs as capture_jobs
 
-    async def fail_notification(*args, **kwargs):
-        raise RuntimeError("notification storage unavailable")
+    original_create_notification = capture_jobs.create_notification
+    fail_notification = True
+
+    async def maybe_fail_notification(*args, **kwargs):
+        if fail_notification:
+            raise RuntimeError("notification storage unavailable")
+        return await original_create_notification(*args, **kwargs)
 
     monkeypatch.setattr(
         "app.domains.capture.jobs.create_notification",
-        fail_notification,
+        maybe_fail_notification,
     )
     await run_worker_once(
         _process_registry(provider),
@@ -796,13 +988,37 @@ async def test_capture_output_transaction_rolls_back_all_records(
         job = await database_session.get(WorkflowJob, job_id)
         assert await database_session.scalar(
             select(func.count()).select_from(Asset)
-        ) == 0
+        ) == 1
         assert await database_session.scalar(
             select(func.count()).select_from(Event)
-        ) == 0
+        ) == 1
         assert await database_session.scalar(
             select(func.count()).select_from(Notification)
         ) == 0
-    assert recording.process_status == "agent_processing"
-    assert recording.result_records_json == []
-    assert job.status == "queued"
+        retry_at = job.available_at
+        assert recording.process_status == "agent_processing"
+        assert recording.result_records_json == []
+        assert job.status == "queued"
+
+    fail_notification = False
+    await run_worker_once(
+        _process_registry(provider),
+        owner="worker-b",
+        lease_seconds=60,
+        now=retry_at,
+    )
+
+    async with AsyncSessionFactory() as database_session:
+        recording = await database_session.get(CaptureRecording, recording_id)
+        job = await database_session.get(WorkflowJob, job_id)
+        assert await database_session.scalar(
+            select(func.count()).select_from(Asset)
+        ) == 1
+        assert await database_session.scalar(
+            select(func.count()).select_from(Event)
+        ) == 1
+        assert await database_session.scalar(
+            select(func.count()).select_from(Notification)
+        ) == 1
+    assert recording.process_status == "done"
+    assert job.status == "succeeded"

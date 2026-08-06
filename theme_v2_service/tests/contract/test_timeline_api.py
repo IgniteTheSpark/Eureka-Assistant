@@ -141,6 +141,18 @@ async def test_timeline_uses_semantic_asset_time_and_capture_only_flash_count(
         )
         assert response.status_code == 200
 
+    contact_response = await client.post(
+        "/api/contacts",
+        headers=_headers(token),
+        json={
+            "name": "Alex",
+            "company": "Acme",
+            "title": "设计师",
+        },
+    )
+    assert contact_response.status_code == 200
+    contact_id = contact_response.json()["id"]
+
     for index, minute in enumerate((1, 2, 3), start=1):
         await _seed_capture(
             session,
@@ -175,8 +187,37 @@ async def test_timeline_uses_semantic_asset_time_and_capture_only_flash_count(
     assert response.status_code == 200
     items = response.json()["items"]
     assets = [item for item in items if item["kind"] == "asset"]
+    contacts = [item for item in items if item["kind"] == "contact"]
     captures = [item for item in items if item["kind"] == "input_turn"]
     assert len(assets) == 4
+    assert contacts == [
+        {
+            "kind": "contact",
+            "id": contact_id,
+            "contact_id": contact_id,
+            "effective_at": contact_response.json()["created_at"],
+            "created_at": contact_response.json()["created_at"],
+            "title": "Alex",
+            "subtitle": "Acme · 设计师",
+            "skill_name": "contact",
+            "period": "",
+            "has_clock_time": False,
+            "has_scheduled_time": False,
+            "domain": "社交",
+            "payload": {
+                "name": "Alex",
+                "phone": None,
+                "company": "Acme",
+                "title": "设计师",
+                "email": None,
+                "notes": [],
+                "socials": {},
+            },
+            "session_id": None,
+            "source_recording_id": None,
+            "source_input_turn_id": None,
+        }
+    ]
     assert len(captures) == 3
     assert all("daily_water_intake" not in item["title"] for item in assets)
     assert all("喝水记录" in item["title"] for item in assets)

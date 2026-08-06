@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../../pages/session_detail_page.dart';
 import 'capture_session_page.dart';
 
 /// Returns a Theme V2 recording id only for the new capture deep-link format.
@@ -17,7 +16,7 @@ Widget flashNotificationTargetPage(String link) {
   if (recordingId != null) {
     return CaptureSessionPage(recordingId: recordingId);
   }
-  return SessionDetailPage(sessionId: link, title: '闪念');
+  return CaptureSessionPage(recordingId: link);
 }
 
 Future<void> openFlashNotificationTarget(BuildContext context, String link) {

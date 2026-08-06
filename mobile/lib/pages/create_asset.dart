@@ -11,6 +11,7 @@ import '../theme_v2/asset/asset_card_display.dart';
 import '../theme_v2/asset_detail/asset_entity_ref.dart';
 import '../theme_v2/asset_detail/markdown_field_editor.dart';
 import '../theme_v2/asset_detail/theme_v2_asset_edit_page.dart';
+import '../theme_v2/foundation/canonical_entity_identity.dart';
 import '../theme_v2/foundation/theme_v2_theme.dart';
 import '../theme_v2/foundation/theme_v2_tokens.dart';
 import '../theme_v2/foundation/theme_v2_typography.dart';
@@ -71,7 +72,7 @@ Future<List<SkillDef>> fetchSkillDefs(ApiClient api) async {
       SkillDef(
         name,
         s['display_name'] as String? ?? name,
-        rs['icon'] as String? ?? '•',
+        resolveEntityIcon(name, configuredIcon: rs['icon'] as String?),
         rs['accent_color'] as String? ?? 'gray',
         (s['payload_schema'] as Map?)?.cast<String, dynamic>() ?? const {},
       ),
@@ -410,42 +411,6 @@ class _EventFormState extends State<EventForm> {
     BuildContext context,
     String initialName,
   ) async {
-    if (widget.coreRecordsOnly) {
-      final response = await _api.getJson('/api/user-skills');
-      final skills = response is List
-          ? response
-          : (response is Map
-                ? response['skills'] as List? ?? const []
-                : const []);
-      final contactSkill = skills.whereType<Map>().firstWhere(
-        (skill) => skill['machine_name']?.toString() == 'contact',
-        orElse: () => const {},
-      );
-      final userSkillId = contactSkill['id']?.toString() ?? '';
-      if (userSkillId.isEmpty) {
-        throw StateError('Contact Skill is unavailable');
-      }
-      if (!context.mounted) return null;
-      final receipt = await Navigator.of(context).push<dynamic>(
-        MaterialPageRoute(
-          builder: (_) => ThemeV2AssetEditPage(
-            reference: const AssetEntityRef(
-              kind: AssetEntityKind.asset,
-              id: 'new:contact',
-            ),
-            initialValues: initialName.isEmpty
-                ? const {}
-                : {'name': initialName},
-            mode: AssetEditMode.create,
-            skillName: 'contact',
-            displayName: contactSkill['display_name']?.toString() ?? '联系人',
-            userSkillId: userSkillId,
-            api: _api,
-          ),
-        ),
-      );
-      return receipt is Map ? Map<String, dynamic>.from(receipt) : null;
-    }
     final receipt = await Navigator.of(context).push<dynamic>(
       MaterialPageRoute(
         builder: (_) => ContactForm(

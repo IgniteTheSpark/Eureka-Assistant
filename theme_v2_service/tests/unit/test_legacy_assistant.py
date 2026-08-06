@@ -24,6 +24,8 @@ def test_legacy_instruction_preserves_in_scope_chat_behavior_contracts():
         "把刚才的回答存成随记",
         "普通问答不创建记录",
         "追问后补字段必须 UPDATE",
+        "resolve_pending_contact",
+        "cancel_pending_action",
         "外部 MCP",
         "不可使用",
         "session-1",

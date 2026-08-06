@@ -1147,6 +1147,7 @@ async def list_flash_chat_messages(
             .where(
                 FlashChatMessage.user_id == user_id,
                 FlashChatMessage.session_date == local_date,
+                FlashChatMessage.migrated_session_message_id.is_(None),
             )
             .order_by(FlashChatMessage.created_at.desc(), FlashChatMessage.id.desc())
             .limit(limit)
@@ -1218,7 +1219,10 @@ async def build_flash_chat_context(
     assets = list(
         await session.scalars(
             select(Asset)
-            .where(Asset.user_id == user_id)
+            .where(
+                Asset.user_id == user_id,
+                Asset.migrated_contact_id.is_(None),
+            )
             .order_by(Asset.created_at.desc(), Asset.id.desc())
             .limit(200)
         )

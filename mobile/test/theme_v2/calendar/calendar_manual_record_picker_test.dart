@@ -251,6 +251,22 @@ void main() {
           'payload_schema': <String, dynamic>{},
         },
         {
+          'name': 'expense',
+          'display_name': '记账',
+          'user_skill_id': 'expense-id',
+          'enabled': 1,
+          'render_spec': {'icon': '🍔'},
+          'payload_schema': <String, dynamic>{},
+        },
+        {
+          'name': 'contact',
+          'display_name': '联系人',
+          'user_skill_id': 'contact-id',
+          'enabled': 1,
+          'render_spec': {'icon': '🪪'},
+          'payload_schema': <String, dynamic>{},
+        },
+        {
           'name': 'hidden',
           'display_name': '已关闭',
           'user_skill_id': 'hidden-id',
@@ -270,8 +286,13 @@ void main() {
       ],
     });
 
-    expect(parsed.map((option) => option.name), ['event', 'todo']);
-    expect(parsed.last.icon, '📋');
+    expect(parsed.map((option) => option.name), [
+      'event',
+      'todo',
+      'expense',
+      'contact',
+    ]);
+    expect(parsed.map((option) => option.icon), ['📅', '📋', '💳', '👤']);
   });
 
   test('recent parser preserves order, deduplicates, and caps at four', () {

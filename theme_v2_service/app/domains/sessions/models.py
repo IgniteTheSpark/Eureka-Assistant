@@ -122,7 +122,7 @@ class SessionMessage(Base):
     )
     user_id: Mapped[str] = mapped_column(CHAR(36), nullable=False)
     role: Mapped[str] = mapped_column(String(16), nullable=False)
-    status: Mapped[str] = mapped_column(String(16), default="done", nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="done", nullable=False)
     text: Mapped[str] = mapped_column(Text, default="", nullable=False)
     input_turn_id: Mapped[str | None] = mapped_column(
         CHAR(36),
@@ -140,3 +140,51 @@ class SessionMessage(Base):
         mysql.DATETIME(fsp=6), default=utc_now, onupdate=utc_now, nullable=False
     )
     session: Mapped[ChatSession] = relationship(back_populates="messages")
+
+
+class AgentPendingAction(Base):
+    __tablename__ = "agent_pending_actions"
+    __table_args__ = (
+        Index(
+            "ix_agent_pending_actions_user_status",
+            "user_id",
+            "status",
+            "created_at",
+        ),
+        Index(
+            "ix_agent_pending_actions_session_status",
+            "session_id",
+            "status",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(CHAR(36), primary_key=True, default=new_uuid)
+    user_id: Mapped[str] = mapped_column(CHAR(36), nullable=False)
+    session_id: Mapped[str] = mapped_column(
+        CHAR(36),
+        ForeignKey("chat_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    input_turn_id: Mapped[str | None] = mapped_column(
+        CHAR(36),
+        ForeignKey("input_turns.id", ondelete="SET NULL"),
+    )
+    agent_message_id: Mapped[str | None] = mapped_column(
+        CHAR(36),
+        ForeignKey("session_messages.id", ondelete="SET NULL"),
+    )
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    operation: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="pending", nullable=False)
+    candidates_json: Mapped[list] = mapped_column(mysql.JSON, default=list, nullable=False)
+    intent_json: Mapped[dict] = mapped_column(mysql.JSON, default=dict, nullable=False)
+    selected_entity_id: Mapped[str | None] = mapped_column(CHAR(36))
+    resolution_source: Mapped[str | None] = mapped_column(String(32))
+    resolved_at: Mapped[datetime | None] = mapped_column(mysql.DATETIME(fsp=6))
+    created_at: Mapped[datetime] = mapped_column(
+        mysql.DATETIME(fsp=6), default=utc_now, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        mysql.DATETIME(fsp=6), default=utc_now, onupdate=utc_now, nullable=False
+    )

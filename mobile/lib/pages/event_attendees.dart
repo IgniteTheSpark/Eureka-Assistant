@@ -81,7 +81,9 @@ class ContactChoice {
   int get hashCode => id.hashCode;
 }
 
-/// Theme V2 stores contacts as Assets under the built-in `contact` Skill.
+/// Compatibility reader for pre-migration contact-shaped Assets. New Theme V2
+/// flows use first-class `/api/contacts` records through
+/// [firstClassContactChoices].
 List<ContactChoice> coreContactChoices(
   Object? skillsResponse,
   Object? assetsResponse, {
@@ -120,6 +122,30 @@ List<ContactChoice> coreContactChoices(
     if (contact.name.isNotEmpty) contacts.add(contact);
   }
   return contacts;
+}
+
+List<ContactChoice> firstClassContactChoices(
+  Object? response, {
+  String query = '',
+  Set<String> excludedContactIds = const {},
+}) {
+  final rawContacts = response is List
+      ? response
+      : (response is Map
+            ? response['contacts'] as List? ?? const []
+            : const []);
+  final needle = query.trim().toLowerCase();
+  return [
+    for (final raw in rawContacts.whereType<Map>())
+      if (ContactChoice.fromJson(raw) case final contact
+          when contact.id.isNotEmpty &&
+              !excludedContactIds.contains(contact.id) &&
+              (needle.isEmpty ||
+                  contact.toJson().values.any(
+                    (value) => _text(value).toLowerCase().contains(needle),
+                  )))
+        contact,
+  ];
 }
 
 class EventAttendeeDraft {
@@ -381,36 +407,14 @@ class _EventAttendeeSelectorState extends State<_EventAttendeeSelector> {
       });
     }
     try {
-      late final List<ContactChoice> contacts;
-      if (widget.coreRecordsOnly) {
-        final responses = await Future.wait([
-          _api.getJson('/api/user-skills'),
-          _api.getJson('/api/assets', query: const {'limit': 100}),
-        ]);
-        contacts = coreContactChoices(
-          responses[0],
-          responses[1],
-          query: query,
-          excludedContactIds: widget.excludedContactIds,
-        );
-      } else {
-        final response = await _api.getJson(
-          '/api/contacts',
-          query: {'q': query, 'limit': 20},
-        );
-        final rawContacts = response is Map ? response['contacts'] : null;
-        contacts = rawContacts is List
-            ? rawContacts
-                  .whereType<Map>()
-                  .map(ContactChoice.fromJson)
-                  .where(
-                    (contact) =>
-                        contact.id.isNotEmpty &&
-                        !widget.excludedContactIds.contains(contact.id),
-                  )
-                  .toList()
-            : <ContactChoice>[];
-      }
+      final response = await _api.getJson(
+        '/api/contacts',
+        query: {'q': query, 'limit': 20},
+      );
+      final contacts = firstClassContactChoices(
+        response,
+        excludedContactIds: widget.excludedContactIds,
+      );
       if (!mounted || generation != _searchGeneration) return;
       setState(() {
         _contacts = contacts;

@@ -1,4 +1,5 @@
 import '../api/api_client.dart';
+import '../theme_v2/foundation/canonical_entity_identity.dart';
 
 /// Client model for UserSkill.render_spec (subset the cards use).
 /// This Flutter implementation is the active client source of truth.
@@ -332,10 +333,7 @@ CardData buildCard({
   }
   return CardData(
     layout: spec.cardLayout,
-    // 待办 must read as "to-do" (📋), not "done" (✅). Only the todo skill seeds ✅,
-    // so swapping the glyph here pins it across cards/detail sheets, mirroring the
-    // resolveMeta pin used by the calendar lists. (DB/seed updated to 📋 too.)
-    icon: spec.icon == '✅' ? '📋' : spec.icon,
+    icon: resolveEntityIcon(displayName, configuredIcon: spec.icon),
     accentColor: spec.accentColor,
     title: primary.isNotEmpty ? primary : displayName,
     subtitle: secondary,
@@ -413,7 +411,15 @@ Future<Map<String, RenderSpec>> fetchRenderSpecs(
     final name = (s['name'] ?? s['machine_name']) as String?;
     if (name == null) continue;
     if (coreRecordsOnly) {
-      out[name] = coreRecordRenderSpec(name, s['schema']);
+      final renderMap = (s['render_spec'] as Map?)?.cast<String, dynamic>();
+      var spec = renderMap == null || renderMap.isEmpty
+          ? coreRecordRenderSpec(name, s['schema'])
+          : RenderSpec.fromJson(renderMap).withSchema(s['schema']);
+      if (name == 'todo') spec = normalizeTodoSpec(spec);
+      spec = spec.copyWith(
+        icon: resolveEntityIcon(name, configuredIcon: spec.icon),
+      );
+      out[name] = spec;
       continue;
     }
     final rs = s['render_spec'];
@@ -422,6 +428,9 @@ Future<Map<String, RenderSpec>> fetchRenderSpecs(
         rs.cast<String, dynamic>(),
       ).withSchema(s['payload_schema']);
       if (name == 'todo') spec = normalizeTodoSpec(spec);
+      spec = spec.copyWith(
+        icon: resolveEntityIcon(name, configuredIcon: spec.icon),
+      );
       out[name] = spec;
     }
   }
@@ -501,7 +510,9 @@ RenderSpec coreRecordRenderSpec(String name, dynamic rawSchema) {
         secondaryField: secondary == primary ? null : secondary,
       );
   }
-  final withSchema = spec.withSchema(schema);
+  final withSchema = spec
+      .copyWith(icon: resolveEntityIcon(name, configuredIcon: spec.icon))
+      .withSchema(schema);
   return name == 'todo' ? normalizeTodoSpec(withSchema) : withSchema;
 }
 

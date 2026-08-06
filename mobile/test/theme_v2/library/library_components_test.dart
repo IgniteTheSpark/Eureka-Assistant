@@ -42,6 +42,14 @@ void main() {
     expect(fourth.left - third.right, 6);
     expect(find.text('01'), findsOneWidget);
     expect(find.textContaining('/ A'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('library-pinned-mark-todo')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('library-pinned-mark-expense')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('pinned tile press scales unless Reduce Motion is enabled', (

@@ -6,8 +6,9 @@ import 'package:flutter/material.dart';
 import '../../api/api_client.dart';
 import '../../pet/floating_mascot.dart'
     show mascotSuppressed, releaseMascotSuppress;
-import '../../timeline/timeline.dart' show eventAssetIcon, todoAssetIcon;
+import '../../timeline/timeline.dart' show eventAssetIcon;
 import '../foundation/theme_v2_motion.dart';
+import '../foundation/canonical_entity_identity.dart';
 import '../foundation/theme_v2_semantics.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
@@ -97,9 +98,10 @@ List<CalendarSkillOption> parseCalendarSkillOptions(Object? response) {
     final displayName = raw['display_name']?.toString().trim();
     final userSkillId =
         raw['user_skill_id']?.toString() ?? raw['id']?.toString();
-    final icon = name == 'todo'
-        ? todoAssetIcon
-        : renderSpec['icon']?.toString() ?? '•';
+    final icon = resolveEntityIcon(
+      name,
+      configuredIcon: renderSpec['icon']?.toString(),
+    );
     final accent = renderSpec['accent_color']?.toString() ?? 'gray';
     if (name == 'contact') {
       options.add(

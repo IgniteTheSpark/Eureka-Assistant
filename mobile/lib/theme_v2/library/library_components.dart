@@ -628,6 +628,18 @@ class _LibraryPinnedTileState extends State<_LibraryPinnedTile> {
                     ),
                   ),
                 Positioned(
+                  left: compact ? 26 : 14,
+                  top: compact ? 16 : 40,
+                  child: Text(
+                    widget.container.mark,
+                    key: ValueKey('library-pinned-mark-${widget.container.id}'),
+                    style: TextStyle(
+                      color: featured ? tokens.accent : tokens.foreground,
+                      fontSize: compact ? 13 : 18,
+                    ),
+                  ),
+                ),
+                Positioned(
                   left: widget.configure && compact
                       ? 32
                       : compact

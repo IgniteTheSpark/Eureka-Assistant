@@ -475,8 +475,9 @@ class _TodoFilterTabs extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
     return SizedBox(
-      height: 34,
+      height: ThemeV2Sizes.minTouchTarget,
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           for (var index = 0; index < _items.length; index++) ...[
             if (index > 0) const SizedBox(width: 6),

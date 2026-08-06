@@ -318,33 +318,31 @@ void main() {
     },
   );
 
-  testWidgets(
-    'Theme V2 contact container reads contact assets, not legacy contacts',
-    (tester) async {
-      final controller = await _controller();
-      await _pumpHost(
-        tester,
-        ThemeV2LibraryPage(
-          controller: controller,
-          autoLoad: false,
-          onCreateSkill: () {},
-        ),
-      );
+  testWidgets('Theme V2 contact container reads first-class contacts', (
+    tester,
+  ) async {
+    final controller = await _controller();
+    await _pumpHost(
+      tester,
+      ThemeV2LibraryPage(
+        controller: controller,
+        autoLoad: false,
+        onCreateSkill: () {},
+      ),
+    );
 
-      await tester.tap(
-        find.byKey(const ValueKey('library-pinned-tile-contact')),
-      );
-      await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('library-pinned-tile-contact')));
+    await tester.pumpAndSettle();
 
-      final page = tester.widget<ThemeV2AssetListPage>(
-        find.byType(ThemeV2AssetListPage),
-      );
-      expect(page.source, AssetListSource.assets);
-      expect(page.skillName, 'contact');
-      expect(page.meta?.userSkillId, 's-contact');
-      expect(page.coreRecordsOnly, isTrue);
-    },
-  );
+    final page = tester.widget<ThemeV2AssetListPage>(
+      find.byType(ThemeV2AssetListPage),
+    );
+    expect(page.source, AssetListSource.entities);
+    expect(page.cardType, 'contact');
+    expect(page.skillName, isNull);
+    expect(page.meta, isNull);
+    expect(page.coreRecordsOnly, isTrue);
+  });
 
   testWidgets('default recent asset opens direct detail not a container list', (
     tester,
@@ -388,14 +386,13 @@ void main() {
           matching: find.byType(Scrollable),
         )
         .first;
-    await tester.scrollUntilVisible(
-      find.byKey(const ValueKey('library-recent-a1')),
-      280,
-      scrollable: hubScroll,
-    );
+    final recent = find.byKey(const ValueKey('library-recent-a1'));
+    await tester.scrollUntilVisible(recent, 280, scrollable: hubScroll);
+    await tester.ensureVisible(recent);
+    await tester.pumpAndSettle();
     final before = tester.state<ScrollableState>(hubScroll).position.pixels;
 
-    await tester.tap(find.byKey(const ValueKey('library-recent-a1')));
+    await tester.tap(recent);
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('asset-detail-close')));
     await tester.pumpAndSettle();

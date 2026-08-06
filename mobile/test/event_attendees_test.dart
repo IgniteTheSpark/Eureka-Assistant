@@ -93,6 +93,24 @@ void main() {
       expect(contacts.single.summary, 'Eureka · CEO');
     });
 
+    test('loads Theme V2 attendee choices from first-class Contacts', () {
+      final contacts = firstClassContactChoices(const {
+        'contacts': [
+          {
+            'id': 'contact-alex',
+            'name': 'Alex',
+            'company': 'Acme',
+            'title': '设计师',
+          },
+          {'id': 'contact-feng', 'name': '冯总', 'company': 'Eureka'},
+        ],
+      }, query: 'Acme');
+
+      expect(contacts, hasLength(1));
+      expect(contacts.single.id, 'contact-alex');
+      expect(contacts.single.summary, 'Acme · 设计师');
+    });
+
     test('builds an atomic Theme V2 attendee patch when binding a contact', () {
       final attendees = [
         EventAttendeeDraft.fromJson(const {

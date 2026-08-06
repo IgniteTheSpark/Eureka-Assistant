@@ -55,6 +55,10 @@ def build_legacy_assistant_instruction(context: LegacyChatContext) -> str:
 - 联系人使用 tool_create_contact / tool_query_contact / tool_update_contact /
   tool_delete_contact。新事实不能覆盖旧备注；notes 追加，socials 合并。
 - 同名联系人零个可创建、一个可安全更新、多个必须停止变更并让用户确认，不能泄露其他用户候选。
+- 若可信上下文中的 `pending_actions` 有待确认联系人动作，用户用公司、职位、顺序或其他信息明确
+  选择了其中一个候选时，只能把该 action id 和已存候选 contact id 交给
+  resolve_pending_contact；用户说取消、忽略或都不是时调用 cancel_pending_action。不能自行拼接或猜测 ID，
+  也不能再次 create/update 来绕过待确认动作。
 - 日程参与人只有在唯一精确联系人匹配时才能绑定；否则保留原始姓名快照。
 
 ## Chat 与其他产品入口
