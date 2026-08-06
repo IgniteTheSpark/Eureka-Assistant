@@ -23,8 +23,9 @@ class CalendarRecord {
             ? CalendarRecordTiming.timed
             : CalendarRecordTiming.untimed,
       ('input_turn', _) => CalendarRecordTiming.untimed,
+      _ when item.period.trim().isNotEmpty => CalendarRecordTiming.untimed,
       _ =>
-        item.hasClockTime
+        item.hasClockTime || _hasNonMidnightTime(item.effectiveAt)
             ? CalendarRecordTiming.timed
             : CalendarRecordTiming.untimed,
     };
@@ -41,12 +42,15 @@ class CalendarRecord {
 }
 
 int compareCalendarItems(TimelineItem a, TimelineItem b) {
-  final effective = a.effectiveAt.compareTo(b.effectiveAt);
-  if (effective != 0) return effective;
-  final id = a.id.compareTo(b.id);
-  if (id != 0) return id;
-  return a.kind.compareTo(b.kind);
+  return compareTimelineItems(a, b);
 }
+
+bool _hasNonMidnightTime(DateTime value) =>
+    value.hour != 0 ||
+    value.minute != 0 ||
+    value.second != 0 ||
+    value.millisecond != 0 ||
+    value.microsecond != 0;
 
 DateTime calendarDayOf(DateTime effectiveAt) =>
     DateTime(effectiveAt.year, effectiveAt.month, effectiveAt.day);

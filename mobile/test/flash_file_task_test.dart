@@ -14,6 +14,18 @@ void main() {
     expect(isFlashFileName('notes.opus'), isFalse);
   });
 
+  test('flash filename preserves original local capture second', () {
+    final value = captureDateTimeFromFlashFileName('F20260805-231407.opus');
+
+    expect(value, DateTime(2026, 8, 5, 23, 14, 7));
+    expect(
+      captureEpochSecondsFromFlashFileName('F20260805-231407.opus'),
+      value!.millisecondsSinceEpoch ~/ 1000,
+    );
+    expect(captureDateTimeFromFlashFileName('F20260230-231407.opus'), isNull);
+    expect(captureEpochSecondsFromFlashFileName('invalid.opus'), isNull);
+  });
+
   test('FlashFileTask persists ASR workflow metadata', () {
     final retryAt = DateTime.utc(2026, 6, 12, 10, 15);
     final task = FlashFileTask(

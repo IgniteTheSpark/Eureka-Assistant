@@ -34,6 +34,7 @@ class TimelineItem {
   final String kind;
   final String id;
   final DateTime effectiveAt; // local time
+  final DateTime createdAt; // local time, deterministic tie-breaker
   final String title;
   final String subtitle;
   final String? skillName;
@@ -72,6 +73,7 @@ class TimelineItem {
     required this.kind,
     required this.id,
     required this.effectiveAt,
+    DateTime? createdAt,
     required this.title,
     required this.subtitle,
     required this.skillName,
@@ -87,13 +89,15 @@ class TimelineItem {
     this.hasClockTime = false,
     this.hasScheduledTime = false,
     this.domain = '',
-  });
+  }) : createdAt = createdAt ?? effectiveAt;
 
   factory TimelineItem.fromJson(Map<String, dynamic> j) {
     final kind = j['kind'] as String? ?? 'asset';
     final ea =
         DateTime.tryParse(j['effective_at'] as String? ?? '')?.toLocal() ??
         DateTime.now();
+    final createdAt =
+        DateTime.tryParse(j['created_at'] as String? ?? '')?.toLocal() ?? ea;
     final rawDerived =
         (j['derived'] as Map?)?.cast<String, dynamic>() ?? const {};
     final rawPayload =
@@ -115,6 +119,7 @@ class TimelineItem {
       kind: kind,
       id: j['id'] as String? ?? '',
       effectiveAt: ea,
+      createdAt: createdAt,
       title: j['title'] as String? ?? '',
       subtitle: kind == 'event'
           ? eventCardSummary(payload)
@@ -137,6 +142,14 @@ class TimelineItem {
       domain: j['domain'] as String? ?? '',
     );
   }
+}
+
+int compareTimelineItems(TimelineItem a, TimelineItem b) {
+  final effective = a.effectiveAt.compareTo(b.effectiveAt);
+  if (effective != 0) return effective;
+  final created = a.createdAt.compareTo(b.createdAt);
+  if (created != 0) return created;
+  return a.id.compareTo(b.id);
 }
 
 const _builtin = <String, SkillMeta>{
@@ -190,12 +203,14 @@ Future<List<TimelineItem>> fetchTimeline(
   try {
     final res = await api.getJson('/api/timeline');
     final items = (res is Map ? res['items'] : null) as List? ?? const [];
-    return items
+    final timeline = items
         .whereType<Map>()
         .map((e) => TimelineItem.fromJson(e.cast<String, dynamic>()))
         // The 文件 entity was removed from the app — never surface file captures.
         .where((it) => it.kind != 'file')
         .toList();
+    timeline.sort(compareTimelineItems);
+    return timeline;
   } on ApiException catch (error) {
     if (error.statusCode != 404) rethrow;
     return _fetchCoreRecordTimeline(api);
@@ -228,11 +243,13 @@ Future<List<TimelineItem>> _fetchCoreRecordTimeline(ApiClient api) async {
     )?.toLocal();
     if (start == null) continue;
     final id = event['id']?.toString() ?? '';
+    final createdAt = _firstCoreDate([event['created_at']]);
     items.add(
       TimelineItem(
         kind: 'event',
         id: id,
         effectiveAt: start,
+        createdAt: createdAt,
         title: _coreTitle(event, '事件'),
         subtitle: '',
         skillName: null,
@@ -266,12 +283,14 @@ Future<List<TimelineItem>> _fetchCoreRecordTimeline(ApiClient api) async {
     final effective =
         explicit ?? semantic ?? _firstCoreDate([asset['created_at']]);
     if (effective == null) continue;
+    final createdAt = _firstCoreDate([asset['created_at']]);
     final hasExplicitClock = explicit != null;
     items.add(
       TimelineItem(
         kind: 'asset',
         id: asset['id']?.toString() ?? '',
         effectiveAt: effective,
+        createdAt: createdAt,
         title: _coreTitle(payload, skill.name),
         subtitle:
             payload['note']?.toString() ??
@@ -311,6 +330,7 @@ Future<List<TimelineItem>> _fetchCoreRecordTimeline(ApiClient api) async {
         kind: 'contact',
         id: id,
         effectiveAt: created,
+        createdAt: created,
         title: name.isEmpty ? '联系人' : name,
         subtitle: identity.isNotEmpty ? identity : fallback,
         skillName: 'contact',
@@ -333,12 +353,14 @@ Future<List<TimelineItem>> _fetchCoreRecordTimeline(ApiClient api) async {
       recording['created_at'],
     ]);
     if (effective == null) continue;
+    final createdAt = _firstCoreDate([recording['created_at']]);
     final title = recording['title']?.toString().trim() ?? '';
     items.add(
       TimelineItem(
         kind: 'input_turn',
         id: recording['id']?.toString() ?? '',
         effectiveAt: effective,
+        createdAt: createdAt,
         title: title.isEmpty ? '闪念' : title,
         subtitle: '',
         skillName: null,
@@ -351,7 +373,7 @@ Future<List<TimelineItem>> _fetchCoreRecordTimeline(ApiClient api) async {
       ),
     );
   }
-  items.sort((a, b) => a.effectiveAt.compareTo(b.effectiveAt));
+  items.sort(compareTimelineItems);
   return items;
 }
 
@@ -445,10 +467,6 @@ List<MapEntry<DateTime, List<TimelineItem>>> groupByDay(
   }
   final days = byDay.keys.toList()..sort((a, b) => b.compareTo(a));
   return [
-    for (final d in days)
-      MapEntry(
-        d,
-        byDay[d]!..sort((a, b) => a.effectiveAt.compareTo(b.effectiveAt)),
-      ),
+    for (final d in days) MapEntry(d, byDay[d]!..sort(compareTimelineItems)),
   ];
 }

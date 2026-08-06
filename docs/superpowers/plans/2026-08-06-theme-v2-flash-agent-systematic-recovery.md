@@ -683,7 +683,7 @@ git commit -m "test(theme-v2): close flash legacy parity gate"
 - Produces: `DateTime? captureDateTimeFromFlashFileName(String)`, `int? captureEpochSecondsFromFlashFileName(String)`, and stable Timeline ordering by `effectiveAt`, `createdAt`, then ID.
 - Consumes: existing `FlashFileTask.createTime` and payload `capture_started_at`.
 
-- [ ] **Step 1: Add failing filename and overlay tests**
+- [x] **Step 1: Add failing filename and overlay tests**
 
 ```dart
 test('flash filename preserves original local capture second', () {
@@ -725,7 +725,7 @@ test('fuzzy period wins over capture fallback clock', () {
 });
 ```
 
-- [ ] **Step 2: Run focused Flutter tests and verify RED**
+- [x] **Step 2: Run focused Flutter tests and verify RED**
 
 Run:
 
@@ -739,7 +739,7 @@ cd mobile && flutter test \
 
 Expected: filename helper is missing and overlays are found.
 
-- [ ] **Step 3: Implement one shared strict filename parser**
+- [x] **Step 3: Implement one shared strict filename parser**
 
 ```dart
 DateTime? captureDateTimeFromFlashFileName(String fileName) {
@@ -767,7 +767,7 @@ int? captureEpochSecondsFromFlashFileName(String fileName) =>
 
 Use the helper in `FlashFileStatusController` and initialize `_newTask(...).createTime`. An explicit device `createTime` continues to win through `copyWith`.
 
-- [ ] **Step 4: Restore mature Timeline classification and stable ordering**
+- [x] **Step 4: Restore mature Timeline classification and stable ordering**
 
 Add `DateTime? createdAt` as an optional constructor parameter and store
 `this.createdAt = createdAt ?? effectiveAt`, so existing fixtures remain source
@@ -786,11 +786,11 @@ remain untimed. For other records, `period` wins and stays in its fuzzy band;
 otherwise an explicit clock or a non-midnight effective/capture fallback is
 timed. A date-only local midnight remains untimed.
 
-- [ ] **Step 5: Remove only overlay presentation**
+- [x] **Step 5: Remove only overlay presentation**
 
 Remove the two overlay imports and their two `ValueListenableBuilder<bool>` branches from `EurekaApp.builder`. Keep `BleFlashManager.instance.start()`, `FlashFileWorkflow`, `listeningNotifier`, and all post-record status code unchanged.
 
-- [ ] **Step 6: Run focused tests and analyze changed Dart**
+- [x] **Step 6: Run focused tests and analyze changed Dart**
 
 Run:
 
@@ -815,7 +815,7 @@ cd mobile && flutter analyze \
 
 Expected: tests PASS and analyzer reports no issues.
 
-- [ ] **Step 7: Commit mobile capture parity**
+- [x] **Step 7: Commit mobile capture parity**
 
 ```bash
 git add mobile/lib/main.dart \

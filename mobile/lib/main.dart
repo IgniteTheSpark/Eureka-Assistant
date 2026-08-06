@@ -9,7 +9,6 @@ import 'app_events.dart';
 import 'app_shell.dart';
 import 'auth/auth_controller.dart';
 import 'ble_flash/ble_flash_manager.dart';
-import 'ble_flash/ble_flash_overlay.dart';
 import 'ble_flash/flash_file_workflow.dart';
 import 'config.dart';
 import 'ring/ring_capture_service.dart';
@@ -28,7 +27,6 @@ import 'theme/app_theme.dart';
 import 'theme/eureka_colors.dart';
 import 'theme/theme_controller.dart';
 import 'theme_v2/theme_v2_rollout.dart';
-import 'widgets/listening_overlay.dart';
 
 const _startupCapabilities = AppConfig.themeV2
     ? StartupCapabilities.themeV2()
@@ -97,8 +95,8 @@ class EurekaApp extends StatelessWidget {
                     color: bg,
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 460),
-                      // Stack so the global listening overlay covers ALL routes
-                      // (driven by the hardware SSE `listening` event).
+                      // Stack keeps app-wide sprite and mascot hosts above the
+                      // current route without changing hardware capture state.
                       child: Stack(
                         children: [
                           child ?? const SizedBox.shrink(),
@@ -115,26 +113,9 @@ class EurekaApp extends StatelessWidget {
                               child: SpriteFactoryHost(),
                             ),
                           // §9.2 全局浮动球球 REKA — above every route (navigates via
-                          // navigatorKey). Sits below the hardware listening overlay.
+                          // navigatorKey).
                           if (_startupCapabilities.pet)
                             const Positioned.fill(child: FloatingMascot()),
-                          ValueListenableBuilder<bool>(
-                            valueListenable: listeningNotifier,
-                            builder: (_, on, child) => on
-                                ? const Positioned.fill(
-                                    child: GlobalListeningOverlay(),
-                                  )
-                                : const SizedBox.shrink(),
-                          ),
-                          ValueListenableBuilder<bool>(
-                            valueListenable:
-                                BleFlashManager.instance.isFlashing,
-                            builder: (_, on, child) => on
-                                ? const Positioned.fill(
-                                    child: BleFlashOverlay(),
-                                  )
-                                : const SizedBox.shrink(),
-                          ),
                         ],
                       ),
                     ),

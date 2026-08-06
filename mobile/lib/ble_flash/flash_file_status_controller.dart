@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+import 'flash_file_task.dart';
+
 class FlashFileStatus {
   const FlashFileStatus({
     this.visible = false,
@@ -99,33 +101,12 @@ class FlashFileStatusController {
   }
 
   String _flashLabel(String fileName) {
-    final capturedAt = _capturedAtFromFileName(fileName);
+    final capturedAt = captureDateTimeFromFlashFileName(fileName);
     if (capturedAt != null) {
       return '${capturedAt.year}年${capturedAt.month}月${capturedAt.day}日 '
           '${_two(capturedAt.hour)}:${_two(capturedAt.minute)}:${_two(capturedAt.second)}的闪念';
     }
     return '这条闪念';
-  }
-
-  DateTime? _capturedAtFromFileName(String fileName) {
-    final trimmed = fileName.trim();
-    final match = RegExp(
-      r'^F(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})',
-      caseSensitive: false,
-    ).firstMatch(trimmed);
-    if (match == null) return null;
-    final values = [
-      for (var i = 1; i <= 6; i++) int.tryParse(match.group(i) ?? ''),
-    ];
-    if (values.any((v) => v == null)) return null;
-    return DateTime(
-      values[0]!,
-      values[1]!,
-      values[2]!,
-      values[3]!,
-      values[4]!,
-      values[5]!,
-    );
   }
 
   String _two(int value) => value.toString().padLeft(2, '0');

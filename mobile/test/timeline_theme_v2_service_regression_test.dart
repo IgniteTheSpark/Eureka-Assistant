@@ -208,6 +208,28 @@ void main() {
     expect(items.last.hasScheduledTime, isFalse);
   });
 
+  test('orders equal effective times by creation time and id', () {
+    final effectiveAt = DateTime(2026, 8, 5, 9);
+    TimelineItem item(String id, DateTime createdAt) => TimelineItem(
+      kind: 'asset',
+      id: id,
+      effectiveAt: effectiveAt,
+      createdAt: createdAt,
+      title: id,
+      subtitle: '',
+      skillName: 'notes',
+      sessionId: null,
+      derived: const {},
+    );
+    final items = [
+      item('b', DateTime(2026, 8, 5, 8, 1)),
+      item('c', DateTime(2026, 8, 5, 8)),
+      item('a', DateTime(2026, 8, 5, 8, 1)),
+    ]..sort(compareTimelineItems);
+
+    expect(items.map((item) => item.id), ['c', 'a', 'b']);
+  });
+
   test('core skill metadata uses the same built-in icons as detail', () async {
     final api = ApiClient(
       baseUrl: 'http://theme-v2.test',

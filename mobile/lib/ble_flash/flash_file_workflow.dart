@@ -309,6 +309,7 @@ class FlashFileWorkflow {
       source: source,
       stage: FlashFileStage.queued,
       updatedAt: DateTime.now(),
+      createTime: captureEpochSecondsFromFlashFileName(fileName),
     );
   }
 

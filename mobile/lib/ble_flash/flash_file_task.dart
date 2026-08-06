@@ -25,6 +25,40 @@ bool isFlashFileName(String fileName) {
   return fileName.startsWith('F') && fileName.toLowerCase().endsWith('.opus');
 }
 
+DateTime? captureDateTimeFromFlashFileName(String fileName) {
+  final match = RegExp(
+    r'^F(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})\.opus$',
+    caseSensitive: false,
+  ).firstMatch(fileName.trim());
+  if (match == null) return null;
+  final parts = [
+    for (var index = 1; index <= 6; index++)
+      int.tryParse(match.group(index) ?? ''),
+  ];
+  if (parts.any((value) => value == null)) return null;
+  final parsed = DateTime(
+    parts[0]!,
+    parts[1]!,
+    parts[2]!,
+    parts[3]!,
+    parts[4]!,
+    parts[5]!,
+  );
+  return parsed.year == parts[0] &&
+          parsed.month == parts[1] &&
+          parsed.day == parts[2] &&
+          parsed.hour == parts[3] &&
+          parsed.minute == parts[4] &&
+          parsed.second == parts[5]
+      ? parsed
+      : null;
+}
+
+int? captureEpochSecondsFromFlashFileName(String fileName) {
+  final capturedAt = captureDateTimeFromFlashFileName(fileName);
+  return capturedAt == null ? null : capturedAt.millisecondsSinceEpoch ~/ 1000;
+}
+
 class FlashFileTask {
   const FlashFileTask({
     required this.id,

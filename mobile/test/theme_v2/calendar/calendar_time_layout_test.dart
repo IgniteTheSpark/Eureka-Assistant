@@ -15,11 +15,13 @@ void main() {
     bool hasClockTime = false,
     bool hasScheduledTime = false,
     String period = '',
+    DateTime? createdAt,
   }) {
     return TimelineItem(
       kind: kind,
       id: id,
       effectiveAt: at,
+      createdAt: createdAt,
       title: id,
       subtitle: '',
       skillName: skillName,
@@ -43,6 +45,7 @@ void main() {
     bool hasClockTime = false,
     bool hasScheduledTime = false,
     String period = '',
+    DateTime? createdAt,
   }) {
     return CalendarRecord.fromTimeline(
       item(
@@ -55,6 +58,7 @@ void main() {
         hasClockTime: hasClockTime,
         hasScheduledTime: hasScheduledTime,
         period: period,
+        createdAt: createdAt,
       ),
     );
   }
@@ -204,6 +208,24 @@ void main() {
         skillName: 'notes',
         period: '下午',
       );
+      final contactCaptureFallback = record(
+        id: 'contact',
+        at: DateTime(2026, 7, 9, 9, 42),
+        kind: 'contact',
+      );
+      final fuzzyPeriodWithCaptureClock = record(
+        id: 'fuzzy-period',
+        at: DateTime(2026, 7, 9, 9, 42),
+        kind: 'asset',
+        skillName: 'expense',
+        period: '晚上',
+      );
+      final dateOnlyAsset = record(
+        id: 'date-only',
+        at: DateTime(2026, 7, 9),
+        kind: 'asset',
+        skillName: 'notes',
+      );
 
       expect(event.timing, CalendarRecordTiming.timed);
       expect(allDay.timing, CalendarRecordTiming.allDay);
@@ -212,6 +234,24 @@ void main() {
       expect(clockAsset.timing, CalendarRecordTiming.timed);
       expect(periodAsset.timing, CalendarRecordTiming.untimed);
       expect(periodAsset.period, '下午');
+      expect(contactCaptureFallback.timing, CalendarRecordTiming.timed);
+      expect(fuzzyPeriodWithCaptureClock.timing, CalendarRecordTiming.untimed);
+      expect(dateOnlyAsset.timing, CalendarRecordTiming.untimed);
+    });
+
+    test('uses creation time before id to break effective-time ties', () {
+      final at = DateTime(2026, 7, 9, 11);
+      final data = CalendarData([
+        item(id: 'b', at: at, createdAt: DateTime(2026, 7, 9, 10, 1)),
+        item(id: 'c', at: at, createdAt: DateTime(2026, 7, 9, 10)),
+        item(id: 'a', at: at, createdAt: DateTime(2026, 7, 9, 10, 1)),
+      ], const {});
+
+      expect(data.byDay[DateTime(2026, 7, 9)]!.map((item) => item.id), [
+        'c',
+        'a',
+        'b',
+      ]);
     });
   });
 
