@@ -1,7 +1,10 @@
 import json
 from datetime import datetime, timezone
 
+import pytest
+
 from app.domains.capture.agent import CaptureSkill
+from app.domains.capture.dispatcher import decode_dispatcher_output
 from app.domains.capture.providers_legacy_flash import LiteLLMLegacyFlashProvider
 
 
@@ -165,3 +168,56 @@ async def test_dispatcher_teaches_custom_skills_without_overriding_structured_ty
     prompt = captured[0]["messages"][0]["content"]
     assert "running_training" in prompt
     assert "只压过 notes" in prompt
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        (
+            '```json\n{"intents":[{"type":"expense","source_text":"午饭8元"}]}\n```',
+            "expense",
+        ),
+        (
+            '结果如下：{"intents":[{"type":"contact","source_text":"Alex在Acme"}]}',
+            "contact",
+        ),
+        (
+            '{"intent_list":[{"type":"notes","source_text":"继续观察"}]}',
+            "notes",
+        ),
+    ],
+)
+def test_decode_dispatcher_output_accepts_legacy_deepseek_shapes(
+    content: str,
+    expected: str,
+):
+    assert decode_dispatcher_output(content, fallback_text="原文")[0].type == expected
+
+
+def test_decode_dispatcher_output_falls_back_to_notes_after_model_response():
+    intents = decode_dispatcher_output("这不是JSON", fallback_text="保留这段原文")
+
+    assert [intent.model_dump() for intent in intents] == [
+        {
+            "type": "notes",
+            "source_text": "保留这段原文",
+            "domain": None,
+        }
+    ]
+
+
+def test_decode_dispatcher_output_drops_only_invalid_siblings():
+    intents = decode_dispatcher_output(
+        json.dumps(
+            {
+                "intents": [
+                    {"type": "expense", "source_text": "咖啡28元"},
+                    {"type": "contact", "source_text": ""},
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        fallback_text="原文",
+    )
+
+    assert [intent.type for intent in intents] == ["expense"]

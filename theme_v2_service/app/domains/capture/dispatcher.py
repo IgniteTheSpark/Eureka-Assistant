@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from app.domains.capture.json_output import extract_json_object
+
 
 class FlashIntent(BaseModel):
     type: str = Field(min_length=1, max_length=100)
@@ -11,6 +13,32 @@ class FlashIntent(BaseModel):
 
 class FlashDispatchResult(BaseModel):
     intents: list[FlashIntent] = Field(default_factory=list, max_length=20)
+
+
+def decode_dispatcher_output(
+    content: str,
+    *,
+    fallback_text: str,
+) -> list[FlashIntent]:
+    payload = extract_json_object(content)
+    raw_intents = payload.get("intents") if payload is not None else None
+    if raw_intents is None and payload is not None:
+        raw_intents = payload.get("intent_list")
+
+    intents: list[FlashIntent] = []
+    if isinstance(raw_intents, list):
+        for raw in raw_intents[:20]:
+            try:
+                intents.append(FlashIntent.model_validate(raw))
+            except (TypeError, ValueError):
+                continue
+    if intents:
+        return intents
+
+    fallback = fallback_text.strip()
+    if not fallback:
+        return []
+    return [FlashIntent(type="notes", source_text=fallback)]
 
 
 def build_dispatcher_messages(
