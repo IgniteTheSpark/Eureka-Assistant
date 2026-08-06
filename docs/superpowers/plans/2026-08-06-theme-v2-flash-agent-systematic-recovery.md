@@ -607,11 +607,11 @@ git commit -m "fix(theme-v2): complete legacy flash agent cutover"
 - Consumes: production compatibility kernel.
 - Produces: explicit non-production DeepSeek smoke command and checked legacy-eval gate.
 
-- [ ] **Step 1: Make parity fixtures execute the production kernel with fake Agent runs**
+- [x] **Step 1: Make parity fixtures execute the production kernel with fake Agent runs**
 
 Each case supplies dispatcher and Skill responses/tool events, then asserts exact normalized types, persisted reference kinds, no duplicate IDs, correct period/occurred-at behavior, and generic failure copy.
 
-- [ ] **Step 2: Add an opt-in synthetic provider script**
+- [x] **Step 2: Add an opt-in synthetic provider script**
 
 The script requires both `CAPTURE_AGENT_MODEL` and `CAPTURE_AGENT_API_KEY`, creates an isolated test user/Session, and uses only these invented inputs:
 
@@ -626,7 +626,7 @@ SYNTHETIC_INPUTS = (
 
 It prints stage/status/reference kinds only, never provider raw output or transcript content. It exits non-zero on any failed input or duplicate entity ID.
 
-- [ ] **Step 3: Run deterministic parity tests**
+- [x] **Step 3: Run deterministic parity tests**
 
 Run:
 
@@ -637,7 +637,7 @@ docker compose -f docker-compose.theme-v2.yml run --rm -w /app test \
 
 Expected: PASS.
 
-- [ ] **Step 4: Run the opt-in provider smoke only with configured test credentials**
+- [x] **Step 4: Run the opt-in provider smoke only with configured test credentials**
 
 Run:
 
@@ -648,11 +648,15 @@ docker compose -f docker-compose.theme-v2.yml run --rm -w /app api \
 
 Expected: four synthetic cases report success or safe reply, with no raw content output. If credentials are unavailable, record the gate as pending rather than weakening it.
 
-- [ ] **Step 5: Mark only the legacy-parity checklist step complete**
+Verified on 2026-08-06 against the configured Theme V2 provider: four synthetic
+cases completed as asset; asset+asset; asset; reply. The script cleaned the
+isolated smoke user after execution and emitted no provider response content.
+
+- [x] **Step 5: Mark only the legacy-parity checklist step complete**
 
 Change Tranche 4 Task 5 Step 2 to checked only after Step 3 passes. Leave phone acceptance unchecked until Task 8.
 
-- [ ] **Step 6: Commit eval acceptance**
+- [x] **Step 6: Commit eval acceptance**
 
 ```bash
 git add theme_v2_service/tests/evals/test_flash_legacy_parity.py \

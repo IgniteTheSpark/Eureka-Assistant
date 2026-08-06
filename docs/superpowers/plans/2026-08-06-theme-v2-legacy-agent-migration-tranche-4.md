@@ -196,7 +196,7 @@ docker compose -f docker-compose.theme-v2.yml run --rm -w /app test \
   tests/e2e/test_hardware_capture_flow.py
 ```
 
-- [ ] **Step 2: Run legacy-parity eval fixtures**
+- [x] **Step 2: Run legacy-parity eval fixtures**
 
 Add and run deterministic cases for multi-intent, expense correction, Contact Alex create/update/ambiguity, Event attendee exact/zero/multiple binding, Notes fallback, custom Skill routing, QA, and temporal placement.
 
