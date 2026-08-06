@@ -3,7 +3,7 @@ from collections.abc import Awaitable, Callable
 from app.config import get_settings
 from app.db.models import WorkflowJob
 from app.domains.capture.asr import TencentS3AsrProvider
-from app.domains.capture.agent import UnavailableCaptureAgentProvider
+from app.domains.capture.execution import UnavailableFlashExecutionProvider
 from app.domains.capture.jobs import (
     CAPTURE_ASR_JOB_TYPE,
     CAPTURE_PROCESS_JOB_TYPE,
@@ -61,7 +61,7 @@ if _settings.capture_agent_enabled and _settings.capture_agent_model:
         timeout_seconds=_settings.capture_agent_timeout_seconds,
     )
 else:
-    capture_agent_provider = UnavailableCaptureAgentProvider()
+    capture_agent_provider = UnavailableFlashExecutionProvider()
 registry.register(
     CAPTURE_PROCESS_JOB_TYPE,
     capture_process_handler(

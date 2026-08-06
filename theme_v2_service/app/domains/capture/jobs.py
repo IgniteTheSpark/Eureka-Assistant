@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -11,18 +11,15 @@ from app.db.session import session_scope
 from app.domains.assets.service import (
     ensure_capture_skills,
 )
-from app.domains.capture.agent import (
-    CaptureAgentProvider,
-    CaptureAgentResult,
-    CaptureOutputError,
-    PermanentCaptureAgentError,
-    RetryableCaptureAgentError,
-    capture_skill_from_model,
-    validate_capture_result,
+from app.domains.capture.agent import capture_skill_from_model
+from app.domains.capture.execution import (
+    FlashExecutionContext,
+    FlashExecutionProvider,
+    FlashExecutionResult,
+    PermanentFlashExecutionError,
+    RetryableFlashExecutionError,
 )
 from app.domains.capture.presenter import present_capture_references
-from app.domains.capture.pipeline import LegacyFlashPipeline
-from app.domains.capture.temporal import date_anchor_field, extract_temporal_hints
 from app.domains.capture.asr import (
     AsrPollResult,
     AsrProvider,
@@ -40,7 +37,6 @@ from app.domains.sessions.models import (
     ChatSession,
     SessionMessage,
 )
-from app.domains.sessions.tools import SessionToolExecutor
 from app.domains.notifications.schemas import NotificationCreate
 from app.domains.notifications.service import create_notification
 from app.jobs.models import JobDeferred, JobPermanentFailure
@@ -379,7 +375,7 @@ def capture_asr_handler(
 async def _prepare_capture_processing(
     *,
     recording_id: str,
-) -> tuple[str, str, list, datetime] | None:
+) -> tuple[str, str, list, datetime, str, str] | None:
     async with session_scope() as session:
         recording = await session.scalar(
             select(CaptureRecording)
@@ -450,41 +446,14 @@ async def _prepare_capture_processing(
             transcript,
             skills,
             recording.accepted_at or recording.created_at,
+            materialized.session.id,
+            materialized.input_turn.id,
         )
 
 
 def _reference_in_timezone(value: datetime, timezone_name: str) -> datetime:
     aware = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
     return aware.astimezone(ZoneInfo(timezone_name))
-
-
-def _apply_asset_temporal_hints(
-    result: CaptureAgentResult,
-    skills: list,
-    *,
-    transcript: str,
-    reference_datetime: datetime,
-) -> None:
-    skill_by_name = {skill.machine_name: skill for skill in skills}
-    for command in result.records:
-        if command.kind != "asset":
-            continue
-        source_text = command.source_text.strip()
-        if not source_text and len(result.records) == 1:
-            source_text = transcript
-        if not source_text:
-            continue
-        hints = extract_temporal_hints(source_text, reference_datetime)
-        if command.period is None:
-            command.period = hints.period
-        if command.occurred_at is None:
-            command.occurred_at = hints.occurred_at
-        skill = skill_by_name.get(command.skill_machine_name or "")
-        if skill is None or hints.anchor_date is None:
-            continue
-        anchor_field = date_anchor_field(skill.schema_definition)
-        if anchor_field and not command.payload.get(anchor_field):
-            command.payload[anchor_field] = hints.anchor_date.isoformat()
 
 
 async def _fail_agent_capture(
@@ -513,7 +482,7 @@ async def _fail_agent_capture(
             )
             if agent_message is not None:
                 agent_message.status = "failed"
-                agent_message.text = safe_message
+                agent_message.text = "这条闪念暂时没有整理完成，可以重试"
                 agent_message.updated_at = now
         if recording.session_id:
             daily_session = await session.get(ChatSession, recording.session_id)
@@ -527,16 +496,37 @@ async def _fail_agent_capture(
             session,
             recording,
             status="failed",
-            message="语音内容整理失败",
+            message="这条闪念暂时没有整理完成，可以重试",
         )
 
 
-async def _persist_capture_result(
+def _result_snapshots(result: dict, plural: str) -> list[dict]:
+    values = result.get(plural)
+    if isinstance(values, list):
+        return [dict(item) for item in values if isinstance(item, dict)]
+    return [dict(result)]
+
+
+def _contact_name_from_item(item) -> str:
+    name = str(item.result.get("name") or "").strip()
+    if name:
+        return name
+    for event in item.tool_events:
+        if event.get("name") != "tool_query_contact":
+            continue
+        arguments = event.get("args")
+        if isinstance(arguments, dict):
+            name = str(arguments.get("name_query") or "").strip()
+            if name:
+                return name
+    return "联系人"
+
+
+async def _persist_flash_execution(
     *,
     recording_id: str,
-    result: CaptureAgentResult,
+    result: FlashExecutionResult,
     now: datetime,
-    tool_runtime=None,
 ) -> None:
     async with session_scope() as session:
         recording = await session.scalar(
@@ -561,101 +551,59 @@ async def _persist_capture_result(
                 select(UserSkill).where(UserSkill.user_id == recording.user_id)
             )
         )
-        skills = [capture_skill_from_model(skill) for skill in skill_models]
-        validate_capture_result(result, skills)
         skill_by_name = {skill.machine_name: skill for skill in skill_models}
 
         references: list[dict] = []
         has_pending = False
-        tool_executor = SessionToolExecutor(
-            user_id=recording.user_id,
-            session_id=recording.session_id or "",
-            input_turn_id=recording.input_turn_id,
-            runtime=tool_runtime,
-        )
-        pipeline_result = await LegacyFlashPipeline(tool_executor).run(
-            result,
-            tool_call_prefix=f"capture-{recording.id}",
-        )
-        for item in pipeline_result.items:
-            command = item.command
-            skill_result = item.execution
-            source_text = command.source_text.strip() or (
+        for item in result.items:
+            source_text = item.intent.source_text.strip() or (
                 recording.asr_text or ""
             ).strip()
-            if command.kind == "asset":
-                skill = skill_by_name[command.skill_machine_name or ""]
-                if skill_result.status == "error":
-                    references.append(
-                        {
-                            "kind": "error",
-                            "card_type": "error",
-                            "title": skill.display_name,
-                            "subtitle": skill_result.error or "记录处理失败",
-                            "source_text": source_text,
-                        }
-                    )
-                    continue
-                snapshots = skill_result.snapshots or [skill_result.snapshot]
-                for snapshot in snapshots:
-                    asset_id = str(snapshot.get("asset_id") or "")
-                    references.append(
-                        {
-                            **{
-                                key: value
-                                for key, value in snapshot.items()
-                                if key != "ok"
-                            },
-                            "kind": "asset",
-                            "asset_id": asset_id or skill_result.entity_id,
-                            "user_skill_id": skill.id,
-                            "skill_machine_name": skill.machine_name,
-                            "operation": skill_result.operation,
-                            "source_text": source_text,
-                        }
-                    )
-            elif command.kind == "event":
-                if skill_result.status == "error":
-                    references.append(
-                        {
-                            "kind": "error",
-                            "card_type": "error",
-                            "title": command.title or "日程",
-                            "subtitle": skill_result.error or "日程处理失败",
-                            "source_text": source_text,
-                        }
-                    )
-                    continue
-                snapshots = skill_result.snapshots or [skill_result.snapshot]
-                for snapshot in snapshots:
-                    event_id = str(snapshot.get("event_id") or "")
-                    references.append(
-                        {
-                            **{
-                                key: value
-                                for key, value in snapshot.items()
-                                if key != "ok"
-                            },
-                            "kind": "event",
-                            "event_id": event_id or skill_result.entity_id,
-                            "operation": skill_result.operation,
-                            "source_text": source_text,
-                        }
-                    )
-            else:
-                if skill_result.status == "pending_confirmation":
+            if item.status == "reply":
+                continue
+            if item.status == "error":
+                skill = skill_by_name.get(item.intent.type)
+                references.append(
+                    {
+                        "kind": "error",
+                        "card_type": "error",
+                        "title": (
+                            getattr(skill, "display_name", None)
+                            or {"event": "日程", "contact": "联系人"}.get(
+                                item.intent.type,
+                                "这项内容",
+                            )
+                        ),
+                        "subtitle": "这项内容未能完成，可以重试",
+                        "error_code": item.error_code or "intent_failed",
+                        "source_text": source_text,
+                    }
+                )
+                continue
+
+            if item.status == "pending_confirmation":
+                if item.intent.type == "contact":
+                    candidates = [
+                        dict(candidate)
+                        for candidate in item.result.get("candidates") or []
+                        if isinstance(candidate, dict)
+                    ]
+                    extracted_update = item.result.get("extracted_update")
+                    if not isinstance(extracted_update, dict):
+                        extracted_update = {}
+                    contact_name = _contact_name_from_item(item)
                     pending = AgentPendingAction(
                         user_id=recording.user_id,
                         session_id=recording.session_id or "",
                         input_turn_id=recording.input_turn_id,
                         agent_message_id=recording.agent_message_id,
                         kind="contact",
-                        operation=command.operation or "create_or_update",
+                        operation=str(item.result.get("operation") or "create_or_update"),
                         status="pending",
-                        candidates_json=skill_result.candidates,
+                        candidates_json=candidates,
                         intent_json={
-                            "name": command.name,
-                            "patch": command.contact_patch,
+                            "name": contact_name,
+                            "patch": extracted_update,
                             "source_text": source_text,
                         },
                     )
@@ -667,49 +615,78 @@ async def _persist_capture_result(
                             "kind": "pending_contact",
                             "card_type": "pending_contact",
                             "pending_action_id": pending.id,
-                            "title": command.name or "联系人",
+                            "title": contact_name,
                             "subtitle": (
-                                f"找到 {len(skill_result.candidates)} 个同名联系人，请确认"
+                                f"找到 {len(candidates)} 个同名联系人，请确认"
                             ),
                             "icon": "👤",
                             "accent_color": "neutral",
-                            "candidates": skill_result.candidates,
+                            "candidates": candidates,
                             "source_text": source_text,
                         }
                     )
-                    continue
-                if skill_result.status == "error":
+                continue
+
+            if item.intent.type == "event":
+                for snapshot in _result_snapshots(item.result, "events"):
                     references.append(
                         {
-                            "kind": "error",
-                            "card_type": "error",
-                            "title": command.name or "联系人",
-                            "subtitle": skill_result.error or "联系人处理失败",
+                            **{key: value for key, value in snapshot.items() if key != "ok"},
+                            "kind": "event",
+                            "event_id": snapshot.get("event_id"),
                             "source_text": source_text,
                         }
                     )
-                    continue
-                contact = skill_result.snapshot
+                continue
+
+            if item.intent.type == "contact":
+                for contact in _result_snapshots(item.result, "contacts"):
+                    references.append(
+                        {
+                            **{key: value for key, value in contact.items() if key != "ok"},
+                            "kind": "contact",
+                            "card_type": "contact",
+                            "contact_id": contact.get("contact_id"),
+                            "contact_action": contact.get("contact_action"),
+                            "name": contact.get("name") or _contact_name_from_item(item),
+                            "source_text": source_text,
+                            "icon": "👤",
+                            "accent_color": "neutral",
+                        }
+                    )
+                continue
+
+            machine_name = str(
+                item.result.get("user_skill_name") or item.intent.type
+            )
+            skill = skill_by_name.get(machine_name)
+            if skill is None:
                 references.append(
                     {
-                        "kind": "contact",
-                        "card_type": "contact",
-                        "contact_id": skill_result.entity_id,
-                        "contact_action": skill_result.action,
-                        "name": contact.get("name") or command.name,
-                        "company": contact.get("company"),
-                        "title": contact.get("title"),
-                        "phone": contact.get("phone"),
-                        "email": contact.get("email"),
+                        "kind": "error",
+                        "card_type": "error",
+                        "title": "这项内容",
+                        "subtitle": "记录类型不可用",
+                        "error_code": "intent_skill_unavailable",
                         "source_text": source_text,
-                        "icon": "👤",
-                        "accent_color": "neutral",
+                    }
+                )
+                continue
+            for snapshot in _result_snapshots(item.result, "assets"):
+                references.append(
+                    {
+                        **{key: value for key, value in snapshot.items() if key != "ok"},
+                        "kind": "asset",
+                        "asset_id": snapshot.get("asset_id"),
+                        "user_skill_id": skill.id,
+                        "skill_machine_name": machine_name,
+                        "source_text": source_text,
                     }
                 )
 
         references = present_capture_references(references, skills=skill_models)
         recording.process_status = "done"
-        recording.result_summary = pipeline_result.summary.strip()
+        recording.result_summary = result.summary.strip()
         recording.result_records_json = references
         recording.error_message = None
         recording.processed_at = now
@@ -753,7 +730,7 @@ async def _persist_capture_result(
 
 
 def capture_process_handler(
-    provider: CaptureAgentProvider,
+    provider: FlashExecutionProvider,
     *,
     clock: Callable[[], datetime] = utc_now,
     timezone_name: str = "Asia/Shanghai",
@@ -769,25 +746,34 @@ def capture_process_handler(
         prepared = await _prepare_capture_processing(recording_id=recording_id)
         if prepared is None:
             return
-        _, transcript, skills, captured_at = prepared
+        (
+            user_id,
+            transcript,
+            skills,
+            captured_at,
+            session_id,
+            input_turn_id,
+        ) = prepared
         now = clock()
         reference_datetime = _reference_in_timezone(captured_at, timezone_name)
         try:
-            result = await provider.organize(
-                transcript=transcript,
-                reference_datetime=reference_datetime,
-                skills=skills,
+            result = await provider.execute(
+                context=FlashExecutionContext(
+                    recording_id=recording_id,
+                    user_id=user_id,
+                    session_id=session_id,
+                    input_turn_id=input_turn_id,
+                    transcript=transcript,
+                    reference_datetime=reference_datetime,
+                    skills=tuple(skills),
+                ),
+                tool_runtime=tool_runtime,
             )
-            if not isinstance(result, CaptureAgentResult):
-                raise CaptureOutputError("capture provider returned invalid result")
-            _apply_asset_temporal_hints(
-                result,
-                skills,
-                transcript=transcript,
-                reference_datetime=reference_datetime,
-            )
-            validate_capture_result(result, skills)
-        except PermanentCaptureAgentError as exc:
+            if not isinstance(result, FlashExecutionResult):
+                raise PermanentFlashExecutionError(
+                    "capture provider returned invalid execution"
+                )
+        except PermanentFlashExecutionError as exc:
             await _fail_agent_capture(
                 recording_id=recording_id,
                 message=str(exc),
@@ -797,7 +783,7 @@ def capture_process_handler(
                 "capture_agent_permanent",
                 "capture agent permanently failed",
             ) from exc
-        except RetryableCaptureAgentError as exc:
+        except RetryableFlashExecutionError as exc:
             if job.attempt >= job.max_attempts:
                 await _fail_agent_capture(
                     recording_id=recording_id,
@@ -809,21 +795,10 @@ def capture_process_handler(
                     "capture agent retry budget exhausted",
                 ) from exc
             raise
-        except CaptureOutputError as exc:
-            await _fail_agent_capture(
-                recording_id=recording_id,
-                message=str(exc),
-                now=now,
-            )
-            raise JobPermanentFailure(
-                "capture_agent_invalid_output",
-                "capture agent returned invalid output",
-            ) from exc
-        await _persist_capture_result(
+        await _persist_flash_execution(
             recording_id=recording_id,
             result=result,
             now=now,
-            tool_runtime=tool_runtime,
         )
 
     return handle

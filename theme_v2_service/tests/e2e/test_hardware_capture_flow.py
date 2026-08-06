@@ -5,12 +5,16 @@ from app.db.base import utc_now
 from app.db.session import AsyncSessionFactory
 from app.domains.capture.agent import CaptureAgentResult, CaptureRecordCommand
 from app.domains.capture.asr import AsrPollResult, AsrTask
+from app.domains.capture.dispatcher import FlashIntent
+from app.domains.capture.execution import FlashExecutionResult
 from app.domains.capture.jobs import capture_asr_handler, capture_process_handler
+from app.domains.capture.pipeline import LegacyFlashPipeline, _item_from_skill_result
 from app.domains.notifications.outbox import dispatch_one
 from app.domains.notifications.subscribers import SubscriberRegistry
 from app.jobs.registry import JobHandlerRegistry
 from app.jobs.runner import run_worker_once
 from app.main import app
+from app.domains.sessions.tools import SessionToolExecutor
 
 
 @pytest_asyncio.fixture
@@ -46,11 +50,11 @@ class FakeCaptureAgentProvider:
     def __init__(self) -> None:
         self.transcripts: list[str] = []
 
-    async def organize(self, **command) -> CaptureAgentResult:
-        transcript = command["transcript"]
+    async def execute(self, *, context, tool_runtime=None) -> FlashExecutionResult:
+        transcript = context.transcript
         self.transcripts.append(transcript)
         if "项目会" in transcript:
-            return CaptureAgentResult(
+            organized = CaptureAgentResult(
                 summary="已创建明天下午三点的项目会。",
                 records=[
                     CaptureRecordCommand(
@@ -61,20 +65,50 @@ class FakeCaptureAgentProvider:
                     )
                 ],
             )
-        return CaptureAgentResult(
-            summary="已记录 28 元咖啡消费。",
-            records=[
-                CaptureRecordCommand(
-                    kind="asset",
-                    skill_machine_name="expense",
-                    payload={
-                        "amount": 28,
-                        "currency": "CNY",
-                        "category": "餐饮",
-                    },
-                    effective_at="2026-08-02T09:00:00+08:00",
+        else:
+            organized = CaptureAgentResult(
+                summary="已记录 28 元咖啡消费。",
+                records=[
+                    CaptureRecordCommand(
+                        kind="asset",
+                        skill_machine_name="expense",
+                        payload={
+                            "amount": 28,
+                            "currency": "CNY",
+                            "category": "餐饮",
+                        },
+                        effective_at="2026-08-02T09:00:00+08:00",
+                    )
+                ],
+            )
+        pipeline = await LegacyFlashPipeline(
+            SessionToolExecutor(
+                user_id=context.user_id,
+                session_id=context.session_id,
+                input_turn_id=context.input_turn_id,
+                runtime=tool_runtime,
+            )
+        ).run(organized, tool_call_prefix=f"capture-{context.recording_id}")
+        items = []
+        for item in pipeline.items:
+            command = item.command
+            intent_type = (
+                "event"
+                if command.kind == "event"
+                else command.skill_machine_name or "notes"
+            )
+            items.append(
+                _item_from_skill_result(
+                    FlashIntent(
+                        type=intent_type,
+                        source_text=command.source_text or transcript,
+                    ),
+                    item.execution,
                 )
-            ],
+            )
+        return FlashExecutionResult(
+            summary=pipeline.summary,
+            items=tuple(items),
         )
 
 

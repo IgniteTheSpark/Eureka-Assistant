@@ -176,10 +176,17 @@ def resolve_agent_result(
             and parsed.get("status") == "pending_confirmation"
         )
         if candidates and wants_confirmation:
+            extracted_update = parsed.get("extracted_update")
+            if not isinstance(extracted_update, dict):
+                extracted_update = {}
             return FlashExecutionItem(
                 intent=intent,
                 status="pending_confirmation",
-                result={"candidates": candidates},
+                result={
+                    "candidates": candidates,
+                    "extracted_update": extracted_update,
+                    "operation": "create_or_update",
+                },
                 tool_events=captured_events,
             )
 

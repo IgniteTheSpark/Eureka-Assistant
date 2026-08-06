@@ -36,11 +36,19 @@ REPORT_METRICS = (
     "invalid_share_token_total",
     "invalid_media_access_total",
     "share_card_generated_total",
+    "flash_dispatch_fallback_total",
+    "flash_intent_total",
+    "flash_intent_failed_total",
+    "flash_tool_recovered_total",
+    "flash_custom_fallback_total",
+    "flash_capture_partial_total",
+    "flash_capture_failed_total",
 )
 
 SAFE_LOG_FIELDS = frozenset(
     {
         "run_id",
+        "recording_id",
         "job_id",
         "report_id",
         "share_id",
@@ -52,6 +60,10 @@ SAFE_LOG_FIELDS = frozenset(
         "error_code",
         "job_type",
         "attempt",
+        "reason_code",
+        "intent_type",
+        "provider",
+        "model",
     }
 )
 

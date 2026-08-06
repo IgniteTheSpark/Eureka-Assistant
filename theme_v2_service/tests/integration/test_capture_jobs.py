@@ -14,14 +14,26 @@ from app.domains.capture.asr import (
 from app.domains.capture.agent import (
     CaptureAgentResult,
     CaptureRecordCommand,
+    CaptureOutputError,
     PermanentCaptureAgentError,
     RetryableCaptureAgentError,
+    validate_capture_result,
 )
 from app.domains.capture.jobs import capture_asr_handler, capture_process_handler
+from app.domains.capture.dispatcher import FlashIntent
+from app.domains.capture.execution import (
+    FlashExecutionItem,
+    FlashExecutionResult,
+    PermanentFlashExecutionError,
+    RetryableFlashExecutionError,
+)
+from app.domains.capture.pipeline import LegacyFlashPipeline, _item_from_skill_result
+from app.domains.capture.temporal import date_anchor_field, extract_temporal_hints
 from app.domains.capture.models import CaptureFile, CaptureRecording, CaptureTurn
 from app.domains.notifications.models import Notification, OutboxEvent
 from app.domains.sessions.models import SessionMessage
 from app.domains.sessions.models import AgentPendingAction
+from app.domains.sessions.tools import SessionToolExecutor
 from app.internal_mcp.runtime import InternalMCPTrustedContext
 from app.internal_mcp.tools import EurekaToolContext, execute_tool
 from app.jobs.queue import enqueue_job
@@ -55,11 +67,86 @@ class FakeCaptureAgentProvider:
         self.result = result
         self.calls = []
 
-    async def organize(self, **command):
-        self.calls.append(command)
+    async def execute(self, *, context, tool_runtime=None):
+        self.calls.append(
+            {
+                "transcript": context.transcript,
+                "reference_datetime": context.reference_datetime,
+                "skills": list(context.skills),
+            }
+        )
         if isinstance(self.result, Exception):
+            if isinstance(self.result, RetryableCaptureAgentError):
+                raise RetryableFlashExecutionError(str(self.result))
+            if isinstance(self.result, PermanentCaptureAgentError):
+                raise PermanentFlashExecutionError(str(self.result))
             raise self.result
-        return self.result
+        try:
+            validate_capture_result(self.result, list(context.skills))
+        except CaptureOutputError as exc:
+            raise PermanentFlashExecutionError(str(exc)) from exc
+        skill_by_name = {skill.machine_name: skill for skill in context.skills}
+        for command in self.result.records:
+            if command.kind != "asset":
+                continue
+            source_text = command.source_text.strip() or context.transcript
+            hints = extract_temporal_hints(
+                source_text,
+                context.reference_datetime,
+            )
+            command.period = command.period or hints.period
+            command.occurred_at = command.occurred_at or hints.occurred_at
+            skill = skill_by_name.get(command.skill_machine_name or "")
+            anchor = date_anchor_field(skill.schema_definition) if skill else None
+            if anchor and hints.anchor_date and not command.payload.get(anchor):
+                command.payload[anchor] = hints.anchor_date.isoformat()
+        pipeline = await LegacyFlashPipeline(
+            SessionToolExecutor(
+                user_id=context.user_id,
+                session_id=context.session_id,
+                input_turn_id=context.input_turn_id,
+                runtime=tool_runtime,
+            )
+        ).run(
+            self.result,
+            tool_call_prefix=f"capture-{context.recording_id}",
+        )
+        items = []
+        for pipeline_item in pipeline.items:
+            command = pipeline_item.command
+            intent_type = (
+                "contact"
+                if command.kind == "contact"
+                else "event"
+                if command.kind == "event"
+                else command.skill_machine_name or "notes"
+            )
+            intent = FlashIntent(
+                type=intent_type,
+                source_text=command.source_text or context.transcript,
+                domain=command.domain,
+            )
+            item = _item_from_skill_result(intent, pipeline_item.execution)
+            if item.status == "pending_confirmation":
+                item = FlashExecutionItem(
+                    intent=item.intent,
+                    status=item.status,
+                    result={
+                        **item.result,
+                        "name": command.name,
+                        "operation": command.operation or "create_or_update",
+                        "extracted_update": command.contact_patch,
+                    },
+                    error_code=item.error_code,
+                )
+            items.append(item)
+        return FlashExecutionResult(
+            summary=pipeline.summary,
+            items=tuple(items),
+            warnings=tuple(
+                item.error_code for item in items if item.error_code
+            ),
+        )
 
 
 async def _seed_s3_recording(*, external_task_id: str | None = None) -> tuple[str, str]:
@@ -231,6 +318,66 @@ class _InProcessToolRuntime:
                 idempotency_prefix=f"turn:{trusted.input_turn_id}",
             ),
             tool_call_id=trusted.tool_call_id,
+        )
+
+
+class _ExecutedFlashProvider:
+    def __init__(self, *, partial: bool = False):
+        self.partial = partial
+        self.calls = []
+
+    async def execute(self, *, context, tool_runtime=None):
+        self.calls.append(context)
+        executor = SessionToolExecutor(
+            user_id=context.user_id,
+            session_id=context.session_id,
+            input_turn_id=context.input_turn_id,
+            runtime=tool_runtime,
+        )
+        outcome = await executor.execute(
+            "tool_create_asset",
+            {
+                "user_skill_name": "expense",
+                "payload": {
+                    "amount": 28,
+                    "currency": "CNY",
+                    "category": "餐饮",
+                },
+                "domain": "生活",
+            },
+            tool_call_id=f"capture:{context.recording_id}:0:expense:test",
+        )
+        items = [
+            FlashExecutionItem(
+                intent=FlashIntent(
+                    type="expense",
+                    source_text="咖啡二十八元",
+                    domain="生活",
+                ),
+                status="success",
+                result=outcome.response,
+            )
+        ]
+        if self.partial:
+            items.append(
+                FlashExecutionItem(
+                    intent=FlashIntent(
+                        type="contact",
+                        source_text="更新Alex",
+                        domain="社交",
+                    ),
+                    status="error",
+                    error_code="intent_tool_rejected",
+                )
+            )
+        return FlashExecutionResult(
+            summary=(
+                "已完成 1 项，另有 1 项未完成。"
+                if self.partial
+                else "已完成 1 项。"
+            ),
+            items=tuple(items),
+            warnings=("intent_tool_rejected",) if self.partial else (),
         )
 
 
@@ -493,6 +640,62 @@ async def test_capture_job_creates_multiple_records_and_notification(session):
         call[2].input_turn_id == recording.input_turn_id
         for call in tool_runtime.calls
     )
+
+
+async def test_capture_job_persists_preexecuted_flash_facts_without_replay(session):
+    provider = _ExecutedFlashProvider()
+    tool_runtime = _InProcessToolRuntime()
+    recording_id, _ = await _seed_transcribed_capture("咖啡二十八元")
+
+    await run_worker_once(
+        _process_registry(provider, tool_runtime=tool_runtime),
+        owner="worker-a",
+        lease_seconds=60,
+        now=NOW,
+    )
+
+    async with AsyncSessionFactory() as database_session:
+        recording = await database_session.get(CaptureRecording, recording_id)
+        agent_message = await database_session.get(
+            SessionMessage,
+            recording.agent_message_id,
+        )
+        asset_count = await database_session.scalar(
+            select(func.count()).select_from(Asset)
+        )
+    assert recording.process_status == "done"
+    assert recording.result_records_json[0]["asset_id"]
+    assert agent_message.status == "done"
+    assert asset_count == 1
+    assert [call[0] for call in tool_runtime.calls] == ["tool_create_asset"]
+
+
+async def test_capture_job_persists_partial_success_and_turn_local_error(session):
+    provider = _ExecutedFlashProvider(partial=True)
+    recording_id, _ = await _seed_transcribed_capture(
+        "咖啡二十八元，更新Alex"
+    )
+
+    await run_worker_once(
+        _process_registry(provider, tool_runtime=_InProcessToolRuntime()),
+        owner="worker-a",
+        lease_seconds=60,
+        now=NOW,
+    )
+
+    async with AsyncSessionFactory() as database_session:
+        recording = await database_session.get(CaptureRecording, recording_id)
+        agent_message = await database_session.get(
+            SessionMessage,
+            recording.agent_message_id,
+        )
+    assert recording.process_status == "done"
+    assert [card["kind"] for card in recording.result_records_json] == [
+        "asset",
+        "error",
+    ]
+    assert agent_message.status == "done"
+    assert agent_message.cards_json[1]["error_code"] == "intent_tool_rejected"
 
 
 async def test_custom_partial_record_does_not_discard_valid_sibling_intent(session):
@@ -931,7 +1134,7 @@ async def test_exhausted_agent_retry_updates_persisted_agent_message(session):
     assert recording.process_status == "failed"
     assert recording.error_message == "temporary agent outage"
     assert agent_message.status == "failed"
-    assert agent_message.text == "temporary agent outage"
+    assert agent_message.text == "这条闪念暂时没有整理完成，可以重试"
     assert job.status == "failed"
 
 

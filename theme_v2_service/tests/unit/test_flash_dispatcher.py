@@ -5,6 +5,7 @@ import pytest
 
 from app.domains.capture.agent import CaptureSkill
 from app.domains.capture.dispatcher import decode_dispatcher_output
+from app.domains.capture.execution import FlashExecutionContext
 from app.domains.capture.providers_legacy_flash import LiteLLMLegacyFlashProvider
 from app.domains.capture.skill_factory import (
     make_builtin_skill_agent,
@@ -28,6 +29,59 @@ def _skill(name: str) -> CaptureSkill:
             else {"content": {"type": "string"}},
         },
     )
+
+
+def _tool_call(call_id: str, name: str, arguments: dict):
+    return {
+        "id": call_id,
+        "type": "function",
+        "function": {
+            "name": name,
+            "arguments": json.dumps(arguments, ensure_ascii=False),
+        },
+    }
+
+
+class _Runtime:
+    def __init__(self):
+        self.calls = []
+
+    async def list_openai_tools(self):
+        names = (
+            "tool_create_asset",
+            "tool_create_contact",
+            "tool_query_asset",
+        )
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": name,
+                    "description": name,
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+            for name in names
+        ]
+
+    async def call_tool(self, name, arguments, *, trusted):
+        self.calls.append((name, dict(arguments), trusted))
+        if name == "tool_create_asset":
+            return {
+                "ok": True,
+                "asset_id": "expense-1",
+                "user_skill_name": "expense",
+                "payload": {"amount": 28, "currency": "CNY"},
+            }
+        if name == "tool_create_contact":
+            return {
+                "ok": True,
+                "contact_id": "contact-1",
+                "contact_action": "created",
+                "name": "Alex",
+                "company": "Acme",
+            }
+        raise AssertionError(name)
 
 
 async def test_legacy_flash_provider_dispatches_then_runs_sibling_skills_in_parallel():
@@ -63,37 +117,28 @@ async def test_legacy_flash_provider_dispatches_then_runs_sibling_skills_in_para
                     }
                 ]
             }
-        payload = json.loads(messages[1]["content"])
-        if payload["intent"]["type"] == "expense":
-            body = {
-                "summary": "记下了咖啡消费。",
-                "records": [
-                    {
-                        "kind": "asset",
-                        "skill_machine_name": "expense",
-                        "payload": {
-                            "amount": 28,
-                            "currency": "CNY",
-                            "category": "餐饮",
-                        },
-                        "source_text": "咖啡 28 元",
-                    }
-                ],
-            }
+        if messages[-1]["role"] == "tool":
+            return {"choices": [{"message": {"content": "not json"}}]}
+        if "flash-expense-skill" in system:
+            tool_call = _tool_call(
+                "model-expense",
+                "tool_create_asset",
+                {
+                    "user_skill_name": "expense",
+                    "payload": {"amount": 28, "currency": "CNY"},
+                },
+            )
         else:
-            body = {
-                "summary": "记下了 Alex。",
-                "records": [
-                    {
-                        "kind": "contact",
-                        "operation": "create_or_update",
-                        "name": "Alex",
-                        "contact_patch": {"company": "Acme"},
-                        "source_text": "添加 Alex 在 Acme 工作",
-                    }
-                ],
-            }
-        return {"choices": [{"message": {"content": json.dumps(body, ensure_ascii=False)}}]}
+            tool_call = _tool_call(
+                "model-contact",
+                "tool_create_contact",
+                {"name": "Alex", "company": "Acme"},
+            )
+        return {
+            "choices": [
+                {"message": {"content": "", "tool_calls": [tool_call]}}
+            ]
+        }
 
     provider = LiteLLMLegacyFlashProvider(
         model="deepseek/deepseek-chat",
@@ -101,16 +146,30 @@ async def test_legacy_flash_provider_dispatches_then_runs_sibling_skills_in_para
         timeout_seconds=5,
         completion=completion,
     )
-    result = await provider.organize(
-        transcript="咖啡 28 元，添加 Alex 在 Acme 工作",
-        reference_datetime=datetime(2026, 8, 6, 9, 0, tzinfo=timezone.utc),
-        skills=[_skill("expense"), _skill("contact"), _skill("notes")],
+    runtime = _Runtime()
+    result = await provider.execute(
+        context=FlashExecutionContext(
+            recording_id="rec-1",
+            user_id="owner",
+            session_id="session-1",
+            input_turn_id="turn-1",
+            transcript="咖啡 28 元，添加 Alex 在 Acme 工作",
+            reference_datetime=datetime(
+                2026, 8, 6, 9, 0, tzinfo=timezone.utc
+            ),
+            skills=(_skill("expense"), _skill("contact"), _skill("notes")),
+        ),
+        tool_runtime=runtime,
     )
 
-    assert len(calls) == 3
-    assert [record.kind for record in result.records] == ["asset", "contact"]
-    assert result.records[1].name == "Alex"
-    assert "咖啡" in result.summary and "Alex" in result.summary
+    assert len(calls) == 5
+    assert [item.status for item in result.items] == ["success", "success"]
+    assert result.items[0].result["asset_id"] == "expense-1"
+    assert result.items[1].result["name"] == "Alex"
+    assert [call[0] for call in runtime.calls] == [
+        "tool_create_asset",
+        "tool_create_contact",
+    ]
 
 
 async def test_dispatcher_teaches_custom_skills_without_overriding_structured_types():
@@ -124,7 +183,7 @@ async def test_dispatcher_teaches_custom_skills_without_overriding_structured_ty
                     {
                         "message": {
                             "content": json.dumps(
-                                {"summary": "你今天有 0 个待办。", "records": []},
+                                {"ok": True, "answer": "你今天有 0 个待办。"},
                                 ensure_ascii=False,
                             )
                         }
@@ -157,22 +216,30 @@ async def test_dispatcher_teaches_custom_skills_without_overriding_structured_ty
         timeout_seconds=5,
         completion=completion,
     )
-    await provider.organize(
-        transcript="今天有几个待办",
-        reference_datetime=datetime(2026, 8, 6, tzinfo=timezone.utc),
-        skills=[
-            CaptureSkill(
-                machine_name="running_training",
-                display_name="跑步训练",
-                description="记录已经发生的跑步",
-                schema_definition={"distance": {"type": "number"}},
-            )
-        ],
+    result = await provider.execute(
+        context=FlashExecutionContext(
+            recording_id="rec-1",
+            user_id="owner",
+            session_id="session-1",
+            input_turn_id="turn-1",
+            transcript="今天有几个待办",
+            reference_datetime=datetime(2026, 8, 6, tzinfo=timezone.utc),
+            skills=(
+                CaptureSkill(
+                    machine_name="running_training",
+                    display_name="跑步训练",
+                    description="记录已经发生的跑步",
+                    schema_definition={"distance": {"type": "number"}},
+                ),
+            ),
+        ),
+        tool_runtime=_Runtime(),
     )
 
     prompt = captured[0]["messages"][0]["content"]
     assert "running_training" in prompt
     assert "只压过 notes" in prompt
+    assert result.items[0].status == "reply"
 
 
 @pytest.mark.parametrize(

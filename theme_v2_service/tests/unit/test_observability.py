@@ -18,6 +18,52 @@ def test_metric_registry_exposes_declared_report_metrics():
     assert 'run_failed_total{failure_stage="planning"} 1' in output
     assert "planner_duration_ms 125" in output
     assert "share_card_generated_total 0" in output
+    assert "flash_capture_failed_total 0" in output
+
+
+def test_flash_metrics_and_safe_context_never_expose_content():
+    registry = MetricRegistry()
+    registry.increment(
+        "flash_intent_failed_total",
+        labels={"intent_type": "expense", "reason_code": "tool_rejected"},
+    )
+    output = registry.render_prometheus()
+    assert (
+        'flash_intent_failed_total{intent_type="expense",reason_code="tool_rejected"} 1'
+        in output
+    )
+
+    context = sanitize_log_context(
+        recording_id="recording-1",
+        job_id="job-1",
+        stage="skill_execution",
+        status="failed",
+        error_code="intent_tool_rejected",
+        reason_code="tool_rejected",
+        intent_type="expense",
+        provider="deepseek",
+        model="deepseek-chat",
+        attempt=2,
+        transcript="昨天花了八块钱",
+        source_text="花了八块钱",
+        messages=[{"role": "user", "content": "private"}],
+        raw_response={"private": "provider body"},
+        prompt="private prompt",
+        tool_payload={"amount": 8},
+    )
+
+    assert context == {
+        "recording_id": "recording-1",
+        "job_id": "job-1",
+        "stage": "skill_execution",
+        "status": "failed",
+        "error_code": "intent_tool_rejected",
+        "reason_code": "tool_rejected",
+        "intent_type": "expense",
+        "provider": "deepseek",
+        "model": "deepseek-chat",
+        "attempt": 2,
+    }
 
 
 def test_log_context_allows_correlation_but_drops_sensitive_values(caplog):

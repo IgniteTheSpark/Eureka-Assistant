@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 from app.domains.capture.agent import CaptureSkill
 from app.domains.capture.dispatcher import FlashIntent
@@ -14,6 +14,15 @@ class RetryableFlashExecutionError(Exception):
 
 class PermanentFlashExecutionError(Exception):
     """A trusted input or configuration failure that retry cannot repair."""
+
+
+class FlashExecutionProvider(Protocol):
+    async def execute(
+        self,
+        *,
+        context: "FlashExecutionContext",
+        tool_runtime: Any | None = None,
+    ) -> "FlashExecutionResult": ...
 
 
 @dataclass(frozen=True)
@@ -42,3 +51,8 @@ class FlashExecutionResult:
     items: tuple[FlashExecutionItem, ...]
     warnings: tuple[str, ...] = ()
     usage_tokens: int = 0
+
+
+class UnavailableFlashExecutionProvider:
+    async def execute(self, **_: Any) -> FlashExecutionResult:
+        raise PermanentFlashExecutionError("capture agent is not configured")

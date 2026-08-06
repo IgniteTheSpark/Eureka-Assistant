@@ -485,7 +485,7 @@ git commit -m "fix(theme-v2): ground flash results in MCP execution"
 - Consumes: all Task 2–4 interfaces.
 - Produces: `LiteLLMLegacyFlashProvider.execute(context) -> FlashExecutionResult` and `capture_process_handler()` persistence of already-executed MCP results.
 
-- [ ] **Step 1: Add failing job integration cases**
+- [x] **Step 1: Add failing job integration cases**
 
 Add tests proving:
 
@@ -499,7 +499,7 @@ assert asset_count == 1  # retry/idempotency
 
 Add a partial case with one success and one error card/warning, and an exhausted provider transport case where `recording.error_message` retains an internal code but `agent_message.text == "这条闪念暂时没有整理完成，可以重试"`.
 
-- [ ] **Step 2: Run focused integration tests and verify RED**
+- [x] **Step 2: Run focused integration tests and verify RED**
 
 Run:
 
@@ -512,7 +512,7 @@ docker compose -f docker-compose.theme-v2.yml run --rm -w /app test \
 
 Expected: FAIL because the job still requires `CaptureAgentResult` commands and exposes raw exception text.
 
-- [ ] **Step 3: Replace provider orchestration**
+- [x] **Step 3: Replace provider orchestration**
 
 `LiteLLMLegacyFlashProvider.execute()` performs:
 
@@ -523,13 +523,13 @@ run dispatcher -> decode/normalize -> gather(return_exceptions=True) Skill runs
 
 `asyncio.gather(return_exceptions=True)` is required so a sibling exception is classified rather than cancelling completed siblings. Infrastructure exceptions remain retryable when no complete safe aggregate can be persisted.
 
-- [ ] **Step 4: Persist execution facts without replaying tools**
+- [x] **Step 4: Persist execution facts without replaying tools**
 
 Replace `_persist_capture_result()` with `_persist_flash_execution()` that converts each `FlashExecutionItem.result` into asset/event/contact/pending/error references, passes them through `present_capture_references()`, and updates the existing Agent message.
 
 Do not call `LegacyFlashPipeline` or `SessionToolExecutor` for successful items: their MCP tools have already executed.
 
-- [ ] **Step 5: Sanitize terminal Session failure**
+- [x] **Step 5: Sanitize terminal Session failure**
 
 Persist the internal error code/message on `CaptureRecording.error_message`, but always set failed Agent message text to:
 
@@ -539,11 +539,11 @@ Persist the internal error code/message on `CaptureRecording.error_message`, but
 
 Keep the failure on that turn only; do not append a session-wide bottom banner.
 
-- [ ] **Step 6: Close runtime and remove obsolete provider path**
+- [x] **Step 6: Close runtime and remove obsolete provider path**
 
 Register only the new `LiteLLMLegacyFlashProvider` execution contract. Keep the existing app-owned `InternalMCPRuntime` lifespan unchanged. Delete the obsolete strict `_complete_model(... schema=CaptureAgentResult)` path and tests that assert perfect outer JSON.
 
-- [ ] **Step 7: Add content-free Flash observability**
+- [x] **Step 7: Add content-free Flash observability**
 
 Register these metrics in `observability.py`:
 
@@ -563,7 +563,7 @@ log fields. Provider/kernel logs must never contain transcript, source text,
 messages, raw response, prompt, or tool payload. Extend
 `test_observability.py` to prove those fields are stripped.
 
-- [ ] **Step 8: Run backend Flash suites and require GREEN**
+- [x] **Step 8: Run backend Flash suites and require GREEN**
 
 Run:
 
@@ -589,7 +589,7 @@ docker compose -f docker-compose.theme-v2.yml run --rm -w /app test \
 
 Expected: PASS.
 
-- [ ] **Step 9: Commit the job cutover**
+- [x] **Step 9: Commit the job cutover**
 
 ```bash
 git add theme_v2_service/app theme_v2_service/tests
