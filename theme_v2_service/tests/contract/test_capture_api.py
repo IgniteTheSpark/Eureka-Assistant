@@ -9,11 +9,15 @@ from sqlalchemy import func, select
 from app.db.models import WorkflowJob
 from app.db.session import AsyncSessionFactory
 from app.domains.notifications.models import OutboxEvent
-from app.domains.capture.agent import CaptureAgentResult, CaptureRecordCommand
+from app.domains.capture.dispatcher import FlashIntent
+from app.domains.capture.execution import FlashExecutionItem, FlashExecutionResult
 from app.domains.capture.jobs import capture_process_handler
 from app.domains.capture.models import CaptureRecording, FlashChatMessage
 from app.domains.sessions.chat import SessionChatResult, get_session_chat_provider
 from app.domains.sessions.models import InputTurn, SessionMessage
+from app.domains.sessions.tools import SessionToolExecutor
+from app.internal_mcp.runtime import InternalMCPTrustedContext
+from app.internal_mcp.tools import EurekaToolContext, execute_tool
 from app.domains.notifications.subscribers import SubscriberRegistry
 from app.jobs.registry import JobHandlerRegistry
 from app.jobs.runner import run_worker_once
@@ -525,13 +529,60 @@ async def test_capture_routes_require_authentication(client, method, path, paylo
 
 
 class _FakeCaptureProvider:
-    def __init__(self, result: CaptureAgentResult):
-        self.result = result
+    def __init__(self, *, summary: str):
+        self.summary = summary
         self.calls = []
 
-    async def organize(self, **command):
-        self.calls.append(command)
-        return self.result
+    async def execute(self, *, context, tool_runtime=None):
+        self.calls.append(context)
+        outcome = await SessionToolExecutor(
+            user_id=context.user_id,
+            session_id=context.session_id,
+            input_turn_id=context.input_turn_id,
+            runtime=tool_runtime,
+        ).execute(
+            "tool_create_note",
+            {
+                "title": "客户标签系统",
+                "content": "可以做一个客户标签系统",
+            },
+            tool_call_id=f"capture:{context.recording_id}:0:notes:contract",
+        )
+        return FlashExecutionResult(
+            summary=self.summary,
+            items=(
+                FlashExecutionItem(
+                    intent=FlashIntent(
+                        type="notes",
+                        source_text=context.transcript,
+                        domain="灵感",
+                    ),
+                    status="success",
+                    result=outcome.response,
+                ),
+            ),
+        )
+
+
+class _InProcessToolRuntime:
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict,
+        *,
+        trusted: InternalMCPTrustedContext,
+    ) -> dict:
+        return await execute_tool(
+            name,
+            arguments,
+            context=EurekaToolContext(
+                user_id=trusted.user_id,
+                session_id=trusted.session_id,
+                input_turn_id=trusted.input_turn_id,
+                idempotency_prefix=f"turn:{trusted.input_turn_id}",
+            ),
+            tool_call_id=trusted.tool_call_id,
+        )
 
 
 async def _run_capture_process_when_queued(provider) -> None:
@@ -547,7 +598,10 @@ async def _run_capture_process_when_queued(provider) -> None:
             registry = JobHandlerRegistry()
             registry.register(
                 "capture_process",
-                capture_process_handler(provider),
+                capture_process_handler(
+                    provider,
+                    tool_runtime=_InProcessToolRuntime(),
+                ),
             )
             assert await run_worker_once(
                 registry,
@@ -562,19 +616,7 @@ async def _run_capture_process_when_queued(provider) -> None:
 async def test_text_flash_waits_for_durable_worker_result(client):
     token = await _register(client, "ring-owner@example.com")
     provider = _FakeCaptureProvider(
-        CaptureAgentResult(
-            summary="已记录产品想法。",
-            records=[
-                CaptureRecordCommand(
-                    kind="asset",
-                    skill_machine_name="notes",
-                    payload={
-                        "title": "客户标签系统",
-                        "content": "可以做一个客户标签系统",
-                    },
-                )
-            ],
-        )
+        summary="已记录产品想法。",
     )
 
     request = asyncio.create_task(

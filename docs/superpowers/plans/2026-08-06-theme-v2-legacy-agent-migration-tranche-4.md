@@ -189,9 +189,9 @@ docker compose -f docker-compose.theme-v2.yml run --rm -w /app test \
   tests/integration/test_internal_mcp_stdio.py \
   tests/integration/test_internal_mcp_tools.py \
   tests/integration/test_capture_jobs.py \
-  tests/integration/test_contact_pending_actions.py \
   tests/integration/test_capture_session_materialization.py \
   tests/contract/test_capture_api.py \
+  tests/contract/test_contact_api.py \
   tests/contract/test_pending_actions_api.py \
   tests/e2e/test_hardware_capture_flow.py
 ```

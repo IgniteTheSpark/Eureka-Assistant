@@ -584,6 +584,7 @@ docker compose -f docker-compose.theme-v2.yml run --rm -w /app test \
   tests/integration/test_internal_mcp_tools.py \
   tests/integration/test_capture_jobs.py \
   tests/integration/test_capture_session_materialization.py \
+  tests/contract/test_contact_api.py \
   tests/e2e/test_hardware_capture_flow.py
 ```
 
@@ -841,7 +842,7 @@ git commit -m "fix(mobile): simplify hardware capture presentation"
 - Consumes: complete Theme V2 backend/mobile repair.
 - Produces: verified Theme V2 build on the connected phone and closed Tranche 4 phone gate.
 
-- [ ] **Step 1: Run the complete focused backend acceptance**
+- [x] **Step 1: Run the complete focused backend acceptance**
 
 Run the Task 5 Step 8 suite plus:
 
@@ -857,7 +858,11 @@ docker compose -f docker-compose.theme-v2.yml run --rm -w /app test \
 
 Expected: PASS.
 
-- [ ] **Step 2: Run the relevant complete Flutter acceptance**
+Verified on 2026-08-06: 137 backend tests passed. The stale contract fixture
+that still implemented `organize()` was migrated to `execute()` plus the
+trusted in-process MCP runtime before the final green run.
+
+- [x] **Step 2: Run the relevant complete Flutter acceptance**
 
 Run:
 
@@ -873,7 +878,10 @@ cd mobile && flutter test \
 
 Expected: PASS.
 
-- [ ] **Step 3: Rebuild only the isolated Theme V2 stack**
+Verified on 2026-08-06: 32 focused Flutter tests passed; the additional ring
+ASR/capture/device/reconnect suite passed 15 tests.
+
+- [x] **Step 3: Rebuild only the isolated Theme V2 stack**
 
 Run:
 
@@ -884,7 +892,10 @@ docker compose -f docker-compose.theme-v2.yml ps
 
 Expected: Theme V2 MySQL, API, and worker are healthy; no legacy backend container is used.
 
-- [ ] **Step 4: Build and install the Theme V2 app**
+Verified: `eureka-theme-v2-api-1` and MySQL were healthy, the Theme V2 worker
+was running, and the post-rebuild API/worker exception count was zero.
+
+- [x] **Step 4: Build and install the Theme V2 app**
 
 Run:
 
@@ -893,6 +904,12 @@ cd mobile && flutter build apk --debug
 ```
 
 Install only `mobile/build/app/outputs/flutter-apk/app-debug.apk`, configure `adb reverse tcp:8000 tcp:8000`, force-stop `com.eureka.mindapp`, and launch that package. Confirm Theme V2 navigation before testing recording.
+
+Verified on SM F9660 (`RFCY71B21YK`) with package `com.eureka.mindapp`, last
+update `2026-08-06 20:57:54`. The APK was built explicitly with
+`THEME_V2=true` and `API_BASE=http://localhost:8100`; `tcp:8100` was reversed
+to the isolated Theme V2 API. The Today/NEXT/Reka/gravity-chamber shell was
+visually confirmed, and the ring detail reported connected state.
 
 - [ ] **Step 5: Run ring real-device acceptance**
 
