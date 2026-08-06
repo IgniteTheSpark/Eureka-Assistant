@@ -1,7 +1,22 @@
 import asyncio
+import json
 
-from app.domains.capture.agent import CaptureAgentResult, CaptureRecordCommand
-from app.domains.capture.pipeline import LegacyFlashPipeline
+import pytest
+
+from app.domains.capture.agent import (
+    CaptureAgentResult,
+    CaptureRecordCommand,
+    CaptureSkill,
+)
+from app.domains.capture.dispatcher import FlashIntent
+from app.domains.capture.execution import FlashExecutionItem
+from app.domains.capture.pipeline import (
+    LegacyFlashPipeline,
+    aggregate_execution,
+    run_custom_skill_fallback,
+    run_event_to_todo_fallback,
+)
+from app.internal_mcp.runtime import InternalMCPUnavailable
 from app.domains.sessions.tools import SessionToolExecutor
 
 
@@ -106,3 +121,142 @@ async def test_pipeline_keeps_successful_sibling_when_one_tool_is_rejected():
     assert executed.summary == "已完成 1 项，另有 1 项未完成，请查看对应提示。"
     assert executed.executions[0].error == "金额格式错误"
     assert executed.executions[1].entity_id == "note-1"
+
+
+def test_rejected_sibling_does_not_erase_success():
+    success = FlashExecutionItem(
+        intent=FlashIntent(type="expense", source_text="午饭8元"),
+        status="success",
+        result={"asset_id": "expense-1"},
+    )
+    rejected = FlashExecutionItem(
+        intent=FlashIntent(type="contact", source_text="更新Alex"),
+        status="error",
+        error_code="intent_tool_rejected",
+    )
+
+    aggregate = aggregate_execution([success, rejected], usage_tokens=19)
+
+    assert aggregate.summary == "已完成 1 项，另有 1 项未完成。"
+    assert aggregate.items == (success, rejected)
+    assert aggregate.warnings == ("intent_tool_rejected",)
+    assert aggregate.usage_tokens == 19
+
+
+def test_aggregation_joins_qa_replies_without_counting_them_as_assets():
+    reply = FlashExecutionItem(
+        intent=FlashIntent(type="qa", source_text="拿铁是什么"),
+        status="reply",
+        result={"answer": "拿铁是浓缩咖啡加牛奶。"},
+    )
+    success = FlashExecutionItem(
+        intent=FlashIntent(type="notes", source_text="继续观察"),
+        status="success",
+        result={"asset_id": "note-1"},
+    )
+
+    aggregate = aggregate_execution([reply, success])
+
+    assert aggregate.summary == "已完成 1 项。\n\n拿铁是浓缩咖啡加牛奶。"
+
+
+async def test_custom_fallback_writes_source_text_once_to_optional_string_field():
+    class Runtime:
+        def __init__(self):
+            self.calls = []
+
+        async def call_tool(self, name, arguments, *, trusted):
+            self.calls.append((name, arguments, trusted.tool_call_id))
+            return {
+                "ok": True,
+                "asset_id": "run-1",
+                "user_skill_name": arguments["user_skill_name"],
+                "payload": {"summary": "昨天下午跑了5公里"},
+            }
+
+    runtime = Runtime()
+    executor = SessionToolExecutor(
+        user_id="owner",
+        session_id="session-1",
+        input_turn_id="turn-1",
+        runtime=runtime,
+    )
+    result = await run_custom_skill_fallback(
+        intent=FlashIntent(
+            type="running_training",
+            source_text="昨天下午跑了5公里",
+            domain="运动",
+        ),
+        skill=CaptureSkill(
+            machine_name="running_training",
+            display_name="跑步训练",
+            schema_definition={
+                "type": "object",
+                "properties": {
+                    "distance": {"type": "number"},
+                    "summary": {"type": "string"},
+                },
+            },
+        ),
+        executor=executor,
+        tool_call_prefix="capture:rec-1:0:fallback",
+    )
+
+    assert result.status == "success"
+    assert result.result["asset_id"] == "run-1"
+    assert len(runtime.calls) == 1
+    assert json.loads(runtime.calls[0][1]["payload"]) == {
+        "summary": "昨天下午跑了5公里"
+    }
+
+
+async def test_event_without_real_event_id_falls_back_to_todo_once():
+    class Runtime:
+        def __init__(self):
+            self.calls = []
+
+        async def call_tool(self, name, arguments, *, trusted):
+            self.calls.append((name, arguments))
+            return {
+                "ok": True,
+                "asset_id": "todo-1",
+                "user_skill_name": "todo",
+                "payload": {
+                    "title": arguments["title"],
+                    "content": arguments["content"],
+                },
+            }
+
+    runtime = Runtime()
+    result = await run_event_to_todo_fallback(
+        intent=FlashIntent(
+            type="event",
+            source_text="明天下午三点跟Alex开会",
+            domain="工作",
+        ),
+        executor=SessionToolExecutor(
+            user_id="owner",
+            session_id="session-1",
+            input_turn_id="turn-1",
+            runtime=runtime,
+        ),
+        tool_call_prefix="capture:rec-1:0:event-fallback",
+    )
+
+    assert result.status == "success"
+    assert result.intent.type == "todo"
+    assert result.result["asset_id"] == "todo-1"
+    assert [call[0] for call in runtime.calls] == ["tool_create_todo"]
+
+
+async def test_event_fallback_does_not_swallow_mcp_unavailability():
+    class Executor:
+        async def execute(self, *_args, **_kwargs):
+            raise InternalMCPUnavailable("stdio exited")
+
+    with pytest.raises(InternalMCPUnavailable):
+        await run_event_to_todo_fallback(
+            intent=FlashIntent(type="event", source_text="明天三点开会"),
+            executor=Executor(),
+            tool_call_prefix="capture:rec-1:0:event-fallback",
+        )

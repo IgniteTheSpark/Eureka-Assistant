@@ -389,7 +389,7 @@ git commit -m "feat(theme-v2): port legacy flash skills"
 - Consumes: `AgentRunResult`, `FlashExecutionItem`, `FlashIntent`, and `SessionToolExecutor`.
 - Produces: `resolve_agent_result()`, `run_custom_skill_fallback()`, `run_event_to_todo_fallback()`, and `aggregate_execution()`.
 
-- [ ] **Step 1: Write failing ground-truth and partial-success tests**
+- [x] **Step 1: Write failing ground-truth and partial-success tests**
 
 ```python
 def test_successful_tool_result_wins_over_malformed_final_text():
@@ -410,7 +410,7 @@ def test_rejected_sibling_does_not_erase_success():
 
 Also cover FastMCP `structuredContent.result`, `content[0].text`, query snapshots, QA reply, contact candidates, and Event-to-Todo fallback.
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
 Run:
 
@@ -421,7 +421,7 @@ docker compose -f docker-compose.theme-v2.yml run --rm -w /app test \
 
 Expected: FAIL because tool-ground-truth resolver does not exist.
 
-- [ ] **Step 3: Implement tolerant result extraction**
+- [x] **Step 3: Implement tolerant result extraction**
 
 Reuse Task 1 `extract_json_object()` for final Agent text.
 `unwrap_mcp_response()` prefers `structuredContent.result`, then JSON
@@ -429,17 +429,17 @@ Reuse Task 1 `extract_json_object()` for final Agent text.
 
 `resolve_agent_result()` checks successful tool events first. It accepts a valid final JSON only when it does not claim an unobserved mutation. Contact multiple-candidate final JSON becomes `pending_confirmation`; QA final JSON becomes `reply` with no write.
 
-- [ ] **Step 4: Implement deterministic fallbacks through MCP**
+- [x] **Step 4: Implement deterministic fallbacks through MCP**
 
 Custom fallback creates one `CaptureRecordCommand(kind="asset", operation="create")` from grounded fields/source text and calls the existing trusted `execute_capture_command()` once. It runs only for an Agent response/extraction miss.
 
 Event fallback calls Todo only when the Event Agent returned without a real `event_id`; provider/MCP exceptions propagate instead.
 
-- [ ] **Step 5: Implement stable partial aggregation**
+- [x] **Step 5: Implement stable partial aggregation**
 
 Aggregation preserves normalized intent order, emits cards only from actual results, joins QA replies separately, and returns generic warning codes rather than provider strings. It never calls an LLM.
 
-- [ ] **Step 6: Run focused tests and require GREEN**
+- [x] **Step 6: Run focused tests and require GREEN**
 
 Run:
 
@@ -454,7 +454,7 @@ docker compose -f docker-compose.theme-v2.yml run --rm -w /app test \
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit tool-ground-truth recovery**
+- [x] **Step 7: Commit tool-ground-truth recovery**
 
 ```bash
 git add theme_v2_service/app/domains/capture/tool_results.py \
