@@ -4,9 +4,9 @@
 
 **Goal:** Restore the mature tool-grounded Flash Agent pipeline inside Theme V2, remove the fragile DeepSeek outer-JSON boundary, and remove the legacy recording overlays without breaking hardware capture.
 
-**Architecture:** A Theme V2 compatibility kernel ports the legacy dispatcher, intent normalization, ADK one-shot Skill agents, trusted local MCP execution, tool-event recovery, and deterministic fallbacks. Theme V2 continues to own durable jobs, MySQL, Session state, SSE, notifications, cards, and idempotency. Mobile keeps all hardware lifecycle code but no longer mounts the two full-screen recording overlays, and offline card files derive capture time from their filename when device metadata is absent.
+**Architecture:** A Theme V2 compatibility kernel ports the legacy dispatcher, intent normalization, one-shot tool-grounded Skill agents, trusted local MCP execution, tool-event recovery, and deterministic fallbacks. It reuses Theme V2's existing LiteLLM and `InternalMCPRuntime` boundaries rather than adding Google ADK. Theme V2 continues to own durable jobs, MySQL, Session state, SSE, notifications, cards, and idempotency. Mobile keeps all hardware lifecycle code but no longer mounts the two full-screen recording overlays, and offline card files derive capture time from their filename when device metadata is absent.
 
-**Tech Stack:** Python 3.12, FastAPI, SQLAlchemy 2, Pydantic 2, Google ADK 1.x, LiteLLM/DeepSeek, FastMCP stdio, pytest, Flutter/Dart, Riverpod.
+**Tech Stack:** Python 3.12, FastAPI, SQLAlchemy 2, Pydantic 2, LiteLLM/DeepSeek, FastMCP stdio, pytest, Flutter/Dart, Riverpod.
 
 ## Global Constraints
 
@@ -30,8 +30,7 @@
 ### New backend files
 
 - `theme_v2_service/app/domains/capture/execution.py`: trusted Flash execution input/output types and error taxonomy.
-- `theme_v2_service/app/domains/capture/agent_runner.py`: one-shot ADK runner and defensive tool-event mapping.
-- `theme_v2_service/app/domains/capture/mcp_toolset.py`: lifecycle-managed local MCP toolset and trusted provenance/idempotency callback.
+- `theme_v2_service/app/domains/capture/agent_runner.py`: one-shot LiteLLM tool loop, stable capture call IDs, and defensive tool-event mapping.
 - `theme_v2_service/app/domains/capture/skill_factory.py`: built-in and dynamic custom-Skill Agent construction.
 - `theme_v2_service/app/domains/capture/json_output.py`: bounded tolerant JSON-object extraction shared by dispatcher and Skill result parsing.
 - `theme_v2_service/app/domains/capture/tool_results.py`: tolerant JSON parsing, MCP response unwrapping, tool-ground-truth resolution, and reference normalization.
@@ -43,14 +42,12 @@
 
 ### Existing backend files to modify
 
-- `theme_v2_service/requirements.txt`: add bounded Google ADK dependency.
 - `theme_v2_service/app/domains/capture/providers_legacy_flash.py`: replace strict command extraction with the compatibility kernel.
 - `theme_v2_service/app/domains/capture/dispatcher.py`: expose tolerant dispatcher decoding and include the bounded output contract.
 - `theme_v2_service/app/domains/capture/intent_normalizer.py`: retain stable ordinals/source fragments and safe fallback aliases.
 - `theme_v2_service/app/domains/capture/jobs.py`: execute and persist tool-grounded results, sanitize terminal user copy, and keep durable retry semantics.
 - `theme_v2_service/app/domains/capture/presenter.py`: present normalized actual MCP references and partial warnings.
 - `theme_v2_service/app/jobs/registry.py`: register only the compatibility-kernel provider.
-- `theme_v2_service/app/main.py`: close the ADK/MCP runtime on shutdown.
 - `theme_v2_service/app/observability.py`: register content-free Flash metrics and safe structured log fields.
 - Existing Flash unit/integration/e2e tests: update from command-document fakes to execution-result fakes.
 
@@ -149,7 +146,7 @@ docker compose -f docker-compose.theme-v2.yml run --rm -w /app test \
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit the characterization boundary**
+- [x] **Step 6: Commit the characterization boundary**
 
 ```bash
 git add theme_v2_service/app/domains/capture/json_output.py \
@@ -163,24 +160,16 @@ git commit -m "test(theme-v2): freeze flash legacy parity regressions"
 ### Task 2: Add the one-shot Agent runner and trusted MCP boundary
 
 **Files:**
-- Modify: `theme_v2_service/requirements.txt`
 - Create: `theme_v2_service/app/domains/capture/execution.py`
 - Create: `theme_v2_service/app/domains/capture/agent_runner.py`
-- Create: `theme_v2_service/app/domains/capture/mcp_toolset.py`
 - Create: `theme_v2_service/tests/unit/test_flash_agent_runner.py`
-- Modify: `theme_v2_service/tests/unit/test_internal_mcp_runtime.py`
 
 **Interfaces:**
-- Produces: `FlashExecutionContext`, `FlashExecutionItem`, `FlashExecutionResult`, `AgentRunResult`, `run_agent_once()`, `get_flash_mcp_toolset()`, and `make_trusted_tool_callback()`.
+- Produces: `FlashExecutionContext`, `FlashExecutionItem`, `FlashExecutionResult`, `FlashAgentDefinition`, `AgentRunResult`, `stable_capture_tool_call_id()`, and `run_agent_once()`.
+- Consumes: the existing `SessionToolExecutor` and `InternalMCPRuntime` trusted execution boundary.
 - Consumes later: Tasks 3–6.
 
-- [ ] **Step 1: Add the bounded dependency and execution types**
-
-Add to `requirements.txt`:
-
-```text
-google-adk>=1.0.0,<2.0.0
-```
+- [x] **Step 1: Add the execution types**
 
 Create exact public types:
 
@@ -215,75 +204,65 @@ class FlashExecutionResult:
 
 Also define `RetryableFlashExecutionError` and `PermanentFlashExecutionError`; only infrastructure/provider exceptions use them.
 
-- [ ] **Step 2: Write failing runner and trusted-callback tests**
+- [x] **Step 2: Write failing runner and trusted-executor tests**
 
 ```python
-def test_trusted_callback_overwrites_model_provenance_and_hashes_arguments():
-    callback = make_trusted_tool_callback(
-        recording_id="rec-1", intent_ordinal=2, user_id="owner",
-        session_id="session-1", input_turn_id="turn-1",
+def test_stable_call_id_ignores_model_generated_call_id():
+    first = stable_capture_tool_call_id(
+        recording_id="rec-1", intent_ordinal=2,
+        tool_name="tool_create_asset", arguments={"payload": "{}"},
     )
-    args = {"user_id": "attacker", "payload": "{}"}
-    callback(SimpleNamespace(name="tool_create_asset"), args, None)
-    assert args["user_id"] == "owner"
-    assert args["session_id"] == "session-1"
-    assert args["source_input_turn_id"] == "turn-1"
-    assert args["tool_call_id"].startswith("capture:rec-1:2:tool_create_asset:")
+    second = stable_capture_tool_call_id(
+        recording_id="rec-1", intent_ordinal=2,
+        tool_name="tool_create_asset", arguments={"payload": "{}"},
+    )
+    assert first == second
+    assert first.startswith("capture:rec-1:2:tool_create_asset:")
 
 
-async def test_runner_keeps_all_parallel_tool_results(fake_adk_runner):
-    result = await run_agent_once(fake_adk_runner.agent, "input", "owner")
+async def test_runner_keeps_all_parallel_tool_results(fake_completion, fake_executor):
+    result = await run_agent_once(
+        FlashAgentDefinition(name="asset", instruction="create assets"),
+        "input", fake_executor, completion=fake_completion,
+        model="test", api_key=None, timeout_seconds=10,
+        recording_id="rec-1", intent_ordinal=2,
+    )
     assert [event["name"] for event in result.tool_events] == [
         "tool_create_asset", "tool_create_contact"
     ]
 ```
 
-- [ ] **Step 3: Run focused tests and verify RED**
+- [x] **Step 3: Run focused tests and verify RED**
 
 Run:
 
 ```bash
-docker compose -f docker-compose.theme-v2.yml build test
 docker compose -f docker-compose.theme-v2.yml run --rm -w /app test \
   python -m pytest -q tests/unit/test_flash_agent_runner.py
 ```
 
-Expected: dependency image builds, then tests FAIL because runner and callback are not implemented.
+Expected: tests FAIL because the direct runner contract is not implemented.
 
-- [ ] **Step 4: Port the defensive one-shot runner**
+- [x] **Step 4: Implement the defensive one-shot LiteLLM tool runner**
 
-Implement `AgentRunResult(text, tool_events, usage_tokens)` and a one-shot ADK `Runner` using an isolated `InMemorySessionService`. Pair batched tool responses to pending calls by name and keep all responses, matching `backend/core/agent_runner.py` and `backend/core/event_mapper.py` behavior.
+Implement `FlashAgentDefinition`, `AgentRunResult(text, tool_events, usage_tokens)`, and a bounded LiteLLM tool loop. Filter the existing MCP OpenAI tool definitions by the Agent allowlist, execute each round's tool calls concurrently through `SessionToolExecutor`, preserve request order when recording results, and keep all tool request/response events. Provider or MCP-runtime unavailability is retryable; ordinary domain rejections remain tool results.
 
-The trusted callback must canonicalize arguments with sorted JSON and derive:
+Ignore the model-generated call ID for mutation idempotency. Canonicalize the tool's model arguments with sorted JSON and derive:
 
 ```python
 digest = sha256(
     json.dumps(args_without_trusted_fields, sort_keys=True, ensure_ascii=False).encode()
 ).hexdigest()[:20]
-args["tool_call_id"] = (
-    f"capture:{recording_id}:{intent_ordinal}:{tool.name}:{digest}"
-)
+tool_call_id = f"capture:{recording_id}:{intent_ordinal}:{tool_name}:{digest}"
 ```
 
-It then overwrites `user_id`, `session_id`, and `source_input_turn_id`.
+`SessionToolExecutor` continues to inject trusted `user_id`, `session_id`, and `source_input_turn_id` when it calls `InternalMCPRuntime`; none of those fields are exposed in model-controlled tool arguments.
 
-- [ ] **Step 5: Implement lifecycle-managed local MCP toolset**
+- [x] **Step 5: Keep the existing local MCP lifecycle**
 
-Use the proven ADK `MCPToolset`/`StdioServerParameters` topology with:
+Use the current app-owned `InternalMCPRuntime` and `SessionToolExecutor`. Do not create a second subprocess manager, do not add Google ADK, and do not alter FastAPI lifespan ownership.
 
-```python
-MCPToolset(
-    connection_params=StdioServerParameters(
-        command=sys.executable,
-        args=["-m", "app.internal_mcp.server"],
-        env=os.environ.copy(),
-    )
-)
-```
-
-Expose `async close_flash_mcp_toolset()` and ensure only legal tool names are visible. Provenance is still overwritten by the per-Agent callback immediately before every call.
-
-- [ ] **Step 6: Run focused tests and require GREEN**
+- [x] **Step 6: Run focused tests and require GREEN**
 
 Run:
 
@@ -291,21 +270,20 @@ Run:
 docker compose -f docker-compose.theme-v2.yml run --rm -w /app test \
   python -m pytest -q \
   tests/unit/test_flash_agent_runner.py \
-  tests/unit/test_internal_mcp_runtime.py \
+  tests/unit/test_session_tools.py \
   tests/integration/test_internal_mcp_stdio.py
 ```
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit the runner boundary**
+- [x] **Step 7: Commit the runner boundary**
 
 ```bash
-git add theme_v2_service/requirements.txt \
-  theme_v2_service/app/domains/capture/execution.py \
+git add theme_v2_service/app/domains/capture/execution.py \
   theme_v2_service/app/domains/capture/agent_runner.py \
-  theme_v2_service/app/domains/capture/mcp_toolset.py \
   theme_v2_service/tests/unit/test_flash_agent_runner.py \
-  theme_v2_service/tests/unit/test_internal_mcp_runtime.py
+  docs/superpowers/specs/2026-08-06-theme-v2-flash-agent-systematic-recovery-design.md \
+  docs/superpowers/plans/2026-08-06-theme-v2-flash-agent-systematic-recovery.md
 git commit -m "feat(theme-v2): restore tool-grounded flash agent runner"
 ```
 
@@ -326,7 +304,7 @@ git commit -m "feat(theme-v2): restore tool-grounded flash agent runner"
 - Modify: `theme_v2_service/tests/unit/test_flash_intent_normalizer.py`
 
 **Interfaces:**
-- Consumes: `get_flash_mcp_toolset()` and `make_trusted_tool_callback()` from Task 2.
+- Consumes: `FlashAgentDefinition` and `run_agent_once()` from Task 2.
 - Produces: `make_dispatcher_agent()`, `make_builtin_skill_agent()`, `make_custom_skill_agent()`, and `decode_dispatcher_output()`.
 
 - [ ] **Step 1: Copy the approved runtime instructions**
@@ -563,7 +541,7 @@ Keep the failure on that turn only; do not append a session-wide bottom banner.
 
 - [ ] **Step 6: Close runtime and remove obsolete provider path**
 
-Register only the new `LiteLLMLegacyFlashProvider` execution contract. Close the Flash MCP toolset from the FastAPI lifespan. Delete the obsolete strict `_complete_model(... schema=CaptureAgentResult)` path and tests that assert perfect outer JSON.
+Register only the new `LiteLLMLegacyFlashProvider` execution contract. Keep the existing app-owned `InternalMCPRuntime` lifespan unchanged. Delete the obsolete strict `_complete_model(... schema=CaptureAgentResult)` path and tests that assert perfect outer JSON.
 
 - [ ] **Step 7: Add content-free Flash observability**
 

@@ -122,7 +122,8 @@ The migration therefore must not be considered complete until those gates pass.
 Theme V2 receives a self-contained Flash compatibility kernel ported from the
 mature legacy implementation. It contains:
 
-- a Theme V2 Agent runner based on the legacy ADK one-shot runner;
+- a Theme V2 one-shot tool Agent runner that preserves the legacy runner's
+  tool-event and ground-truth semantics;
 - the legacy Flash dispatcher instruction;
 - the deterministic intent normalizer;
 - built-in Flash Skill instructions;
@@ -133,28 +134,32 @@ mature legacy implementation. It contains:
 The ported code lives under `theme_v2_service`. It must not import the legacy
 `backend` package at runtime. Legacy `SKILL.md` content is copied or adapted as
 versioned Theme V2 runtime material so a future change is reviewed explicitly.
-Theme V2 pins `google-adk` as an explicit service dependency rather than relying
-on the legacy backend environment or an incidental transitive version.
+The runner reuses Theme V2's existing LiteLLM completion boundary and trusted
+`InternalMCPRuntime`; it does not add the Google ADK or its Google Cloud
+dependency tree. This keeps the migration inside the current service
+architecture while preserving the mature behavioral contract.
 
 ### 4.2 Internal MCP topology
 
 The runtime topology remains local stdio MCP:
 
 ```text
-Theme V2 ADK Skill Agent
-  -> Theme V2 trusted MCP tool adapter
+Theme V2 LiteLLM Skill Agent
+  -> SessionToolExecutor trusted adapter
   -> lifecycle-managed InternalMCPRuntime
   -> local FastMCP stdio subprocess
   -> Theme V2 domain services
   -> Theme V2 MySQL
 ```
 
-The trusted adapter exposes the MCP tool contracts to the Agent but overwrites
-all provenance fields immediately before execution. The model can neither
-select nor override tenant or provenance scope.
+The trusted adapter exposes the MCP tool contracts to the Agent but injects all
+provenance immediately before execution. A stable tool-call identifier is
+derived from the trusted capture context and canonical arguments. The model can
+neither select nor override tenant, provenance, or idempotency scope.
 
-This adapts the legacy ADK/MCP integration to Theme V2's existing secure MCP
-runtime without collapsing the MCP transport into direct database functions.
+This adapts the legacy tool-grounded execution semantics to Theme V2's existing
+secure MCP runtime without collapsing the MCP transport into direct database
+functions.
 
 ### 4.3 Theme V2 infrastructure retained
 
