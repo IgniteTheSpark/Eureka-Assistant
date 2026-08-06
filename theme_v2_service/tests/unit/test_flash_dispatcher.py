@@ -6,6 +6,11 @@ import pytest
 from app.domains.capture.agent import CaptureSkill
 from app.domains.capture.dispatcher import decode_dispatcher_output
 from app.domains.capture.providers_legacy_flash import LiteLLMLegacyFlashProvider
+from app.domains.capture.skill_factory import (
+    make_builtin_skill_agent,
+    make_custom_skill_agent,
+    make_dispatcher_agent,
+)
 
 
 def _skill(name: str) -> CaptureSkill:
@@ -221,3 +226,67 @@ def test_decode_dispatcher_output_drops_only_invalid_siblings():
     )
 
     assert [intent.type for intent in intents] == ["expense"]
+
+
+def test_dispatcher_factory_is_toolless_and_includes_custom_skill_and_schema():
+    agent = make_dispatcher_agent(
+        [
+            CaptureSkill(
+                machine_name="running_training",
+                display_name="跑步训练",
+                description="记录已经完成的跑步",
+                schema_definition={
+                    "type": "object",
+                    "properties": {"distance": {"type": "number"}},
+                },
+            )
+        ]
+    )
+
+    assert agent.name == "flash_dispatcher"
+    assert agent.allowed_tools == frozenset()
+    assert "running_training" in agent.instruction
+    assert "FlashDispatchResult JSON Schema" in agent.instruction
+    assert '"intents"' in agent.instruction
+    assert "外部产品时,统一归 `qa`" in agent.instruction
+
+
+def test_builtin_factory_exposes_only_supported_skill_tools():
+    notes = make_builtin_skill_agent("notes")
+
+    assert notes.allowed_tools == frozenset({"tool_create_note"})
+    assert "不生成标签" in notes.instruction
+    with pytest.raises(ValueError, match="unsupported flash skill"):
+        make_builtin_skill_agent("idea")
+    with pytest.raises(ValueError, match="unsupported flash skill"):
+        make_builtin_skill_agent("misc")
+
+
+def test_custom_factory_keeps_all_fields_optional_and_never_invents_values():
+    agent = make_custom_skill_agent(
+        CaptureSkill(
+            machine_name="running_training",
+            display_name="跑步训练",
+            description="记录已经发生的跑步",
+            schema_definition={
+                "type": "object",
+                "required": ["distance", "duration"],
+                "properties": {
+                    "distance": {
+                        "type": "number",
+                        "description": "距离",
+                    },
+                    "duration": {
+                        "type": "integer",
+                        "description": "时长",
+                    },
+                },
+            },
+        )
+    )
+
+    assert agent.name == "running_training_custom_skill"
+    assert agent.allowed_tools == frozenset({"tool_create_asset"})
+    assert "所有字段在写入时都视为可选" in agent.instruction
+    assert "未提到的字段不要补、不要猜" in agent.instruction
+    assert "`distance` (number, 可选)" in agent.instruction

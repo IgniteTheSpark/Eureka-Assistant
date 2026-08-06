@@ -307,7 +307,7 @@ git commit -m "feat(theme-v2): restore tool-grounded flash agent runner"
 - Consumes: `FlashAgentDefinition` and `run_agent_once()` from Task 2.
 - Produces: `make_dispatcher_agent()`, `make_builtin_skill_agent()`, `make_custom_skill_agent()`, and `decode_dispatcher_output()`.
 
-- [ ] **Step 1: Copy the approved runtime instructions**
+- [x] **Step 1: Copy the approved runtime instructions**
 
 Port the exact current content from these legacy source files into the matching Theme V2 paths:
 
@@ -323,7 +323,7 @@ backend/skills/flash-qa-skill/SKILL.md
 
 Do not port `idea` or `misc`. Adapt only obsolete product references: external Task execution stays out, and Report guidance must match the current Theme V2 Report container.
 
-- [ ] **Step 2: Complete the dispatcher contract around the Task 1 decoder**
+- [x] **Step 2: Complete the dispatcher contract around the Task 1 decoder**
 
 Retain the Task 1 bounded decoder as the only parsing path:
 
@@ -346,13 +346,13 @@ def decode_dispatcher_output(content: str, *, fallback_text: str) -> list[FlashI
 
 The dispatcher prompt also includes `FlashDispatchResult.model_json_schema()` as guidance, while tolerant parsing remains mandatory.
 
-- [ ] **Step 3: Implement the factory**
+- [x] **Step 3: Implement the factory**
 
-`make_builtin_skill_agent()` loads only the six supported built-in Skill documents and attaches the local MCP toolset plus trusted callback. `make_custom_skill_agent()` builds the old best-effort extraction prompt from `CaptureSkill.schema_definition`, with all fields optional at Agent-write time and no invented values.
+`make_builtin_skill_agent()` loads only the six supported built-in Skill documents and returns a `FlashAgentDefinition` with an explicit MCP tool allowlist. `make_custom_skill_agent()` builds the old best-effort extraction prompt from `CaptureSkill.schema_definition`, with all fields optional at Agent-write time and no invented values.
 
-Models use `google.adk.models.lite_llm.LiteLlm(model=model, api_key=api_key)` so DeepSeek keeps native tool calling. Dispatcher has no tools.
+`run_agent_once()` owns the LiteLLM model/API configuration so DeepSeek keeps native tool calling. Dispatcher returns a tool-less `FlashAgentDefinition`.
 
-- [ ] **Step 4: Run characterization tests and require GREEN**
+- [x] **Step 4: Run characterization tests and require GREEN**
 
 Run:
 
@@ -365,7 +365,7 @@ docker compose -f docker-compose.theme-v2.yml run --rm -w /app test \
 
 Expected: all plain, fenced, prefaced, alias, unknown-type, scheduled-custom, and multi-expense cases PASS.
 
-- [ ] **Step 5: Commit the Skill runtime**
+- [x] **Step 5: Commit the Skill runtime**
 
 ```bash
 git add theme_v2_service/app/domains/capture/skill_factory.py \
