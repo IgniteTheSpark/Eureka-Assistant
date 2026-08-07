@@ -726,6 +726,23 @@ async def _persist_flash_execution(
             recording,
             status="done",
             message=recording.result_summary,
+            result_count=len(references),
+        )
+
+
+async def _publish_organizing_phase(*, recording_id: str) -> None:
+    async with session_scope() as session:
+        recording = await session.scalar(
+            select(CaptureRecording).where(CaptureRecording.id == recording_id)
+        )
+        if recording is None or recording.process_status != "agent_processing":
+            return
+        await publish_capture_status(
+            session,
+            recording,
+            status="agent_processing",
+            display_phase="organizing",
+            message="正在整理语音内容",
         )
 
 
@@ -773,6 +790,7 @@ def capture_process_handler(
                 raise PermanentFlashExecutionError(
                     "capture provider returned invalid execution"
                 )
+            await _publish_organizing_phase(recording_id=recording_id)
         except PermanentFlashExecutionError as exc:
             await _fail_agent_capture(
                 recording_id=recording_id,

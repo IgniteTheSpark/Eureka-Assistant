@@ -198,7 +198,7 @@ async def test_bound_card_sync_asr_result_is_idempotently_accepted(client):
             await database_session.scalars(
                 select(OutboxEvent).where(
                     OutboxEvent.aggregate_id == first.json()["recording_id"]
-                )
+                ).order_by(OutboxEvent.created_at, OutboxEvent.id)
             )
         )
     assert [event.event_type for event in events] == [
@@ -209,6 +209,23 @@ async def test_bound_card_sync_asr_result_is_idempotently_accepted(client):
         "accepted",
         "asr_done",
     }
+    assert [event.payload_json["display_phase"] for event in events] == [
+        "receiving",
+        "understanding",
+    ]
+    assert all(
+        event.payload_json["source"] == "card" for event in events
+    )
+    assert all(
+        event.payload_json["client_task_id"] == "task-001"
+        for event in events
+    )
+    assert all(
+        event.payload_json["recording_id"] == first.json()["recording_id"]
+        for event in events
+    )
+    assert events[-1].payload_json["session_id"] == physical_session_id
+    assert events[-1].payload_json["input_turn_id"] == first.json()["input_turn_id"]
 
 
 async def test_flash_sessions_group_recordings_by_local_capture_day(client):
@@ -457,6 +474,19 @@ async def test_s3_upload_is_idempotently_accepted_for_async_asr(client):
     ]
     assert jobs[0].input_dedupe_key == f"capture-asr:{first.json()['recording_id']}"
 
+    async with AsyncSessionFactory() as database_session:
+        events = list(
+            await database_session.scalars(
+                select(OutboxEvent)
+                .where(OutboxEvent.aggregate_id == first.json()["recording_id"])
+                .order_by(OutboxEvent.created_at, OutboxEvent.id)
+            )
+        )
+    assert [event.payload_json["display_phase"] for event in events] == [
+        "receiving",
+        "transcribing",
+    ]
+
     changed = {
         **payload,
         "s3": {**payload["s3"], "s3_key": "captures/different.mp3"},
@@ -623,7 +653,11 @@ async def test_text_flash_waits_for_durable_worker_result(client):
         client.post(
             "/api/flash",
             headers=_headers(token),
-            json={"text": "可以做一个客户标签系统", "source": "voice"},
+            json={
+                "text": "可以做一个客户标签系统",
+                "source": "voice",
+                "client_task_id": "ring-local-task-001",
+            },
         )
     )
     await _run_capture_process_when_queued(provider)
@@ -633,6 +667,7 @@ async def test_text_flash_waits_for_durable_worker_result(client):
     body = response.json()
     assert body["ok"] is True
     assert body["session_id"]
+    assert body["recording_id"] == body["session_id"]
     assert body["input_turn_id"]
     assert body["reply"] == ""
     assert body["summary"] == "已记录产品想法。"
@@ -641,6 +676,27 @@ async def test_text_flash_waits_for_durable_worker_result(client):
     assert body["cards"][0]["asset_id"]
     assert body["derived_assets"] == body["cards"]
     assert len(provider.calls) == 1
+
+    async with AsyncSessionFactory() as database_session:
+        events = list(
+            await database_session.scalars(
+                select(OutboxEvent)
+                .where(OutboxEvent.aggregate_id == body["recording_id"])
+                .order_by(OutboxEvent.created_at, OutboxEvent.id)
+            )
+        )
+    assert [event.payload_json["display_phase"] for event in events] == [
+        "receiving",
+        "understanding",
+        "understanding",
+        "organizing",
+        "done",
+    ]
+    assert all(
+        event.payload_json["client_task_id"] == "ring-local-task-001"
+        for event in events
+    )
+    assert events[-1].payload_json["result_count"] == 1
 
     derived = await client.get(
         f"/api/assets/{body['cards'][0]['asset_id']}",

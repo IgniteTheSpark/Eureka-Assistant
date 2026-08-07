@@ -209,7 +209,12 @@ async def publish_capture_status(
     *,
     status: str,
     message: str,
+    display_phase: str | None = None,
+    result_count: int | None = None,
 ) -> None:
+    resolved_phase = display_phase or _capture_display_phase(status)
+    if result_count is None and status == "done":
+        result_count = len(recording.result_records_json or [])
     await publish_domain_event(
         session,
         event_type="flash_file_status",
@@ -225,8 +230,34 @@ async def publish_capture_status(
             "status": status,
             "pipeline_status": recording.process_status,
             "message": message,
+            "display_phase": resolved_phase,
+            "source": _capture_display_source(recording),
+            "is_realtime": recording.source in {"voice", "realtime"},
+            "session_id": recording.session_id,
+            "input_turn_id": recording.input_turn_id,
+            "result_count": result_count,
         },
     )
+
+
+def _capture_display_phase(status: str) -> str:
+    return {
+        "accepted": "receiving",
+        "asr_processing": "transcribing",
+        "asr_done": "understanding",
+        "agent_processing": "understanding",
+        "done": "done",
+        "empty": "empty",
+        "failed": "failed",
+    }.get(status, "receiving")
+
+
+def _capture_display_source(recording: CaptureRecording) -> str:
+    if recording.source == "voice" or recording.card_sn == "ring":
+        return "ring"
+    if recording.source in {"realtime", "offline"}:
+        return "card"
+    return "audio_upload"
 
 
 def _utc_naive(value: datetime) -> datetime:
@@ -477,6 +508,12 @@ async def accept_sync_result(
         status="accepted",
         message="上传完成",
     )
+    if process_status == "asr_done":
+        await materialize_final_capture(
+            session,
+            recording,
+            timezone_name=get_settings().default_user_timezone,
+        )
     await publish_capture_status(
         session,
         recording,
@@ -485,12 +522,6 @@ async def accept_sync_result(
             "语音识别完成" if process_status == "asr_done" else message
         ),
     )
-    if process_status == "asr_done":
-        await materialize_final_capture(
-            session,
-            recording,
-            timezone_name=get_settings().default_user_timezone,
-        )
     await session.flush()
     return CaptureAcceptanceResult(
         recording=recording,
@@ -617,6 +648,23 @@ async def accept_text_capture(
 ) -> TextCaptureResult:
     now = utc_now()
     identity = new_uuid()
+    client_task_id = command.client_task_id or f"text-{identity}"
+    existing = await session.scalar(
+        select(CaptureRecording).where(
+            CaptureRecording.user_id == user_id,
+            CaptureRecording.client_task_id == client_task_id,
+        )
+    )
+    if existing is not None:
+        if (existing.asr_text or "").strip() != command.text:
+            raise ConflictingCapture("client task already contains different text")
+        file = await session.get(CaptureFile, existing.file_id)
+        turn = await session.scalar(
+            select(CaptureTurn).where(CaptureTurn.recording_id == existing.id)
+        )
+        if file is None or turn is None:
+            raise ConflictingCapture("client task is incomplete")
+        return TextCaptureResult(recording=existing, file=file, turn=turn)
     storage_key = command.file_id.strip() or f"text-capture:{identity}"
     file = CaptureFile(
         user_id=user_id,
@@ -634,7 +682,7 @@ async def accept_text_capture(
         file_id=file.id,
         card_sn="ring" if command.source == "voice" else "text",
         device_file_name=f"TEXT-{identity}.txt",
-        client_task_id=f"text-{identity}",
+        client_task_id=client_task_id,
         source=command.source,
         audio_format="text",
         asr_mode="text_client",
@@ -808,6 +856,7 @@ def flash_response_payload(
     return {
         "ok": not failed,
         "session_id": recording.id,
+        "recording_id": recording.id,
         "physical_session_id": recording.session_id or "",
         "input_turn_id": (
             recording.input_turn_id
@@ -921,6 +970,8 @@ def recording_payload(result: RecordingResult) -> dict:
             "source": recording.source,
             "upload_status": recording.upload_status,
             "process_status": recording.process_status,
+            "display_phase": _capture_display_phase(recording.process_status),
+            "display_source": _capture_display_source(recording),
             "asr_status": asr_status(recording, result.file),
             "asr_provider": recording.asr_provider,
             "asr_mode": recording.asr_mode,

@@ -123,6 +123,7 @@ class FlashRequest(BaseModel):
     source: Literal["voice", "typed", "imported"] = "voice"
     capture_session_type: str = ""
     file_id: str = ""
+    client_task_id: str = Field(default="", max_length=160)
 
     @field_validator("text")
     @classmethod
@@ -132,10 +133,16 @@ class FlashRequest(BaseModel):
             raise ValueError("text must not be blank")
         return cleaned
 
+    @field_validator("client_task_id")
+    @classmethod
+    def strip_client_task_id(cls, value: str) -> str:
+        return value.strip()
+
 
 class FlashResponse(BaseModel):
     ok: bool
     session_id: str
+    recording_id: str
     physical_session_id: str = ""
     input_turn_id: str
     reply: str = ""

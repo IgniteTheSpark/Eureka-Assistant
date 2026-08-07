@@ -49,9 +49,12 @@ async def flash(
     command: FlashRequest,
     user_id: str = Depends(get_current_user_id),
 ):
-    async with session_scope() as session:
-        accepted = await service.accept_text_capture(session, user_id, command)
-        recording_id = accepted.recording.id
+    try:
+        async with session_scope() as session:
+            accepted = await service.accept_text_capture(session, user_id, command)
+            recording_id = accepted.recording.id
+    except service.ConflictingCapture as exc:
+        raise _capture_error(exc) from exc
     settings = get_settings()
     result, elapsed_ms = await service.wait_for_recording(
         user_id,
