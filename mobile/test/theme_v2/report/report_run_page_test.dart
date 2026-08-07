@@ -237,6 +237,86 @@ void main() {
       greaterThanOrEqualTo(ThemeV2Sizes.minTouchTarget),
     );
   });
+
+  testWidgets('recommended plan supports one-click and three-step adjustment', (
+    tester,
+  ) async {
+    final api = ApiClient(
+      baseUrl: 'https://reports.test',
+      enableLogging: false,
+      client: MockClient((request) async {
+        return _json({
+          'id': 'run-plan',
+          'state': 'awaiting_selection',
+          'plan_revision': 3,
+          'plan_options': [
+            {
+              'id': 'briefing',
+              'recommended': true,
+              'title': '球队建设会前调研',
+              'summary': '结合日程与公开阵容资料准备讨论',
+            },
+          ],
+          'plan_draft': {
+            'selected_option_id': 'briefing',
+            'attention_questions': ['两队建设策略有何差异？'],
+            'evidence_scope': {
+              'references': [
+                {'kind': 'event', 'id': 'event-1'},
+              ],
+            },
+            'public_research_scope': {
+              'entities': [
+                {'id': 'real-madrid', 'kind': 'organization', 'name': '皇家马德里'},
+                {'id': 'barcelona', 'kind': 'organization', 'name': '巴塞罗那'},
+              ],
+              'questions': ['当前阵容'],
+              'freshness': 'current',
+            },
+            'blockers': [],
+          },
+        });
+      }),
+    );
+    addTearDown(api.close);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildThemeV2Theme(Brightness.light),
+        home: ReportRunPage(runId: 'run-plan', api: api),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('report-recommended-plan')),
+      findsOneWidget,
+    );
+    expect(find.text('球队建设会前调研'), findsOneWidget);
+    expect(find.textContaining('公开调研 皇家马德里、巴塞罗那'), findsOneWidget);
+    expect(find.text('一键生成'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('report-run-adjust')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('1  报告方案'), findsOneWidget);
+    expect(find.text('2  关注范围'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('3  参考资产'),
+      240,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(find.text('3  参考资产'), findsOneWidget);
+    expect(find.textContaining('时间范围'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('report-additional-focus')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('report-open-evidence-picker')),
+      findsOneWidget,
+    );
+  });
 }
 
 Widget _containerApp(ApiClient api) => MaterialApp(

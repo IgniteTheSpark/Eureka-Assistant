@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../api/api_client.dart';
+import 'report_plan_models.dart';
 
 class ReportRunController extends ChangeNotifier {
   ReportRunController({
@@ -28,6 +29,8 @@ class ReportRunController extends ChangeNotifier {
 
   String get runId => _run?['id']?.toString() ?? '';
   String get state => _run?['state']?.toString() ?? 'idle';
+  String get activeStage => _run?['active_stage']?.toString() ?? '';
+  int get planRevision => (_run?['plan_revision'] as num?)?.toInt() ?? 0;
   String? get reportId => _run?['report_id']?.toString();
   String? get failureMessage {
     final failure = _run?['failure'];
@@ -41,6 +44,30 @@ class ReportRunController extends ChangeNotifier {
           .whereType<Map>()
           .map((option) => option.cast<String, dynamic>())
           .toList(growable: false);
+  Map<String, dynamic>? get recommendedOption {
+    for (final option in planOptions) {
+      if (option['recommended'] == true) return option;
+    }
+    return planOptions.isEmpty ? null : planOptions.first;
+  }
+
+  ReportPlanDraftView? get planDraft {
+    final raw = _run?['plan_draft'];
+    if (raw is Map) {
+      return ReportPlanDraftView.fromJson(raw.cast<String, dynamic>());
+    }
+    final option = recommendedOption;
+    if (option == null) return null;
+    final evidence =
+        (option['evidence'] as Map?)?.cast<String, dynamic>() ??
+        const <String, dynamic>{};
+    return ReportPlanDraftView.fromJson({
+      'selected_option_id': option['id']?.toString() ?? '',
+      'evidence_scope': evidence,
+      'public_research_scope': const <String, dynamic>{},
+    });
+  }
+
   Map<String, dynamic> get pendingDecision =>
       (_run?['pending_decision'] as Map?)?.cast<String, dynamic>() ?? const {};
   bool get needsClarification =>
@@ -183,7 +210,10 @@ class ReportRunController extends ChangeNotifier {
     try {
       final response = await _api.postJson(
         '/api/report-generation-runs/$id/generate',
-        {'selected_option_id': optionId},
+        {
+          'selected_option_id': optionId,
+          'expected_plan_revision': planRevision,
+        },
       );
       _applyRun(response);
     } catch (exception) {
@@ -191,6 +221,62 @@ class ReportRunController extends ChangeNotifier {
     } finally {
       _finishRequest();
     }
+  }
+
+  Future<void> quickGenerate() async {
+    final recommendedId = recommendedOption?['id']?.toString();
+    if (recommendedId != null && recommendedId.isNotEmpty) {
+      selectedOptionId = recommendedId;
+    }
+    await generate();
+  }
+
+  Future<void> generateConfirmedDraft() async {
+    final draft = planDraft;
+    if (draft == null || draft.blockers.isNotEmpty) return;
+    selectedOptionId = draft.selectedOptionId;
+    await generate();
+  }
+
+  Future<void> updateDraft(ReportPlanDraftView draft) async {
+    final id = runId;
+    if (_disposed || id.isEmpty || busy) return;
+    busy = true;
+    error = null;
+    _notify();
+    try {
+      final response = await _api.putJson(
+        '/api/report-generation-runs/$id/plan-draft',
+        draft.toUpdateJson(planRevision),
+      );
+      _applyRun(response);
+    } catch (exception) {
+      _setError(exception);
+    } finally {
+      _finishRequest();
+    }
+  }
+
+  Future<ReportEvidenceOptionPage> loadEvidenceOptions({
+    String query = '',
+    String type = 'all',
+    String? skill,
+    String? cursor,
+  }) async {
+    final response = await _api.getJson(
+      '/api/report-generation-runs/evidence-options',
+      query: {
+        'q': query,
+        'type': type,
+        if (skill != null && skill.isNotEmpty) 'skill': skill,
+        if (cursor != null && cursor.isNotEmpty) 'cursor': cursor,
+        'limit': 50,
+      },
+    );
+    if (response is! Map) {
+      throw const FormatException('报告资产列表返回格式不正确');
+    }
+    return ReportEvidenceOptionPage.fromJson(response.cast<String, dynamic>());
   }
 
   Future<void> retry() async {
@@ -280,6 +366,7 @@ class ReportRunController extends ChangeNotifier {
   String _errorMessage(Object exception) => switch (exception) {
     ApiException(statusCode: 410) => '这次报告任务已经过期',
     ApiException(statusCode: 503) => '报告服务尚未配置完成',
+    ApiException(statusCode: 409) => '报告方案已更新，请查看最新内容后重试',
     ApiException() => '报告任务暂时无法处理，请稍后重试',
     _ => '报告任务暂时无法处理，请稍后重试',
   };

@@ -182,6 +182,7 @@ void main() {
               '/api/report-generation-runs/run-1/generate') {
             expect(jsonDecode(request.body), {
               'selected_option_id': 'option-1',
+              'expected_plan_revision': 0,
             });
             return _json({'id': 'run-1', 'state': 'generating'});
           }
