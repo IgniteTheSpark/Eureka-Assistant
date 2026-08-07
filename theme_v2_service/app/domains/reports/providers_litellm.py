@@ -15,6 +15,7 @@ from app.domains.reports.security import (
     allowed_numeric_claims,
     validate_generator_result,
 )
+from app.structured_output import extract_json_object
 
 
 Completion = Callable[..., Awaitable[Any]]
@@ -205,7 +206,7 @@ class LiteLLMPlannerProvider:
         self._completion = completion
 
     async def plan(self, request: PlannerRequest) -> PlannerResult:
-        kwargs = {
+        kwargs: dict[str, Any] = {
             "model": self.model,
             "messages": build_planner_messages(request),
             "response_format": _response_format(
@@ -217,16 +218,44 @@ class LiteLLMPlannerProvider:
         }
         if self.api_key:
             kwargs["api_key"] = self.api_key
-        try:
-            response = await self._completion(**kwargs)
-        except (TimeoutError, ConnectionError) as exc:
-            raise RetryableProviderError("planner provider unavailable") from exc
-        except Exception as exc:
-            raise RetryableProviderError("planner provider call failed") from exc
-        try:
-            result = PlannerResult.model_validate_json(_message_content(response))
-        except Exception as exc:
-            raise PermanentProviderError("invalid planner provider response") from exc
+        response = None
+        result = None
+        for attempt in range(2):
+            try:
+                response = await self._completion(**kwargs)
+            except (TimeoutError, ConnectionError) as exc:
+                raise RetryableProviderError("planner provider unavailable") from exc
+            except Exception as exc:
+                raise RetryableProviderError("planner provider call failed") from exc
+            try:
+                raw_result = extract_json_object(_message_content(response))
+                if raw_result is None:
+                    raise ValueError(
+                        "planner response does not contain one JSON object"
+                    )
+                result = PlannerResult.model_validate(raw_result)
+                break
+            except Exception as exc:
+                if attempt == 1:
+                    raise PermanentProviderError(
+                        "invalid planner provider response"
+                    ) from exc
+                reason = str(exc).splitlines()[0][:300]
+                kwargs = {
+                    **kwargs,
+                    "messages": [
+                        *kwargs["messages"],
+                        {
+                            "role": "user",
+                            "content": (
+                                "The previous structured output failed local "
+                                f"validation: {reason}. Return a fresh, complete JSON "
+                                "object that follows the trusted planner schema."
+                            ),
+                        },
+                    ],
+                }
+        assert response is not None and result is not None
         input_tokens, output_tokens = _usage(response)
         return result.model_copy(
             update={
@@ -276,7 +305,11 @@ class LiteLLMGeneratorProvider:
                 raise RetryableProviderError("generator provider call failed") from exc
             raw_result = None
             try:
-                raw_result = json.loads(_message_content(response))
+                raw_result = extract_json_object(_message_content(response))
+                if raw_result is None:
+                    raise ValueError(
+                        "generator response does not contain one JSON object"
+                    )
                 result = validate_generator_result(
                     raw_result,
                     request=request,

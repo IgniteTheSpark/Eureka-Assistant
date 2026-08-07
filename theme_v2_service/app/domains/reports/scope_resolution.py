@@ -18,6 +18,7 @@ from app.domains.reports.schemas import (
     ReportPlanDraft,
 )
 from app.domains.reports.state_machine import transition_run
+from app.structured_output import extract_json_object
 
 
 class ScopeResolutionModel(BaseModel):
@@ -130,7 +131,10 @@ class LiteLLMScopeResolverProvider:
             content = response.choices[0].message.content
         except AttributeError:
             content = response["choices"][0]["message"]["content"]
-        return ScopeResolutionResult.model_validate_json(content)
+        raw_result = extract_json_object(content)
+        if raw_result is None:
+            raise ValueError("scope resolver response does not contain one JSON object")
+        return ScopeResolutionResult.model_validate(raw_result)
 
 
 async def execute_scope_resolution_job(

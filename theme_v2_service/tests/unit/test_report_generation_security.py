@@ -19,7 +19,15 @@ from app.domains.reports.providers_litellm import (
     build_planner_messages,
 )
 from app.domains.reports.planner import PlannerRequest
-from app.domains.reports.schemas import EvidenceScope, ReportPlanOption
+from app.domains.reports.scope_resolution import (
+    LiteLLMScopeResolverProvider,
+    ScopeResolutionRequest,
+)
+from app.domains.reports.schemas import (
+    EvidenceScope,
+    PublicResearchBrief,
+    ReportPlanOption,
+)
 from app.domains.reports.schemas import ReportExecutionPlan
 from app.domains.reports.security import validate_generator_result
 from app.domains.reports.templates import TemplateRegistry
@@ -408,6 +416,165 @@ async def test_deepseek_report_providers_request_supported_json_object_mode():
 
     assert planner_calls[0]["response_format"] == {"type": "json_object"}
     assert generator_calls[0]["response_format"] == {"type": "json_object"}
+
+
+async def test_deepseek_planner_accepts_one_json_object_with_presentation_text():
+    async def completion(**kwargs):
+        del kwargs
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": (
+                            "Here is the requested plan:\n"
+                            "```json\n"
+                            '{"clarification_questions": [{"id": "goal", '
+                            '"question": "What should this emphasize?"}], '
+                            '"options": []}'
+                            "\n```"
+                        )
+                    }
+                }
+            ]
+        }
+
+    provider = LiteLLMPlannerProvider(
+        model="deepseek/deepseek-chat",
+        api_key="secret",
+        timeout_seconds=30,
+        completion=completion,
+    )
+
+    result = await provider.plan(
+        PlannerRequest(
+            run_id="run-1",
+            origin="user_initiated",
+            intent="Summarize recent activity",
+            launch_context={},
+            answers={},
+            evidence_scope=EvidenceScope(),
+            primary_skills=[],
+            related_skills=[],
+            asset_summaries=[],
+            templates=[],
+        )
+    )
+
+    assert result.clarification_questions[0].id == "goal"
+
+
+async def test_deepseek_planner_repairs_one_invalid_structured_response():
+    calls = []
+
+    async def completion(**kwargs):
+        calls.append(kwargs)
+        content = (
+            {"clarification_questions": [], "options": [{"id": "incomplete"}]}
+            if len(calls) == 1
+            else {
+                "clarification_questions": [
+                    {"id": "goal", "question": "What should this emphasize?"}
+                ],
+                "options": [],
+            }
+        )
+        return {
+            "choices": [{"message": {"content": json.dumps(content)}}],
+            "usage": {"prompt_tokens": 7, "completion_tokens": 9},
+        }
+
+    provider = LiteLLMPlannerProvider(
+        model="deepseek/deepseek-chat",
+        api_key="secret",
+        timeout_seconds=30,
+        completion=completion,
+    )
+
+    result = await provider.plan(
+        PlannerRequest(
+            run_id="run-1",
+            origin="user_initiated",
+            intent="Summarize recent activity",
+            launch_context={},
+            answers={},
+            evidence_scope=EvidenceScope(),
+            primary_skills=[],
+            related_skills=[],
+            asset_summaries=[],
+            templates=[],
+        )
+    )
+
+    assert result.clarification_questions[0].id == "goal"
+    assert len(calls) == 2
+    assert "failed local validation" in calls[1]["messages"][-1]["content"]
+
+
+async def test_deepseek_generator_accepts_one_json_object_with_presentation_text():
+    calls = []
+
+    async def completion(**kwargs):
+        calls.append(kwargs)
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": (
+                            "Structured result follows:\n```json\n"
+                            f"{json.dumps(_result(), ensure_ascii=False)}\n```"
+                        )
+                    }
+                }
+            ],
+            "usage": {"prompt_tokens": 7, "completion_tokens": 9},
+        }
+
+    provider = LiteLLMGeneratorProvider(
+        model="deepseek/deepseek-chat",
+        api_key="secret",
+        timeout_seconds=30,
+        completion=completion,
+    )
+
+    result = await provider.generate(_request())
+
+    assert result.content_md == _result()["content_md"]
+    assert len(calls) == 1
+
+
+async def test_deepseek_scope_resolver_accepts_one_json_object_with_presentation_text():
+    async def completion(**kwargs):
+        del kwargs
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": (
+                            "```json\n"
+                            '{"public_research_scope": {"entities": [], '
+                            '"questions": [], "freshness": "current"}}'
+                            "\n```"
+                        )
+                    }
+                }
+            ]
+        }
+
+    provider = LiteLLMScopeResolverProvider(
+        model="deepseek/deepseek-chat",
+        api_key="secret",
+        timeout_seconds=30,
+        completion=completion,
+    )
+
+    result = await provider.resolve(
+        ScopeResolutionRequest(
+            additional_focus="synthetic focus",
+            current_public_scope=PublicResearchBrief(),
+        )
+    )
+
+    assert result.public_research_scope == PublicResearchBrief()
 
 
 async def test_generator_repairs_one_invalid_structured_response():
