@@ -1,11 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user_id
 from app.config import get_settings
 from app.db.session import get_session
 from app.domains.reports import service
+from app.domains.reports.evidence_options import list_evidence_options
 from app.domains.reports.schemas import (
+    ReportPlanDraftUpdate,
     ReportRunCreate,
     RunDecisionRequest,
     RunGenerateRequest,
@@ -72,6 +76,28 @@ async def list_report_runs(
     return [await service.serialize_run(session, run) for run in runs]
 
 
+@router.get("/evidence-options")
+async def get_report_evidence_options(
+    q: str = "",
+    type: Literal["all", "asset", "event", "contact"] = "all",
+    skill: str | None = None,
+    cursor: str | None = None,
+    limit: int = Query(default=50, ge=1, le=100),
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    page = await list_evidence_options(
+        session,
+        user_id=user_id,
+        query=q,
+        type_filter=type,
+        skill_filter=skill,
+        cursor=cursor,
+        limit=limit,
+    )
+    return page.model_dump(mode="json")
+
+
 @router.get("/{run_id}")
 async def get_report_run(
     run_id: str,
@@ -85,6 +111,29 @@ async def get_report_run(
             run_id=run_id,
         )
     except service.RunNotFound as exc:
+        raise _translate_error(exc) from exc
+    return await service.serialize_run(session, run)
+
+
+@router.put("/{run_id}/plan-draft")
+async def update_report_plan_draft(
+    run_id: str,
+    command: ReportPlanDraftUpdate,
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    _require_provider(
+        get_settings().report_planner_available(),
+        "report planner is not configured",
+    )
+    try:
+        run, _ = await service.update_plan_draft(
+            session,
+            user_id=user_id,
+            run_id=run_id,
+            command=command,
+        )
+    except (service.RunNotFound, service.RunConflict) as exc:
         raise _translate_error(exc) from exc
     return await service.serialize_run(session, run)
 
@@ -129,6 +178,7 @@ async def generate_report_run(
             user_id=user_id,
             run_id=run_id,
             selected_option_id=command.selected_option_id,
+            expected_plan_revision=command.expected_plan_revision,
         )
     except (service.RunNotFound, service.RunConflict) as exc:
         raise _translate_error(exc) from exc

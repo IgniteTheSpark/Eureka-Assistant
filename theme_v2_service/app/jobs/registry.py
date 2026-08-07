@@ -18,6 +18,7 @@ from app.domains.notifications.maintenance import (
 
 JobHandler = Callable[[WorkflowJob], Awaitable[None]]
 REPORT_PLANNER_JOB_TYPE = "report_planner"
+REPORT_SCOPE_RESOLUTION_JOB_TYPE = "report_scope_resolution"
 REPORT_PIPELINE_JOB_TYPE = "report_pipeline"
 
 
@@ -72,6 +73,10 @@ registry.register(
 if _settings.report_planner_enabled and _settings.report_planner_model:
     from app.domains.reports.planner import planner_handler
     from app.domains.reports.providers_litellm import LiteLLMPlannerProvider
+    from app.domains.reports.scope_resolution import (
+        LiteLLMScopeResolverProvider,
+        scope_resolution_handler,
+    )
     from app.domains.reports.templates import get_template_registry
 
     registry.register(
@@ -83,6 +88,16 @@ if _settings.report_planner_enabled and _settings.report_planner_model:
                 timeout_seconds=_settings.report_provider_timeout_seconds,
             ),
             registry=get_template_registry(),
+        ),
+    )
+    registry.register(
+        REPORT_SCOPE_RESOLUTION_JOB_TYPE,
+        scope_resolution_handler(
+            provider=LiteLLMScopeResolverProvider(
+                model=_settings.report_planner_model,
+                api_key=_settings.report_provider_api_key,
+                timeout_seconds=_settings.report_provider_timeout_seconds,
+            )
         ),
     )
 

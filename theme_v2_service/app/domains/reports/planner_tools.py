@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Asset, Event, UserSkill
+from app.db.models import Asset, Contact, Event, EventAttendee, UserSkill
 from app.domains.reports.schemas import TimeRange
 
 
@@ -38,6 +38,14 @@ class PlannerAssetSummary(PlannerToolModel):
     fields: dict[str, Any]
 
 
+class PlannerEventAttendee(PlannerToolModel):
+    contact_id: str | None = None
+    name: str
+    role: str
+    company: str | None = None
+    title: str | None = None
+
+
 class PlannerEvent(PlannerToolModel):
     id: str
     title: str
@@ -46,6 +54,7 @@ class PlannerEvent(PlannerToolModel):
     start_at: datetime
     end_at: datetime
     all_day: bool
+    attendees: list[PlannerEventAttendee] = Field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -282,6 +291,18 @@ class PlannerTools:
         )
         if row is None:
             return None
+        attendees = (
+            await self._session.execute(
+                select(EventAttendee, Contact)
+                .outerjoin(
+                    Contact,
+                    (Contact.id == EventAttendee.contact_id)
+                    & (Contact.user_id == self.user_id),
+                )
+                .where(EventAttendee.event_id == row.id)
+                .order_by(EventAttendee.created_at, EventAttendee.id)
+            )
+        ).all()
         return PlannerEvent(
             id=row.id,
             title=row.title,
@@ -290,11 +311,23 @@ class PlannerTools:
             start_at=row.start_at,
             end_at=row.end_at,
             all_day=row.all_day,
+            attendees=[
+                PlannerEventAttendee(
+                    contact_id=contact.id if contact is not None else None,
+                    name=contact.name if contact is not None else attendee.name_raw,
+                    role=attendee.role,
+                    company=contact.company if contact is not None else None,
+                    title=contact.title if contact is not None else None,
+                )
+                for attendee, contact in attendees
+            ],
         )
 
     async def get_event_attendees(self, event_id: str) -> list[dict]:
-        await self.get_event(event_id)
-        return []
+        event = await self.get_event(event_id)
+        if event is None:
+            return []
+        return [item.model_dump(mode="json") for item in event.attendees]
 
     async def get_event_files(self, event_id: str) -> list[dict]:
         await self.get_event(event_id)

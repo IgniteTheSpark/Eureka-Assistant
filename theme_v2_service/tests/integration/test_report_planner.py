@@ -1,10 +1,11 @@
+from datetime import datetime
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 from sqlalchemy import func, select
 
-from app.db.models import Asset, UserSkill, WorkflowJob
+from app.db.models import Asset, Contact, Event, EventAttendee, UserSkill, WorkflowJob
 from app.db.session import AsyncSessionFactory
 from app.domains.notifications.models import Notification, OutboxEvent
 from app.domains.reports.models import ReportGenerationRun
@@ -23,6 +24,8 @@ from app.domains.reports.schemas import (
     ClarificationQuestion,
     EvidenceScope,
     IllustrationPolicy,
+    PublicResearchBrief,
+    ResearchEntity,
     ReportPlanOption,
 )
 from app.domains.reports.templates import TemplateRegistry
@@ -127,6 +130,121 @@ def _option(
         illustration=IllustrationPolicy(policy="optional"),
         render_policy="report_html_v1",
     )
+
+
+async def test_pre_event_plan_preserves_private_context_and_public_entities(session):
+    contact = Contact(
+        user_id="user-1",
+        name="Kevin",
+        company="Eureka",
+        title="CEO",
+        notes_json=["只在内部使用的会前备注"],
+        socials_json={},
+    )
+    event = Event(
+        user_id="user-1",
+        title="球队建设情况讨论",
+        description="比较皇家马德里和巴塞罗那的真实阵容，并讨论内部预算安排。",
+        location="会议室",
+        start_at=datetime(2026, 8, 8, 15, 0),
+        end_at=datetime(2026, 8, 8, 16, 0),
+        all_day=False,
+    )
+    session.add_all([contact, event])
+    await session.flush()
+    session.add(
+        EventAttendee(
+            event_id=event.id,
+            contact_id=contact.id,
+            name_raw="Kevin",
+            role="attendee",
+        )
+    )
+    run = ReportGenerationRun(
+        user_id="user-1",
+        origin="trigger",
+        state="planning",
+        active_stage="intake",
+        launch_context={"event_id": event.id},
+        intent=None,
+        answers={},
+        evidence_scope={},
+        plan_options=[],
+        resolved_asset_ids=[],
+        generation_context={},
+        usage_json={},
+    )
+    session.add(run)
+    await session.flush()
+    job = WorkflowJob(run_id=run.id, job_type="report_planner", status="running")
+    session.add(job)
+    await session.flush()
+    run.planner_job_id = job.id
+    await session.commit()
+
+    option = ReportPlanOption(
+        id="pre-event-briefing",
+        recommended=True,
+        title="球队建设会前调研",
+        summary="结合日程与公开阵容资料准备讨论",
+        report_goal="准备球队建设讨论",
+        template_id="pre_event_briefing",
+        template_version="1.0.0",
+        base_family="briefing_research",
+        evidence_scope=EvidenceScope(
+            references=[
+                {"kind": "event", "id": event.id},
+                {"kind": "contact", "id": contact.id},
+            ]
+        ),
+        attention_questions=["两队当前阵容与建设策略有何差异？"],
+        public_research_scope=PublicResearchBrief(
+            entities=[
+                ResearchEntity(
+                    id="real-madrid",
+                    kind="organization",
+                    name="皇家马德里",
+                ),
+                ResearchEntity(
+                    id="barcelona",
+                    kind="organization",
+                    name="巴塞罗那",
+                ),
+                ResearchEntity(
+                    id="kevin",
+                    kind="person",
+                    name="Kevin",
+                    qualifier="Eureka CEO",
+                ),
+            ],
+            questions=["当前一线队阵容", "球队建设策略", "Kevin 的公开职业背景"],
+        ),
+        field_bindings={},
+        web_search=CapabilityPolicy(policy="optional"),
+        illustration=IllustrationPolicy(policy="none"),
+        render_policy="report_html_v1",
+    )
+    provider = FakePlannerProvider(PlannerResult(options=[option]))
+
+    assert await execute_report_planner_job(
+        job,
+        provider=provider,
+        registry=TemplateRegistry.load(TEMPLATES),
+        session_factory=AsyncSessionFactory,
+    )
+
+    assert provider.request.event.description.endswith("内部预算安排。")
+    assert provider.request.event.attendees[0].contact_id == contact.id
+    await session.refresh(run)
+    assert run.plan_draft["evidence_scope"]["references"] == [
+        {"kind": "event", "id": event.id},
+        {"kind": "contact", "id": contact.id},
+    ]
+    assert [
+        entity["name"]
+        for entity in run.plan_draft["public_research_scope"]["entities"]
+    ] == ["皇家马德里", "巴塞罗那", "Kevin"]
+    assert "内部预算安排" not in str(run.plan_draft["public_research_scope"])
 
 
 async def test_planner_tools_are_owner_scoped_and_bounded(session):

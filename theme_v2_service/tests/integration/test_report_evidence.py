@@ -1,11 +1,12 @@
+from datetime import datetime
 from pathlib import Path
 
 import pytest
 
-from app.db.models import Asset, UserSkill
+from app.db.models import Asset, Contact, Event, EventAttendee, UserSkill
 from app.domains.reports.evidence import InsufficientEvidence, load_latest_evidence
 from app.domains.reports.models import ReportGenerationRun
-from app.domains.reports.schemas import ReportExecutionPlan
+from app.domains.reports.schemas import EvidenceReference, ReportExecutionPlan
 from app.domains.reports.templates import TemplateRegistry
 
 
@@ -130,3 +131,67 @@ async def test_all_unavailable_fails_before_any_paid_provider(session):
             execution_plan=_plan(["missing", "cross-user-or-deleted"]),
             registry=TemplateRegistry.load(TEMPLATES),
         )
+
+
+async def test_evidence_loads_owned_event_contact_and_complete_private_fields(session):
+    contact = Contact(
+        user_id="user-1",
+        name="Kevin",
+        company="Eureka",
+        title="CEO",
+        notes_json=["内部联系人备注"],
+        socials_json={"linkedin": "kevin-eureka"},
+    )
+    event = Event(
+        user_id="user-1",
+        title="球队建设情况讨论",
+        description="比较皇家马德里和巴塞罗那，内部预算暂不公开。",
+        location="会议室",
+        start_at=datetime(2026, 8, 8, 15, 0),
+        end_at=datetime(2026, 8, 8, 16, 0),
+        all_day=False,
+    )
+    other_contact = Contact(
+        user_id="user-2",
+        name="Other",
+        notes_json=[],
+        socials_json={},
+    )
+    session.add_all([contact, event, other_contact])
+    await session.flush()
+    session.add(
+        EventAttendee(
+            event_id=event.id,
+            contact_id=contact.id,
+            name_raw="Kevin",
+            role="attendee",
+        )
+    )
+    await session.commit()
+    plan = _plan([]).model_copy(
+        update={
+            "resolved_references": [
+                EvidenceReference(kind="event", id=event.id),
+                EvidenceReference(kind="contact", id=contact.id),
+                EvidenceReference(kind="contact", id=other_contact.id),
+            ]
+        }
+    )
+
+    bundle = await load_latest_evidence(
+        session,
+        run=_run(user_id="user-1"),
+        execution_plan=plan,
+        registry=TemplateRegistry.load(TEMPLATES),
+    )
+
+    assert [(item.kind, item.reference_id) for item in bundle.user_evidence] == [
+        ("event", event.id),
+        ("contact", contact.id),
+    ]
+    assert bundle.user_evidence[0].payload["description"].endswith("暂不公开。")
+    assert bundle.user_evidence[0].payload["attendees"][0]["name"] == "Kevin"
+    assert bundle.user_evidence[1].payload["notes"] == ["内部联系人备注"]
+    assert bundle.unavailable_references == [
+        {"kind": "contact", "id": other_contact.id}
+    ]

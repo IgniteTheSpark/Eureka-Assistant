@@ -22,6 +22,7 @@ from app.domains.reports.schemas import (
     ClarificationQuestion,
     EvidenceScope,
     PendingDecision,
+    ReportPlanDraft,
     ReportPlanOption,
 )
 from app.domains.reports.state_machine import transition_run
@@ -227,6 +228,16 @@ def validate_planner_result(
         skill.id for skill in [*request.primary_skills, *request.related_skills]
     }
     available_asset_ids = {summary.id for summary in request.asset_summaries}
+    available_references = {
+        ("asset", summary.id) for summary in request.asset_summaries
+    }
+    if request.event is not None:
+        available_references.add(("event", request.event.id))
+        available_references.update(
+            ("contact", attendee.contact_id)
+            for attendee in request.event.attendees
+            if attendee.contact_id is not None
+        )
     for option in result.options:
         key = (option.template_id, option.template_version)
         if key not in available_templates:
@@ -245,6 +256,11 @@ def validate_planner_result(
             raise InvalidPlannerResult("option references an unavailable Skill")
         if not set(option.evidence_scope.asset_ids).issubset(available_asset_ids):
             raise InvalidPlannerResult("option references an unavailable Asset")
+        if not {
+            (reference.kind, reference.id)
+            for reference in option.evidence_scope.references
+        }.issubset(available_references):
+            raise InvalidPlannerResult("option references unavailable evidence")
 
     if request.primary_skill_ids and request.primary_asset_ids:
         has_primary_only = any(
@@ -317,6 +333,14 @@ async def persist_planner_result(
             option.model_dump(mode="json", by_alias=True) for option in result.options
         ]
         recommended = next(option for option in result.options if option.recommended)
+        run.plan_draft = ReportPlanDraft(
+            selected_option_id=recommended.id,
+            attention_questions=recommended.attention_questions,
+            evidence_scope=recommended.evidence_scope,
+            public_research_scope=recommended.public_research_scope,
+            blockers=recommended.blockers,
+        ).model_dump(mode="json", by_alias=True)
+        run.plan_revision = int(run.plan_revision or 0) + 1
         run.pending_decision = PendingDecision(
             type="plan_selection",
             recommended_option_id=recommended.id,

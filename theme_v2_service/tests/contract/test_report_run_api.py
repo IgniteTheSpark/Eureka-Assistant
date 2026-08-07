@@ -4,7 +4,7 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
 
-from app.db.models import WorkflowJob
+from app.db.models import Asset, Contact, Event, UserSkill, WorkflowJob
 from app.domains.reports.models import ReportGenerationRun
 from app.domains.triggers.models import TriggerExecution
 from app.main import app
@@ -214,12 +214,12 @@ async def test_decision_replans_and_generate_is_idempotent(client, session):
     first = await client.post(
         f"/api/report-generation-runs/{run.id}/generate",
         headers=_headers(token),
-        json={"selected_option_id": "option-1"},
+        json={"selected_option_id": "option-1", "expected_plan_revision": 0},
     )
     repeated = await client.post(
         f"/api/report-generation-runs/{run.id}/generate",
         headers=_headers(token),
-        json={"selected_option_id": "option-1"},
+        json={"selected_option_id": "option-1", "expected_plan_revision": 0},
     )
 
     assert first.status_code == 200
@@ -257,7 +257,7 @@ async def test_cancelled_and_completed_runs_reject_mutation(client, session):
     cancelled_response = await client.post(
         f"/api/report-generation-runs/{cancelled.id}/generate",
         headers=_headers(token),
-        json={"selected_option_id": "option-1"},
+        json={"selected_option_id": "option-1", "expected_plan_revision": 0},
     )
     completed_response = await client.post(
         f"/api/report-generation-runs/{completed.id}/decision",
@@ -267,3 +267,165 @@ async def test_cancelled_and_completed_runs_reject_mutation(client, session):
 
     assert cancelled_response.status_code == 409
     assert completed_response.status_code == 409
+
+
+async def test_plan_draft_updates_are_revisioned_and_person_scope_is_blocked(
+    client,
+    session,
+):
+    token, user_id = await _register(client, "draft@example.com")
+    run = await _awaiting_run(session, user_id=user_id)
+    run.plan_revision = 2
+    run.plan_draft = {
+        "selected_option_id": "option-1",
+        "attention_questions": [],
+        "additional_focus": "",
+        "evidence_scope": {},
+        "public_research_scope": {},
+        "blockers": [],
+    }
+    await session.commit()
+    command = {
+        "selected_option_id": "option-1",
+        "attention_questions": ["Kevin 的公开职业背景是什么？"],
+        "additional_focus": "",
+        "evidence_scope": {},
+        "public_research_scope": {
+            "entities": [
+                {
+                    "id": "kevin",
+                    "kind": "person",
+                    "name": "Kevin",
+                }
+            ],
+            "questions": ["公开职业背景"],
+            "freshness": "current",
+        },
+    }
+
+    stale = await client.put(
+        f"/api/report-generation-runs/{run.id}/plan-draft",
+        headers=_headers(token),
+        json={**command, "expected_revision": 1},
+    )
+    updated = await client.put(
+        f"/api/report-generation-runs/{run.id}/plan-draft",
+        headers=_headers(token),
+        json={**command, "expected_revision": 2},
+    )
+
+    assert stale.status_code == 409
+    assert updated.status_code == 200
+    assert updated.json()["plan_revision"] == 3
+    assert updated.json()["state"] == "awaiting_selection"
+    assert updated.json()["plan_draft"]["blockers"][0]["code"] == "ambiguous_person"
+    blocked_generate = await client.post(
+        f"/api/report-generation-runs/{run.id}/generate",
+        headers=_headers(token),
+        json={"selected_option_id": "option-1", "expected_plan_revision": 3},
+    )
+    assert blocked_generate.status_code == 409
+
+
+async def test_additional_focus_enqueues_scope_resolution(client, session):
+    token, user_id = await _register(client, "scope@example.com")
+    run = await _awaiting_run(session, user_id=user_id)
+
+    response = await client.put(
+        f"/api/report-generation-runs/{run.id}/plan-draft",
+        headers=_headers(token),
+        json={
+            "expected_revision": 0,
+            "selected_option_id": "option-1",
+            "attention_questions": [],
+            "additional_focus": "补充 Kevin（Eureka CEO）的公开职业背景",
+            "evidence_scope": {},
+            "public_research_scope": {
+                "entities": [
+                    {
+                        "id": "kevin",
+                        "kind": "person",
+                        "name": "Kevin",
+                        "qualifier": "Eureka CEO",
+                    }
+                ],
+                "questions": ["公开职业背景"],
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["state"] == "planning"
+    assert response.json()["active_stage"] == "scope_resolution"
+    job = await session.get(WorkflowJob, response.json()["job_id"])
+    assert job.job_type == "report_scope_resolution"
+    assert job.checkpoint_json == {"plan_revision": 1}
+
+
+async def test_evidence_options_unify_owned_assets_events_and_contacts(client, session):
+    token, user_id = await _register(client, "picker@example.com")
+    skill = UserSkill(
+        user_id=user_id,
+        machine_name="running",
+        display_name="跑步训练",
+        description=None,
+        domain="health",
+        schema_json={"type": "object"},
+        render_spec_json={"icon": "🏃"},
+    )
+    session.add(skill)
+    await session.flush()
+    asset = Asset(
+        user_id=user_id,
+        user_skill_id=skill.id,
+        payload_json={"title": "周末长跑"},
+    )
+    event = Event(
+        user_id=user_id,
+        title="与 Kevin 讨论球队建设",
+        start_at=NOW,
+        end_at=NOW + timedelta(hours=1),
+        all_day=False,
+    )
+    contact = Contact(
+        user_id=user_id,
+        name="Kevin",
+        company="Eureka",
+        title="CEO",
+        notes_json=[],
+        socials_json={},
+    )
+    other = Contact(
+        user_id="other-user",
+        name="Kevin Secret",
+        notes_json=[],
+        socials_json={},
+    )
+    session.add_all([asset, event, contact, other])
+    await session.commit()
+
+    all_response = await client.get(
+        "/api/report-generation-runs/evidence-options",
+        headers=_headers(token),
+    )
+    contacts_response = await client.get(
+        "/api/report-generation-runs/evidence-options",
+        headers=_headers(token),
+        params={"type": "contact", "q": "Kevin"},
+    )
+
+    assert all_response.status_code == 200
+    assert {
+        (item["reference"]["kind"], item["reference"]["id"])
+        for item in all_response.json()["items"]
+    } == {("asset", asset.id), ("event", event.id), ("contact", contact.id)}
+    assert contacts_response.status_code == 200
+    assert [item["reference"]["id"] for item in contacts_response.json()["items"]] == [
+        contact.id
+    ]
+    assert {item["label"] for item in all_response.json()["filters"]} >= {
+        "全部",
+        "日程",
+        "联系人",
+        "跑步训练",
+    }

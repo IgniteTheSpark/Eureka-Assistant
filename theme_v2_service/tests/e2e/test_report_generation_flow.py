@@ -132,7 +132,10 @@ async def test_report_flow_from_records_through_share_card_and_revocation(
     generating = await client.post(
         f"/api/report-generation-runs/{run_id}/generate",
         headers=headers,
-        json={"selected_option_id": "monthly-summary"},
+        json={
+            "selected_option_id": "monthly-summary",
+            "expected_plan_revision": planned.json()["plan_revision"],
+        },
     )
     assert generating.json()["state"] == "generating"
 

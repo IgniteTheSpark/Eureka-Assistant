@@ -5,9 +5,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Asset
+from app.db.models import Asset, Contact, Event, EventAttendee
 from app.domains.reports.models import ReportGenerationRun
-from app.domains.reports.schemas import ReportExecutionPlan, TimeRange
+from app.domains.reports.schemas import (
+    EvidenceReference,
+    ReportExecutionPlan,
+    TimeRange,
+)
 from app.domains.reports.templates import TemplateRegistry
 
 
@@ -20,8 +24,10 @@ class EvidenceModel(BaseModel):
 
 
 class EvidenceItem(EvidenceModel):
-    asset_id: str
-    skill_id: str
+    kind: str = "asset"
+    reference_id: str
+    asset_id: str | None = None
+    skill_id: str | None = None
     effective_at: datetime
     payload: dict
     bound_fields: dict[str, Any] = Field(default_factory=dict)
@@ -30,6 +36,7 @@ class EvidenceItem(EvidenceModel):
 class EvidenceBundle(EvidenceModel):
     user_evidence: list[EvidenceItem]
     unavailable_asset_ids: list[str]
+    unavailable_references: list[dict[str, str]] = Field(default_factory=list)
     field_bindings: dict[str, str]
     time_range: TimeRange | None
     report_goal: str
@@ -74,7 +81,22 @@ async def load_latest_evidence(
     if package.manifest.base_family != execution_plan.base_family:
         raise InsufficientEvidence("execution plan does not match template")
 
-    requested_ids = list(dict.fromkeys(execution_plan.resolved_asset_ids))
+    references: list[EvidenceReference] = []
+    seen_references: set[tuple[str, str]] = set()
+    for reference in [
+        *execution_plan.resolved_references,
+        *(
+            EvidenceReference(kind="asset", id=asset_id)
+            for asset_id in execution_plan.resolved_asset_ids
+        ),
+    ]:
+        key = (reference.kind, reference.id)
+        if key in seen_references:
+            continue
+        seen_references.add(key)
+        references.append(reference)
+
+    requested_ids = [ref.id for ref in references if ref.kind == "asset"]
     rows = []
     if requested_ids:
         rows = list(
@@ -86,22 +108,118 @@ async def load_latest_evidence(
             )
         )
     by_id = {asset.id: asset for asset in rows}
+    event_ids = [ref.id for ref in references if ref.kind == "event"]
+    events = list(
+        await session.scalars(
+            select(Event).where(
+                Event.id.in_(event_ids),
+                Event.user_id == run.user_id,
+            )
+        )
+    ) if event_ids else []
+    events_by_id = {event.id: event for event in events}
+    event_attendees: dict[str, list[dict[str, Any]]] = {
+        event_id: [] for event_id in event_ids
+    }
+    if event_ids:
+        attendee_rows = (
+            await session.execute(
+                select(EventAttendee, Contact)
+                .outerjoin(
+                    Contact,
+                    (Contact.id == EventAttendee.contact_id)
+                    & (Contact.user_id == run.user_id),
+                )
+                .where(EventAttendee.event_id.in_(event_ids))
+                .order_by(EventAttendee.created_at, EventAttendee.id)
+            )
+        ).all()
+        for attendee, contact in attendee_rows:
+            event_attendees.setdefault(attendee.event_id, []).append(
+                {
+                    "contact_id": contact.id if contact is not None else None,
+                    "name": contact.name if contact is not None else attendee.name_raw,
+                    "role": attendee.role,
+                    "company": contact.company if contact is not None else None,
+                    "title": contact.title if contact is not None else None,
+                }
+            )
+
+    contact_ids = [ref.id for ref in references if ref.kind == "contact"]
+    contacts = list(
+        await session.scalars(
+            select(Contact).where(
+                Contact.id.in_(contact_ids),
+                Contact.user_id == run.user_id,
+            )
+        )
+    ) if contact_ids else []
+    contacts_by_id = {contact.id: contact for contact in contacts}
     evidence: list[EvidenceItem] = []
     unavailable: list[str] = []
-    for asset_id in requested_ids:
-        asset = by_id.get(asset_id)
-        if asset is None:
-            unavailable.append(asset_id)
+    unavailable_references: list[dict[str, str]] = []
+    for reference in references:
+        if reference.kind == "asset":
+            asset = by_id.get(reference.id)
+            if asset is None:
+                unavailable.append(reference.id)
+                unavailable_references.append(reference.model_dump())
+                continue
+            evidence.append(
+                EvidenceItem(
+                    kind="asset",
+                    reference_id=asset.id,
+                    asset_id=asset.id,
+                    skill_id=asset.user_skill_id,
+                    effective_at=asset.effective_at or asset.created_at,
+                    payload=asset.payload_json,
+                    bound_fields={
+                        binding: _resolve_path(asset, source)
+                        for binding, source in execution_plan.field_bindings.items()
+                    },
+                )
+            )
+            continue
+        if reference.kind == "event":
+            event = events_by_id.get(reference.id)
+            if event is None:
+                unavailable_references.append(reference.model_dump())
+                continue
+            evidence.append(
+                EvidenceItem(
+                    kind="event",
+                    reference_id=event.id,
+                    effective_at=event.start_at,
+                    payload={
+                        "title": event.title,
+                        "description": event.description,
+                        "location": event.location,
+                        "start_at": event.start_at,
+                        "end_at": event.end_at,
+                        "all_day": event.all_day,
+                        "status": event.status,
+                        "attendees": event_attendees.get(event.id, []),
+                    },
+                )
+            )
+            continue
+        contact = contacts_by_id.get(reference.id)
+        if contact is None:
+            unavailable_references.append(reference.model_dump())
             continue
         evidence.append(
             EvidenceItem(
-                asset_id=asset.id,
-                skill_id=asset.user_skill_id,
-                effective_at=asset.effective_at or asset.created_at,
-                payload=asset.payload_json,
-                bound_fields={
-                    binding: _resolve_path(asset, source)
-                    for binding, source in execution_plan.field_bindings.items()
+                kind="contact",
+                reference_id=contact.id,
+                effective_at=contact.created_at,
+                payload={
+                    "name": contact.name,
+                    "phone": contact.phone,
+                    "company": contact.company,
+                    "title": contact.title,
+                    "email": contact.email,
+                    "notes": contact.notes_json,
+                    "socials": contact.socials_json,
                 },
             )
         )
@@ -113,6 +231,7 @@ async def load_latest_evidence(
     return EvidenceBundle(
         user_evidence=evidence,
         unavailable_asset_ids=unavailable,
+        unavailable_references=unavailable_references,
         field_bindings=execution_plan.field_bindings,
         time_range=execution_plan.time_range,
         report_goal=execution_plan.report_goal,

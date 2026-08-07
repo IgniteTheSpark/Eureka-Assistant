@@ -137,6 +137,11 @@ class ReportPlanOption(StrictModel):
         "briefing_research",
     ]
     evidence_scope: EvidenceScope
+    attention_questions: list[str] = Field(default_factory=list, max_length=8)
+    public_research_scope: PublicResearchBrief = Field(
+        default_factory=PublicResearchBrief
+    )
+    blockers: list[PlanBlocker] = Field(default_factory=list)
     field_bindings: dict[str, str] = Field(default_factory=dict)
     web_search: CapabilityPolicy
     illustration: IllustrationPolicy
@@ -263,6 +268,17 @@ ReportRunCreate = Annotated[
 class RunDecisionRequest(StrictModel):
     answers: dict = Field(default_factory=dict)
     evidence_scope: EvidenceScope | None = None
+
+
+class ReportPlanDraftUpdate(StrictModel):
+    expected_revision: int = Field(ge=0)
+    selected_option_id: str = Field(min_length=1)
+    attention_questions: list[str] = Field(default_factory=list, max_length=8)
+    additional_focus: str = Field(default="", max_length=500)
+    evidence_scope: EvidenceScope = Field(default_factory=EvidenceScope)
+    public_research_scope: PublicResearchBrief = Field(
+        default_factory=PublicResearchBrief
+    )
 
 
 class RunGenerateRequest(StrictModel):

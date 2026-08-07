@@ -10,6 +10,10 @@ from app.domains.reports.pipeline import (
     database_pipeline_context,
 )
 from app.domains.reports.schemas import UserRunCreate
+from app.domains.reports.scope_resolution import (
+    ScopeResolutionResult,
+    execute_scope_resolution_job,
+)
 from app.domains.reports.service import (
     create_user_run,
     generation_write_guard,
@@ -39,6 +43,7 @@ async def test_user_run_and_planner_job_share_outer_transaction(session):
         "time_range": None,
         "skill_ids": ["skill-1"],
         "asset_ids": ["asset-1"],
+        "references": [{"kind": "asset", "id": "asset-1"}],
         "counts_by_skill": {},
     }
     assert job.job_type == "report_planner"
@@ -166,3 +171,84 @@ async def test_database_pipeline_checkpoints_require_current_running_job(session
         await context.save_checkpoint("web_search", {"sources": []})
     await session.refresh(job)
     assert "web_search" not in job.checkpoint_json["stage_results"]
+
+
+class _ScopeResolver:
+    async def resolve(self, request):
+        assert "Kevin" in request.additional_focus
+        return ScopeResolutionResult.model_validate(
+            {
+                "public_research_scope": {
+                    "entities": [
+                        {
+                            "id": "kevin",
+                            "kind": "person",
+                            "name": "Kevin",
+                            "qualifier": "Eureka CEO",
+                        }
+                    ],
+                    "questions": ["公开职业背景"],
+                    "freshness": "current",
+                }
+            }
+        )
+
+
+async def test_scope_resolution_writes_only_current_plan_revision(session):
+    run = ReportGenerationRun(
+        user_id="user-1",
+        origin="user_initiated",
+        state="planning",
+        active_stage="scope_resolution",
+        launch_context={},
+        intent="Kevin briefing",
+        answers={},
+        evidence_scope={},
+        pending_decision={
+            "type": "plan_selection",
+            "recommended_option_id": "option-1",
+        },
+        plan_options=[],
+        plan_draft={
+            "selected_option_id": "option-1",
+            "additional_focus": "补充 Kevin（Eureka CEO）的公开职业背景",
+            "evidence_scope": {},
+            "public_research_scope": {},
+        },
+        plan_revision=4,
+        resolved_asset_ids=[],
+        generation_context={},
+        usage_json={},
+    )
+    session.add(run)
+    await session.flush()
+    current = WorkflowJob(
+        run_id=run.id,
+        job_type="report_scope_resolution",
+        status="running",
+        checkpoint_json={"plan_revision": 4},
+    )
+    session.add(current)
+    await session.flush()
+    run.scope_resolution_job_id = current.id
+    await session.commit()
+
+    assert await execute_scope_resolution_job(current, provider=_ScopeResolver())
+
+    await session.refresh(run)
+    assert run.state == "awaiting_selection"
+    assert run.plan_revision == 5
+    assert run.scope_resolution_job_id is None
+    assert run.plan_draft["public_research_scope"]["entities"][0]["qualifier"] == (
+        "Eureka CEO"
+    )
+
+    stale = WorkflowJob(
+        run_id=run.id,
+        job_type="report_scope_resolution",
+        status="running",
+        checkpoint_json={"plan_revision": 4},
+    )
+    session.add(stale)
+    await session.commit()
+    assert await execute_scope_resolution_job(stale, provider=_ScopeResolver()) is False

@@ -7,13 +7,15 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.config import get_settings
 from app.db.base import new_uuid, utc_now
-from app.db.models import UserSkill, WorkflowJob
+from app.db.models import Asset, Contact, Event, UserSkill, WorkflowJob
 from app.domains.notifications.models import Notification
 from app.domains.notifications.schemas import NotificationCreate
 from app.domains.notifications.service import create_notification
 from app.domains.reports.models import Report, ReportGenerationRun
 from app.domains.reports.schemas import (
     EvidenceScope,
+    ReportPlanDraft,
+    ReportPlanDraftUpdate,
     ReportSpec,
     ReportExecutionPlan,
     ReportPlanOption,
@@ -34,6 +36,7 @@ from app.domains.triggers.service import (
 )
 from app.jobs.queue import enqueue_job
 from app.jobs.registry import REPORT_PIPELINE_JOB_TYPE, REPORT_PLANNER_JOB_TYPE
+from app.jobs.registry import REPORT_SCOPE_RESOLUTION_JOB_TYPE
 from app.observability import metrics
 
 
@@ -262,6 +265,7 @@ async def submit_decision(
         )
     run.pending_decision = None
     run.plan_options = []
+    run.plan_draft = None
     run.selected_option_id = None
     run.execution_plan = None
     await _enqueue_planner(session, run, reason="decision")
@@ -270,12 +274,156 @@ async def submit_decision(
     return run
 
 
+async def _validate_owned_scope(
+    session: AsyncSession,
+    *,
+    user_id: str,
+    scope: EvidenceScope,
+) -> EvidenceScope:
+    skill_ids = list(dict.fromkeys(scope.skill_ids))
+    if skill_ids:
+        owned_skill_ids = set(
+            await session.scalars(
+                select(UserSkill.id).where(
+                    UserSkill.user_id == user_id,
+                    UserSkill.id.in_(skill_ids),
+                )
+            )
+        )
+        if owned_skill_ids != set(skill_ids):
+            raise RunConflict("evidence scope contains unavailable Skills")
+
+    grouped = {
+        "asset": [ref.id for ref in scope.references if ref.kind == "asset"],
+        "event": [ref.id for ref in scope.references if ref.kind == "event"],
+        "contact": [ref.id for ref in scope.references if ref.kind == "contact"],
+    }
+    owned: dict[str, set[str]] = {"asset": set(), "event": set(), "contact": set()}
+    if grouped["asset"]:
+        owned["asset"] = set(
+            await session.scalars(
+                select(Asset.id).where(
+                    Asset.user_id == user_id,
+                    Asset.id.in_(grouped["asset"]),
+                )
+            )
+        )
+    if grouped["event"]:
+        owned["event"] = set(
+            await session.scalars(
+                select(Event.id).where(
+                    Event.user_id == user_id,
+                    Event.id.in_(grouped["event"]),
+                )
+            )
+        )
+    if grouped["contact"]:
+        owned["contact"] = set(
+            await session.scalars(
+                select(Contact.id).where(
+                    Contact.user_id == user_id,
+                    Contact.id.in_(grouped["contact"]),
+                )
+            )
+        )
+    unavailable = [
+        reference
+        for reference in scope.references
+        if reference.id not in owned[reference.kind]
+    ]
+    if unavailable:
+        raise RunConflict("evidence scope contains unavailable references")
+    return scope
+
+
+def _draft_from_option(option: ReportPlanOption) -> ReportPlanDraft:
+    return ReportPlanDraft(
+        selected_option_id=option.id,
+        attention_questions=option.attention_questions,
+        evidence_scope=option.evidence_scope,
+        public_research_scope=option.public_research_scope,
+        blockers=option.blockers,
+    )
+
+
+async def update_plan_draft(
+    session: AsyncSession,
+    *,
+    user_id: str,
+    run_id: str,
+    command: ReportPlanDraftUpdate,
+    now: datetime | None = None,
+) -> tuple[ReportGenerationRun, WorkflowJob | None]:
+    from app.domains.reports.scope_resolution import blockers_for_scope
+
+    run = await owned_run_for_update(session, user_id=user_id, run_id=run_id)
+    if run.state != "awaiting_selection":
+        raise RunConflict("run is not awaiting plan adjustment")
+    if int(run.plan_revision or 0) != command.expected_revision:
+        raise RunConflict("plan revision is stale")
+    if not any(
+        raw.get("id") == command.selected_option_id
+        for raw in (run.plan_options or [])
+    ):
+        raise RunConflict("selected option does not exist")
+
+    scope = await _validate_owned_scope(
+        session,
+        user_id=user_id,
+        scope=command.evidence_scope,
+    )
+    previous = (
+        ReportPlanDraft.model_validate(run.plan_draft)
+        if run.plan_draft is not None
+        else None
+    )
+    draft = ReportPlanDraft(
+        selected_option_id=command.selected_option_id,
+        attention_questions=command.attention_questions,
+        additional_focus=command.additional_focus.strip(),
+        evidence_scope=scope,
+        public_research_scope=command.public_research_scope,
+        blockers=blockers_for_scope(
+            command.public_research_scope,
+            additional_focus=command.additional_focus,
+        ),
+    )
+    if previous is not None and previous == draft:
+        return run, None
+
+    focus_changed = (
+        previous is None
+        or previous.additional_focus != draft.additional_focus
+    ) and bool(draft.additional_focus)
+    run.plan_draft = draft.model_dump(mode="json", by_alias=True)
+    run.evidence_scope = scope.model_dump(mode="json", by_alias=True)
+    run.plan_revision = int(run.plan_revision or 0) + 1
+    if not focus_changed:
+        await session.flush()
+        return run, None
+
+    job = await enqueue_job(
+        session,
+        run_id=run.id,
+        job_type=REPORT_SCOPE_RESOLUTION_JOB_TYPE,
+        dedupe_key=f"scope-resolution:{run.id}:{run.plan_revision}",
+        max_attempts=get_settings().report_provider_max_attempts,
+    )
+    job.checkpoint_json = {"plan_revision": run.plan_revision}
+    run.scope_resolution_job_id = job.id
+    run.active_stage = "scope_resolution"
+    transition_run(run, "planning", now=now or utc_now())
+    await session.flush()
+    return run, job
+
+
 async def generate_run(
     session: AsyncSession,
     *,
     user_id: str,
     run_id: str,
     selected_option_id: str,
+    expected_plan_revision: int,
     now: datetime | None = None,
 ) -> tuple[ReportGenerationRun, WorkflowJob]:
     run = await owned_run_for_update(
@@ -301,14 +449,33 @@ async def generate_run(
     if raw_option is None:
         raise RunConflict("selected option does not exist")
     option = ReportPlanOption.model_validate(raw_option)
+    if int(run.plan_revision or 0) != expected_plan_revision:
+        raise RunConflict("plan revision is stale")
+    draft = (
+        ReportPlanDraft.model_validate(run.plan_draft)
+        if run.plan_draft is not None
+        else _draft_from_option(option)
+    )
+    if draft.selected_option_id != selected_option_id:
+        raise RunConflict("selected option does not match the confirmed draft")
+    if draft.blockers:
+        raise RunConflict("report plan has unresolved blockers")
+    await _validate_owned_scope(
+        session,
+        user_id=user_id,
+        scope=draft.evidence_scope,
+    )
     execution_plan = ReportExecutionPlan(
         template_id=option.template_id,
         template_version=option.template_version,
         base_family=option.base_family,
         report_goal=option.report_goal,
-        resolved_asset_ids=option.evidence_scope.asset_ids,
+        resolved_asset_ids=draft.evidence_scope.asset_ids,
+        resolved_references=draft.evidence_scope.references,
+        attention_questions=draft.attention_questions,
+        public_research_brief=draft.public_research_scope,
         field_bindings=option.field_bindings,
-        time_range=option.evidence_scope.time_range,
+        time_range=draft.evidence_scope.time_range,
         web_policy=option.web_search.policy,
         illustration_policy=option.illustration.policy,
         render_policy=option.render_policy,
@@ -321,6 +488,7 @@ async def generate_run(
         max_attempts=get_settings().report_provider_max_attempts,
     )
     run.selected_option_id = selected_option_id
+    run.plan_draft = draft.model_dump(mode="json", by_alias=True)
     run.execution_plan = execution_plan.model_dump(mode="json", by_alias=True)
     run.template_id = execution_plan.template_id
     run.template_version = execution_plan.template_version
@@ -387,7 +555,15 @@ async def cancel_run(
         transition_run(run, "cancelled", now=now or utc_now())
     except InvalidRunTransition as exc:
         raise RunConflict(str(exc)) from exc
-    job_ids = [value for value in (run.planner_job_id, run.generation_job_id) if value]
+    job_ids = [
+        value
+        for value in (
+            run.planner_job_id,
+            run.scope_resolution_job_id,
+            run.generation_job_id,
+        )
+        if value
+    ]
     if job_ids:
         await session.execute(
             update(WorkflowJob)
@@ -737,6 +913,7 @@ async def serialize_run(
             "time_range": value.get("time_range"),
             "skill_ids": ids,
             "asset_ids": list(value.get("asset_ids", [])),
+            "references": list(value.get("references", [])),
             "skills": [
                 {
                     "id": skill_id,
@@ -745,7 +922,7 @@ async def serialize_run(
                 }
                 for skill_id in ids
             ],
-            "asset_count": len(value.get("asset_ids", [])),
+            "asset_count": len(value.get("references") or value.get("asset_ids", [])),
         }
 
     public_options = []
@@ -777,9 +954,14 @@ async def serialize_run(
                 else None
             ),
             "asset_count": len(plan.resolved_asset_ids),
+            "reference_count": len(plan.resolved_references),
             "web_policy": plan.web_policy,
             "illustration_policy": plan.illustration_policy,
         }
+    public_draft = None
+    if run.plan_draft is not None:
+        draft = ReportPlanDraft.model_validate(run.plan_draft)
+        public_draft = draft.model_dump(mode="json", by_alias=True)
     return {
         "id": run.id,
         "origin": run.origin,
@@ -790,6 +972,8 @@ async def serialize_run(
         "evidence_scope": public_scope(scope),
         "pending_decision": run.pending_decision,
         "plan_options": public_options,
+        "plan_draft": public_draft,
+        "plan_revision": int(run.plan_revision or 0),
         "selected_option_id": run.selected_option_id,
         "execution_plan": public_plan,
         "failure": (
@@ -806,7 +990,11 @@ async def serialize_run(
         "job_id": (
             run.generation_job_id
             if run.state == "generating"
-            else run.planner_job_id
+            else (
+                run.scope_resolution_job_id
+                if run.active_stage == "scope_resolution"
+                else run.planner_job_id
+            )
         ),
         "created_at": _timestamp(run.created_at),
         "updated_at": _timestamp(run.updated_at),
