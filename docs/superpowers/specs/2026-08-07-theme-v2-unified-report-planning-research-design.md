@@ -202,6 +202,12 @@ The service is authoritative for ownership and availability. Deleted,
 unavailable, or cross-owner IDs cannot enter the plan even if a stale client
 submits them.
 
+The UI uses `资产` as the product term, but the service already stores Events
+and Contacts as first-class entities rather than rows in the generic `assets`
+table. Picker selections therefore use a typed `EvidenceReference(kind, id)`
+for `asset`, `event`, or `contact`. Generic and custom Skill records keep their
+existing Asset IDs; Events and Contacts keep their own IDs.
+
 ### 5.6 Final confirmation and generation
 
 After editing, the final screen summarizes:
@@ -304,10 +310,11 @@ public_research_scope
 blocking_confirmations
 ```
 
-The existing `evidence_scope.asset_ids` remains the internal evidence set. A
-Run stores one editable plan draft derived from the selected option. The draft
-contains only IDs and bounded user additions; it does not duplicate full Asset
-payloads.
+`EvidenceScope` gains typed `references`, where every item contains `kind` and
+`id`. The existing `evidence_scope.asset_ids` remains a compatibility projection
+of references whose kind is `asset`. A Run stores one editable plan draft
+derived from the selected option. The draft contains only typed references and
+bounded user additions; it does not duplicate full entity payloads.
 
 Editing the draft uses one owner-scoped endpoint:
 
@@ -345,6 +352,7 @@ selected template and version
 report goal
 attention questions
 resolved Asset IDs
+resolved evidence references
 contextual Report period
 validated PublicResearchBrief
 web policy
@@ -352,8 +360,10 @@ illustration policy
 render policy
 ```
 
-Full Event and selected Asset content are loaded internally for Generator
-evidence. Only `PublicResearchBrief` crosses the Web Search provider boundary.
+Full owned Event, Contact, and selected Asset content are loaded internally for
+Generator evidence. `resolved_asset_ids` remains the existing Asset-only
+projection for citation and compatibility code. Only `PublicResearchBrief`
+crosses the Web Search provider boundary.
 
 ## 9. Scope Resolution and Privacy
 
