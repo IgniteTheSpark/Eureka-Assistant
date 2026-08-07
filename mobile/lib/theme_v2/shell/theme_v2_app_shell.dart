@@ -11,6 +11,10 @@ import '../../pet/reka_notifications.dart';
 import '../../theme/app_theme.dart';
 import '../calendar/calendar_controller.dart';
 import '../calendar/theme_v2_calendar_page.dart';
+import '../capture/capture_activity_coordinator.dart';
+import '../capture/capture_activity_models.dart';
+import '../capture/capture_activity_top_bar.dart';
+import '../capture/capture_session_page.dart';
 import '../device/theme_v2_device_route.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../home/theme_v2_home_page.dart';
@@ -41,6 +45,8 @@ class ThemeV2AppShell extends StatefulWidget {
     this.enableLegacyInbox = false,
     this.calendarController,
     this.libraryNavigation,
+    this.captureActivityCoordinator,
+    this.onCaptureActivitySelected,
     this.initialIndex = const int.fromEnvironment('START_TAB', defaultValue: 0),
     this.showStartupOverlays = true,
   }) : assert(deviceStatus == null || deviceStatusAdapter == null);
@@ -62,6 +68,8 @@ class ThemeV2AppShell extends StatefulWidget {
   bool get usesLegacyInbox => enableLegacyInbox || inboxController != null;
   final CalendarController? calendarController;
   final LibraryNavigationController? libraryNavigation;
+  final CaptureActivityCoordinator? captureActivityCoordinator;
+  final ValueChanged<CaptureActivityItem>? onCaptureActivitySelected;
   final int initialIndex;
 
   /// Test seam only. Production keeps START_OVERLAY and morning briefing on.
@@ -85,6 +93,7 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
   late final bool _ownsLibraryNavigation = widget.libraryNavigation == null;
   ThemeV2DeviceStatusAdapter? _deviceStatusAdapter;
   bool _ownsDeviceStatusAdapter = false;
+  late CaptureActivityCoordinator _captureActivityCoordinator;
 
   @override
   void initState() {
@@ -98,6 +107,7 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
     }
     _calendarController.surfaceListenable.addListener(_onCalendarChanged);
     _libraryNavigation.addListener(_onLibraryChanged);
+    _attachCaptureActivityCoordinator();
     _attachDeviceStatusAdapter();
     if (widget.enableLegacyInbox &&
         _inboxController.status == RekaInboxStatus.idle) {
@@ -121,6 +131,7 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
     if (_ownsCalendarController) _calendarController.dispose();
     _libraryNavigation.removeListener(_onLibraryChanged);
     if (_ownsLibraryNavigation) _libraryNavigation.dispose();
+    _captureActivityCoordinator.removeListener(_onCaptureActivityChanged);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -133,6 +144,22 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
       _detachDeviceStatusAdapter();
       _attachDeviceStatusAdapter();
     }
+    if (oldWidget.captureActivityCoordinator !=
+        widget.captureActivityCoordinator) {
+      _captureActivityCoordinator.removeListener(_onCaptureActivityChanged);
+      _attachCaptureActivityCoordinator();
+    }
+  }
+
+  void _attachCaptureActivityCoordinator() {
+    _captureActivityCoordinator =
+        widget.captureActivityCoordinator ??
+        CaptureActivityCoordinator.instance;
+    _captureActivityCoordinator.addListener(_onCaptureActivityChanged);
+  }
+
+  void _onCaptureActivityChanged() {
+    if (mounted) setState(() {});
   }
 
   void _attachDeviceStatusAdapter() {
@@ -236,6 +263,28 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
     );
   }
 
+  void _openCaptureActivity(
+    BuildContext context,
+    CaptureActivityItem activity,
+  ) {
+    final callback = widget.onCaptureActivitySelected;
+    if (callback != null) {
+      callback(activity);
+      return;
+    }
+    final recordingId = activity.recordingId;
+    if (!activity.canOpenSession || recordingId == null) return;
+    Navigator.of(context).push(
+      themeV2Route<void>(
+        context: context,
+        builder: (_) => CaptureSessionPage(
+          recordingId: recordingId,
+          focusedInputTurnId: activity.inputTurnId,
+        ),
+      ),
+    );
+  }
+
   List<ThemeV2PageScaffold> _pages() {
     return widget.pages ??
         [
@@ -274,7 +323,7 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
 
     final pages = _pages();
     final activePage = pages[_index];
-    final topNav = ThemeV2GlobalTopNav(
+    final standardTopNav = ThemeV2GlobalTopNav(
       deviceStatus:
           widget.deviceStatus ??
           _deviceStatusAdapter?.value ??
@@ -284,6 +333,24 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
           : RekaNotifications.instance.unread,
       onDeviceSelected: (target) => _openDevice(context, target),
       onNotificationsPressed: () => _openNotifications(context),
+    );
+    final captureSnapshot = _captureActivityCoordinator.snapshot;
+    final topNav = AnimatedSwitcher(
+      duration: const Duration(milliseconds: 180),
+      switchInCurve: Curves.easeOut,
+      switchOutCurve: Curves.easeIn,
+      child: captureSnapshot.active == null
+          ? KeyedSubtree(
+              key: const ValueKey<String>('theme-v2-standard-top-nav'),
+              child: standardTopNav,
+            )
+          : CaptureActivityTopBar(
+              key: const ValueKey<String>('theme-v2-capture-top-nav'),
+              item: captureSnapshot.active!,
+              queuedCount: captureSnapshot.queuedCount,
+              onTap: () =>
+                  _openCaptureActivity(context, captureSnapshot.active!),
+            ),
     );
     final dock = ThemeV2FloatingDock(
       selectedIndex: _index,

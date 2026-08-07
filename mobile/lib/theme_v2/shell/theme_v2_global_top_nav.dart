@@ -20,6 +20,7 @@ class ThemeV2GlobalTopNav extends StatelessWidget {
   final ValueChanged<ThemeV2DeviceTarget> onDeviceSelected;
   final VoidCallback onNotificationsPressed;
   final int unreadNotificationCount;
+  static const double height = 56;
 
   @override
   Widget build(BuildContext context) {
@@ -27,7 +28,7 @@ class ThemeV2GlobalTopNav extends StatelessWidget {
     return Material(
       color: tokens.background,
       child: Container(
-        height: 56,
+        height: height,
         padding: const EdgeInsets.symmetric(horizontal: ThemeV2Spacing.lg),
         decoration: BoxDecoration(
           border: Border(bottom: BorderSide(color: tokens.border)),

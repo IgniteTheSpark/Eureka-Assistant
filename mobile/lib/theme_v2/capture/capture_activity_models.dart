@@ -27,6 +27,18 @@ class CaptureActivityItem {
   bool get canOpenSession =>
       (sessionId?.isNotEmpty ?? false) && (inputTurnId?.isNotEmpty ?? false);
 
+  String? aliasValue(String kind) {
+    final prefix = '$kind:';
+    for (final alias in aliases) {
+      if (alias.startsWith(prefix) && alias.length > prefix.length) {
+        return alias.substring(prefix.length);
+      }
+    }
+    return null;
+  }
+
+  String? get recordingId => aliasValue('recording');
+
   String get statusLabel {
     if (phase == CaptureActivityPhase.done && resultCount != null) {
       return '已整理 · $resultCount 项';
