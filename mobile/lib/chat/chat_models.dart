@@ -32,6 +32,8 @@ class CardsPart extends ChatPart {
   const CardsPart(this.cards);
 }
 
+enum AgentWorkPhase { understanding, executing, composing, organizing }
+
 /// A chat session entry for the sidebar.
 class SessionInfo {
   final String id;
@@ -54,17 +56,33 @@ class ChatMessage {
   final List<ChatPart> parts;
 
   bool streaming;
+  AgentWorkPhase workPhase;
   int? elapsedMs;
   int? tokens;
 
   ChatMessage.user(this.id, this.text, {this.inputTurnId})
     : isUser = true,
       parts = const [],
-      streaming = false;
+      streaming = false,
+      workPhase = AgentWorkPhase.understanding;
 
-  ChatMessage.agent(this.id, {this.inputTurnId})
-    : isUser = false,
-      text = '',
-      parts = <ChatPart>[],
-      streaming = true;
+  ChatMessage.agent(
+    this.id, {
+    this.inputTurnId,
+    this.workPhase = AgentWorkPhase.understanding,
+  }) : isUser = false,
+       text = '',
+       parts = <ChatPart>[],
+       streaming = true;
+
+  void advanceWorkPhase(AgentWorkPhase next) {
+    if (_workPhaseRank(next) >= _workPhaseRank(workPhase)) workPhase = next;
+  }
 }
+
+int _workPhaseRank(AgentWorkPhase phase) => switch (phase) {
+  AgentWorkPhase.understanding => 0,
+  AgentWorkPhase.executing => 1,
+  AgentWorkPhase.composing => 2,
+  AgentWorkPhase.organizing => 3,
+};

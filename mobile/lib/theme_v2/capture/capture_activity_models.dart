@@ -49,10 +49,15 @@ class CaptureActivityItem {
 
 @immutable
 class CaptureActivitySnapshot {
-  const CaptureActivitySnapshot({this.active, this.queuedCount = 0});
+  const CaptureActivitySnapshot({
+    this.active,
+    this.queuedCount = 0,
+    this.activities = const [],
+  });
 
   final CaptureActivityItem? active;
   final int queuedCount;
+  final List<CaptureActivityItem> activities;
 
   bool get isActive => active != null;
   bool get canOpenSession => active?.canOpenSession ?? false;

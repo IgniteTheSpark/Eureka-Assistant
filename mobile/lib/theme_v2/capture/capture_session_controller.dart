@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import '../../api/api_client.dart';
 import '../../api/sse_client.dart';
 import '../../chat/chat_models.dart';
+import '../../capture_activity/capture_activity_event.dart';
+import 'capture_activity_coordinator.dart';
 import '../session/session_controller.dart';
 import '../session/session_invalidation.dart';
 
@@ -21,18 +23,23 @@ class CaptureSessionController extends ChangeNotifier
     implements
         ThemeV2SessionController,
         FlashSessionWorkflow,
-        SessionTurnCountSource {
+        SessionTurnCountSource,
+        SessionTransientCaptureSource {
   CaptureSessionController({
     ApiClient? api,
     ValueListenable<SessionInvalidation?>? invalidations,
     Duration invalidationDebounce = const Duration(milliseconds: 200),
     CaptureChatTurnStream? turnStream,
+    CaptureActivityCoordinator? activityCoordinator,
   }) : _api = api ?? ApiClient(),
        _ownsApi = api == null,
        _invalidations = invalidations ?? SessionInvalidations.instance,
        _invalidationDebounce = invalidationDebounce,
-       _turnStream = turnStream ?? ((path, body) => postSse(path, body)) {
+       _turnStream = turnStream ?? ((path, body) => postSse(path, body)),
+       _activityCoordinator =
+           activityCoordinator ?? CaptureActivityCoordinator.instance {
     _invalidations.addListener(_onInvalidation);
+    _activityCoordinator.addListener(_onActivityChanged);
   }
 
   final ApiClient _api;
@@ -40,6 +47,7 @@ class CaptureSessionController extends ChangeNotifier
   final ValueListenable<SessionInvalidation?> _invalidations;
   final Duration _invalidationDebounce;
   final CaptureChatTurnStream _turnStream;
+  final CaptureActivityCoordinator _activityCoordinator;
 
   @override
   final List<ChatMessage> messages = [];
@@ -59,6 +67,8 @@ class CaptureSessionController extends ChangeNotifier
   String? _sessionDate;
   int _sessionRevision = 0;
   int _captureTurnCount = 0;
+  @override
+  CaptureActivityPhase? transientCapturePhase;
   Timer? _invalidationTimer;
   StreamSubscription<SseEvent>? _activeTurnSubscription;
   final Map<String, String> _dateByPhysicalSessionId = {};
@@ -253,6 +263,7 @@ class CaptureSessionController extends ChangeNotifier
       _retryRecordingId = retryRecordingId;
       streaming = hasPending;
       error = null;
+      _syncActivityState();
       _notify();
     } on ApiException catch (exception) {
       if (_disposed || revision != _loadRevision) return;
@@ -288,6 +299,61 @@ class CaptureSessionController extends ChangeNotifier
       if (_disposed || activeDate == null) return;
       unawaited(_loadSession(activeDate, background: true));
     });
+  }
+
+  void _onActivityChanged() {
+    if (_disposed) return;
+    if (_syncActivityState()) _notify();
+  }
+
+  bool _syncActivityState() {
+    final matchingActivities = _activityCoordinator.snapshot.activities.where((
+      activity,
+    ) {
+      final physicalMatch =
+          activity.sessionId != null &&
+          _physicalSessionId != null &&
+          activity.sessionId == _physicalSessionId;
+      final dateMatch =
+          _sessionDate != null &&
+          _dateKey(activity.occurredAt.toLocal()) == _sessionDate;
+      return physicalMatch || dateMatch;
+    }).toList();
+    final previousTransient = transientCapturePhase;
+    final transientActivities =
+        matchingActivities
+            .where(
+              (activity) => const {
+                CaptureActivityPhase.listening,
+                CaptureActivityPhase.receiving,
+                CaptureActivityPhase.transcribing,
+              }.contains(activity.phase),
+            )
+            .toList()
+          ..sort((a, b) => b.occurredAt.compareTo(a.occurredAt));
+    transientCapturePhase = transientActivities.isEmpty
+        ? null
+        : transientActivities.first.phase;
+
+    var messageChanged = false;
+    for (final activity in matchingActivities) {
+      if (activity.inputTurnId == null) continue;
+      for (final message in messages.reversed) {
+        if (message.isUser ||
+            !message.streaming ||
+            message.inputTurnId != activity.inputTurnId) {
+          continue;
+        }
+        final next = activity.phase == CaptureActivityPhase.organizing
+            ? AgentWorkPhase.organizing
+            : AgentWorkPhase.understanding;
+        final before = message.workPhase;
+        message.advanceWorkPhase(next);
+        messageChanged = messageChanged || before != message.workPhase;
+        break;
+      }
+    }
+    return previousTransient != transientCapturePhase || messageChanged;
   }
 
   bool _isSessionDate(String value) =>
@@ -577,6 +643,7 @@ class CaptureSessionController extends ChangeNotifier
   ) {
     switch (event.type) {
       case 'meta':
+        agent.advanceWorkPhase(AgentWorkPhase.understanding);
         final session = event.json['session_id']?.toString() ?? '';
         if (session.isNotEmpty) {
           _physicalSessionId = session;
@@ -588,6 +655,7 @@ class CaptureSessionController extends ChangeNotifier
           agent.inputTurnId = turn;
         }
       case 'token':
+        agent.advanceWorkPhase(AgentWorkPhase.composing);
         final chunk = event.json['text']?.toString() ?? '';
         if (chunk.isNotEmpty) {
           agent.text += chunk;
@@ -601,8 +669,10 @@ class CaptureSessionController extends ChangeNotifier
           }
         }
       case 'tool_call':
+        agent.advanceWorkPhase(AgentWorkPhase.executing);
         agent.parts.add(ToolCallPart(event.json['name']?.toString() ?? '?'));
       case 'tool_result':
+        agent.advanceWorkPhase(AgentWorkPhase.executing);
         agent.parts.add(
           ToolResultPart(
             event.json['name']?.toString() ?? '?',
@@ -611,9 +681,7 @@ class CaptureSessionController extends ChangeNotifier
           ),
         );
       case 'error':
-        agent.parts.add(
-          ErrorPart(event.json['message']?.toString() ?? '回答失败，请重试'),
-        );
+        agent.parts.add(const ErrorPart('回答暂未完成，请重试'));
       case 'done':
         final elapsed = event.json['elapsed_ms'];
         if (elapsed is num) agent.elapsedMs = elapsed.toInt();
@@ -642,6 +710,7 @@ class CaptureSessionController extends ChangeNotifier
     _sessionDate = null;
     _sessionRevision = 0;
     _captureTurnCount = 0;
+    transientCapturePhase = null;
     _invalidationTimer?.cancel();
     final activeTurn = _activeTurnSubscription;
     _activeTurnSubscription = null;
@@ -665,6 +734,7 @@ class CaptureSessionController extends ChangeNotifier
     _activeTurnSubscription = null;
     if (activeTurn != null) unawaited(activeTurn.cancel());
     _invalidations.removeListener(_onInvalidation);
+    _activityCoordinator.removeListener(_onActivityChanged);
     if (_ownsApi) _api.close();
     super.dispose();
   }

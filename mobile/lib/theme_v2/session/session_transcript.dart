@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 
+import '../../capture_activity/capture_activity_event.dart';
 import '../../chat/chat_models.dart';
 import '../../pages/chat_page.dart' show ChatMessageBubble;
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
 import 'session_analysis_block.dart';
+import '../capture/thinking_orb.dart';
 
 class SessionTranscript extends StatefulWidget {
   const SessionTranscript({
@@ -20,6 +22,7 @@ class SessionTranscript extends StatefulWidget {
     this.emptyOpener,
     this.emptyStarters = const [],
     this.focusedInputTurnId,
+    this.transientCapturePhase,
   });
 
   final List<ChatMessage> messages;
@@ -33,6 +36,7 @@ class SessionTranscript extends StatefulWidget {
   final String? emptyOpener;
   final List<String> emptyStarters;
   final String? focusedInputTurnId;
+  final CaptureActivityPhase? transientCapturePhase;
 
   @override
   State<SessionTranscript> createState() => _SessionTranscriptState();
@@ -43,6 +47,8 @@ class _SessionTranscriptState extends State<SessionTranscript> {
   var _lastMessageCount = 0;
   late String _lastContentSignature;
   var _scrollScheduled = false;
+  var _metricsFollowScheduled = false;
+  var _followingTail = true;
   final _focusedTurnAnchor = GlobalKey();
   var _focusRevision = 0;
   var _focusedTurnHighlighted = false;
@@ -63,13 +69,10 @@ class _SessionTranscriptState extends State<SessionTranscript> {
     _lastContentSignature = signature;
     final structuralChange =
         widget.messages.length != _lastMessageCount ||
-        widget.analyzing != oldWidget.analyzing;
+        widget.analyzing != oldWidget.analyzing ||
+        widget.transientCapturePhase != oldWidget.transientCapturePhase;
     if (structuralChange) _lastMessageCount = widget.messages.length;
-    final wasFollowingTail =
-        !_scrollController.hasClients ||
-        _scrollController.position.maxScrollExtent -
-                _scrollController.position.pixels <=
-            72;
+    final wasFollowingTail = _followingTail;
     final hasFocusedTurn = _normalizedFocusedTurnId != null;
     if (hasFocusedTurn &&
         (structuralChange ||
@@ -149,7 +152,9 @@ class _SessionTranscriptState extends State<SessionTranscript> {
     final buffer = StringBuffer()
       ..write(widget.analyzing)
       ..write('|')
-      ..write(widget.error);
+      ..write(widget.error)
+      ..write('|')
+      ..write(widget.transientCapturePhase);
     for (final message in widget.messages) {
       buffer
         ..write('|')
@@ -193,15 +198,47 @@ class _SessionTranscriptState extends State<SessionTranscript> {
     if (_scrollScheduled) return;
     _scrollScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _scrollScheduled = false;
-      if (!mounted || !_scrollController.hasClients) return;
-      _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
-        duration: MediaQuery.disableAnimationsOf(context)
-            ? Duration.zero
-            : const Duration(milliseconds: 160),
-        curve: Curves.easeOutCubic,
-      );
+      // A streaming Text widget can report its new extent one frame after the
+      // parent transcript rebuild. Read the target after that layout settles,
+      // otherwise we animate to the previous bottom and leave the latest token
+      // below the viewport.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _scrollScheduled = false;
+        if (!mounted || !_followingTail || !_scrollController.hasClients) {
+          return;
+        }
+        final target = _scrollController.position.maxScrollExtent;
+        if (MediaQuery.disableAnimationsOf(context)) {
+          _scrollController.jumpTo(target);
+          return;
+        }
+        _scrollController.animateTo(
+          target,
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOutCubic,
+        );
+      });
+    });
+  }
+
+  void _followTailAfterMetricsChange() {
+    if (_metricsFollowScheduled) return;
+    _metricsFollowScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _metricsFollowScheduled = false;
+      if (!mounted ||
+          !_followingTail ||
+          _normalizedFocusedTurnId != null ||
+          !_scrollController.hasClients) {
+        return;
+      }
+      final position = _scrollController.position;
+      final target = position.maxScrollExtent;
+      if (target - position.pixels <= 1) return;
+      // The metrics notification already occurs after layout. Keeping the
+      // bottom anchor exact here prevents the next token from inheriting a
+      // partially completed animation and gradually drifting off-screen.
+      _scrollController.jumpTo(target);
     });
   }
 
@@ -214,13 +251,23 @@ class _SessionTranscriptState extends State<SessionTranscript> {
   @override
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
-    if (widget.messages.isEmpty && widget.error == null) {
+    if (widget.messages.isEmpty &&
+        widget.error == null &&
+        widget.transientCapturePhase == null &&
+        !widget.analyzing) {
       return SessionEmptyState(
         opener: widget.emptyOpener,
         starters: widget.emptyStarters,
         onStarter: widget.onStarter,
       );
     }
+    final hasInlineRunning = widget.messages.any(
+      (message) => !message.isUser && message.streaming,
+    );
+    final hasTurnFailure = widget.messages.any(
+      (message) =>
+          !message.isUser && message.parts.whereType<ErrorPart>().isNotEmpty,
+    );
     return Stack(
       key: const ValueKey('session-transcript'),
       children: [
@@ -239,41 +286,90 @@ class _SessionTranscriptState extends State<SessionTranscript> {
             ),
           ),
         ),
-        ListView(
-          key: const PageStorageKey('theme-v2-session-transcript-scroll'),
-          controller: _scrollController,
-          padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
-          children: [
-            for (final message in widget.messages)
-              _messageRow(context, message),
-            if (widget.analyzing) ...[
-              const SizedBox(height: 4),
-              const SessionAnalysisBlock(),
-            ],
-            if (widget.error != null) ...[
-              const SizedBox(height: 12),
-              SessionErrorBlock(
-                message: widget.error!,
-                onRetry: widget.onRetry,
-                onKeepDraft: widget.onKeepDraft,
-              ),
-            ],
-          ],
+        NotificationListener<ScrollMetricsNotification>(
+          onNotification: (notification) {
+            if (_followingTail &&
+                notification.metrics.maxScrollExtent -
+                        notification.metrics.pixels >
+                    1) {
+              _followTailAfterMetricsChange();
+            }
+            return false;
+          },
+          child: NotificationListener<ScrollUpdateNotification>(
+            onNotification: (notification) {
+              if (notification.dragDetails != null) {
+                _followingTail =
+                    notification.metrics.maxScrollExtent -
+                        notification.metrics.pixels <=
+                    72;
+              }
+              return false;
+            },
+            child: ListView(
+              key: const PageStorageKey('theme-v2-session-transcript-scroll'),
+              controller: _scrollController,
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
+              children: [
+                for (final message in widget.messages)
+                  _messageRow(context, message),
+                if (widget.transientCapturePhase case final phase?) ...[
+                  const SizedBox(height: 4),
+                  _SessionTransientCaptureTurn(phase: phase),
+                ],
+                if (widget.analyzing && !hasInlineRunning) ...[
+                  const SizedBox(height: 4),
+                  const SessionAnalysisBlock(),
+                ],
+                if (widget.error != null && !hasTurnFailure) ...[
+                  const SizedBox(height: 12),
+                  SessionErrorBlock(
+                    message: widget.error!,
+                    onRetry: widget.onRetry,
+                    onKeepDraft: widget.onKeepDraft,
+                  ),
+                ],
+              ],
+            ),
+          ),
         ),
       ],
     );
   }
 
   Widget _messageRow(BuildContext context, ChatMessage message) {
-    final bubble = Padding(
+    final renderedBubble = Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: ChatMessageBubble(
         message,
+        showStreamingStatus: false,
         onPrecipitate: message.isUser
             ? null
             : (skill) => widget.onPrecipitate(message, skill),
       ),
     );
+    final hasFailure =
+        !message.isUser && message.parts.whereType<ErrorPart>().isNotEmpty;
+    final bubble = !message.isUser && message.streaming
+        ? Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (message.parts.isNotEmpty) renderedBubble,
+                SessionAnalysisBlock(phase: message.workPhase),
+              ],
+            ),
+          )
+        : hasFailure
+        ? Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              renderedBubble,
+              SessionTurnFailureBlock(onRetry: widget.onRetry),
+            ],
+          )
+        : renderedBubble;
     final target = _normalizedFocusedTurnId;
     if (!message.isUser || target == null || message.inputTurnId != target) {
       return bubble;
@@ -294,6 +390,47 @@ class _SessionTranscriptState extends State<SessionTranscript> {
           borderRadius: BorderRadius.circular(16),
         ),
         child: bubble,
+      ),
+    );
+  }
+}
+
+class _SessionTransientCaptureTurn extends StatelessWidget {
+  const _SessionTransientCaptureTurn({required this.phase});
+
+  final CaptureActivityPhase phase;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.themeV2;
+    return Align(
+      alignment: Alignment.centerRight,
+      child: Container(
+        key: const ValueKey('session-transient-capture-turn'),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.sizeOf(context).width * 0.72,
+        ),
+        padding: const EdgeInsets.fromLTRB(10, 7, 12, 7),
+        decoration: BoxDecoration(
+          color: tokens.accentSoft,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: tokens.accent.withValues(alpha: 0.28)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ThinkingOrb(phase: phase, size: 22),
+            const SizedBox(width: 8),
+            Text(
+              phase.label,
+              style: TextStyle(
+                color: tokens.foreground,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

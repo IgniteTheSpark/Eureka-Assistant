@@ -1,6 +1,9 @@
 import 'dart:convert';
 
 import 'package:eureka/api/api_client.dart';
+import 'package:eureka/capture_activity/capture_activity_event.dart';
+import 'package:eureka/chat/chat_models.dart';
+import 'package:eureka/theme_v2/capture/capture_activity_coordinator.dart';
 import 'package:eureka/theme_v2/capture/capture_session_controller.dart';
 import 'package:eureka/theme_v2/session/session_invalidation.dart';
 import 'package:flutter/foundation.dart';
@@ -13,6 +16,7 @@ void main() {
     'matching newer invalidation debounces and refetches the open session',
     () async {
       final invalidations = ValueNotifier<SessionInvalidation?>(null);
+      final activities = CaptureActivityCoordinator();
       var dailyLoads = 0;
       final api = ApiClient(
         baseUrl: 'http://theme-v2.test',
@@ -78,17 +82,44 @@ void main() {
       final controller = CaptureSessionController(
         api: api,
         invalidations: invalidations,
+        activityCoordinator: activities,
         invalidationDebounce: const Duration(milliseconds: 10),
       );
       addTearDown(() {
         controller.dispose();
         api.close();
         invalidations.dispose();
+        activities.dispose();
       });
 
       await controller.loadSession('2026-08-05');
       expect(dailyLoads, 1);
       expect(controller.streaming, isTrue);
+
+      activities.apply(
+        CaptureActivityEvent(
+          aliases: const {'client:ring-task-1'},
+          source: CaptureActivitySource.ring,
+          phase: CaptureActivityPhase.listening,
+          isRealtime: true,
+          occurredAt: DateTime.utc(2026, 8, 5, 1),
+        ),
+      );
+      expect(controller.transientCapturePhase, CaptureActivityPhase.listening);
+
+      activities.apply(
+        CaptureActivityEvent(
+          aliases: const {'client:ring-task-1', 'recording:recording-1'},
+          source: CaptureActivitySource.ring,
+          phase: CaptureActivityPhase.organizing,
+          isRealtime: true,
+          sessionId: 'physical-session-1',
+          inputTurnId: 'turn-1',
+          occurredAt: DateTime.utc(2026, 8, 5, 1),
+        ),
+      );
+      expect(controller.transientCapturePhase, isNull);
+      expect(controller.messages.last.workPhase, AgentWorkPhase.organizing);
 
       invalidations.value = const SessionInvalidation(
         sessionId: 'another-session',

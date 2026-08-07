@@ -115,9 +115,14 @@ class CaptureActivityCoordinator extends ChangeNotifier {
 
   void _emitSnapshot() {
     final active = _activeKey == null ? null : _tasks[_activeKey];
+    final activities = _tasks.values.toList()
+      ..sort((a, b) => a.occurredAt.compareTo(b.occurredAt));
     _snapshot = CaptureActivitySnapshot(
       active: active?.toItem(),
       queuedCount: active == null ? 0 : _tasks.length - 1,
+      activities: List.unmodifiable(
+        activities.map((activity) => activity.toItem()),
+      ),
     );
     notifyListeners();
   }

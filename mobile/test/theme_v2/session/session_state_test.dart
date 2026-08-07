@@ -6,6 +6,7 @@ import 'package:eureka/render/skill_card.dart';
 import 'package:eureka/theme/app_theme.dart';
 import 'package:eureka/theme/eureka_colors.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_tokens.dart';
+import 'package:eureka/capture_activity/capture_activity_event.dart';
 import 'package:eureka/theme_v2/session/session_history_drawer.dart';
 import 'package:eureka/theme_v2/session/session_transcript.dart';
 import 'package:eureka/theme_v2/session/theme_v2_session_page.dart';
@@ -107,31 +108,32 @@ void main() {
     );
   });
 
-  testWidgets(
-    'error keeps transcript visible and retry uses controller contract',
-    (tester) async {
-      final controller = FakeSessionController(
-        messages: [ChatMessage.user('u1', '整理录音'), _assistant('已读取录音')],
-        error: '录音不可访问',
-      );
-      await _pumpSession(tester, controller: controller);
+  testWidgets('failure stays on its turn and retry uses controller contract', (
+    tester,
+  ) async {
+    final failedAgent = _assistant('');
+    failedAgent.parts.add(const ErrorPart('回答暂未完成，请重试'));
+    final controller = FakeSessionController(
+      messages: [ChatMessage.user('u1', '整理录音'), failedAgent],
+      error: '录音不可访问',
+    );
+    await _pumpSession(tester, controller: controller);
 
-      expect(find.text('整理录音'), findsOneWidget);
-      expect(find.text('整理中断'), findsOneWidget);
+    expect(find.text('整理录音'), findsOneWidget);
+    expect(find.text('整理中断'), findsNothing);
+    expect(find.byKey(const ValueKey('session-turn-failure')), findsOneWidget);
 
-      await tester.ensureVisible(find.byKey(const ValueKey('session-retry')));
-      await tester.pumpAndSettle();
-      expect(find.bySemanticsLabel('重试最近失败的消息'), findsOneWidget);
-      await tester.tap(find.byKey(const ValueKey('session-retry')));
-      await tester.pump();
+    await tester.ensureVisible(find.text('重试'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('重试'));
+    await tester.pump();
 
-      expect(controller.retryCount, 1);
-      expect(
-        controller.messages.where((message) => message.isUser),
-        hasLength(1),
-      );
-    },
-  );
+    expect(controller.retryCount, 1);
+    expect(
+      controller.messages.where((message) => message.isUser),
+      hasLength(1),
+    );
+  });
 
   testWidgets(
     'history is at most 304 wide and supports retry/new/load/delete',
@@ -203,6 +205,34 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(controller.sessions, isEmpty);
+  });
+
+  testWidgets('live hardware capture appears as a transient right-side turn', (
+    tester,
+  ) async {
+    final controller = FakeSessionController(
+      messages: [ChatMessage.user('u1', '之前的闪念')],
+      transientCapturePhase: CaptureActivityPhase.transcribing,
+    );
+    await _pumpSession(tester, controller: controller);
+
+    expect(
+      find.byKey(const ValueKey('session-transient-capture-turn')),
+      findsOneWidget,
+    );
+    expect(find.text('正在转写'), findsOneWidget);
+
+    controller
+      ..transientCapturePhase = null
+      ..messages.add(ChatMessage.user('u2', '刚刚说出的文字'))
+      ..notifyListeners();
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('session-transient-capture-turn')),
+      findsNothing,
+    );
+    expect(find.text('刚刚说出的文字'), findsOneWidget);
   });
 
   testWidgets('theme changes preserve controller, transcript and draft', (
@@ -595,7 +625,7 @@ Future<void> _pumpSession(
 }
 
 class FakeSessionController extends ChangeNotifier
-    implements ThemeV2SessionController {
+    implements ThemeV2SessionController, SessionTransientCaptureSource {
   FakeSessionController({
     List<ChatMessage>? messages,
     this.streaming = false,
@@ -606,6 +636,7 @@ class FakeSessionController extends ChangeNotifier
     this.loadCompleters,
     this.sendCompleter,
     this.listFailuresRemaining = 0,
+    this.transientCapturePhase,
   }) : messages = messages ?? [],
        sessions = sessions ?? [],
        contextAssets = contextAssets ?? [];
@@ -621,6 +652,9 @@ class FakeSessionController extends ChangeNotifier
 
   @override
   String? sessionId;
+
+  @override
+  CaptureActivityPhase? transientCapturePhase;
 
   @override
   String get displayTitle => '测试会话';

@@ -481,7 +481,13 @@ class _ChatPageState extends State<ChatPage> {
 class ChatMessageBubble extends StatelessWidget {
   final ChatMessage m;
   final Future<void> Function(String skill)? onPrecipitate;
-  const ChatMessageBubble(this.m, {super.key, this.onPrecipitate});
+  final bool showStreamingStatus;
+  const ChatMessageBubble(
+    this.m, {
+    super.key,
+    this.onPrecipitate,
+    this.showStreamingStatus = true,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -537,13 +543,15 @@ class ChatMessageBubble extends StatelessWidget {
                 m.parts[idx],
                 isLast: idx == m.parts.length - 1,
                 streaming: m.streaming,
+                showStreamingStatus: showStreamingStatus,
               ),
-            if (m.streaming && m.parts.isEmpty)
+            if (showStreamingStatus && m.streaming && m.parts.isEmpty)
               Text(
                 '分析中…',
                 style: TextStyle(color: eu.textLo, fontStyle: FontStyle.italic),
               ),
-            if (m.streaming &&
+            if (showStreamingStatus &&
+                m.streaming &&
                 m.parts.isNotEmpty &&
                 (m.parts.last is ToolResultPart || m.parts.last is CardsPart))
               _workingHint(context),
@@ -561,6 +569,7 @@ class ChatMessageBubble extends StatelessWidget {
     ChatPart p, {
     required bool isLast,
     required bool streaming,
+    required bool showStreamingStatus,
   }) {
     final eu = context.eu;
     switch (p) {
@@ -588,7 +597,9 @@ class ChatMessageBubble extends StatelessWidget {
         // Only the in-flight call (last part of a streaming msg) shows a spinner;
         // once its tool_result lands the call is no longer last → drop it
         // (the result continues the thread; a leftover chip is redundant).
-        if (!(streaming && isLast)) return const SizedBox.shrink();
+        if (!showStreamingStatus || !(streaming && isLast)) {
+          return const SizedBox.shrink();
+        }
         return _spinnerChip(context, '${_toolLabel(name)}中…', eu.accentAmber);
       case ToolResultPart(:final name, :final response):
         final cards = extractCards(response);

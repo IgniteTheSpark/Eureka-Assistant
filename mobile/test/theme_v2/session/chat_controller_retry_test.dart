@@ -10,6 +10,35 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 void main() {
+  test('agent work phase advances monotonically across SSE frames', () async {
+    final events = StreamController<SseEvent>();
+    final controller = ChatController(turnStream: (_, _) => events.stream);
+    addTearDown(() async {
+      await events.close();
+      controller.dispose();
+    });
+
+    final pending = controller.send('帮我查一下并回答');
+    await Future<void>.delayed(Duration.zero);
+    final agent = controller.messages.last;
+    expect(agent.workPhase, AgentWorkPhase.understanding);
+
+    events.add(SseEvent('tool_call', {'name': 'tool_query_asset'}));
+    await Future<void>.delayed(Duration.zero);
+    expect(agent.workPhase, AgentWorkPhase.executing);
+
+    events.add(SseEvent('token', {'text': '查到了'}));
+    await Future<void>.delayed(Duration.zero);
+    expect(agent.workPhase, AgentWorkPhase.composing);
+
+    events.add(SseEvent('tool_result', {'name': 'late-tool'}));
+    await Future<void>.delayed(Duration.zero);
+    expect(agent.workPhase, AgentWorkPhase.composing);
+
+    await events.close();
+    await pending;
+  });
+
   test(
     'retry replays the failed turn without duplicating the user message',
     () async {

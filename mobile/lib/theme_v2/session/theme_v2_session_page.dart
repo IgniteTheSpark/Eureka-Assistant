@@ -283,6 +283,11 @@ class _ThemeV2SessionPageState extends State<ThemeV2SessionPage> {
     final turnCount = activeController is SessionTurnCountSource
         ? (activeController as SessionTurnCountSource).sessionTurnCount
         : sessionTurnCount(state.messages);
+    final transientCapturePhase =
+        activeController is SessionTransientCaptureSource
+        ? (activeController as SessionTransientCaptureSource)
+              .transientCapturePhase
+        : null;
     return Scaffold(
       key: _scaffoldKey,
       resizeToAvoidBottomInset: false,
@@ -330,6 +335,7 @@ class _ThemeV2SessionPageState extends State<ThemeV2SessionPage> {
                 emptyOpener: widget.emptyOpener,
                 emptyStarters: widget.emptyStarters,
                 focusedInputTurnId: widget.focusedInputTurnId,
+                transientCapturePhase: transientCapturePhase,
               ),
             ),
             if (!widget.readOnly)

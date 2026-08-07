@@ -627,7 +627,7 @@ class ChatController extends ChangeNotifier {
         return;
       }
       if (failure != null) {
-        agent.parts.add(ErrorPart(failure.toString()));
+        agent.parts.add(const ErrorPart('回答暂未完成，请重试'));
         error = failure.toString();
       }
       agent.streaming = false;
@@ -695,6 +695,7 @@ class ChatController extends ChangeNotifier {
   void _apply(ChatMessage agent, SseEvent ev) {
     switch (ev.type) {
       case 'meta':
+        agent.advanceWorkPhase(AgentWorkPhase.understanding);
         final sid = ev.json['session_id'];
         if (sid is String && sid.isNotEmpty) {
           sessionId = sid;
@@ -714,11 +715,14 @@ class ChatController extends ChangeNotifier {
           }
         }
       case 'token':
+        agent.advanceWorkPhase(AgentWorkPhase.composing);
         final txt = ev.json['text'];
         if (txt is String && txt.isNotEmpty) _mergeText(agent, txt);
       case 'tool_call':
+        agent.advanceWorkPhase(AgentWorkPhase.executing);
         agent.parts.add(ToolCallPart(ev.json['name'] as String? ?? '?'));
       case 'tool_result':
+        agent.advanceWorkPhase(AgentWorkPhase.executing);
         final resp =
             (ev.json['response'] as Map?)?.cast<String, dynamic>() ?? {};
         agent.parts.add(
@@ -726,7 +730,7 @@ class ChatController extends ChangeNotifier {
         );
       case 'error':
         final message = ev.json['message'] as String? ?? 'stream error';
-        agent.parts.add(ErrorPart(message));
+        agent.parts.add(const ErrorPart('回答暂未完成，请重试'));
         error = message;
       case 'done':
         agent.elapsedMs = (ev.json['elapsed_ms'] as num?)?.toInt();

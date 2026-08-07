@@ -1,16 +1,36 @@
 import 'package:flutter/material.dart';
 
+import '../../capture_activity/capture_activity_event.dart';
+import '../../chat/chat_models.dart';
+import '../capture/thinking_orb.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
 
 class SessionAnalysisBlock extends StatelessWidget {
-  const SessionAnalysisBlock({super.key});
+  const SessionAnalysisBlock({
+    super.key,
+    this.phase = AgentWorkPhase.understanding,
+  });
+
+  final AgentWorkPhase phase;
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
+    final label = switch (phase) {
+      AgentWorkPhase.understanding => '正在理解',
+      AgentWorkPhase.executing => '检索 / 执行',
+      AgentWorkPhase.composing => '组织回答',
+      AgentWorkPhase.organizing => '正在整理',
+    };
+    final orbPhase = switch (phase) {
+      AgentWorkPhase.understanding ||
+      AgentWorkPhase.executing => CaptureActivityPhase.understanding,
+      AgentWorkPhase.composing ||
+      AgentWorkPhase.organizing => CaptureActivityPhase.organizing,
+    };
     return Semantics(
-      label: '正在理解并整理',
+      label: label,
       liveRegion: true,
       child: Container(
         key: const ValueKey('session-analyzing'),
@@ -23,21 +43,11 @@ class SessionAnalysisBlock extends StatelessWidget {
         ),
         child: Row(
           children: [
-            for (var index = 0; index < 3; index++) ...[
-              Container(
-                width: 6,
-                height: 6,
-                decoration: BoxDecoration(
-                  color: tokens.accent.withValues(alpha: 0.35 + index * 0.3),
-                  shape: BoxShape.circle,
-                ),
-              ),
-              if (index != 2) const SizedBox(width: 6),
-            ],
+            ThinkingOrb(phase: orbPhase, size: 28),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
-                '正在理解并整理…',
+                label,
                 style: TextStyle(
                   color: tokens.foreground,
                   fontSize: 11,
@@ -48,6 +58,44 @@ class SessionAnalysisBlock extends StatelessWidget {
             Text('处理中', style: TextStyle(color: tokens.muted, fontSize: 9)),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class SessionTurnFailureBlock extends StatelessWidget {
+  const SessionTurnFailureBlock({super.key, required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.themeV2;
+    return Container(
+      key: const ValueKey('session-turn-failure'),
+      margin: const EdgeInsets.only(top: 4, bottom: 8),
+      padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+      decoration: BoxDecoration(
+        color: tokens.surface,
+        borderRadius: BorderRadius.circular(ThemeV2Radii.md),
+        border: Border.all(color: tokens.critical.withValues(alpha: 0.46)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.error_outline_rounded, size: 17, color: tokens.critical),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '这条回复暂未完成',
+              style: TextStyle(
+                color: tokens.foreground,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          TextButton(onPressed: onRetry, child: const Text('重试')),
+        ],
       ),
     );
   }
@@ -103,7 +151,7 @@ class SessionErrorBlock extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '整理中断',
+                      '当前会话暂不可用',
                       style: TextStyle(
                         color: tokens.foreground,
                         fontSize: 16,

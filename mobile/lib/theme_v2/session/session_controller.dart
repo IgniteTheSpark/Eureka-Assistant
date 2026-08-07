@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../chat/chat_controller.dart';
 import '../../chat/chat_models.dart';
+import '../../capture_activity/capture_activity_event.dart';
 
 /// Testable contract between the Theme V2 view and a session workflow.
 abstract interface class ThemeV2SessionController implements Listenable {
@@ -36,6 +37,10 @@ abstract interface class FlashSessionWorkflow {}
 /// product count differ. Daily Flash counts hardware recordings only.
 abstract interface class SessionTurnCountSource {
   int get sessionTurnCount;
+}
+
+abstract interface class SessionTransientCaptureSource {
+  CaptureActivityPhase? get transientCapturePhase;
 }
 
 class ChatControllerSessionAdapter extends ChangeNotifier
