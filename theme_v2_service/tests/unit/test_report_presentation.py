@@ -172,3 +172,25 @@ def test_renderer_rejects_unowned_illustration_url():
 
     assert "tracker.example" not in result.html
     assert result.warnings == ["illustration URL was not owned"]
+
+
+def test_renderer_supports_safe_named_https_links_without_raw_html_escape():
+    result = render_presentation(
+        _request(
+            content_md=(
+                "皇家马德里已公布[当前一线队阵容](https://realmadrid.example/squad). "
+                "不安全链接保持为文本：[点击](javascript:alert(1)). "
+                "标签必须转义：[A&B 队伍](https://example.com/?a=1&b=2)."
+            ),
+            external_sources=[],
+        )
+    )
+
+    assert (
+        '<a class="r-link" target="_blank" rel="noopener noreferrer" '
+        'href="https://realmadrid.example/squad">当前一线队阵容</a>'
+    ) in result.html
+    assert "javascript:alert" in result.html
+    assert 'href="javascript:' not in result.html
+    assert "A&amp;B 队伍" in result.html
+    assert "a=1&amp;b=2" in result.html

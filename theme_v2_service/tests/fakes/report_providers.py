@@ -1,6 +1,7 @@
 from app.domains.reports.providers import (
     GeneratedImage,
     GeneratorResult,
+    WebQuery,
     WebSource,
 )
 
@@ -35,7 +36,7 @@ class FakeWebSearchProvider:
         self.calls = 0
         self.queries = []
 
-    async def search(self, queries: list[str]) -> list[WebSource]:
+    async def search(self, queries: list[WebQuery]) -> list[WebSource]:
         self.calls += 1
         self.queries.append(queries)
         return self.sources

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../api/api_client.dart';
@@ -15,12 +16,29 @@ import '../widgets/toast.dart';
 /// seam for older callers, but intentionally does not mutate report CSS.
 String applyThemeV2ReportViewerTheme(String html, {String? palette}) => html;
 
+bool isExternalReportUrl(String raw) {
+  final uri = Uri.tryParse(raw);
+  return uri != null &&
+      (uri.scheme == 'https' || uri.scheme == 'http') &&
+      uri.host.isNotEmpty;
+}
+
+Future<bool> openExternalReportUrl(
+  String raw, {
+  Future<bool> Function(Uri)? launcher,
+}) async {
+  if (!isExternalReportUrl(raw)) return false;
+  final uri = Uri.parse(raw);
+  if (launcher != null) return launcher(uri);
+  return launchUrl(uri, mode: LaunchMode.externalApplication);
+}
+
 /// Full-screen report viewer (§6.8.5). Renders the engine's single-file HTML in
 /// a locked-down WKWebView: JavaScript is ON and the bundled **GSAP** library is
 /// injected into the document head before load, so the report's enhancement
 /// script animates with GSAP (it falls back to a vanilla reveal if gsap is
-/// absent — e.g. in an exported .html). Navigation to any external URL is
-/// blocked — the report is a self-contained, offline document.
+/// absent — e.g. in an exported .html). Qualified HTTP(S) citations open in
+/// the system browser; the report WebView itself remains self-contained.
 ///
 /// Top bar actions (§6.7):
 /// - **换装**: re-render the same content_md with a fresh palette via
@@ -40,6 +58,7 @@ class ReportViewerPage extends StatefulWidget {
   final bool enableThemeV2Actions;
   final String? themeV2Palette;
   final ApiClient? api;
+  final Future<bool> Function(Uri)? externalLinkLauncher;
 
   const ReportViewerPage({
     super.key,
@@ -50,6 +69,7 @@ class ReportViewerPage extends StatefulWidget {
     this.enableThemeV2Actions = false,
     this.themeV2Palette,
     this.api,
+    this.externalLinkLauncher,
   });
 
   @override
@@ -84,13 +104,7 @@ class _ReportViewerPageState extends State<ReportViewerPage> {
       ..setBackgroundColor(_reportBackground)
       ..setNavigationDelegate(
         NavigationDelegate(
-          onNavigationRequest: (req) {
-            final u = req.url;
-            if (u.startsWith('http://') || u.startsWith('https://')) {
-              return NavigationDecision.prevent;
-            }
-            return NavigationDecision.navigate;
-          },
+          onNavigationRequest: _handleNavigationRequest,
         ),
       );
     _bootstrap();
@@ -98,6 +112,26 @@ class _ReportViewerPageState extends State<ReportViewerPage> {
     if (widget.enableThemeV2Actions && id != null) {
       _actionsController.load(id);
     }
+  }
+
+  Future<NavigationDecision> _handleNavigationRequest(
+    NavigationRequest request,
+  ) async {
+    if (!isExternalReportUrl(request.url)) {
+      return NavigationDecision.navigate;
+    }
+    try {
+      final opened = await openExternalReportUrl(
+        request.url,
+        launcher: widget.externalLinkLauncher,
+      );
+      if (!opened && mounted) {
+        showToast(context, '无法打开该链接', error: true);
+      }
+    } catch (_) {
+      if (mounted) showToast(context, '无法打开该链接', error: true);
+    }
+    return NavigationDecision.prevent;
   }
 
   Future<void> _bootstrap() async {

@@ -294,17 +294,8 @@ def build_pipeline_handlers(
         return bundle.model_dump(mode="json", by_alias=True)
 
     async def web_search_stage(context: PipelineContext) -> StageResult:
-        package = registry.get(
-            context.execution_plan.template_id,
-            context.execution_plan.template_version,
-        )
-        evidence = context.checkpoints["load_evidence"]
         queries = build_web_queries(
-            report_goal=context.execution_plan.report_goal,
-            capabilities=set(package.manifest.data_fit),
-            time_range=context.execution_plan.time_range,
-            aggregate_terms=[],
-            sensitive_values=_collect_sensitive_strings(evidence),
+            context.execution_plan.public_research_brief
         )
         execution = await execute_web_search(
             policy=context.execution_plan.web_policy,

@@ -1,7 +1,6 @@
 from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
-from urllib.parse import urlparse
 
 import httpx
 
@@ -9,6 +8,7 @@ from app.db.base import utc_now
 from app.domains.reports.providers import (
     PermanentProviderError,
     RetryableProviderError,
+    WebQuery,
     WebSource,
 )
 
@@ -22,7 +22,7 @@ def _timestamp(value: datetime) -> str:
 def _valid_url(value: object) -> str | None:
     if not isinstance(value, str):
         return None
-    if not value.startswith(("https://", "http://")):
+    if not value.startswith("https://"):
         return None
     return value
 
@@ -45,16 +45,32 @@ class DeepSeekResponsesWebSearchProvider:
         self.timeout_seconds = timeout_seconds
         self.clock = clock
 
-    async def search(self, queries: list[str]) -> list[WebSource]:
+    async def search(self, queries: list[WebQuery]) -> list[WebSource]:
         unique: dict[str, WebSource] = {}
         for query in queries:
-            payload = await self._request(query)
-            for source in self._normalize(payload):
+            payload = await self._request(query.text)
+            for source in self._normalize(payload, query=query):
                 current = unique.get(source.url)
-                if current is None or self._detail_score(
-                    source
-                ) > self._detail_score(current):
+                if current is None:
                     unique[source.url] = source
+                    continue
+                preferred = (
+                    source
+                    if self._detail_score(source) > self._detail_score(current)
+                    else current
+                )
+                unique[source.url] = preferred.model_copy(
+                    update={
+                        "entity_ids": list(
+                            dict.fromkeys([*current.entity_ids, *source.entity_ids])
+                        ),
+                        "question_ids": list(
+                            dict.fromkeys(
+                                [*current.question_ids, *source.question_ids]
+                            )
+                        ),
+                    }
+                )
         if queries and not unique:
             raise PermanentProviderError(
                 "DeepSeek Web Search returned no verifiable URL"
@@ -110,7 +126,12 @@ class DeepSeekResponsesWebSearchProvider:
                 "invalid DeepSeek Web Search response"
             ) from exc
 
-    def _normalize(self, payload: dict[str, Any]) -> list[WebSource]:
+    def _normalize(
+        self,
+        payload: dict[str, Any],
+        *,
+        query: WebQuery,
+    ) -> list[WebSource]:
         accessed_at = _timestamp(self.clock())
         candidates: list[tuple[str, str, str]] = []
         output = payload.get("output")
@@ -125,8 +146,12 @@ class DeepSeekResponsesWebSearchProvider:
                 url=url,
                 snippet=snippet[:2000],
                 accessed_at=accessed_at,
+                query_id=query.id,
+                entity_ids=query.entity_ids,
+                question_ids=query.question_ids,
             )
             for title, url, snippet in candidates
+            if title.strip() and snippet.strip()
         ]
 
     @staticmethod
@@ -134,28 +159,23 @@ class DeepSeekResponsesWebSearchProvider:
         action = item.get("action")
         sources = action.get("sources") if isinstance(action, dict) else None
         candidates = []
-        action_url = (
-            _valid_url(action.get("url")) if isinstance(action, dict) else None
-        )
-        if action_url:
-            candidates.append(
-                (urlparse(action_url).hostname or action_url, action_url, "")
-            )
         for source in sources if isinstance(sources, list) else []:
             if not isinstance(source, dict):
                 continue
             url = _valid_url(source.get("url"))
             if not url:
                 continue
+            title = str(source.get("title") or source.get("name") or "").strip()
+            snippet = str(
+                source.get("snippet") or source.get("content") or ""
+            ).strip()
+            if not title or not snippet:
+                continue
             candidates.append(
                 (
-                    str(source.get("title") or source.get("name") or url),
+                    title,
                     url,
-                    str(
-                        source.get("snippet")
-                        or source.get("content")
-                        or ""
-                    ),
+                    snippet,
                 )
             )
         return candidates
@@ -184,7 +204,7 @@ class DeepSeekResponsesWebSearchProvider:
                 end = annotation.get("end_index")
                 if isinstance(start, int) and isinstance(end, int):
                     snippet = text[max(0, start) : max(start, end)]
-                candidates.append(
-                    (str(annotation.get("title") or url), url, snippet)
-                )
+                title = str(annotation.get("title") or "").strip()
+                if title and snippet.strip():
+                    candidates.append((title, url, snippet.strip()))
         return candidates

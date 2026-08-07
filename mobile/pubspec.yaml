@@ -60,6 +60,8 @@ dependencies:
   # locked-down WKWebView (JS on for the report's no-dep reveal animation,
   # no nav/network). §6.6.
   webview_flutter: ^4.10.0
+  # Open qualified report citations in the system browser.
+  url_launcher: ^6.3.2
   # Export/share a report (.html) via the iOS system share sheet (§6.7 分享).
   share_plus: ^10.0.0
   # Temp-dir access for WAV export (ring debug, §task-8).

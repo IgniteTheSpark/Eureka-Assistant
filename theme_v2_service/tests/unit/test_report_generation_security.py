@@ -271,6 +271,9 @@ def test_generator_prompt_separates_readable_prose_from_typed_actions():
     assert "Do not put citation tags into suggested action titles" in serialized
     assert "Use due_at only when" in serialized
     assert "Do not emit :::actions" in serialized
+    assert "natural, decision-useful prose" in serialized
+    assert "acceptance_marker" in serialized
+    assert "descriptive Markdown links" in serialized
 
 
 def test_illustration_prompt_removes_text_chart_and_sensitive_values():

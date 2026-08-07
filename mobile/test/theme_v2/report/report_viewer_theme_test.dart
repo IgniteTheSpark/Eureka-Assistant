@@ -25,4 +25,24 @@ void main() {
     expect(page.enableThemeV2Actions, isTrue);
     expect(page.themeV2Palette, 'pal-ink');
   });
+
+  test('report citations open only external http links', () async {
+    Uri? opened;
+
+    expect(isExternalReportUrl('https://example.com/research'), isTrue);
+    expect(isExternalReportUrl('http://example.com/research'), isTrue);
+    expect(isExternalReportUrl('javascript:alert(1)'), isFalse);
+    expect(isExternalReportUrl('file:///private/report'), isFalse);
+    expect(
+      await openExternalReportUrl(
+        'https://example.com/research',
+        launcher: (uri) async {
+          opened = uri;
+          return true;
+        },
+      ),
+      isTrue,
+    );
+    expect(opened, Uri.parse('https://example.com/research'));
+  });
 }

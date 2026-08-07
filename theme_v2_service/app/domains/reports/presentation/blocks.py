@@ -1,6 +1,7 @@
 import html
 import re
 from collections.abc import Callable
+from urllib.parse import urlparse
 
 
 DIRECTIVE_RE = re.compile(r"^:::([a-zA-Z]+)(\{[^}]*\})?\s*(.*)$")
@@ -16,6 +17,21 @@ def escape(value: object) -> str:
 
 
 def inline(text: str) -> str:
+    links: list[str] = []
+
+    def preserve_link(match: re.Match[str]) -> str:
+        label, raw_url = match.group(1), match.group(2)
+        parsed = urlparse(raw_url)
+        if parsed.scheme.casefold() != "https" or not parsed.hostname:
+            return match.group(0)
+        token = f"\x00REPORT_LINK_{len(links)}\x00"
+        links.append(
+            '<a class="r-link" target="_blank" rel="noopener noreferrer" '
+            f'href="{escape(raw_url)}">{escape(label)}</a>'
+        )
+        return token
+
+    text = re.sub(r"\[([^\]\n]+)\]\((https://[^)\s]+)\)", preserve_link, text)
     rendered = escape(text)
     rendered = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", rendered)
     rendered = re.sub(r"`(.+?)`", r"<code>\1</code>", rendered)
@@ -24,6 +40,8 @@ def inline(text: str) -> str:
         r"<em>\1</em>",
         rendered,
     )
+    for index, link in enumerate(links):
+        rendered = rendered.replace(f"\x00REPORT_LINK_{index}\x00", link)
     return rendered
 
 

@@ -107,7 +107,11 @@ def build_generator_messages(request: GeneratorRequest) -> list[dict[str, str]]:
                 "citation tags into suggested action titles. Use due_at only when "
                 "the exact date or timestamp appears in the supplied evidence or "
                 "execution context; otherwise return null. Do not emit :::actions "
-                "or any other action markup in content_md."
+                "or any other action markup in content_md. Synthesize evidence into "
+                "natural, decision-useful prose; never expose raw schema keys such as "
+                "evidence, acceptance_marker, payload_json, or field_bindings. Cite "
+                "external facts with descriptive Markdown links at the supporting "
+                "sentence instead of dumping bare URLs or a raw source list."
             ),
         },
         {"role": "user", "content": f"TRUSTED_CONFIG\n{trusted}"},

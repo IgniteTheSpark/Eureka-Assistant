@@ -7,6 +7,7 @@ import pytest
 from app.domains.reports.providers import (
     PermanentProviderError,
     RetryableProviderError,
+    WebQuery,
 )
 from app.domains.reports.providers_deepseek_web import (
     DeepSeekResponsesWebSearchProvider,
@@ -23,6 +24,15 @@ def _provider(
         model="deepseek-v4-flash",
         timeout_seconds=12,
         clock=lambda: datetime(2026, 8, 3, 10, 0, 0),
+    )
+
+
+def _query(text: str, *, query_id: str = "web-1") -> WebQuery:
+    return WebQuery(
+        id=query_id,
+        text=text,
+        entity_ids=["entity-1"],
+        question_ids=["question-1"],
     )
 
 
@@ -77,7 +87,7 @@ async def test_provider_forces_web_search_and_normalizes_citations():
     async with httpx.AsyncClient(
         transport=httpx.MockTransport(handle)
     ) as client:
-        sources = await _provider(client).search(["safe aggregate query"])
+        sources = await _provider(client).search([_query("safe aggregate query")])
 
     assert len(requests) == 1
     assert requests[0].headers["authorization"] == "Bearer deepseek-secret"
@@ -95,6 +105,8 @@ async def test_provider_forces_web_search_and_normalizes_citations():
         "https://example.edu/paper",
     ]
     assert sources[0].accessed_at == "2026-08-03T10:00:00Z"
+    assert sources[0].query_id == "web-1"
+    assert sources[0].entity_ids == ["entity-1"]
     assert sources[1].snippet == "Research result"
 
 
@@ -128,7 +140,9 @@ async def test_provider_calls_once_per_query_and_keeps_stable_url_order():
     async with httpx.AsyncClient(
         transport=httpx.MockTransport(handle)
     ) as client:
-        sources = await _provider(client).search(["query one", "query two"])
+        sources = await _provider(client).search(
+            [_query("query one", query_id="web-1"), _query("query two", query_id="web-2")]
+        )
 
     assert len(requests) == 2
     assert [source.url for source in sources] == [
@@ -137,7 +151,7 @@ async def test_provider_calls_once_per_query_and_keeps_stable_url_order():
     ]
 
 
-async def test_provider_normalizes_deepseek_open_page_action_url():
+async def test_provider_rejects_deepseek_open_page_action_without_evidence():
     def handle(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
@@ -173,17 +187,8 @@ async def test_provider_normalizes_deepseek_open_page_action_url():
     async with httpx.AsyncClient(
         transport=httpx.MockTransport(handle)
     ) as client:
-        sources = await _provider(client).search(["safe query"])
-
-    assert [source.model_dump() for source in sources] == [
-        {
-            "title": "openai.com",
-            "url": "https://openai.com/",
-            "snippet": "",
-            "accessed_at": "2026-08-03T10:00:00Z",
-            "authoritative": False,
-        }
-    ]
+        with pytest.raises(PermanentProviderError, match="verifiable URL"):
+            await _provider(client).search([_query("safe query")])
 
 
 @pytest.mark.parametrize("status", [408, 409, 429, 500, 503])
@@ -193,7 +198,7 @@ async def test_retryable_http_statuses(status: int):
     )
     async with httpx.AsyncClient(transport=transport) as client:
         with pytest.raises(RetryableProviderError):
-            await _provider(client).search(["safe query"])
+            await _provider(client).search([_query("safe query")])
 
 
 @pytest.mark.parametrize("status", [400, 401, 403, 404, 422])
@@ -203,7 +208,7 @@ async def test_permanent_http_statuses(status: int):
     )
     async with httpx.AsyncClient(transport=transport) as client:
         with pytest.raises(PermanentProviderError):
-            await _provider(client).search(["safe query"])
+            await _provider(client).search([_query("safe query")])
 
 
 async def test_success_without_verifiable_url_is_permanent_failure():
@@ -212,7 +217,7 @@ async def test_success_without_verifiable_url_is_permanent_failure():
     )
     async with httpx.AsyncClient(transport=transport) as client:
         with pytest.raises(PermanentProviderError, match="verifiable URL"):
-            await _provider(client).search(["safe query"])
+            await _provider(client).search([_query("safe query")])
 
 
 async def test_malformed_success_payload_is_permanent_failure():
@@ -225,7 +230,7 @@ async def test_malformed_success_payload_is_permanent_failure():
     )
     async with httpx.AsyncClient(transport=transport) as client:
         with pytest.raises(PermanentProviderError, match="invalid"):
-            await _provider(client).search(["safe query"])
+            await _provider(client).search([_query("safe query")])
 
 
 async def test_timeout_is_retryable():
@@ -236,4 +241,4 @@ async def test_timeout_is_retryable():
         transport=httpx.MockTransport(handle)
     ) as client:
         with pytest.raises(RetryableProviderError):
-            await _provider(client).search(["safe query"])
+            await _provider(client).search([_query("safe query")])

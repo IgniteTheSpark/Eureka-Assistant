@@ -58,12 +58,22 @@ class GeneratorResult(ProviderModel):
     usage: GeneratorUsage = Field(default_factory=GeneratorUsage)
 
 
+class WebQuery(ProviderModel):
+    id: str
+    text: str
+    entity_ids: list[str] = Field(default_factory=list)
+    question_ids: list[str] = Field(default_factory=list)
+
+
 class WebSource(ProviderModel):
     title: str
     url: str
     snippet: str
     accessed_at: str
     authoritative: bool = False
+    query_id: str = ""
+    entity_ids: list[str] = Field(default_factory=list)
+    question_ids: list[str] = Field(default_factory=list)
 
 
 class GeneratedImage(ProviderModel):
@@ -82,12 +92,12 @@ class ReportGeneratorProvider(Protocol):
 
 
 class WebSearchProvider(Protocol):
-    async def search(self, queries: list[str]) -> list[WebSource]:
+    async def search(self, queries: list[WebQuery]) -> list[WebSource]:
         ...
 
 
 class UnavailableWebSearchProvider:
-    async def search(self, queries: list[str]) -> list[WebSource]:
+    async def search(self, queries: list[WebQuery]) -> list[WebSource]:
         raise PermanentProviderError("report Web Search is not enabled")
 
 
