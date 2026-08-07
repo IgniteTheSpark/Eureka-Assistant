@@ -8,6 +8,8 @@ import 'config.dart';
 import 'api/sse_client.dart';
 import 'ble_flash/flash_file_status_controller.dart';
 import 'ble_flash/flash_file_workflow.dart';
+import 'capture_activity/capture_activity_bus.dart';
+import 'capture_activity/capture_activity_event.dart';
 import 'data_revision.dart';
 import 'flash/flash_processing_state.dart';
 import 'pages/calendar_page.dart';
@@ -111,6 +113,8 @@ class AppEvents {
         FlashProcessingStatus.instance.applyFlashStatus(ev.json);
         FlashFileStatusController.instance.applyServerStatus(ev.json);
         FlashFileWorkflow.instance.applyServerStatus(ev.json);
+        final activity = CaptureActivityEvent.fromServerPayload(ev.json);
+        if (activity != null) CaptureActivityBus.instance.publish(activity);
         bumpData();
       case 'notification':
         bumpData();

@@ -6,6 +6,7 @@ import '../chat/recent_session.dart';
 class FlashResult {
   final bool ok;
   final String sessionId;
+  final String recordingId;
   final String inputTurnId;
   final String reply;
   final String summary;
@@ -15,6 +16,7 @@ class FlashResult {
   FlashResult({
     required this.ok,
     required this.sessionId,
+    required this.recordingId,
     required this.inputTurnId,
     required this.reply,
     required this.summary,
@@ -25,6 +27,7 @@ class FlashResult {
   factory FlashResult.fromJson(Map<String, dynamic> j) => FlashResult(
     ok: j['ok'] == true,
     sessionId: j['session_id'] as String? ?? '',
+    recordingId: (j['recording_id'] ?? j['session_id']) as String? ?? '',
     inputTurnId: j['input_turn_id'] as String? ?? '',
     reply: j['reply'] as String? ?? '',
     summary: j['summary'] as String? ?? '',
@@ -43,10 +46,12 @@ Future<FlashResult> sendFlash(
   String text, {
   String source = 'voice',
   String captureSessionType = '',
+  String clientTaskId = '',
 }) async {
   final res = await api.postJson('/api/flash', {
     'text': text,
     'source': source,
+    if (clientTaskId.isNotEmpty) 'client_task_id': clientTaskId,
     if (captureSessionType.isNotEmpty)
       'capture_session_type': captureSessionType,
   });
