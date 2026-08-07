@@ -13,11 +13,82 @@ class TimeRange(StrictModel):
     to_at: datetime | None = Field(default=None, alias="to")
 
 
+EvidenceKind = Literal["asset", "event", "contact"]
+
+
+class EvidenceReference(StrictModel):
+    kind: EvidenceKind
+    id: str = Field(min_length=1)
+
+
 class EvidenceScope(StrictModel):
     time_range: TimeRange | None = None
     skill_ids: list[str] = Field(default_factory=list)
     asset_ids: list[str] = Field(default_factory=list)
+    references: list[EvidenceReference] = Field(default_factory=list)
     counts_by_skill: dict[str, int] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def normalize_references(self) -> "EvidenceScope":
+        normalized: list[EvidenceReference] = []
+        seen: set[tuple[str, str]] = set()
+        candidates = [
+            *self.references,
+            *(EvidenceReference(kind="asset", id=value) for value in self.asset_ids),
+        ]
+        for reference in candidates:
+            key = (reference.kind, reference.id)
+            if key in seen:
+                continue
+            seen.add(key)
+            normalized.append(reference)
+        self.references = normalized
+        self.asset_ids = [
+            reference.id
+            for reference in normalized
+            if reference.kind == "asset"
+        ]
+        return self
+
+
+class ResearchEntity(StrictModel):
+    id: str = Field(min_length=1)
+    kind: Literal["organization", "person", "topic", "product", "place"]
+    name: str = Field(min_length=1, max_length=200)
+    qualifier: str | None = Field(default=None, max_length=200)
+    enabled: bool = True
+
+
+class PublicResearchBrief(StrictModel):
+    entities: list[ResearchEntity] = Field(default_factory=list)
+    questions: list[str] = Field(default_factory=list, max_length=8)
+    freshness: Literal[
+        "current",
+        "recent_year",
+        "historical",
+        "not_applicable",
+    ] = "current"
+
+
+class PlanBlocker(StrictModel):
+    code: Literal[
+        "ambiguous_person",
+        "missing_public_entity",
+        "empty_scope",
+    ]
+    message: str = Field(min_length=1, max_length=500)
+    entity_id: str | None = None
+
+
+class ReportPlanDraft(StrictModel):
+    selected_option_id: str = Field(min_length=1)
+    attention_questions: list[str] = Field(default_factory=list, max_length=8)
+    additional_focus: str = Field(default="", max_length=500)
+    evidence_scope: EvidenceScope = Field(default_factory=EvidenceScope)
+    public_research_scope: PublicResearchBrief = Field(
+        default_factory=PublicResearchBrief
+    )
+    blockers: list[PlanBlocker] = Field(default_factory=list)
 
 
 class ClarificationQuestion(StrictModel):
@@ -80,6 +151,11 @@ class ReportExecutionPlan(StrictModel):
     base_family: str
     report_goal: str
     resolved_asset_ids: list[str]
+    resolved_references: list[EvidenceReference] = Field(default_factory=list)
+    attention_questions: list[str] = Field(default_factory=list)
+    public_research_brief: PublicResearchBrief = Field(
+        default_factory=PublicResearchBrief
+    )
     field_bindings: dict[str, str] = Field(default_factory=dict)
     time_range: TimeRange | None = None
     web_policy: Literal["none", "optional", "required", "authoritative_only"]
@@ -191,3 +267,4 @@ class RunDecisionRequest(StrictModel):
 
 class RunGenerateRequest(StrictModel):
     selected_option_id: str
+    expected_plan_revision: int = Field(ge=0)

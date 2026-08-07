@@ -1,0 +1,101 @@
+import pytest
+from pydantic import ValidationError
+
+from app.domains.reports.schemas import (
+    EvidenceScope,
+    ReportPlanDraft,
+    RunGenerateRequest,
+)
+
+
+def test_plan_draft_accepts_typed_event_contact_and_asset_references():
+    draft = ReportPlanDraft.model_validate(
+        {
+            "selected_option_id": "recommended",
+            "attention_questions": ["球队建设的当前短板是什么？"],
+            "additional_focus": "补充 Kevin 的公开职业背景",
+            "evidence_scope": {
+                "references": [
+                    {"kind": "event", "id": "event-1"},
+                    {"kind": "contact", "id": "contact-1"},
+                    {"kind": "asset", "id": "asset-1"},
+                ]
+            },
+            "public_research_scope": {
+                "entities": [],
+                "questions": [],
+                "freshness": "current",
+            },
+            "blockers": [],
+        }
+    )
+
+    assert [ref.kind for ref in draft.evidence_scope.references] == [
+        "event",
+        "contact",
+        "asset",
+    ]
+    assert draft.evidence_scope.asset_ids == ["asset-1"]
+
+
+def test_legacy_asset_ids_are_normalized_into_typed_references():
+    scope = EvidenceScope(asset_ids=["asset-1", "asset-1", "asset-2"])
+
+    assert [(ref.kind, ref.id) for ref in scope.references] == [
+        ("asset", "asset-1"),
+        ("asset", "asset-2"),
+    ]
+    assert scope.asset_ids == ["asset-1", "asset-2"]
+
+
+def test_typed_references_are_deduplicated_without_losing_order():
+    scope = EvidenceScope.model_validate(
+        {
+            "asset_ids": ["asset-2"],
+            "references": [
+                {"kind": "event", "id": "event-1"},
+                {"kind": "asset", "id": "asset-1"},
+                {"kind": "event", "id": "event-1"},
+            ],
+        }
+    )
+
+    assert [(ref.kind, ref.id) for ref in scope.references] == [
+        ("event", "event-1"),
+        ("asset", "asset-1"),
+        ("asset", "asset-2"),
+    ]
+    assert scope.asset_ids == ["asset-1", "asset-2"]
+
+
+def test_generate_request_requires_plan_revision():
+    request = RunGenerateRequest(
+        selected_option_id="recommended",
+        expected_plan_revision=3,
+    )
+    assert request.expected_plan_revision == 3
+
+    with pytest.raises(ValidationError):
+        RunGenerateRequest(selected_option_id="recommended")
+
+
+def test_public_research_person_entity_can_carry_a_qualifier():
+    draft = ReportPlanDraft.model_validate(
+        {
+            "selected_option_id": "recommended",
+            "evidence_scope": {},
+            "public_research_scope": {
+                "entities": [
+                    {
+                        "id": "kevin",
+                        "kind": "person",
+                        "name": "Kevin",
+                        "qualifier": "Eureka CEO",
+                    }
+                ],
+                "questions": ["公开职业背景"],
+            },
+        }
+    )
+
+    assert draft.public_research_scope.entities[0].qualifier == "Eureka CEO"

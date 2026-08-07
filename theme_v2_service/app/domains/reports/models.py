@@ -57,6 +57,8 @@ class ReportGenerationRun(Base):
     evidence_scope: Mapped[dict] = mapped_column(mysql.JSON, default=dict, nullable=False)
     pending_decision: Mapped[dict | None] = mapped_column(mysql.JSON)
     plan_options: Mapped[list] = mapped_column(mysql.JSON, default=list, nullable=False)
+    plan_draft: Mapped[dict | None] = mapped_column(mysql.JSON)
+    plan_revision: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     selected_option_id: Mapped[str | None] = mapped_column(String(100))
     execution_plan: Mapped[dict | None] = mapped_column(mysql.JSON)
     template_id: Mapped[str | None] = mapped_column(String(100))
@@ -67,6 +69,7 @@ class ReportGenerationRun(Base):
         nullable=False,
     )
     planner_job_id: Mapped[str | None] = mapped_column(CHAR(36))
+    scope_resolution_job_id: Mapped[str | None] = mapped_column(CHAR(36))
     generation_job_id: Mapped[str | None] = mapped_column(CHAR(36))
     draft_content_md: Mapped[str | None] = mapped_column(Text)
     generation_context: Mapped[dict] = mapped_column(

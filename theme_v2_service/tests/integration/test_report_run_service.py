@@ -103,3 +103,14 @@ async def test_database_rejects_unknown_run_state(session):
     with pytest.raises(DBAPIError):
         await session.commit()
     await session.rollback()
+
+
+async def test_generation_run_defaults_plan_revision_to_zero(session):
+    run = _run()
+    session.add(run)
+
+    await session.commit()
+
+    assert run.plan_revision == 0
+    assert run.plan_draft is None
+    assert run.scope_resolution_job_id is None
