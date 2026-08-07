@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:br_flutter_plugin_ble/br_bluetooth_plugin.dart';
 import 'package:flutter/foundation.dart';
 
+import '../capture_activity/capture_activity_bus.dart';
+import '../capture_activity/capture_activity_event.dart';
 import 'flash_file_task.dart';
 import 'flash_file_workflow.dart';
 
@@ -26,6 +28,8 @@ class BleFlashManager {
   int _audioFrameCount = 0;
   Map<String, dynamic>? _lastStartEvent;
   Map<String, dynamic>? _lastEndEvent;
+  String? _activeActivityId;
+  int _activitySequence = 0;
 
   int get audioFrameCount => _audioFrameCount;
   Map<String, dynamic>? get lastStartEvent => _lastStartEvent;
@@ -73,10 +77,21 @@ class BleFlashManager {
     _lastStartEvent = Map<String, dynamic>.from(event);
     _lastEndEvent = null;
     _audioFrameCount = 0;
+    _activeActivityId =
+        'card-${DateTime.now().microsecondsSinceEpoch}-${_activitySequence++}';
     _log('flash start event=$event');
     if (!isFlashing.value) {
       isFlashing.value = true;
     }
+    CaptureActivityBus.instance.publish(
+      CaptureActivityEvent(
+        aliases: {captureActivityAlias('local', _activeActivityId)},
+        source: CaptureActivitySource.card,
+        phase: CaptureActivityPhase.listening,
+        isRealtime: true,
+        occurredAt: DateTime.now().toUtc(),
+      ),
+    );
   }
 
   void _handleData(Map<String, dynamic> event) {
@@ -102,6 +117,7 @@ class BleFlashManager {
         isFlashFileName(fileName)) {
       FlashFileWorkflow.instance.upsertRealtime(
         fileName: fileName,
+        localActivityId: _activeActivityId,
         createTime: _asInt(info['createTime']),
         endTime: _asInt(info['endTime']),
         crc: _asInt(event['crc'] ?? info['crc']),
@@ -109,7 +125,20 @@ class BleFlashManager {
       );
     } else {
       _log('flash end ignored code=${event['code']} file=$fileName');
+      final activityId = _activeActivityId;
+      if (activityId != null) {
+        CaptureActivityBus.instance.publish(
+          CaptureActivityEvent(
+            aliases: {captureActivityAlias('local', activityId)},
+            source: CaptureActivitySource.card,
+            phase: CaptureActivityPhase.failed,
+            isRealtime: true,
+            occurredAt: DateTime.now().toUtc(),
+          ),
+        );
+      }
     }
+    _activeActivityId = null;
   }
 
   void _handleConnectionState(Map<String, dynamic> event) {

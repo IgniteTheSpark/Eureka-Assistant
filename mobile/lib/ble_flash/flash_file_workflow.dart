@@ -12,6 +12,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../api/api_client.dart';
 import '../api/eureka_flash_file_api.dart';
 import '../api/tencent_asr_s3_client.dart';
+import '../capture_activity/capture_activity_bus.dart';
+import '../capture_activity/capture_activity_event.dart';
 import 'flash_file_status_controller.dart';
 import 'flash_file_task.dart';
 
@@ -41,6 +43,9 @@ class FlashFileWorkflow {
   final EurekaFlashFileApi _eurekaApi;
   final Map<String, FlashFileTask> _tasks = {};
   final ValueNotifier<int> taskRevision = ValueNotifier<int>(0);
+
+  List<FlashFileTask> get taskSnapshot =>
+      List<FlashFileTask>.unmodifiable(_tasks.values);
 
   bool _loaded = false;
   bool _started = false;
@@ -87,6 +92,7 @@ class FlashFileWorkflow {
     await _load(runId);
     if (!_isActiveRun(runId)) return;
     _log('workflow loaded tasks count=${_tasks.length}');
+    _notifyTasksChanged();
     await scanOfflineIfConnected();
     if (!_isActiveRun(runId)) return;
     _kick();
@@ -148,6 +154,7 @@ class FlashFileWorkflow {
 
   Future<void> upsertRealtime({
     required String fileName,
+    String? localActivityId,
     int? createTime,
     int? endTime,
     int? crc,
@@ -178,6 +185,19 @@ class FlashFileWorkflow {
         );
     await _save(runId);
     if (!_isActiveRun(runId)) return;
+    final activity = captureActivityForFlashFileTask(_tasks[key]!);
+    CaptureActivityBus.instance.publish(
+      CaptureActivityEvent(
+        aliases: {
+          ...activity.aliases,
+          captureActivityAlias('local', localActivityId),
+        }..remove(''),
+        source: activity.source,
+        phase: CaptureActivityPhase.receiving,
+        isRealtime: true,
+        occurredAt: activity.occurredAt,
+      ),
+    );
     _notifyTasksChanged();
     _log(
       'realtime task upserted key=$key existing=${existing != null} '
@@ -239,6 +259,7 @@ class FlashFileWorkflow {
     );
     await _save(runId);
     if (!_isActiveRun(runId)) return;
+    _notifyTasksChanged();
     if (flashNames.isEmpty && deleteRetry == 0) {
       FlashFileStatusController.instance.clear();
     }
@@ -751,6 +772,7 @@ class FlashFileWorkflow {
     if (audioPath == null) throw StateError('audio path missing');
     _log('client sync ASR start ${_brief(task)} audio=$audioPath');
     FlashFileStatusController.instance.submitting(task.fileName);
+    _publishTaskActivity(task, phase: CaptureActivityPhase.transcribing);
     if (task.clientAsrRawResponse != null) {
       _log(
         'client sync ASR reuse cached result ${_brief(task)} '
@@ -1223,5 +1245,51 @@ class FlashFileWorkflow {
 
   void _notifyTasksChanged() {
     taskRevision.value++;
+    for (final task in _tasks.values) {
+      if (task.stage == FlashFileStage.done) continue;
+      _publishTaskActivity(task);
+    }
   }
+
+  void _publishTaskActivity(FlashFileTask task, {CaptureActivityPhase? phase}) {
+    CaptureActivityBus.instance.publish(
+      captureActivityForFlashFileTask(task, phase: phase),
+    );
+  }
+}
+
+CaptureActivityEvent captureActivityForFlashFileTask(
+  FlashFileTask task, {
+  CaptureActivityPhase? phase,
+}) {
+  final capturedAt = task.createTime == null
+      ? task.updatedAt
+      : DateTime.fromMillisecondsSinceEpoch(
+          task.createTime! * 1000,
+          isUtc: true,
+        );
+  return CaptureActivityEvent(
+    aliases: {
+      captureActivityAlias('local', task.key),
+      captureActivityAlias('client', task.id),
+      captureActivityAlias('recording', task.eurekaRecordingId),
+      captureActivityAlias('device-file', task.fileName),
+    }..remove(''),
+    source: CaptureActivitySource.card,
+    phase: phase ?? _capturePhaseForFlashFileStage(task.stage),
+    isRealtime: task.source == FlashFileSource.realtime,
+    occurredAt: capturedAt.toUtc(),
+  );
+}
+
+CaptureActivityPhase _capturePhaseForFlashFileStage(FlashFileStage stage) {
+  return switch (stage) {
+    FlashFileStage.waitingServerAsr => CaptureActivityPhase.transcribing,
+    FlashFileStage.eurekaAccepted ||
+    FlashFileStage.waitingServer ||
+    FlashFileStage.deletingDeviceFile ||
+    FlashFileStage.done => CaptureActivityPhase.understanding,
+    FlashFileStage.failed => CaptureActivityPhase.failed,
+    _ => CaptureActivityPhase.receiving,
+  };
 }

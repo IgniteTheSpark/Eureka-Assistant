@@ -10,6 +10,8 @@ void main() {
       final keys = StreamController<int>.broadcast();
       final audio = StreamController<List<int>>.broadcast();
       final cards = <String>[];
+      final taskIds = <String>[];
+      final activityTaskIds = <String>[];
 
       var startCmds = 0, stopCmds = 0;
       final c = RingCaptureController(
@@ -24,9 +26,12 @@ void main() {
           stopCmds++;
         },
         transcribe: (pcm, sr, ch) async => 'hello ${pcm.length}',
-        createCard: (text) async {
+        createCard: (text, taskId) async {
           cards.add(text);
+          taskIds.add(taskId);
         },
+        createTaskId: () => 'ring-task-1',
+        onActivityPhase: (_, taskId) => activityTaskIds.add(taskId),
         stopDrain:
             Duration.zero, // no tail drain → deterministic timing in test
       );
@@ -44,6 +49,9 @@ void main() {
       expect(stopCmds, 1); // stop command sent on second
       expect(cards.length, 1);
       expect(cards.first, 'hello 1600');
+      expect(taskIds.single, 'ring-task-1');
+      expect(activityTaskIds, isNotEmpty);
+      expect(activityTaskIds.toSet(), {'ring-task-1'});
       await c.dispose();
     },
   );
@@ -61,7 +69,7 @@ void main() {
       startRecording: () async {},
       stopRecording: () async {},
       transcribe: (pcm, sr, ch) async => 'len ${pcm.length}',
-      createCard: (text) async {
+      createCard: (text, _) async {
         cards.add(text);
       },
       stopDrain: const Duration(milliseconds: 50),
@@ -94,7 +102,7 @@ void main() {
         startRecording: () async {},
         stopRecording: () async {},
         transcribe: (_, _, _) async => throw StateError('asr rejected audio'),
-        createCard: (_) async {},
+        createCard: (_, _) async {},
         onError: errors.add,
         stopDrain: Duration.zero,
       )..start();

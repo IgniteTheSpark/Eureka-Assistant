@@ -15,13 +15,16 @@ class RingFrame {
 typedef RecCmdFn = Future<void> Function();
 typedef TranscribeFn =
     Future<String> Function(Uint8List pcm, int sampleRate, int channels);
-typedef CreateCardFn = Future<void> Function(String text);
+typedef CreateCardFn = Future<void> Function(String text, String clientTaskId);
+typedef CreateTaskIdFn = String Function();
 
 /// Lifecycle phase of a ring capture, surfaced so the UI can mirror the card's
 /// progressive「正在…」status instead of one static line.
 enum RingCapturePhase { recording, transcribing, filing, done, empty, error }
 
 typedef PhaseFn = void Function(RingCapturePhase phase);
+typedef ActivityPhaseFn =
+    void Function(RingCapturePhase phase, String clientTaskId);
 typedef CaptureErrorFn = void Function(Object error);
 
 /// Double-click the ring to start a capture; double-click again to stop, which
@@ -40,7 +43,9 @@ class RingCaptureController {
     required TranscribeFn transcribe,
     required CreateCardFn createCard,
     this.onPhase,
+    this.onActivityPhase,
     this.onError,
+    CreateTaskIdFn? createTaskId,
     this.sampleRate = 8000,
     this.stopDrain = const Duration(milliseconds: 400),
   }) : _keyEvents = keyEvents,
@@ -48,7 +53,8 @@ class RingCaptureController {
        _startRecording = startRecording,
        _stopRecording = stopRecording,
        _transcribe = transcribe,
-       _createCard = createCard;
+       _createCard = createCard,
+       _createTaskId = createTaskId ?? _defaultTaskId;
 
   final Stream<int> _keyEvents;
   final Stream<RingFrame> _audioFrames;
@@ -56,9 +62,11 @@ class RingCaptureController {
   final RecCmdFn _stopRecording;
   final TranscribeFn _transcribe;
   final CreateCardFn _createCard;
+  final CreateTaskIdFn _createTaskId;
 
   /// Capture lifecycle hook so the UI can mirror the card's progressive status.
   final PhaseFn? onPhase;
+  final ActivityPhaseFn? onActivityPhase;
   final CaptureErrorFn? onError;
   final int sampleRate;
 
@@ -72,6 +80,17 @@ class RingCaptureController {
   int _channels = 1;
   bool _recording = false;
   bool _finishing = false; // true across the stop→transcribe→file handshake
+  String? _activeTaskId;
+  static int _taskSequence = 0;
+
+  static String _defaultTaskId() =>
+      'ring-${DateTime.now().microsecondsSinceEpoch}-${_taskSequence++}';
+
+  void _emitPhase(RingCapturePhase phase) {
+    onPhase?.call(phase);
+    final taskId = _activeTaskId;
+    if (taskId != null) onActivityPhase?.call(phase, taskId);
+  }
 
   void start() {
     _keySub ??= _keyEvents.listen((k) {
@@ -96,8 +115,9 @@ class RingCaptureController {
 
   void _beginRecording() {
     _buf.clear();
+    _activeTaskId = _createTaskId();
     _recording = true;
-    onPhase?.call(RingCapturePhase.recording);
+    _emitPhase(RingCapturePhase.recording);
     // Fire-and-forget the start command; never let it throw into the key handler.
     _startRecording().catchError((_) {});
   }
@@ -117,25 +137,26 @@ class RingCaptureController {
       _recording = false;
       final pcm = _buf.toBytes();
       if (pcm.isEmpty) {
-        onPhase?.call(RingCapturePhase.empty);
+        _emitPhase(RingCapturePhase.empty);
         return;
       }
-      onPhase?.call(RingCapturePhase.transcribing);
+      _emitPhase(RingCapturePhase.transcribing);
       final text = await _transcribe(pcm, sampleRate, _channels);
       if (text.trim().isEmpty) {
-        onPhase?.call(RingCapturePhase.empty);
+        _emitPhase(RingCapturePhase.empty);
         return;
       }
-      onPhase?.call(RingCapturePhase.filing);
-      await _createCard(text);
-      onPhase?.call(RingCapturePhase.done);
+      _emitPhase(RingCapturePhase.filing);
+      await _createCard(text, _activeTaskId!);
+      _emitPhase(RingCapturePhase.done);
     } catch (error) {
       // swallow — a transcription/network failure must not break future captures
       onError?.call(error);
-      onPhase?.call(RingCapturePhase.error);
+      _emitPhase(RingCapturePhase.error);
     } finally {
       _recording = false;
       _finishing = false;
+      _activeTaskId = null;
     }
   }
 

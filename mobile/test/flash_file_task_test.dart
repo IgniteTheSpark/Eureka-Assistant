@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eureka/ble_flash/flash_file_workflow.dart';
 import 'package:eureka/ble_flash/flash_file_status_controller.dart';
 import 'package:eureka/ble_flash/flash_file_task.dart';
+import 'package:eureka/capture_activity/capture_activity_event.dart';
 
 void main() {
   test('isFlashFileName only accepts uppercase F opus files', () {
@@ -126,6 +127,35 @@ void main() {
     expect(
       FlashFileWorkflow.debugPrefsKeyForUser(' user-a '),
       'flash_file_tasks_v1:user-a',
+    );
+  });
+
+  test('card workflow task exposes stable aliases and normalized phase', () {
+    final task = FlashFileTask(
+      id: 'client-task-1',
+      key: 'SN1:F20260807-090000.opus',
+      deviceSn: 'SN1',
+      fileName: 'F20260807-090000.opus',
+      source: FlashFileSource.realtime,
+      stage: FlashFileStage.waitingServerAsr,
+      updatedAt: DateTime.utc(2026, 8, 7, 9),
+      createTime: DateTime.utc(2026, 8, 7, 9).millisecondsSinceEpoch ~/ 1000,
+      eurekaRecordingId: 'recording-1',
+    );
+
+    final activity = captureActivityForFlashFileTask(task);
+
+    expect(activity.source, CaptureActivitySource.card);
+    expect(activity.phase, CaptureActivityPhase.transcribing);
+    expect(activity.isRealtime, isTrue);
+    expect(
+      activity.aliases,
+      containsAll(<String>{
+        'local:SN1:F20260807-090000.opus',
+        'client:client-task-1',
+        'recording:recording-1',
+        'device-file:F20260807-090000.opus',
+      }),
     );
   });
 }

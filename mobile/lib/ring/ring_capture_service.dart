@@ -5,7 +5,8 @@ import 'package:flutter/foundation.dart';
 
 import '../api/api_client.dart';
 import '../api/tencent_asr_s3_client.dart';
-import '../ble_flash/flash_file_status_controller.dart';
+import '../capture_activity/capture_activity_bus.dart';
+import '../capture_activity/capture_activity_event.dart';
 import '../flash/flash.dart';
 import 'ring_asr.dart';
 import 'ring_capture_controller.dart';
@@ -50,29 +51,57 @@ void startRingCapture(ApiClient api) {
     stopRecording: ring.stopRecording,
     transcribe: (pcm, sr, ch) =>
         asr.transcribePcm(pcm, sampleRate: sr, channels: ch),
-    createCard: (text) async {
-      final result = await sendFlash(api, text, source: 'voice');
+    createCard: (text, clientTaskId) async {
+      final result = await sendFlash(
+        api,
+        text,
+        source: 'voice',
+        clientTaskId: clientTaskId,
+      );
       ringLastFlash.value = result; // onboarding's 戒指 capture step watches this
+      CaptureActivityBus.instance.publish(
+        CaptureActivityEvent(
+          aliases: {
+            captureActivityAlias('client', clientTaskId),
+            captureActivityAlias('recording', result.recordingId),
+          }..remove(''),
+          source: CaptureActivitySource.ring,
+          phase: result.ok
+              ? (result.hasPending
+                    ? CaptureActivityPhase.understanding
+                    : CaptureActivityPhase.done)
+              : CaptureActivityPhase.failed,
+          isRealtime: true,
+          sessionId: result.physicalSessionId.isEmpty
+              ? null
+              : result.physicalSessionId,
+          inputTurnId: result.inputTurnId.isEmpty ? null : result.inputTurnId,
+          resultCount: result.cards.length,
+          occurredAt: DateTime.now().toUtc(),
+        ),
+      );
     },
     onError: (error) => debugPrint('Ring capture failed: $error'),
-    // Mirror the card's progressive「Reka听到：…正在X」bubble (floating mascot)
-    // instead of a single static line. Ring ASR is on-device, so the「听写」beat
-    // has no server counterpart — the client must drive it.
-    onPhase: (phase) {
-      final s = FlashFileStatusController.instance;
-      switch (phase) {
-        case RingCapturePhase.recording:
-          break; // recording on-device; no bubble until we have audio to file
-        case RingCapturePhase.transcribing:
-          s.processing('听写');
-        case RingCapturePhase.filing:
-          s.processing('整理');
-        case RingCapturePhase.done:
-        case RingCapturePhase.empty:
-          s.clear();
-        case RingCapturePhase.error:
-          s.failed('录音整理失败，请重试');
-      }
+    onActivityPhase: (phase, clientTaskId) {
+      final normalized = switch (phase) {
+        RingCapturePhase.recording => CaptureActivityPhase.listening,
+        RingCapturePhase.transcribing => CaptureActivityPhase.transcribing,
+        RingCapturePhase.filing => CaptureActivityPhase.understanding,
+        RingCapturePhase.empty => CaptureActivityPhase.empty,
+        RingCapturePhase.error => CaptureActivityPhase.failed,
+        // The HTTP response or SSE owns the real terminal result.
+        RingCapturePhase.done => null,
+      };
+      if (normalized == null) return;
+      CaptureActivityBus.instance.publish(
+        CaptureActivityEvent(
+          aliases: {captureActivityAlias('client', clientTaskId)},
+          source: CaptureActivitySource.ring,
+          phase: normalized,
+          isRealtime: true,
+          occurredAt: DateTime.now().toUtc(),
+        ),
+      );
     },
   )..start();
 }

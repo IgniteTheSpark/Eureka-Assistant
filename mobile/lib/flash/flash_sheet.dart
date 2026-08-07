@@ -96,11 +96,14 @@ class _FlashSheetState extends State<_FlashSheet> {
         turn.result = FlashResult(
           ok: false,
           sessionId: '',
+          recordingId: '',
+          physicalSessionId: '',
           inputTurnId: '',
           reply: '',
           summary: '',
           cards: const [],
           error: '$e',
+          hasPending: false,
         );
         _sending = false;
       });

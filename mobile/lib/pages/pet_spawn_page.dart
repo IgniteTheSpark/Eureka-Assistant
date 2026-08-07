@@ -106,7 +106,9 @@ class _PetSpawnPageState extends State<PetSpawnPage>
     // dispose runs while the route tree is being torn down; releasing the
     // global notifier immediately can mark the floating mascot dirty while the
     // tree is locked. Defer to the next frame, same as PetPage.
-    WidgetsBinding.instance.addPostFrameCallback((_) => releaseMascotSuppress());
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => releaseMascotSuppress(),
+    );
     BleFlashManager.instance.isFlashing.removeListener(_onFlashingChanged);
     ringLastFlash.removeListener(_onRingFlash);
     _shake.dispose();
@@ -282,11 +284,15 @@ class _PetSpawnPageState extends State<PetSpawnPage>
             _result = FlashResult(
               ok: true,
               sessionId: sessionId,
+              recordingId: recordingId,
+              physicalSessionId:
+                  recording['physical_session_id']?.toString() ?? '',
               inputTurnId: recording['input_turn_id']?.toString() ?? '',
               reply: '',
               summary: recording['result_summary']?.toString() ?? '',
               cards: cards,
               error: '',
+              hasPending: false,
             );
             _hardwareStatus = '';
             _hardwareError = '';
@@ -789,7 +795,11 @@ class _PetSpawnPageState extends State<PetSpawnPage>
         Text(
           '💍 双击戒指,说一句想记的事',
           textAlign: TextAlign.center,
-          style: TextStyle(color: eu.textHi, fontSize: 20, fontWeight: FontWeight.w800),
+          style: TextStyle(
+            color: eu.textHi,
+            fontSize: 20,
+            fontWeight: FontWeight.w800,
+          ),
         ),
         const SizedBox(height: 10),
         Text(
@@ -809,7 +819,11 @@ class _PetSpawnPageState extends State<PetSpawnPage>
             padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
             child: Text(
               '改用打字',
-              style: TextStyle(color: eu.brand, fontSize: 14, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                color: eu.brand,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ),
@@ -821,7 +835,9 @@ class _PetSpawnPageState extends State<PetSpawnPage>
     // 复用 jigong 的配对页,按选择的设备类型('card'/'ring')直接进扫描,跳过页内
     // 二次选择。返回后按是否绑成分叉,绝不卡住。
     await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => DevicePairingPage(initialDevice: device)),
+      MaterialPageRoute(
+        builder: (_) => DevicePairingPage(initialDevice: device),
+      ),
     );
     if (!mounted) return;
     if (device == 'ring') {
