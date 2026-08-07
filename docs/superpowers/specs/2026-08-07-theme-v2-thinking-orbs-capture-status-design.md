@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-07
 
-**Status:** Design approved; written spec awaiting user review
+**Status:** Approved for combined implementation planning
 
 **Scope:** Theme V2 mobile capture presentation for ring, card, and audio upload
 
