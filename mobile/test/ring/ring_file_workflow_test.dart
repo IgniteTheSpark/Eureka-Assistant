@@ -181,6 +181,145 @@ void main() {
     expect(fixture.gateway.downloadCalls, hasLength(1));
     expect(fixture.gateway.deleteCalls, hasLength(1));
   });
+
+  test(
+    'realtime capture persists before audio and submits stable provenance',
+    () async {
+      FlashCaptureProvenance? submittedProvenance;
+      final fixture = _workflow(
+        supportDirectory: supportDirectory,
+        files: const [],
+        onSubmit: (_, clientTaskId, provenance) async {
+          expect(clientTaskId, 'ring-live-1');
+          submittedProvenance = provenance;
+          return _acceptedFlash();
+        },
+      );
+      await fixture.workflow.start('user-a', 'AA:BB');
+
+      await fixture.workflow.beginRealtimeCapture(
+        'ring-live-1',
+        startedAt: DateTime.utc(2026, 8, 11, 0, 30),
+      );
+      var task = (await fixture.store.load('user-a')).single;
+      expect(task.stage, RingCaptureStage.recording);
+      expect(task.deviceCaptureKey, startsWith('ring-realtime:'));
+
+      final outcome = await fixture.workflow.finishRealtimeCapture(
+        'ring-live-1',
+        Uint8List.fromList(List.filled(320, 1)),
+        sampleRate: 8000,
+        channels: 1,
+        frameGapCount: 0,
+        endedAt: DateTime.utc(2026, 8, 11, 0, 30, 10),
+      );
+
+      expect(outcome, RingRealtimeCaptureOutcome.done);
+      expect(submittedProvenance, isNotNull);
+      expect(submittedProvenance!.deviceId, 'AA:BB');
+      expect(
+        submittedProvenance!.captureStartedAt,
+        DateTime.utc(2026, 8, 11, 0, 30),
+      );
+      expect(
+        submittedProvenance!.captureEndedAt,
+        DateTime.utc(2026, 8, 11, 0, 30, 10),
+      );
+      expect(fixture.gateway.downloadCalls, isEmpty);
+      expect(fixture.gateway.deleteCalls, isEmpty);
+      task = (await fixture.store.load('user-a')).single;
+      expect(task.stage, RingCaptureStage.done);
+      expect(task.localWavPath, isNull);
+    },
+  );
+
+  test('realtime network failure resumes without repeating ASR', () async {
+    final store = _MemoryRingCaptureStore();
+    var recognizeCount = 0;
+    var submitCount = 0;
+    final first = _workflow(
+      supportDirectory: supportDirectory,
+      files: const [],
+      store: store,
+      onRecognize: (_) async {
+        recognizeCount += 1;
+        return '需要稍后续传';
+      },
+      onSubmit: (_, _, _) async {
+        submitCount += 1;
+        throw const SocketException('offline');
+      },
+    );
+    await first.workflow.start('user-a', 'AA:BB');
+    await first.workflow.beginRealtimeCapture('ring-live-retry');
+    expect(
+      await first.workflow.finishRealtimeCapture(
+        'ring-live-retry',
+        Uint8List.fromList(List.filled(320, 1)),
+        sampleRate: 8000,
+        channels: 1,
+        frameGapCount: 0,
+      ),
+      RingRealtimeCaptureOutcome.failed,
+    );
+    await first.workflow.stop();
+
+    final second = _workflow(
+      supportDirectory: supportDirectory,
+      files: const [],
+      store: store,
+      onRecognize: (_) async {
+        recognizeCount += 1;
+        return '不应再次转写';
+      },
+      onSubmit: (_, _, _) async {
+        submitCount += 1;
+        return _acceptedFlash();
+      },
+    );
+    await second.workflow.start('user-a', 'AA:BB');
+    await second.workflow.resumeRealtimeCaptures();
+
+    expect(recognizeCount, 1);
+    expect(submitCount, 2);
+    expect((await store.load('user-a')).single.stage, RingCaptureStage.done);
+  });
+
+  test(
+    'known realtime frame gap is retained as an explicit failed turn',
+    () async {
+      var recognizeCount = 0;
+      var submitCount = 0;
+      final fixture = _workflow(
+        supportDirectory: supportDirectory,
+        files: const [],
+        onRecognize: (_) async {
+          recognizeCount += 1;
+          return '不完整音频';
+        },
+        onSubmit: (_, _, _) async {
+          submitCount += 1;
+          return _acceptedFlash();
+        },
+      );
+      await fixture.workflow.start('user-a', 'AA:BB');
+      await fixture.workflow.beginRealtimeCapture('ring-live-gap');
+
+      final outcome = await fixture.workflow.finishRealtimeCapture(
+        'ring-live-gap',
+        Uint8List.fromList(List.filled(320, 1)),
+        sampleRate: 8000,
+        channels: 1,
+        frameGapCount: 1,
+      );
+
+      expect(outcome, RingRealtimeCaptureOutcome.failed);
+      expect(recognizeCount, 0);
+      expect(submitCount, 0);
+      final task = (await fixture.store.load('user-a')).single;
+      expect(task.lastErrorCode, 'live_frame_gap');
+    },
+  );
 }
 
 _WorkflowFixture _workflow({
@@ -188,6 +327,7 @@ _WorkflowFixture _workflow({
   List<RingFileRef>? files,
   Uint8List? pcm,
   List<bool>? deleteResults,
+  _MemoryRingCaptureStore? store,
   Future<String> Function(File file)? onRecognize,
   SubmitRecoveredFlash? onSubmit,
   Future<bool> Function(RingFileRef file)? onDelete,
@@ -199,7 +339,7 @@ _WorkflowFixture _workflow({
     deleteResults: deleteResults,
     onDelete: onDelete,
   );
-  final store = _MemoryRingCaptureStore();
+  final resolvedStore = store ?? _MemoryRingCaptureStore();
   final asr = RingAsr(
     recognize:
         onRecognize ??
@@ -209,7 +349,7 @@ _WorkflowFixture _workflow({
   );
   final workflow = RingFileWorkflow(
     gateway: gateway,
-    store: store,
+    store: resolvedStore,
     asr: asr,
     submit:
         onSubmit ??
@@ -220,7 +360,7 @@ _WorkflowFixture _workflow({
     now: () => DateTime.utc(2026, 8, 11, 0, 30),
     onActivity: onActivity,
   );
-  return _WorkflowFixture(workflow, gateway, store);
+  return _WorkflowFixture(workflow, gateway, resolvedStore);
 }
 
 RingFileRef _file() {

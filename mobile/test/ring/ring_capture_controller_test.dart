@@ -118,4 +118,104 @@ void main() {
       await c.dispose();
     },
   );
+
+  test('capture task is persisted before realtime streaming starts', () async {
+    final keys = StreamController<int>.broadcast();
+    final audio = StreamController<RingFrame>.broadcast();
+    final order = <String>[];
+    final controller = RingCaptureController(
+      keyEvents: keys.stream,
+      audioFrames: audio.stream,
+      startRecording: () async => order.add('live-start'),
+      stopRecording: () async {},
+      persistBegin: (_, _) async => order.add('persist'),
+      finishCapture: (_) async => RingCaptureFinishOutcome.done,
+      createTaskId: () => 'ring-task-durable',
+      stopDrain: Duration.zero,
+    )..start();
+    addTearDown(controller.dispose);
+
+    keys.add(2);
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+
+    expect(order, ['persist', 'live-start']);
+  });
+
+  test(
+    'known frame gap reaches durable finalization and is not hidden',
+    () async {
+      final keys = StreamController<int>.broadcast();
+      final audio = StreamController<RingFrame>.broadcast();
+      RingCapturePayload? payload;
+      final controller = RingCaptureController(
+        keyEvents: keys.stream,
+        audioFrames: audio.stream,
+        startRecording: () async {},
+        stopRecording: () async {},
+        persistBegin: (_, _) async {},
+        finishCapture: (value) async {
+          payload = value;
+          return RingCaptureFinishOutcome.failed;
+        },
+        createTaskId: () => 'ring-task-gap',
+        stopDrain: Duration.zero,
+      )..start();
+      addTearDown(controller.dispose);
+
+      keys.add(2);
+      await Future<void>.delayed(Duration.zero);
+      audio.add(RingFrame(pcm: Uint8List(8), channels: 1, seq: 7));
+      audio.add(RingFrame(pcm: Uint8List(8), channels: 1, seq: 9));
+      await Future<void>.delayed(Duration.zero);
+      keys.add(2);
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(payload, isNotNull);
+      expect(payload!.taskId, 'ring-task-gap');
+      expect(payload!.pcm, hasLength(16));
+      expect(payload!.frameGapCount, 1);
+    },
+  );
+
+  test(
+    'start failure marks the durable task and a later capture still works',
+    () async {
+      final keys = StreamController<int>.broadcast();
+      final audio = StreamController<RingFrame>.broadcast();
+      final failedTasks = <String>[];
+      final completedTasks = <String>[];
+      var startAttempts = 0;
+      var taskSequence = 0;
+      final controller = RingCaptureController(
+        keyEvents: keys.stream,
+        audioFrames: audio.stream,
+        startRecording: () async {
+          startAttempts += 1;
+          if (startAttempts == 1) throw StateError('BLE unavailable');
+        },
+        stopRecording: () async {},
+        persistBegin: (_, _) async {},
+        onCaptureStartFailed: (taskId, _) async => failedTasks.add(taskId),
+        finishCapture: (payload) async {
+          completedTasks.add(payload.taskId);
+          return RingCaptureFinishOutcome.done;
+        },
+        createTaskId: () => 'ring-task-${++taskSequence}',
+        stopDrain: Duration.zero,
+      )..start();
+      addTearDown(controller.dispose);
+
+      keys.add(2);
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      keys.add(2);
+      await Future<void>.delayed(Duration.zero);
+      audio.add(RingFrame(pcm: Uint8List(8), channels: 1, seq: 1));
+      await Future<void>.delayed(Duration.zero);
+      keys.add(2);
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(failedTasks, ['ring-task-1']);
+      expect(completedTasks, ['ring-task-2']);
+    },
+  );
 }

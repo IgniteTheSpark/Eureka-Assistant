@@ -87,6 +87,42 @@ void main() {
       expect(gateway.startScanCalls, 1);
     },
   );
+
+  test(
+    'onConnected fires once per disconnected to connected transition',
+    () async {
+      final gateway = _FakeGateway();
+      var connectedCount = 0;
+      final reconnect = RingReconnect(
+        gateway: gateway,
+        bindingStore: const _ImmediateStore('AA:BB'),
+        onConnected: () async => connectedCount += 1,
+      );
+      addTearDown(reconnect.dispose);
+      await reconnect.start();
+
+      gateway.emit(
+        const RingState(conn: RingConnState.connected, devices: <RingDevice>[]),
+      );
+      gateway.emit(
+        const RingState(conn: RingConnState.connected, devices: <RingDevice>[]),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(connectedCount, 1);
+
+      gateway.emit(
+        const RingState(
+          conn: RingConnState.disconnected,
+          devices: <RingDevice>[],
+        ),
+      );
+      gateway.emit(
+        const RingState(conn: RingConnState.connected, devices: <RingDevice>[]),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(connectedCount, 2);
+    },
+  );
 }
 
 RingState _scanningState(String mac) => RingState(

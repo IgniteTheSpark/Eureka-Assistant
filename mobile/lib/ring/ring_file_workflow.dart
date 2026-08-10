@@ -22,6 +22,8 @@ enum RingFileWorkflowPhase {
   memoryFull,
 }
 
+enum RingRealtimeCaptureOutcome { done, empty, failed }
+
 typedef SubmitRecoveredFlash =
     Future<FlashResult> Function(
       String text,
@@ -63,6 +65,7 @@ class RingFileWorkflow {
   final Set<Timer> _associationTimers = {};
   StreamSubscription<void>? _memoryFullSubscription;
   Future<void>? _scanInFlight;
+  Future<void>? _realtimeResumeInFlight;
   String? _userId;
   String? _deviceId;
 
@@ -101,6 +104,210 @@ class RingFileWorkflow {
       onActivity?.call(null, RingFileWorkflowPhase.memoryFull);
       _ignoreErrors(scanAndRecover());
     });
+  }
+
+  Future<RingCaptureTask> beginRealtimeCapture(
+    String taskId, {
+    DateTime? startedAt,
+  }) async {
+    _requireStarted();
+    final normalizedTaskId = taskId.trim();
+    if (normalizedTaskId.isEmpty) {
+      throw ArgumentError.value(taskId, 'taskId', 'must not be empty');
+    }
+    final existing = _tasks[normalizedTaskId];
+    if (existing != null) {
+      if (existing.deviceId.toUpperCase() != _deviceId!.toUpperCase()) {
+        throw StateError('realtime task belongs to a different ring');
+      }
+      return existing;
+    }
+    final captureKey = ringRealtimeCaptureKey(
+      deviceId: _deviceId!,
+      taskId: normalizedTaskId,
+    );
+    final now = _utcNow();
+    final task = RingCaptureTask(
+      id: normalizedTaskId,
+      userId: _userId!,
+      deviceId: _deviceId!,
+      stage: RingCaptureStage.recording,
+      startedAt: (startedAt ?? now).toUtc(),
+      updatedAt: now,
+      fileName: _realtimeFileName(captureKey),
+      deviceCaptureKey: captureKey,
+    );
+    await _save(task);
+    return task;
+  }
+
+  Future<void> failRealtimeStart(
+    String taskId, {
+    String code = 'live_start_failed',
+  }) async {
+    _requireStarted();
+    final task = _tasks[taskId];
+    if (task == null) return;
+    await _fail(task, code);
+  }
+
+  Future<RingRealtimeCaptureOutcome> finishRealtimeCapture(
+    String taskId,
+    Uint8List pcm, {
+    required int sampleRate,
+    required int channels,
+    required int frameGapCount,
+    DateTime? endedAt,
+  }) async {
+    _requireStarted();
+    final storedTask = _tasks[taskId];
+    if (storedTask == null) {
+      throw StateError('realtime ring capture task not found');
+    }
+    var task = storedTask.copyWith(endedAt: (endedAt ?? _utcNow()).toUtc());
+    await _save(task);
+    if (pcm.isEmpty) {
+      await _fail(task, 'empty_device_audio');
+      return RingRealtimeCaptureOutcome.empty;
+    }
+
+    try {
+      final outputFile = await _stableWavFile(task);
+      final wav = await _asr.writePcmWav(
+        pcm,
+        outputFile: outputFile,
+        sampleRate: sampleRate,
+        channels: channels,
+      );
+      final bytes = await wav.readAsBytes();
+      task = task.copyWith(
+        stage: RingCaptureStage.downloaded,
+        updatedAt: _utcNow(),
+        localWavPath: wav.path,
+        localAudioSha256: sha256.convert(bytes).toString(),
+        localAudioSizeBytes: bytes.length,
+        lastErrorCode: null,
+      );
+      await _save(task);
+    } on Object {
+      await _fail(task, 'local_write_failed');
+      return RingRealtimeCaptureOutcome.failed;
+    }
+
+    if (frameGapCount > 0) {
+      await _fail(task, 'live_frame_gap');
+      return RingRealtimeCaptureOutcome.failed;
+    }
+    task = await _transcribe(task);
+    if (task.stage == RingCaptureStage.failed) {
+      return task.lastErrorCode == 'empty_transcript'
+          ? RingRealtimeCaptureOutcome.empty
+          : RingRealtimeCaptureOutcome.failed;
+    }
+    return _submitRealtime(task);
+  }
+
+  Future<void> resumeRealtimeCaptures() {
+    _requireStarted();
+    final active = _realtimeResumeInFlight;
+    if (active != null) return active;
+    final resume = _resumeRealtimeCaptures();
+    _realtimeResumeInFlight = resume;
+    resume.then<void>(
+      (_) {
+        if (identical(_realtimeResumeInFlight, resume)) {
+          _realtimeResumeInFlight = null;
+        }
+      },
+      onError: (Object _, StackTrace _) {
+        if (identical(_realtimeResumeInFlight, resume)) {
+          _realtimeResumeInFlight = null;
+        }
+      },
+    );
+    return resume;
+  }
+
+  Future<void> _resumeRealtimeCaptures() async {
+    final tasks = List<RingCaptureTask>.from(_tasks.values).where(
+      (task) => (task.deviceCaptureKey ?? '').startsWith('ring-realtime:'),
+    );
+    for (var task in tasks) {
+      if (task.stage == RingCaptureStage.done) continue;
+      if (task.lastErrorCode == 'live_frame_gap' ||
+          task.lastErrorCode == 'empty_device_audio') {
+        continue;
+      }
+      if (!_hasDurableWav(task)) {
+        await _fail(task, 'capture_interrupted');
+        continue;
+      }
+      if ((task.transcript ?? '').trim().isEmpty) {
+        task = await _transcribe(task);
+        if (task.stage == RingCaptureStage.failed) continue;
+      }
+      await _submitRealtime(task);
+    }
+  }
+
+  Future<RingRealtimeCaptureOutcome> _submitRealtime(
+    RingCaptureTask task,
+  ) async {
+    final transcript = task.transcript?.trim() ?? '';
+    final captureKey = task.deviceCaptureKey;
+    final fileName = task.fileName;
+    final audioSha = task.localAudioSha256;
+    final audioSize = task.localAudioSizeBytes;
+    if (transcript.isEmpty ||
+        captureKey == null ||
+        fileName == null ||
+        audioSha == null ||
+        audioSize == null) {
+      await _fail(task, 'recovery_metadata_incomplete');
+      return RingRealtimeCaptureOutcome.failed;
+    }
+
+    task = await _transition(task, RingCaptureStage.submitting);
+    onActivity?.call(task, RingFileWorkflowPhase.submitting);
+    late final FlashResult result;
+    try {
+      result = await _submit(
+        transcript,
+        task.id,
+        FlashCaptureProvenance(
+          deviceCaptureKey: captureKey,
+          deviceKind: 'ring',
+          deviceId: task.deviceId,
+          deviceFileName: fileName,
+          captureStartedAt: task.startedAt,
+          captureEndedAt: task.endedAt,
+          localAudioSha256: audioSha,
+          localAudioSizeBytes: audioSize,
+        ),
+      );
+    } on Object {
+      await _fail(task, 'submit_failed');
+      return RingRealtimeCaptureOutcome.failed;
+    }
+    if (!result.ok) {
+      await _fail(task, 'backend_rejected');
+      return RingRealtimeCaptureOutcome.failed;
+    }
+
+    final done = task.copyWith(
+      stage: RingCaptureStage.done,
+      updatedAt: _utcNow(),
+      recordingId: result.recordingId,
+      sessionId: result.physicalSessionId,
+      inputTurnId: result.inputTurnId,
+      localWavPath: null,
+      deletePending: false,
+      lastErrorCode: null,
+    );
+    await _deleteLocalWav(task.localWavPath);
+    await _save(done);
+    onActivity?.call(done, RingFileWorkflowPhase.done);
+    return RingRealtimeCaptureOutcome.done;
   }
 
   Future<void> scanAndRecover() {
@@ -440,6 +647,11 @@ class RingFileWorkflow {
     return 'ring-file-$digest';
   }
 
+  String _realtimeFileName(String captureKey) {
+    final digest = captureKey.split(':').last;
+    return 'LIVE-$digest.wav';
+  }
+
   Future<File> _stableWavFile(RingCaptureTask task) async {
     final root = await _getSupportDirectory();
     final userDirectory = sha256
@@ -477,6 +689,7 @@ class RingFileWorkflow {
     await _memoryFullSubscription?.cancel();
     _memoryFullSubscription = null;
     _scanInFlight = null;
+    _realtimeResumeInFlight = null;
     _recoveries.clear();
     _tasks.clear();
     _userId = null;

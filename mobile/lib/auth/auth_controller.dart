@@ -16,6 +16,7 @@ import '../device/device_silent_reconnect.dart';
 import '../pet/pet_controller.dart';
 import '../pet/reka_nudges.dart';
 import '../pet/reka_notifications.dart';
+import '../ring/ring_capture_service.dart';
 
 /// App-wide auth state: holds the session token + the signed-in email, and
 /// drives the login gate in main.dart. The token is mirrored into [AuthStore]
@@ -199,9 +200,9 @@ class AuthController extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    await _resetPerUserState();
     _clearAuthMemory();
     _sessionEpoch++;
-    await _resetPerUserState();
     final sp = await SharedPreferences.getInstance();
     await sp.remove(_kToken);
     await sp.remove(_kEmail);
@@ -221,6 +222,7 @@ class AuthController extends ChangeNotifier {
   Future<void> _resetPerUserState() async {
     AppEvents.instance.stop();
     FlashFileWorkflow.instance.stop();
+    await stopRingCapture();
     await DeviceSilentReconnect.instance.stop();
     await BleFlashManager.instance.stop();
     await DeviceController.instance.disconnectForLogout();

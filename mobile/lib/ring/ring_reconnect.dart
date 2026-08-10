@@ -19,6 +19,8 @@ abstract interface class RingReconnectBindingStore {
   Future<String?> readMac();
 }
 
+typedef RingReconnectConnectedCallback = FutureOr<void> Function();
+
 /// Keeps the ring connected by SCANNING for the saved MAC and connecting when it
 /// appears — the same robust pattern the card uses (DeviceSilentReconnect).
 ///
@@ -32,6 +34,7 @@ class RingReconnect {
   RingReconnect({
     required RingReconnectGateway gateway,
     required RingReconnectBindingStore bindingStore,
+    this.onConnected,
   }) : _gateway = gateway,
        _bindingStore = bindingStore;
 
@@ -43,6 +46,7 @@ class RingReconnect {
 
   final RingReconnectGateway _gateway;
   final RingReconnectBindingStore _bindingStore;
+  RingReconnectConnectedCallback? onConnected;
   StreamSubscription<RingState>? _sub;
   Timer? _retryTimer;
   Timer? _scanTimer;
@@ -116,6 +120,7 @@ class RingReconnect {
 
   void _onState(RingState state) {
     final nowConnected = state.conn == RingConnState.connected;
+    final wasConnected = _connected;
     // While scanning for reconnect, connect as soon as the saved ring shows up.
     if (!nowConnected &&
         _scanning &&
@@ -131,9 +136,18 @@ class RingReconnect {
       _stopScan();
       _retryTimer?.cancel();
       _retryTimer = null;
+      if (!wasConnected) _notifyConnected();
     } else {
       _ensureReconnecting(); // (re)start scanning toward the saved ring
     }
+  }
+
+  void _notifyConnected() {
+    final callback = onConnected;
+    if (callback == null) return;
+    Future<void>.sync(callback).catchError((Object _) {
+      // Recovery is best effort; the next connection transition retries it.
+    });
   }
 
   /// Drive a scan round whenever we should be reconnecting but aren't already.
@@ -204,6 +218,8 @@ class RingReconnect {
     _retryTimer = null;
     _stopScan();
     _connected = false;
+    _connecting = false;
+    _paused = false;
     _mac = null;
   }
 }

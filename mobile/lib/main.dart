@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 
-import 'api/api_client.dart';
 import 'app_events.dart';
 import 'app_shell.dart';
 import 'auth/auth_controller.dart';
@@ -165,7 +164,11 @@ class _AuthGate extends StatelessWidget {
           BleFlashManager.instance.start();
           unawaited(FlashFileWorkflow.instance.start(auth.userId!));
           // 戒指实时录音 → 闪念。幂等；仅在戒指连接后双击才生效。
-          startRingCapture(ApiClient());
+          unawaited(
+            startRingCapture(
+              userId: auth.userId!,
+            ).then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+          );
           RingConnection.instance.ensureStarted();
         }
         return _startSession.isEmpty

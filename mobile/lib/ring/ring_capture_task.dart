@@ -52,6 +52,26 @@ String ringDeviceCaptureKey({
   return '$normalizedKind:${sha256.convert(utf8.encode(canonical))}';
 }
 
+String ringRealtimeCaptureKey({
+  required String deviceId,
+  required String taskId,
+}) {
+  final normalizedDeviceId = deviceId.trim().toUpperCase();
+  final normalizedTaskId = taskId.trim();
+  if (normalizedDeviceId.isEmpty) {
+    throw ArgumentError.value(deviceId, 'deviceId', 'must not be empty');
+  }
+  if (normalizedTaskId.isEmpty) {
+    throw ArgumentError.value(taskId, 'taskId', 'must not be empty');
+  }
+  final canonical = jsonEncode([
+    'ring-realtime',
+    normalizedDeviceId,
+    normalizedTaskId,
+  ]);
+  return 'ring-realtime:${sha256.convert(utf8.encode(canonical))}';
+}
+
 const Object _notProvided = Object();
 
 @immutable
