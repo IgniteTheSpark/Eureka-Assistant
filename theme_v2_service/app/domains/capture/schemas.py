@@ -124,6 +124,17 @@ class FlashRequest(BaseModel):
     capture_session_type: str = ""
     file_id: str = ""
     client_task_id: str = Field(default="", max_length=160)
+    device_capture_key: str = Field(default="", max_length=255)
+    device_kind: Literal["", "ring", "card", "phone"] = ""
+    device_id: str = Field(default="", max_length=160)
+    device_file_name: str = Field(default="", max_length=255)
+    capture_started_at: TimestampInput = None
+    capture_ended_at: TimestampInput = None
+    local_audio_sha256: Sha256 | None = Field(
+        default=None,
+        pattern=r"^[0-9a-fA-F]{64}$",
+    )
+    local_audio_size_bytes: int | None = Field(default=None, gt=0)
 
     @field_validator("text")
     @classmethod
@@ -133,10 +144,20 @@ class FlashRequest(BaseModel):
             raise ValueError("text must not be blank")
         return cleaned
 
-    @field_validator("client_task_id")
+    @field_validator(
+        "session_id",
+        "capture_session_type",
+        "file_id",
+        "client_task_id",
+        "device_capture_key",
+        "device_kind",
+        "device_id",
+        "device_file_name",
+        mode="before",
+    )
     @classmethod
-    def strip_client_task_id(cls, value: str) -> str:
-        return value.strip()
+    def strip_optional_string(cls, value: Any) -> Any:
+        return value.strip() if isinstance(value, str) else value
 
 
 class FlashResponse(BaseModel):

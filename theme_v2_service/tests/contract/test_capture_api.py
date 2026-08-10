@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime
 from types import SimpleNamespace
 
 import pytest
@@ -719,6 +720,108 @@ async def test_text_flash_waits_for_durable_worker_result(client):
     assert status.status_code == 200
     assert status.json()["recording"]["process_status"] == "done"
     assert status.json()["recording"]["input_turn_id"] == body["input_turn_id"]
+
+
+async def test_ring_reconnect_reuses_device_capture_key_and_persists_provenance(
+    client,
+    monkeypatch,
+):
+    token = await _register(client, "ring-idempotency@example.com")
+    monkeypatch.setattr(
+        "app.domains.capture.api.get_settings",
+        lambda: SimpleNamespace(
+            capture_flash_wait_seconds=0.01,
+            capture_flash_poll_interval_seconds=0.005,
+        ),
+    )
+    payload = {
+        "text": "明天下午去跑步",
+        "source": "voice",
+        "client_task_id": "ring-online-provisional-1",
+        "device_capture_key": "ring:AA-BB:R0001.bin:240000:01-02",
+        "device_kind": "ring",
+        "device_id": "AA:BB",
+        "device_file_name": "R0001.bin",
+        "capture_started_at": "2026-08-11T08:30:00+08:00",
+        "capture_ended_at": "2026-08-11T08:30:12+08:00",
+        "local_audio_sha256": "a" * 64,
+        "local_audio_size_bytes": 240000,
+    }
+
+    first = await client.post(
+        "/api/flash",
+        headers=_headers(token),
+        json=payload,
+    )
+    duplicate = await client.post(
+        "/api/flash",
+        headers=_headers(token),
+        json={**payload, "client_task_id": "ring-recovered-1"},
+    )
+
+    assert first.status_code == 200
+    assert duplicate.status_code == 200
+    assert duplicate.json()["recording_id"] == first.json()["recording_id"]
+
+    async with AsyncSessionFactory() as database_session:
+        recordings = list(
+            await database_session.scalars(
+                select(CaptureRecording).where(
+                    CaptureRecording.device_capture_key
+                    == payload["device_capture_key"]
+                )
+            )
+        )
+    assert len(recordings) == 1
+    recording = recordings[0]
+    assert recording.device_kind == "ring"
+    assert recording.device_id == "AA:BB"
+    assert recording.device_file_name == "R0001.bin"
+    assert recording.capture_started_at == datetime(2026, 8, 11, 0, 30)
+    assert recording.capture_ended_at == datetime(2026, 8, 11, 0, 30, 12)
+    assert recording.local_audio_sha256 == "a" * 64
+    assert recording.local_audio_size_bytes == 240000
+
+
+async def test_ring_device_capture_key_rejects_different_transcript(
+    client,
+    monkeypatch,
+):
+    token = await _register(client, "ring-conflict@example.com")
+    monkeypatch.setattr(
+        "app.domains.capture.api.get_settings",
+        lambda: SimpleNamespace(
+            capture_flash_wait_seconds=0.01,
+            capture_flash_poll_interval_seconds=0.005,
+        ),
+    )
+    payload = {
+        "text": "喝了五百毫升水",
+        "source": "voice",
+        "client_task_id": "ring-first",
+        "device_capture_key": "ring:AA-BB:R0002.bin:200000:03-04",
+        "device_kind": "ring",
+        "device_id": "AA:BB",
+        "device_file_name": "R0002.bin",
+    }
+
+    first = await client.post(
+        "/api/flash",
+        headers=_headers(token),
+        json=payload,
+    )
+    conflict = await client.post(
+        "/api/flash",
+        headers=_headers(token),
+        json={
+            **payload,
+            "client_task_id": "ring-second",
+            "text": "完全不同的内容",
+        },
+    )
+
+    assert first.status_code == 200
+    assert conflict.status_code == 409
 
 
 async def test_daily_flash_session_chat_answers_and_persists(client):

@@ -143,8 +143,15 @@ async def materialize_final_capture(
             "kind": "hardware_audio",
             "recording_id": recording.id,
             "card_sn": recording.card_sn,
+            "device_capture_key": recording.device_capture_key,
+            "device_kind": recording.device_kind,
+            "device_id": recording.device_id,
             "device_file_name": recording.device_file_name,
             "capture_source": recording.source,
+            "capture_started_at": _as_utc_z(recording.capture_started_at),
+            "capture_ended_at": _as_utc_z(recording.capture_ended_at),
+            "local_audio_sha256": recording.local_audio_sha256,
+            "local_audio_size_bytes": recording.local_audio_size_bytes,
         },
     )
     user_message = SessionMessage(
@@ -252,6 +259,12 @@ def _capture_display_phase(status: str) -> str:
 
 
 def _capture_display_source(recording: CaptureRecording) -> str:
+    if recording.device_kind == "ring":
+        return "ring"
+    if recording.device_kind == "card":
+        return "card"
+    if recording.device_kind == "phone":
+        return "audio_upload"
     if recording.source == "voice" or recording.card_sn == "ring":
         return "ring"
     if recording.source in {"realtime", "offline"}:
@@ -640,6 +653,71 @@ async def accept_s3_upload(
     )
 
 
+def _merge_text_capture_provenance(
+    recording: CaptureRecording,
+    *,
+    device_capture_key: str | None,
+    device_kind: str | None,
+    device_id: str | None,
+    device_file_name: str | None,
+    capture_started_at: datetime | None,
+    capture_ended_at: datetime | None,
+    local_audio_sha256: str | None,
+    local_audio_size_bytes: int | None,
+) -> None:
+    identity_fields = (
+        ("device_capture_key", device_capture_key, "device capture key"),
+        ("device_kind", device_kind, "device kind"),
+        ("device_id", device_id, "device id"),
+    )
+    for attribute, incoming, label in identity_fields:
+        if incoming is None:
+            continue
+        existing = getattr(recording, attribute)
+        if existing is not None and existing != incoming:
+            raise ConflictingCapture(
+                f"capture identity already contains different {label}"
+            )
+        if existing is None:
+            setattr(recording, attribute, incoming)
+
+    if device_file_name is not None:
+        existing_file_name = recording.device_file_name
+        is_generated_placeholder = (
+            existing_file_name.startswith("TEXT-")
+            and existing_file_name.endswith(".txt")
+        )
+        if existing_file_name != device_file_name and not is_generated_placeholder:
+            raise ConflictingCapture(
+                "capture identity already contains different device file name"
+            )
+        if is_generated_placeholder:
+            recording.device_file_name = device_file_name
+
+    if local_audio_sha256 is not None:
+        existing_sha256 = _lower(recording.local_audio_sha256)
+        if existing_sha256 is not None and existing_sha256 != local_audio_sha256:
+            raise ConflictingCapture(
+                "capture identity already contains different audio sha256"
+            )
+        if existing_sha256 is None:
+            recording.local_audio_sha256 = local_audio_sha256
+
+    if local_audio_size_bytes is not None:
+        existing_size = recording.local_audio_size_bytes
+        if existing_size is not None and existing_size != local_audio_size_bytes:
+            raise ConflictingCapture(
+                "capture identity already contains different audio size"
+            )
+        if existing_size is None:
+            recording.local_audio_size_bytes = local_audio_size_bytes
+
+    if recording.capture_started_at is None and capture_started_at is not None:
+        recording.capture_started_at = capture_started_at
+    if recording.capture_ended_at is None and capture_ended_at is not None:
+        recording.capture_ended_at = capture_ended_at
+
+
 async def accept_text_capture(
     session: AsyncSession,
     user_id: str,
@@ -648,15 +726,51 @@ async def accept_text_capture(
     now = utc_now()
     identity = new_uuid()
     client_task_id = command.client_task_id or f"text-{identity}"
-    existing = await session.scalar(
+    device_capture_key = command.device_capture_key or None
+    device_kind = command.device_kind or None
+    device_id = command.device_id or None
+    device_file_name = command.device_file_name or None
+    capture_started_at = _parse_timestamp(command.capture_started_at)
+    capture_ended_at = _parse_timestamp(command.capture_ended_at)
+    local_audio_sha256 = _lower(command.local_audio_sha256)
+
+    existing_by_client = await session.scalar(
         select(CaptureRecording).where(
             CaptureRecording.user_id == user_id,
             CaptureRecording.client_task_id == client_task_id,
         )
     )
+    existing_by_device = None
+    if device_capture_key is not None:
+        existing_by_device = await session.scalar(
+            select(CaptureRecording).where(
+                CaptureRecording.user_id == user_id,
+                CaptureRecording.device_capture_key == device_capture_key,
+            )
+        )
+    if (
+        existing_by_client is not None
+        and existing_by_device is not None
+        and existing_by_client.id != existing_by_device.id
+    ):
+        raise ConflictingCapture(
+            "client task and device capture key identify different captures"
+        )
+    existing = existing_by_client or existing_by_device
     if existing is not None:
         if (existing.asr_text or "").strip() != command.text:
-            raise ConflictingCapture("client task already contains different text")
+            raise ConflictingCapture("capture identity already contains different text")
+        _merge_text_capture_provenance(
+            existing,
+            device_capture_key=device_capture_key,
+            device_kind=device_kind,
+            device_id=device_id,
+            device_file_name=device_file_name,
+            capture_started_at=capture_started_at,
+            capture_ended_at=capture_ended_at,
+            local_audio_sha256=local_audio_sha256,
+            local_audio_size_bytes=command.local_audio_size_bytes,
+        )
         file = await session.get(CaptureFile, existing.file_id)
         turn = await session.scalar(
             select(CaptureTurn).where(CaptureTurn.recording_id == existing.id)
@@ -680,9 +794,16 @@ async def accept_text_capture(
         user_id=user_id,
         file_id=file.id,
         card_sn="ring" if command.source == "voice" else "text",
-        device_file_name=f"TEXT-{identity}.txt",
+        device_file_name=device_file_name or f"TEXT-{identity}.txt",
         client_task_id=client_task_id,
+        device_capture_key=device_capture_key,
+        device_kind=device_kind,
+        device_id=device_id,
         source=command.source,
+        capture_started_at=capture_started_at,
+        capture_ended_at=capture_ended_at,
+        local_audio_sha256=local_audio_sha256,
+        local_audio_size_bytes=command.local_audio_size_bytes,
         audio_format="text",
         asr_mode="text_client",
         s3_key=storage_key,

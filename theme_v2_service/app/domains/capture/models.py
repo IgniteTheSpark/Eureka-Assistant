@@ -50,6 +50,11 @@ class CaptureRecording(Base):
         ),
         UniqueConstraint(
             "user_id",
+            "device_capture_key",
+            name="uq_capture_recordings_user_device_capture",
+        ),
+        UniqueConstraint(
+            "user_id",
             "tencent_asr_task_id",
             name="uq_capture_recordings_user_tencent_task",
         ),
@@ -99,6 +104,9 @@ class CaptureRecording(Base):
     card_sn: Mapped[str] = mapped_column(String(160), nullable=False)
     device_file_name: Mapped[str] = mapped_column(String(255), nullable=False)
     client_task_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    device_capture_key: Mapped[str | None] = mapped_column(String(255))
+    device_kind: Mapped[str | None] = mapped_column(String(32))
+    device_id: Mapped[str | None] = mapped_column(String(160))
     source: Mapped[str] = mapped_column(String(32), nullable=False)
     device_crc: Mapped[int | None] = mapped_column(Integer)
     device_size_bytes: Mapped[int | None] = mapped_column(Integer)
