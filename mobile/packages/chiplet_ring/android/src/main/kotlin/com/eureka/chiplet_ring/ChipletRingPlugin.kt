@@ -42,62 +42,73 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     @Volatile private var keySink: EventChannel.EventSink? = null
     @Volatile private var fileSink: EventChannel.EventSink? = null
 
-    // On-device file ops (local recordings live here). One IFileListListener serves both
-    // GET_FILE_LIST (-> file()/getFileContentFinish) and GET_FILE_CONTENT (-> fileContent/
-    // AudioFileContent/getFileContentFinish). Events are streamed to Dart on chiplet_ring/file.
-    private val fileListListener = object : IFileListListener {
+    private fun sendFileEvent(
+        operationId: String,
+        kind: String,
+        values: Map<String, Any?> = emptyMap()
+    ) {
+        main.post {
+            fileSink?.success(mapOf("operationId" to operationId, "kind" to kind) + values)
+        }
+    }
+
+    // SDK callbacks are asynchronous and can arrive after a second command has started.
+    // Create a listener per command so Dart can correlate every event with its operation.
+    private fun fileListListener(operationId: String) = object : IFileListListener {
         // SDK may pass null for raw/name — declare nullable to avoid Kotlin's
         // non-null parameter NPE (which was silently dropping every file entry).
         override fun file(count: Int, index: Int, size: Int, name: String?, raw: ByteArray?) {
             val nm = name ?: ""
-            // Empty/placeholder callback = "no files" / end-of-list marker. Don't surface it as a file.
             if (nm.isEmpty() && size <= 0 && (raw == null || raw.isEmpty())) {
-                main.post { fileSink?.success(mapOf("kind" to "empty", "count" to count)) }
+                sendFileEvent(operationId, "empty", mapOf("count" to count))
                 return
             }
-            // Use raw bytes as the file id if provided, else fall back to the name bytes
-            // (GET_FILE_CONTENT/DELETE_FILE need an identifier).
             val id = raw?.toList() ?: nm.toByteArray().toList()
-            main.post { fileSink?.success(mapOf(
-                "kind" to "item", "count" to count, "index" to index,
-                "size" to size, "name" to nm, "id" to id)) }
+            sendFileEvent(operationId, "item", mapOf(
+                "count" to count,
+                "index" to index,
+                "size" to size,
+                "name" to nm,
+                "id" to id,
+            ))
         }
+
         override fun fileContent(content: String?) {
-            main.post { fileSink?.success(mapOf("kind" to "text", "content" to (content ?: ""))) }
+            sendFileEvent(operationId, "text", mapOf("content" to (content ?: "")))
         }
+
         override fun AudioFileContent(content: ByteArray?) {
-            main.post { fileSink?.success(mapOf("kind" to "audio", "pcm" to (content?.toList() ?: emptyList<Int>()))) }
+            sendFileEvent(operationId, "audio", mapOf(
+                "pcm" to (content?.toList() ?: emptyList<Int>())
+            ))
         }
+
         override fun getFileContentFinish() {
-            main.post { fileSink?.success(mapOf("kind" to "done")) }
+            sendFileEvent(operationId, "done")
         }
     }
 
-    // Download via the NEWER FileResponseCallback API (DOWNLOAD_FILE). The old
-    // GET_FILE_CONTENT path crashes the SDK (fileContentAudioType OOM) on .bin files.
-    // Offline files are ADPCM 8k mono — accumulate raw bytes, decode on completion.
-    private val dlBuf = java.io.ByteArrayOutputStream()
-    private val fileAdpcm = AdPcmTool()
-    @Volatile private var dlFinished = true
+    // DOWNLOAD_FILE is the non-crashing path for local .bin files. Keep its decoder
+    // and buffer scoped to one operation so a late callback cannot contaminate another file.
+    private fun downloadCallback(operationId: String) = object : FileResponseCallback {
+        private val buffer = java.io.ByteArrayOutputStream()
+        private val decoder = AdPcmTool()
+        @Volatile private var finished = false
 
-    private fun finishDownload() {
-        if (dlFinished) return
-        dlFinished = true
-        val adpcmBytes: ByteArray
-        synchronized(dlBuf) { adpcmBytes = dlBuf.toByteArray() }
-        val pcm = try {
-            fileAdpcm.decodeADPCMMonoChannel(adpcmBytes, adpcmBytes.size)
-        } catch (e: Throwable) {
-            android.util.Log.e("ChipletRing", "file adpcm decode failed: ${e.message}")
-            ByteArray(0)
+        private fun finishDownload() {
+            if (finished) return
+            finished = true
+            val adpcmBytes = synchronized(buffer) { buffer.toByteArray() }
+            val pcm = try {
+                decoder.decodeADPCMMonoChannel(adpcmBytes, adpcmBytes.size)
+            } catch (e: Throwable) {
+                android.util.Log.e("ChipletRing", "file adpcm decode failed: ${e.message}")
+                ByteArray(0)
+            }
+            sendFileEvent(operationId, "audio", mapOf("pcm" to pcm.toList()))
+            sendFileEvent(operationId, "done")
         }
-        main.post {
-            fileSink?.success(mapOf("kind" to "audio", "pcm" to pcm.toList()))
-            fileSink?.success(mapOf("kind" to "done"))
-        }
-    }
 
-    private val fileRespCb = object : FileResponseCallback {
         override fun onFileListReceived(b: ByteArray?) {}
         override fun onFileInfoReceived(b: ByteArray?) {}
         override fun onFileDownloadEndReceived(b: ByteArray?) { finishDownload() }
@@ -105,17 +116,41 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         override fun oneFileDownloadSuccess() { finishDownload() }
         override fun onDownloadStatusReceived(b: ByteArray?) {}
         override fun onFileDataReceived(b: ByteArray?) {
-            if (b != null && b.isNotEmpty()) synchronized(dlBuf) { dlBuf.write(b) }
+            if (b != null && b.isNotEmpty()) synchronized(buffer) { buffer.write(b) }
         }
         override fun onFileState(state: Int) {
-            main.post { fileSink?.success(mapOf("kind" to "memory", "state" to state)) }
+            sendFileEvent(operationId, "memory", mapOf("state" to state))
         }
         override fun onFilePushFileName(b: ByteArray?) {}
         override fun onFilePushFileData(b: ByteArray?) {}
         override fun onFileResumeBreakpoint(a: Int, b: Long, c: Long) {}
         override fun onFileResumeBreakpointProgress(a: Int) {}
         override fun localMemoryFull(a: Int, b: Int, c: Int) {
-            main.post { fileSink?.success(mapOf("kind" to "memoryFull", "a" to a, "b" to b, "c" to c)) }
+            sendFileEvent(operationId, "memoryFull", mapOf("a" to a, "b" to b, "c" to c))
+        }
+    }
+
+    private fun memoryCallback(operationId: String) = object : FileResponseCallback {
+        override fun onFileListReceived(b: ByteArray?) {}
+        override fun onFileInfoReceived(b: ByteArray?) {
+            sendFileEvent(operationId, "memoryInfo", mapOf(
+                "raw" to (b?.toList() ?: emptyList<Int>())
+            ))
+        }
+        override fun onFileDownloadEndReceived(b: ByteArray?) {}
+        override fun onDownloadAllFileProgress(b: ByteArray?) {}
+        override fun oneFileDownloadSuccess() {}
+        override fun onDownloadStatusReceived(b: ByteArray?) {}
+        override fun onFileDataReceived(b: ByteArray?) {}
+        override fun onFileState(state: Int) {
+            sendFileEvent(operationId, "memory", mapOf("state" to state))
+        }
+        override fun onFilePushFileName(b: ByteArray?) {}
+        override fun onFilePushFileData(b: ByteArray?) {}
+        override fun onFileResumeBreakpoint(a: Int, b: Long, c: Long) {}
+        override fun onFileResumeBreakpointProgress(a: Int) {}
+        override fun localMemoryFull(a: Int, b: Int, c: Int) {
+            sendFileEvent(operationId, "memoryFull", mapOf("a" to a, "b" to b, "c" to c))
         }
     }
 
@@ -145,6 +180,21 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         override fun TOUCH_AUDIO_FINISH_XUN_FEI() {}
         override fun recordingResult(result: Boolean) {}
     }
+
+    private fun localRecordingListener(operationId: String, active: Boolean) =
+        object : IAudioListenerLite {
+            override fun controlAudioResult(bytes: ByteArray, audioType: Int) {}
+            override fun controlAudioRawDataResult(bytes: ByteArray) {}
+            override fun getControlAudioAdpcmResult(adpcm: Boolean) {}
+            override fun pushAudioInformationResult(success: Boolean) {}
+            override fun TOUCH_AUDIO_FINISH_XUN_FEI() {}
+            override fun recordingResult(result: Boolean) {
+                sendFileEvent(operationId, "recordingAck", mapOf(
+                    "active" to active,
+                    "ok" to result,
+                ))
+            }
+        }
     private val lastRssi = HashMap<String, Int>()
     private var receiverRegistered = false
     @Volatile private var scanning = false
@@ -328,49 +378,71 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             }
             // ---- On-device (local) recording + file management ----
             "startLocalRecording" -> {
+                val operationId = call.argument<String>("operationId") ?: ""
                 val total = call.argument<Int>("total") ?: 1200
                 val slice = call.argument<Int>("slice") ?: 600
                 try {
-                    LmAPILite.CMD_START_STOP_RECORDING(true, total, slice, audioListener)
+                    LmAPILite.CMD_START_STOP_RECORDING(
+                        true,
+                        total,
+                        slice,
+                        localRecordingListener(operationId, true),
+                    )
                     result.success(null)
                 } catch (e: Throwable) { result.error("ring_error", e.message, null) }
             }
             "stopLocalRecording" -> {
+                val operationId = call.argument<String>("operationId") ?: ""
                 try {
-                    LmAPILite.CMD_START_STOP_RECORDING(false, 0, 0, audioListener)
+                    LmAPILite.CMD_START_STOP_RECORDING(
+                        false,
+                        0,
+                        0,
+                        localRecordingListener(operationId, false),
+                    )
                     result.success(null)
                 } catch (e: Throwable) { result.error("ring_error", e.message, null) }
             }
             "getFileList" -> {
-                try { LmAPILite.GET_FILE_LIST(fileListListener); result.success(null) }
+                val operationId = call.argument<String>("operationId") ?: ""
+                try { LmAPILite.GET_FILE_LIST(fileListListener(operationId)); result.success(null) }
+                catch (e: Throwable) { result.error("ring_error", e.message, null) }
+            }
+            "getFileMemory" -> {
+                val operationId = call.argument<String>("operationId") ?: ""
+                try { LmAPILite.GET_FILE_MEMORY(memoryCallback(operationId)); result.success(null) }
                 catch (e: Throwable) { result.error("ring_error", e.message, null) }
             }
             "downloadFile" -> {
+                val operationId = call.argument<String>("operationId") ?: ""
                 val id = (call.argument<List<Int>>("id"))?.map { it.toByte() }?.toByteArray() ?: ByteArray(0)
                 try {
-                    synchronized(dlBuf) { dlBuf.reset() }
-                    dlFinished = false
-                    fileAdpcm.resetAllDecoders()
                     // Newer, non-crashing download path (FileResponseCallback). Chunks arrive
-                    // via onFileDataReceived; finishDownload() decodes ADPCM→PCM on completion.
-                    LmAPILite.DOWNLOAD_FILE(id, fileRespCb)
+                    // via onFileDataReceived; its scoped callback decodes ADPCM→PCM on completion.
+                    LmAPILite.DOWNLOAD_FILE(id, downloadCallback(operationId))
                     result.success(null)
                 } catch (e: Throwable) { result.error("ring_error", e.message, null) }
             }
             "deleteFile" -> {
+                val operationId = call.argument<String>("operationId") ?: ""
                 val id = (call.argument<List<Int>>("id"))?.map { it.toByte() }?.toByteArray() ?: ByteArray(0)
                 try {
                     LmAPILite.DELETE_FILE(id, object : ICommonalityListenerLite {
-                        override fun success() { main.post { fileSink?.success(mapOf("kind" to "deleted", "ok" to true)) } }
-                        override fun fail() { main.post { fileSink?.success(mapOf("kind" to "deleted", "ok" to false)) } }
+                        override fun success() {
+                            sendFileEvent(operationId, "deleted", mapOf("ok" to true))
+                        }
+                        override fun fail() {
+                            sendFileEvent(operationId, "deleted", mapOf("ok" to false))
+                        }
                     })
                     result.success(null)
                 } catch (e: Throwable) { result.error("ring_error", e.message, null) }
             }
             "formatFiles" -> {
+                val operationId = call.argument<String>("operationId") ?: "format"
                 try {
-                    LmAPILite.PERFORM_FORMAT_FILESYSTEM(fileRespCb)
-                    main.post { fileSink?.success(mapOf("kind" to "formatted")) }
+                    LmAPILite.PERFORM_FORMAT_FILESYSTEM(memoryCallback(operationId))
+                    sendFileEvent(operationId, "formatted")
                     result.success(null)
                 } catch (e: Throwable) { result.error("ring_error", e.message, null) }
             }

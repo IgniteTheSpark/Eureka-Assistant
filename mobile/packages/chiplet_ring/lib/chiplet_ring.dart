@@ -1,7 +1,9 @@
 export 'src/models.dart';
+export 'src/ring_file_event.dart';
 export 'src/wav_writer.dart';
 
 import 'src/models.dart';
+import 'src/ring_file_event.dart';
 import 'src/ring_platform.dart';
 
 class ChipletRing {
@@ -29,29 +31,60 @@ class ChipletRing {
 
   // ---- On-device (local) recording + file management ----
   /// Tell the ring to record locally to its own storage (green-LED mode).
-  Future<void> startLocalRecording({int total = 1200, int slice = 600}) =>
-      _p.startLocalRecording(total: total, slice: slice);
-  Future<void> stopLocalRecording() => _p.stopLocalRecording();
+  Future<void> startLocalRecording({
+    String operationId = '',
+    int total = 1200,
+    int slice = 600,
+  }) => _p.startLocalRecording(
+    operationId: operationId,
+    total: total,
+    slice: slice,
+  );
+  Future<void> stopLocalRecording({String operationId = ''}) =>
+      _p.stopLocalRecording(operationId: operationId);
 
   /// Request the on-device file list. Results stream on [fileEvents] as {kind:'item',...}.
-  Future<void> getFileList() => _p.getFileList();
+  Future<void> getFileList({String operationId = ''}) =>
+      _p.getFileList(operationId: operationId);
+
+  /// Request raw filesystem-capacity metadata from the ring SDK.
+  Future<void> getFileMemory({String operationId = ''}) =>
+      _p.getFileMemory(operationId: operationId);
 
   /// Download a file; audio bytes arrive on [fileEvents] as {kind:'audio', pcm:[...]}.
   /// [type] is the file's type (last `_`-segment of its name); [id] is its identifier bytes.
-  Future<void> downloadFile(int type, List<int> id) => _p.downloadFile(type, id);
+  Future<void> downloadFile(
+    int type,
+    List<int> id, {
+    String operationId = '',
+    String fileName = '',
+    int sizeBytes = 0,
+  }) => _p.downloadFile(
+    operationId: operationId,
+    file: RingFileRef(name: fileName, id: id, sizeBytes: sizeBytes),
+  );
 
   /// Delete one file by its identifier bytes.
-  Future<void> deleteFile(List<int> id) => _p.deleteFile(id);
+  Future<void> deleteFile(
+    List<int> id, {
+    String operationId = '',
+    String fileName = '',
+    int sizeBytes = 0,
+  }) => _p.deleteFile(
+    operationId: operationId,
+    file: RingFileRef(name: fileName, id: id, sizeBytes: sizeBytes),
+  );
 
   /// Format the ring filesystem (deletes ALL local files).
   Future<void> formatFiles() => _p.formatFiles();
 
   /// File-op event stream: {kind: item|audio|text|done|deleted|formatted|memory|memoryFull, ...}.
-  Stream<Map> get fileEvents => _p.fileEvents();
+  Stream<RingFileEvent> get fileEvents => _p.fileEvents();
 
   // ---- Keep-alive / auto-reconnect ----
   /// Set the MAC to reconnect to (call before [reconnect] on launch).
   Future<void> setSavedMac(String mac) => _p.setSavedMac(mac);
+
   /// Reconnect to the last/saved device (BLEUtils.reconnectionLockByBLE).
   Future<void> reconnect() => _p.reconnect();
   Future<bool> isConnected() => _p.isConnected();

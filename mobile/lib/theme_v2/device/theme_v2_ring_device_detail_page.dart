@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../config.dart';
+import '../../pages/ring_debug_page.dart';
 import '../../ring/ring_art.dart';
 import '../../ring/ring_connection.dart';
 import '../../ring/ring_device_service.dart';
@@ -163,6 +165,18 @@ class _ThemeV2RingDeviceDetailPageState
         ],
         unbinding: _unbinding,
         onUnbind: _unbind,
+        extraChildren: [
+          if (AppConfig.showRingDebug) ...[
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () => Navigator.of(
+                context,
+              ).push(MaterialPageRoute(builder: (_) => const RingDebugPage())),
+              icon: const Icon(Icons.science_outlined),
+              label: const Text('[Debug] 戒指能力探针'),
+            ),
+          ],
+        ],
       ),
     );
   }

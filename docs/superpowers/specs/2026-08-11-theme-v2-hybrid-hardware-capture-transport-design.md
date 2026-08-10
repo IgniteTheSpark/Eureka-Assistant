@@ -151,7 +151,8 @@ selected by measured behavior:
 | Capability | Required proof | Consequence |
 | --- | --- | --- |
 | Ring live stream and local recording can coexist | Both commands remain active; downloaded file and live PCM are valid | Use dual-path connected mode |
-| Ring cannot run both commands | SDK rejects a command or either audio output is invalid | Use local-first connected mode |
+| Ring cannot run both commands, but local-only works | SDK rejects simultaneous mode and a standalone local file downloads successfully | Use local-first connected mode |
+| Ring local recording is unavailable, but live PCM works | Standalone live PCM is valid while local recording has no usable file | Use realtime-only connected mode and keep offline guarantees blocked |
 | Ring double-click records without a phone | With phone powered off, a new complete local file appears | Full phone-off requirement is App-deliverable |
 | Ring requires a phone command to record | No file appears without an active phone connection | Requires a firmware change outside this mobile repository |
 
@@ -347,3 +348,41 @@ The phone-off ring requirement is complete only when a powered-off-phone test
 proves autonomous ring recording. If the ring does not create a file in that
 test, the remaining work is a firmware capability and must be planned and
 accepted separately.
+
+## 10. Physical Capability Results — 2026-08-11
+
+Test target:
+
+- phone: Samsung SM F9660, Android 16 / API 36;
+- ring MAC suffix: `92:D5`;
+- ring firmware: `6.0.1.8Z62`;
+- ring hardware version: not reported by SDK;
+- Android build: Theme V2 debug build with `SHOW_RING_DEBUG=true`;
+- SDK: BraveChip `ChipletRing` AAR 1.3.3.
+
+Measured results:
+
+| Probe | Result | Evidence |
+| --- | --- | --- |
+| Standalone live PCM | Pass | App exported a non-empty `579,644` byte WAV |
+| Live PCM across 30 seconds screen-off | Pass | After unlock, App exported a new `1,164,044` byte WAV; no Android or Flutter crash |
+| App-commanded local-only recording | Fail | `CMD_START_STOP_RECORDING` produced no `recordingResult` acknowledgement and no new file |
+| Simultaneous live + local, 30 seconds | Fail | No live PCM and no new local file when the local command preceded live start |
+| File listing | Pass | `GET_FILE_LIST` returned the empty-files marker without crashing |
+| Memory metadata | Fail / no response | `GET_FILE_MEMORY` did not produce usable metadata within the probe timeout |
+| 30/60/120-second local file size measurement | Blocked | No 30-second or standalone local file was created, so longer measurements would not produce a codec rate |
+| Autonomous recording with App unavailable | Fail | After App force-stop, double-click start/stop and a spoken sample produced no file after reconnect |
+
+Decision:
+
+- selected connected mode for this firmware: `realtimeOnly`;
+- local-first and dual-path must remain disabled until a standalone local file
+  can be created and downloaded;
+- the existing SDK/process path is sufficient for the measured 30-second
+  screen-off realtime interval, so this result does not justify a second
+  Android foreground service;
+- usable ring bytes, local codec bytes per second, and deletion thresholds
+  remain unset rather than being guessed;
+- firmware or vendor-SDK follow-up is required for App-commanded local storage;
+- phone-off support is unshippable on firmware `6.0.1.8Z62`; the autonomous
+  gesture test created no local file and requires a firmware capability change.

@@ -1,5 +1,6 @@
 import 'package:flutter/services.dart';
 import 'models.dart';
+import 'ring_file_event.dart';
 
 class RingPlatform {
   static const _methods = MethodChannel('chiplet_ring/methods');
@@ -20,7 +21,8 @@ class RingPlatform {
 
   Future<void> startScan() => _methods.invokeMethod('startScan');
   Future<void> stopScan() => _methods.invokeMethod('stopScan');
-  Future<void> connect(String id) => _methods.invokeMethod('connect', {'id': id});
+  Future<void> connect(String id) =>
+      _methods.invokeMethod('connect', {'id': id});
   Future<void> disconnect() => _methods.invokeMethod('disconnect');
   Future<void> startRecording() => _methods.invokeMethod('startRecording');
   Future<void> stopRecording() => _methods.invokeMethod('stopRecording');
@@ -29,26 +31,52 @@ class RingPlatform {
       _audioRaw.map((e) => RingAudioFrame.fromMap(e as Map));
 
   /// Ring gesture/key codes: 0=long-press 1=single 2=double 3=triple 4..7=swipes.
-  Stream<int> keyEvents() =>
-      _keyRaw.map((e) => (e as num).toInt());
+  Stream<int> keyEvents() => _keyRaw.map((e) => (e as num).toInt());
 
   // ---- On-device (local) recording + file management ----
-  Future<void> startLocalRecording({int total = 1200, int slice = 600}) =>
-      _methods.invokeMethod('startLocalRecording', {'total': total, 'slice': slice});
-  Future<void> stopLocalRecording() => _methods.invokeMethod('stopLocalRecording');
-  Future<void> getFileList() => _methods.invokeMethod('getFileList');
-  Future<void> downloadFile(int type, List<int> id) =>
-      _methods.invokeMethod('downloadFile', {'type': type, 'id': id});
-  Future<void> deleteFile(List<int> id) =>
-      _methods.invokeMethod('deleteFile', {'id': id});
+  Future<void> startLocalRecording({
+    String operationId = '',
+    int total = 1200,
+    int slice = 600,
+  }) => _methods.invokeMethod('startLocalRecording', {
+    'operationId': operationId,
+    'total': total,
+    'slice': slice,
+  });
+  Future<void> stopLocalRecording({String operationId = ''}) =>
+      _methods.invokeMethod('stopLocalRecording', {'operationId': operationId});
+  Future<void> getFileList({String operationId = ''}) =>
+      _methods.invokeMethod('getFileList', {'operationId': operationId});
+  Future<void> getFileMemory({String operationId = ''}) =>
+      _methods.invokeMethod('getFileMemory', {'operationId': operationId});
+  Future<void> downloadFile({
+    required String operationId,
+    required RingFileRef file,
+  }) => _methods.invokeMethod('downloadFile', {
+    'operationId': operationId,
+    'name': file.name,
+    'id': file.id,
+    'size': file.sizeBytes,
+  });
+  Future<void> deleteFile({
+    required String operationId,
+    required RingFileRef file,
+  }) => _methods.invokeMethod('deleteFile', {
+    'operationId': operationId,
+    'name': file.name,
+    'id': file.id,
+    'size': file.sizeBytes,
+  });
   Future<void> formatFiles() => _methods.invokeMethod('formatFiles');
 
   /// File-op events: {kind: item|audio|text|done|deleted|formatted|memory|memoryFull, ...}
-  Stream<Map> fileEvents() =>
-      _fileRaw.map((e) => e as Map);
+  Stream<RingFileEvent> fileEvents() => _fileRaw.map(
+    (event) => RingFileEvent.fromMap((event as Map).cast<Object?, Object?>()),
+  );
 
   // ---- Keep-alive / auto-reconnect ----
-  Future<void> setSavedMac(String mac) => _methods.invokeMethod('setSavedMac', {'mac': mac});
+  Future<void> setSavedMac(String mac) =>
+      _methods.invokeMethod('setSavedMac', {'mac': mac});
   Future<void> reconnect() => _methods.invokeMethod('reconnect');
   Future<bool> isConnected() async =>
       (await _methods.invokeMethod('isConnected')) == true;
@@ -77,12 +105,14 @@ class RingPlatform {
   }
 
   Stream<RingState> states() => _stateRaw.map((e) {
-        final m = e as Map;
-        return RingState(
-          conn: RingConnState.values.asNameMap()[m['conn'] as String?] ?? RingConnState.error,
-          devices: ((m['devices'] as List?) ?? [])
-              .map((d) => RingDevice.fromMap(d as Map))
-              .toList(),
-        );
-      });
+    final m = e as Map;
+    return RingState(
+      conn:
+          RingConnState.values.asNameMap()[m['conn'] as String?] ??
+          RingConnState.error,
+      devices: ((m['devices'] as List?) ?? [])
+          .map((d) => RingDevice.fromMap(d as Map))
+          .toList(),
+    );
+  });
 }

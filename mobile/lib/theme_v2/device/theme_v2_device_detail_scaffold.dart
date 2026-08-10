@@ -21,6 +21,7 @@ class ThemeV2DeviceDetailScaffold extends StatelessWidget {
     required this.information,
     required this.unbinding,
     required this.onUnbind,
+    this.extraChildren = const [],
   });
 
   final String title;
@@ -30,6 +31,7 @@ class ThemeV2DeviceDetailScaffold extends StatelessWidget {
   final List<ThemeV2DeviceInfoRow> information;
   final bool unbinding;
   final VoidCallback? onUnbind;
+  final List<Widget> extraChildren;
 
   @override
   Widget build(BuildContext context) {
@@ -83,6 +85,7 @@ class ThemeV2DeviceDetailScaffold extends StatelessWidget {
               ],
             ),
           ),
+          ...extraChildren,
         ],
       ),
       bottomNavigationBar: SafeArea(
