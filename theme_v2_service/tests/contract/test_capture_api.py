@@ -772,6 +772,13 @@ async def test_ring_reconnect_reuses_device_capture_key_and_persists_provenance(
                 )
             )
         )
+        events = list(
+            await database_session.scalars(
+                select(OutboxEvent).where(
+                    OutboxEvent.aggregate_id == first.json()["recording_id"]
+                )
+            )
+        )
     assert len(recordings) == 1
     recording = recordings[0]
     assert recording.device_kind == "ring"
@@ -781,6 +788,12 @@ async def test_ring_reconnect_reuses_device_capture_key_and_persists_provenance(
     assert recording.capture_ended_at == datetime(2026, 8, 11, 0, 30, 12)
     assert recording.local_audio_sha256 == "a" * 64
     assert recording.local_audio_size_bytes == 240000
+    assert events
+    assert all(
+        event.payload_json["device_capture_key"]
+        == payload["device_capture_key"]
+        for event in events
+    )
 
 
 async def test_ring_device_capture_key_rejects_different_transcript(

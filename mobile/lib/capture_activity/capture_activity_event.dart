@@ -52,6 +52,7 @@ class CaptureActivityEvent {
       captureActivityAlias('client', json['client_task_id']),
       captureActivityAlias('recording', json['recording_id']),
       captureActivityAlias('file', json['file_id']),
+      captureActivityAlias('device-capture', json['device_capture_key']),
       captureActivityAlias('device-file', json['device_file_name']),
     }..remove('');
     if (aliases.isEmpty) return null;
@@ -65,8 +66,7 @@ class CaptureActivityEvent {
       aliases: aliases,
       source: source,
       phase: phase,
-      isRealtime:
-          json['is_realtime'] == true || source == CaptureActivitySource.ring,
+      isRealtime: json['is_realtime'] == true,
       sessionId: _nonEmpty(json['session_id']),
       inputTurnId: _nonEmpty(json['input_turn_id']),
       resultCount: _intOrNull(json['result_count']),

@@ -213,4 +213,31 @@ void main() {
     );
     expect(coordinator.snapshot.canOpenSession, isTrue);
   });
+
+  test(
+    'server ring recovery respects is_realtime and device capture alias',
+    () {
+      final recovered = CaptureActivityEvent.fromServerPayload({
+        'display_phase': 'receiving',
+        'source': 'ring',
+        'is_realtime': false,
+        'client_task_id': 'ring-file-1',
+        'device_capture_key': 'ring:stable',
+        'device_file_name': 'R1.bin',
+        'recording_id': 'recording-1',
+      });
+
+      expect(recovered, isNotNull);
+      expect(recovered!.isRealtime, isFalse);
+      expect(
+        recovered.aliases,
+        containsAll({
+          'client:ring-file-1',
+          'device-capture:ring:stable',
+          'device-file:R1.bin',
+          'recording:recording-1',
+        }),
+      );
+    },
+  );
 }

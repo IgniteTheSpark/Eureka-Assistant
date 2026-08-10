@@ -79,7 +79,9 @@ Future<void> _startRingCapture(String userId) async {
       final result = await sendFlash(
         api,
         text,
-        source: 'voice',
+        source: provenance.deviceCaptureKey.startsWith('ring-realtime:')
+            ? 'voice'
+            : 'imported',
         clientTaskId: clientTaskId,
         provenance: provenance,
       );
@@ -243,6 +245,7 @@ void _publishBackendResult({
 }
 
 Set<String> _taskAliases(RingCaptureTask task) => {
+  captureActivityAlias('local', task.id),
   captureActivityAlias('client', task.id),
   captureActivityAlias('device-capture', task.deviceCaptureKey),
   captureActivityAlias('device-file', task.fileName),

@@ -320,6 +320,51 @@ void main() {
       expect(task.lastErrorCode, 'live_frame_gap');
     },
   );
+
+  test(
+    'start restores non-terminal activity but not completed banners',
+    () async {
+      final store = _MemoryRingCaptureStore();
+      await store.upsert(
+        'user-a',
+        RingCaptureTask(
+          id: 'offline-pending',
+          userId: 'user-a',
+          deviceId: 'AA:BB',
+          stage: RingCaptureStage.downloaded,
+          startedAt: DateTime.utc(2026, 8, 10, 1),
+          updatedAt: DateTime.utc(2026, 8, 10, 2),
+          fileName: 'R1.bin',
+          deviceCaptureKey: 'ring:file-key',
+        ),
+      );
+      await store.upsert(
+        'user-a',
+        RingCaptureTask(
+          id: 'already-done',
+          userId: 'user-a',
+          deviceId: 'AA:BB',
+          stage: RingCaptureStage.done,
+          startedAt: DateTime.utc(2026, 8, 9, 1),
+          updatedAt: DateTime.utc(2026, 8, 9, 2),
+          deviceCaptureKey: 'ring-realtime:done',
+        ),
+      );
+      final restored = <(RingCaptureTask?, RingFileWorkflowPhase)>[];
+      final fixture = _workflow(
+        supportDirectory: supportDirectory,
+        files: const [],
+        store: store,
+        onActivity: (task, phase) => restored.add((task, phase)),
+      );
+
+      await fixture.workflow.start('user-a', 'AA:BB');
+
+      expect(restored, hasLength(1));
+      expect(restored.single.$1!.id, 'offline-pending');
+      expect(restored.single.$2, RingFileWorkflowPhase.receiving);
+    },
+  );
 }
 
 _WorkflowFixture _workflow({

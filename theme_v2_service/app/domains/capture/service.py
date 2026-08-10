@@ -231,6 +231,7 @@ async def publish_capture_status(
             "recording_id": recording.id,
             "file_id": recording.file_id,
             "client_task_id": recording.client_task_id,
+            "device_capture_key": recording.device_capture_key,
             "card_sn": recording.card_sn,
             "device_file_name": recording.device_file_name,
             "status": status,

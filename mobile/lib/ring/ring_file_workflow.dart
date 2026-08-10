@@ -104,6 +104,24 @@ class RingFileWorkflow {
       onActivity?.call(null, RingFileWorkflowPhase.memoryFull);
       _ignoreErrors(scanAndRecover());
     });
+    _restoreTaskActivities();
+  }
+
+  void _restoreTaskActivities() {
+    for (final task in _tasks.values) {
+      if (task.stage == RingCaptureStage.done) continue;
+      final phase = switch (task.stage) {
+        RingCaptureStage.provisional ||
+        RingCaptureStage.recording => RingFileWorkflowPhase.failed,
+        RingCaptureStage.transcribing => RingFileWorkflowPhase.transcribing,
+        RingCaptureStage.submitting ||
+        RingCaptureStage.accepted ||
+        RingCaptureStage.deletingDeviceFile => RingFileWorkflowPhase.submitting,
+        RingCaptureStage.failed => RingFileWorkflowPhase.failed,
+        _ => RingFileWorkflowPhase.receiving,
+      };
+      onActivity?.call(task, phase);
+    }
   }
 
   Future<RingCaptureTask> beginRealtimeCapture(

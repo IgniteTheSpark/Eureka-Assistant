@@ -43,6 +43,11 @@ class CaptureActivityItem {
     if (phase == CaptureActivityPhase.done && resultCount != null) {
       return '已整理 · $resultCount 项';
     }
+    if (phase == CaptureActivityPhase.receiving &&
+        !isRealtime &&
+        source != CaptureActivitySource.audioUpload) {
+      return '正在同步离线闪念';
+    }
     return phase.label;
   }
 }

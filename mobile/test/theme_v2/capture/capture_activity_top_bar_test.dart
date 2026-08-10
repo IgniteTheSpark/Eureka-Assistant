@@ -9,14 +9,16 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   CaptureActivityItem item({
     CaptureActivityPhase phase = CaptureActivityPhase.organizing,
+    CaptureActivitySource source = CaptureActivitySource.ring,
+    bool isRealtime = true,
     String? sessionId,
     String? inputTurnId,
     int? resultCount,
   }) => CaptureActivityItem(
     aliases: const {'recording:recording-1'},
-    source: CaptureActivitySource.ring,
+    source: source,
     phase: phase,
-    isRealtime: true,
+    isRealtime: isRealtime,
     occurredAt: DateTime.utc(2026, 8, 7),
     sessionId: sessionId,
     inputTurnId: inputTurnId,
@@ -102,6 +104,25 @@ void main() {
     );
 
     expect(find.text('已整理 · 3 项'), findsOneWidget);
+  });
+
+  test('offline hardware receiving uses truthful recovery copy', () {
+    expect(
+      item(
+        phase: CaptureActivityPhase.receiving,
+        source: CaptureActivitySource.ring,
+        isRealtime: false,
+      ).statusLabel,
+      '正在同步离线闪念',
+    );
+    expect(
+      item(
+        phase: CaptureActivityPhase.receiving,
+        source: CaptureActivitySource.audioUpload,
+        isRealtime: false,
+      ).statusLabel,
+      '正在接收',
+    );
   });
 }
 
