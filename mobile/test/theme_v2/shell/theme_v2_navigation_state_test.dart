@@ -6,6 +6,10 @@ import 'package:eureka/theme_v2/calendar/calendar_controller.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_tokens.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_typography.dart';
 import 'package:eureka/theme_v2/home/theme_v2_home_page.dart';
+import 'package:eureka/theme_v2/home/home_repository.dart';
+import 'package:eureka/theme_v2/reka/reka_signal_repository.dart';
+import 'package:eureka/theme_v2/reka/reka_signals_page.dart';
+import 'package:eureka/today/today_data.dart';
 import 'package:eureka/theme_v2/calendar/theme_v2_calendar_page.dart';
 import 'package:eureka/theme_v2/library/library_navigation.dart';
 import 'package:eureka/theme_v2/device/theme_v2_card_device_detail_page.dart';
@@ -213,6 +217,30 @@ void main() {
     expect(find.byType(ThemeV2GlobalTopNav), findsOneWidget);
   });
 
+  testWidgets('Home Reka entry opens signals instead of notifications', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _ThemeHost(
+        child: ThemeV2AppShell(
+          showStartupOverlays: false,
+          deviceStatus: const DeviceStatusSummary.disconnected(),
+          homeRepository: const _HomeRepository(),
+          rekaSignalRepository: _RekaRepository(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('查看全部'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(RekaSignalsPage), findsOneWidget);
+    expect(find.byType(ThemeV2GlobalTopNav), findsNothing);
+    expect(find.byKey(ThemeV2FloatingDock.dockKey), findsNothing);
+    expect(find.text('Reka 发现'), findsOneWidget);
+  });
+
   testWidgets('production shell routes each direct device target', (
     tester,
   ) async {
@@ -416,4 +444,27 @@ class _ThemeProbe extends StatelessWidget {
       'accent:${ThemeV2Tokens.of(context).accent}',
     );
   }
+}
+
+class _HomeRepository implements ThemeV2HomeRepository {
+  const _HomeRepository();
+
+  @override
+  Future<TodayData> load() async => TodayData.empty;
+}
+
+class _RekaRepository implements RekaSignalRepository {
+  @override
+  Future<void> completeTodo(String assetId) async {}
+
+  @override
+  Future<void> dismiss(String signalId) async {}
+
+  @override
+  Future<RekaSignalBatch> load({String timezoneName = 'Asia/Shanghai'}) async =>
+      const RekaSignalBatch(
+        signals: [],
+        partialFailures: [],
+        generatedAt: null,
+      );
 }

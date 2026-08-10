@@ -1,0 +1,159 @@
+name: eureka-theme-v2-prod
+
+x-theme-v2-image: &theme-v2-image
+  image: eureka-theme-v2-service:${APP_IMAGE_TAG:?set APP_IMAGE_TAG in deploy/.env.theme-v2.prod}
+  build:
+    context: ../theme_v2_service
+    dockerfile: Dockerfile.prod
+    additional_contexts:
+      geist: ../mobile/assets/fonts/Geist
+    args:
+      DEBIAN_MIRROR: ${DEBIAN_MIRROR:-deb.debian.org}
+      PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+
+x-theme-v2-environment: &theme-v2-environment
+  ENV: production
+  DATABASE_URL: ${THEME_V2_DATABASE_URL:?set THEME_V2_DATABASE_URL in deploy/.env.theme-v2.prod}
+  JWT_SECRET: ${THEME_V2_JWT_SECRET:?set THEME_V2_JWT_SECRET in deploy/.env.theme-v2.prod}
+  MEDIA_ROOT: /data/media
+  DEFAULT_USER_TIMEZONE: ${DEFAULT_USER_TIMEZONE:-Asia/Shanghai}
+  TENCENT_ASR_SERVICE_BASE_URL: ${TENCENT_ASR_SERVICE_BASE_URL:?set TENCENT_ASR_SERVICE_BASE_URL}
+  CAPTURE_ASR_POLL_INTERVAL_SECONDS: ${CAPTURE_ASR_POLL_INTERVAL_SECONDS:-5}
+  CAPTURE_ASR_POLL_TIMEOUT_SECONDS: ${CAPTURE_ASR_POLL_TIMEOUT_SECONDS:-1800}
+  CAPTURE_PROVIDER_TIMEOUT_SECONDS: ${CAPTURE_PROVIDER_TIMEOUT_SECONDS:-20}
+  CAPTURE_AGENT_ENABLED: ${CAPTURE_AGENT_ENABLED:-false}
+  CAPTURE_AGENT_MODEL: ${CAPTURE_AGENT_MODEL:-}
+  CAPTURE_AGENT_API_KEY: ${CAPTURE_AGENT_API_KEY:-}
+  CAPTURE_AGENT_TIMEOUT_SECONDS: ${CAPTURE_AGENT_TIMEOUT_SECONDS:-60}
+  CAPTURE_AGENT_MAX_ATTEMPTS: ${CAPTURE_AGENT_MAX_ATTEMPTS:-3}
+  CHAT_AGENT_ENABLED: ${CHAT_AGENT_ENABLED:-false}
+  CHAT_AGENT_MODEL: ${CHAT_AGENT_MODEL:-}
+  CHAT_AGENT_API_KEY: ${CHAT_AGENT_API_KEY:-}
+  CHAT_AGENT_TIMEOUT_SECONDS: ${CHAT_AGENT_TIMEOUT_SECONDS:-60}
+  CAPTURE_FLASH_WAIT_SECONDS: ${CAPTURE_FLASH_WAIT_SECONDS:-20}
+  CAPTURE_FLASH_POLL_INTERVAL_SECONDS: ${CAPTURE_FLASH_POLL_INTERVAL_SECONDS:-0.05}
+  REPORT_PLANNER_ENABLED: ${REPORT_PLANNER_ENABLED:-false}
+  REPORT_PIPELINE_ENABLED: ${REPORT_PIPELINE_ENABLED:-false}
+  REPORT_PLANNER_MODEL: ${REPORT_PLANNER_MODEL:-}
+  REPORT_GENERATOR_MODEL: ${REPORT_GENERATOR_MODEL:-}
+  REPORT_ILLUSTRATION_MODEL: ${REPORT_ILLUSTRATION_MODEL:-}
+  REPORT_PROVIDER_API_KEY: ${REPORT_PROVIDER_API_KEY:-}
+  REPORT_PROVIDER_TIMEOUT_SECONDS: ${REPORT_PROVIDER_TIMEOUT_SECONDS:-60}
+  REPORT_PROVIDER_MAX_ATTEMPTS: ${REPORT_PROVIDER_MAX_ATTEMPTS:-3}
+  REPORT_WEB_ENABLED: ${REPORT_WEB_ENABLED:-false}
+  REPORT_WEB_MODEL: ${REPORT_WEB_MODEL:-deepseek-v4-flash}
+  REPORT_WEB_API_URL: ${REPORT_WEB_API_URL:-https://api.deepseek.com}
+  REPORT_WEB_API_KEY: ${REPORT_WEB_API_KEY:-}
+  REPORT_WEB_TIMEOUT_SECONDS: ${REPORT_WEB_TIMEOUT_SECONDS:-20}
+  REPORT_ILLUSTRATION_API_URL: ${REPORT_ILLUSTRATION_API_URL:-}
+  REPORT_PUBLIC_BASE_URL: ${REPORT_PUBLIC_BASE_URL:?set REPORT_PUBLIC_BASE_URL to the public HTTPS API URL}
+
+x-json-logging: &json-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+services:
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-eureka_theme_v2}
+      MYSQL_USER: ${MYSQL_USER:-theme_v2}
+      MYSQL_PASSWORD: ${THEME_V2_DB_PASSWORD:?set THEME_V2_DB_PASSWORD in deploy/.env.theme-v2.prod}
+      MYSQL_ROOT_PASSWORD: ${THEME_V2_DB_ROOT_PASSWORD:?set THEME_V2_DB_ROOT_PASSWORD in deploy/.env.theme-v2.prod}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u$$MYSQL_USER -p$$MYSQL_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+    logging: *json-logging
+    networks:
+      - backend
+
+  migrate:
+    <<: *theme-v2-image
+    command: alembic upgrade head
+    restart: "no"
+    environment: *theme-v2-environment
+    depends_on:
+      db:
+        condition: service_healthy
+    logging: *json-logging
+    networks:
+      - backend
+
+  api:
+    <<: *theme-v2-image
+    restart: unless-stopped
+    init: true
+    environment: *theme-v2-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    expose:
+      - "8000"
+    volumes:
+      - media_data:/data/media
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    stop_grace_period: 90s
+    logging: *json-logging
+    networks:
+      - edge
+      - backend
+
+  worker:
+    <<: *theme-v2-image
+    command: python -m app.worker
+    restart: unless-stopped
+    init: true
+    environment: *theme-v2-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - media_data:/data/media
+    stop_grace_period: 90s
+    logging: *json-logging
+    networks:
+      - backend
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in deploy/.env.theme-v2.prod}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in deploy/.env.theme-v2.prod}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile.theme-v2:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    logging: *json-logging
+    networks:
+      - edge
+
+networks:
+  edge:
+  backend:
+
+volumes:
+  mysql_data:
+  media_data:
+  caddy_data:
+  caddy_config:

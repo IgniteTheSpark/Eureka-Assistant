@@ -6,12 +6,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'theme_v2_test_app.dart';
 
 void main() {
-  testWidgets('compile-time Theme V2 config selects the app root shell', (
+  testWidgets('a build without rollout defines selects the Theme V2 shell', (
     tester,
   ) async {
     const expectedThemeV2 = bool.fromEnvironment(
       'THEME_V2',
-      defaultValue: false,
+      defaultValue: true,
     );
 
     await tester.pumpWidget(

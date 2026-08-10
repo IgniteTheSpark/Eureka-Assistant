@@ -8,6 +8,9 @@
 integrations/flash-card/flash-card.env
 # Production deploy secrets (domain / DB passwords / API keys); ship only .example.
 deploy/.env.prod
+deploy/.env.theme-v2.prod
+deploy/.theme-v2-state/
+deploy/backups/
 
 # ── OS ──────────────────────────────────────────────────────────────────
 .DS_Store
@@ -41,6 +44,7 @@ uvicorn*.log
 # Local analysis/render artifacts. Keep generated files out of the repo.
 tmp/
 output/
+mobile/test/**/failures/
 
 # prod TLS certs (acme.sh-managed on the server, never committed)
 deploy/certs/*.pem

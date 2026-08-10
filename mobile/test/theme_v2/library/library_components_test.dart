@@ -44,11 +44,11 @@ void main() {
     expect(find.textContaining('/ A'), findsNothing);
     expect(
       find.byKey(const ValueKey('library-pinned-mark-todo')),
-      findsOneWidget,
+      findsNothing,
     );
     expect(
       find.byKey(const ValueKey('library-pinned-mark-expense')),
-      findsOneWidget,
+      findsNothing,
     );
   });
 

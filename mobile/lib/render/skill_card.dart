@@ -11,6 +11,8 @@ import '../theme/eureka_colors.dart';
 import '../theme_v2/asset_detail/asset_entity_ref.dart';
 import '../theme_v2/asset_detail/open_asset_detail.dart';
 import '../theme_v2/foundation/canonical_entity_identity.dart';
+import '../theme_v2/foundation/theme_v2_time_formatter.dart';
+import '../theme_v2/session/session_card_contract.dart';
 import '../theme/ureka_tokens.dart';
 import '../widgets/toast.dart';
 import 'render_spec.dart';
@@ -48,6 +50,9 @@ final renderSpecsProvider = FutureProvider<Map<String, RenderSpec>>((
 });
 
 String? skillCardAssetId(Map<String, dynamic> card) {
+  if (isCanonicalSessionEntityCard(card)) {
+    return card['entity_id']?.toString();
+  }
   final type = card['card_type'] as String?;
   final id = switch (type) {
     'event' => card['event_id'] ?? card['id'] ?? card['asset_id'],
@@ -57,10 +62,49 @@ String? skillCardAssetId(Map<String, dynamic> card) {
   return id?.toString();
 }
 
+Map<String, dynamic> _canonicalEntity(Map<String, dynamic> card) =>
+    (card['entity'] as Map).cast<String, dynamic>();
+
+String? _cardDomain(Map<String, dynamic> card) {
+  if (isCanonicalSessionEntityCard(card)) {
+    return _canonicalEntity(card)['domain']?.toString();
+  }
+  return card['domain']?.toString();
+}
+
 CardData resolveSkillCardData(
   Map<String, dynamic> card,
   Map<String, RenderSpec> specs,
 ) {
+  if (isCanonicalSessionEntityCard(card)) {
+    final kind = card['entity_kind']!.toString();
+    final entity = _canonicalEntity(card);
+    if (kind == 'asset') {
+      final skill = card['skill_machine_name']!.toString();
+      final payload =
+          (entity['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
+      final data = buildCard(
+        payload: payload,
+        spec: specs[skill] ?? synthesizeSpec(skill),
+        displayName: skill,
+      ).copyWith(domain: entity['domain']?.toString());
+      if (skill == 'todo') {
+        final rawDeadline = payload['due_date']?.toString().trim() ?? '';
+        return data.copyWith(
+          subtitle: rawDeadline.isEmpty
+              ? ''
+              : formatSessionDeadline(rawDeadline),
+          metaFields: const [],
+        );
+      }
+      return data;
+    }
+    return buildCard(
+      payload: entity,
+      spec: synthesizeSpec(kind),
+      displayName: kind,
+    ).copyWith(domain: entity['domain']?.toString());
+  }
   if (card.containsKey('accent_color') || card.containsKey('meta_fields')) {
     final meta = <({String value, String? format})>[];
     for (final item
@@ -130,6 +174,15 @@ CardData resolveSkillCardData(
 }
 
 AssetEntityRef? skillCardEntityRef(Map<String, dynamic> card) {
+  if (isCanonicalSessionEntityCard(card)) {
+    final id = card['entity_id']!.toString();
+    final kind = switch (card['entity_kind']) {
+      'event' => AssetEntityKind.event,
+      'contact' => AssetEntityKind.contact,
+      _ => AssetEntityKind.asset,
+    };
+    return AssetEntityRef(kind: kind, id: id);
+  }
   final type = card['card_type'] as String?;
   if (type == 'task') return null;
   final id = skillCardAssetId(card)?.trim();
@@ -191,6 +244,9 @@ class _SkillCardState extends ConsumerState<SkillCard> {
 
   Map<String, dynamic> get card => _replacedCard ?? widget.card;
   bool get _isTodoCard =>
+      (isCanonicalSessionEntityCard(card) &&
+          card['entity_kind'] == 'asset' &&
+          card['skill_machine_name'] == 'todo') ||
       card['card_type'] == 'todo' ||
       card['user_skill_name'] == 'todo' ||
       card['skill_name'] == 'todo';
@@ -227,7 +283,9 @@ class _SkillCardState extends ConsumerState<SkillCard> {
     final serial = ++_todoSyncSerial;
     try {
       final res = await _api.getJson('/api/assets/$id');
-      final asset = (res is Map ? res['asset'] : null) as Map?;
+      final asset = res is Map
+          ? ((res['asset'] as Map?) ?? res).cast<String, dynamic>()
+          : null;
       final payload = (asset?['payload'] as Map?)?.cast<String, dynamic>();
       if (!mounted ||
           payload == null ||
@@ -253,6 +311,14 @@ class _SkillCardState extends ConsumerState<SkillCard> {
   /// The right DELETE endpoint for this card, by type — null if it isn't
   /// user-deletable (task / a prebuilt card with no id).
   String? _deletePath(String cardType) {
+    if (isCanonicalSessionEntityCard(card)) {
+      final reference = skillCardEntityRef(card)!;
+      return switch (reference.kind) {
+        AssetEntityKind.asset => '/api/assets/${reference.id}',
+        AssetEntityKind.event => '/api/events/${reference.id}',
+        AssetEntityKind.contact => '/api/contacts/${reference.id}',
+      };
+    }
     switch (cardType) {
       case 'event':
         final id = (card['event_id'] ?? card['id']) as String?;
@@ -285,10 +351,14 @@ class _SkillCardState extends ConsumerState<SkillCard> {
       data = data.copyWith(layout: widget.layoutOverride);
     }
     if (_doneOverride != null) data = data.copyWith(checkDone: _doneOverride);
-    data = data.copyWith(domain: card['domain'] as String?); // §8 domain chip
+    data = data.copyWith(domain: _cardDomain(card)); // §8 domain chip
 
     final type = card['card_type'] as String?;
-    final cardType = type ?? (card['user_skill_name'] as String?) ?? 'asset';
+    final cardType = isCanonicalSessionEntityCard(card)
+        ? card['entity_kind'] == 'asset'
+              ? card['skill_machine_name']!.toString()
+              : card['entity_kind']!.toString()
+        : type ?? (card['user_skill_name'] as String?) ?? 'asset';
 
     final canToggle = data.checkDone != null && _assetId != null;
     final body = GestureDetector(

@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
+import logging
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -19,7 +20,6 @@ from app.domains.capture.execution import (
     PermanentFlashExecutionError,
     RetryableFlashExecutionError,
 )
-from app.domains.capture.presenter import present_capture_references
 from app.domains.capture.asr import (
     AsrPollResult,
     AsrProvider,
@@ -32,6 +32,11 @@ from app.domains.capture.service import (
     publish_capture_status,
 )
 from app.domains.sessions import service as session_service
+from app.domains.sessions.card_contract import (
+    SessionCardInvalid,
+    SessionCardSource,
+    build_entity_card,
+)
 from app.domains.sessions.models import (
     AgentPendingAction,
     ChatSession,
@@ -45,6 +50,8 @@ from app.jobs.queue import defer_job, enqueue_job
 
 CAPTURE_ASR_JOB_TYPE = "capture_asr"
 CAPTURE_PROCESS_JOB_TYPE = "capture_process"
+
+logger = logging.getLogger(__name__)
 
 
 async def _load_recording(recording_id: str) -> CaptureRecording | None:
@@ -522,6 +529,37 @@ def _contact_name_from_item(item) -> str:
     return "联系人"
 
 
+def _capture_entity_card(
+    *,
+    source: SessionCardSource | None,
+    entity_kind: str,
+    entity_id: object,
+    entity: dict,
+    skill_machine_name: str | None = None,
+) -> dict | None:
+    if source is None:
+        logger.error(
+            "capture entity card missing owned source",
+            extra={"entity_kind": entity_kind, "entity_id": entity_id},
+        )
+        return None
+    try:
+        return build_entity_card(
+            entity_kind=entity_kind,
+            entity_id=str(entity_id or ""),
+            entity=entity,
+            source=source,
+            skill_machine_name=skill_machine_name,
+        )
+    except SessionCardInvalid:
+        logger.warning(
+            "capture entity card was not persisted",
+            exc_info=True,
+            extra={"entity_kind": entity_kind, "entity_id": entity_id},
+        )
+        return None
+
+
 async def _persist_flash_execution(
     *,
     recording_id: str,
@@ -552,6 +590,14 @@ async def _persist_flash_execution(
             )
         )
         skill_by_name = {skill.machine_name: skill for skill in skill_models}
+
+        card_source: SessionCardSource | None = None
+        if recording.session_id and recording.input_turn_id:
+            card_source = SessionCardSource(
+                session_id=recording.session_id,
+                input_turn_id=recording.input_turn_id,
+                kind="capture",
+            )
 
         references: list[dict] = []
         has_pending = False
@@ -629,31 +675,33 @@ async def _persist_flash_execution(
 
             if item.intent.type == "event":
                 for snapshot in _result_snapshots(item.result, "events"):
-                    references.append(
-                        {
-                            **{key: value for key, value in snapshot.items() if key != "ok"},
-                            "kind": "event",
-                            "event_id": snapshot.get("event_id"),
-                            "source_text": source_text,
-                        }
+                    entity = {
+                        key: value for key, value in snapshot.items() if key != "ok"
+                    }
+                    card = _capture_entity_card(
+                        source=card_source,
+                        entity_kind="event",
+                        entity_id=snapshot.get("event_id"),
+                        entity=entity,
                     )
+                    if card is not None:
+                        references.append(card)
                 continue
 
             if item.intent.type == "contact":
                 for contact in _result_snapshots(item.result, "contacts"):
-                    references.append(
-                        {
-                            **{key: value for key, value in contact.items() if key != "ok"},
-                            "kind": "contact",
-                            "card_type": "contact",
-                            "contact_id": contact.get("contact_id"),
-                            "contact_action": contact.get("contact_action"),
-                            "name": contact.get("name") or _contact_name_from_item(item),
-                            "source_text": source_text,
-                            "icon": "👤",
-                            "accent_color": "neutral",
-                        }
+                    entity = {
+                        key: value for key, value in contact.items() if key != "ok"
+                    }
+                    entity["name"] = contact.get("name") or _contact_name_from_item(item)
+                    card = _capture_entity_card(
+                        source=card_source,
+                        entity_kind="contact",
+                        entity_id=contact.get("contact_id"),
+                        entity=entity,
                     )
+                    if card is not None:
+                        references.append(card)
                 continue
 
             machine_name = str(
@@ -673,18 +721,21 @@ async def _persist_flash_execution(
                 )
                 continue
             for snapshot in _result_snapshots(item.result, "assets"):
-                references.append(
-                    {
-                        **{key: value for key, value in snapshot.items() if key != "ok"},
-                        "kind": "asset",
-                        "asset_id": snapshot.get("asset_id"),
-                        "user_skill_id": skill.id,
-                        "skill_machine_name": machine_name,
-                        "source_text": source_text,
-                    }
+                entity = {
+                    key: value for key, value in snapshot.items() if key != "ok"
+                }
+                entity["user_skill_id"] = skill.id
+                entity["user_skill_name"] = machine_name
+                card = _capture_entity_card(
+                    source=card_source,
+                    entity_kind="asset",
+                    entity_id=snapshot.get("asset_id"),
+                    entity=entity,
+                    skill_machine_name=machine_name,
                 )
+                if card is not None:
+                    references.append(card)
 
-        references = present_capture_references(references, skills=skill_models)
         recording.process_status = "done"
         recording.result_summary = result.summary.strip()
         recording.result_records_json = references

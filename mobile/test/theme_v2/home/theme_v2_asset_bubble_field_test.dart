@@ -86,6 +86,54 @@ void main() {
     expect(tester.getCenter(bubble).dy, greaterThan(before.dy));
   });
 
+  testWidgets(
+    'fresh variable-size bubbles do not eject one above the ceiling',
+    (tester) async {
+      final assets = _assets(5);
+      await _pumpField(
+        tester,
+        assets: assets,
+        disableAnimations: false,
+        size: const Size(359, 340),
+        gravityStream: const Stream<Offset>.empty(),
+      );
+      final initialRects = [
+        for (final asset in assets)
+          tester.getRect(
+            find.byKey(ValueKey('theme-v2-asset-bubble-rotation-${asset.id}')),
+          ),
+      ];
+      for (var index = 0; index < initialRects.length; index++) {
+        for (var other = index + 1; other < initialRects.length; other++) {
+          expect(
+            initialRects[index].overlaps(initialRects[other]),
+            isFalse,
+            reason: 'initial bubbles $index and $other overlap',
+          );
+        }
+      }
+      await _pumpFrames(tester, 240);
+
+      final fieldRect = tester.getRect(find.byType(ThemeV2AssetBubbleField));
+      for (final asset in assets) {
+        final visual = find.byKey(
+          ValueKey('theme-v2-asset-bubble-rotation-${asset.id}'),
+        );
+        final visualRect = tester.getRect(visual);
+        expect(
+          visualRect.top,
+          greaterThanOrEqualTo(fieldRect.top),
+          reason: '${asset.id} escaped through the ceiling',
+        );
+        expect(
+          visualRect.bottom,
+          lessThanOrEqualTo(fieldRect.bottom),
+          reason: '${asset.id} escaped through the floor',
+        );
+      }
+    },
+  );
+
   testWidgets('Reduce Motion keeps a stable settled bubble', (tester) async {
     await _pumpField(tester, assets: [asset], disableAnimations: true);
     final bubble = find.byKey(const ValueKey('theme-v2-asset-bubble-asset-1'));

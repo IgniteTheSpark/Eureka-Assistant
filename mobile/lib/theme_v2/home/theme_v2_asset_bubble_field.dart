@@ -157,10 +157,36 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
     WidgetsBinding.instance.addObserver(this);
   }
 
-  Offset _spawnCenter(int index, double radius) {
-    final usableWidth = math.max(1.0, _box.width - radius * 2);
-    final fraction = ((index % 7) + 1) / 8;
-    return Offset(radius + usableWidth * fraction, radius + 2 + index ~/ 7 * 4);
+  List<Offset> _spawnCenters(List<double> radii) {
+    const inset = 2.0;
+    const gap = 4.0;
+    final centers = <Offset>[];
+    var cursorX = inset;
+    var rowTop = inset;
+    var rowHeight = 0.0;
+    for (final radius in radii) {
+      final diameter = radius * 2;
+      if (cursorX > inset && cursorX + diameter > _box.width - inset) {
+        cursorX = inset;
+        rowTop += rowHeight + gap;
+        rowHeight = 0;
+      }
+      centers.add(
+        Offset(
+          (cursorX + radius).clamp(
+            radius,
+            math.max(radius, _box.width - radius),
+          ),
+          (rowTop + radius).clamp(
+            radius,
+            math.max(radius, _box.height - radius),
+          ),
+        ),
+      );
+      cursorX += diameter + gap;
+      rowHeight = math.max(rowHeight, diameter);
+    }
+    return centers;
   }
 
   Offset _settledCenter(int index, double radius) {
@@ -344,14 +370,17 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
       return;
     }
     final field = BubbleField(box: box, gravity: _gravity);
+    final radii = <double>[
+      for (var index = 0; index < widget.assets.length; index++)
+        _diameter(widget.assets[index], index) / 2,
+    ];
+    final spawnCenters = _spawnCenters(radii);
     for (var index = 0; index < widget.assets.length; index++) {
       final asset = widget.assets[index];
-      final radius = _diameter(asset, index) / 2;
+      final radius = radii[index];
       field.addBubble(
         asset.id,
-        _reduceMotion
-            ? _settledCenter(index, radius)
-            : _spawnCenter(index, radius),
+        _reduceMotion ? _settledCenter(index, radius) : spawnCenters[index],
         radius,
       );
     }
@@ -396,16 +425,28 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
     _assetsById
       ..clear()
       ..addAll(nextById);
+    final additions = <({PoolAsset asset, int index, double radius})>[];
     for (var index = 0; index < nextAssets.length; index++) {
       final asset = nextAssets[index];
       if (field.has(asset.id)) continue;
       final radius = _diameter(asset, index) / 2;
+      additions.add((asset: asset, index: index, radius: radius));
+    }
+    final spawnCenters = _spawnCenters([
+      for (final addition in additions) addition.radius,
+    ]);
+    for (
+      var additionIndex = 0;
+      additionIndex < additions.length;
+      additionIndex++
+    ) {
+      final addition = additions[additionIndex];
       field.addBubble(
-        asset.id,
+        addition.asset.id,
         _reduceMotion
-            ? _settledCenter(index, radius)
-            : _spawnCenter(index, radius),
-        radius,
+            ? _settledCenter(addition.index, addition.radius)
+            : spawnCenters[additionIndex],
+        addition.radius,
       );
     }
     _repaint.value++;

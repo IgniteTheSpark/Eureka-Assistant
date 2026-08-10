@@ -201,6 +201,12 @@ void main() {
         skillName: 'notes',
         hasClockTime: true,
       );
+      final captureFallbackAsset = record(
+        id: 'capture-fallback',
+        at: at,
+        kind: 'asset',
+        skillName: 'notes',
+      );
       final periodAsset = record(
         id: 'period',
         at: at,
@@ -232,6 +238,7 @@ void main() {
       expect(scheduledTodo.timing, CalendarRecordTiming.timed);
       expect(captureFallbackTodo.timing, CalendarRecordTiming.untimed);
       expect(clockAsset.timing, CalendarRecordTiming.timed);
+      expect(captureFallbackAsset.timing, CalendarRecordTiming.untimed);
       expect(periodAsset.timing, CalendarRecordTiming.untimed);
       expect(periodAsset.period, '下午');
       expect(contactCaptureFallback.timing, CalendarRecordTiming.timed);

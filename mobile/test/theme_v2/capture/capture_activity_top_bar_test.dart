@@ -52,6 +52,16 @@ void main() {
     expect(material.color, isNot(Colors.black));
   });
 
+  test('light and dark top bars use contrasting moving-light palettes', () {
+    final light = captureTopBarPalette(Brightness.light);
+    final dark = captureTopBarPalette(Brightness.dark);
+
+    expect(light.background, isNot(dark.background));
+    expect(light.lightBand, isNot(dark.lightBand));
+    expect(light.lightBand, hasLength(3));
+    expect(dark.lightBand, hasLength(3));
+  });
+
   testWidgets('tap is disabled before a real Session turn exists', (
     tester,
   ) async {

@@ -1,3 +1,6 @@
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
@@ -50,7 +53,17 @@ async def test_user_skill_and_asset_crud_are_owner_scoped(client):
         "/api/user-skills",
         headers=_headers(owner),
     )
-    assert [item["id"] for item in listed_skills.json()] == [skill["id"]]
+    skills_by_name = {
+        item["machine_name"]: item for item in listed_skills.json()
+    }
+    assert set(skills_by_name) == {
+        "todo",
+        "expense",
+        "contact",
+        "notes",
+        "event",
+    }
+    assert skills_by_name["notes"]["id"] == skill["id"]
 
     asset_response = await client.post(
         "/api/assets",
@@ -276,6 +289,51 @@ async def test_asset_rejects_unknown_fuzzy_period(client):
         },
     )
     assert response.status_code == 422
+
+
+async def test_todo_create_defaults_deadline_and_edit_preserves_status(
+    client,
+    monkeypatch,
+):
+    now = datetime(2026, 8, 8, 18, 1, tzinfo=ZoneInfo("Asia/Shanghai"))
+    monkeypatch.setattr("app.domains.assets.service.utc_now", lambda: now)
+    owner = await _register(client, "todo-deadline@example.com")
+    skills = await client.get("/api/user-skills", headers=_headers(owner))
+    todo = next(
+        item for item in skills.json() if item["machine_name"] == "todo"
+    )
+
+    created = await client.post(
+        "/api/assets",
+        headers=_headers(owner),
+        json={
+            "user_skill_id": todo["id"],
+            "payload": {"title": "提交方案", "content": "完成最后校对"},
+        },
+    )
+
+    assert created.status_code == 200
+    assert created.json()["payload"] == {
+        "title": "提交方案",
+        "content": "完成最后校对",
+        "due_date": "2026-08-09T18:00:00+08:00",
+        "status": "pending",
+    }
+
+    edited = await client.patch(
+        f"/api/assets/{created.json()['id']}",
+        headers=_headers(owner),
+        json={
+            "payload": {
+                **created.json()["payload"],
+                "due_date": "2026-08-07T18:00:00+08:00",
+            }
+        },
+    )
+
+    assert edited.status_code == 200
+    assert edited.json()["payload"]["status"] == "pending"
+    assert edited.json()["payload"]["due_date"] == "2026-08-07T18:00:00+08:00"
 
 
 async def test_asset_create_and_update_reject_fields_outside_closed_schema(client):

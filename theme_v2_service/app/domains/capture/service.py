@@ -839,17 +839,12 @@ def flash_response_payload(
 ) -> dict:
     recording = result.recording
     references = recording.result_records_json or []
-    cards = []
-    for reference in references:
-        if reference.get("kind") == "asset":
-            cards.append(
-                {
-                    **reference,
-                    "card_type": reference.get("skill_machine_name") or "asset",
-                }
-            )
-        elif reference.get("kind") == "event":
-            cards.append({**reference, "card_type": "event"})
+    cards = [
+        dict(reference)
+        for reference in references
+        if reference.get("entity_kind") in {"asset", "event", "contact"}
+        or reference.get("card_type") in {"pending_contact", "error"}
+    ]
     pending = recording.process_status not in {"done", "empty", "failed"}
     failed = recording.process_status == "failed"
     summary = _display_result_summary(recording)

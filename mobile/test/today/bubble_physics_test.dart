@@ -59,6 +59,22 @@ void main() {
     expect(distance, greaterThanOrEqualTo(39.5));
   });
 
+  test('step recovers a sleeping bubble found outside the ceiling', () {
+    final field = BubbleField(
+      box: const Size(395, 340),
+      gravity: const Offset(0, 20),
+    )..addBubble('expense', const Offset(174, 31), 29);
+    final expense = field.bubbles.single;
+    final escapedPosition = expense.body.position.clone()..y = -1;
+    expense.body.setTransform(escapedPosition, expense.angle);
+    expense.body.setAwake(false);
+    field.step();
+
+    expect(expense.y, greaterThanOrEqualTo(expense.r));
+    expect(expense.y, lessThanOrEqualTo(340 - expense.r));
+    expect(expense.sleeping, isFalse);
+  });
+
   test('bubble exposes the integrated Forge2D body angle', () {
     final field = BubbleField(box: const Size(240, 180), gravity: Offset.zero);
     field.addBubble('spinning', const Offset(120, 90), 20);

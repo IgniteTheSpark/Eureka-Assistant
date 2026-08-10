@@ -607,6 +607,24 @@ async def test_capture_job_creates_multiple_records_and_notification(session):
     assert recording.process_status == "done"
     assert recording.result_summary == "已记录项目会和 28 元咖啡消费。"
     assert len(recording.result_records_json) == 2
+    assert {card["entity_kind"] for card in recording.result_records_json} == {
+        "asset",
+        "event",
+    }
+    assert all(
+        card["source"]
+        == {
+            "session_id": recording.session_id,
+            "input_turn_id": recording.input_turn_id,
+            "kind": "capture",
+        }
+        for card in recording.result_records_json
+    )
+    assert all(
+        not {"title", "subtitle", "icon", "accent_color", "meta_fields"}
+        .intersection(card)
+        for card in recording.result_records_json
+    )
     assert len(assets) == 1
     assert len(events) == 1
     assert [(item.event_id, item.name_raw, item.contact_id) for item in attendees] == [
@@ -620,12 +638,14 @@ async def test_capture_job_creates_multiple_records_and_notification(session):
         "expense",
         "contact",
         "notes",
+        "event",
     ]
     assert {skill.machine_name for skill in skills} == {
         "todo",
         "expense",
         "contact",
         "notes",
+        "event",
     }
     tool_names = [call[0] for call in tool_runtime.calls]
     assert tool_names.count("tool_create_asset") == 1
@@ -664,7 +684,9 @@ async def test_capture_job_persists_preexecuted_flash_facts_without_replay(sessi
             select(func.count()).select_from(Asset)
         )
     assert recording.process_status == "done"
-    assert recording.result_records_json[0]["asset_id"]
+    assert recording.result_records_json[0]["entity_kind"] == "asset"
+    assert recording.result_records_json[0]["entity_id"]
+    assert recording.result_records_json[0]["entity"]["asset_id"]
     assert agent_message.status == "done"
     assert asset_count == 1
     assert [call[0] for call in tool_runtime.calls] == ["tool_create_asset"]
@@ -690,10 +712,8 @@ async def test_capture_job_persists_partial_success_and_turn_local_error(session
             recording.agent_message_id,
         )
     assert recording.process_status == "done"
-    assert [card["kind"] for card in recording.result_records_json] == [
-        "asset",
-        "error",
-    ]
+    assert recording.result_records_json[0]["entity_kind"] == "asset"
+    assert recording.result_records_json[1]["kind"] == "error"
     assert agent_message.status == "done"
     assert agent_message.cards_json[1]["error_code"] == "intent_tool_rejected"
 
@@ -842,8 +862,9 @@ async def test_capture_contact_creates_first_class_contact_not_asset(session):
     assert len(contacts) == 1
     assert contacts[0].name == "Alex"
     assert contacts[0].company == "Acme"
-    assert recording.result_records_json[0]["kind"] == "contact"
-    assert recording.result_records_json[0]["icon"] == "👤"
+    assert recording.result_records_json[0]["entity_kind"] == "contact"
+    assert recording.result_records_json[0]["entity_id"] == contacts[0].id
+    assert recording.result_records_json[0]["entity"]["name"] == "Alex"
 
 
 async def test_capture_contact_updates_the_only_exact_alex(session):

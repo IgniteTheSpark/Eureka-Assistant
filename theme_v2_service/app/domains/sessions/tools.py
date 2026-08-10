@@ -2,12 +2,18 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 from app.internal_mcp.runtime import (
     InternalMCPRuntime,
     InternalMCPTrustedContext,
     get_internal_mcp_runtime,
+)
+from app.domains.sessions.card_contract import (
+    SessionCardSource,
+    SessionCardSourceKind,
+    cards_from_tool_result,
 )
 
 
@@ -138,11 +144,15 @@ class SessionToolExecutor:
         user_id: str,
         session_id: str,
         input_turn_id: str | None,
+        reference_datetime: datetime | None = None,
+        source_kind: SessionCardSourceKind = "chat",
         runtime: InternalMCPRuntime | None = None,
     ) -> None:
         self.user_id = user_id
         self.session_id = session_id
         self.input_turn_id = input_turn_id
+        self.reference_datetime = reference_datetime
+        self.source_kind = source_kind
         self.runtime = runtime or get_internal_mcp_runtime()
 
     async def definitions(self) -> list[dict[str, Any]]:
@@ -167,6 +177,9 @@ class SessionToolExecutor:
             "create_event": "tool_create_event",
         }.get(name, name)
         normalized = dict(arguments)
+        normalized.pop("reference_datetime", None)
+        if internal_name == "tool_create_todo" and self.reference_datetime is not None:
+            normalized["reference_datetime"] = self.reference_datetime.isoformat()
         if "skill_machine_name" in normalized:
             normalized["user_skill_name"] = normalized.pop("skill_machine_name")
         for json_field in ("payload", "payload_patch", "patch"):
@@ -184,10 +197,18 @@ class SessionToolExecutor:
                 tool_call_id=tool_call_id,
             ),
         )
-        return ToolOutcome(
-            response=result,
-            cards=_cards_for_result(internal_name, result),
-        )
+        cards: list[dict] = []
+        if self.session_id and self.input_turn_id:
+            cards = cards_from_tool_result(
+                internal_name,
+                result,
+                SessionCardSource(
+                    session_id=self.session_id,
+                    input_turn_id=self.input_turn_id,
+                    kind=self.source_kind,
+                ),
+            )
+        return ToolOutcome(response=result, cards=cards)
 
     async def _execute_pending_action(
         self,
@@ -237,61 +258,3 @@ class SessionToolExecutor:
         ) as exc:
             return ToolOutcome(response={"ok": False, "error": str(exc)})
         return ToolOutcome(response={"ok": True, "pending_action": payload})
-
-
-def _cards_for_result(name: str, result: dict[str, Any]) -> list[dict]:
-    if not result.get("ok"):
-        return []
-    if result.get("asset_id") and isinstance(result.get("payload"), dict):
-        return [
-            {
-                "id": result.get("asset_id"),
-                "asset_id": result.get("asset_id"),
-                "user_skill_name": result.get("user_skill_name"),
-                "payload": result.get("payload") or {},
-            }
-        ]
-    if result.get("event_id") and result.get("title"):
-        return [
-            {
-                "id": result.get("event_id"),
-                "event_id": result.get("event_id"),
-                "user_skill_name": "event",
-                "payload": {
-                    "title": result.get("title"),
-                    "description": result.get("description"),
-                    "start_at": result.get("start_at"),
-                    "end_at": result.get("end_at"),
-                    "location": result.get("location"),
-                },
-            }
-        ]
-    if result.get("contact_id") and result.get("name"):
-        return [
-            {
-                "id": result.get("contact_id"),
-                "contact_id": result.get("contact_id"),
-                "card_type": "contact",
-                **{
-                    key: value
-                    for key, value in result.items()
-                    if key
-                    not in {"ok", "contact_action", "contact_id"}
-                },
-            }
-        ]
-    if isinstance(result.get("assets"), list):
-        return [dict(item) for item in result.get("assets") or []]
-    if isinstance(result.get("events"), list):
-        return [dict(item) for item in result.get("events") or []]
-    if isinstance(result.get("contacts"), list):
-        return [
-            {
-                "id": item.get("contact_id"),
-                "card_type": "contact",
-                **dict(item),
-            }
-            for item in result.get("contacts") or []
-            if isinstance(item, dict)
-        ]
-    return []

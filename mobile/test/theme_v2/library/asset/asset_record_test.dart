@@ -68,6 +68,53 @@ void main() {
       expect(contact.card.secondaryValues, ['Eureka', 'Designer']);
     });
 
+    test('first-class entities honor their user-selected card fields', () {
+      final event = AssetRecordAdapter.event(
+        entity: const {
+          'event_id': 'event-1',
+          'title': '设计评审',
+          'location': '会议室 A',
+          'start_at': '2026-07-29T14:00:00+08:00',
+          'end_at': '2026-07-29T15:00:00+08:00',
+        },
+        spec: const RenderSpec(
+          cardLayout: 'horizontal',
+          icon: '📅',
+          accentColor: 'blue',
+          primaryField: 'location',
+          secondaryField: 'title',
+        ),
+        renderSpec: const {
+          'primary_field': 'location',
+          'secondary_field': 'title',
+        },
+      );
+      final contact = AssetRecordAdapter.contact(
+        entity: const {
+          'contact_id': 'contact-1',
+          'name': '林知夏',
+          'company': 'Eureka',
+          'title': 'Designer',
+        },
+        spec: const RenderSpec(
+          cardLayout: 'horizontal',
+          icon: '👤',
+          accentColor: 'blue',
+          primaryField: 'company',
+          secondaryField: 'name',
+        ),
+        renderSpec: const {
+          'primary_field': 'company',
+          'secondary_field': 'name',
+        },
+      );
+
+      expect(event.card.primaryValue, '会议室 A');
+      expect(event.card.secondaryValues, ['设计评审']);
+      expect(contact.card.primaryValue, 'Eureka');
+      expect(contact.card.secondaryValues, ['林知夏']);
+    });
+
     test('todo adapter recognizes legacy completion and due timestamps', () {
       final record = AssetRecordAdapter.asset(
         asset: AssetItem(

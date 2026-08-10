@@ -417,7 +417,7 @@ String _fieldLabel(String field) =>
       'content': '正文',
       'tags': '标签',
       'due_at': '截止时间',
-      'due_date': '截止日期',
+      'due_date': '截止时间',
       'reminder_at': '提醒',
       'start_at': '开始',
       'end_at': '结束',

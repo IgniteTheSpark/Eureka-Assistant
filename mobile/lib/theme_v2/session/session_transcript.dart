@@ -419,7 +419,7 @@ class _SessionTransientCaptureTurn extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ThinkingOrb(phase: phase, size: 22),
+            ThinkingOrb(state: thinkingOrbStateForCapture(phase), size: 22),
             const SizedBox(width: 8),
             Text(
               phase.label,

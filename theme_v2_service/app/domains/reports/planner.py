@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Awaitable, Callable
 from time import perf_counter
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -28,6 +29,9 @@ from app.domains.reports.schemas import (
 from app.domains.reports.state_machine import transition_run
 from app.domains.reports.templates import TemplatePackage, TemplateRegistry
 from app.observability import metrics
+
+
+logger = logging.getLogger(__name__)
 
 
 class InvalidPlannerResult(ValueError):
@@ -413,6 +417,12 @@ async def execute_report_planner_job(
             )
         return written
     except Exception as exc:
+        logger.exception(
+            "report planner failed run_id=%s job_id=%s error_type=%s",
+            job.run_id,
+            job.id,
+            type(exc).__name__,
+        )
         metrics.increment("planner_failed_total")
         if job.attempt >= job.max_attempts:
             from app.domains.reports.service import record_planner_failure

@@ -1,5 +1,10 @@
 # Deploy — Eureka backend on a cloud VM (Phase E0)
 
+> **Theme V2:** the Flutter app now defaults to the independent Theme V2
+> service. Use [`README.theme-v2.md`](README.theme-v2.md) and
+> `docker-compose.theme-v2.prod.yml` for new Theme V2 deployments. The steps
+> below remain the legacy `backend/` production path.
+
 Stands up the FastAPI backend + MySQL behind Caddy (automatic HTTPS) on a single
 VM, so the iOS app can reach the API over `https://`. Auth is email+password with
 per-user data isolation — set a strong `JWT_SECRET` in `.env.prod` (the token

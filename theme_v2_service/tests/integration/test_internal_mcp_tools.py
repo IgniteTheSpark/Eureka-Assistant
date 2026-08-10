@@ -324,7 +324,7 @@ async def test_asset_mutation_surface_and_idempotency_conflict(session):
         tool_call_id="delete-note",
     )
 
-    assert todo["payload"]["status"] == "pending"
+    assert todo["payload"]["status"] == "done"
     assert todo["payload"]["due_date"] == "2026-08-06T15:00:00+08:00"
     assert conflict == {
         "ok": False,

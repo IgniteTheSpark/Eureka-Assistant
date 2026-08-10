@@ -5,12 +5,12 @@
 ///   flutter run    --dart-define=API_BASE=http://localhost:8000
 ///   flutter build  --dart-define=API_BASE=https://api.yourdomain.com
 class AppConfig {
-  /// Enables the staged Theme V2 shell at application startup.
+  /// Selects the Theme V2 shell at application startup.
   ///
-  /// The default remains the existing shell until the migration is ready to
-  /// roll out:
-  ///   flutter run --dart-define=THEME_V2=true
-  static const themeV2 = bool.fromEnvironment('THEME_V2', defaultValue: false);
+  /// Theme V2 is the product default. The legacy shell is retained only for an
+  /// explicit diagnostic build:
+  ///   flutter run --dart-define=THEME_V2=false
+  static const themeV2 = bool.fromEnvironment('THEME_V2', defaultValue: true);
 
   static const apiBase = String.fromEnvironment(
     'API_BASE',

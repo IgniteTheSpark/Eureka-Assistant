@@ -1,5 +1,6 @@
 import '../api/api_client.dart';
 import '../theme_v2/foundation/canonical_entity_identity.dart';
+import '../theme_v2/foundation/theme_v2_time_formatter.dart';
 
 /// Client model for UserSkill.render_spec (subset the cards use).
 /// This Flutter implementation is the active client source of truth.
@@ -271,17 +272,22 @@ class CardData {
     this.domain,
   });
 
-  CardData copyWith({String? layout, bool? checkDone, String? domain}) =>
-      CardData(
-        layout: layout ?? this.layout,
-        icon: icon,
-        accentColor: accentColor,
-        title: title,
-        subtitle: subtitle,
-        metaFields: metaFields,
-        checkDone: checkDone ?? this.checkDone,
-        domain: domain ?? this.domain,
-      );
+  CardData copyWith({
+    String? layout,
+    String? subtitle,
+    List<({String value, String? format})>? metaFields,
+    bool? checkDone,
+    String? domain,
+  }) => CardData(
+    layout: layout ?? this.layout,
+    icon: icon,
+    accentColor: accentColor,
+    title: title,
+    subtitle: subtitle ?? this.subtitle,
+    metaFields: metaFields ?? this.metaFields,
+    checkDone: checkDone ?? this.checkDone,
+    domain: domain ?? this.domain,
+  );
 }
 
 /// Build CardData from a payload + render_spec (mirrors web buildCard).
@@ -533,7 +539,12 @@ RenderSpec normalizeTodoSpec(RenderSpec spec) {
     fieldLabels: labels,
     schemaFields: fields,
     longFields: {...spec.longFields, 'content'},
-    fieldTypes: {...spec.fieldTypes, 'title': 'string', 'content': 'string'},
+    fieldTypes: {
+      ...spec.fieldTypes,
+      'title': 'string',
+      'due_date': 'datetime',
+      'content': 'string',
+    },
     requiredFields: {'title'},
   );
 }
@@ -592,7 +603,7 @@ String applyFormat(dynamic value, String? format) {
   if (format == null) return _looksIso(s) ? _fmtDate(s, false) : s;
   switch (format) {
     case 'relative_date':
-      return _looksIso(s) ? _fmtDate(s, true) : s;
+      return _looksIso(s) ? formatSessionDeadline(s) : s;
     case 'absolute_date':
       return _looksIso(s) ? _fmtDate(s, false) : s;
     case 'time':

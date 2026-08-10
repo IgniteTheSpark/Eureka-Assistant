@@ -363,15 +363,17 @@ class _AssetListRepository implements AssetContainerRepository {
     if (source == AssetListSource.entities) {
       final type = cardType!;
       final key = type == 'event' ? 'events' : 'contacts';
-      final response = await api.getJson('/api/$key');
+      final responses = await Future.wait<Object?>([
+        api.getJson('/api/$key'),
+        _fetchEntityPresentation(),
+      ]);
+      final response = responses[0];
+      final presentation = responses[1] as _EntityPresentation?;
       final rows = _responseRows(response, key);
       return AssetContainerPage(
         records: [
           for (final item in rows.whereType<Map>())
-            if (type == 'event')
-              AssetRecordAdapter.event(entity: item.cast<String, dynamic>())
-            else
-              AssetRecordAdapter.contact(entity: item.cast<String, dynamic>()),
+            _adaptEntity(item.cast<String, dynamic>(), presentation),
         ],
       );
     }
@@ -422,6 +424,58 @@ class _AssetListRepository implements AssetContainerRepository {
     _ => const [],
   };
 
+  AssetRecordViewModel _adaptEntity(
+    Map<String, dynamic> entity,
+    _EntityPresentation? presentation,
+  ) {
+    final type = cardType!;
+    if (type == 'event') {
+      return AssetRecordAdapter.event(
+        entity: entity,
+        spec: presentation?.spec,
+        renderSpec: presentation?.renderSpec ?? const {},
+        skillLabel: presentation?.label ?? label,
+      );
+    }
+    return AssetRecordAdapter.contact(
+      entity: entity,
+      spec: presentation?.spec,
+      renderSpec: presentation?.renderSpec ?? const {},
+      skillLabel: presentation?.label ?? label,
+    );
+  }
+
+  Future<_EntityPresentation?> _fetchEntityPresentation() async {
+    try {
+      final response = await api.getJson('/api/user-skills');
+      for (final raw in _responseRows(response, 'skills').whereType<Map>()) {
+        final row = raw.cast<String, dynamic>();
+        final name = (row['machine_name'] ?? row['name'])?.toString();
+        if (name != cardType) continue;
+        final renderSpec =
+            (row['render_spec'] as Map?)?.cast<String, dynamic>() ?? const {};
+        if (renderSpec.isEmpty) return null;
+        final schema = row['schema'] ?? row['payload_schema'];
+        final canonicalIcon = cardType == 'event'
+            ? eventAssetIcon
+            : contactAssetIcon;
+        final spec = RenderSpec.fromJson(
+          renderSpec,
+        ).withSchema(schema).copyWith(icon: canonicalIcon);
+        return _EntityPresentation(
+          spec: spec,
+          renderSpec: renderSpec,
+          label: row['display_name']?.toString().trim().isNotEmpty == true
+              ? row['display_name'].toString().trim()
+              : label,
+        );
+      }
+    } catch (_) {
+      return null;
+    }
+    return null;
+  }
+
   AssetRecordViewModel _adapt(AssetItem asset) {
     final spec = _specs[asset.skillName] ?? synthesizeSpec(asset.skillName);
     return AssetRecordAdapter.asset(
@@ -456,6 +510,18 @@ class _AssetListRepository implements AssetContainerRepository {
     await api.patchJson('/api/assets/$id', {'payload': payload});
     _payloadsById[id] = payload;
   }
+}
+
+class _EntityPresentation {
+  const _EntityPresentation({
+    required this.spec,
+    required this.renderSpec,
+    required this.label,
+  });
+
+  final RenderSpec spec;
+  final Map<String, dynamic> renderSpec;
+  final String label;
 }
 
 class _TodoFilterTabs extends StatelessWidget {

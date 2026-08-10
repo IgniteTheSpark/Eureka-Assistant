@@ -480,9 +480,15 @@ Future<void> generateConfirmedDraft();
 
 Serialize `expected_revision`/`expected_plan_revision`. Preserve the existing clarification and generation polling paths.
 
-**Step 3: Implement the compact-first UI**
+**Step 3: Implement the compact three-step UI**
 
-Default view shows recommended type, short rationale, included evidence count, public-research summary, and `一键生成`. `调整方案` expands the three numbered sections without navigating to a separate Report product entry. Preserve the existing Reka/report container entry behavior.
+Render a real three-step Stepper inside the existing Report Run route:
+
+1. `方案`: show the recommended type, alternatives, short rationale, included evidence count, public-research summary, and the `一键生成` shortcut.
+2. `范围`: edit attention questions, additional focus, public-research entities, and reference Assets through the full-screen picker.
+3. `确认`: summarize the chosen plan, focus, Asset counts/types, public-research entities, and capability policies before `确认并生成` freezes the plan.
+
+Each step is a distinct screen state with sticky navigation controls; do not flatten the three steps into one scrolling form. Preserve the existing Reka/report container entry behavior.
 
 **Step 4: Test and analyze**
 

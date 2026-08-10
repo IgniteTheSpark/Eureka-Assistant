@@ -113,6 +113,42 @@ void main() {
     );
   });
 
+  testWidgets('NEXT switches to compact hours at sixty minutes and above', (
+    tester,
+  ) async {
+    _setReferenceView(tester);
+    final data = TodayData(
+      chain: [
+        ChainItem(
+          kind: 'event',
+          id: 'event-hours',
+          title: '提醒自己起床喝牛奶',
+          at: DateTime(2026, 8, 7, 8),
+          timed: true,
+        ),
+      ],
+      noTimeTodos: const [],
+      pool: const [],
+      poolTrueCount: 0,
+      flashCount: 0,
+    );
+
+    await tester.pumpWidget(
+      _HomeHost(
+        child: ThemeV2HomePage(
+          repository: _FakeHomeRepository(data),
+          now: DateTime(2026, 8, 7, 0, 36),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('7.4'), findsOneWidget);
+    expect(find.text('小时后'), findsOneWidget);
+    expect(find.text('444'), findsNothing);
+    expect(find.text('分钟后'), findsNothing);
+  });
+
   testWidgets('short Home scrolls as one document without chamber scrolling', (
     tester,
   ) async {
@@ -246,19 +282,25 @@ void main() {
         rekaQueue: [
           TodayRekaItem(
             id: 'signal-1',
-            type: 'report_available',
-            title: '可以整理本周的跑步记录',
-            body: 'Reka 发现近七天已有足够记录',
-            link: 'report-start:execution-1:1',
+            type: 'rhythm_gap',
+            title: '跑步训练还没有记录',
+            body: '你通常会在上午记录，可以现在补上一笔。',
+            link: '',
             createdAt: DateTime(2026, 8, 4, 9),
+            targetType: 'skill',
+            targetId: 'running_training',
+            actions: const ['open', 'dismiss'],
           ),
           TodayRekaItem(
             id: 'signal-2',
-            type: 'report_plan_ready',
-            title: '会前调研方案等待确认',
-            body: '选择调研范围后继续',
-            link: 'report-run:run-1',
+            type: 'overdue',
+            title: '提交费用单 已到截止时间',
+            body: '这项待办仍未完成，可以现在处理或调整时间。',
+            link: '',
             createdAt: DateTime(2026, 8, 4, 8),
+            targetType: 'asset',
+            targetId: 'todo-1',
+            actions: const ['open', 'complete', 'reschedule', 'dismiss'],
           ),
         ],
       );
@@ -274,14 +316,148 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('不应进入 Reka 的待办'), findsNothing);
-      expect(find.text('可以整理本周的跑步记录'), findsOneWidget);
-      expect(find.text('会前调研方案等待确认'), findsOneWidget);
+      expect(find.text('跑步训练还没有记录'), findsOneWidget);
+      expect(find.text('提交费用单 已到截止时间'), findsOneWidget);
+      expect(find.text('报告生成失败'), findsNothing);
+      expect(
+        find.byKey(const ValueKey('theme-v2-reka-icon-rhythm_gap')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('theme-v2-reka-icon-overdue')),
+        findsOneWidget,
+      );
       final first = find.byKey(const ValueKey('theme-v2-reka-row-signal-1'));
       final second = find.byKey(const ValueKey('theme-v2-reka-row-signal-2'));
       expect(tester.getSize(first), tester.getSize(second));
       expect(tester.getSize(first).height, greaterThanOrEqualTo(44));
     },
   );
+
+  testWidgets('overdue action menu completes and removes the signal', (
+    tester,
+  ) async {
+    _setReferenceView(tester);
+    final actions = <String>[];
+    final data = TodayData(
+      chain: const [],
+      noTimeTodos: const [],
+      pool: const [],
+      poolTrueCount: 0,
+      flashCount: 0,
+      rekaQueue: [
+        TodayRekaItem(
+          id: 'signal-overdue',
+          type: 'overdue',
+          title: '提交费用单 已到截止时间',
+          body: '仍未完成',
+          link: '',
+          createdAt: DateTime(2026, 8, 10, 9),
+          targetType: 'asset',
+          targetId: 'todo-1',
+          actions: const ['open', 'complete', 'reschedule', 'dismiss'],
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      _HomeHost(
+        child: ThemeV2HomePage(
+          repository: _FakeHomeRepository(data),
+          now: DateTime(2026, 8, 10, 10),
+          onRekaAction: (item, action) async => actions.add(action),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('theme-v2-reka-menu-signal-overdue')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('标记完成'), findsOneWidget);
+    expect(find.text('调整时间'), findsOneWidget);
+    expect(find.text('忽略提醒'), findsOneWidget);
+
+    await tester.tap(find.text('标记完成'));
+    await tester.pumpAndSettle();
+
+    expect(actions, ['complete']);
+    expect(find.text('提交费用单 已到截止时间'), findsNothing);
+    expect(find.text('暂时没有新的发现'), findsOneWidget);
+  });
+
+  testWidgets('rhythm signal only offers dismiss beyond its row open action', (
+    tester,
+  ) async {
+    _setReferenceView(tester);
+    final data = TodayData(
+      chain: const [],
+      noTimeTodos: const [],
+      pool: const [],
+      poolTrueCount: 0,
+      flashCount: 0,
+      rekaQueue: [
+        TodayRekaItem(
+          id: 'signal-rhythm',
+          type: 'rhythm_gap',
+          title: '消费还没有记录',
+          body: '可以现在补上一笔',
+          link: '',
+          createdAt: DateTime(2026, 8, 10, 9),
+          targetType: 'skill',
+          targetId: 'expense',
+          actions: const ['open', 'dismiss'],
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      _HomeHost(
+        child: ThemeV2HomePage(
+          repository: _FakeHomeRepository(data),
+          now: DateTime(2026, 8, 10, 10),
+          onRekaAction: (_, _) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('theme-v2-reka-menu-signal-rhythm')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('忽略提醒'), findsOneWidget);
+    expect(find.text('标记完成'), findsNothing);
+    expect(find.text('调整时间'), findsNothing);
+  });
+
+  testWidgets('empty Reka exposes report history and creation entry points', (
+    tester,
+  ) async {
+    _setReferenceView(tester);
+    var reportsOpened = 0;
+    var reportCreated = 0;
+
+    await tester.pumpWidget(
+      _HomeHost(
+        child: ThemeV2HomePage(
+          repository: const _FakeHomeRepository(TodayData.empty),
+          now: DateTime(2026, 8, 10),
+          onOpenReports: () => reportsOpened++,
+          onCreateReport: () => reportCreated++,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.bySemanticsLabel('查看历史报告'));
+    await tester.tap(find.bySemanticsLabel('生成新报告'));
+
+    expect(reportsOpened, 1);
+    expect(reportCreated, 1);
+  });
 
   testWidgets('Today chooses NEXT from the unfinished full-day chain', (
     tester,

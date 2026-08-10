@@ -46,6 +46,32 @@ void main() {
     );
   });
 
+  testWidgets('a deliberate slow upward drag expands the detail sheet', (
+    tester,
+  ) async {
+    final model = AssetDetailModel.fromJson(_assetEnvelope());
+    final controller = AssetDetailController(
+      repository: _FakeRepository(model),
+      ref: model.ref,
+    );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(_host(ThemeV2AssetDetailSurface(controller)));
+    await tester.pumpAndSettle();
+    await tester.timedDrag(
+      find.byKey(const ValueKey('asset-detail-drag-region')),
+      const Offset(0, -72),
+      const Duration(milliseconds: 900),
+    );
+    await tester.pumpAndSettle();
+
+    expect(controller.presentation, AssetDetailPresentationKind.fullPage);
+    expect(
+      find.byKey(const ValueKey('theme-v2-asset-full-page')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets(
     'editing expands in place with one hydration, draft and scroll position',
     (tester) async {

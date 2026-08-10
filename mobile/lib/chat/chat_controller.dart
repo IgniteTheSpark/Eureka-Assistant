@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../api/api_client.dart';
 import '../api/sse_client.dart';
 import '../data_revision.dart';
+import '../theme_v2/session/session_card_contract.dart';
 import 'chat_models.dart';
 import 'recent_session.dart';
 
@@ -330,14 +331,10 @@ class ChatController extends ChangeNotifier {
         }
         final cards = m['cards'];
         if (cards is List && cards.isNotEmpty) {
-          msg.parts.add(
-            CardsPart(
-              cards
-                  .whereType<Map>()
-                  .map((e) => e.cast<String, dynamic>())
-                  .toList(),
-            ),
-          );
+          final messageCards = sessionMessageCards(cards);
+          if (messageCards.isNotEmpty) {
+            msg.parts.add(CardsPart(messageCards));
+          }
         }
         final el = m['elapsed_ms'];
         if (el is num) msg.elapsedMs = el.toInt();

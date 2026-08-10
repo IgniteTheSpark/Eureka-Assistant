@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable
 
 from sqlalchemy import Text, or_, select
@@ -22,7 +22,9 @@ from app.db.models import (
 from app.db.session import session_scope
 from app.domains.assets import service as asset_service
 from app.domains.assets.schemas import AssetCreate, AssetUpdate, EventCreate, EventUpdate
+from app.domains.assets.todo_deadline import normalize_new_todo_payload
 from app.domains.assets.validation import AssetPayloadInvalid, AssetWriteProfile
+from app.config import get_settings
 from app.domains.contacts import service as contact_service
 from app.domains.contacts.schemas import ContactCreate
 from app.domains.notifications.service import publish_domain_event
@@ -270,10 +272,24 @@ async def _create_todo(database, arguments, context):
     content = str(arguments.get("content") or title).strip()
     if not title:
         return _error("todo title is required")
-    payload: dict[str, Any] = {"title": title, "content": content, "status": "pending"}
+    payload: dict[str, Any] = {"title": title, "content": content}
     due_date = str(arguments.get("due_date") or "").strip()
     if due_date:
         payload["due_date"] = due_date
+    reference = _parse_datetime(
+        arguments.get("reference_datetime"),
+        field="reference_datetime",
+    )
+    if reference is None:
+        reference = utc_now().replace(tzinfo=timezone.utc)
+    payload = normalize_new_todo_payload(
+        payload,
+        period=str(arguments.get("period") or "").strip() or None,
+        effective_at=None,
+        occurred_at=arguments.get("occurred_at") or None,
+        reference_datetime=reference,
+        timezone_name=get_settings().default_user_timezone,
+    )
     return await _create_asset(
         database,
         {**arguments, "user_skill_name": "todo", "payload": payload},

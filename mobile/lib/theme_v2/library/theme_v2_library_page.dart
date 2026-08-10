@@ -224,6 +224,13 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
     _navigation.open(LibrarySurface.assetContainer);
   }
 
+  VoidCallback? _displayConfigurationFor(LibraryContainerSummary container) {
+    final userSkillId = container.userSkillId;
+    if (userSkillId == null) return null;
+    return () =>
+        showThemeV2SkillConfigurationLaunch(context, userSkillId: userSkillId);
+  }
+
   Widget _assetContainerSurface() {
     final container = _selectedContainer;
     if (container == null) {
@@ -237,6 +244,7 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
           initialEntities: const [],
           api: _detailApi,
           coreRecordsOnly: true,
+          onConfigureCard: _displayConfigurationFor(container),
           onBack: _navigation.back,
           contentBottomPadding: ThemeV2Spacing.lg,
         );
@@ -247,6 +255,7 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
           initialEntities: const [],
           api: _detailApi,
           coreRecordsOnly: true,
+          onConfigureCard: _displayConfigurationFor(container),
           onBack: _navigation.back,
           contentBottomPadding: ThemeV2Spacing.lg,
         );
@@ -270,14 +279,7 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
           coreRecordsOnly: true,
           onBack: _navigation.back,
           contentBottomPadding: ThemeV2Spacing.lg,
-          onConfigureCard:
-              container.type == LibraryContainerType.custom &&
-                  container.userSkillId != null
-              ? () => showThemeV2SkillConfigurationLaunch(
-                  context,
-                  userSkillId: container.userSkillId!,
-                )
-              : null,
+          onConfigureCard: _displayConfigurationFor(container),
         );
     }
   }

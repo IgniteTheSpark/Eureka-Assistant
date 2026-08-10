@@ -78,6 +78,11 @@ class TodayRekaItem {
     required this.body,
     required this.link,
     required this.createdAt,
+    this.naturalKey = '',
+    this.targetType = '',
+    this.targetId = '',
+    this.actions = const [],
+    this.expiresAt,
   });
 
   final String id;
@@ -86,6 +91,11 @@ class TodayRekaItem {
   final String body;
   final String link;
   final DateTime createdAt;
+  final String naturalKey;
+  final String targetType;
+  final String targetId;
+  final List<String> actions;
+  final DateTime? expiresAt;
 }
 
 ({List<PoolAsset> pool, int trueCount}) selectTodayPool(

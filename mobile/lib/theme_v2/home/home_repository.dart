@@ -1,17 +1,23 @@
 import '../../api/api_client.dart';
 import '../../today/today_data.dart';
+import '../reka/reka_signal.dart';
+import '../reka/reka_signal_repository.dart';
 
 abstract interface class ThemeV2HomeRepository {
   Future<TodayData> load();
 }
 
 class ApiThemeV2HomeRepository implements ThemeV2HomeRepository {
-  ApiThemeV2HomeRepository({ApiClient? api})
+  ApiThemeV2HomeRepository({ApiClient? api, RekaSignalRepository? rekaSignals})
     : _api = api ?? ApiClient(),
-      _ownsApi = api == null;
+      _ownsApi = api == null,
+      _injectedRekaSignals = rekaSignals;
 
   final ApiClient _api;
   final bool _ownsApi;
+  final RekaSignalRepository? _injectedRekaSignals;
+  late final RekaSignalRepository rekaSignals =
+      _injectedRekaSignals ?? ApiRekaSignalRepository(_api);
 
   @override
   Future<TodayData> load() async {
@@ -26,9 +32,8 @@ class ApiThemeV2HomeRepository implements ThemeV2HomeRepository {
   }
 
   Future<List<TodayRekaItem>> _loadRekaQueue() async {
-    final response = await _api.getJson('/api/notifications');
-    final rows = response is Map ? response['notifications'] : null;
-    return mapTodayRekaNotifications(rows is List ? rows : const []);
+    final batch = await rekaSignals.load();
+    return mapTodayRekaSignals(batch.signals);
   }
 
   void dispose() {
@@ -36,39 +41,39 @@ class ApiThemeV2HomeRepository implements ThemeV2HomeRepository {
   }
 }
 
-const _todayRekaNotificationTypes = <String>{
-  'reminder',
-  'report_available',
-  'report_plan_ready',
-  'report_done',
-  'report_failed',
-};
-
-/// Maps only explicit assistant signals into Home's Reka queue.
-///
-/// Todo/task rows and capture completion receipts are deliberately excluded:
-/// they belong to Agenda/notifications, not to Reka discoveries.
-List<TodayRekaItem> mapTodayRekaNotifications(Iterable<dynamic> rows) {
+/// Maps the dedicated persisted signal contract into Home's bounded queue.
+/// Notification/report workflow receipts never pass through this path.
+List<TodayRekaItem> mapTodayRekaSignals(Iterable<RekaSignal> signals) {
   final items = <TodayRekaItem>[];
-  for (final raw in rows.whereType<Map>()) {
-    final row = raw.cast<String, dynamic>();
-    final type = row['type']?.toString().trim() ?? '';
-    if (!_todayRekaNotificationTypes.contains(type) || row['read'] == true) {
-      continue;
-    }
-    final id = row['id']?.toString().trim() ?? '';
-    final title = row['title']?.toString().trim() ?? '';
-    if (id.isEmpty || title.isEmpty) continue;
+  for (final signal in signals) {
     items.add(
       TodayRekaItem(
-        id: id,
-        type: type,
-        title: title,
-        body: row['body']?.toString().trim() ?? '',
-        link: row['link']?.toString().trim() ?? '',
-        createdAt:
-            DateTime.tryParse(row['created_at']?.toString() ?? '')?.toLocal() ??
-            DateTime.fromMillisecondsSinceEpoch(0),
+        id: signal.id,
+        type: switch (signal.kind) {
+          RekaSignalKind.overdue => 'overdue',
+          RekaSignalKind.rhythmGap => 'rhythm_gap',
+        },
+        title: signal.title,
+        body: signal.body,
+        link: '',
+        createdAt: signal.deliveredAt.toLocal(),
+        naturalKey: signal.naturalKey,
+        targetType: switch (signal.target.type) {
+          RekaSignalTargetType.asset => 'asset',
+          RekaSignalTargetType.skill => 'skill',
+        },
+        targetId: signal.target.id,
+        actions: List<String>.unmodifiable(
+          signal.actions.map(
+            (action) => switch (action) {
+              RekaSignalAction.open => 'open',
+              RekaSignalAction.complete => 'complete',
+              RekaSignalAction.reschedule => 'reschedule',
+              RekaSignalAction.dismiss => 'dismiss',
+            },
+          ),
+        ),
+        expiresAt: signal.expiresAt?.toLocal(),
       ),
     );
   }

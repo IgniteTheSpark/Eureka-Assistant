@@ -238,45 +238,13 @@ void main() {
     );
   });
 
-  testWidgets('recommended plan supports one-click and three-step adjustment', (
+  testWidgets('report adjustment uses three distinct stepper screens', (
     tester,
   ) async {
     final api = ApiClient(
       baseUrl: 'https://reports.test',
       enableLogging: false,
-      client: MockClient((request) async {
-        return _json({
-          'id': 'run-plan',
-          'state': 'awaiting_selection',
-          'plan_revision': 3,
-          'plan_options': [
-            {
-              'id': 'briefing',
-              'recommended': true,
-              'title': '球队建设会前调研',
-              'summary': '结合日程与公开阵容资料准备讨论',
-            },
-          ],
-          'plan_draft': {
-            'selected_option_id': 'briefing',
-            'attention_questions': ['两队建设策略有何差异？'],
-            'evidence_scope': {
-              'references': [
-                {'kind': 'event', 'id': 'event-1'},
-              ],
-            },
-            'public_research_scope': {
-              'entities': [
-                {'id': 'real-madrid', 'kind': 'organization', 'name': '皇家马德里'},
-                {'id': 'barcelona', 'kind': 'organization', 'name': '巴塞罗那'},
-              ],
-              'questions': ['当前阵容'],
-              'freshness': 'current',
-            },
-            'blockers': [],
-          },
-        });
-      }),
+      client: MockClient((request) async => _json(_planRun())),
     );
     addTearDown(api.close);
 
@@ -295,29 +263,155 @@ void main() {
     expect(find.text('球队建设会前调研'), findsOneWidget);
     expect(find.textContaining('公开调研 皇家马德里、巴塞罗那'), findsOneWidget);
     expect(find.text('一键生成'), findsOneWidget);
+    expect(find.byKey(const ValueKey('report-plan-stepper')), findsOneWidget);
+    expect(find.byKey(const ValueKey('report-step-plan')), findsOneWidget);
+    expect(find.byKey(const ValueKey('report-additional-focus')), findsNothing);
+    expect(find.byKey(const ValueKey('report-final-summary')), findsNothing);
 
     await tester.tap(find.byKey(const ValueKey('report-run-adjust')));
     await tester.pumpAndSettle();
 
-    expect(find.text('1  报告方案'), findsOneWidget);
-    expect(find.text('2  关注范围'), findsOneWidget);
-    await tester.scrollUntilVisible(
-      find.text('3  参考资产'),
-      240,
-      scrollable: find.byType(Scrollable).last,
-    );
-    expect(find.text('3  参考资产'), findsOneWidget);
-    expect(find.textContaining('时间范围'), findsNothing);
+    expect(find.byKey(const ValueKey('report-step-scope')), findsOneWidget);
     expect(
       find.byKey(const ValueKey('report-additional-focus')),
       findsOneWidget,
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('report-open-evidence-picker')),
+      240,
+      scrollable: find.byType(Scrollable).last,
     );
     expect(
       find.byKey(const ValueKey('report-open-evidence-picker')),
       findsOneWidget,
     );
+    expect(find.text('球队建设会前调研'), findsNothing);
+    expect(find.byKey(const ValueKey('report-final-summary')), findsNothing);
+    expect(find.textContaining('时间范围'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('report-step-next')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('report-step-confirm')), findsOneWidget);
+    expect(find.byKey(const ValueKey('report-final-summary')), findsOneWidget);
+    expect(find.text('球队建设会前调研'), findsOneWidget);
+    expect(find.text('1 项参考资产'), findsOneWidget);
+    expect(find.text('皇家马德里、巴塞罗那'), findsOneWidget);
+    expect(find.byKey(const ValueKey('report-additional-focus')), findsNothing);
+  });
+
+  testWidgets('stepper preserves edits and submits only from final step', (
+    tester,
+  ) async {
+    final requests = <String>[];
+    final bodies = <Map<String, dynamic>>[];
+    final api = ApiClient(
+      baseUrl: 'https://reports.test',
+      enableLogging: false,
+      client: MockClient((request) async {
+        requests.add('${request.method} ${request.url.path}');
+        if (request.method == 'GET') return _json(_planRun());
+        bodies.add(jsonDecode(request.body) as Map<String, dynamic>);
+        if (request.method == 'PUT') {
+          return _json({
+            ..._planRun(),
+            'plan_revision': 4,
+            'plan_draft': bodies.last,
+          });
+        }
+        return _json({
+          'id': 'run-plan',
+          'state': 'generating',
+          'plan_revision': 4,
+        });
+      }),
+    );
+    addTearDown(api.close);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildThemeV2Theme(Brightness.light),
+        home: ReportRunPage(runId: 'run-plan', api: api),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('report-run-adjust')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('report-additional-focus')),
+      '重点关注年轻球员培养',
+    );
+    await tester.tap(find.byKey(const ValueKey('report-step-next')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('重点关注年轻球员培养'), findsOneWidget);
+    expect(requests, ['GET /api/report-generation-runs/run-plan']);
+
+    await tester.tap(find.byKey(const ValueKey('report-step-back')));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<TextField>(
+            find.byKey(const ValueKey('report-additional-focus')),
+          )
+          .controller
+          ?.text,
+      '重点关注年轻球员培养',
+    );
+
+    await tester.tap(find.byKey(const ValueKey('report-step-next')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('report-run-confirm-generate')));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+
+    expect(requests, [
+      'GET /api/report-generation-runs/run-plan',
+      'PUT /api/report-generation-runs/run-plan/plan-draft',
+      'POST /api/report-generation-runs/run-plan/generate',
+    ]);
+    expect(bodies.first['additional_focus'], '重点关注年轻球员培养');
+    expect(bodies.last, {
+      'selected_option_id': 'briefing',
+      'expected_plan_revision': 4,
+    });
   });
 }
+
+Map<String, dynamic> _planRun() => {
+  'id': 'run-plan',
+  'state': 'awaiting_selection',
+  'plan_revision': 3,
+  'plan_options': [
+    {
+      'id': 'briefing',
+      'recommended': true,
+      'title': '球队建设会前调研',
+      'summary': '结合日程与公开阵容资料准备讨论',
+      'web_search': {'policy': 'required', 'reason': '需要公开阵容资料'},
+      'illustration': {'policy': 'optional', 'reason': '可生成主题插图'},
+    },
+  ],
+  'plan_draft': {
+    'selected_option_id': 'briefing',
+    'attention_questions': ['两队建设策略有何差异？'],
+    'evidence_scope': {
+      'references': [
+        {'kind': 'event', 'id': 'event-1'},
+      ],
+    },
+    'public_research_scope': {
+      'entities': [
+        {'id': 'real-madrid', 'kind': 'organization', 'name': '皇家马德里'},
+        {'id': 'barcelona', 'kind': 'organization', 'name': '巴塞罗那'},
+      ],
+      'questions': ['当前阵容'],
+      'freshness': 'current',
+    },
+    'blockers': [],
+  },
+};
 
 Widget _containerApp(ApiClient api) => MaterialApp(
   theme: buildThemeV2Theme(Brightness.light),

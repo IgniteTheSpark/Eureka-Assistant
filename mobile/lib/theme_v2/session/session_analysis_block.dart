@@ -1,10 +1,17 @@
 import 'package:flutter/material.dart';
 
-import '../../capture_activity/capture_activity_event.dart';
 import '../../chat/chat_models.dart';
 import '../capture/thinking_orb.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
+
+ThinkingOrbVisualState thinkingOrbStateForAgent(AgentWorkPhase phase) =>
+    switch (phase) {
+      AgentWorkPhase.understanding => ThinkingOrbVisualState.understanding,
+      AgentWorkPhase.executing => ThinkingOrbVisualState.executing,
+      AgentWorkPhase.composing => ThinkingOrbVisualState.composing,
+      AgentWorkPhase.organizing => ThinkingOrbVisualState.organizing,
+    };
 
 class SessionAnalysisBlock extends StatelessWidget {
   const SessionAnalysisBlock({
@@ -23,12 +30,6 @@ class SessionAnalysisBlock extends StatelessWidget {
       AgentWorkPhase.composing => '组织回答',
       AgentWorkPhase.organizing => '正在整理',
     };
-    final orbPhase = switch (phase) {
-      AgentWorkPhase.understanding ||
-      AgentWorkPhase.executing => CaptureActivityPhase.understanding,
-      AgentWorkPhase.composing ||
-      AgentWorkPhase.organizing => CaptureActivityPhase.organizing,
-    };
     return Semantics(
       label: label,
       liveRegion: true,
@@ -43,7 +44,7 @@ class SessionAnalysisBlock extends StatelessWidget {
         ),
         child: Row(
           children: [
-            ThinkingOrb(phase: orbPhase, size: 28),
+            ThinkingOrb(state: thinkingOrbStateForAgent(phase), size: 28),
             const SizedBox(width: 12),
             Expanded(
               child: Text(

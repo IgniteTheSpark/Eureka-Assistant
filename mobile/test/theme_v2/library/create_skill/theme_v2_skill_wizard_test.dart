@@ -144,6 +144,34 @@ void main() {
     expect(repository.saved, isTrue);
   });
 
+  testWidgets(
+    'built-in card configuration is fully understandable in Chinese',
+    (tester) async {
+      final controller = SkillCardConfigurationController(
+        repository: _BuiltInConfigurationRepository(),
+        userSkillId: 'skill-todo',
+      );
+      addTearDown(controller.dispose);
+      await _pump(
+        tester,
+        ThemeV2SkillWizardSheet.configuration(controller: controller),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('卡片展示设置'), findsOneWidget);
+      expect(find.text('字段展示'), findsOneWidget);
+      expect(find.text('标题'), findsWidgets);
+      expect(find.text('内容'), findsWidgets);
+      expect(find.text('截止时间'), findsWidgets);
+      expect(find.text('文本'), findsNWidgets(3));
+      expect(find.text('示例'), findsNothing);
+      expect(find.text('title'), findsNothing);
+      expect(find.text('content'), findsNothing);
+      expect(find.text('due_date'), findsNothing);
+      expect(find.text('STRING'), findsNothing);
+    },
+  );
+
   testWidgets('360px keyboard and large text do not overflow', (tester) async {
     final controller = SkillWizardController(repository: _WidgetRepository());
     addTearDown(controller.dispose);
@@ -279,6 +307,37 @@ class _ConfigurationRepository implements SkillConfigurationRepository {
   ) async {
     saved = true;
   }
+}
+
+class _BuiltInConfigurationRepository implements SkillConfigurationRepository {
+  @override
+  Future<ConfigurableSkill> load(String userSkillId) async {
+    return ConfigurableSkill.fromJson({
+      'id': 'skill-todo',
+      'machine_name': 'todo',
+      'display_name': '待办',
+      'schema': {
+        'type': 'object',
+        'properties': {
+          'title': {'type': 'string'},
+          'content': {'type': 'string'},
+          'due_date': {'type': 'string'},
+        },
+      },
+      'render_spec': {
+        'icon': '📋',
+        'primary_field': 'title',
+        'secondary_field': 'due_date',
+      },
+    });
+  }
+
+  @override
+  Future<void> saveCardDisplay(
+    String userSkillId,
+    CardDisplayConfig config,
+    Map<String, dynamic> originalRenderSpec,
+  ) async {}
 }
 
 Future<void> _pump(

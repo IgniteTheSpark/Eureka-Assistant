@@ -672,8 +672,14 @@ async def test_text_flash_waits_for_durable_worker_result(client):
     assert body["reply"] == ""
     assert body["summary"] == "已记录产品想法。"
     assert body["has_pending"] is False
-    assert body["cards"][0]["card_type"] == "notes"
-    assert body["cards"][0]["asset_id"]
+    assert body["cards"][0]["entity_kind"] == "asset"
+    assert body["cards"][0]["skill_machine_name"] == "notes"
+    assert body["cards"][0]["entity_id"]
+    assert body["cards"][0]["source"] == {
+        "session_id": body["physical_session_id"],
+        "input_turn_id": body["input_turn_id"],
+        "kind": "capture",
+    }
     assert body["derived_assets"] == body["cards"]
     assert len(provider.calls) == 1
 
@@ -699,7 +705,7 @@ async def test_text_flash_waits_for_durable_worker_result(client):
     assert events[-1].payload_json["result_count"] == 1
 
     derived = await client.get(
-        f"/api/assets/{body['cards'][0]['asset_id']}",
+        f"/api/assets/{body['cards'][0]['entity_id']}",
         headers=_headers(token),
     )
     assert derived.status_code == 200

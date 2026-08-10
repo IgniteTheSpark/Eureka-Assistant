@@ -16,11 +16,13 @@ class ConfigurableSkill {
   });
 
   factory ConfigurableSkill.fromJson(Map<String, dynamic> json) {
-    final schema = _payloadSchema(json);
+    final name =
+        json['name']?.toString() ?? json['machine_name']?.toString() ?? '';
+    final schema = _payloadSchema(json, name);
     return ConfigurableSkill(
       userSkillId:
           json['user_skill_id']?.toString() ?? json['id']?.toString() ?? '',
-      name: json['name']?.toString() ?? json['machine_name']?.toString() ?? '',
+      name: name,
       displayName:
           json['display_name']?.toString() ??
           json['name']?.toString() ??
@@ -46,14 +48,27 @@ class ConfigurableSkill {
       for (final entry in schema.entries)
         if ((entry.value as Map?)?['type']?.toString() != 'uuid')
           entry.key: _sampleValue(
+            entry.key,
             (entry.value as Map?)?.cast<String, dynamic>() ?? const {},
           ),
     };
   }
 
-  static Map<String, dynamic> _payloadSchema(Map<String, dynamic> json) {
+  static Map<String, dynamic> _payloadSchema(
+    Map<String, dynamic> json,
+    String machineName,
+  ) {
     final legacy = (json['payload_schema'] as Map?)?.cast<String, dynamic>();
-    if (legacy != null) return legacy;
+    if (legacy != null) {
+      return {
+        for (final entry in legacy.entries)
+          entry.key: _localizedFieldMetadata(
+            machineName,
+            entry.key,
+            entry.value,
+          ),
+      };
+    }
     final root = (json['schema'] as Map?)?.cast<String, dynamic>() ?? const {};
     final properties =
         (root['properties'] as Map?)?.cast<String, dynamic>() ?? const {};
@@ -62,11 +77,17 @@ class ConfigurableSkill {
         .toSet();
     return {
       for (final entry in properties.entries)
-        entry.key: _fieldMetadata(entry.key, entry.value, required),
+        entry.key: _fieldMetadata(
+          machineName,
+          entry.key,
+          entry.value,
+          required,
+        ),
     };
   }
 
   static Map<String, dynamic> _fieldMetadata(
+    String machineName,
     String key,
     dynamic raw,
     Set<String> required,
@@ -81,25 +102,73 @@ class ConfigurableSkill {
         'uuid' => 'uuid',
         _ => metadata['type']?.toString() ?? 'string',
       },
-      'label': metadata['title']?.toString() ?? key,
+      'label': _fieldLabel(machineName, key, metadata),
       'required': required.contains(key),
       'long': metadata['x-long'] == true,
     };
   }
 
-  static dynamic _sampleValue(Map<String, dynamic> metadata) {
-    final values = metadata['enum'];
-    if (values is List && values.isNotEmpty) return values.first;
-    return switch (metadata['type']?.toString()) {
-      'number' || 'numeric' || 'integer' => 42,
-      'date' => '2026-07-29',
-      'datetime' => '2026-07-29T14:00:00+08:00',
-      'boolean' => true,
-      'array' => const ['示例'],
-      _ => '示例',
-    };
+  static Map<String, dynamic> _localizedFieldMetadata(
+    String machineName,
+    String key,
+    dynamic raw,
+  ) {
+    final metadata = (raw as Map?)?.cast<String, dynamic>() ?? const {};
+    return {...metadata, 'label': _fieldLabel(machineName, key, metadata)};
+  }
+
+  static String _fieldLabel(
+    String machineName,
+    String key,
+    Map<String, dynamic> metadata,
+  ) {
+    for (final candidate in [
+      metadata['label'],
+      metadata['title'],
+      _builtInFieldLabels[machineName]?[key],
+    ]) {
+      final label = candidate?.toString().trim() ?? '';
+      if (label.isNotEmpty && label != key) return label;
+    }
+    return key;
+  }
+
+  static dynamic _sampleValue(String key, Map<String, dynamic> metadata) {
+    final label = metadata['label']?.toString().trim();
+    final value = label == null || label.isEmpty ? key : label;
+    return metadata['type']?.toString() == 'array' ? [value] : value;
   }
 }
+
+const _builtInFieldLabels = <String, Map<String, String>>{
+  'notes': {'title': '标题', 'content': '内容', 'domain': '领域'},
+  'todo': {
+    'title': '标题',
+    'content': '内容',
+    'due_date': '截止时间',
+    'period': '时段',
+    'occurred_at': '发生时间',
+    'status': '完成状态',
+    'domain': '领域',
+  },
+  'contact': {
+    'name': '姓名',
+    'phone': '电话',
+    'company': '公司',
+    'title': '职位',
+    'email': '邮箱',
+    'notes': '备注',
+    'domain': '领域',
+  },
+  'event': {
+    'title': '标题',
+    'start_at': '开始时间',
+    'end_at': '结束时间',
+    'location': '地点',
+    'attendees': '参与人',
+    'description': '备注',
+  },
+};
 
 abstract interface class SkillConfigurationRepository {
   Future<ConfigurableSkill> load(String userSkillId);

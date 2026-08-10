@@ -318,6 +318,35 @@ void main() {
     },
   );
 
+  testWidgets('all four persistent asset containers expose display settings', (
+    tester,
+  ) async {
+    final controller = await _controller();
+    final navigation = LibraryNavigationController();
+    addTearDown(navigation.dispose);
+    await _pumpHost(
+      tester,
+      ThemeV2LibraryPage(
+        controller: controller,
+        navigation: navigation,
+        autoLoad: false,
+        onCreateSkill: () {},
+      ),
+    );
+
+    for (final id in const ['todo', 'notes', 'event', 'contact']) {
+      navigation.home();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(ValueKey('library-pinned-tile-$id')));
+      await tester.pump();
+
+      final page = tester.widget<ThemeV2AssetListPage>(
+        find.byType(ThemeV2AssetListPage),
+      );
+      expect(page.onConfigureCard, isNotNull, reason: id);
+    }
+  });
+
   testWidgets('Theme V2 contact container reads first-class contacts', (
     tester,
   ) async {
@@ -1286,6 +1315,7 @@ Future<LibraryController> _controller({
             type: LibraryContainerType.event,
             totalCount: 0,
             isSystem: true,
+            userSkillId: 's-event',
           ),
           LibraryContainerSummary(
             id: 'contact',

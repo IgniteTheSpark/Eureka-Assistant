@@ -12,6 +12,7 @@ from app.auth import models as auth_models  # noqa: F401
 from app.domains.capture import models as capture_models  # noqa: F401
 from app.domains.devices import models as device_models  # noqa: F401
 from app.domains.sessions import models as session_models  # noqa: F401
+from app.domains.reka import models as reka_models  # noqa: F401
 
 
 def _sync_url(url: str) -> str:
@@ -63,6 +64,8 @@ def test_foundation_migration_round_trip_and_physical_types():
         "contacts",
         "agent_tool_executions",
         "agent_pending_actions",
+        "nudges",
+        "rhythm_profiles",
     }.issubset(set(inspector.get_table_names()))
 
     asset_columns = {column["name"]: column for column in inspector.get_columns("assets")}
@@ -144,7 +147,20 @@ def test_foundation_migration_round_trip_and_physical_types():
 
     with engine.connect() as connection:
         revision = connection.scalar(text("SELECT version_num FROM alembic_version"))
-    assert revision == "0017_legacy_agent_data_backfill"
+    nudge_columns = {
+        column["name"]: column for column in inspector.get_columns("nudges")
+    }
+    assert nudge_columns["natural_key"]["type"].length == 255
+    assert nudge_columns["dismissed_at"]["type"].fsp == 6
+
+    rhythm_columns = {
+        column["name"]: column
+        for column in inspector.get_columns("rhythm_profiles")
+    }
+    assert isinstance(rhythm_columns["patterns_json"]["type"], mysql.JSON)
+    assert rhythm_columns["timezone_name"]["type"].length == 64
+
+    assert revision == "0019_reka_overdue_rhythm"
     engine.dispose()
 
 
@@ -322,7 +338,7 @@ def test_internal_mcp_migration_backfills_existing_domain_data():
         revision = connection.execute(
             text("SELECT version_num FROM alembic_version")
         ).scalar_one()
-    assert revision == "0017_legacy_agent_data_backfill"
+    assert revision == "0019_reka_overdue_rhythm"
     engine.dispose()
 
 

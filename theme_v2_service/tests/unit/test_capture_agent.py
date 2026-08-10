@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import pytest
 from pydantic import ValidationError
 
-from app.domains.assets.service import ensure_capture_skills
+from app.domains.assets.service import ensure_capture_skills, list_user_skills
 from app.domains.capture.agent import (
     CaptureAgentRequest,
     CaptureAgentResult,
@@ -26,9 +26,11 @@ async def test_baseline_capture_skills_are_idempotent(session):
             GlobalSkill(
                 machine_name=name,
                 display_name=name,
-                entity_kind="contact" if name == "contact" else "asset",
+                entity_kind=(
+                    name if name in {"contact", "event"} else "asset"
+                ),
             )
-            for name in ("todo", "expense", "contact", "notes")
+            for name in ("todo", "expense", "contact", "notes", "event")
         ]
     )
     await session.flush()
@@ -40,6 +42,7 @@ async def test_baseline_capture_skills_are_idempotent(session):
         "expense",
         "contact",
         "notes",
+        "event",
     ]
     assert [skill.id for skill in second] == [skill.id for skill in first]
     assert all(skill.schema_json["x-capture-enabled"] is True for skill in first)
@@ -47,6 +50,81 @@ async def test_baseline_capture_skills_are_idempotent(session):
     notes = next(skill for skill in first if skill.machine_name == "notes")
     assert "tags" not in notes.schema_json["properties"]
     assert notes.schema_json["required"] == ["title", "content"]
+
+
+async def test_baseline_skills_backfill_localized_titles_without_overwriting_user_schema(
+    session,
+):
+    existing = UserSkill(
+        user_id="user-1",
+        machine_name="todo",
+        display_name="待办",
+        schema_json={
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "user description"},
+                "content": {"type": "string", "title": "我的内容"},
+                "custom_field": {"type": "string", "title": "自定义"},
+            },
+            "required": ["title"],
+            "additionalProperties": False,
+            "x-capture-enabled": True,
+        },
+        render_spec_json={"icon": "⭐", "primary_field": "content"},
+    )
+    session.add(existing)
+    await session.flush()
+
+    skills = await ensure_capture_skills(session, "user-1")
+
+    by_name = {skill.machine_name: skill for skill in skills}
+    todo = by_name["todo"]
+    assert set(todo.schema_json["properties"]) == {
+        "title",
+        "content",
+        "custom_field",
+    }
+    assert todo.schema_json["properties"]["title"] == {
+        "type": "string",
+        "description": "user description",
+        "title": "标题",
+    }
+    assert todo.schema_json["properties"]["content"]["title"] == "我的内容"
+    assert todo.schema_json["properties"]["custom_field"]["title"] == "自定义"
+    assert todo.render_spec_json == {"icon": "⭐", "primary_field": "content"}
+    assert by_name["notes"].schema_json["properties"]["content"]["title"] == "内容"
+    assert by_name["contact"].schema_json["properties"]["company"]["title"] == "公司"
+    assert by_name["event"].schema_json["properties"]["start_at"]["title"] == "开始时间"
+
+
+async def test_listing_skills_bootstraps_all_configurable_system_containers(session):
+    session.add_all(
+        [
+            GlobalSkill(
+                machine_name=name,
+                display_name=name,
+                entity_kind=(
+                    name if name in {"contact", "event"} else "asset"
+                ),
+            )
+            for name in ("todo", "expense", "contact", "notes", "event")
+        ]
+    )
+    await session.flush()
+
+    skills = await list_user_skills(session, "user-1")
+
+    by_name = {skill.machine_name: skill for skill in skills}
+    assert {"todo", "notes", "contact", "event"} <= by_name.keys()
+    assert by_name["event"].global_skill_id is not None
+    assert set(by_name["event"].schema_json["properties"]) == {
+        "title",
+        "start_at",
+        "end_at",
+        "location",
+        "attendees",
+        "description",
+    }
 
 
 def _skill(

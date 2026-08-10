@@ -184,21 +184,43 @@ class _ThemeV2AssetDetailSurfaceState extends State<ThemeV2AssetDetailSurface> {
   }
 }
 
-class _DetailHeader extends StatelessWidget {
+class _DetailHeader extends StatefulWidget {
   const _DetailHeader({required this.controller, required this.onClose});
 
   final AssetDetailController controller;
   final VoidCallback onClose;
 
   @override
+  State<_DetailHeader> createState() => _DetailHeaderState();
+}
+
+class _DetailHeaderState extends State<_DetailHeader> {
+  double _dragDistance = 0;
+
+  void _finishDrag(DragEndDetails details) {
+    final full =
+        widget.controller.presentation == AssetDetailPresentationKind.fullPage;
+    final velocity = details.primaryVelocity ?? 0;
+    if (!full && (_dragDistance <= -24 || velocity < -240)) {
+      widget.controller.expand();
+    } else if (full && (_dragDistance >= 24 || velocity > 240)) {
+      widget.controller.collapse();
+    }
+    _dragDistance = 0;
+  }
+
+  @override
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
     final full =
-        controller.presentation == AssetDetailPresentationKind.fullPage;
+        widget.controller.presentation == AssetDetailPresentationKind.fullPage;
     return GestureDetector(
-      onVerticalDragEnd: (details) {
-        if ((details.primaryVelocity ?? 0) < -240) controller.expand();
-      },
+      key: const ValueKey('asset-detail-drag-region'),
+      behavior: HitTestBehavior.opaque,
+      onVerticalDragStart: (_) => _dragDistance = 0,
+      onVerticalDragUpdate: (details) => _dragDistance += details.delta.dy,
+      onVerticalDragEnd: _finishDrag,
+      onVerticalDragCancel: () => _dragDistance = 0,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(
           ThemeV2Spacing.md,
@@ -223,18 +245,18 @@ class _DetailHeader extends StatelessWidget {
                   ThemeV2IconButton(
                     semanticLabel: '收起详情',
                     icon: Icons.keyboard_arrow_down,
-                    onPressed: controller.collapse,
+                    onPressed: widget.controller.collapse,
                   )
                 else
                   ThemeV2IconButton(
                     key: const ValueKey('asset-detail-close'),
                     semanticLabel: '关闭详情',
                     icon: Icons.close,
-                    onPressed: onClose,
+                    onPressed: widget.onClose,
                   ),
                 Expanded(
                   child: Text(
-                    controller.skillDisplayName,
+                    widget.controller.skillDisplayName,
                     textAlign: TextAlign.center,
                     style: ThemeV2Typography.mono(
                       fontSize: 9,
@@ -248,14 +270,14 @@ class _DetailHeader extends StatelessWidget {
                     key: const ValueKey('asset-detail-expand'),
                     semanticLabel: '展开为全页',
                     icon: Icons.open_in_full,
-                    onPressed: controller.expand,
+                    onPressed: widget.controller.expand,
                   )
                 else
                   ThemeV2IconButton(
                     key: const ValueKey('asset-detail-close'),
                     semanticLabel: '关闭详情',
                     icon: Icons.close,
-                    onPressed: onClose,
+                    onPressed: widget.onClose,
                   ),
               ],
             ),

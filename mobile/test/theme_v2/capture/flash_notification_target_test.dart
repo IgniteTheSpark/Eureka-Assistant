@@ -9,42 +9,66 @@ import 'package:eureka/theme_v2/asset_detail/asset_entity_ref.dart';
 import 'package:eureka/theme_v2/capture/capture_session_controller.dart';
 import 'package:eureka/theme_v2/capture/capture_session_page.dart';
 import 'package:eureka/theme_v2/capture/flash_notification_target.dart';
+import 'package:eureka/theme_v2/session/session_card_contract.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 void main() {
-  test('contact skill asset cards open through the asset API', () {
-    final card = {
-      'card_type': 'contact',
-      'asset_id': 'contact-asset-1',
-      'user_skill_name': 'contact',
-      'payload': {'name': 'Kevin', 'company': '谷歌'},
-    };
-    final reference = skillCardEntityRef(card);
-    final data = resolveSkillCardData(card, {
-      'contact': synthesizeSpec('contact'),
-    });
+  test(
+    'contact skill assets keep asset identity in the canonical protocol',
+    () {
+      final card = {
+        'entity_kind': 'asset',
+        'entity_id': 'contact-asset-1',
+        'skill_machine_name': 'contact',
+        'entity': {
+          'asset_id': 'contact-asset-1',
+          'payload': {'name': 'Kevin', 'company': '谷歌'},
+        },
+        'source': {
+          'session_id': 'session-1',
+          'input_turn_id': 'turn-1',
+          'kind': 'capture',
+        },
+      };
+      final reference = skillCardEntityRef(card);
+      final data = resolveSkillCardData(card, {
+        'contact': synthesizeSpec('contact'),
+      });
 
-    expect(reference?.kind, AssetEntityKind.asset);
-    expect(reference?.id, 'contact-asset-1');
-    expect(data.title, 'Kevin');
-  });
+      expect(reference?.kind, AssetEntityKind.asset);
+      expect(reference?.id, 'contact-asset-1');
+      expect(data.title, 'Kevin');
+    },
+  );
 
-  test('persisted built-in card snapshots use canonical icons', () {
+  test('canonical entities ignore server-side presentation snapshots', () {
     final expense = resolveSkillCardData({
-      'card_type': 'expense',
-      'title': '咖啡',
+      'entity_kind': 'asset',
+      'entity_id': 'expense-1',
+      'skill_machine_name': 'expense',
+      'entity': {
+        'asset_id': 'expense-1',
+        'payload': {'amount': 28, 'currency': 'CNY'},
+      },
+      'source': {
+        'session_id': 'session-1',
+        'input_turn_id': 'turn-1',
+        'kind': 'capture',
+      },
       'icon': '🍔',
-      'accent_color': 'green',
-      'meta_fields': const [],
     }, const {});
     final contact = resolveSkillCardData({
-      'card_type': 'contact',
-      'title': 'Alex',
+      'entity_kind': 'contact',
+      'entity_id': 'contact-1',
+      'entity': {'contact_id': 'contact-1', 'name': 'Alex'},
+      'source': {
+        'session_id': 'session-1',
+        'input_turn_id': 'turn-1',
+        'kind': 'capture',
+      },
       'icon': '🪪',
-      'accent_color': 'neutral',
-      'meta_fields': const [],
     }, const {});
 
     expect(expense.icon, '💳');
@@ -90,39 +114,41 @@ void main() {
                     'input_turn_id': 'turn-1',
                     'result_summary': '已创建评审日程并记录咖啡消费。',
                     'result_cards': [
-                      {'kind': 'event', 'event_id': 'event-1'},
                       {
-                        'kind': 'asset',
-                        'asset_id': 'asset-1',
+                        'entity_kind': 'event',
+                        'entity_id': 'event-1',
+                        'entity': {
+                          'event_id': 'event-1',
+                          'title': '评审方案',
+                          'start_at': '2026-08-03T15:00:00+08:00',
+                          'end_at': '2026-08-03T16:00:00+08:00',
+                        },
+                        'source': {
+                          'session_id': '2026-08-02',
+                          'input_turn_id': 'turn-1',
+                          'kind': 'capture',
+                        },
+                      },
+                      {
+                        'entity_kind': 'asset',
+                        'entity_id': 'asset-1',
                         'skill_machine_name': 'expense',
+                        'entity': {
+                          'asset_id': 'asset-1',
+                          'payload': {
+                            'amount': 28,
+                            'currency': 'CNY',
+                            'category': '咖啡',
+                          },
+                        },
+                        'source': {
+                          'session_id': '2026-08-02',
+                          'input_turn_id': 'turn-1',
+                          'kind': 'capture',
+                        },
                       },
                     ],
                     'created_at': '2026-08-02T13:43:21',
-                  },
-                }),
-                200,
-                headers: {'content-type': 'application/json'},
-              );
-            case '/api/events/event-1':
-              return http.Response(
-                jsonEncode({
-                  'id': 'event-1',
-                  'title': '评审方案',
-                  'start_at': '2026-08-03T15:00:00',
-                  'end_at': '2026-08-03T16:00:00',
-                }),
-                200,
-                headers: {'content-type': 'application/json'},
-              );
-            case '/api/assets/asset-1':
-              return http.Response(
-                jsonEncode({
-                  'id': 'asset-1',
-                  'user_skill_id': 'expense-skill',
-                  'payload': {
-                    'amount': 28,
-                    'currency': 'CNY',
-                    'category': '咖啡',
                   },
                 }),
                 200,
@@ -143,8 +169,6 @@ void main() {
       expect(requestedPaths, [
         '/api/flash/recordings/recording-1',
         '/api/flash/sessions/2026-08-02',
-        '/api/events/event-1',
-        '/api/assets/asset-1',
       ]);
       expect(controller.sessionId, '2026-08-02');
       expect(controller.displayTitle, '8月2日 闪念');
@@ -154,10 +178,15 @@ void main() {
       final agent = controller.messages.last;
       expect(agent.text, '已创建评审日程并记录咖啡消费。');
       final cards = agent.parts.whereType<CardsPart>().single.cards;
-      expect(cards[0], containsPair('card_type', 'event'));
-      expect(cards[0], containsPair('title', '评审方案'));
-      expect(cards[1], containsPair('card_type', 'expense'));
-      expect(cards[1]['payload'], containsPair('amount', 28));
+      expect(cards.every(isCanonicalSessionEntityCard), isTrue);
+      expect(cards.every((card) => !card.containsKey('card_type')), isTrue);
+      expect(cards[0], containsPair('entity_kind', 'event'));
+      expect(cards[0]['entity'], containsPair('title', '评审方案'));
+      expect(cards[1], containsPair('skill_machine_name', 'expense'));
+      expect(
+        (cards[1]['entity'] as Map)['payload'],
+        containsPair('amount', 28),
+      );
     },
   );
 

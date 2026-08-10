@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../asset/asset_card.dart';
 import '../../asset/asset_card_display.dart';
 import '../../foundation/theme_v2_tokens.dart';
+import '../../foundation/theme_v2_time_formatter.dart';
 import '../../../render/render_spec.dart';
 import '../../asset_detail/markdown_field_editor.dart';
 
@@ -47,6 +48,19 @@ class AssetEditorDraft extends ChangeNotifier {
   TextEditingController controllerFor(String field) => _controllers[field]!;
 
   bool boolValue(String field) => _values[field] == true;
+
+  Object? valueFor(String field) => payload[field];
+
+  void setValue(String field, Object? value) {
+    _values[field] = value;
+    final controller = _controllers[field];
+    if (controller != null && controller.text != (value?.toString() ?? '')) {
+      controller.text = value?.toString() ?? '';
+      return;
+    }
+    errors.remove(field);
+    notifyListeners();
+  }
 
   void setBool(String field, bool value) {
     _values[field] = value;
@@ -124,6 +138,7 @@ class ThemeV2AssetEditor extends StatelessWidget {
     this.scrollController,
     this.showActions = true,
     this.previewLabel = '资产',
+    this.now,
   });
 
   final AssetEditorDraft draft;
@@ -131,6 +146,7 @@ class ThemeV2AssetEditor extends StatelessWidget {
   final ScrollController? scrollController;
   final bool showActions;
   final String previewLabel;
+  final DateTime Function()? now;
 
   @override
   Widget build(BuildContext context) {
@@ -172,7 +188,7 @@ class ThemeV2AssetEditor extends StatelessWidget {
                 ),
                 children: [
                   for (final field in draft.fields) ...[
-                    _EditorField(draft: draft, field: field),
+                    _EditorField(draft: draft, field: field, now: now),
                     const SizedBox(height: ThemeV2Spacing.lg),
                   ],
                 ],
@@ -227,15 +243,24 @@ class ThemeV2AssetEditor extends StatelessWidget {
 }
 
 class _EditorField extends StatelessWidget {
-  const _EditorField({required this.draft, required this.field});
+  const _EditorField({required this.draft, required this.field, this.now});
 
   final AssetEditorDraft draft;
   final String field;
+  final DateTime Function()? now;
 
   @override
   Widget build(BuildContext context) {
     final required = draft.spec.requiredFields.contains(field);
     final label = '${draft.labelFor(field)}${required ? ' *' : ''}';
+    if (field == 'due_date' && draft.typeFor(field) == 'datetime') {
+      final value = parseThemeV2DateTime(draft.valueFor(field));
+      return TodoDeadlineField(
+        value: value ?? defaultTodoDeadline(now: now?.call()),
+        now: now,
+        onChanged: (next) => draft.setValue(field, themeV2ApiDateTime(next)),
+      );
+    }
     if (draft.typeFor(field) == 'boolean') {
       return SwitchListTile(
         key: ValueKey('asset-editor-$field'),
@@ -269,6 +294,84 @@ class _EditorField extends StatelessWidget {
         labelText: label,
         errorText: draft.errors[field],
       ),
+    );
+  }
+}
+
+class TodoDeadlineField extends StatelessWidget {
+  const TodoDeadlineField({
+    super.key,
+    required this.value,
+    required this.onChanged,
+    this.now,
+  });
+
+  final DateTime value;
+  final ValueChanged<DateTime> onChanged;
+  final DateTime Function()? now;
+
+  Future<void> _pickCustom(BuildContext context) async {
+    final date = await showDatePicker(
+      context: context,
+      initialDate: value,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+      helpText: '选择截止日期',
+    );
+    if (date == null || !context.mounted) return;
+    final clock = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(value),
+      helpText: '选择截止时间',
+    );
+    if (clock == null) return;
+    onChanged(
+      DateTime(date.year, date.month, date.day, clock.hour, clock.minute),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final today = (now?.call() ?? DateTime.now()).toLocal();
+    return Column(
+      key: const ValueKey('todo-deadline-field'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('截止时间', style: Theme.of(context).textTheme.labelMedium),
+        const SizedBox(height: ThemeV2Spacing.xs),
+        Text(
+          formatFullLocalDateTime(themeV2ApiDateTime(value)),
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: ThemeV2Spacing.sm),
+        Wrap(
+          spacing: ThemeV2Spacing.sm,
+          runSpacing: ThemeV2Spacing.sm,
+          children: [
+            OutlinedButton(
+              key: const ValueKey('todo-deadline-today'),
+              onPressed: () =>
+                  onChanged(defaultTodoDeadline(now: today, date: today)),
+              child: const Text('今天'),
+            ),
+            OutlinedButton(
+              key: const ValueKey('todo-deadline-tomorrow'),
+              onPressed: () => onChanged(
+                defaultTodoDeadline(
+                  now: today,
+                  date: today.add(const Duration(days: 1)),
+                ),
+              ),
+              child: const Text('明天'),
+            ),
+            OutlinedButton(
+              key: const ValueKey('todo-deadline-custom'),
+              onPressed: () => _pickCustom(context),
+              child: const Text('自定义'),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

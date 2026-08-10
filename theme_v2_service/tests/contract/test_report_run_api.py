@@ -87,7 +87,10 @@ async def _awaiting_run(session, *, user_id: str) -> ReportGenerationRun:
         user_id=user_id,
         origin="user_initiated",
         state="awaiting_selection",
-        launch_context={"private": "must-not-leak"},
+        launch_context={
+            "event_id": "event-1",
+            "private": "must-not-leak",
+        },
         intent="Create a report",
         answers={},
         evidence_scope={},

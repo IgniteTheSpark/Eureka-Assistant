@@ -5,6 +5,7 @@ import '../../data_revision.dart';
 import '../../render/render_spec.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
+import '../foundation/theme_v2_time_formatter.dart';
 import '../library/asset/asset_detail_presentation.dart';
 import '../library/asset/asset_editor.dart';
 import '../library/asset/asset_editors.dart';
@@ -28,6 +29,7 @@ class ThemeV2AssetEditPage extends StatefulWidget {
     this.initialDomain,
     this.api,
     this.repository,
+    this.now,
   });
 
   final AssetEntityRef reference;
@@ -41,6 +43,7 @@ class ThemeV2AssetEditPage extends StatefulWidget {
   final String? initialDomain;
   final ApiClient? api;
   final AssetDetailRepository? repository;
+  final DateTime Function()? now;
 
   @override
   State<ThemeV2AssetEditPage> createState() => _ThemeV2AssetEditPageState();
@@ -105,6 +108,11 @@ class _ThemeV2AssetEditPageState extends State<ThemeV2AssetEditPage> {
   ) {
     final result = Map<String, dynamic>.from(values);
     final preset = widget.presetDate;
+    if (widget.skillName == 'todo' && !_hasCreateValue(result['due_date'])) {
+      result['due_date'] = themeV2ApiDateTime(
+        defaultTodoDeadline(now: widget.now?.call(), date: preset),
+      );
+    }
     if (preset == null) return result;
     for (final field in spec.schemaFields) {
       if (result[field] != null && '${result[field]}'.isNotEmpty) continue;
@@ -252,6 +260,7 @@ class _ThemeV2AssetEditPageState extends State<ThemeV2AssetEditPage> {
                         draft: draft,
                         scrollController: _scrollController,
                         onSave: _save,
+                        now: widget.now,
                       ),
                     ),
                   ),

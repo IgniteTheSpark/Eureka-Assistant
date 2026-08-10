@@ -24,8 +24,12 @@ class CalendarRecord {
             : CalendarRecordTiming.untimed,
       ('input_turn', _) => CalendarRecordTiming.untimed,
       _ when item.period.trim().isNotEmpty => CalendarRecordTiming.untimed,
-      _ =>
+      ('contact', _) =>
         item.hasClockTime || _hasNonMidnightTime(item.effectiveAt)
+            ? CalendarRecordTiming.timed
+            : CalendarRecordTiming.untimed,
+      _ =>
+        item.hasClockTime
             ? CalendarRecordTiming.timed
             : CalendarRecordTiming.untimed,
     };

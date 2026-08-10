@@ -110,7 +110,7 @@ class CardFieldSelector extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    'CARD DISPLAY',
+                    '字段展示',
                     style: ThemeV2Typography.mono(
                       fontSize: 9,
                       color: tokens.muted,
@@ -230,7 +230,7 @@ class _FieldSelectionRow extends StatelessWidget {
                   ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
                 ),
                 Text(
-                  field.type.toUpperCase(),
+                  _fieldTypeLabel(field.type),
                   style: ThemeV2Typography.mono(
                     fontSize: 8,
                     color: tokens.muted,
@@ -267,3 +267,14 @@ class _FieldSelectionRow extends StatelessWidget {
     );
   }
 }
+
+String _fieldTypeLabel(String rawType) => switch (rawType.toLowerCase()) {
+  'string' => '文本',
+  'number' || 'numeric' || 'integer' => '数字',
+  'datetime' => '日期时间',
+  'date' => '日期',
+  'boolean' => '是 / 否',
+  'array' => '列表',
+  'uuid' => '标识符',
+  _ => rawType,
+};

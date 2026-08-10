@@ -118,9 +118,7 @@ class _ThemeV2SkillWizardSheetState extends State<ThemeV2SkillWizardSheet> {
                 child: Column(
                   children: [
                     _WizardHeader(
-                      title: widget.isConfiguration
-                          ? 'Card Display Settings'
-                          : '创建新 Skill',
+                      title: widget.isConfiguration ? '卡片展示设置' : '创建新 Skill',
                       stage: stage,
                       canGoBack:
                           !widget.isConfiguration &&

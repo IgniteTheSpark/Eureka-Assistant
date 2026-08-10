@@ -7,10 +7,8 @@ RenderSpec themeV2AssetEditorSpec(String cardType, RenderSpec base) {
   final definitions = switch (cardType) {
     'todo' => const [
       ('title', '标题', 'string', true, false),
-      ('due_at', '截止时间', 'datetime', false, false),
-      ('notes', '备注', 'string', false, true),
-      ('reminder_at', '提醒', 'datetime', false, false),
-      ('status', '状态', 'string', false, false),
+      ('due_date', '截止时间', 'datetime', false, false),
+      ('content', '内容', 'string', false, true),
     ],
     'notes' || 'note' => const [
       ('title', '标题', 'string', true, false),
@@ -42,11 +40,14 @@ RenderSpec themeV2AssetEditorSpec(String cardType, RenderSpec base) {
   final hiddenFields = cardType == 'notes' || cardType == 'note'
       ? const {'tags'}
       : const <String>{};
-  final fields = [
-    ...systemFields,
-    for (final field in base.schemaFields)
-      if (!systemFields.contains(field) && !hiddenFields.contains(field)) field,
-  ];
+  final fields = cardType == 'todo'
+      ? systemFields
+      : [
+          ...systemFields,
+          for (final field in base.schemaFields)
+            if (!systemFields.contains(field) && !hiddenFields.contains(field))
+              field,
+        ];
   final labels = Map<String, String>.from(base.fieldLabels);
   final types = Map<String, String>.from(base.fieldTypes);
   final required = Set<String>.from(base.requiredFields);
@@ -69,7 +70,7 @@ RenderSpec themeV2AssetEditorSpec(String cardType, RenderSpec base) {
       _ => 'title',
     },
     secondaryField: switch (cardType) {
-      'todo' => 'due_at',
+      'todo' => 'due_date',
       'event' => 'start_at',
       'contact' => 'company',
       _ => base.secondaryField,
@@ -89,12 +90,14 @@ class AssetEditorRouter extends StatelessWidget {
     required this.draft,
     required this.onSave,
     this.scrollController,
+    this.now,
   });
 
   final String cardType;
   final AssetEditorDraft draft;
   final Future<void> Function(Map<String, dynamic> payload) onSave;
   final ScrollController? scrollController;
+  final DateTime Function()? now;
 
   @override
   Widget build(BuildContext context) {
@@ -102,6 +105,7 @@ class AssetEditorRouter extends StatelessWidget {
       draft: draft,
       onSave: onSave,
       scrollController: scrollController,
+      now: now,
       previewLabel: switch (cardType) {
         'todo' => '待办',
         'notes' || 'note' => '随记',

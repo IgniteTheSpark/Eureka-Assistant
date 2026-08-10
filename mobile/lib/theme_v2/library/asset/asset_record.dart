@@ -190,24 +190,43 @@ class AssetRecordAdapter {
     );
   }
 
-  static AssetRecordViewModel event({required Map<String, dynamic> entity}) {
+  static AssetRecordViewModel event({
+    required Map<String, dynamic> entity,
+    RenderSpec? spec,
+    Map<String, dynamic> renderSpec = const {},
+    String skillLabel = '事件',
+  }) {
     final title = _string(entity['title'], fallback: '未命名事件');
     final summary = eventCardSummary(entity);
+    final startAt = _date(entity['start_at']);
     final createdAt =
         _date(entity['created_at']) ??
-        _date(entity['start_at']) ??
+        startAt ??
         DateTime.fromMillisecondsSinceEpoch(0);
+    final card = spec == null || renderSpec.isEmpty
+        ? AssetCardViewData(
+            mark: eventAssetIcon,
+            skillLabel: skillLabel,
+            primaryValue: title,
+            secondaryValues: [if (summary.isNotEmpty) summary],
+            timeLabel: _clockLabel(startAt),
+          )
+        : AssetCardViewData.fromPayload(
+            payload: entity,
+            display: _displayFromSpec(
+              renderSpec: renderSpec,
+              spec: spec,
+              payload: entity,
+            ),
+            spec: spec,
+            skillLabel: skillLabel,
+            timeLabel: _clockLabel(startAt),
+          );
     return AssetRecordViewModel(
       id: _string(entity['event_id'] ?? entity['id']),
       containerId: 'event',
       kind: AssetRecordKind.event,
-      card: AssetCardViewData(
-        mark: eventAssetIcon,
-        skillLabel: '事件',
-        primaryValue: title,
-        secondaryValues: [if (summary.isNotEmpty) summary],
-        timeLabel: _clockLabel(_date(entity['start_at'])),
-      ),
+      card: card,
       fields: _entityFields(entity, const [
         ('title', '标题'),
         ('start_at', '开始'),
@@ -218,29 +237,46 @@ class AssetRecordAdapter {
       ]),
       payload: Map.unmodifiable(entity),
       createdAt: createdAt,
-      effectiveAt: _date(entity['start_at']) ?? createdAt,
+      effectiveAt: startAt ?? createdAt,
       source: _entitySource(entity),
       domain: entity['domain']?.toString(),
     );
   }
 
-  static AssetRecordViewModel contact({required Map<String, dynamic> entity}) {
+  static AssetRecordViewModel contact({
+    required Map<String, dynamic> entity,
+    RenderSpec? spec,
+    Map<String, dynamic> renderSpec = const {},
+    String skillLabel = '联系人',
+  }) {
     final name = _string(entity['name'], fallback: '未命名联系人');
     final company = _string(entity['company']);
     final title = _string(entity['title']);
+    final card = spec == null || renderSpec.isEmpty
+        ? AssetCardViewData(
+            mark: contactAssetIcon,
+            skillLabel: skillLabel,
+            primaryValue: name,
+            secondaryValues: [
+              if (company.isNotEmpty) company,
+              if (title.isNotEmpty) title,
+            ],
+          )
+        : AssetCardViewData.fromPayload(
+            payload: entity,
+            display: _displayFromSpec(
+              renderSpec: renderSpec,
+              spec: spec,
+              payload: entity,
+            ),
+            spec: spec,
+            skillLabel: skillLabel,
+          );
     return AssetRecordViewModel(
       id: _string(entity['contact_id'] ?? entity['id']),
       containerId: 'contact',
       kind: AssetRecordKind.contact,
-      card: AssetCardViewData(
-        mark: contactAssetIcon,
-        skillLabel: '联系人',
-        primaryValue: name,
-        secondaryValues: [
-          if (company.isNotEmpty) company,
-          if (title.isNotEmpty) title,
-        ],
-      ),
+      card: card,
       fields: _entityFields(entity, const [
         ('name', '姓名'),
         ('company', '公司'),

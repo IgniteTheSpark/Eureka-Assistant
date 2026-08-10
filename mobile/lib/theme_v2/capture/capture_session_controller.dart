@@ -7,6 +7,7 @@ import '../../api/sse_client.dart';
 import '../../chat/chat_models.dart';
 import '../../capture_activity/capture_activity_event.dart';
 import 'capture_activity_coordinator.dart';
+import '../session/session_card_contract.dart';
 import '../session/session_controller.dart';
 import '../session/session_invalidation.dart';
 
@@ -182,11 +183,9 @@ class CaptureSessionController extends ChangeNotifier
       } else {
         for (final recording in recordings) {
           final recordingId = recording['id']?.toString() ?? '';
-          final references = ((recording['result_cards'] as List?) ?? const [])
-              .whereType<Map>()
-              .map((item) => item.cast<String, dynamic>())
-              .toList();
-          final cards = await Future.wait(references.map(_hydrateReference));
+          final cards = sessionMessageCards(
+            (recording['result_cards'] as List?) ?? const [],
+          );
           final transcript = recording['asr_text']?.toString().trim() ?? '';
           final summary = recording['result_summary']?.toString().trim() ?? '';
           final inputTurnId = recording['input_turn_id']?.toString();
@@ -364,62 +363,6 @@ class CaptureSessionController extends ChangeNotifier
       '${value.month.toString().padLeft(2, '0')}-'
       '${value.day.toString().padLeft(2, '0')}';
 
-  Future<Map<String, dynamic>> _hydrateReference(
-    Map<String, dynamic> reference,
-  ) async {
-    final kind = reference['kind']?.toString();
-    try {
-      if (kind == 'event') {
-        final id = reference['event_id']?.toString() ?? '';
-        if (id.isEmpty) return _fallbackCard(reference);
-        final event = (await _api.getJson('/api/events/$id') as Map)
-            .cast<String, dynamic>();
-        return {
-          ...event,
-          ...reference,
-          'event_id': id,
-          'card_type': 'event',
-          'core_records_only': true,
-        };
-      }
-      if (kind == 'asset') {
-        final id = reference['asset_id']?.toString() ?? '';
-        if (id.isEmpty) return _fallbackCard(reference);
-        final asset = (await _api.getJson('/api/assets/$id') as Map)
-            .cast<String, dynamic>();
-        final skill = reference['skill_machine_name']?.toString() ?? 'asset';
-        return {
-          ...asset,
-          ...reference,
-          'asset_id': id,
-          'card_type': skill,
-          'user_skill_name': skill,
-          'core_records_only': true,
-        };
-      }
-      if (kind == 'contact') {
-        final id = reference['contact_id']?.toString() ?? '';
-        if (id.isEmpty) return _fallbackCard(reference);
-        final contact = (await _api.getJson('/api/contacts/$id') as Map)
-            .cast<String, dynamic>();
-        return {
-          ...contact,
-          ...reference,
-          'contact_id': id,
-          'card_type': 'contact',
-          'core_records_only': true,
-        };
-      }
-      if (kind == 'pending_contact') {
-        return {...reference, 'card_type': 'pending_contact'};
-      }
-    } catch (_) {
-      // A derived record may have been deleted after the capture. The session
-      // itself still replays, with a stable reference card for provenance.
-    }
-    return _fallbackCard(reference);
-  }
-
   Future<List<ChatMessage>> _messagesFromUnified(List raw) async {
     final restored = <ChatMessage>[];
     for (final value in raw.whereType<Map>()) {
@@ -442,10 +385,7 @@ class CaptureSessionController extends ChangeNotifier
       } else if (text.isNotEmpty) {
         agent.parts.add(TextPart(text));
       }
-      final rawCards = (item['cards'] as List? ?? const [])
-          .whereType<Map>()
-          .map((card) => card.cast<String, dynamic>());
-      final cards = await Future.wait(rawCards.map(_hydrateUnifiedCard));
+      final cards = sessionMessageCards((item['cards'] as List?) ?? const []);
       if (cards.isNotEmpty) agent.parts.add(CardsPart(cards));
       final elapsed = item['elapsed_ms'];
       if (elapsed is num) agent.elapsedMs = elapsed.toInt();
@@ -475,38 +415,6 @@ class CaptureSessionController extends ChangeNotifier
         ),
       );
     }
-  }
-
-  Future<Map<String, dynamic>> _hydrateUnifiedCard(
-    Map<String, dynamic> card,
-  ) async {
-    if (card['kind'] != null) return _hydrateReference(card);
-    if (card['event_id'] != null) return {...card, 'card_type': 'event'};
-    if (card['contact_id'] != null) return {...card, 'card_type': 'contact'};
-    if (card['asset_id'] != null) {
-      final skill = card['user_skill_name']?.toString() ?? 'asset';
-      return {...card, 'card_type': skill, 'user_skill_name': skill};
-    }
-    return card;
-  }
-
-  Map<String, dynamic> _fallbackCard(Map<String, dynamic> reference) {
-    final event = reference['kind'] == 'event';
-    final contact = reference['kind'] == 'contact';
-    final pendingContact = reference['kind'] == 'pending_contact';
-    final skill = reference['skill_machine_name']?.toString() ?? 'asset';
-    return {
-      ...reference,
-      'card_type': pendingContact
-          ? 'pending_contact'
-          : contact
-          ? 'contact'
-          : event
-          ? 'event'
-          : skill,
-      if (!event && !contact && !pendingContact) 'user_skill_name': skill,
-      'core_records_only': true,
-    };
   }
 
   @override

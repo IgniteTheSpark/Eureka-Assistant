@@ -460,6 +460,8 @@ async def generate_run(
         raise RunConflict("selected option does not match the confirmed draft")
     if draft.blockers:
         raise RunConflict("report plan has unresolved blockers")
+    if not draft.evidence_scope.references and not run.launch_context.get("event_id"):
+        raise RunConflict("report plan requires at least one evidence reference")
     await _validate_owned_scope(
         session,
         user_id=user_id,

@@ -9,7 +9,7 @@ import '../asset_detail/open_asset_detail.dart';
 import '../foundation/theme_v2_semantics.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
-import '../report/report_notification_target.dart';
+import '../reka/reka_signal_actions.dart';
 import 'theme_v2_asset_bubble_field.dart';
 import 'theme_v2_gravity_chamber.dart';
 
@@ -78,6 +78,10 @@ class HomeTodayPanel extends StatelessWidget {
     required this.onOpenAgenda,
     required this.chamberHeight,
     this.onOpenReka,
+    this.onRekaAction,
+    this.onOpenRekaTarget,
+    this.onOpenReports,
+    this.onCreateReport,
     this.date,
     this.active = true,
   });
@@ -95,6 +99,10 @@ class HomeTodayPanel extends StatelessWidget {
   final VoidCallback onOpenAgenda;
   final double chamberHeight;
   final VoidCallback? onOpenReka;
+  final RekaSignalMutationCallback? onRekaAction;
+  final RekaSignalTargetCallback? onOpenRekaTarget;
+  final VoidCallback? onOpenReports;
+  final VoidCallback? onCreateReport;
   final DateTime? date;
   final bool active;
 
@@ -128,7 +136,14 @@ class HomeTodayPanel extends StatelessWidget {
           key: rekaQueueKey,
           width: double.infinity,
           height: 188,
-          child: _RekaQueue(items: queue, onOpenAll: onOpenReka),
+          child: _RekaQueue(
+            items: queue,
+            onOpenAll: onOpenReka,
+            onAction: onRekaAction,
+            onOpenTarget: onOpenRekaTarget,
+            onOpenReports: onOpenReports,
+            onCreateReport: onCreateReport,
+          ),
         ),
         const SizedBox(height: 12),
         SizedBox(
@@ -175,6 +190,9 @@ class _NextMomentCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
     final value = item;
+    final countdown = value == null
+        ? null
+        : _nextCountdown(value.at.difference(now));
     return Material(
       color: tokens.surface,
       shape: RoundedRectangleBorder(
@@ -203,26 +221,29 @@ class _NextMomentCard extends StatelessWidget {
                 Positioned(
                   left: 16,
                   top: 31,
-                  child: Text(
-                    '${_minutesUntil(value.at, now)}',
-                    style: _geist(
-                      color: tokens.foreground,
-                      size: 34,
-                      weight: FontWeight.w600,
-                      letterSpacing: -1.4,
-                    ),
-                  ),
-                ),
-                Positioned(
-                  left: 58,
-                  top: 50,
-                  child: Text(
-                    '分钟后',
-                    style: _geist(
-                      color: tokens.muted,
-                      size: 11,
-                      weight: FontWeight.w500,
-                    ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Text(
+                        countdown!.value,
+                        style: _geist(
+                          color: tokens.foreground,
+                          size: 34,
+                          weight: FontWeight.w600,
+                          letterSpacing: -1.4,
+                        ),
+                      ),
+                      const SizedBox(width: 3),
+                      Text(
+                        countdown.unit,
+                        style: _geist(
+                          color: tokens.muted,
+                          size: 11,
+                          weight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 Positioned(
@@ -376,10 +397,21 @@ class _NextMomentEmpty extends StatelessWidget {
 }
 
 class _RekaQueue extends StatelessWidget {
-  const _RekaQueue({required this.items, required this.onOpenAll});
+  const _RekaQueue({
+    required this.items,
+    required this.onOpenAll,
+    required this.onAction,
+    required this.onOpenTarget,
+    required this.onOpenReports,
+    required this.onCreateReport,
+  });
 
   final List<TodayRekaItem> items;
   final VoidCallback? onOpenAll;
+  final RekaSignalMutationCallback? onAction;
+  final RekaSignalTargetCallback? onOpenTarget;
+  final VoidCallback? onOpenReports;
+  final VoidCallback? onCreateReport;
 
   @override
   Widget build(BuildContext context) {
@@ -452,7 +484,11 @@ class _RekaQueue extends StatelessWidget {
                 itemBuilder: (context, index) => SizedBox(
                   key: ValueKey('theme-v2-reka-row-${items[index].id}'),
                   height: 56,
-                  child: _RekaQueueRow(item: items[index]),
+                  child: _RekaQueueRow(
+                    item: items[index],
+                    onAction: onAction,
+                    onOpenTarget: onOpenTarget,
+                  ),
                 ),
               ),
             )
@@ -462,11 +498,29 @@ class _RekaQueue extends StatelessWidget {
               top: 50,
               width: 351,
               height: 104,
-              child: Center(
-                child: Text(
-                  '暂时没有新的发现',
-                  style: _geist(color: tokens.muted, size: 11),
-                ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    '暂时没有新的发现',
+                    style: _geist(color: tokens.muted, size: 11),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      TextButton(
+                        onPressed: onOpenReports,
+                        child: const Text('查看历史报告'),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton.tonal(
+                        onPressed: onCreateReport,
+                        child: const Text('生成新报告'),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
         ],
@@ -476,9 +530,15 @@ class _RekaQueue extends StatelessWidget {
 }
 
 class _RekaQueueRow extends StatelessWidget {
-  const _RekaQueueRow({required this.item});
+  const _RekaQueueRow({
+    required this.item,
+    required this.onAction,
+    required this.onOpenTarget,
+  });
 
   final TodayRekaItem item;
+  final RekaSignalMutationCallback? onAction;
+  final RekaSignalTargetCallback? onOpenTarget;
 
   @override
   Widget build(BuildContext context) {
@@ -491,14 +551,19 @@ class _RekaQueueRow extends StatelessWidget {
         borderRadius: BorderRadius.circular(ThemeV2Radii.md),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          onTap: item.link.isEmpty
+          onTap: item.targetId.isEmpty
               ? null
-              : () => unawaited(_openRekaItem(context, item)),
+              : () => unawaited(_openTarget(context)),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Row(
               children: [
-                Icon(_rekaIcon(item.type), size: 18, color: tokens.accent),
+                Icon(
+                  _rekaIcon(item.type),
+                  key: ValueKey('theme-v2-reka-icon-${item.type}'),
+                  size: 18,
+                  color: tokens.accent,
+                ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
@@ -532,11 +597,42 @@ class _RekaQueueRow extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Icon(
-                  Icons.chevron_right_rounded,
-                  size: 18,
-                  color: tokens.muted,
-                ),
+                if (_menuActions.isNotEmpty)
+                  SizedBox.square(
+                    dimension: 44,
+                    child: Semantics(
+                      button: true,
+                      label: '更多操作 ${item.title}',
+                      child: PopupMenuButton<String>(
+                        key: ValueKey('theme-v2-reka-menu-${item.id}'),
+                        tooltip: '',
+                        padding: EdgeInsets.zero,
+                        icon: Icon(
+                          Icons.more_horiz_rounded,
+                          size: 20,
+                          color: tokens.muted,
+                        ),
+                        onSelected: (action) => unawaited(
+                          action == 'reschedule'
+                              ? _openTarget(context)
+                              : onAction!(item, action),
+                        ),
+                        itemBuilder: (_) => [
+                          for (final action in _menuActions)
+                            PopupMenuItem<String>(
+                              value: action,
+                              child: Text(_actionLabel(action)),
+                            ),
+                        ],
+                      ),
+                    ),
+                  )
+                else
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    size: 18,
+                    color: tokens.muted,
+                  ),
               ],
             ),
           ),
@@ -544,43 +640,44 @@ class _RekaQueueRow extends StatelessWidget {
       ),
     );
   }
+
+  List<String> get _menuActions => onAction == null
+      ? const []
+      : item.actions
+            .where(
+              (action) =>
+                  action == 'complete' ||
+                  action == 'reschedule' ||
+                  action == 'dismiss',
+            )
+            .toList(growable: false);
+
+  Future<void> _openTarget(BuildContext context) {
+    final callback = onOpenTarget;
+    return callback == null
+        ? openRekaSignalTarget(context, item)
+        : callback(context, item);
+  }
 }
 
 IconData _rekaIcon(String type) => switch (type) {
-  'reminder' => Icons.notifications_active_outlined,
-  'report_available' => Icons.auto_awesome_outlined,
-  'report_plan_ready' => Icons.fact_check_outlined,
-  'report_done' => Icons.insert_chart_outlined_rounded,
-  'report_failed' => Icons.error_outline_rounded,
+  'overdue' => Icons.schedule_outlined,
+  'rhythm_gap' => Icons.waves_outlined,
   _ => Icons.lightbulb_outline_rounded,
 };
 
 String _rekaTypeLabel(String type) => switch (type) {
-  'reminder' => '提醒',
-  'report_available' => 'Reka 发现',
-  'report_plan_ready' => '等待确认',
-  'report_done' => '整理完成',
-  'report_failed' => '需要处理',
+  'overdue' => '逾期提醒',
+  'rhythm_gap' => '节律提醒',
   _ => 'Reka 信号',
 };
 
-Future<void> _openRekaItem(BuildContext context, TodayRekaItem item) async {
-  if (item.type == 'reminder') {
-    final parts = item.link.split(':');
-    final kind = parts.length > 1 ? parts[1] : '';
-    final id = parts.length > 2 ? parts[2] : '';
-    if (id.isEmpty) return;
-    return openAssetDetail(
-      context,
-      AssetEntityRef(
-        kind: kind == 'evt' ? AssetEntityKind.event : AssetEntityKind.asset,
-        id: id,
-      ),
-      coreRecordsOnly: true,
-    );
-  }
-  await openReportNotificationTarget(context, item.link, type: item.type);
-}
+String _actionLabel(String action) => switch (action) {
+  'complete' => '标记完成',
+  'reschedule' => '调整时间',
+  'dismiss' => '忽略提醒',
+  _ => action,
+};
 
 Future<void> _openChainItem(BuildContext context, ChainItem item) {
   return openAssetDetail(
@@ -595,8 +692,16 @@ Future<void> _openChainItem(BuildContext context, ChainItem item) {
   );
 }
 
-int _minutesUntil(DateTime value, DateTime now) {
-  return math.max(0, value.difference(now).inMinutes);
+({String value, String unit}) _nextCountdown(Duration duration) {
+  final minutes = math.max(0, duration.inMinutes);
+  if (minutes < 60) return (value: '$minutes', unit: '分钟后');
+  final rounded = (minutes / 60).toStringAsFixed(1);
+  return (
+    value: rounded.endsWith('.0')
+        ? rounded.substring(0, rounded.length - 2)
+        : rounded,
+    unit: '小时后',
+  );
 }
 
 String _clock(DateTime value) {

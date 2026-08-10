@@ -17,11 +17,15 @@ import '../capture/capture_activity_top_bar.dart';
 import '../capture/capture_session_page.dart';
 import '../device/theme_v2_device_route.dart';
 import '../foundation/theme_v2_theme.dart';
+import '../home/home_repository.dart';
 import '../home/theme_v2_home_page.dart';
 import '../inbox/reka_inbox_controller.dart';
 import '../inbox/reka_inbox_page.dart';
 import '../library/library_navigation.dart';
 import '../library/theme_v2_library_page.dart';
+import '../reka/reka_signal_repository.dart';
+import '../reka/reka_signals_page.dart';
+import '../report/report_container_page.dart';
 import 'device_status_summary.dart';
 import 'theme_v2_device_status_adapter.dart';
 import 'theme_v2_floating_dock.dart';
@@ -45,6 +49,8 @@ class ThemeV2AppShell extends StatefulWidget {
     this.enableLegacyInbox = false,
     this.calendarController,
     this.libraryNavigation,
+    this.homeRepository,
+    this.rekaSignalRepository,
     this.captureActivityCoordinator,
     this.onCaptureActivitySelected,
     this.initialIndex = const int.fromEnvironment('START_TAB', defaultValue: 0),
@@ -68,6 +74,8 @@ class ThemeV2AppShell extends StatefulWidget {
   bool get usesLegacyInbox => enableLegacyInbox || inboxController != null;
   final CalendarController? calendarController;
   final LibraryNavigationController? libraryNavigation;
+  final ThemeV2HomeRepository? homeRepository;
+  final RekaSignalRepository? rekaSignalRepository;
   final CaptureActivityCoordinator? captureActivityCoordinator;
   final ValueChanged<CaptureActivityItem>? onCaptureActivitySelected;
   final int initialIndex;
@@ -263,6 +271,26 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
     );
   }
 
+  void _openReports(BuildContext context, {bool startCreate = false}) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ReportContainerPage(autoStartCreate: startCreate),
+      ),
+    );
+  }
+
+  void _openRekaSignals(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (routeContext) => RekaSignalsPage(
+          repository: widget.rekaSignalRepository,
+          onOpenReports: () => _openReports(routeContext),
+          onCreateReport: () => _openReports(routeContext, startCreate: true),
+        ),
+      ),
+    );
+  }
+
   void _openCaptureActivity(
     BuildContext context,
     CaptureActivityItem activity,
@@ -291,7 +319,11 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
           ThemeV2PageScaffold(
             body: ThemeV2HomePage(
               active: _index == 0,
-              onOpenReka: () => _openNotifications(context),
+              repository: widget.homeRepository,
+              rekaSignals: widget.rekaSignalRepository,
+              onOpenReka: () => _openRekaSignals(context),
+              onOpenReports: () => _openReports(context),
+              onCreateReport: () => _openReports(context, startCreate: true),
             ),
           ),
           ThemeV2PageScaffold(

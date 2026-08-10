@@ -7,6 +7,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('todo editor uses the latest Chinese field contract', () {
+    final spec = themeV2AssetEditorSpec('todo', synthesizeSpec('todo'));
+
+    expect(spec.schemaFields, ['title', 'due_date', 'content']);
+    expect(spec.fieldLabels['title'], '标题');
+    expect(spec.fieldLabels['due_date'], '截止时间');
+    expect(spec.fieldLabels['content'], '内容');
+    expect(spec.fieldTypes['due_date'], 'datetime');
+    expect(spec.requiredFields, {'title'});
+    expect(spec.schemaFields, isNot(contains('due_at')));
+    expect(spec.schemaFields, isNot(contains('status')));
+  });
+
   test('notes editor removes the legacy tags field from its skill schema', () {
     final spec = themeV2AssetEditorSpec(
       'notes',

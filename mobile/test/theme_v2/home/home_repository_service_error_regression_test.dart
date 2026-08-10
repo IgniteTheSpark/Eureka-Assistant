@@ -1,56 +1,54 @@
 import 'package:eureka/api/api_client.dart';
 import 'package:eureka/theme_v2/home/home_repository.dart';
+import 'package:eureka/theme_v2/reka/reka_signal.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 void main() {
   test(
-    'maps only unread explicit Reka notifications in newest-first order',
+    'maps only persisted Reka signals and never report workflow receipts',
     () {
-      final items = mapTodayRekaNotifications([
-        {
-          'id': 'todo-status',
-          'type': 'task_done',
-          'title': '普通任务已完成',
-          'read': false,
-          'created_at': '2026-08-04T03:00:00Z',
-        },
-        {
-          'id': 'capture-receipt',
-          'type': 'flash_done',
-          'title': '闪念已整理',
-          'read': false,
-          'created_at': '2026-08-04T04:00:00Z',
-        },
-        {
-          'id': 'old-read',
-          'type': 'report_available',
-          'title': '已读发现',
-          'read': true,
-          'created_at': '2026-08-04T05:00:00Z',
-        },
-        {
-          'id': 'reminder',
-          'type': 'reminder',
-          'title': '会前提醒',
-          'body': '会议将在一小时后开始',
-          'link': 'reminder:evt:event-1:t60',
-          'read': false,
-          'created_at': '2026-08-04T02:00:00Z',
-        },
-        {
-          'id': 'summary',
-          'type': 'report_available',
-          'title': '可以整理本周记录',
-          'body': '已积累足够素材',
-          'link': 'report-start:execution-1:1',
-          'read': false,
-          'created_at': '2026-08-04T06:00:00Z',
-        },
+      final items = mapTodayRekaSignals([
+        RekaSignal(
+          id: 'overdue',
+          naturalKey: 'overdue:todo-1:deadline',
+          kind: RekaSignalKind.overdue,
+          title: '提交费用单 已到截止时间',
+          body: '仍未完成',
+          target: const RekaSignalTarget(
+            type: RekaSignalTargetType.asset,
+            id: 'todo-1',
+          ),
+          actions: const [
+            RekaSignalAction.open,
+            RekaSignalAction.complete,
+            RekaSignalAction.reschedule,
+            RekaSignalAction.dismiss,
+          ],
+          deliveredAt: DateTime.parse('2026-08-04T06:00:00Z'),
+        ),
+        RekaSignal(
+          id: 'rhythm',
+          naturalKey: 'rhythm:expense:daily:any:cycle',
+          kind: RekaSignalKind.rhythmGap,
+          title: '消费还没有记录',
+          body: '可以现在补上一笔',
+          target: const RekaSignalTarget(
+            type: RekaSignalTargetType.skill,
+            id: 'expense',
+          ),
+          actions: const [RekaSignalAction.open, RekaSignalAction.dismiss],
+          deliveredAt: DateTime.parse('2026-08-04T07:00:00Z'),
+        ),
       ]);
 
-      expect(items.map((item) => item.id), ['summary', 'reminder']);
+      expect(items.map((item) => item.id), ['rhythm', 'overdue']);
+      expect(items.first.type, 'rhythm_gap');
+      expect(items.first.targetType, 'skill');
+      expect(items.first.targetId, 'expense');
+      expect(items.last.actions, ['open', 'complete', 'reschedule', 'dismiss']);
+      expect(items.every((item) => item.link.isEmpty), isTrue);
     },
   );
 

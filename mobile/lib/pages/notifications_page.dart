@@ -297,7 +297,7 @@ class _NotifRow extends StatelessWidget {
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: accent.withValues(alpha: 0.30)),
               ),
-              child: Text(icon, style: TextStyle(color: accent, fontSize: 15)),
+              child: Icon(icon, color: accent, size: 17),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -348,18 +348,28 @@ class _NotifRow extends StatelessWidget {
     );
   }
 
-  (String, Color) _meta(EurekaColors eu, String type) {
+  (IconData, Color) _meta(EurekaColors eu, String type) {
     switch (type) {
       case 'flash_done':
-        return ('⚡', eu.accentBlue);
+        return (Icons.bolt_rounded, eu.accentBlue);
+      case 'report_available':
+        return (Icons.auto_awesome_outlined, eu.accentPurple);
+      case 'report_plan_ready':
+        return (Icons.fact_check_outlined, eu.accentAmber);
+      case 'report_done':
+        return (Icons.insert_chart_outlined_rounded, eu.accentGreen);
+      case 'report_failed':
+        return (Icons.error_outline_rounded, eu.accentRed);
       case 'task_done':
-        return ('✓', eu.accentGreen);
+        return (Icons.check_circle_outline_rounded, eu.accentGreen);
       case 'task_failed':
-        return ('!', eu.accentRed);
+        return (Icons.warning_amber_rounded, eu.accentRed);
       case 'reminder':
-        return ('⏰', eu.accentPurple);
+        return (Icons.notifications_active_outlined, eu.accentPurple);
+      case 'nudge':
+        return (Icons.lightbulb_outline_rounded, eu.accentAmber);
       default:
-        return ('•', eu.textMid);
+        return (Icons.notifications_none_outlined, eu.textMid);
     }
   }
 }

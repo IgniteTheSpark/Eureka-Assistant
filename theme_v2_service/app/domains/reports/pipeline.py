@@ -1,6 +1,7 @@
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 import hashlib
+import logging
 from time import perf_counter
 from typing import Any
 
@@ -32,6 +33,9 @@ from app.domains.reports.storage import Storage, persist_owned_file
 from app.domains.reports.templates import TemplateRegistry
 from app.domains.reports.web_search import build_web_queries, execute_web_search
 from app.observability import metrics
+
+
+logger = logging.getLogger(__name__)
 
 
 STAGES = (
@@ -537,6 +541,13 @@ def report_pipeline_handler(
                 failure_stage = STAGES[context.resume_index]
             except (UnboundLocalError, IndexError):
                 pass
+            logger.exception(
+                "report pipeline failed run_id=%s job_id=%s stage=%s error_type=%s",
+                job.run_id,
+                job.id,
+                failure_stage,
+                type(exc).__name__,
+            )
             async with session_factory() as session:
                 await record_report_failure(
                     session,
@@ -545,7 +556,7 @@ def report_pipeline_handler(
                     lease_owner=job.lease_owner,
                     failure_stage=failure_stage,
                     error_code=type(exc).__name__,
-                    error_message="Report generation could not continue",
+                    error_message="报告生成未能继续，请重试。",
                     retry_from=failure_stage,
                 )
                 await session.commit()

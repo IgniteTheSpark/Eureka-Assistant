@@ -97,6 +97,31 @@ void main() {
 
     expect(find.byKey(const ValueKey('report-retry')), findsOneWidget);
   });
+
+  testWidgets('auto start opens proactive creation after the page mounts', (
+    tester,
+  ) async {
+    final controller = ReportContainerController(
+      repository: _Repository(ReportOverview()),
+    );
+    addTearDown(controller.dispose);
+    var createCount = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildThemeV2Theme(Brightness.light),
+        home: ReportContainerPage(
+          controller: controller,
+          autoLoad: false,
+          autoStartCreate: true,
+          onCreate: () => createCount++,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(createCount, 1);
+  });
 }
 
 class _Repository implements ReportRepository {

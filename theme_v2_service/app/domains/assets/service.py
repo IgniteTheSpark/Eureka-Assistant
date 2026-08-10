@@ -1,4 +1,5 @@
 import re
+from copy import deepcopy
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -17,6 +18,7 @@ from app.domains.assets.schemas import (
     UserSkillUpdate,
 )
 from app.domains.assets.indexing import rebuild_asset_fields
+from app.domains.assets.todo_deadline import normalize_new_todo_payload
 from app.domains.assets.validation import AssetWriteProfile, validate_asset_payload
 from app.domains.triggers.service import on_asset_created
 from app.domains.sessions.provenance import (
@@ -60,13 +62,13 @@ BASELINE_CAPTURE_SKILLS: tuple[dict, ...] = (
         "schema": {
             "type": "object",
             "properties": {
-                "title": {"type": "string"},
-                "content": {"type": "string"},
-                "due_date": {"type": "string"},
-                "period": {"type": "string"},
-                "occurred_at": {"type": "string"},
-                "status": {"type": "string"},
-                "domain": {"type": "string"},
+                "title": {"type": "string", "title": "标题"},
+                "content": {"type": "string", "title": "内容"},
+                "due_date": {"type": "string", "title": "截止时间"},
+                "period": {"type": "string", "title": "时段"},
+                "occurred_at": {"type": "string", "title": "发生时间"},
+                "status": {"type": "string", "title": "完成状态"},
+                "domain": {"type": "string", "title": "领域"},
             },
             "required": ["title"],
             "additionalProperties": False,
@@ -81,15 +83,15 @@ BASELINE_CAPTURE_SKILLS: tuple[dict, ...] = (
         "schema": {
             "type": "object",
             "properties": {
-                "amount": {"type": "number"},
-                "currency": {"type": "string"},
-                "category": {"type": "string"},
-                "merchant": {"type": "string"},
-                "date": {"type": "string"},
-                "description": {"type": "string"},
-                "period": {"type": "string"},
-                "occurred_at": {"type": "string"},
-                "domain": {"type": "string"},
+                "amount": {"type": "number", "title": "金额"},
+                "currency": {"type": "string", "title": "币种"},
+                "category": {"type": "string", "title": "类别"},
+                "merchant": {"type": "string", "title": "商户"},
+                "date": {"type": "string", "title": "日期"},
+                "description": {"type": "string", "title": "备注"},
+                "period": {"type": "string", "title": "时段"},
+                "occurred_at": {"type": "string", "title": "发生时间"},
+                "domain": {"type": "string", "title": "领域"},
             },
             "required": ["amount", "currency"],
             "additionalProperties": False,
@@ -104,13 +106,13 @@ BASELINE_CAPTURE_SKILLS: tuple[dict, ...] = (
         "schema": {
             "type": "object",
             "properties": {
-                "name": {"type": "string"},
-                "phone": {"type": "string"},
-                "company": {"type": "string"},
-                "title": {"type": "string"},
-                "email": {"type": "string"},
-                "notes": {"type": "string"},
-                "domain": {"type": "string"},
+                "name": {"type": "string", "title": "姓名"},
+                "phone": {"type": "string", "title": "电话"},
+                "company": {"type": "string", "title": "公司"},
+                "title": {"type": "string", "title": "职位"},
+                "email": {"type": "string", "title": "邮箱"},
+                "notes": {"type": "string", "title": "备注"},
+                "domain": {"type": "string", "title": "领域"},
             },
             "required": ["name"],
             "additionalProperties": False,
@@ -125,16 +127,82 @@ BASELINE_CAPTURE_SKILLS: tuple[dict, ...] = (
         "schema": {
             "type": "object",
             "properties": {
-                "title": {"type": "string"},
-                "content": {"type": "string"},
-                "domain": {"type": "string"},
+                "title": {"type": "string", "title": "标题"},
+                "content": {"type": "string", "title": "内容"},
+                "domain": {"type": "string", "title": "领域"},
             },
             "required": ["title", "content"],
             "additionalProperties": False,
             "x-capture-enabled": True,
         },
     },
+    {
+        "machine_name": "event",
+        "display_name": "事件",
+        "description": "具有开始和结束时间的日程事件",
+        "domain": "productivity",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "title": "标题"},
+                "start_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "title": "开始时间",
+                },
+                "end_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "title": "结束时间",
+                },
+                "location": {"type": "string", "title": "地点"},
+                "attendees": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "title": "参与人",
+                },
+                "description": {
+                    "type": "string",
+                    "title": "备注",
+                    "x-long": True,
+                },
+            },
+            "required": ["title", "start_at", "end_at"],
+            "additionalProperties": False,
+            "x-capture-enabled": True,
+        },
+    },
 )
+
+
+def _merge_baseline_schema(current: dict | None, baseline: dict) -> dict:
+    if not current:
+        return deepcopy(baseline)
+    current_schema = dict(current or {})
+    baseline_properties = baseline.get("properties") or {}
+    raw_properties = current_schema.get("properties")
+    if isinstance(raw_properties, dict):
+        current_properties = dict(raw_properties)
+        for field in set(current_properties).intersection(baseline_properties):
+            existing_metadata = current_properties[field]
+            if not isinstance(existing_metadata, dict):
+                continue
+            current_properties[field] = {
+                **dict(baseline_properties[field]),
+                **dict(existing_metadata),
+            }
+        current_schema["properties"] = current_properties
+        return current_schema
+
+    for field in set(current_schema).intersection(baseline_properties):
+        existing_metadata = current_schema[field]
+        if not isinstance(existing_metadata, dict):
+            continue
+        current_schema[field] = {
+            **dict(baseline_properties[field]),
+            **dict(existing_metadata),
+        }
+    return current_schema
 
 
 async def ensure_capture_skills(
@@ -160,10 +228,17 @@ async def ensure_capture_skills(
     for definition in BASELINE_CAPTURE_SKILLS:
         machine_name = definition["machine_name"]
         if machine_name in by_name:
-            if by_name[machine_name].global_skill_id is None:
+            existing_skill = by_name[machine_name]
+            if existing_skill.global_skill_id is None:
                 global_skill = global_skills.get(machine_name)
                 if global_skill is not None:
-                    by_name[machine_name].global_skill_id = global_skill.id
+                    existing_skill.global_skill_id = global_skill.id
+            merged_schema = _merge_baseline_schema(
+                existing_skill.schema_json,
+                definition["schema"],
+            )
+            if merged_schema != existing_skill.schema_json:
+                existing_skill.schema_json = merged_schema
             continue
         skill = UserSkill(
             user_id=user_id,
@@ -227,6 +302,7 @@ async def list_user_skills(
     session: AsyncSession,
     user_id: str,
 ) -> list[UserSkill]:
+    await ensure_capture_skills(session, user_id)
     result = await session.scalars(
         select(UserSkill)
         .where(UserSkill.user_id == user_id)
@@ -329,8 +405,22 @@ async def create_asset(
     )
     if skill is None:
         raise UserSkillNotFound()
+
+    payload = command.payload
+    if skill.machine_name == "todo":
+        reference = utc_now()
+        if reference.tzinfo is None:
+            reference = reference.replace(tzinfo=timezone.utc)
+        payload = normalize_new_todo_payload(
+            payload,
+            period=command.period,
+            effective_at=command.effective_at,
+            occurred_at=command.occurred_at,
+            reference_datetime=reference,
+            timezone_name=get_settings().default_user_timezone,
+        )
     validate_asset_payload(
-        command.payload,
+        payload,
         skill.schema_json,
         profile=write_profile,
     )
@@ -348,7 +438,7 @@ async def create_asset(
     asset = Asset(
         user_id=user_id,
         user_skill_id=skill.id,
-        payload_json=command.payload,
+        payload_json=payload,
         domain=command.domain or skill.domain,
         effective_at=_utc_naive(command.effective_at),
         period=command.period,
@@ -830,13 +920,12 @@ async def _attach_capture_source(
         .order_by(CaptureRecording.created_at.desc())
         .limit(500)
     )
-    id_key = "asset_id" if kind == "asset" else "event_id"
     for recording, turn in rows.all():
         references = recording.result_records_json or []
         if any(
             isinstance(reference, dict)
-            and reference.get("kind") == kind
-            and str(reference.get(id_key) or "") == record_id
+            and reference.get("entity_kind") == kind
+            and str(reference.get("entity_id") or "") == record_id
             for reference in references
         ):
             record.source_recording_id = recording.id

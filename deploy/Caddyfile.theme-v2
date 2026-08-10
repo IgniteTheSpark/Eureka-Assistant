@@ -1,0 +1,32 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# Prometheus metrics stay on the private Compose network. Use
+	# `docker compose exec api` or a private collector to scrape them.
+	@metrics path /metrics
+	respond @metrics 404
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+
+	reverse_proxy api:8000 {
+		# Chat, capture, notifications, and reports use streaming responses.
+		flush_interval -1
+		health_uri /ready
+		health_interval 15s
+		health_timeout 3s
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}

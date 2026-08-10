@@ -119,6 +119,8 @@ class LiteLLMLegacyFlashProvider:
             user_id=context.user_id,
             session_id=context.session_id,
             input_turn_id=context.input_turn_id,
+            reference_datetime=context.reference_datetime,
+            source_kind="capture",
             runtime=tool_runtime,
         )
         outcomes = await asyncio.gather(

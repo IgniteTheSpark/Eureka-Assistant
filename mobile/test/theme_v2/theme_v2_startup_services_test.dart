@@ -42,6 +42,11 @@ void main() {
           '/api/user-skills' || '/api/assets' || '/api/events' => _json([]),
           '/api/contacts' => _json({'contacts': <Object>[]}),
           '/api/reports' => _json({'reports': <Object>[]}),
+          '/api/reka/signals' => _json({
+            'signals': <Object>[],
+            'partial_failures': <Object>[],
+            'generated_at': '2026-08-10T00:00:00+08:00',
+          }),
           '/api/notifications' => _json({'notifications': <Object>[]}),
           '/api/flash/recordings' => _json({'recordings': <Object>[]}),
           final path when path.startsWith('/api/flash/sessions/') => _json({
@@ -74,6 +79,7 @@ void main() {
             '/api/events',
             '/api/contacts',
             '/api/reports',
+            '/api/reka/signals',
             '/api/notifications',
             '/api/flash/recordings',
           }),

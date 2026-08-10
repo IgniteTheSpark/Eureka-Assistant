@@ -15,6 +15,7 @@ from app.domains.devices.api import router as devices_router
 from app.domains.notifications.api import router as notification_router
 from app.domains.notifications.outbox import run_outbox_dispatcher
 from app.domains.notifications.subscribers import SubscriberRegistry
+from app.domains.reka.api import router as reka_router
 from app.domains.reports.api_runs import router as report_runs_router
 from app.domains.reports.api_reports import router as reports_router
 from app.domains.reports.templates import get_template_registry
@@ -62,6 +63,7 @@ app.include_router(capture_router)
 app.include_router(contacts_router)
 app.include_router(devices_router)
 app.include_router(notification_router)
+app.include_router(reka_router)
 app.include_router(trigger_router)
 app.include_router(report_runs_router)
 app.include_router(reports_router)

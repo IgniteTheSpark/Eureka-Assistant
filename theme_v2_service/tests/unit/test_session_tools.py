@@ -1,4 +1,6 @@
 import json
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from app.db.models import Contact, UserSkill
 from app.domains.sessions import service as session_service
@@ -63,6 +65,17 @@ class _CardRuntime(_Runtime):
                 ],
             }
         return await super().call_tool(name, arguments, trusted=trusted)
+
+
+class _ReferenceRuntime(_Runtime):
+    async def call_tool(self, name, arguments, *, trusted):
+        self.calls.append((name, arguments, trusted))
+        return {
+            "ok": True,
+            "asset_id": "todo-1",
+            "user_skill_name": "todo",
+            "payload": {"title": "提交评审稿"},
+        }
 
 
 async def test_create_asset_tool_is_owner_scoped_and_agent_writes_are_permissive(session):
@@ -131,6 +144,35 @@ async def test_create_asset_tool_is_owner_scoped_and_agent_writes_are_permissive
     ]
 
 
+async def test_capture_executor_injects_trusted_todo_reference_datetime():
+    runtime = _ReferenceRuntime()
+    reference = datetime(
+        2026,
+        8,
+        8,
+        17,
+        30,
+        tzinfo=ZoneInfo("Asia/Shanghai"),
+    )
+    executor = SessionToolExecutor(
+        user_id="owner",
+        session_id="session-1",
+        input_turn_id="turn-1",
+        reference_datetime=reference,
+        runtime=runtime,
+    )
+
+    await executor.execute(
+        "tool_create_todo",
+        {
+            "content": "提交评审稿",
+            "reference_datetime": "1999-01-01T00:00:00+08:00",
+        },
+    )
+
+    assert runtime.calls[0][1]["reference_datetime"] == reference.isoformat()
+
+
 async def test_tool_outcomes_include_cards_for_specialized_assets_and_contacts():
     executor = SessionToolExecutor(
         user_id="owner",
@@ -154,25 +196,43 @@ async def test_tool_outcomes_include_cards_for_specialized_assets_and_contacts()
 
     assert todo.cards == [
         {
-            "id": "todo-1",
-            "asset_id": "todo-1",
-            "user_skill_name": "todo",
-            "payload": {"title": "提交评审稿"},
+            "entity_kind": "asset",
+            "entity_id": "todo-1",
+            "skill_machine_name": "todo",
+            "entity": {
+                "asset_id": "todo-1",
+                "user_skill_name": "todo",
+                "payload": {"title": "提交评审稿"},
+            },
+            "source": {
+                "session_id": "session-1",
+                "input_turn_id": "turn-1",
+                "kind": "chat",
+            },
         }
     ]
     assert contact.cards == [
         {
-            "id": "contact-1",
-            "contact_id": "contact-1",
-            "card_type": "contact",
-            "name": "冯总",
-            "company": "远景",
+            "entity_kind": "contact",
+            "entity_id": "contact-1",
+            "entity": {
+                "contact_id": "contact-1",
+                "contact_action": "created",
+                "name": "冯总",
+                "company": "远景",
+            },
+            "source": {
+                "session_id": "session-1",
+                "input_turn_id": "turn-1",
+                "kind": "chat",
+            },
         }
     ]
-    assert [item["contact_id"] for item in contacts.cards] == [
+    assert [item["entity_id"] for item in contacts.cards] == [
         "contact-1",
         "contact-2",
     ]
+    assert all(item["entity_kind"] == "contact" for item in contacts.cards)
 
 
 async def test_chat_tool_resolves_only_a_pending_contact_from_its_session(session):

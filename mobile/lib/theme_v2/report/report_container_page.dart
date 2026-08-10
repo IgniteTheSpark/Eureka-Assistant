@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../api/api_client.dart';
@@ -18,6 +20,7 @@ class ReportContainerPage extends StatefulWidget {
     this.controller,
     this.api,
     this.autoLoad = true,
+    this.autoStartCreate = false,
     this.onBack,
     this.onCreate,
     this.onOpenRun,
@@ -27,6 +30,7 @@ class ReportContainerPage extends StatefulWidget {
   final ReportContainerController? controller;
   final ApiClient? api;
   final bool autoLoad;
+  final bool autoStartCreate;
   final VoidCallback? onBack;
   final VoidCallback? onCreate;
   final ValueChanged<ReportRunSummary>? onOpenRun;
@@ -59,6 +63,17 @@ class _ReportContainerPageState extends State<ReportContainerPage> {
     }
     _controller.addListener(_changed);
     if (widget.autoLoad) _controller.load();
+    if (widget.autoStartCreate) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final callback = widget.onCreate;
+        if (callback != null) {
+          callback();
+        } else {
+          unawaited(_createReport());
+        }
+      });
+    }
   }
 
   void _changed() {

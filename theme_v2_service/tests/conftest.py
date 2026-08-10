@@ -9,6 +9,7 @@ from app.domains.capture import models as capture_models  # noqa: F401
 from app.domains.devices import models as device_models  # noqa: F401
 from app.domains.notifications import models as notification_models  # noqa: F401
 from app.domains.reports import models as report_models  # noqa: F401
+from app.domains.reka import models as reka_models  # noqa: F401
 from app.domains.sessions import models as session_models  # noqa: F401
 from app.domains.triggers import models as trigger_models  # noqa: F401
 

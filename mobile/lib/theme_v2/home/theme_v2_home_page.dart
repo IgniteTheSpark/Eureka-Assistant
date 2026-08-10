@@ -8,6 +8,8 @@ import '../../today/today_data.dart';
 import '../foundation/theme_v2_motion.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
+import '../reka/reka_signal_actions.dart';
+import '../reka/reka_signal_repository.dart';
 import '../shell/theme_v2_async_state.dart';
 import '../shell/theme_v2_page_title.dart';
 import 'home_agenda_panel.dart';
@@ -23,6 +25,11 @@ class ThemeV2HomePage extends StatefulWidget {
     this.now,
     this.active = true,
     this.onOpenReka,
+    this.rekaSignals,
+    this.onRekaAction,
+    this.onOpenRekaTarget,
+    this.onOpenReports,
+    this.onCreateReport,
   });
 
   static const panelKey = ValueKey<String>('theme-v2-home-panel');
@@ -31,6 +38,11 @@ class ThemeV2HomePage extends StatefulWidget {
   final ThemeV2HomeRepository? repository;
   final bool active;
   final VoidCallback? onOpenReka;
+  final RekaSignalRepository? rekaSignals;
+  final RekaSignalMutationCallback? onRekaAction;
+  final RekaSignalTargetCallback? onOpenRekaTarget;
+  final VoidCallback? onOpenReports;
+  final VoidCallback? onCreateReport;
 
   /// Deterministic clock seam for visual tests. Production uses local time.
   final DateTime? now;
@@ -50,6 +62,7 @@ class _ThemeV2HomePageState extends State<ThemeV2HomePage> {
   bool _refreshing = false;
   bool _refreshFailed = false;
   int _requestSerial = 0;
+  final Set<String> _rekaMutations = <String>{};
 
   @override
   void initState() {
@@ -86,6 +99,52 @@ class _ThemeV2HomePageState extends State<ThemeV2HomePage> {
   void _installRepository(ThemeV2HomeRepository? repository) {
     _repository = repository ?? ApiThemeV2HomeRepository();
     _ownsRepository = repository == null;
+  }
+
+  RekaSignalRepository? get _rekaSignals =>
+      widget.rekaSignals ??
+      (_repository is ApiThemeV2HomeRepository
+          ? (_repository as ApiThemeV2HomeRepository).rekaSignals
+          : null);
+
+  Future<void> _mutateReka(TodayRekaItem item, String action) async {
+    if (!_rekaMutations.add(item.id)) return;
+    try {
+      final callback = widget.onRekaAction;
+      if (callback != null) {
+        await callback(item, action);
+      } else {
+        final repository = _rekaSignals;
+        if (repository == null) return;
+        switch (action) {
+          case 'complete':
+            await repository.completeTodo(item.targetId);
+          case 'dismiss':
+            await repository.dismiss(item.id);
+          default:
+            return;
+        }
+      }
+      if (!mounted) return;
+      final current = _data;
+      if (current != null) {
+        setState(() {
+          _data = current.withRekaQueue(
+            current.rekaQueue
+                .where((candidate) => candidate.id != item.id)
+                .toList(growable: false),
+          );
+        });
+      }
+      if (callback == null) bumpData();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('操作失败，请稍后重试')));
+    } finally {
+      _rekaMutations.remove(item.id);
+    }
   }
 
   void _disposeOwnedRepository() {
@@ -169,6 +228,10 @@ class _ThemeV2HomePageState extends State<ThemeV2HomePage> {
         chamberHeight: chamberHeight,
         onOpenAgenda: _controller.openAgenda,
         onOpenReka: widget.onOpenReka,
+        onRekaAction: _mutateReka,
+        onOpenRekaTarget: widget.onOpenRekaTarget,
+        onOpenReports: widget.onOpenReports,
+        onCreateReport: widget.onCreateReport,
       ),
       HomePresentation.agenda => SizedBox(
         height: 720,

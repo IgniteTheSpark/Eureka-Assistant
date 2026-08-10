@@ -45,7 +45,8 @@ class BubbleField {
   final List<Bubble> bubbles = [];
   Body? _held;
 
-  bool get anyAwake => bubbles.any((b) => b.body.isAwake);
+  bool get anyAwake =>
+      bubbles.any((bubble) => bubble.body.isAwake || !_isInsideBox(bubble));
 
   void wakeAll() {
     for (final b in bubbles) {
@@ -55,7 +56,46 @@ class BubbleField {
 
   set gravity(Offset g) => _world.gravity = Vector2(g.dx, g.dy);
 
-  void step([double dt = 1 / 60]) => _world.stepDt(dt);
+  void step([double dt = 1 / 60]) {
+    _world.stepDt(dt);
+    _restoreEscapedBodies();
+  }
+
+  bool _isInsideBox(Bubble bubble) {
+    final minX = bubble.r;
+    final maxX = box.width - bubble.r;
+    final minY = bubble.r;
+    final maxY = box.height - bubble.r;
+    return bubble.x >= minX &&
+        bubble.x <= maxX &&
+        bubble.y >= minY &&
+        bubble.y <= maxY;
+  }
+
+  void _restoreEscapedBodies() {
+    for (final bubble in bubbles) {
+      if (_isInsideBox(bubble)) continue;
+      final minX = bubble.r;
+      final maxX = box.width - bubble.r;
+      final minY = bubble.r;
+      final maxY = box.height - bubble.r;
+      final x = bubble.x.clamp(minX, maxX);
+      final y = bubble.y.clamp(minY, maxY);
+      final velocity = bubble.body.linearVelocity.clone();
+      if ((bubble.x < minX && velocity.x < 0) ||
+          (bubble.x > maxX && velocity.x > 0)) {
+        velocity.x = -velocity.x * restitution;
+      }
+      if ((bubble.y < minY && velocity.y < 0) ||
+          (bubble.y > maxY && velocity.y > 0)) {
+        velocity.y = -velocity.y * restitution;
+      }
+      bubble.body
+        ..setTransform(Vector2(x / _scale, y / _scale), bubble.angle)
+        ..linearVelocity = velocity
+        ..setAwake(true);
+    }
+  }
 
   // ── static bounds: closed box (floor+walls+ceiling) + the dock as a solid box ──
   void _buildBounds(Rect? dock) {

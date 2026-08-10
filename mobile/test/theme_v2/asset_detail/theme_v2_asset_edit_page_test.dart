@@ -12,6 +12,65 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 void main() {
+  testWidgets('todo create defaults deadline and exposes quick dates', (
+    tester,
+  ) async {
+    late http.Request request;
+    final api = ApiClient(
+      baseUrl: 'http://test',
+      enableLogging: false,
+      client: MockClient((incoming) async {
+        request = incoming;
+        return http.Response(jsonEncode({'id': 'todo-1'}), 200);
+      }),
+    );
+    addTearDown(api.close);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildEurekaTheme(EurekaColors.light),
+        home: ThemeV2AssetEditPage(
+          reference: const AssetEntityRef(
+            kind: AssetEntityKind.asset,
+            id: 'new:todo',
+          ),
+          initialValues: const {},
+          mode: AssetEditMode.create,
+          skillName: 'todo',
+          userSkillId: 'skill-todo',
+          displayName: '待办',
+          spec: synthesizeSpec('todo'),
+          now: () => DateTime(2026, 8, 8, 18, 1),
+          api: api,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('todo-deadline-field')), findsOneWidget);
+    expect(find.text('2026年8月9日 18:00'), findsOneWidget);
+    expect(find.text('截止时间'), findsOneWidget);
+    expect(find.text('截止时间 *'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('todo-deadline-today')));
+    await tester.pump();
+    expect(find.text('2026年8月9日 18:00'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('todo-deadline-tomorrow')));
+    await tester.pump();
+    await tester.enterText(
+      find.byKey(const ValueKey('asset-editor-title')),
+      '提交方案',
+    );
+    await tester.tap(find.byKey(const ValueKey('asset-editor-save')));
+    await tester.pumpAndSettle();
+
+    expect(jsonDecode(request.body), {
+      'user_skill_id': 'skill-todo',
+      'payload': {'title': '提交方案', 'due_date': '2026-08-09T18:00:00+08:00'},
+    });
+  });
+
   testWidgets('create posts strict schema values through the Theme V2 editor', (
     tester,
   ) async {

@@ -1,7 +1,7 @@
 # Theme V2 Reka Signals, Rhythm, and Timed Surfaces Design
 
 **Date:** 2026-08-05  
-**Status:** Approved design, deferred implementation  
+**Status:** Approved design; Overdue/Rhythm backend implemented 2026-08-10; Report adapter and mobile consumption pending
 **Scope:** Theme V2 home Reka section, Rhythm learning, overdue/report signal lifecycles, and timed Todo behavior in Next/time surfaces
 
 ## 1. Objective
