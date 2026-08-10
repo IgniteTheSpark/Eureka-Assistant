@@ -31,6 +31,23 @@ class RingAsr {
     Uint8List pcm, {
     required int sampleRate,
     required int channels,
+    File? outputFile,
+  }) async {
+    final file = outputFile ?? await _temporaryWavFile(pcm.length);
+    await writePcmWav(
+      pcm,
+      outputFile: file,
+      sampleRate: sampleRate,
+      channels: channels,
+    );
+    return transcribeWav(file);
+  }
+
+  Future<File> writePcmWav(
+    Uint8List pcm, {
+    required File outputFile,
+    required int sampleRate,
+    required int channels,
   }) async {
     const asrSampleRate = 16000;
     final normalizedPcm = sampleRate == asrSampleRate
@@ -46,10 +63,17 @@ class RingAsr {
       sampleRate: asrSampleRate,
       channels: channels,
     );
-    final dir = await _getTempDir();
-    final path = '${dir.path}/ring_capture_${pcm.length}.wav';
-    final file = await File(path).writeAsBytes(wav);
-    return _recognize(file);
+    await outputFile.parent.create(recursive: true);
+    await outputFile.writeAsBytes(wav, flush: true);
+    return outputFile;
+  }
+
+  Future<String> transcribeWav(File wav) => _recognize(wav);
+
+  Future<File> _temporaryWavFile(int pcmLength) async {
+    final directory = await _getTempDir();
+    final sequence = DateTime.now().microsecondsSinceEpoch;
+    return File('${directory.path}/ring_capture_${pcmLength}_$sequence.wav');
   }
 }
 
