@@ -81,9 +81,14 @@ async def health() -> dict[str, str]:
 
 @app.get("/ready")
 async def ready() -> dict[str, str]:
-    readiness_errors = get_settings().runtime_readiness_errors()
+    settings = get_settings()
+    readiness_errors = settings.runtime_readiness_errors()
     if readiness_errors:
         raise HTTPException(status_code=503, detail=readiness_errors)
+    if settings.chat_agent_enabled or settings.capture_agent_enabled:
+        contract_errors = get_internal_mcp_runtime().contract_errors
+        if contract_errors:
+            raise HTTPException(status_code=503, detail=list(contract_errors))
     try:
         async with AsyncSessionFactory() as session:
             await session.execute(text("SELECT 1"))

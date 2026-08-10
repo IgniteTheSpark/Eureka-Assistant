@@ -1,13 +1,15 @@
+import hashlib
 import re
 from copy import deepcopy
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, text
+from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import get_settings
-from app.db.base import utc_now
+from app.db.base import new_uuid, utc_now
 from app.db.models import Asset, Event, EventAttendee, GlobalSkill, UserSkill
 from app.domains.assets.schemas import (
     AssetCreate,
@@ -17,10 +19,10 @@ from app.domains.assets.schemas import (
     UserSkillCreate,
     UserSkillUpdate,
 )
+from app.domains.assets.persistence import persist_asset
 from app.domains.assets.indexing import rebuild_asset_fields
 from app.domains.assets.todo_deadline import normalize_new_todo_payload
 from app.domains.assets.validation import AssetWriteProfile, validate_asset_payload
-from app.domains.triggers.service import on_asset_created
 from app.domains.sessions.provenance import (
     ProvenanceNotOwned,
     validate_owned_provenance,
@@ -209,55 +211,92 @@ async def ensure_capture_skills(
     session: AsyncSession,
     user_id: str,
 ) -> list[UserSkill]:
-    machine_names = [item["machine_name"] for item in BASELINE_CAPTURE_SKILLS]
-    existing = list(
-        await session.scalars(
-            select(UserSkill).where(
-                UserSkill.user_id == user_id,
-                UserSkill.machine_name.in_(machine_names),
-            )
-        )
+    """Provision baseline Skills once per user without first-use races."""
+    digest = hashlib.sha256(user_id.encode("utf-8")).hexdigest()[:32]
+    lock_name = f"eureka:baseline:{digest}"
+    acquired = await session.scalar(
+        text("SELECT GET_LOCK(:lock_name, 5)"),
+        {"lock_name": lock_name},
     )
-    by_name = {skill.machine_name: skill for skill in existing}
+    if acquired != 1:
+        raise TimeoutError("baseline skill provisioning lock timed out")
+    try:
+        return await _ensure_capture_skills_locked(session, user_id)
+    finally:
+        await session.scalar(
+            text("SELECT RELEASE_LOCK(:lock_name)"),
+            {"lock_name": lock_name},
+        )
+
+
+async def _ensure_capture_skills_locked(
+    session: AsyncSession,
+    user_id: str,
+) -> list[UserSkill]:
+    machine_names = [item["machine_name"] for item in BASELINE_CAPTURE_SKILLS]
     global_skills = {
         skill.machine_name: skill
         for skill in await session.scalars(
             select(GlobalSkill).where(GlobalSkill.machine_name.in_(machine_names))
         )
     }
+    now = utc_now()
+    rows = []
     for definition in BASELINE_CAPTURE_SKILLS:
         machine_name = definition["machine_name"]
-        if machine_name in by_name:
-            existing_skill = by_name[machine_name]
-            if existing_skill.global_skill_id is None:
-                global_skill = global_skills.get(machine_name)
-                if global_skill is not None:
-                    existing_skill.global_skill_id = global_skill.id
-            merged_schema = _merge_baseline_schema(
-                existing_skill.schema_json,
-                definition["schema"],
-            )
-            if merged_schema != existing_skill.schema_json:
-                existing_skill.schema_json = merged_schema
-            continue
-        skill = UserSkill(
-            user_id=user_id,
-            global_skill_id=(
-                global_skills[machine_name].id
-                if machine_name in global_skills
-                else None
-            ),
-            machine_name=machine_name,
-            display_name=definition["display_name"],
-            description=definition["description"],
-            domain=definition["domain"],
-            schema_json=definition["schema"],
-            queryable_fields_json=list(
-                (definition["schema"].get("properties") or {}).keys()
-            ),
+        rows.append(
+            {
+                "id": new_uuid(),
+                "user_id": user_id,
+                "global_skill_id": (
+                    global_skills[machine_name].id
+                    if machine_name in global_skills
+                    else None
+                ),
+                "machine_name": machine_name,
+                "display_name": definition["display_name"],
+                "description": definition["description"],
+                "domain": definition["domain"],
+                "schema_json": deepcopy(definition["schema"]),
+                "render_spec_json": {},
+                "chat_starters_json": [],
+                "queryable_fields_json": list(
+                    (definition["schema"].get("properties") or {}).keys()
+                ),
+                "position": 0,
+                "enabled": True,
+                "created_at": now,
+                "updated_at": now,
+            }
         )
-        session.add(skill)
-        by_name[machine_name] = skill
+
+    # Match the unique-index key order so concurrent first-use transactions
+    # acquire row/gap locks in the same deterministic sequence.
+    rows.sort(key=lambda item: str(item["machine_name"]))
+    statement = mysql_insert(UserSkill).values(rows)
+    await session.execute(statement.on_duplicate_key_update(id=UserSkill.id))
+    existing = list(
+        await session.scalars(
+            select(UserSkill).where(
+                UserSkill.user_id == user_id,
+                UserSkill.machine_name.in_(machine_names),
+            ).with_for_update()
+        )
+    )
+    by_name = {skill.machine_name: skill for skill in existing}
+    for definition in BASELINE_CAPTURE_SKILLS:
+        machine_name = definition["machine_name"]
+        existing_skill = by_name[machine_name]
+        if existing_skill.global_skill_id is None:
+            global_skill = global_skills.get(machine_name)
+            if global_skill is not None:
+                existing_skill.global_skill_id = global_skill.id
+        merged_schema = _merge_baseline_schema(
+            existing_skill.schema_json,
+            definition["schema"],
+        )
+        if merged_schema != existing_skill.schema_json:
+            existing_skill.schema_json = merged_schema
     await session.flush()
     return [by_name[machine_name] for machine_name in machine_names]
 
@@ -419,43 +458,16 @@ async def create_asset(
             reference_datetime=reference,
             timezone_name=get_settings().default_user_timezone,
         )
-    validate_asset_payload(
-        payload,
-        skill.schema_json,
-        profile=write_profile,
-    )
-
     try:
-        provenance = await validate_owned_provenance(
+        return await persist_asset(
             session,
             user_id,
-            session_id=command.session_id,
-            input_turn_id=command.source_input_turn_id,
+            skill=skill,
+            command=command.model_copy(update={"payload": payload}),
+            write_profile=write_profile,
         )
     except ProvenanceNotOwned as exc:
         raise ChatSessionNotFound() from exc
-
-    asset = Asset(
-        user_id=user_id,
-        user_skill_id=skill.id,
-        payload_json=payload,
-        domain=command.domain or skill.domain,
-        effective_at=_utc_naive(command.effective_at),
-        period=command.period,
-        occurred_at=_utc_naive(command.occurred_at),
-        session_id=provenance.session_id,
-        source_input_turn_id=provenance.input_turn_id,
-    )
-    session.add(asset)
-    await session.flush()
-    await rebuild_asset_fields(session, asset=asset, skill=skill)
-    await on_asset_created(
-        session,
-        asset=asset,
-        now=utc_now(),
-        timezone_name=get_settings().default_user_timezone,
-    )
-    return asset
 
 
 async def get_asset(

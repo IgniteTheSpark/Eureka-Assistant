@@ -49,9 +49,6 @@ void main() {
             ],
           });
         }
-        if (request.url.path == '/api/skills') {
-          return _json({'detail': 'not found'}, statusCode: 404);
-        }
         if (request.url.path == '/api/user-skills') {
           return _json([
             {
@@ -90,6 +87,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(calls, contains('/api/timeline'));
+    expect(calls, contains('/api/user-skills'));
+    expect(calls, isNot(contains('/api/skills')));
     expect(calls, isNot(contains('/api/assets')));
     expect(calls, isNot(contains('/api/flash/recordings')));
     expect(find.text('喝水记录 · 200'), findsOneWidget);

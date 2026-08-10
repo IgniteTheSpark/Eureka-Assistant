@@ -389,6 +389,11 @@ class AgentToolExecution(Base):
             "idempotency_key",
             name="uq_agent_tool_executions_user_key",
         ),
+        UniqueConstraint(
+            "user_id",
+            "root_mutation_key",
+            name="uq_agent_tool_executions_user_root_mutation",
+        ),
         Index(
             "ix_agent_tool_executions_turn",
             "user_id",
@@ -408,6 +413,7 @@ class AgentToolExecution(Base):
         ForeignKey("input_turns.id", ondelete="SET NULL"),
     )
     idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    root_mutation_key: Mapped[str | None] = mapped_column(String(255))
     tool_name: Mapped[str] = mapped_column(String(100), nullable=False)
     arguments_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="running", nullable=False)

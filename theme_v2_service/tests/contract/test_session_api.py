@@ -27,28 +27,18 @@ def _headers(token: str) -> dict[str, str]:
 
 
 async def _asset(client: AsyncClient, token: str) -> str:
-    skill = await client.post(
+    skills = await client.get(
         "/api/user-skills",
         headers=_headers(token),
-        json={
-            "machine_name": "notes",
-            "display_name": "随记",
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "title": {"type": "string"},
-                    "content": {"type": "string"},
-                },
-                "required": ["title", "content"],
-                "additionalProperties": False,
-            },
-        },
+    )
+    skill = next(
+        item for item in skills.json() if item["machine_name"] == "notes"
     )
     created = await client.post(
         "/api/assets",
         headers=_headers(token),
         json={
-            "user_skill_id": skill.json()["id"],
+            "user_skill_id": skill["id"],
             "payload": {"title": "上下文", "content": "一条资产"},
         },
     )

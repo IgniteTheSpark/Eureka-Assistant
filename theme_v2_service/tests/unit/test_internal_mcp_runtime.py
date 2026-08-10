@@ -1,7 +1,12 @@
 import json
+from datetime import datetime
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
+
+import pytest
 
 from app.internal_mcp.runtime import (
+    InternalMCPUnavailable,
     InternalMCPRuntime,
     InternalMCPTrustedContext,
 )
@@ -72,12 +77,24 @@ def _trusted() -> InternalMCPTrustedContext:
         session_id="session-1",
         input_turn_id="turn-1",
         tool_call_id="call-1",
+        reference_datetime=datetime(
+            2026,
+            8,
+            10,
+            16,
+            26,
+            tzinfo=ZoneInfo("Asia/Shanghai"),
+        ),
+        timezone_name="Asia/Shanghai",
     )
 
 
 async def test_runtime_exposes_openai_tools_and_overrides_model_identity():
     fake = _FakeClient()
-    runtime = InternalMCPRuntime(client_factory=lambda _: fake)
+    runtime = InternalMCPRuntime(
+        client_factory=lambda _: fake,
+        contract_audit=False,
+    )
 
     definitions = await runtime.list_openai_tools()
     queried = await runtime.call_tool(
@@ -157,7 +174,10 @@ async def test_runtime_restarts_once_after_stdio_exit_and_replays_stable_call():
     broken = _FakeClient(fail_calls=1)
     healthy = _FakeClient()
     clients = iter([broken, healthy])
-    runtime = InternalMCPRuntime(client_factory=lambda _: next(clients))
+    runtime = InternalMCPRuntime(
+        client_factory=lambda _: next(clients),
+        contract_audit=False,
+    )
 
     result = await runtime.call_tool(
         "tool_update_asset",
@@ -183,3 +203,56 @@ async def test_runtime_restarts_once_after_stdio_exit_and_replays_stable_call():
 
     await runtime.close()
     assert healthy.exited == 1
+
+
+def test_runtime_injects_session_context_into_target_resolution_query():
+    arguments = InternalMCPRuntime._trusted_arguments(
+        "tool_resolve_capture_target",
+        {
+            "entity_type": "expense",
+            "source_text": "刚刚那个",
+            "session_id": "model-session",
+            "source_input_turn_id": "model-turn",
+        },
+        _trusted(),
+    )
+
+    assert arguments == {
+        "entity_type": "expense",
+        "source_text": "刚刚那个",
+        "user_id": "owner",
+        "session_id": "session-1",
+        "source_input_turn_id": "turn-1",
+    }
+
+
+def test_runtime_injects_temporal_context_only_for_declared_tools():
+    todo = InternalMCPRuntime._trusted_arguments(
+        "tool_create_todo",
+        {
+            "content": "提醒我吃药",
+            "reference_datetime": "model-time",
+            "timezone_name": "model-zone",
+        },
+        _trusted(),
+    )
+    query = InternalMCPRuntime._trusted_arguments(
+        "tool_query_asset",
+        {"reference_datetime": "model-time", "timezone_name": "model-zone"},
+        _trusted(),
+    )
+
+    assert todo["reference_datetime"] == "2026-08-10T16:26:00+08:00"
+    assert todo["timezone_name"] == "Asia/Shanghai"
+    assert "reference_datetime" not in query
+    assert "timezone_name" not in query
+
+
+async def test_runtime_fails_startup_when_transport_schema_is_incomplete():
+    runtime = InternalMCPRuntime(client_factory=lambda _: _FakeClient())
+
+    with pytest.raises(InternalMCPUnavailable, match="failed to start"):
+        await runtime.start()
+
+    assert runtime.contract_errors
+    assert any("missing from MCP schema" in error for error in runtime.contract_errors)

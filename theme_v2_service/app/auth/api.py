@@ -10,6 +10,7 @@ from app.auth.dependencies import get_current_user_id
 from app.auth.models import UserAccount
 from app.auth.security import create_token, hash_password, verify_password
 from app.db.session import get_session
+from app.domains.assets.service import ensure_capture_skills
 
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -52,6 +53,7 @@ async def register(
     session.add(user)
     try:
         await session.flush()
+        await ensure_capture_skills(session, user.id)
     except IntegrityError as exc:
         await session.rollback()
         raise HTTPException(status_code=409, detail="该邮箱已注册") from exc

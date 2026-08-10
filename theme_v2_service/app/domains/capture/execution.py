@@ -34,6 +34,7 @@ class FlashExecutionContext:
     transcript: str
     reference_datetime: datetime
     skills: tuple[CaptureSkill, ...]
+    timezone_name: str = "Asia/Shanghai"
 
 
 @dataclass(frozen=True)

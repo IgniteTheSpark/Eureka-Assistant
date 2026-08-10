@@ -1,14 +1,27 @@
 from __future__ import annotations
 
+from typing import Any, Literal
+
 from pydantic import BaseModel, Field
 
 from app.domains.capture.json_output import extract_json_object
 
 
+FlashOperation = Literal["create", "query", "update", "delete", "answer"]
+
+
 class FlashIntent(BaseModel):
     type: str = Field(min_length=1, max_length=100)
+    operation: FlashOperation = "create"
     source_text: str = Field(min_length=1, max_length=4000)
     domain: str | None = Field(default=None, max_length=100)
+    ordinal: int = Field(default=0, ge=0)
+    intent_id: str = Field(default="", max_length=100)
+    target_id: str | None = Field(default=None, max_length=100)
+    target_query: str | None = Field(default=None, max_length=500)
+    contact_patch: dict[str, Any] = Field(default_factory=dict)
+    custom_skill_id: str | None = Field(default=None, max_length=100)
+    routing_error: str | None = Field(default=None, max_length=100)
 
 
 class FlashDispatchResult(BaseModel):

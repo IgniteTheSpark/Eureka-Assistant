@@ -7,12 +7,18 @@ import json
 import os
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 from functools import lru_cache
 from typing import Any, Callable
 
 from fastmcp import Client
 
 from app.internal_mcp.tools import MUTATION_TOOLS
+from app.internal_mcp.contracts import (
+    ALL_TRUSTED_ARGUMENTS,
+    audit_internal_mcp_contracts,
+    trusted_arguments_for_tool,
+)
 
 
 class InternalMCPUnavailable(RuntimeError):
@@ -25,6 +31,10 @@ class InternalMCPTrustedContext:
     session_id: str | None = None
     input_turn_id: str | None = None
     tool_call_id: str | None = None
+    reference_datetime: datetime | None = None
+    timezone_name: str = "Asia/Shanghai"
+    intent_id: str | None = None
+    intent_operation: str | None = None
 
 
 ClientFactory = Callable[[dict[str, Any]], Any]
@@ -100,11 +110,22 @@ def _result_payload(result: Any) -> dict[str, Any]:
 class InternalMCPRuntime:
     """Own one lazy stdio MCP client and replace it after an unexpected exit."""
 
-    def __init__(self, *, client_factory: ClientFactory = _default_client_factory):
+    def __init__(
+        self,
+        *,
+        client_factory: ClientFactory = _default_client_factory,
+        contract_audit: bool = True,
+    ):
         self._client_factory = client_factory
+        self._contract_audit = contract_audit
         self._client: Any | None = None
         self._definitions: list[dict[str, Any]] | None = None
+        self._contract_errors: tuple[str, ...] = ()
         self._lifecycle_lock = asyncio.Lock()
+
+    @property
+    def contract_errors(self) -> tuple[str, ...]:
+        return self._contract_errors
 
     async def _start_locked(self) -> None:
         if self._client is not None:
@@ -119,12 +140,22 @@ class InternalMCPRuntime:
             except Exception:
                 pass
             raise
-        self._client = client
-        self._definitions = [
+        definitions = [
             definition
             for definition in (_tool_schema(tool) for tool in tools)
             if definition["function"]["name"]
         ]
+        errors = (
+            audit_internal_mcp_contracts(definitions)
+            if self._contract_audit
+            else []
+        )
+        self._contract_errors = tuple(errors)
+        if errors:
+            await client.__aexit__(None, None, None)
+            raise RuntimeError("internal MCP contract audit failed")
+        self._client = client
+        self._definitions = definitions
 
     async def start(self) -> None:
         async with self._lifecycle_lock:
@@ -168,18 +199,30 @@ class InternalMCPRuntime:
         trusted: InternalMCPTrustedContext,
     ) -> dict[str, Any]:
         normalized = dict(arguments or {})
-        for key in (
-            "user_id",
-            "session_id",
-            "source_input_turn_id",
-            "tool_call_id",
-        ):
+        for key in ALL_TRUSTED_ARGUMENTS:
             normalized.pop(key, None)
-        normalized["user_id"] = trusted.user_id
-        if name in MUTATION_TOOLS:
-            normalized["session_id"] = trusted.session_id or ""
-            normalized["source_input_turn_id"] = trusted.input_turn_id or ""
-            normalized["tool_call_id"] = trusted.tool_call_id or ""
+        declared = trusted_arguments_for_tool(
+            name,
+            is_mutation=name in MUTATION_TOOLS,
+        )
+        values = {
+            "user_id": trusted.user_id,
+            "session_id": trusted.session_id or "",
+            "source_input_turn_id": trusted.input_turn_id or "",
+            "tool_call_id": trusted.tool_call_id or "",
+            "reference_datetime": (
+                trusted.reference_datetime.isoformat()
+                if trusted.reference_datetime is not None
+                else ""
+            ),
+            "timezone_name": trusted.timezone_name,
+            "intent_id": trusted.intent_id or "",
+            "intent_operation": trusted.intent_operation or "",
+        }
+        for key in declared:
+            if key in {"intent_id", "intent_operation"} and not values[key]:
+                continue
+            normalized[key] = values[key]
         return normalized
 
     async def call_tool(

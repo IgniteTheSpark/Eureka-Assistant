@@ -34,6 +34,7 @@ class PermanentCaptureAgentError(Exception):
 
 
 class CaptureSkill(BaseModel):
+    user_skill_id: str | None = None
     machine_name: str
     display_name: str
     description: str | None = None
@@ -226,6 +227,7 @@ def capture_skill_from_model(skill: UserSkill) -> CaptureSkill:
         schema.get("x-capture-enabled") is True
     )
     return CaptureSkill(
+        user_skill_id=skill.id,
         machine_name=skill.machine_name,
         display_name=skill.display_name,
         description=skill.description,

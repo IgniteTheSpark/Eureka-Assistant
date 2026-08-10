@@ -11,11 +11,20 @@ import litellm
 
 from app.domains.sessions.tools import SessionToolExecutor
 from app.internal_mcp.runtime import InternalMCPUnavailable
+from app.internal_mcp.contracts import ROOT_MUTATION_TOOLS
+from app.domains.capture.tool_results import tool_effect_for_name
 
 
 Completion = Callable[..., Awaitable[Any]]
 _TRUSTED_ARGUMENT_FIELDS = frozenset(
-    {"user_id", "session_id", "source_input_turn_id", "tool_call_id"}
+    {
+        "user_id",
+        "session_id",
+        "source_input_turn_id",
+        "tool_call_id",
+        "intent_id",
+        "intent_operation",
+    }
 )
 
 
@@ -167,6 +176,7 @@ async def _complete(
         "model": model,
         "messages": list(messages),
         "timeout": timeout_seconds,
+        "temperature": 0,
     }
     if definitions:
         kwargs["tools"] = definitions
@@ -224,6 +234,7 @@ async def run_agent_once(
     ]
     tool_events: list[dict[str, Any]] = []
     usage_tokens = 0
+    root_mutation_succeeded = False
 
     for _round in range(max(1, max_rounds)):
         response = await _complete(
@@ -267,7 +278,17 @@ async def run_agent_once(
             }
         )
 
+        first_root_index = next(
+            (
+                index
+                for index, (_call_id, name, _arguments) in enumerate(calls)
+                if name in ROOT_MUTATION_TOOLS
+            ),
+            None,
+        )
+
         async def execute_tool(
+            index: int,
             call: tuple[str, str, dict[str, Any]],
         ) -> tuple[str, str, dict[str, Any], str, dict[str, Any]]:
             model_call_id, name, arguments = call
@@ -284,6 +305,19 @@ async def run_agent_once(
                     arguments,
                     trusted_call_id,
                     {"ok": False, "error": "tool unavailable"},
+                )
+            if name in ROOT_MUTATION_TOOLS and (
+                root_mutation_succeeded or index != first_root_index
+            ):
+                return (
+                    model_call_id,
+                    name,
+                    arguments,
+                    trusted_call_id,
+                    {
+                        "ok": False,
+                        "error": "one root mutation is allowed per atomic intent",
+                    },
                 )
             try:
                 outcome = await executor.execute(
@@ -307,11 +341,19 @@ async def run_agent_once(
                 dict(outcome.response),
             )
 
-        outcomes = await asyncio.gather(*(execute_tool(call) for call in calls))
+        outcomes = await asyncio.gather(
+            *(execute_tool(index, call) for index, call in enumerate(calls))
+        )
+        if any(
+            name in ROOT_MUTATION_TOOLS and payload.get("ok") is True
+            for _model_id, name, _args, _trusted_id, payload in outcomes
+        ):
+            root_mutation_succeeded = True
         for model_call_id, name, arguments, trusted_call_id, payload in outcomes:
             tool_events.append(
                 {
                     "name": name,
+                    "effect": tool_effect_for_name(name),
                     "args": arguments,
                     "response": payload,
                     "tool_call_id": trusted_call_id,

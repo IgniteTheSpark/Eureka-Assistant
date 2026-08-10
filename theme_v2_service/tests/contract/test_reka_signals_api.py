@@ -3,6 +3,7 @@ from uuid import uuid4
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 
 from app.db.models import Asset, UserSkill
 from app.main import app
@@ -34,18 +35,14 @@ def _headers(token: str) -> dict[str, str]:
 
 
 async def _todo(session, *, user_id: str) -> str:
-    skill_id = str(uuid4())
     asset_id = str(uuid4())
-    skill = UserSkill(
-        id=skill_id,
-        user_id=user_id,
-        machine_name="todo",
-        display_name="待办",
-        schema_json={},
-        render_spec_json={},
+    skill = await session.scalar(
+        select(UserSkill).where(
+            UserSkill.user_id == user_id,
+            UserSkill.machine_name == "todo",
+        )
     )
-    session.add(skill)
-    await session.flush()
+    assert skill is not None
     session.add(
         Asset(
             id=asset_id,

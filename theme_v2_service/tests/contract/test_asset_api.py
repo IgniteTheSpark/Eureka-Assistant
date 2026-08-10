@@ -37,8 +37,8 @@ async def test_user_skill_and_asset_crud_are_owner_scoped(client):
         "/api/user-skills",
         headers=_headers(owner),
         json={
-            "machine_name": "notes",
-            "display_name": "笔记",
+            "machine_name": "journal",
+            "display_name": "日志",
             "description": "短笔记",
             "domain": "knowledge",
             "schema": {"content": {"type": "string"}},
@@ -62,8 +62,9 @@ async def test_user_skill_and_asset_crud_are_owner_scoped(client):
         "contact",
         "notes",
         "event",
+        "journal",
     }
-    assert skills_by_name["notes"]["id"] == skill["id"]
+    assert skills_by_name["journal"]["id"] == skill["id"]
 
     asset_response = await client.post(
         "/api/assets",

@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-import re
+from datetime import datetime
 
 from app.domains.capture.agent import (
     CaptureAgentResult,
@@ -13,6 +12,7 @@ from app.domains.capture.agent import (
 from app.domains.capture.dispatcher import FlashIntent
 from app.domains.capture.execution import FlashExecutionItem, FlashExecutionResult
 from app.domains.capture.skills import FlashSkillResult, execute_capture_command
+from app.domains.capture.temporal import canonical_asset_temporal_values
 from app.domains.sessions.tools import SessionToolExecutor
 
 
@@ -90,81 +90,6 @@ def _aggregate_summary(
     return "，".join(parts) + "。"
 
 
-_PERIODS: tuple[tuple[str, str], ...] = (
-    ("凌晨", "凌晨"),
-    ("早上", "上午"),
-    ("上午", "上午"),
-    ("中午", "中午"),
-    ("下午", "下午"),
-    ("晚上", "晚上"),
-    ("今晚", "晚上"),
-    ("夜里", "晚上"),
-)
-_CLOCK_RE = re.compile(
-    r"(凌晨|早上|上午|中午|下午|晚上|今晚)?\s*"
-    r"(\d{1,2})(?:[:：点时])(\d{1,2})?分?"
-)
-
-
-def _temporal_hints(
-    source_text: str,
-    reference_datetime: datetime | None,
-) -> tuple[str | None, datetime | None, datetime | None]:
-    period = next(
-        (value for keyword, value in _PERIODS if keyword in source_text),
-        None,
-    )
-    if reference_datetime is None or reference_datetime.tzinfo is None:
-        return period, None, None
-
-    day = reference_datetime.date()
-    date_mentioned = False
-    for keyword, offset in (
-        ("前天", -2),
-        ("昨天", -1),
-        ("昨日", -1),
-        ("今天", 0),
-        ("明天", 1),
-        ("后天", 2),
-    ):
-        if keyword in source_text:
-            day = (reference_datetime + timedelta(days=offset)).date()
-            date_mentioned = True
-            break
-
-    occurred_at: datetime | None = None
-    if any(word in source_text for word in ("刚刚", "刚才", "现在", "这会儿")):
-        occurred_at = reference_datetime
-    match = _CLOCK_RE.search(source_text)
-    if match:
-        hour = int(match.group(2))
-        minute = int(match.group(3) or 0)
-        marker = match.group(1) or ""
-        if marker in {"下午", "晚上", "今晚"} and 1 <= hour <= 11:
-            hour += 12
-        elif marker == "凌晨" and hour == 12:
-            hour = 0
-        if 0 <= hour <= 23 and 0 <= minute <= 59:
-            occurred_at = datetime(
-                day.year,
-                day.month,
-                day.day,
-                hour,
-                minute,
-                tzinfo=reference_datetime.tzinfo,
-            )
-
-    effective_at = None
-    if date_mentioned and occurred_at is None:
-        effective_at = datetime(
-            day.year,
-            day.month,
-            day.day,
-            tzinfo=reference_datetime.tzinfo,
-        )
-    return period, occurred_at, effective_at
-
-
 def _custom_string_field(skill: CaptureSkill) -> str | None:
     schema = skill.schema_definition or {}
     properties = schema.get("properties")
@@ -233,10 +158,14 @@ async def run_custom_skill_fallback(
             status="error",
             error_code="intent_fallback_unsupported",
         )
-    period, occurred_at, effective_at = _temporal_hints(
-        intent.source_text,
-        reference_datetime,
-    )
+    period = occurred_at = effective_at = None
+    if reference_datetime is not None:
+        _hints, period, occurred_at, effective_at = (
+            canonical_asset_temporal_values(
+                intent.source_text,
+                reference_datetime,
+            )
+        )
     command = CaptureRecordCommand(
         kind="asset",
         operation="create",
@@ -264,10 +193,14 @@ async def run_event_to_todo_fallback(
     reference_datetime: datetime | None = None,
 ) -> FlashExecutionItem:
     todo_intent = intent.model_copy(update={"type": "todo"})
-    period, occurred_at, effective_at = _temporal_hints(
-        intent.source_text,
-        reference_datetime,
-    )
+    period = occurred_at = effective_at = None
+    if reference_datetime is not None:
+        _hints, period, occurred_at, effective_at = (
+            canonical_asset_temporal_values(
+                intent.source_text,
+                reference_datetime,
+            )
+        )
     due_date = occurred_at.isoformat() if occurred_at is not None else ""
     if not due_date and effective_at is not None:
         due_date = effective_at.date().isoformat()

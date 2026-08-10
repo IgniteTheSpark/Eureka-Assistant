@@ -121,7 +121,7 @@ async def resolve_contact_pending_action(
             "icon": "👤",
             "accent_color": "neutral",
         }
-    elif action.operation == "create_or_update":
+    elif action.operation in {"update", "create_or_update"}:
         patch = (action.intent_json or {}).get("patch") or {}
         if not isinstance(patch, dict):
             raise PendingActionInvalid("stored contact patch is invalid")

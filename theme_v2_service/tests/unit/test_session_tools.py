@@ -144,7 +144,7 @@ async def test_create_asset_tool_is_owner_scoped_and_agent_writes_are_permissive
     ]
 
 
-async def test_capture_executor_injects_trusted_todo_reference_datetime():
+async def test_capture_executor_carries_time_only_in_trusted_context():
     runtime = _ReferenceRuntime()
     reference = datetime(
         2026,
@@ -159,6 +159,7 @@ async def test_capture_executor_injects_trusted_todo_reference_datetime():
         session_id="session-1",
         input_turn_id="turn-1",
         reference_datetime=reference,
+        timezone_name="Asia/Shanghai",
         runtime=runtime,
     )
 
@@ -170,7 +171,78 @@ async def test_capture_executor_injects_trusted_todo_reference_datetime():
         },
     )
 
-    assert runtime.calls[0][1]["reference_datetime"] == reference.isoformat()
+    assert "reference_datetime" not in runtime.calls[0][1]
+    assert "timezone_name" not in runtime.calls[0][1]
+    assert runtime.calls[0][2].reference_datetime == reference
+    assert runtime.calls[0][2].timezone_name == "Asia/Shanghai"
+
+
+async def test_capture_executor_canonicalizes_colloquial_todo_period():
+    runtime = _ReferenceRuntime()
+    executor = SessionToolExecutor(
+        user_id="owner",
+        session_id="session-1",
+        input_turn_id="turn-1",
+        runtime=runtime,
+    )
+
+    await executor.execute(
+        "tool_create_todo",
+        {
+            "content": "提交评审稿",
+            "period": "早上",
+        },
+    )
+
+    assert runtime.calls[0][1]["period"] == "上午"
+
+
+async def test_capture_executor_forces_intent_source_and_domain_on_create():
+    runtime = _ReferenceRuntime()
+    executor = SessionToolExecutor(
+        user_id="owner",
+        session_id="session-1",
+        input_turn_id="turn-1",
+        capture_source_text="昨天早上买早餐花了8块",
+        capture_domain="生活",
+        runtime=runtime,
+    )
+
+    await executor.execute(
+        "tool_create_asset",
+        {
+            "user_skill_name": "expense",
+            "payload": {"amount": 8},
+            "source_text": "模型改写过的文本",
+            "domain": "模型猜测",
+        },
+    )
+
+    assert runtime.calls[0][1]["source_text"] == "昨天早上买早餐花了8块"
+    assert runtime.calls[0][1]["domain"] == "生活"
+
+
+async def test_capture_executor_forces_resolved_target_on_root_mutation():
+    runtime = _ReferenceRuntime()
+    executor = SessionToolExecutor(
+        user_id="owner",
+        session_id="session-1",
+        input_turn_id="turn-1",
+        capture_intent_id="intent-0",
+        capture_operation="update",
+        capture_target_id="verified-contact",
+        runtime=runtime,
+    )
+
+    await executor.execute(
+        "tool_update_contact",
+        {
+            "contact_id": "model-invented-contact",
+            "patch": {"title": "产品经理"},
+        },
+    )
+
+    assert runtime.calls[0][1]["contact_id"] == "verified-contact"
 
 
 async def test_tool_outcomes_include_cards_for_specialized_assets_and_contacts():
@@ -255,7 +327,7 @@ async def test_chat_tool_resolves_only_a_pending_contact_from_its_session(sessio
         session_id=chat.id,
         input_turn_id=turn.id,
         kind="contact",
-        operation="create_or_update",
+        operation="update",
         status="pending",
         candidates_json=[
             {"contact_id": contact.id, "name": "Alex", "company": "Acme"}
@@ -276,7 +348,7 @@ async def test_chat_tool_resolves_only_a_pending_contact_from_its_session(sessio
         {
             "id": pending.id,
             "kind": "contact",
-            "operation": "create_or_update",
+            "operation": "update",
             "input_turn_id": turn.id,
             "candidates": [
                 {"contact_id": contact.id, "name": "Alex", "company": "Acme"}

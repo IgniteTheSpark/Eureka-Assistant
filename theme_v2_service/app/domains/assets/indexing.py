@@ -47,8 +47,12 @@ async def rebuild_asset_fields(
     *,
     asset: Asset,
     skill: UserSkill,
+    clear_existing: bool = True,
 ) -> None:
-    await session.execute(delete(AssetField).where(AssetField.asset_id == asset.id))
+    if clear_existing:
+        await session.execute(
+            delete(AssetField).where(AssetField.asset_id == asset.id)
+        )
     properties = (skill.schema_json or {}).get("properties") or {}
     payload = asset.payload_json or {}
     for field_name in queryable_field_names(skill):

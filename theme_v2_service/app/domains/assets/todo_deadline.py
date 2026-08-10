@@ -112,7 +112,10 @@ def normalize_todo_deadline(
     anchor = due_day or _anchor_date(effective_at, zone)
     if anchor is not None:
         hour, minute = PERIOD_END.get(str(period or ""), (18, 0))
-        return _at(anchor, hour, minute, zone)
+        candidate = _at(anchor, hour, minute, zone)
+        if anchor == reference.date() and candidate < reference:
+            return candidate + timedelta(days=1)
+        return candidate
 
     period_end = PERIOD_END.get(str(period or ""))
     if period_end is not None:

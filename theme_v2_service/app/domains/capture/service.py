@@ -1,5 +1,4 @@
 import asyncio
-import json
 import time
 from dataclasses import dataclass
 from datetime import date, datetime, time as datetime_time, timedelta, timezone
@@ -10,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import new_uuid, utc_now
 from app.config import get_settings
-from app.db.models import Asset, Event, UserSkill, WorkflowJob
+from app.db.models import WorkflowJob
 from app.db.session import AsyncSessionFactory
 from app.domains.capture.models import (
     CaptureFile,
@@ -845,7 +844,11 @@ def flash_response_payload(
         if reference.get("entity_kind") in {"asset", "event", "contact"}
         or reference.get("card_type") in {"pending_contact", "error"}
     ]
-    pending = recording.process_status not in {"done", "empty", "failed"}
+    pending = recording.process_status not in {"done", "empty", "failed"} or any(
+        isinstance(reference, dict)
+        and reference.get("card_type") == "pending_contact"
+        for reference in references
+    )
     failed = recording.process_status == "failed"
     summary = _display_result_summary(recording)
     return {
@@ -1211,116 +1214,6 @@ def flash_chat_message_payload(message: FlashChatMessage) -> dict:
         "status": message.status,
         "created_at": _as_utc_z(message.created_at),
     }
-
-
-async def create_flash_chat_message(
-    session: AsyncSession,
-    user_id: str,
-    local_date: date,
-    *,
-    role: str,
-    text: str,
-    status: str = "done",
-) -> FlashChatMessage:
-    message = FlashChatMessage(
-        user_id=user_id,
-        session_date=local_date,
-        role=role,
-        text=text.strip(),
-        status=status,
-    )
-    session.add(message)
-    await session.flush()
-    return message
-
-
-def _json_value(value):
-    if isinstance(value, datetime):
-        return _as_utc_z(value)
-    if isinstance(value, date):
-        return value.isoformat()
-    raise TypeError(f"unsupported context value: {type(value).__name__}")
-
-
-async def build_flash_chat_context(
-    session: AsyncSession,
-    user_id: str,
-    local_date: date,
-    *,
-    timezone_name: str,
-) -> str | None:
-    daily = await get_daily_session(
-        session,
-        user_id,
-        local_date,
-        timezone_name=timezone_name,
-    )
-    if daily is None:
-        return None
-
-    skill_rows = list(
-        await session.scalars(select(UserSkill).where(UserSkill.user_id == user_id))
-    )
-    skill_by_id = {skill.id: skill for skill in skill_rows}
-    assets = list(
-        await session.scalars(
-            select(Asset)
-            .where(
-                Asset.user_id == user_id,
-                Asset.migrated_contact_id.is_(None),
-            )
-            .order_by(Asset.created_at.desc(), Asset.id.desc())
-            .limit(200)
-        )
-    )
-    events = list(
-        await session.scalars(
-            select(Event)
-            .where(Event.user_id == user_id)
-            .order_by(Event.start_at.desc(), Event.id.desc())
-            .limit(100)
-        )
-    )
-    context = {
-        "session_date": local_date,
-        "captures": [
-            {
-                "transcript": item.get("asr_text", ""),
-                "summary": item.get("result_summary", ""),
-                "records": item.get("result_cards", []),
-                "captured_at": item.get("created_at"),
-            }
-            for item in daily["recordings"]
-        ],
-        "assets": [
-            {
-                "id": asset.id,
-                "type": (
-                    skill_by_id[asset.user_skill_id].machine_name
-                    if asset.user_skill_id in skill_by_id
-                    else "asset"
-                ),
-                "payload": asset.payload_json,
-                "effective_at": asset.effective_at,
-                "created_at": asset.created_at,
-            }
-            for asset in assets
-        ],
-        "events": [
-            {
-                "id": event.id,
-                "title": event.title,
-                "description": event.description,
-                "location": event.location,
-                "start_at": event.start_at,
-                "end_at": event.end_at,
-                "status": event.status,
-                "attendees": [item.name_raw for item in event.attendees],
-            }
-            for event in events
-        ],
-    }
-    return json.dumps(context, ensure_ascii=False, default=_json_value)
 
 
 async def delete_daily_session(

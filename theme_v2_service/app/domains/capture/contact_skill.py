@@ -74,39 +74,12 @@ async def execute_contact_command(
             contact=dict(candidates[0]),
         )
 
-    last_response: dict[str, Any] = dict(candidates[0])
-    call_index = 0
-    for field_name, value in _field_updates(command.contact_patch):
-        updated = await executor.execute(
-            "tool_update_contact",
-            {"contact_id": contact_id, "field": field_name, "value": value},
-            tool_call_id=f"{tool_call_prefix}-update-{call_index}",
-        )
-        call_index += 1
-        if not updated.response.get("ok"):
-            return ContactCommandResult(
-                status="error",
-                error=str(updated.response.get("error") or "联系人更新失败"),
-            )
-        last_response = updated.response
-    return _success_or_error(last_response)
-
-
-def _field_updates(patch: dict[str, Any]):
-    for field_name in ("phone", "company", "title", "email"):
-        if field_name in patch:
-            yield field_name, str(patch[field_name] or "")
-    notes = patch.get("notes")
-    if isinstance(notes, str):
-        notes = [notes]
-    for note in notes or []:
-        normalized = str(note).strip()
-        if normalized:
-            yield "notes", normalized
-    socials = patch.get("socials")
-    if isinstance(socials, dict):
-        for network, handle in socials.items():
-            yield str(network), str(handle or "")
+    updated = await executor.execute(
+        "tool_update_contact",
+        {"contact_id": contact_id, "patch": command.contact_patch},
+        tool_call_id=f"{tool_call_prefix}-update",
+    )
+    return _success_or_error(updated.response)
 
 
 def _success_or_error(response: dict[str, Any]) -> ContactCommandResult:

@@ -132,6 +132,19 @@ def test_foundation_migration_round_trip_and_physical_types():
     assert isinstance(pending_columns["candidates_json"]["type"], mysql.JSON)
     assert isinstance(pending_columns["intent_json"]["type"], mysql.JSON)
 
+    tool_execution_columns = {
+        column["name"]: column
+        for column in inspector.get_columns("agent_tool_executions")
+    }
+    assert tool_execution_columns["root_mutation_key"]["type"].length == 255
+    tool_execution_indexes = {
+        index["name"]: index
+        for index in inspector.get_indexes("agent_tool_executions")
+    }
+    assert tool_execution_indexes[
+        "uq_agent_tool_executions_user_root_mutation"
+    ]["unique"] is True
+
     legacy_flash_columns = {
         column["name"]: column
         for column in inspector.get_columns("flash_chat_messages")
@@ -160,7 +173,7 @@ def test_foundation_migration_round_trip_and_physical_types():
     assert isinstance(rhythm_columns["patterns_json"]["type"], mysql.JSON)
     assert rhythm_columns["timezone_name"]["type"].length == 64
 
-    assert revision == "0019_reka_overdue_rhythm"
+    assert revision == "0020_capture_root_mutation_key"
     engine.dispose()
 
 
@@ -338,7 +351,7 @@ def test_internal_mcp_migration_backfills_existing_domain_data():
         revision = connection.execute(
             text("SELECT version_num FROM alembic_version")
         ).scalar_one()
-    assert revision == "0019_reka_overdue_rhythm"
+    assert revision == "0020_capture_root_mutation_key"
     engine.dispose()
 
 

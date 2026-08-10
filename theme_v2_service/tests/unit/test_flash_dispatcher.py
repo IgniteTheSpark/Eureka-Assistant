@@ -242,6 +242,521 @@ async def test_dispatcher_teaches_custom_skills_without_overriding_structured_ty
     assert result.items[0].status == "reply"
 
 
+async def test_read_only_expense_capture_returns_answer_without_mutation_receipt():
+    class QueryRuntime(_Runtime):
+        async def call_tool(self, name, arguments, *, trusted):
+            self.calls.append((name, dict(arguments), trusted))
+            assert name == "tool_query_asset"
+            return {
+                "ok": True,
+                "assets": [
+                    {"asset_id": "expense-1", "payload": {"amount": 8}},
+                    {"asset_id": "expense-2", "payload": {"amount": 20}},
+                ],
+            }
+
+    async def completion(**kwargs):
+        messages = kwargs["messages"]
+        if "FLASH_DISPATCHER" in messages[0]["content"]:
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "intents": [
+                                        {
+                                            "type": "expense",
+                                            "operation": "query",
+                                            "source_text": "最近花了多少钱",
+                                        }
+                                    ]
+                                },
+                                ensure_ascii=False,
+                            )
+                        }
+                    }
+                ]
+            }
+        if messages[-1]["role"] == "tool":
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": '{"ok":true,"answer":"最近共消费 28 元。"}'
+                        }
+                    }
+                ]
+            }
+        assert [tool["function"]["name"] for tool in kwargs["tools"]] == [
+            "tool_query_asset"
+        ]
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": "",
+                        "tool_calls": [
+                            _tool_call(
+                                "model-query",
+                                "tool_query_asset",
+                                {"user_skill_name": "expense"},
+                            )
+                        ],
+                    }
+                }
+            ]
+        }
+
+    runtime = QueryRuntime()
+    provider = LiteLLMLegacyFlashProvider(
+        model="deepseek/deepseek-chat",
+        api_key=None,
+        timeout_seconds=5,
+        completion=completion,
+    )
+    result = await provider.execute(
+        context=FlashExecutionContext(
+            recording_id="rec-query",
+            user_id="owner",
+            session_id="session-1",
+            input_turn_id="turn-query",
+            transcript="最近花了多少钱",
+            reference_datetime=datetime(2026, 8, 10, tzinfo=timezone.utc),
+            skills=(_skill("expense"),),
+        ),
+        tool_runtime=runtime,
+    )
+
+    assert result.summary == "最近共消费 28 元。"
+    assert result.items[0].status == "reply"
+    assert result.items[0].intent.operation == "query"
+    assert [call[0] for call in runtime.calls] == ["tool_query_asset"]
+
+
+async def test_update_capture_resolves_target_before_running_mutation_agent():
+    class UpdateRuntime(_Runtime):
+        async def list_openai_tools(self):
+            return [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": name,
+                        "description": name,
+                        "parameters": {"type": "object", "properties": {}},
+                    },
+                }
+                for name in (
+                    "tool_resolve_capture_target",
+                    "tool_query_asset",
+                    "tool_update_asset",
+                )
+            ]
+
+        async def call_tool(self, name, arguments, *, trusted):
+            self.calls.append((name, dict(arguments), trusted))
+            if name == "tool_resolve_capture_target":
+                return {
+                    "ok": True,
+                    "status": "resolved",
+                    "entity_id": "expense-1",
+                    "entity_type": "expense",
+                    "resolution_source": "prior_input_turn",
+                    "candidates": [],
+                }
+            if name == "tool_update_asset":
+                assert arguments["asset_id"] == "expense-1"
+                return {
+                    "ok": True,
+                    "asset_id": "expense-1",
+                    "user_skill_name": "expense",
+                    "payload": {"amount": 8},
+                }
+            raise AssertionError(name)
+
+    async def completion(**kwargs):
+        messages = kwargs["messages"]
+        if "FLASH_DISPATCHER" in messages[0]["content"]:
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "intents": [
+                                        {
+                                            "type": "expense",
+                                            "operation": "update",
+                                            "source_text": "把刚刚账单从10元改成8元",
+                                        }
+                                    ]
+                                },
+                                ensure_ascii=False,
+                            )
+                        }
+                    }
+                ]
+            }
+        if messages[-1]["role"] == "tool":
+            return {"choices": [{"message": {"content": "not json"}}]}
+        request = json.loads(messages[-1]["content"])
+        assert request["resolved_target"] == {
+            "entity_id": "expense-1",
+            "entity_type": "expense",
+            "resolution_source": "prior_input_turn",
+        }
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": "",
+                        "tool_calls": [
+                            _tool_call(
+                                "model-update",
+                                "tool_update_asset",
+                                {
+                                    "asset_id": "model-invented-expense",
+                                    "payload_patch": {"amount": 8},
+                                },
+                            )
+                        ],
+                    }
+                }
+            ]
+        }
+
+    runtime = UpdateRuntime()
+    provider = LiteLLMLegacyFlashProvider(
+        model="deepseek/deepseek-chat",
+        api_key=None,
+        timeout_seconds=5,
+        completion=completion,
+    )
+    result = await provider.execute(
+        context=FlashExecutionContext(
+            recording_id="rec-update",
+            user_id="owner",
+            session_id="session-1",
+            input_turn_id="turn-2",
+            transcript="把刚刚账单从10元改成8元",
+            reference_datetime=datetime(2026, 8, 10, tzinfo=timezone.utc),
+            skills=(_skill("expense"),),
+        ),
+        tool_runtime=runtime,
+    )
+
+    assert result.items[0].status == "success"
+    assert result.items[0].result["asset_id"] == "expense-1"
+    assert [call[0] for call in runtime.calls] == [
+        "tool_resolve_capture_target",
+        "tool_update_asset",
+    ]
+
+
+async def test_resolved_custom_delete_executes_deterministically_without_second_agent():
+    class DeleteRuntime(_Runtime):
+        async def list_openai_tools(self):
+            return [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": name,
+                        "description": name,
+                        "parameters": {"type": "object", "properties": {}},
+                    },
+                }
+                for name in (
+                    "tool_resolve_capture_target",
+                    "tool_delete_asset",
+                )
+            ]
+
+        async def call_tool(self, name, arguments, *, trusted):
+            self.calls.append((name, dict(arguments), trusted))
+            if name == "tool_resolve_capture_target":
+                return {
+                    "ok": True,
+                    "status": "resolved",
+                    "entity_id": "running-1",
+                    "entity_type": "running_log",
+                    "resolution_source": "prior_input_turn",
+                    "candidates": [],
+                }
+            if name == "tool_delete_asset":
+                assert arguments["asset_id"] == "running-1"
+                return {
+                    "ok": True,
+                    "status": "deleted",
+                    "asset_id": "running-1",
+                    "user_skill_name": "running_log",
+                }
+            raise AssertionError(name)
+
+    async def completion(**kwargs):
+        if "FLASH_DISPATCHER" not in kwargs["messages"][0]["content"]:
+            raise AssertionError("resolved deletes must not invoke a second agent")
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "intents": [
+                                    {
+                                        "type": "running_log",
+                                        "operation": "delete",
+                                        "source_text": "删除刚才的跑步记录",
+                                    }
+                                ]
+                            },
+                            ensure_ascii=False,
+                        )
+                    }
+                }
+            ]
+        }
+
+    runtime = DeleteRuntime()
+    provider = LiteLLMLegacyFlashProvider(
+        model="deepseek/deepseek-chat",
+        api_key=None,
+        timeout_seconds=5,
+        completion=completion,
+    )
+    result = await provider.execute(
+        context=FlashExecutionContext(
+            recording_id="rec-running-delete",
+            user_id="owner",
+            session_id="session-1",
+            input_turn_id="turn-running-delete",
+            transcript="删除刚才的跑步记录",
+            reference_datetime=datetime(2026, 8, 10, tzinfo=timezone.utc),
+            skills=(_skill("running_log"),),
+        ),
+        tool_runtime=runtime,
+    )
+
+    item = result.items[0]
+    assert item.status == "success"
+    assert item.result["asset_id"] == "running-1"
+    assert item.result["operation_tool"] == "tool_delete_asset"
+    assert [call[0] for call in runtime.calls] == [
+        "tool_resolve_capture_target",
+        "tool_delete_asset",
+    ]
+
+
+async def test_ambiguous_asset_delete_is_an_error_until_asset_confirmation_exists():
+    class AmbiguousAssetRuntime(_Runtime):
+        async def list_openai_tools(self):
+            return [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "tool_resolve_capture_target",
+                        "description": "resolve",
+                        "parameters": {"type": "object", "properties": {}},
+                    },
+                }
+            ]
+
+        async def call_tool(self, name, arguments, *, trusted):
+            self.calls.append((name, dict(arguments), trusted))
+            assert name == "tool_resolve_capture_target"
+            return {
+                "ok": True,
+                "status": "ambiguous",
+                "entity_id": None,
+                "entity_type": None,
+                "resolution_source": "prior_input_turn",
+                "candidates": [
+                    {
+                        "entity_id": "expense-1",
+                        "entity_type": "expense",
+                        "source": "prior_input_turn",
+                        "snapshot": {"asset_id": "expense-1"},
+                    },
+                    {
+                        "entity_id": "expense-2",
+                        "entity_type": "expense",
+                        "source": "prior_input_turn",
+                        "snapshot": {"asset_id": "expense-2"},
+                    },
+                ],
+            }
+
+    async def completion(**kwargs):
+        assert "FLASH_DISPATCHER" in kwargs["messages"][0]["content"]
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "intents": [
+                                    {
+                                        "type": "expense",
+                                        "operation": "delete",
+                                        "source_text": "删除刚刚那个账单",
+                                    }
+                                ]
+                            },
+                            ensure_ascii=False,
+                        )
+                    }
+                }
+            ]
+        }
+
+    runtime = AmbiguousAssetRuntime()
+    provider = LiteLLMLegacyFlashProvider(
+        model="deepseek/deepseek-chat",
+        api_key=None,
+        timeout_seconds=5,
+        completion=completion,
+    )
+    result = await provider.execute(
+        context=FlashExecutionContext(
+            recording_id="rec-expense-delete-ambiguous",
+            user_id="owner",
+            session_id="session-1",
+            input_turn_id="turn-delete",
+            transcript="删除刚刚那个账单",
+            reference_datetime=datetime(2026, 8, 10, tzinfo=timezone.utc),
+            skills=(_skill("expense"),),
+        ),
+        tool_runtime=runtime,
+    )
+
+    item = result.items[0]
+    assert item.status == "error"
+    assert item.error_code == "intent_target_ambiguous"
+    assert result.summary == "有 1 项未完成。"
+    assert [call[0] for call in runtime.calls] == [
+        "tool_resolve_capture_target"
+    ]
+
+
+async def test_ambiguous_contact_preserves_patch_and_flat_candidates_for_confirmation():
+    class AmbiguousRuntime(_Runtime):
+        async def list_openai_tools(self):
+            return [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "tool_resolve_capture_target",
+                        "description": "resolve",
+                        "parameters": {"type": "object", "properties": {}},
+                    },
+                }
+            ]
+
+        async def call_tool(self, name, arguments, *, trusted):
+            self.calls.append((name, dict(arguments), trusted))
+            assert name == "tool_resolve_capture_target"
+            return {
+                "ok": True,
+                "status": "ambiguous",
+                "entity_id": None,
+                "entity_type": None,
+                "resolution_source": "exact_match",
+                "candidates": [
+                    {
+                        "entity_id": "alex-acme",
+                        "entity_type": "contact",
+                        "source": "exact_match",
+                        "snapshot": {
+                            "contact_id": "alex-acme",
+                            "name": "Alex",
+                            "company": "Acme",
+                            "title": "工程师",
+                        },
+                    },
+                    {
+                        "entity_id": "alex-byte",
+                        "entity_type": "contact",
+                        "source": "exact_match",
+                        "snapshot": {
+                            "contact_id": "alex-byte",
+                            "name": "Alex",
+                            "company": "字节",
+                            "title": None,
+                        },
+                    },
+                ],
+            }
+
+    async def completion(**kwargs):
+        assert "FLASH_DISPATCHER" in kwargs["messages"][0]["content"]
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "intents": [
+                                    {
+                                        "type": "contact",
+                                        "operation": "update",
+                                        "source_text": "Alex的职业改成设计师",
+                                        "target_query": "Alex",
+                                        "contact_patch": {"title": "设计师"},
+                                    }
+                                ]
+                            },
+                            ensure_ascii=False,
+                        )
+                    }
+                }
+            ]
+        }
+
+    runtime = AmbiguousRuntime()
+    provider = LiteLLMLegacyFlashProvider(
+        model="deepseek/deepseek-chat",
+        api_key=None,
+        timeout_seconds=5,
+        completion=completion,
+    )
+    result = await provider.execute(
+        context=FlashExecutionContext(
+            recording_id="rec-contact-ambiguous",
+            user_id="owner",
+            session_id="session-1",
+            input_turn_id="turn-contact",
+            transcript="Alex的职业改成设计师",
+            reference_datetime=datetime(2026, 8, 10, tzinfo=timezone.utc),
+            skills=(_skill("contact"),),
+        ),
+        tool_runtime=runtime,
+    )
+
+    item = result.items[0]
+    assert item.status == "pending_confirmation"
+    assert item.result == {
+        "operation": "update",
+        "name": "Alex",
+        "candidates": [
+            {
+                "contact_id": "alex-acme",
+                "name": "Alex",
+                "company": "Acme",
+                "title": "工程师",
+            },
+            {
+                "contact_id": "alex-byte",
+                "name": "Alex",
+                "company": "字节",
+                "title": None,
+            },
+        ],
+        "extracted_update": {"title": "设计师"},
+    }
+    assert [call[0] for call in runtime.calls] == [
+        "tool_resolve_capture_target"
+    ]
+
+
 @pytest.mark.parametrize(
     ("content", "expected"),
     [
@@ -272,8 +787,16 @@ def test_decode_dispatcher_output_falls_back_to_notes_after_model_response():
     assert [intent.model_dump() for intent in intents] == [
         {
             "type": "notes",
+            "operation": "create",
             "source_text": "保留这段原文",
             "domain": None,
+            "ordinal": 0,
+            "intent_id": "",
+            "target_id": None,
+            "target_query": None,
+            "contact_patch": {},
+            "custom_skill_id": None,
+            "routing_error": None,
         }
     ]
 
@@ -293,6 +816,71 @@ def test_decode_dispatcher_output_drops_only_invalid_siblings():
     )
 
     assert [intent.type for intent in intents] == ["expense"]
+
+
+@pytest.mark.parametrize(
+    ("source_text", "intent_type", "operation"),
+    [
+        ("明天提醒我吃药", "todo", "create"),
+        ("帮我看看最近花了多少钱", "expense", "query"),
+        ("把刚刚账单从 10 块改成 8 块", "expense", "update"),
+        ("删除刚刚那个代办", "todo", "delete"),
+        ("地球为什么是圆的", "qa", "answer"),
+    ],
+)
+def test_decode_dispatcher_output_preserves_first_class_operation(
+    source_text: str,
+    intent_type: str,
+    operation: str,
+):
+    intents = decode_dispatcher_output(
+        json.dumps(
+            {
+                "intents": [
+                    {
+                        "type": intent_type,
+                        "operation": operation,
+                        "source_text": source_text,
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        fallback_text=source_text,
+    )
+
+    assert intents[0].operation == operation
+
+
+def test_dispatcher_schema_requires_operation_as_a_bounded_enum():
+    agent = make_dispatcher_agent()
+
+    assert '"operation"' in agent.instruction
+    for operation in ("create", "query", "update", "delete", "answer"):
+        assert f'"{operation}"' in agent.instruction
+
+
+def test_dispatcher_preserves_optional_mutation_target_hints():
+    intent = decode_dispatcher_output(
+        json.dumps(
+            {
+                "intents": [
+                    {
+                        "type": "expense",
+                        "operation": "update",
+                        "source_text": "把咖啡账单改成 8 元",
+                        "target_id": "asset-explicit",
+                        "target_query": "咖啡",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        fallback_text="把咖啡账单改成 8 元",
+    )[0]
+
+    assert intent.target_id == "asset-explicit"
+    assert intent.target_query == "咖啡"
 
 
 def test_dispatcher_factory_is_toolless_and_includes_custom_skill_and_schema():
@@ -329,9 +917,26 @@ def test_builtin_factory_exposes_only_supported_skill_tools():
         make_builtin_skill_agent("misc")
 
 
+def test_builtin_factory_restricts_tools_to_the_requested_operation():
+    query = make_builtin_skill_agent("expense", operation="query")
+    update = make_builtin_skill_agent("expense", operation="update")
+    delete = make_builtin_skill_agent("expense", operation="delete")
+
+    assert query.allowed_tools == frozenset({"tool_query_asset"})
+    assert update.allowed_tools == frozenset(
+        {"tool_query_asset", "tool_update_asset"}
+    )
+    assert delete.allowed_tools == frozenset(
+        {"tool_query_asset", "tool_delete_asset"}
+    )
+    assert "tool_create_asset" not in query.allowed_tools
+    assert "operation=query" in query.instruction
+
+
 def test_custom_factory_keeps_all_fields_optional_and_never_invents_values():
     agent = make_custom_skill_agent(
         CaptureSkill(
+            user_skill_id="skill-running",
             machine_name="running_training",
             display_name="跑步训练",
             description="记录已经发生的跑步",
@@ -357,3 +962,18 @@ def test_custom_factory_keeps_all_fields_optional_and_never_invents_values():
     assert "所有字段在写入时都视为可选" in agent.instruction
     assert "未提到的字段不要补、不要猜" in agent.instruction
     assert "`distance` (number, 可选)" in agent.instruction
+    assert 'user_skill_id="skill-running"' in agent.instruction
+
+
+def test_custom_factory_query_is_read_only():
+    agent = make_custom_skill_agent(
+        CaptureSkill(
+            machine_name="running_training",
+            display_name="跑步训练",
+            schema_definition={"summary": {"type": "string"}},
+        ),
+        operation="query",
+    )
+
+    assert agent.allowed_tools == frozenset({"tool_query_asset"})
+    assert "不得创建、修改或删除资产" in agent.instruction

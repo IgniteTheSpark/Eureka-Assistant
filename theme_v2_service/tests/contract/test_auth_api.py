@@ -1,8 +1,12 @@
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 
 from app.auth.security import create_token
+from app.db.models import UserSkill
+from app.db.session import AsyncSessionFactory
+from app.domains.assets.service import BASELINE_CAPTURE_SKILLS
 from app.main import app
 
 
@@ -31,6 +35,15 @@ async def test_register_normalizes_email_and_returns_token(client):
     assert body["token"]
     assert body["user"]["email"] == "person@example.com"
     assert body["user"]["id"]
+    async with AsyncSessionFactory() as database:
+        skills = list(
+            await database.scalars(
+                select(UserSkill).where(UserSkill.user_id == body["user"]["id"])
+            )
+        )
+    assert {skill.machine_name for skill in skills} == {
+        item["machine_name"] for item in BASELINE_CAPTURE_SKILLS
+    }
 
 
 async def test_duplicate_register_returns_conflict(client):

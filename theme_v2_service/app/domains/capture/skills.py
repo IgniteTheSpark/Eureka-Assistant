@@ -123,6 +123,7 @@ async def _execute_asset(
 def _asset_create_call(command: CaptureRecordCommand) -> tuple[str, dict[str, Any]]:
     payload = command.payload
     temporal = {
+        "source_text": command.source_text,
         "period": command.period or "",
         "occurred_at": command.occurred_at.isoformat()
         if command.occurred_at is not None
@@ -252,6 +253,7 @@ async def _execute_event(
             "tool_create_event",
             {
                 "title": command.title or "",
+                "source_text": command.source_text,
                 "description": command.description or "",
                 "location": command.location or "",
                 "start_at": command.start_at.isoformat() if command.start_at else "",

@@ -95,8 +95,7 @@ async def test_one_exact_alex_updates_the_existing_contact():
     ]
     assert runtime.calls[1][1] == {
         "contact_id": "alex-1",
-        "field": "title",
-        "value": "设计师",
+        "patch": '{"title": "设计师"}',
     }
 
 

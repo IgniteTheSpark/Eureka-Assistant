@@ -30,11 +30,34 @@ def test_extracts_relative_day_with_explicit_clock():
     assert hints.period == "晚上"
 
 
+def test_extracts_future_day_with_explicit_evening_clock():
+    hints = extract_temporal_hints("明天晚上9点踢球", REFERENCE)
+
+    assert hints.occurred_at == datetime(
+        2026,
+        8,
+        6,
+        21,
+        0,
+        tzinfo=ZoneInfo("Asia/Shanghai"),
+    )
+    assert hints.anchor_date == date(2026, 8, 6)
+    assert hints.period == "晚上"
+
+
 def test_keeps_fuzzy_period_without_inventing_a_clock():
     hints = extract_temporal_hints("昨天下午喝了600ml", REFERENCE)
 
     assert hints.anchor_date == date(2026, 8, 4)
     assert hints.period == "下午"
+    assert hints.occurred_at is None
+
+
+def test_yesterday_morning_keeps_date_and_period_without_fake_clock():
+    hints = extract_temporal_hints("昨天早上买早餐花了8块", REFERENCE)
+
+    assert hints.anchor_date == date(2026, 8, 4)
+    assert hints.period == "上午"
     assert hints.occurred_at is None
 
 

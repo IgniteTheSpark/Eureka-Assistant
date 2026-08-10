@@ -135,6 +135,30 @@ def extract_temporal_hints(
     return CaptureTemporalHints()
 
 
+def canonical_asset_temporal_values(
+    source_text: str,
+    reference_datetime: datetime,
+) -> tuple[CaptureTemporalHints, str | None, datetime | None, datetime | None]:
+    """Return transcript-grounded asset time fields in storage precedence order.
+
+    A capture transcript is the authority for semantic time. The model may
+    propose temporal arguments, but callers use this result whenever a trusted
+    capture reference and its atomic source text are available.
+    """
+    hints = extract_temporal_hints(source_text, reference_datetime)
+    if hints.occurred_at is not None:
+        return hints, hints.period, hints.occurred_at, None
+    if hints.anchor_date is not None:
+        effective_at = datetime(
+            hints.anchor_date.year,
+            hints.anchor_date.month,
+            hints.anchor_date.day,
+            tzinfo=_BEIJING,
+        )
+        return hints, hints.period, None, effective_at
+    return hints, None, None, reference_datetime
+
+
 def date_anchor_field(schema: dict) -> str | None:
     properties = schema.get("properties")
     if not isinstance(properties, dict):

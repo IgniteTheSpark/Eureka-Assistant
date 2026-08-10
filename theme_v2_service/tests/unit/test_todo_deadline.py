@@ -198,3 +198,32 @@ def test_new_todo_starts_pending_even_when_deadline_has_passed():
     assert past["status"] == "pending"
     assert boundary["status"] == "pending"
     assert boundary["due_date"] == "2026-08-08T18:00:00+08:00"
+
+
+def test_today_date_only_rolls_to_tomorrow_after_default_cutoff():
+    actual = normalize_todo_deadline(
+        due_date="2026-08-08",
+        period=None,
+        effective_at=None,
+        occurred_at=None,
+        reference_datetime=datetime(2026, 8, 8, 18, 1, tzinfo=SHANGHAI),
+        timezone_name="Asia/Shanghai",
+    )
+
+    assert actual.isoformat() == "2026-08-09T18:00:00+08:00"
+
+
+def test_historical_date_only_stays_in_the_past_and_is_immediately_overdue():
+    reference = datetime(2026, 8, 8, 19, 0, tzinfo=SHANGHAI)
+
+    actual = normalize_todo_deadline(
+        due_date="2026-08-07",
+        period=None,
+        effective_at=None,
+        occurred_at=None,
+        reference_datetime=reference,
+        timezone_name="Asia/Shanghai",
+    )
+
+    assert actual.isoformat() == "2026-08-07T18:00:00+08:00"
+    assert actual < reference

@@ -131,6 +131,39 @@ PENDING_ACTION_TOOL_DEFINITIONS = [
 ]
 
 
+_AGENT_PERIOD_ALIASES = {
+    "凌晨": "凌晨",
+    "清晨": "上午",
+    "早晨": "上午",
+    "早上": "上午",
+    "上午": "上午",
+    "中午": "中午",
+    "午后": "下午",
+    "下午": "下午",
+    "傍晚": "晚上",
+    "晚上": "晚上",
+    "今晚": "晚上",
+    "夜里": "晚上",
+    "夜间": "晚上",
+}
+
+_ROOT_TARGET_ID_ARGUMENTS = {
+    "tool_update_asset": "asset_id",
+    "tool_delete_asset": "asset_id",
+    "tool_update_contact": "contact_id",
+    "tool_delete_contact": "contact_id",
+    "tool_update_event": "event_id",
+    "tool_delete_event": "event_id",
+}
+
+
+def _canonical_agent_period(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    stripped = value.strip()
+    return _AGENT_PERIOD_ALIASES.get(stripped, stripped)
+
+
 @dataclass(frozen=True)
 class ToolOutcome:
     response: dict[str, Any]
@@ -145,6 +178,12 @@ class SessionToolExecutor:
         session_id: str,
         input_turn_id: str | None,
         reference_datetime: datetime | None = None,
+        timezone_name: str = "Asia/Shanghai",
+        capture_source_text: str | None = None,
+        capture_domain: str | None = None,
+        capture_intent_id: str | None = None,
+        capture_operation: str | None = None,
+        capture_target_id: str | None = None,
         source_kind: SessionCardSourceKind = "chat",
         runtime: InternalMCPRuntime | None = None,
     ) -> None:
@@ -152,8 +191,31 @@ class SessionToolExecutor:
         self.session_id = session_id
         self.input_turn_id = input_turn_id
         self.reference_datetime = reference_datetime
+        self.timezone_name = timezone_name
+        self.capture_source_text = (capture_source_text or "").strip()
+        self.capture_domain = (capture_domain or "").strip()
+        self.capture_intent_id = (capture_intent_id or "").strip()
+        self.capture_operation = (capture_operation or "").strip()
+        self.capture_target_id = (capture_target_id or "").strip()
         self.source_kind = source_kind
         self.runtime = runtime or get_internal_mcp_runtime()
+
+    def with_capture_target(self, target_id: str) -> SessionToolExecutor:
+        """Return an executor that enforces the server-resolved mutation target."""
+        return SessionToolExecutor(
+            user_id=self.user_id,
+            session_id=self.session_id,
+            input_turn_id=self.input_turn_id,
+            reference_datetime=self.reference_datetime,
+            timezone_name=self.timezone_name,
+            capture_source_text=self.capture_source_text,
+            capture_domain=self.capture_domain,
+            capture_intent_id=self.capture_intent_id,
+            capture_operation=self.capture_operation,
+            capture_target_id=target_id,
+            source_kind=self.source_kind,
+            runtime=self.runtime,
+        )
 
     async def definitions(self) -> list[dict[str, Any]]:
         return [
@@ -178,8 +240,26 @@ class SessionToolExecutor:
         }.get(name, name)
         normalized = dict(arguments)
         normalized.pop("reference_datetime", None)
-        if internal_name == "tool_create_todo" and self.reference_datetime is not None:
-            normalized["reference_datetime"] = self.reference_datetime.isoformat()
+        normalized.pop("timezone_name", None)
+        target_argument = _ROOT_TARGET_ID_ARGUMENTS.get(internal_name)
+        if (
+            target_argument is not None
+            and self.capture_operation in {"update", "delete"}
+            and self.capture_target_id
+        ):
+            normalized[target_argument] = self.capture_target_id
+        if internal_name in {
+            "tool_create_asset",
+            "tool_create_todo",
+            "tool_create_note",
+            "tool_create_event",
+        }:
+            if self.capture_source_text:
+                normalized["source_text"] = self.capture_source_text
+            if self.capture_domain and internal_name != "tool_create_event":
+                normalized["domain"] = self.capture_domain
+        if "period" in normalized:
+            normalized["period"] = _canonical_agent_period(normalized["period"])
         if "skill_machine_name" in normalized:
             normalized["user_skill_name"] = normalized.pop("skill_machine_name")
         for json_field in ("payload", "payload_patch", "patch"):
@@ -195,6 +275,10 @@ class SessionToolExecutor:
                 session_id=self.session_id,
                 input_turn_id=self.input_turn_id,
                 tool_call_id=tool_call_id,
+                reference_datetime=self.reference_datetime,
+                timezone_name=self.timezone_name,
+                intent_id=self.capture_intent_id or None,
+                intent_operation=self.capture_operation or None,
             ),
         )
         cards: list[dict] = []

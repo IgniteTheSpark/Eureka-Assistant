@@ -1,5 +1,7 @@
 import asyncio
+from dataclasses import replace
 from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 
@@ -13,8 +15,10 @@ from app.db.models import (
     UserSkill,
 )
 from app.db.session import AsyncSessionFactory
-from app.domains.sessions.models import ChatSession, InputTurn
+from app.domains.sessions.models import ChatSession, InputTurn, SessionMessage
 from app.internal_mcp.tools import EurekaToolContext, execute_tool
+from app.internal_mcp import tools as internal_tools
+from app.domains.assets import service as asset_service
 
 
 async def _context(
@@ -45,6 +49,248 @@ async def _context(
             input_turn_id=turn.id,
             idempotency_prefix=f"turn:{turn.id}",
         )
+
+
+async def _successive_contexts(*, user_id: str = "owner"):
+    async with AsyncSessionFactory() as database:
+        chat = ChatSession(user_id=user_id, session_type="chat")
+        database.add(chat)
+        await database.flush()
+        previous = InputTurn(
+            user_id=user_id,
+            session_id=chat.id,
+            turn_index=0,
+            text="午饭花了 10 元",
+            source="hardware",
+        )
+        current = InputTurn(
+            user_id=user_id,
+            session_id=chat.id,
+            turn_index=1,
+            text="把刚刚那个账单从 10 元改成 8 元",
+            source="hardware",
+        )
+        database.add_all([previous, current])
+        await database.flush()
+        database.add(
+            SessionMessage(
+                session_id=chat.id,
+                user_id=user_id,
+                role="agent",
+                status="done",
+                text="已记录",
+                input_turn_id=previous.id,
+                cards_json=[],
+            )
+        )
+        await database.commit()
+        return (
+            EurekaToolContext(
+                user_id=user_id,
+                session_id=chat.id,
+                input_turn_id=previous.id,
+                idempotency_prefix=f"turn:{previous.id}",
+            ),
+            EurekaToolContext(
+                user_id=user_id,
+                session_id=chat.id,
+                input_turn_id=current.id,
+                idempotency_prefix=f"turn:{current.id}",
+            ),
+        )
+
+
+async def test_capture_target_resolver_uses_latest_completed_prior_turn(session):
+    previous, current = await _successive_contexts()
+    async with AsyncSessionFactory() as database:
+        database.add(
+            UserSkill(
+                user_id="owner",
+                machine_name="expense",
+                display_name="消费",
+                schema_json={"type": "object", "properties": {}},
+            )
+        )
+        await database.commit()
+    created = await execute_tool(
+        "tool_create_asset",
+        {
+            "user_skill_name": "expense",
+            "payload": {"title": "午饭", "amount": 10},
+        },
+        context=previous,
+        tool_call_id="create-expense",
+    )
+
+    resolved = await execute_tool(
+        "tool_resolve_capture_target",
+        {
+            "entity_type": "expense",
+            "source_text": "把刚刚那个账单从 10 元改成 8 元",
+        },
+        context=current,
+    )
+
+    assert resolved["ok"] is True
+    assert resolved["status"] == "resolved"
+    assert resolved["entity_id"] == created["asset_id"]
+    assert resolved["resolution_source"] == "prior_input_turn"
+
+    updated = await execute_tool(
+        "tool_update_asset",
+        {
+            "asset_id": resolved["entity_id"],
+            "payload_patch": {"amount": 8},
+        },
+        context=current,
+        tool_call_id="update-expense",
+    )
+
+    assert updated["asset_id"] == created["asset_id"]
+    assert updated["payload"]["amount"] == 8
+    async with AsyncSessionFactory() as database:
+        assets = list(await database.scalars(select(Asset)))
+    assert len(assets) == 1
+    assert assets[0].payload_json["amount"] == 8
+
+
+async def test_capture_target_resolver_never_guesses_between_prior_roots(session):
+    previous, current = await _successive_contexts()
+    async with AsyncSessionFactory() as database:
+        database.add(
+            UserSkill(
+                user_id="owner",
+                machine_name="expense",
+                display_name="消费",
+                schema_json={"type": "object", "properties": {}},
+            )
+        )
+        await database.commit()
+    for index, amount in enumerate((8, 20)):
+        await execute_tool(
+            "tool_create_asset",
+            {
+                "user_skill_name": "expense",
+                "payload": {"title": f"消费 {index}", "amount": amount},
+            },
+            context=previous,
+            tool_call_id=f"create-expense-{index}",
+        )
+
+    resolved = await execute_tool(
+        "tool_resolve_capture_target",
+        {
+            "entity_type": "expense",
+            "source_text": "把刚刚那个账单改一下",
+        },
+        context=current,
+    )
+
+    assert resolved["ok"] is True
+    assert resolved["status"] == "ambiguous"
+    assert resolved["entity_id"] is None
+    assert len(resolved["candidates"]) == 2
+
+
+async def test_capture_target_resolver_does_not_offer_unrelated_assets_for_explicit_query(
+    session,
+):
+    context = await _context(user_id="owner")
+    async with AsyncSessionFactory() as database:
+        database.add(
+            UserSkill(
+                user_id="owner",
+                machine_name="expense",
+                display_name="消费",
+                schema_json={"type": "object", "properties": {}},
+            )
+        )
+        await database.commit()
+    for index, amount in enumerate((8, 20)):
+        await execute_tool(
+            "tool_create_asset",
+            {
+                "user_skill_name": "expense",
+                "payload": {
+                    "description": f"普通消费 {index}",
+                    "amount": amount,
+                },
+            },
+            context=context,
+            tool_call_id=f"create-unrelated-expense-{index}",
+        )
+
+    resolved = await execute_tool(
+        "tool_resolve_capture_target",
+        {
+            "entity_type": "expense",
+            "source_text": "删除那笔 9999 元的火箭燃料消费",
+            "target_query": "9999 元火箭燃料消费",
+        },
+        context=context,
+    )
+
+    assert resolved["ok"] is True
+    assert resolved["status"] == "not_found"
+    assert resolved["entity_id"] is None
+    assert resolved["candidates"] == []
+
+
+async def test_contact_target_resolver_infers_unique_mentioned_name_owner_scoped(
+    session,
+):
+    context = await _context(user_id="owner")
+    async with AsyncSessionFactory() as database:
+        alex = Contact(user_id="owner", name="Alex", company="Acme")
+        database.add_all(
+            [
+                alex,
+                Contact(user_id="owner", name="Kevin", company="远山科技"),
+                Contact(user_id="foreign", name="Alex", company="其他公司"),
+            ]
+        )
+        await database.commit()
+        alex_id = alex.id
+
+    resolved = await execute_tool(
+        "tool_resolve_capture_target",
+        {
+            "entity_type": "contact",
+            "source_text": "Alex 的职业改成产品经理",
+            "target_query": "Alex 联系人",
+        },
+        context=context,
+    )
+
+    assert resolved["status"] == "resolved"
+    assert resolved["entity_id"] == alex_id
+    assert resolved["resolution_source"] == "exact_match"
+
+
+async def test_contact_target_resolver_keeps_duplicate_names_ambiguous(session):
+    context = await _context(user_id="owner")
+    async with AsyncSessionFactory() as database:
+        database.add_all(
+            [
+                Contact(user_id="owner", name="Alex", company="Acme"),
+                Contact(user_id="owner", name="Alex", company="字节"),
+                Contact(user_id="owner", name="Kevin"),
+            ]
+        )
+        await database.commit()
+
+    resolved = await execute_tool(
+        "tool_resolve_capture_target",
+        {
+            "entity_type": "contact",
+            "source_text": "Alex 的职业改成产品经理",
+        },
+        context=context,
+    )
+
+    assert resolved["status"] == "ambiguous"
+    assert resolved["entity_id"] is None
+    assert len(resolved["candidates"]) == 2
 
 
 async def test_custom_asset_write_is_partial_indexed_and_idempotent(session):
@@ -109,6 +355,253 @@ async def test_custom_asset_write_is_partial_indexed_and_idempotent(session):
     assert len(executions) == 1
     assert executions[0].status == "done"
     assert executions[0].result_json == first
+
+
+async def test_custom_asset_stable_skill_id_must_match_owner_machine_name(session):
+    context = await _context()
+    async with AsyncSessionFactory() as database:
+        skill = UserSkill(
+            id="skill-running",
+            user_id="owner",
+            machine_name="running_training",
+            display_name="跑步训练",
+            schema_json={"type": "object", "properties": {}},
+        )
+        other = UserSkill(
+            id="skill-water",
+            user_id="owner",
+            machine_name="water_intake",
+            display_name="喝水记录",
+            schema_json={"type": "object", "properties": {}},
+        )
+        database.add_all([skill, other])
+        await database.commit()
+
+    created = await execute_tool(
+        "tool_create_asset",
+        {
+            "user_skill_id": "skill-running",
+            "user_skill_name": "running_training",
+            "payload": {"distance": 5},
+        },
+        context=context,
+        tool_call_id="stable-custom",
+    )
+    mismatched = await execute_tool(
+        "tool_create_asset",
+        {
+            "user_skill_id": "skill-water",
+            "user_skill_name": "running_training",
+            "payload": {"distance": 6},
+        },
+        context=context,
+        tool_call_id="mismatch-custom",
+    )
+
+    assert created["ok"] is True
+    assert created["user_skill_name"] == "running_training"
+    assert mismatched == {
+        "ok": False,
+        "error": "custom skill id does not match machine name",
+    }
+
+
+async def test_capture_asset_time_is_forced_from_source_at_mcp_boundary(session):
+    context = replace(
+        await _context(),
+        reference_datetime=datetime(
+            2026, 8, 10, 16, 26, tzinfo=ZoneInfo("Asia/Shanghai")
+        ),
+        timezone_name="Asia/Shanghai",
+    )
+    async with AsyncSessionFactory() as database:
+        database.add(
+            UserSkill(
+                user_id="owner",
+                machine_name="expense",
+                display_name="消费",
+                schema_json={
+                    "type": "object",
+                    "properties": {
+                        "amount": {"type": "number"},
+                        "date": {"type": "string", "format": "date"},
+                    },
+                },
+            )
+        )
+        await database.commit()
+
+    created = await execute_tool(
+        "tool_create_asset",
+        {
+            "user_skill_name": "expense",
+            "payload": {"amount": 8, "date": "2099-01-01"},
+            "source_text": "昨天早上买早餐花了8块",
+            "period": "晚上",
+            "occurred_at": "2099-01-01T23:00:00+08:00",
+            "effective_at": "2099-01-01T00:00:00+08:00",
+        },
+        context=context,
+        tool_call_id="source-time-expense",
+    )
+
+    assert created["ok"] is True
+    assert created["payload"]["date"] == "2026-08-09"
+    async with AsyncSessionFactory() as database:
+        asset = await database.get(Asset, created["asset_id"])
+    assert asset.period == "上午"
+    assert asset.occurred_at is None
+    assert asset.effective_at == datetime(2026, 8, 8, 16, 0)
+
+
+async def test_capture_todo_deadline_is_forced_from_source_at_mcp_boundary(session):
+    reference = datetime(2026, 8, 10, 19, 1, tzinfo=ZoneInfo("Asia/Shanghai"))
+    context = replace(
+        await _context(),
+        reference_datetime=reference,
+        timezone_name="Asia/Shanghai",
+    )
+    async with AsyncSessionFactory() as database:
+        database.add(
+            UserSkill(
+                user_id="owner",
+                machine_name="todo",
+                display_name="待办",
+                schema_json={"type": "object", "properties": {}},
+            )
+        )
+        await database.commit()
+
+    tomorrow_morning = await execute_tool(
+        "tool_create_todo",
+        {
+            "content": "明天上午踢球",
+            "source_text": "明天上午踢球",
+            "due_date": "2099-01-01T23:00:00+08:00",
+        },
+        context=context,
+        tool_call_id="todo-morning",
+    )
+    today_after_cutoff = await execute_tool(
+        "tool_create_todo",
+        {
+            "content": "今天交报告",
+            "source_text": "今天交报告",
+            "due_date": "2099-01-01T23:00:00+08:00",
+        },
+        context=context,
+        tool_call_id="todo-today",
+    )
+    exact = await execute_tool(
+        "tool_create_todo",
+        {
+            "content": "明天晚上9点踢球",
+            "source_text": "明天晚上9点踢球",
+            "due_date": "",
+        },
+        context=context,
+        tool_call_id="todo-exact",
+    )
+
+    assert tomorrow_morning["payload"]["due_date"] == (
+        "2026-08-11T11:00:00+08:00"
+    )
+    assert today_after_cutoff["payload"]["due_date"] == (
+        "2026-08-11T18:00:00+08:00"
+    )
+    assert exact["payload"]["due_date"] == "2026-08-11T21:00:00+08:00"
+
+
+async def test_capture_event_range_is_anchored_to_source_clock(session):
+    context = replace(
+        await _context(),
+        reference_datetime=datetime(
+            2026, 8, 10, 16, 26, tzinfo=ZoneInfo("Asia/Shanghai")
+        ),
+        timezone_name="Asia/Shanghai",
+    )
+
+    created = await execute_tool(
+        "tool_create_event",
+        {
+            "title": "球队建设讨论",
+            "source_text": "明天下午3点到4点讨论球队建设",
+            "start_at": "2099-01-01T03:00:00+08:00",
+            "end_at": "2099-01-01T04:00:00+08:00",
+        },
+        context=context,
+        tool_call_id="source-time-event",
+    )
+
+    assert created["ok"] is True
+    assert created["start_at"] == "2026-08-11T07:00:00"
+    assert created["end_at"] == "2026-08-11T08:00:00"
+
+
+async def test_typed_todo_normalizes_once_and_generic_builtin_write_is_rejected(
+    session,
+    monkeypatch,
+):
+    context = await _context()
+    async with AsyncSessionFactory() as database:
+        database.add_all(
+            [
+                UserSkill(
+                    user_id="owner",
+                    machine_name="todo",
+                    display_name="待办",
+                    schema_json={"type": "object", "properties": {}},
+                ),
+                UserSkill(
+                    user_id="owner",
+                    machine_name="notes",
+                    display_name="随记",
+                    schema_json={"type": "object", "properties": {}},
+                ),
+            ]
+        )
+        await database.commit()
+
+    calls = 0
+    original = internal_tools.normalize_new_todo_payload
+
+    def counted(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(internal_tools, "normalize_new_todo_payload", counted)
+    monkeypatch.setattr(asset_service, "normalize_new_todo_payload", counted)
+
+    todo = await execute_tool(
+        "tool_create_todo",
+        {"content": "提交评审稿", "due_date": "2026-08-11T18:00:00+08:00"},
+        context=context,
+        tool_call_id="typed-todo",
+    )
+    generic_todo = await execute_tool(
+        "tool_create_asset",
+        {"user_skill_name": "todo", "payload": {"title": "绕过 typed tool"}},
+        context=context,
+        tool_call_id="generic-todo",
+    )
+    generic_note = await execute_tool(
+        "tool_create_asset",
+        {"user_skill_name": "notes", "payload": {"content": "绕过 typed tool"}},
+        context=context,
+        tool_call_id="generic-note",
+    )
+
+    assert todo["ok"] is True
+    assert calls == 1
+    assert generic_todo == {
+        "ok": False,
+        "error": "use tool_create_todo for built-in todo assets",
+    }
+    assert generic_note == {
+        "ok": False,
+        "error": "use tool_create_note for built-in notes assets",
+    }
 
 
 async def test_asset_tools_are_owner_scoped_and_reject_foreign_provenance(session):
@@ -324,7 +817,7 @@ async def test_asset_mutation_surface_and_idempotency_conflict(session):
         tool_call_id="delete-note",
     )
 
-    assert todo["payload"]["status"] == "done"
+    assert todo["payload"]["status"] == "pending"
     assert todo["payload"]["due_date"] == "2026-08-06T15:00:00+08:00"
     assert conflict == {
         "ok": False,

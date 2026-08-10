@@ -5,6 +5,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import Text, or_, select
 from sqlalchemy.exc import IntegrityError, OperationalError
@@ -22,11 +23,18 @@ from app.db.models import (
 from app.db.session import session_scope
 from app.domains.assets import service as asset_service
 from app.domains.assets.schemas import AssetCreate, AssetUpdate, EventCreate, EventUpdate
+from app.domains.assets.persistence import persist_asset
 from app.domains.assets.todo_deadline import normalize_new_todo_payload
 from app.domains.assets.validation import AssetPayloadInvalid, AssetWriteProfile
 from app.config import get_settings
 from app.domains.contacts import service as contact_service
-from app.domains.contacts.schemas import ContactCreate
+from app.domains.contacts.schemas import ContactCreate, ContactUpdate
+from app.domains.capture.target_resolver import resolve_capture_target
+from app.domains.capture.temporal import (
+    canonical_asset_temporal_values,
+    date_anchor_field,
+    extract_temporal_hints,
+)
 from app.domains.notifications.service import publish_domain_event
 # The stdio MCP process does not import the FastAPI report routers. Register the
 # Report tables explicitly so Asset.source_report_id can resolve its foreign key
@@ -37,6 +45,7 @@ from app.domains.sessions.provenance import (
     ProvenanceNotOwned,
     validate_owned_provenance,
 )
+from app.internal_mcp.contracts import ROOT_MUTATION_TOOLS
 
 
 @dataclass(frozen=True)
@@ -45,6 +54,10 @@ class EurekaToolContext:
     session_id: str | None
     input_turn_id: str | None
     idempotency_prefix: str
+    reference_datetime: datetime | None = None
+    timezone_name: str = "Asia/Shanghai"
+    intent_id: str | None = None
+    intent_operation: str | None = None
 
 
 ToolHandler = Callable[
@@ -228,6 +241,93 @@ async def _create_asset(
     context: EurekaToolContext,
 ) -> dict[str, Any]:
     machine_name = str(arguments.get("user_skill_name") or "").strip()
+    user_skill_id = str(arguments.get("user_skill_id") or "").strip()
+    skill_query = select(UserSkill).where(
+        UserSkill.user_id == context.user_id,
+        UserSkill.enabled.is_(True),
+    )
+    skill = await database.scalar(
+        skill_query.where(
+            UserSkill.id == user_skill_id
+            if user_skill_id
+            else UserSkill.machine_name == machine_name
+        )
+    )
+    if skill is None:
+        return _error(f"skill not registered for user: {machine_name}")
+    if user_skill_id and skill.machine_name != machine_name:
+        return _error("custom skill id does not match machine name")
+    if machine_name in {"todo", "notes"}:
+        return _error(
+            f"use tool_create_{'todo' if machine_name == 'todo' else 'note'} "
+            f"for built-in {machine_name} assets"
+        )
+    try:
+        payload = _json_object(arguments.get("payload") or {}, label="payload")
+        temporal_arguments = dict(arguments)
+        source_text = str(arguments.get("source_text") or "").strip()
+        if source_text and context.reference_datetime is not None:
+            hints, period, occurred_at, effective_at = (
+                canonical_asset_temporal_values(
+                    source_text,
+                    context.reference_datetime,
+                )
+            )
+            temporal_arguments.update(
+                period=period,
+                occurred_at=occurred_at,
+                effective_at=effective_at,
+            )
+            anchor = date_anchor_field(skill.schema_json or {})
+            if anchor and hints.anchor_date is not None:
+                definition = (skill.schema_json or {}).get("properties", {}).get(
+                    anchor,
+                    {},
+                )
+                payload[anchor] = (
+                    hints.occurred_at.isoformat()
+                    if isinstance(definition, dict)
+                    and definition.get("format") == "date-time"
+                    and hints.occurred_at is not None
+                    else hints.anchor_date.isoformat()
+                )
+        asset = await persist_asset(
+            database,
+            context.user_id,
+            skill=skill,
+            command=AssetCreate(
+                user_skill_id=skill.id,
+                payload=payload,
+                session_id=context.session_id,
+                source_input_turn_id=context.input_turn_id,
+                effective_at=temporal_arguments.get("effective_at") or None,
+                period=temporal_arguments.get("period") or None,
+                occurred_at=temporal_arguments.get("occurred_at") or None,
+                domain=str(temporal_arguments.get("domain") or "").strip() or None,
+            ),
+            write_profile=AssetWriteProfile.agent,
+            timezone_name=context.timezone_name,
+        )
+    except (AssetPayloadInvalid, ProvenanceNotOwned, ValueError) as exc:
+        return _error(str(exc))
+    await _publish_change(
+        database,
+        context,
+        entity_type="asset",
+        entity_id=asset.id,
+        operation="created",
+    )
+    return _ok(**_asset_dict(asset, skill))
+
+
+async def _persist_typed_asset(
+    database: AsyncSession,
+    *,
+    context: EurekaToolContext,
+    machine_name: str,
+    payload: dict[str, Any],
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
     skill = await database.scalar(
         select(UserSkill).where(
             UserSkill.user_id == context.user_id,
@@ -238,22 +338,22 @@ async def _create_asset(
     if skill is None:
         return _error(f"skill not registered for user: {machine_name}")
     try:
-        payload = _json_object(arguments.get("payload") or {}, label="payload")
-        provenance = await _owned_provenance(database, arguments, context)
-        asset = await asset_service.create_asset(
+        asset = await persist_asset(
             database,
             context.user_id,
-            AssetCreate(
+            skill=skill,
+            command=AssetCreate(
                 user_skill_id=skill.id,
                 payload=payload,
-                session_id=provenance.session_id,
-                source_input_turn_id=provenance.input_turn_id,
+                session_id=context.session_id,
+                source_input_turn_id=context.input_turn_id,
                 effective_at=arguments.get("effective_at") or None,
                 period=arguments.get("period") or None,
                 occurred_at=arguments.get("occurred_at") or None,
                 domain=str(arguments.get("domain") or "").strip() or None,
             ),
             write_profile=AssetWriteProfile.agent,
+            timezone_name=context.timezone_name,
         )
     except (AssetPayloadInvalid, ProvenanceNotOwned, ValueError) as exc:
         return _error(str(exc))
@@ -274,26 +374,45 @@ async def _create_todo(database, arguments, context):
         return _error("todo title is required")
     payload: dict[str, Any] = {"title": title, "content": content}
     due_date = str(arguments.get("due_date") or "").strip()
+    period = str(arguments.get("period") or "").strip() or None
+    occurred_at = arguments.get("occurred_at") or None
+    effective_at = None
+    source_text = str(arguments.get("source_text") or "").strip()
+    if source_text and context.reference_datetime is not None:
+        hints = extract_temporal_hints(source_text, context.reference_datetime)
+        due_date = hints.occurred_at.isoformat() if hints.occurred_at else ""
+        period = hints.period
+        effective_at = (
+            hints.anchor_date.isoformat() if hints.anchor_date is not None else None
+        )
+        occurred_at = None
     if due_date:
         payload["due_date"] = due_date
-    reference = _parse_datetime(
-        arguments.get("reference_datetime"),
-        field="reference_datetime",
-    )
+    reference = context.reference_datetime
     if reference is None:
         reference = utc_now().replace(tzinfo=timezone.utc)
     payload = normalize_new_todo_payload(
         payload,
-        period=str(arguments.get("period") or "").strip() or None,
-        effective_at=None,
-        occurred_at=arguments.get("occurred_at") or None,
+        period=period,
+        effective_at=effective_at,
+        occurred_at=occurred_at,
         reference_datetime=reference,
-        timezone_name=get_settings().default_user_timezone,
+        timezone_name=(
+            context.timezone_name or get_settings().default_user_timezone
+        ),
     )
-    return await _create_asset(
+    persistence_arguments = dict(arguments)
+    persistence_arguments.update(
+        period=period,
+        effective_at=None,
+        occurred_at=None,
+    )
+    return await _persist_typed_asset(
         database,
-        {**arguments, "user_skill_name": "todo", "payload": payload},
-        context,
+        context=context,
+        machine_name="todo",
+        payload=payload,
+        arguments=persistence_arguments,
     )
 
 
@@ -310,10 +429,26 @@ async def _create_note(database, arguments, context):
         tags = [item.strip() for item in tags.split(",") if item.strip()]
     if isinstance(tags, list) and tags:
         payload["tags"] = [str(item).strip() for item in tags if str(item).strip()][:3]
-    return await _create_asset(
+    temporal_arguments = dict(arguments)
+    source_text = str(arguments.get("source_text") or "").strip()
+    if source_text and context.reference_datetime is not None:
+        _hints, period, occurred_at, effective_at = (
+            canonical_asset_temporal_values(
+                source_text,
+                context.reference_datetime,
+            )
+        )
+        temporal_arguments.update(
+            period=period,
+            occurred_at=occurred_at,
+            effective_at=effective_at,
+        )
+    return await _persist_typed_asset(
         database,
-        {**arguments, "user_skill_name": "notes", "payload": payload},
-        context,
+        context=context,
+        machine_name="notes",
+        payload=payload,
+        arguments=temporal_arguments,
     )
 
 
@@ -505,13 +640,47 @@ async def _update_contact(database, arguments, context):
     field = str(arguments.get("field") or "").strip()
     value = str(arguments.get("value") or "")
     try:
-        contact = await contact_service.update_contact_field(
-            database,
-            context.user_id,
-            contact_id,
-            field=field,
-            value=value,
-        )
+        patch = _json_object(arguments.get("patch") or {}, label="patch")
+        if patch:
+            current = await contact_service.get_contact(
+                database,
+                context.user_id,
+                contact_id,
+            )
+            if current is None:
+                return _error(f"contact not found: {contact_id}")
+            normalized: dict[str, Any] = {
+                key: patch[key]
+                for key in ("name", "phone", "company", "title", "email")
+                if key in patch
+            }
+            if "notes" in patch:
+                notes = patch.get("notes") or []
+                if isinstance(notes, str):
+                    notes = [notes]
+                normalized["notes"] = [
+                    *list(current.notes_json or []),
+                    *[str(item) for item in notes],
+                ]
+            if "socials" in patch:
+                normalized["socials"] = {
+                    **dict(current.socials_json or {}),
+                    **dict(patch.get("socials") or {}),
+                }
+            contact = await contact_service.update_contact(
+                database,
+                context.user_id,
+                contact_id,
+                ContactUpdate(**normalized),
+            )
+        else:
+            contact = await contact_service.update_contact_field(
+                database,
+                context.user_id,
+                contact_id,
+                field=field,
+                value=value,
+            )
     except ValueError as exc:
         return _error(str(exc))
     if contact is None:
@@ -523,7 +692,12 @@ async def _update_contact(database, arguments, context):
         entity_id=contact.id,
         operation="updated",
     )
-    return _ok(contact_action="updated", field=field, value=value, **_contact_dict(contact))
+    response = _contact_dict(contact)
+    if patch:
+        response["updated_fields"] = sorted(patch)
+    else:
+        response.update(field=field, value=value)
+    return _ok(contact_action="updated", **response)
 
 
 async def _delete_contact(database, arguments, context):
@@ -602,6 +776,34 @@ async def _get_input_turn(database, arguments, context):
     )
 
 
+async def _resolve_capture_target(database, arguments, context):
+    resolution = await resolve_capture_target(
+        database,
+        user_id=context.user_id,
+        session_id=context.session_id,
+        input_turn_id=context.input_turn_id,
+        entity_type=str(arguments.get("entity_type") or "").strip(),
+        source_text=str(arguments.get("source_text") or ""),
+        explicit_id=str(arguments.get("explicit_id") or "").strip() or None,
+        target_query=str(arguments.get("target_query") or "").strip() or None,
+    )
+    return _ok(
+        status=resolution.status,
+        entity_id=resolution.entity_id,
+        entity_type=resolution.entity_type,
+        resolution_source=resolution.source,
+        candidates=[
+            {
+                "entity_id": candidate.entity_id,
+                "entity_type": candidate.entity_type,
+                "source": candidate.source,
+                "snapshot": candidate.snapshot,
+            }
+            for candidate in resolution.candidates
+        ],
+    )
+
+
 async def _create_event(database, arguments, context):
     title = str(arguments.get("title") or "").strip()
     if not title:
@@ -610,6 +812,34 @@ async def _create_event(database, arguments, context):
         start = _parse_datetime(arguments.get("start_at"), field="start_at")
         end = _parse_datetime(arguments.get("end_at"), field="end_at")
         all_day = bool(arguments.get("all_day", False))
+        source_text = str(arguments.get("source_text") or "").strip()
+        if source_text and context.reference_datetime is not None:
+            hints = extract_temporal_hints(source_text, context.reference_datetime)
+            try:
+                zone = ZoneInfo(context.timezone_name)
+            except (ZoneInfoNotFoundError, ValueError):
+                zone = ZoneInfo(get_settings().default_user_timezone)
+            if all_day and hints.anchor_date is not None:
+                start = datetime(
+                    hints.anchor_date.year,
+                    hints.anchor_date.month,
+                    hints.anchor_date.day,
+                    tzinfo=zone,
+                )
+                end = start + timedelta(days=1)
+            elif hints.occurred_at is not None:
+                duration = (
+                    end - start
+                    if start is not None
+                    and end is not None
+                    and end > start
+                    and end - start <= timedelta(days=1)
+                    else timedelta(hours=1)
+                )
+                start = hints.occurred_at.astimezone(zone)
+                end = start + duration
+            else:
+                return _error("event source requires an explicit clock or all-day date")
         if start is None:
             return _error("start_at is required")
         if end is None:
@@ -866,6 +1096,7 @@ TOOL_HANDLERS: dict[str, ToolHandler] = {
     "tool_delete_contact": _delete_contact,
     "tool_query_input_turn": _query_input_turn,
     "tool_get_input_turn": _get_input_turn,
+    "tool_resolve_capture_target": _resolve_capture_target,
     "tool_create_event": _create_event,
     "tool_query_event": _query_event,
     "tool_get_event": _get_event,
@@ -895,6 +1126,28 @@ def _arguments_hash(name: str, arguments: dict[str, Any]) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def _root_mutation_key(
+    name: str,
+    context: EurekaToolContext,
+) -> str | None:
+    if (
+        name not in ROOT_MUTATION_TOOLS
+        or not context.input_turn_id
+        or not context.intent_id
+        or not context.intent_operation
+    ):
+        return None
+    raw = ":".join(
+        (
+            context.input_turn_id,
+            context.intent_id,
+            context.intent_operation,
+        )
+    )
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    return f"capture-root:{digest}"
+
+
 async def _execute_mutation(
     database: AsyncSession,
     *,
@@ -913,6 +1166,23 @@ async def _execute_mutation(
     except ProvenanceNotOwned as exc:
         return _error(str(exc))
     arguments_hash = _arguments_hash(name, arguments)
+    root_mutation_key = _root_mutation_key(name, context)
+    if root_mutation_key is not None:
+        root_execution = await database.scalar(
+            select(AgentToolExecution)
+            .where(
+                AgentToolExecution.user_id == context.user_id,
+                AgentToolExecution.root_mutation_key == root_mutation_key,
+            )
+        )
+        if root_execution is not None:
+            if (
+                root_execution.tool_name == name
+                and root_execution.arguments_hash == arguments_hash
+                and root_execution.result_json is not None
+            ):
+                return dict(root_execution.result_json)
+            return _error("root mutation already completed for atomic intent")
     call_key = (tool_call_id or arguments_hash[:24]).strip()
     idempotency_key = f"{context.idempotency_prefix}:{call_key}"[:255]
     execution = await database.scalar(
@@ -921,7 +1191,6 @@ async def _execute_mutation(
             AgentToolExecution.user_id == context.user_id,
             AgentToolExecution.idempotency_key == idempotency_key,
         )
-        .with_for_update()
     )
     if execution is not None:
         if execution.tool_name != name or execution.arguments_hash != arguments_hash:
@@ -935,6 +1204,7 @@ async def _execute_mutation(
         session_id=provenance.session_id,
         input_turn_id=provenance.input_turn_id,
         idempotency_key=idempotency_key,
+        root_mutation_key=None,
         tool_name=name,
         arguments_hash=arguments_hash,
         status="running",
@@ -944,6 +1214,8 @@ async def _execute_mutation(
     result = await TOOL_HANDLERS[name](database, arguments, context)
     execution.status = "done" if result.get("ok") else "rejected"
     execution.result_json = result
+    if result.get("ok") and root_mutation_key is not None:
+        execution.root_mutation_key = root_mutation_key
     execution.error_message = None if result.get("ok") else str(result.get("error") or "")
     execution.updated_at = utc_now()
     await database.flush()
@@ -962,6 +1234,19 @@ async def execute_tool(
         return _error(f"unsupported internal MCP tool: {name}")
     sanitized = dict(arguments or {})
     sanitized.pop("user_id", None)
+    requested_session_id = str(sanitized.pop("session_id", "") or "").strip()
+    if requested_session_id and requested_session_id != (context.session_id or ""):
+        return _error("session not owned by user")
+    requested_input_turn_id = str(
+        sanitized.pop("source_input_turn_id", "") or ""
+    ).strip()
+    if requested_input_turn_id and requested_input_turn_id != (
+        context.input_turn_id or ""
+    ):
+        return _error("input_turn not owned by user")
+    sanitized.pop("tool_call_id", None)
+    sanitized.pop("reference_datetime", None)
+    sanitized.pop("timezone_name", None)
     attempts = 3 if name in MUTATION_TOOLS else 1
     for attempt in range(attempts):
         try:
@@ -985,6 +1270,13 @@ async def execute_tool(
                 and exc.orig.args[0] == 1062
                 and "uq_agent_tool_executions_user_key" in str(exc)
             )
-            if attempt + 1 == attempts or not is_idempotency_race:
+            is_root_mutation_race = (
+                getattr(exc, "orig", None)
+                and exc.orig.args[0] == 1062
+                and "uq_agent_tool_executions_user_root_mutation" in str(exc)
+            )
+            if attempt + 1 == attempts or not (
+                is_idempotency_race or is_root_mutation_race
+            ):
                 raise
     raise RuntimeError("unreachable internal MCP retry state")

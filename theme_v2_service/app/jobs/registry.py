@@ -41,6 +41,21 @@ class JobHandlerRegistry:
 registry = JobHandlerRegistry()
 registry.register(NOTIFICATION_PRUNE_JOB_TYPE, handle_notification_prune)
 
+
+def build_capture_execution_provider(settings):
+    if settings.capture_agent_enabled and settings.capture_agent_model:
+        from app.domains.capture.providers_legacy_flash import (
+            LiteLLMLegacyFlashProvider,
+        )
+
+        return LiteLLMLegacyFlashProvider(
+            model=settings.capture_agent_model,
+            api_key=settings.capture_agent_api_key,
+            timeout_seconds=settings.capture_agent_timeout_seconds,
+        )
+    return UnavailableFlashExecutionProvider()
+
+
 _settings = get_settings()
 registry.register(
     CAPTURE_ASR_JOB_TYPE,
@@ -53,16 +68,7 @@ registry.register(
         poll_timeout_seconds=_settings.capture_asr_poll_timeout_seconds,
     ),
 )
-if _settings.capture_agent_enabled and _settings.capture_agent_model:
-    from app.domains.capture.providers_legacy_flash import LiteLLMLegacyFlashProvider
-
-    capture_agent_provider = LiteLLMLegacyFlashProvider(
-        model=_settings.capture_agent_model,
-        api_key=_settings.capture_agent_api_key,
-        timeout_seconds=_settings.capture_agent_timeout_seconds,
-    )
-else:
-    capture_agent_provider = UnavailableFlashExecutionProvider()
+capture_agent_provider = build_capture_execution_provider(_settings)
 registry.register(
     CAPTURE_PROCESS_JOB_TYPE,
     capture_process_handler(
