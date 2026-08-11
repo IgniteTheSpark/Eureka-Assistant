@@ -123,6 +123,14 @@ def test_foundation_migration_round_trip_and_physical_types():
     assert report_run_columns["scope_hash"]["type"].length == 64
     assert report_run_columns["plan_scope_hash"]["type"].length == 64
 
+    report_columns = {
+        column["name"]: column for column in inspector.get_columns("reports")
+    }
+    assert report_columns["illustration_status"]["type"].length == 24
+    assert report_columns["illustration_job_id"]["type"].length == 36
+    assert isinstance(report_columns["revision"]["type"], Integer)
+    assert report_columns["updated_at"]["type"].fsp == 6
+
     contact_columns = {
         column["name"]: column for column in inspector.get_columns("contacts")
     }
@@ -183,7 +191,7 @@ def test_foundation_migration_round_trip_and_physical_types():
     assert isinstance(rhythm_columns["patterns_json"]["type"], mysql.JSON)
     assert rhythm_columns["timezone_name"]["type"].length == 64
 
-    assert revision == "0022_report_scope_draft"
+    assert revision == "0023_report_async_illustration"
     engine.dispose()
 
 
@@ -361,7 +369,7 @@ def test_internal_mcp_migration_backfills_existing_domain_data():
         revision = connection.execute(
             text("SELECT version_num FROM alembic_version")
         ).scalar_one()
-    assert revision == "0022_report_scope_draft"
+    assert revision == "0023_report_async_illustration"
     engine.dispose()
 
 

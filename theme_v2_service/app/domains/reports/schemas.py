@@ -15,6 +15,17 @@ class TimeRange(StrictModel):
 
 EvidenceKind = Literal["asset", "event", "contact"]
 ScopeAdapterKind = Literal["pre_event_briefing", "period_summary", "generic"]
+IllustrationStatus = Literal["not_required", "pending", "ready", "failed"]
+ReportRunState = Literal[
+    "planning",
+    "awaiting_selection",
+    "generating",
+    "illustration_pending",
+    "completed",
+    "failed",
+    "cancelled",
+    "expired",
+]
 
 
 class EvidenceReference(StrictModel):

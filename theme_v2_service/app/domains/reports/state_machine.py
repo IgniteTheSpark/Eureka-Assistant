@@ -12,7 +12,8 @@ TERMINAL_STATES = {"completed", "cancelled", "expired"}
 ALLOWED_TRANSITIONS = {
     "planning": {"awaiting_selection", "failed", "cancelled"},
     "awaiting_selection": {"planning", "generating", "cancelled", "expired"},
-    "generating": {"completed", "failed", "cancelled"},
+    "generating": {"illustration_pending", "completed", "failed", "cancelled"},
+    "illustration_pending": {"completed"},
     "failed": {"planning", "generating", "cancelled"},
     "completed": set(),
     "cancelled": set(),
@@ -39,7 +40,7 @@ def transition_run(
         _require(run, target, "pending_decision")
     elif target == "generating":
         _require(run, target, "execution_plan", "generation_job_id")
-    elif target == "completed":
+    elif target in {"illustration_pending", "completed"}:
         _require(run, target, "report_id", "completed_at")
     elif target == "failed":
         _require(

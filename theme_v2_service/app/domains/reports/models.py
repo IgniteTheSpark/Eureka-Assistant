@@ -29,7 +29,7 @@ class ReportGenerationRun(Base):
         ),
         CheckConstraint(
             "state IN ('planning', 'awaiting_selection', 'generating', "
-            "'completed', 'failed', 'cancelled', 'expired')",
+            "'illustration_pending', 'completed', 'failed', 'cancelled', 'expired')",
             name="ck_report_generation_runs_state",
         ),
         Index(
@@ -114,6 +114,10 @@ class Report(Base):
         Index("ix_reports_user_created", "user_id", "created_at"),
         CheckConstraint("tokens_used >= 0", name="ck_reports_tokens_nonnegative"),
         CheckConstraint("gen_ms >= 0", name="ck_reports_gen_ms_nonnegative"),
+        CheckConstraint(
+            "illustration_status IN ('not_required','pending','ready','failed')",
+            name="ck_reports_illustration_status",
+        ),
     )
 
     id: Mapped[str] = mapped_column(CHAR(36), primary_key=True, default=new_uuid)
@@ -133,9 +137,20 @@ class Report(Base):
     share_card_spec: Mapped[dict] = mapped_column(mysql.JSON, nullable=False)
     tokens_used: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     gen_ms: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    illustration_status: Mapped[str] = mapped_column(
+        String(24), default="not_required", nullable=False
+    )
+    illustration_job_id: Mapped[str | None] = mapped_column(CHAR(36))
+    revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         mysql.DATETIME(fsp=6),
         default=utc_now,
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        mysql.DATETIME(fsp=6),
+        default=utc_now,
+        onupdate=utc_now,
         nullable=False,
     )
 

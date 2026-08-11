@@ -44,6 +44,8 @@ def _run(state: str) -> ReportGenerationRun:
         ("awaiting_selection", "planning"),
         ("awaiting_selection", "generating"),
         ("generating", "completed"),
+        ("generating", "illustration_pending"),
+        ("illustration_pending", "completed"),
         ("planning", "failed"),
         ("generating", "failed"),
         ("planning", "cancelled"),
@@ -67,6 +69,7 @@ def test_allowed_transitions(source, target):
         ("planning", "completed"),
         ("planning", "generating"),
         ("generating", "planning"),
+        ("illustration_pending", "generating"),
     ],
 )
 def test_forbidden_transitions(source, target):
@@ -80,6 +83,7 @@ def test_forbidden_transitions(source, target):
         ("awaiting_selection", ("pending_decision",)),
         ("generating", ("execution_plan", "generation_job_id")),
         ("completed", ("report_id", "completed_at")),
+        ("illustration_pending", ("report_id", "completed_at")),
         (
             "failed",
             ("failure_stage", "error_code", "error_message", "retry_from"),
@@ -91,6 +95,7 @@ def test_target_state_requires_its_invariants(target, missing_fields):
         "awaiting_selection": "planning",
         "generating": "awaiting_selection",
         "completed": "generating",
+        "illustration_pending": "generating",
         "failed": "planning",
     }[target]
     for field in missing_fields:
