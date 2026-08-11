@@ -15,6 +15,14 @@ DOCKERFILE = ROOT / "theme_v2_service" / "Dockerfile.prod"
 DEPLOY_SCRIPT = DEPLOY_DIR / "theme-v2-deploy.sh"
 BACKUP_SCRIPT = DEPLOY_DIR / "theme-v2-backup.sh"
 DOCKERIGNORE = ROOT / "theme_v2_service" / ".dockerignore"
+ANDROID_PACKAGE_SCRIPT = ROOT / "mobile" / "package_android.sh"
+IOS_PACKAGE_SCRIPT = ROOT / "mobile" / "package_ios.sh"
+MOBILE_CONFIG = ROOT / "mobile" / "lib" / "config.dart"
+IOS_INFO_PLIST = ROOT / "mobile" / "ios" / "Runner" / "Info.plist"
+LEGACY_DEPLOY_README = DEPLOY_DIR / "README.md"
+LEGACY_CADDYFILE = DEPLOY_DIR / "Caddyfile.cn-8443"
+PRODUCTION_API_BASE = "https://api.ureka.chat"
+RETIRED_API_HOST = ".".join(("39", "96", "55", "118"))
 
 
 class ThemeV2ProductionDeploymentTest(unittest.TestCase):
@@ -163,6 +171,37 @@ class ThemeV2ProductionDeploymentTest(unittest.TestCase):
         )
         self.assertNotEqual(0, result.returncode)
         self.assertIn("placeholder", result.stderr.lower())
+
+    def test_mobile_builds_default_to_the_current_theme_v2_api(self) -> None:
+        for path in (ANDROID_PACKAGE_SCRIPT, IOS_PACKAGE_SCRIPT, MOBILE_CONFIG):
+            content = path.read_text()
+            self.assertIn(PRODUCTION_API_BASE, content, str(path.relative_to(ROOT)))
+            self.assertNotIn(
+                "defaultValue: 'http://localhost:8000'",
+                content,
+                str(path.relative_to(ROOT)),
+            )
+        for path in (ANDROID_PACKAGE_SCRIPT, IOS_PACKAGE_SCRIPT):
+            self.assertIn(
+                "--dart-define=THEME_V2=true",
+                path.read_text(),
+                str(path.relative_to(ROOT)),
+            )
+
+    def test_retired_api_host_is_absent_from_build_and_deploy_sources(self) -> None:
+        for path in (
+            ANDROID_PACKAGE_SCRIPT,
+            IOS_PACKAGE_SCRIPT,
+            MOBILE_CONFIG,
+            IOS_INFO_PLIST,
+            LEGACY_DEPLOY_README,
+            LEGACY_CADDYFILE,
+        ):
+            self.assertNotIn(
+                RETIRED_API_HOST,
+                path.read_text(),
+                str(path.relative_to(ROOT)),
+            )
 
 
 if __name__ == "__main__":

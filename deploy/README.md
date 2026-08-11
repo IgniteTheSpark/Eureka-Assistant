@@ -82,18 +82,9 @@ Point the app's API base URL at `https://api.yourdomain.com`.
    `{"registry-mirrors": ["https://docker.m.daocloud.io", "https://docker.1ms.run"]}` 后 `systemctl restart docker`。
 2. **跨境 PyPI 龟速**(实测 pip 层卡 30+ 分钟)→ Dockerfile 已带 `ARG PIP_INDEX_URL`,
    本 compose 默认传阿里云镜像源;本地构建不受影响。
-3. **未备案域名 + TLS 被拦截**(2026-06 抓包实测,结论比预想更严):
-   - 阿里云对未备案域名 `api.ureka.chat` 的 **HTTP** 返回 **403**(按 Host 拦);
-   - 大陆骨干网对这台 ECS 的 **TLS 流量做 RST 注入** —— 带 SNI=域名必断,连
-     **8443 非标端口、甚至无 SNI 的裸 IP TLS 也「先通后断」**(ClientHello 到达后被
-     伪造 RST 打断,概率性,做 App 不可用)。**→ 原计划的 8443 + DNS-01 HTTPS 方案
-     在用户网络下实测 0/6 不通,已放弃。**
-   - **备案前唯一可靠通道:裸 IP + 明文 HTTP(`http://39.96.55.118`,实测 6/6 稳定 200,
-     完整注册/登录链路通过)。** 配置即 `Caddyfile.cn-8443` 里保留的 `:80` 站点。
-   - App 端:`--dart-define=API_BASE=http://39.96.55.118`,并在 `ios/Runner/Info.plist`
-     加 **仅放行该 IP** 的 ATS 明文例外(`NSExceptionDomains` → `39.96.55.118`)。
-     代价是明文传输,仅限备案前内测;App Store 正式提审走备案后的 HTTPS。
-   - 证书/`acme.sh` DNS-01/`8443` 那套**备案后**才有意义:届时 `DOMAIN` 指回
-     `api.ureka.chat`(去端口)、`CADDYFILE` 删掉回默认 Caddyfile,`up -d` 切回标准
-     443 自动 HTTPS;同时删掉 App 的 ATS 例外、`API_BASE` 换 `https://api.ureka.chat`。
-   - 安全组放行:80 / 443 / 8443(后两者备案后用)。
+3. **旧的大陆裸 IP 内测入口已经退役**:
+   - App 和打包脚本统一使用 `https://api.ureka.chat`；不要恢复明文 HTTP 或 ATS 例外。
+   - Theme V2 服务使用 `deploy/docker-compose.theme-v2.prod.yml`、
+     `deploy/Caddyfile.theme-v2` 和 `deploy/README.theme-v2.md`。
+   - `deploy/docker-compose.prod.yml` 仅保留给旧 backend；不得作为 Theme V2 发布入口。
+   - 发布前同时检查 `https://api.ureka.chat/health` 与 `/ready`，再构建移动端。

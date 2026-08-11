@@ -3,8 +3,8 @@
 # Ureka Android 打包脚本。
 #
 # 常用命令：
-#   ./package_android.sh publish=1 api_base=http://39.96.55.118 des="发版包"
-#   ./package_android.sh type=release action=build api_base=http://39.96.55.118
+#   ./package_android.sh publish=1 api_base=https://api.ureka.chat des="发版包"
+#   ./package_android.sh type=release action=build api_base=https://api.ureka.chat
 #   ./package_android.sh type=debug action=install api_base=http://localhost:8000
 #
 # 参数说明：
@@ -38,7 +38,7 @@
 #
 #   api_base=<url>
 #     注入 --dart-define=API_BASE=<url>。不传时读取
-#     .tokens/build.json 的 api_base，仍为空则回退到 http://localhost:8000。
+#     .tokens/build.json 的 api_base，仍为空则使用 https://api.ureka.chat。
 #
 #   des=<text>
 #     蒲公英更新说明和钉钉通知描述。
@@ -150,7 +150,7 @@ DING_CONFIG="$PROJECT_ROOT/.tokens/dingding.json"
 ANDROID_SIGNING_CONFIG="$PROJECT_ROOT/.tokens/android_signing.properties"
 
 if [ -z "$API_BASE" ]; then
-  API_BASE="$(json_value "$BUILD_CONFIG" "api_base" "http://localhost:8000")"
+  API_BASE="$(json_value "$BUILD_CONFIG" "api_base" "https://api.ureka.chat")"
 fi
 
 properties_value() {
@@ -204,6 +204,7 @@ echo "  产物类型      : $PACKAGE_TYPE"
 echo "  架构          : $ARM"
 echo "  清理步骤      : $CLEAN_STEPS"
 echo "  API 地址      : $API_BASE"
+echo "  Theme V2      : true"
 echo "  版本          : $VERSION"
 echo "  钉钉通知      : $NOTIFY"
 echo "  描述          : $DES"
@@ -230,7 +231,7 @@ case "$BUILD_TYPE" in
   release) BUILD_CMD+=("--release") ;;
 esac
 
-BUILD_CMD+=("--dart-define=API_BASE=${API_BASE}")
+BUILD_CMD+=("--dart-define=THEME_V2=true" "--dart-define=API_BASE=${API_BASE}")
 [ -n "$BUILD_NAME" ] && BUILD_CMD+=("--build-name=${BUILD_NAME}")
 [ -n "$BUILD_NUMBER" ] && BUILD_CMD+=("--build-number=${BUILD_NUMBER}")
 
