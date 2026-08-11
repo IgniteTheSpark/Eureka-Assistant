@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import json
 from collections.abc import Awaitable, Callable
+from datetime import datetime, timezone
 from typing import Any, Protocol
+from zoneinfo import ZoneInfo
 
 import litellm
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.models import WorkflowJob
+from app.config import get_settings
+from app.db.models import Asset, Contact, Event, WorkflowJob
 from app.db.session import AsyncSessionFactory
 from app.domains.reports.models import ReportGenerationRun
 from app.domains.reports.schemas import (
@@ -28,6 +31,10 @@ class ScopeResolutionModel(BaseModel):
 class ScopeResolutionRequest(ScopeResolutionModel):
     additional_focus: str
     current_public_scope: PublicResearchBrief
+    selected_evidence: list[dict[str, Any]] = Field(
+        default_factory=list,
+        max_length=20,
+    )
 
 
 class ScopeResolutionResult(ScopeResolutionModel):
@@ -37,6 +44,116 @@ class ScopeResolutionResult(ScopeResolutionModel):
 class ScopeResolverProvider(Protocol):
     async def resolve(self, request: ScopeResolutionRequest) -> ScopeResolutionResult:
         ...
+
+
+def _local_iso(value: datetime, zone: ZoneInfo) -> str:
+    aware = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    return aware.astimezone(zone).isoformat()
+
+
+def _asset_preview(payload: dict) -> dict:
+    return {
+        str(key)[:100]: value
+        for key, value in list(payload.items())[:8]
+        if isinstance(value, (str, int, float, bool)) or value is None
+    }
+
+
+async def build_scope_resolution_request(
+    session: AsyncSession,
+    run: ReportGenerationRun,
+    *,
+    timezone_name: str,
+) -> ScopeResolutionRequest:
+    if run.plan_draft is None:
+        raise ValueError("scope resolution requires a plan draft")
+    draft = ReportPlanDraft.model_validate(run.plan_draft)
+    references = draft.evidence_scope.references[:20]
+    event_ids = [reference.id for reference in references if reference.kind == "event"]
+    asset_ids = [reference.id for reference in references if reference.kind == "asset"]
+    contact_ids = [
+        reference.id for reference in references if reference.kind == "contact"
+    ]
+    events = {
+        event.id: event
+        for event in await session.scalars(
+            select(Event).where(
+                Event.user_id == run.user_id,
+                Event.id.in_(event_ids or [""]),
+            )
+        )
+    }
+    assets = {
+        asset.id: asset
+        for asset in await session.scalars(
+            select(Asset).where(
+                Asset.user_id == run.user_id,
+                Asset.id.in_(asset_ids or [""]),
+            )
+        )
+    }
+    contacts = {
+        contact.id: contact
+        for contact in await session.scalars(
+            select(Contact).where(
+                Contact.user_id == run.user_id,
+                Contact.id.in_(contact_ids or [""]),
+            )
+        )
+    }
+    zone = ZoneInfo(timezone_name)
+    selected_evidence: list[dict[str, Any]] = []
+    for reference in references:
+        if reference.kind == "event" and reference.id in events:
+            event = events[reference.id]
+            selected_evidence.append(
+                {
+                    "kind": "event",
+                    "id": event.id,
+                    "title": event.title,
+                    "notes": event.description,
+                    "location": event.location,
+                    "local_start": _local_iso(event.start_at, zone),
+                    "local_end": _local_iso(event.end_at, zone),
+                    "attendees": [
+                        {
+                            "name": attendee.name_raw,
+                            "role": attendee.role,
+                            "contact_id": attendee.contact_id,
+                        }
+                        for attendee in event.attendees[:10]
+                    ],
+                }
+            )
+        elif reference.kind == "asset" and reference.id in assets:
+            asset = assets[reference.id]
+            selected_evidence.append(
+                {
+                    "kind": "asset",
+                    "id": asset.id,
+                    "skill_id": asset.user_skill_id,
+                    "effective_at": (
+                        _local_iso(asset.effective_at or asset.created_at, zone)
+                    ),
+                    "preview": _asset_preview(asset.payload_json or {}),
+                }
+            )
+        elif reference.kind == "contact" and reference.id in contacts:
+            contact = contacts[reference.id]
+            selected_evidence.append(
+                {
+                    "kind": "contact",
+                    "id": contact.id,
+                    "name": contact.name,
+                    "company": contact.company,
+                    "title": contact.title,
+                }
+            )
+    return ScopeResolutionRequest(
+        additional_focus=draft.additional_focus,
+        current_public_scope=draft.public_research_scope,
+        selected_evidence=selected_evidence,
+    )
 
 
 def blockers_for_scope(
@@ -97,9 +214,11 @@ class LiteLLMScopeResolverProvider:
             {
                 "role": "system",
                 "content": (
-                    "Convert the bounded user focus into a minimal public research "
-                    "brief. Preserve confirmed entities unless the user focus clearly "
-                    "adds another. Never copy private narrative text into a query. "
+                    "Convert the bounded user focus and selected evidence into a "
+                    "minimal public research brief. Use relevant Event notes to infer "
+                    "public entities and research questions. Preserve confirmed entities "
+                    "unless the new scope clearly changes them. Never copy unrelated "
+                    "narrative text into a query. "
                     "A person must include company, role, or public-profile qualifier. "
                     "Return JSON matching the supplied schema and do not browse the Web."
                 ),
@@ -113,6 +232,7 @@ class LiteLLMScopeResolverProvider:
                         "current_public_scope": request.current_public_scope.model_dump(
                             mode="json"
                         ),
+                        "selected_evidence": request.selected_evidence,
                     },
                     ensure_ascii=False,
                 ),
@@ -157,10 +277,10 @@ async def execute_scope_resolution_job(
         )
         if run is None or run.plan_draft is None:
             return False
-        draft = ReportPlanDraft.model_validate(run.plan_draft)
-        request = ScopeResolutionRequest(
-            additional_focus=draft.additional_focus,
-            current_public_scope=draft.public_research_scope,
+        request = await build_scope_resolution_request(
+            read_session,
+            run,
+            timezone_name=get_settings().default_user_timezone,
         )
 
     result = ScopeResolutionResult.model_validate(await provider.resolve(request))

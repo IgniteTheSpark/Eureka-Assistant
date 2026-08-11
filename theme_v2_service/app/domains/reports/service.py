@@ -623,13 +623,28 @@ async def update_plan_draft(
         return run, None
 
     focus_changed = (
-        previous is None
-        or previous.additional_focus != draft.additional_focus
-    ) and bool(draft.additional_focus)
+        bool(draft.additional_focus)
+        if previous is None
+        else previous.additional_focus != draft.additional_focus
+    )
+    previous_references = (
+        {
+            (reference.kind, reference.id)
+            for reference in previous.evidence_scope.references
+        }
+        if previous is not None
+        else set()
+    )
+    current_references = {
+        (reference.kind, reference.id) for reference in draft.evidence_scope.references
+    }
+    references_changed = previous is not None and (
+        previous_references != current_references
+    )
     run.plan_draft = draft.model_dump(mode="json", by_alias=True)
     run.evidence_scope = scope.model_dump(mode="json", by_alias=True)
     run.plan_revision = int(run.plan_revision or 0) + 1
-    if not focus_changed:
+    if not (focus_changed or references_changed):
         await session.flush()
         return run, None
 

@@ -3,15 +3,20 @@ from datetime import datetime
 import pytest
 from sqlalchemy import func, select
 
-from app.db.models import Asset, UserSkill, WorkflowJob
+from app.db.models import Asset, Event, UserSkill, WorkflowJob
 from app.domains.reports.models import ReportGenerationRun
 from app.domains.reports.pipeline import (
     PipelineWriteRejected,
     database_pipeline_context,
 )
-from app.domains.reports.schemas import UserRunCreate
+from app.domains.reports.schemas import (
+    EvidenceScope,
+    ReportPlanDraftUpdate,
+    UserRunCreate,
+)
 from app.domains.reports.scope_resolution import (
     ScopeResolutionResult,
+    build_scope_resolution_request,
     execute_scope_resolution_job,
 )
 from app.domains.reports.service import (
@@ -19,6 +24,7 @@ from app.domains.reports.service import (
     generation_write_guard,
     prepare_scope_plan,
     planner_write_guard,
+    update_plan_draft,
 )
 
 
@@ -234,6 +240,126 @@ class _ScopeResolver:
                 }
             }
         )
+
+
+async def test_event_notes_and_local_time_shape_scope_resolution_request(session):
+    event = Event(
+        id="event-notes",
+        user_id="user-1",
+        title="中国足球建设会议",
+        description="讨论中国足球建设，主要对比欧美足球体系",
+        location="线上",
+        start_at=datetime(2026, 8, 11, 13, 0),
+        end_at=datetime(2026, 8, 11, 14, 0),
+        all_day=False,
+    )
+    run = ReportGenerationRun(
+        user_id="user-1",
+        origin="user_initiated",
+        state="planning",
+        active_stage="scope_resolution",
+        launch_context={"event_id": event.id},
+        intent="会前调研",
+        answers={},
+        evidence_scope={"references": [{"kind": "event", "id": event.id}]},
+        plan_options=[],
+        plan_draft={
+            "selected_option_id": "option-1",
+            "additional_focus": "对比欧美体系",
+            "evidence_scope": {
+                "references": [{"kind": "event", "id": event.id}]
+            },
+            "public_research_scope": {},
+        },
+        resolved_asset_ids=[],
+        generation_context={},
+        usage_json={},
+    )
+    session.add_all([event, run])
+    await session.flush()
+
+    request = await build_scope_resolution_request(
+        session,
+        run,
+        timezone_name="Asia/Shanghai",
+    )
+
+    assert request.selected_evidence == [
+        {
+            "kind": "event",
+            "id": event.id,
+            "title": "中国足球建设会议",
+            "notes": "讨论中国足球建设，主要对比欧美足球体系",
+            "location": "线上",
+            "local_start": "2026-08-11T21:00:00+08:00",
+            "local_end": "2026-08-11T22:00:00+08:00",
+            "attendees": [],
+        }
+    ]
+
+
+async def test_reference_change_enqueues_scope_resolution(session):
+    first = Event(
+        id="event-1",
+        user_id="user-1",
+        title="First",
+        start_at=datetime(2026, 8, 12, 10, 0),
+        end_at=datetime(2026, 8, 12, 11, 0),
+        all_day=False,
+    )
+    second = Event(
+        id="event-2",
+        user_id="user-1",
+        title="Second",
+        start_at=datetime(2026, 8, 13, 10, 0),
+        end_at=datetime(2026, 8, 13, 11, 0),
+        all_day=False,
+    )
+    run = ReportGenerationRun(
+        user_id="user-1",
+        origin="user_initiated",
+        state="awaiting_selection",
+        active_stage="awaiting_selection",
+        launch_context={"event_id": first.id},
+        intent="会前调研",
+        answers={},
+        evidence_scope={"references": [{"kind": "event", "id": first.id}]},
+        pending_decision={
+            "type": "plan_selection",
+            "recommended_option_id": "option-1",
+        },
+        plan_options=[{"id": "option-1"}],
+        plan_draft={
+            "selected_option_id": "option-1",
+            "evidence_scope": {
+                "references": [{"kind": "event", "id": first.id}]
+            },
+            "public_research_scope": {},
+        },
+        plan_revision=2,
+        resolved_asset_ids=[],
+        generation_context={},
+        usage_json={},
+    )
+    session.add_all([first, second, run])
+    await session.flush()
+
+    updated, job = await update_plan_draft(
+        session,
+        user_id="user-1",
+        run_id=run.id,
+        command=ReportPlanDraftUpdate(
+            expected_revision=2,
+            selected_option_id="option-1",
+            evidence_scope=EvidenceScope(
+                references=[{"kind": "event", "id": second.id}]
+            ),
+        ),
+    )
+
+    assert updated.state == "planning"
+    assert job is not None
+    assert job.job_type == "report_scope_resolution"
 
 
 async def test_scope_resolution_writes_only_current_plan_revision(session):
