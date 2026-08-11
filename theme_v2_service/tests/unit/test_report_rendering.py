@@ -1,24 +1,7 @@
-import asyncio
-
 from app.domains.reports.rendering import (
-    generate_optional_illustration,
     render_report_html,
     render_report_presentation,
 )
-
-
-class FailingIllustrationProvider:
-    def __init__(self):
-        self.prompts = []
-
-    async def generate(self, prompt):
-        self.prompts.append(prompt)
-        raise RuntimeError("provider unavailable")
-
-
-class SlowIllustrationProvider:
-    async def generate(self, prompt):
-        await asyncio.sleep(1)
 
 
 def test_renderer_strips_scripts_events_and_uncontrolled_images():
@@ -75,38 +58,6 @@ def test_identical_render_input_produces_identical_html():
         "media_urls": {},
     }
     assert render_report_html(**kwargs) == render_report_html(**kwargs)
-
-
-async def test_illustration_failure_degrades_and_keeps_rendering():
-    provider = FailingIllustrationProvider()
-
-    outcome = await generate_optional_illustration(
-        policy="optional",
-        prompt="calm chart with text 42",
-        provider=provider,
-        store_image=None,
-    )
-
-    assert outcome.execution.status == "failed_degraded"
-    assert outcome.file_id is None
-    assert outcome.warnings == ["illustration generation failed"]
-    assert "chart" not in provider.prompts[0].casefold()
-    assert "text" not in provider.prompts[0].casefold()
-    assert "42" not in provider.prompts[0]
-
-
-async def test_optional_illustration_respects_a_short_critical_path_budget():
-    outcome = await generate_optional_illustration(
-        policy="optional",
-        prompt="calm layered editorial forms",
-        provider=SlowIllustrationProvider(),
-        store_image=None,
-        optional_timeout_seconds=0.001,
-    )
-
-    assert outcome.execution.status == "failed_degraded"
-    assert outcome.file_id is None
-    assert outcome.warnings == ["illustration exceeded optional time budget"]
 
 
 def test_pending_illustration_reserves_one_trusted_slot():

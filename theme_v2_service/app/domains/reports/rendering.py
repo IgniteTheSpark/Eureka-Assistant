@@ -1,16 +1,11 @@
-import asyncio
 import re
-from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
 
 from app.domains.reports.presentation import (
     PresentationRequest,
     PresentationResult,
     render_presentation,
 )
-from app.domains.reports.providers import GeneratedImage, IllustrationProvider
-from app.domains.reports.providers_image import sanitize_illustration_prompt
-from app.domains.reports.schemas import CapabilityExecution, ReportSuggestedAction
+from app.domains.reports.schemas import ReportSuggestedAction
 
 
 MEDIA_REFERENCE_RE = re.compile(r"\(media:([A-Za-z0-9_-]+)\)")
@@ -23,14 +18,6 @@ PENDING_ILLUSTRATION_SLOT_RE = re.compile(
     r'</figure>'
 )
 OWNED_FILE_URL_RE = re.compile(r"/api/files/[A-Za-z0-9_-]+")
-
-
-@dataclass(frozen=True)
-class IllustrationOutcome:
-    execution: CapabilityExecution
-    file_id: str | None = None
-    image: GeneratedImage | None = None
-    warnings: list[str] = field(default_factory=list)
 
 
 def replace_pending_illustration_slot(html: str, file_url: str) -> str:
@@ -121,63 +108,3 @@ def render_report_html(
         illustration_file_id=None,
         illustration_status="not_required",
     ).html
-
-
-async def generate_optional_illustration(
-    *,
-    policy: str,
-    prompt: str | None,
-    provider: IllustrationProvider,
-    store_image: Callable[[GeneratedImage], Awaitable[str]] | None,
-    sensitive_values: list[str] | None = None,
-    optional_timeout_seconds: float | None = None,
-) -> IllustrationOutcome:
-    if policy == "none":
-        return IllustrationOutcome(
-            execution=CapabilityExecution(policy=policy, status="not_requested")
-        )
-    if not prompt:
-        return IllustrationOutcome(
-            execution=CapabilityExecution(policy=policy, status="skipped")
-        )
-    sanitized = sanitize_illustration_prompt(
-        prompt,
-        sensitive_values=sensitive_values,
-    )
-    if not sanitized:
-        return IllustrationOutcome(
-            execution=CapabilityExecution(policy=policy, status="failed_degraded"),
-            warnings=["illustration prompt was removed by safety policy"],
-        )
-    try:
-        if policy == "optional" and optional_timeout_seconds is not None:
-            try:
-                async with asyncio.timeout(optional_timeout_seconds):
-                    image = await provider.generate(sanitized)
-            except TimeoutError:
-                return IllustrationOutcome(
-                    execution=CapabilityExecution(
-                        policy=policy,
-                        status="failed_degraded",
-                    ),
-                    warnings=["illustration exceeded optional time budget"],
-                )
-        else:
-            image = await provider.generate(sanitized)
-        if not image.mime_type.startswith("image/"):
-            raise ValueError("illustration result is not an image")
-        file_id = await store_image(image) if store_image is not None else None
-    except Exception:
-        return IllustrationOutcome(
-            execution=CapabilityExecution(policy=policy, status="failed_degraded"),
-            warnings=["illustration generation failed"],
-        )
-    return IllustrationOutcome(
-        execution=CapabilityExecution(
-            policy=policy,
-            status="succeeded",
-            file_ids=[file_id] if file_id else [],
-        ),
-        file_id=file_id,
-        image=image,
-    )
