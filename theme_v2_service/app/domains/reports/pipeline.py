@@ -274,6 +274,24 @@ def _report_seed(run_id: str) -> int:
     return int(hashlib.sha256(run_id.encode()).hexdigest()[:8], 16)
 
 
+def _resolved_illustration_prompt(
+    *,
+    plan: ReportExecutionPlan,
+    model_prompt: str | None,
+) -> str | None:
+    if plan.illustration_policy == "none":
+        return None
+    if model_prompt and model_prompt.strip():
+        return model_prompt.strip()
+    family = plan.base_family.replace("_", " ")
+    return (
+        f"Editorial abstract cover illustration for a {family} report. "
+        "Calm layered geometric forms, tactile paper texture, balanced negative "
+        "space, refined contemporary editorial art. No typography or identifiable "
+        "people."
+    )
+
+
 def build_pipeline_handlers(
     *,
     job: WorkflowJob,
@@ -370,7 +388,10 @@ def build_pipeline_handlers(
 
         outcome = await generate_optional_illustration(
             policy=context.execution_plan.illustration_policy,
-            prompt=content.get("illustration_prompt"),
+            prompt=_resolved_illustration_prompt(
+                plan=context.execution_plan,
+                model_prompt=content.get("illustration_prompt"),
+            ),
             provider=illustration,
             store_image=store_image,
             sensitive_values=_collect_sensitive_strings(evidence),

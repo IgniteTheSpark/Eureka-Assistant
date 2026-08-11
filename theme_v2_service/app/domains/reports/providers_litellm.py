@@ -128,6 +128,9 @@ def build_generator_messages(request: GeneratorRequest) -> list[dict[str, str]]:
                 "evidence, acceptance_marker, payload_json, or field_bindings. Cite "
                 "external facts with descriptive Markdown links at the supporting "
                 "sentence instead of dumping bare URLs or a raw source list."
+                " When execution_plan.illustration_policy is not none, return a "
+                "concise non-empty illustration_prompt for an abstract editorial "
+                "image without words, numbers, logos, charts, or identifiable people."
             ),
         },
         {"role": "user", "content": f"TRUSTED_CONFIG\n{trusted}"},

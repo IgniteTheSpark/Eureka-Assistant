@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
@@ -22,9 +23,10 @@ def _timestamp(value: datetime) -> str:
 def _valid_url(value: object) -> str | None:
     if not isinstance(value, str):
         return None
-    if not value.startswith("https://"):
+    parsed = urlsplit(value)
+    if parsed.scheme.casefold() != "https" or not parsed.netloc:
         return None
-    return value
+    return urlunsplit(("https", parsed.netloc, parsed.path, parsed.query, ""))
 
 
 class DeepSeekResponsesWebSearchProvider:
@@ -95,6 +97,7 @@ class DeepSeekResponsesWebSearchProvider:
                     ),
                     "tools": [{"type": "web_search"}],
                     "tool_choice": {"type": "web_search"},
+                    "include": ["web_search_call.action.sources"],
                 },
                 timeout=self.timeout_seconds,
             )
@@ -140,6 +143,15 @@ class DeepSeekResponsesWebSearchProvider:
                 continue
             candidates.extend(self._source_candidates(item))
             candidates.extend(self._citation_candidates(item))
+        if not candidates:
+            answer = self._final_answer(output)
+            if answer:
+                for item in output if isinstance(output, list) else []:
+                    candidate = self._completed_open_page(item, snippet=answer)
+                    if candidate is not None:
+                        candidates.append(candidate)
+                    if len(candidates) >= 5:
+                        break
         return [
             WebSource(
                 title=title[:500],
@@ -153,6 +165,40 @@ class DeepSeekResponsesWebSearchProvider:
             for title, url, snippet in candidates
             if title.strip() and snippet.strip()
         ]
+
+    @staticmethod
+    def _final_answer(output: object) -> str:
+        answers = []
+        for item in output if isinstance(output, list) else []:
+            if not isinstance(item, dict) or item.get("type") != "message":
+                continue
+            content = item.get("content")
+            for block in content if isinstance(content, list) else []:
+                if not isinstance(block, dict) or block.get("type") != "output_text":
+                    continue
+                text = str(block.get("text") or "").strip()
+                if text:
+                    answers.append(text)
+        return max(answers, key=len, default="")[:2000]
+
+    @staticmethod
+    def _completed_open_page(
+        item: object,
+        *,
+        snippet: str,
+    ) -> tuple[str, str, str] | None:
+        if not isinstance(item, dict) or item.get("type") != "web_search_call":
+            return None
+        if item.get("status") != "completed":
+            return None
+        action = item.get("action")
+        if not isinstance(action, dict) or action.get("type") != "open_page":
+            return None
+        url = _valid_url(action.get("url"))
+        if url is None:
+            return None
+        hostname = urlsplit(url).hostname or "Public source"
+        return hostname.removeprefix("www."), url, snippet
 
     @staticmethod
     def _source_candidates(item: dict[str, Any]) -> list[tuple[str, str, str]]:

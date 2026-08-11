@@ -316,6 +316,7 @@ def test_generator_prompt_separates_readable_prose_from_typed_actions():
     assert "natural, decision-useful prose" in serialized
     assert "acceptance_marker" in serialized
     assert "descriptive Markdown links" in serialized
+    assert "illustration_policy is not none" in serialized
 
 
 def test_illustration_prompt_removes_text_chart_and_sensitive_values():

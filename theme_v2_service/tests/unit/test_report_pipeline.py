@@ -7,6 +7,7 @@ from app.domains.reports.pipeline import (
     STAGES,
     PipelineContext,
     PipelineWriteRejected,
+    _resolved_illustration_prompt,
     build_pipeline_handlers,
     execute_report_job,
 )
@@ -131,6 +132,30 @@ def test_stage_order_is_stable_and_execution_plan_is_not_a_stage_input_variant()
     context = _context(calls=[])
     with pytest.raises(ValidationError):
         context.execution_plan.report_goal = "mutated"
+
+
+def test_optional_illustration_gets_safe_fallback_when_model_omits_prompt():
+    context = _context(calls=[])
+    plan = context.execution_plan.model_copy(
+        update={"illustration_policy": "optional"}
+    )
+
+    prompt = _resolved_illustration_prompt(
+        plan=plan,
+        model_prompt=None,
+    )
+
+    assert prompt is not None
+    assert "editorial abstract cover" in prompt.casefold()
+    assert "theme synthesis" in prompt.casefold()
+    assert _resolved_illustration_prompt(
+        plan=context.execution_plan,
+        model_prompt=None,
+    ) is None
+    assert _resolved_illustration_prompt(
+        plan=plan,
+        model_prompt="soft blue concentric forms",
+    ) == "soft blue concentric forms"
 
 
 class _BoundaryWebSearch:

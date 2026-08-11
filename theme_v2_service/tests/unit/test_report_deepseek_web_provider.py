@@ -99,6 +99,7 @@ async def test_provider_forces_web_search_and_normalizes_citations():
         ),
         "tools": [{"type": "web_search"}],
         "tool_choice": {"type": "web_search"},
+        "include": ["web_search_call.action.sources"],
     }
     assert [source.url for source in sources] == [
         "https://example.gov/guide",
@@ -189,6 +190,61 @@ async def test_provider_rejects_deepseek_open_page_action_without_evidence():
     ) as client:
         with pytest.raises(PermanentProviderError, match="verifiable URL"):
             await _provider(client).search([_query("safe query")])
+
+
+async def test_provider_normalizes_completed_open_pages_with_final_answer():
+    def handle(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "output": [
+                    {
+                        "type": "web_search_call",
+                        "status": "completed",
+                        "action": {
+                            "type": "open_page",
+                            "url": (
+                                "https://example.com/current-squad"
+                                "#ws_call_id=private-trace"
+                            ),
+                        },
+                    },
+                    {
+                        "type": "web_search_call",
+                        "status": "failed",
+                        "action": {
+                            "type": "open_page",
+                            "url": "https://failed.example.com/page",
+                        },
+                    },
+                    {
+                        "type": "message",
+                        "status": "completed",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": (
+                                    "The safe query is supported by the current "
+                                    "squad page and public team information."
+                                ),
+                                "annotations": [],
+                            }
+                        ],
+                    },
+                ]
+            },
+        )
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handle)
+    ) as client:
+        sources = await _provider(client).search([_query("safe query")])
+
+    assert [source.url for source in sources] == [
+        "https://example.com/current-squad"
+    ]
+    assert sources[0].title == "example.com"
+    assert "safe query" in sources[0].snippet
 
 
 @pytest.mark.parametrize("status", [408, 409, 429, 500, 503])
