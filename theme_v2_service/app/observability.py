@@ -13,6 +13,7 @@ REPORT_METRICS = (
     "planner_option_count",
     "related_skill_discovery_rate",
     "pipeline_duration_ms",
+    "pipeline_stage_duration_ms",
     "pipeline_success_rate",
     "failure_stage",
     "web_search_count",

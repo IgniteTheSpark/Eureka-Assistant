@@ -44,6 +44,9 @@ def build_planner_messages(request: PlannerRequest) -> list[dict[str, str]]:
             "content": (
                 "You are the bounded Report Planner. Use only the supplied official "
                 "templates and read-only context. Return JSON matching the schema. "
+                "Return exactly one top-level result branch: either non-empty "
+                "clarification_questions with empty options, or non-empty options "
+                "with empty clarification_questions. Never populate both. "
                 "When returning options, include recommended on every option and "
                 "return exactly one option with recommended=true. "
                 "For each option, propose concise attention_questions and a bounded "
@@ -186,6 +189,31 @@ def _response_format(model: str, *, name: str, schema: dict) -> dict[str, Any]:
     }
 
 
+def normalize_planner_result_shape(raw: Any) -> Any:
+    """Resolve a common JSON-mode ambiguity before strict validation.
+
+    DeepSeek may return both top-level branches even though PlannerResult is an
+    exclusive union. An actionable option already carries attention questions
+    and blockers, so options are the higher-information branch. Prefer them
+    deterministically instead of paying for repeated model calls that return the
+    same contradictory shape.
+    """
+    if not isinstance(raw, dict):
+        return raw
+    options = raw.get("options")
+    questions = raw.get("clarification_questions")
+    if (
+        isinstance(options, list)
+        and options
+        and isinstance(questions, list)
+        and questions
+    ):
+        normalized = dict(raw)
+        normalized["clarification_questions"] = []
+        return normalized
+    return raw
+
+
 def _drop_untrusted_due_times(
     raw: Any,
     *,
@@ -251,6 +279,7 @@ class LiteLLMPlannerProvider:
                     raise ValueError(
                         "planner response does not contain one JSON object"
                     )
+                raw_result = normalize_planner_result_shape(raw_result)
                 result = canonicalize_planner_result(
                     request=request,
                     result=PlannerResult.model_validate(raw_result),

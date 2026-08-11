@@ -17,6 +17,7 @@ from app.domains.reports.providers_litellm import (
     LiteLLMPlannerProvider,
     build_generator_messages,
     build_planner_messages,
+    normalize_planner_result_shape,
 )
 from app.domains.reports.planner import PlannerRequest, PlannerTemplate
 from app.domains.reports.scope_resolution import (
@@ -31,6 +32,26 @@ from app.domains.reports.schemas import (
 from app.domains.reports.schemas import ReportExecutionPlan
 from app.domains.reports.security import validate_generator_result
 from app.domains.reports.templates import TemplateRegistry
+
+
+def test_planner_shape_prefers_actionable_options_over_duplicate_clarification():
+    raw = {
+        "clarification_questions": [
+            {
+                "id": "focus",
+                "prompt": "你最关注什么？",
+                "kind": "text",
+                "required": False,
+            }
+        ],
+        "options": [{"id": "recommended"}],
+        "usage": {"input_tokens": 0, "output_tokens": 0},
+    }
+
+    normalized = normalize_planner_result_shape(raw)
+
+    assert normalized["clarification_questions"] == []
+    assert normalized["options"] == [{"id": "recommended"}]
 
 
 def _request() -> GeneratorRequest:
@@ -661,7 +682,12 @@ async def test_planner_canonicalizes_template_owned_policy_fields():
                     "message": {
                         "content": json.dumps(
                             {
-                                "clarification_questions": [],
+                                "clarification_questions": [
+                                    {
+                                        "id": "focus",
+                                        "question": "你还希望重点关注什么？",
+                                    }
+                                ],
                                 "options": [
                                     {
                                         "id": "summary",
@@ -698,6 +724,7 @@ async def test_planner_canonicalizes_template_owned_policy_fields():
     result = await provider.plan(planner_request)
 
     assert len(calls) == 1
+    assert result.clarification_questions == []
     option = result.options[0]
     assert option.base_family == "theme_synthesis"
     assert option.web_search.policy == "none"
