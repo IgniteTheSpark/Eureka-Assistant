@@ -10,10 +10,15 @@ from app.config import get_settings
 from app.db.base import utc_now
 from app.db.models import WorkflowJob
 from app.db.session import AsyncSessionFactory
-from app.domains.reports.models import Report, ReportGenerationRun
+from app.domains.reports.models import File, Report, ReportGenerationRun
 from app.domains.reports.providers import IllustrationProvider
 from app.domains.reports.providers_image import sanitize_illustration_prompt
 from app.domains.reports.storage import Storage, persist_owned_file
+from app.domains.reports.rendering import (
+    remove_pending_illustration_slot,
+    replace_pending_illustration_slot,
+)
+from app.domains.reports.state_machine import transition_run
 from app.jobs.models import JobDeferred, JobPermanentFailure
 from app.jobs.queue import defer_job, enqueue_job
 
@@ -85,16 +90,118 @@ async def attach_ready_illustration(
     file_id: str,
     now: datetime,
 ) -> bool:
-    """Attach a stored image once the parent Report exists.
-
-    The trusted HTML replacement and Report revision update are implemented in
-    the late-attachment step. Returning False keeps this child durably queued.
-    """
-
     report = await session.scalar(
-        select(Report.id).where(Report.generation_run_id == job.run_id)
+        select(Report)
+        .where(Report.generation_run_id == job.run_id)
+        .with_for_update()
     )
-    return report is not None and False
+    if report is None:
+        return False
+    if report.illustration_job_id != job.id:
+        raise JobPermanentFailure(
+            "illustration_job_mismatch",
+            "插图任务与报告不匹配",
+        )
+    if report.illustration_status == "ready":
+        return True
+    if report.illustration_status != "pending" or not report.html:
+        raise JobPermanentFailure(
+            "illustration_report_not_pending",
+            "报告不再等待此插图",
+        )
+    run = await session.scalar(
+        select(ReportGenerationRun)
+        .where(
+            ReportGenerationRun.id == job.run_id,
+            ReportGenerationRun.report_id == report.id,
+            ReportGenerationRun.state == "illustration_pending",
+        )
+        .with_for_update()
+    )
+    file = await session.scalar(
+        select(File).where(File.id == file_id, File.user_id == report.user_id)
+    )
+    if run is None or file is None or not file.mime_type.startswith("image/"):
+        raise JobPermanentFailure(
+            "illustration_attachment_invalid",
+            "插图附件无法验证",
+        )
+    report.html = replace_pending_illustration_slot(
+        report.html,
+        f"/api/files/{file.id}",
+    )
+    spec = dict(report.spec_json or {})
+    generated_file_ids = [
+        value
+        for value in spec.get("generated_file_ids", [])
+        if isinstance(value, str) and value
+    ]
+    if file.id not in generated_file_ids:
+        generated_file_ids.append(file.id)
+    spec["generated_file_ids"] = generated_file_ids
+    report.spec_json = spec
+    share_card = dict(report.share_card_spec or {})
+    share_card["illustration_file_id"] = file.id
+    report.share_card_spec = share_card
+    report.illustration_status = "ready"
+    report.revision = int(report.revision or 1) + 1
+    report.updated_at = now
+    generation_context = dict(run.generation_context or {})
+    generation_context["illustration"] = {
+        "policy": str((job.checkpoint_json or {}).get("policy") or "optional"),
+        "status": "succeeded",
+        "sources": [],
+        "file_ids": [file.id],
+    }
+    run.generation_context = generation_context
+    transition_run(run, "completed", now=now)
+    return True
+
+
+async def mark_illustration_failed(
+    session: AsyncSession,
+    *,
+    job: WorkflowJob,
+    error_code: str,
+    now: datetime,
+) -> bool:
+    report = await session.scalar(
+        select(Report)
+        .where(
+            Report.generation_run_id == job.run_id,
+            Report.illustration_job_id == job.id,
+            Report.illustration_status == "pending",
+        )
+        .with_for_update()
+    )
+    if report is None:
+        return False
+    run = await session.scalar(
+        select(ReportGenerationRun)
+        .where(
+            ReportGenerationRun.id == job.run_id,
+            ReportGenerationRun.report_id == report.id,
+            ReportGenerationRun.state == "illustration_pending",
+        )
+        .with_for_update()
+    )
+    if run is None or not report.html:
+        return False
+    report.html = remove_pending_illustration_slot(report.html)
+    report.illustration_status = "failed"
+    report.revision = int(report.revision or 1) + 1
+    report.updated_at = now
+    generation_context = dict(run.generation_context or {})
+    generation_context["illustration"] = {
+        "policy": str((job.checkpoint_json or {}).get("policy") or "optional"),
+        "status": "failed_degraded",
+        "sources": [],
+        "file_ids": [],
+        "error_code": error_code,
+    }
+    run.generation_context = generation_context
+    transition_run(run, "completed", now=now)
+    return True
 
 
 async def execute_report_illustration_job(
@@ -200,11 +307,32 @@ def report_illustration_handler(
     session_factory: async_sessionmaker[AsyncSession] = AsyncSessionFactory,
 ) -> Callable[[WorkflowJob], Awaitable[None]]:
     async def handle(job: WorkflowJob) -> None:
-        await execute_report_illustration_job(
-            job,
-            provider=provider,
-            storage=storage,
-            session_factory=session_factory,
-        )
+        try:
+            await execute_report_illustration_job(
+                job,
+                provider=provider,
+                storage=storage,
+                session_factory=session_factory,
+            )
+        except JobDeferred:
+            raise
+        except Exception as exc:
+            terminal = isinstance(exc, JobPermanentFailure) or (
+                job.attempt >= job.max_attempts
+            )
+            if terminal:
+                async with session_factory() as session:
+                    async with session.begin():
+                        await mark_illustration_failed(
+                            session,
+                            job=job,
+                            error_code=(
+                                exc.error_code
+                                if isinstance(exc, JobPermanentFailure)
+                                else type(exc).__name__
+                            ),
+                            now=utc_now(),
+                        )
+            raise
 
     return handle
