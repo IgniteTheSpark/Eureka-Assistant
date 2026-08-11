@@ -32,7 +32,7 @@ from app.db.models import (
 from app.db.session import session_scope
 from app.domains.assets.service import ensure_capture_skills
 from app.domains.capture import models as _capture_models  # noqa: F401
-from app.domains.capture.agent import capture_skill_from_model
+from app.domains.capture.agent import CaptureSkill, capture_skill_from_model
 from app.domains.capture.execution import FlashExecutionContext
 from app.domains.capture.providers_legacy_flash import LiteLLMLegacyFlashProvider
 from app.domains.devices import models as _device_models  # noqa: F401
@@ -41,7 +41,71 @@ from app.domains.reports import models as _report_models  # noqa: F401
 from app.domains.sessions.models import ChatSession, InputTurn, SessionMessage
 from app.domains.triggers import models as _trigger_models  # noqa: F401
 from app.internal_mcp.runtime import get_internal_mcp_runtime
-from evals.capture_semantic_cases import CUSTOM_SKILLS
+
+
+SMOKE_CUSTOM_SKILLS = (
+    CaptureSkill(
+        user_skill_id="skill-water",
+        machine_name="daily_water_intake",
+        display_name="喝水记录",
+        description="记录用户实际喝下的白水",
+        schema_definition={
+            "type": "object",
+            "properties": {
+                "amount_ml": {
+                    "type": "number",
+                    "title": "饮水量",
+                    "description": "实际喝下的毫升数",
+                },
+                "occurred_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "title": "饮水时间",
+                    "description": "实际饮水时间",
+                },
+            },
+            "x-capture-enabled": True,
+            "x-routing": {
+                "intent": "记录用户已经实际喝下的白水",
+                "aliases": ["喝水", "饮水", "补水"],
+                "include": ["白水", "矿泉水", "纯净水", "饮用水"],
+                "exclude": ["咖啡", "茶", "牛奶", "酒", "购买水", "提醒喝水"],
+                "positive_examples": ["刚喝了500毫升水", "睡前灌了一瓶农夫山泉"],
+                "negative_examples": ["下午喝了一杯拿铁", "买矿泉水花了6块"],
+            },
+        },
+    ),
+    CaptureSkill(
+        user_skill_id="skill-running",
+        machine_name="running_log",
+        display_name="跑步记录",
+        description="记录用户已经完成的跑步活动",
+        schema_definition={
+            "type": "object",
+            "properties": {
+                "distance_km": {
+                    "type": "number",
+                    "title": "距离",
+                    "description": "已经完成的跑步公里数",
+                },
+                "pace": {
+                    "type": "string",
+                    "title": "配速",
+                    "description": "本次跑步配速",
+                },
+            },
+            "x-capture-enabled": True,
+            "x-routing": {
+                "intent": "记录已经完成的跑步、晨跑或慢跑",
+                "aliases": ["跑步", "晨跑", "慢跑"],
+                "include": ["已经跑完", "刚跑完", "实际跑步成绩"],
+                "exclude": ["未来跑步计划", "跑步提醒", "观看跑步比赛"],
+                "positive_examples": ["刚跑完五公里，配速六分半", "今早绕小区跑了三圈"],
+                "negative_examples": ["明早去跑五公里", "提醒我晚上跑步"],
+            },
+        },
+    ),
+)
 
 
 @dataclass(frozen=True)
@@ -115,7 +179,7 @@ async def _seed(user_id: str):
             database.add(turn)
             turns.append(turn)
         await database.flush()
-        for definition in CUSTOM_SKILLS:
+        for definition in SMOKE_CUSTOM_SKILLS:
             database.add(
                 UserSkill(
                     user_id=user_id,
