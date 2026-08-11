@@ -46,7 +46,7 @@ def sanitize_illustration_prompt(
     return " ".join(sanitized.split())[:1000]
 
 
-class OpenAICompatibleIllustrationProvider:
+class SeedreamIllustrationProvider:
     def __init__(
         self,
         *,
@@ -74,6 +74,9 @@ class OpenAICompatibleIllustrationProvider:
                     "model": self.model,
                     "prompt": sanitized,
                     "response_format": "b64_json",
+                    "size": "2K",
+                    "watermark": False,
+                    "sequential_image_generation": "disabled",
                 },
                 timeout=self.timeout_seconds,
             )

@@ -132,6 +132,10 @@ class ThemeV2ProductionDeploymentTest(unittest.TestCase):
                 "CAPTURE_AGENT_ENABLED",
                 "CHAT_AGENT_ENABLED",
                 "REPORT_PIPELINE_ENABLED",
+                "REPORT_ILLUSTRATION_ENABLED",
+                "REPORT_ILLUSTRATION_MODEL",
+                "REPORT_ILLUSTRATION_API_URL",
+                "REPORT_ILLUSTRATION_API_KEY",
                 "REPORT_PUBLIC_BASE_URL",
             }.issubset(keys)
         )

@@ -36,9 +36,12 @@ class Settings(BaseSettings):
     report_pipeline_enabled: bool = False
     report_planner_model: str | None = None
     report_generator_model: str | None = None
+    report_illustration_enabled: bool = False
     report_illustration_model: str | None = None
+    report_illustration_api_key: str | None = None
     report_provider_api_key: str | None = None
     report_provider_timeout_seconds: float = 60.0
+    report_illustration_timeout_seconds: float = 90.0
     report_provider_max_attempts: int = 3
     report_planning_timeout_seconds: int = 300
     report_generation_timeout_seconds: int = 1800
@@ -71,6 +74,10 @@ class Settings(BaseSettings):
             errors.append("REPORT_PLANNER_MODEL is required")
         if self.report_pipeline_enabled and not self.report_generator_model:
             errors.append("REPORT_GENERATOR_MODEL is required")
+        if (
+            self.report_planner_enabled or self.report_pipeline_enabled
+        ) and not self.report_provider_api_key:
+            errors.append("REPORT_PROVIDER_API_KEY is required")
         if self.report_web_enabled:
             if not self.report_web_api_key_value():
                 errors.append(
@@ -83,6 +90,19 @@ class Settings(BaseSettings):
                 )
             if not self.report_web_model.strip():
                 errors.append("REPORT_WEB_MODEL is required")
+        if self.report_illustration_enabled:
+            if not self.report_illustration_model:
+                errors.append("REPORT_ILLUSTRATION_MODEL is required")
+            if not self.report_illustration_api_url:
+                errors.append("REPORT_ILLUSTRATION_API_URL is required")
+            if not self.report_illustration_api_key:
+                errors.append("REPORT_ILLUSTRATION_API_KEY is required")
+            if self.report_illustration_api_url:
+                parsed = urlparse(self.report_illustration_api_url)
+                if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                    errors.append(
+                        "REPORT_ILLUSTRATION_API_URL must be an absolute HTTP(S) URL"
+                    )
         if self.capture_agent_enabled and not self.capture_agent_model:
             errors.append("CAPTURE_AGENT_MODEL is required")
         if self.chat_agent_enabled and not self.chat_agent_model:
@@ -108,6 +128,18 @@ class Settings(BaseSettings):
             self.report_web_enabled
             and self.report_web_model.strip()
             and self.report_web_api_key_value()
+            and parsed.scheme in {"http", "https"}
+            and parsed.netloc
+        )
+
+    def report_illustration_available(self) -> bool:
+        if not self.report_illustration_api_url:
+            return False
+        parsed = urlparse(self.report_illustration_api_url)
+        return bool(
+            self.report_illustration_enabled
+            and self.report_illustration_model
+            and self.report_illustration_api_key
             and parsed.scheme in {"http", "https"}
             and parsed.netloc
         )

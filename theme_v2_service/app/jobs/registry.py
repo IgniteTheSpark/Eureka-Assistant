@@ -116,9 +116,7 @@ if _settings.report_pipeline_enabled and _settings.report_generator_model:
         build_report_web_search_provider,
     )
     from app.domains.reports.providers import UnavailableIllustrationProvider
-    from app.domains.reports.providers_image import (
-        OpenAICompatibleIllustrationProvider,
-    )
+    from app.domains.reports.providers_image import SeedreamIllustrationProvider
     from app.domains.reports.providers_litellm import LiteLLMGeneratorProvider
     from app.domains.reports.storage import LocalStorage
     from app.domains.reports.templates import get_template_registry
@@ -126,17 +124,13 @@ if _settings.report_pipeline_enabled and _settings.report_generator_model:
     async def handle_configured_report_pipeline(job: WorkflowJob) -> None:
         async with httpx.AsyncClient() as client:
             illustration = UnavailableIllustrationProvider()
-            if (
-                _settings.report_illustration_model
-                and _settings.report_illustration_api_url
-                and _settings.report_provider_api_key
-            ):
-                illustration = OpenAICompatibleIllustrationProvider(
+            if _settings.report_illustration_available():
+                illustration = SeedreamIllustrationProvider(
                     client=client,
                     endpoint=_settings.report_illustration_api_url,
-                    api_key=_settings.report_provider_api_key,
+                    api_key=_settings.report_illustration_api_key,
                     model=_settings.report_illustration_model,
-                    timeout_seconds=_settings.report_provider_timeout_seconds,
+                    timeout_seconds=_settings.report_illustration_timeout_seconds,
                 )
             handler = report_pipeline_handler(
                 generator=LiteLLMGeneratorProvider(

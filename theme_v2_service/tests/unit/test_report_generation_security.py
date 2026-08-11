@@ -9,7 +9,7 @@ from app.config import Settings
 from app.domains.reports.providers import GeneratorRequest
 from app.domains.reports.providers import PermanentProviderError
 from app.domains.reports.providers_image import (
-    OpenAICompatibleIllustrationProvider,
+    SeedreamIllustrationProvider,
     sanitize_illustration_prompt,
 )
 from app.domains.reports.providers_litellm import (
@@ -313,6 +313,7 @@ def test_missing_profiles_affect_readiness_only_when_handler_enabled():
         jwt_secret="test-secret",
         report_planner_enabled=False,
         report_pipeline_enabled=False,
+        report_web_enabled=False,
     )
     enabled = Settings(
         database_url="mysql://test:test@mysql/test",
@@ -321,12 +322,15 @@ def test_missing_profiles_affect_readiness_only_when_handler_enabled():
         report_pipeline_enabled=True,
         report_planner_model=None,
         report_generator_model=None,
+        report_provider_api_key="",
+        report_web_enabled=False,
     )
 
     assert disabled.provider_readiness_errors() == []
     assert enabled.provider_readiness_errors() == [
         "REPORT_PLANNER_MODEL is required",
         "REPORT_GENERATOR_MODEL is required",
+        "REPORT_PROVIDER_API_KEY is required",
     ]
 
 
@@ -658,7 +662,7 @@ async def test_image_adapter_sends_only_sanitized_prompt_and_rejects_non_image()
         return httpx.Response(200, content=b"not-an-image", headers={"content-type": "text/plain"})
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
-        provider = OpenAICompatibleIllustrationProvider(
+        provider = SeedreamIllustrationProvider(
             client=client,
             endpoint="https://image.test/generate",
             api_key="secret",
@@ -672,3 +676,6 @@ async def test_image_adapter_sends_only_sanitized_prompt_and_rejects_non_image()
     assert "chart" not in sent.casefold()
     assert "text" not in sent.casefold()
     assert "42" not in sent
+    assert payloads[0]["size"] == "2K"
+    assert payloads[0]["watermark"] is False
+    assert payloads[0]["sequential_image_generation"] == "disabled"
