@@ -112,6 +112,10 @@ if _settings.report_pipeline_enabled and _settings.report_generator_model:
     from pathlib import Path
 
     from app.domains.reports.pipeline import report_pipeline_handler
+    from app.domains.reports.illustration_jobs import (
+        REPORT_ILLUSTRATION_JOB_TYPE,
+        report_illustration_handler,
+    )
     from app.domains.reports.provider_factory import (
         build_report_web_search_provider,
     )
@@ -145,10 +149,35 @@ if _settings.report_pipeline_enabled and _settings.report_generator_model:
                 illustration=illustration,
                 registry=get_template_registry(),
                 storage=LocalStorage(Path(_settings.media_root)),
+                optional_illustration_timeout_seconds=(
+                    _settings.report_optional_illustration_timeout_seconds
+                ),
             )
             await handler(job)
 
     registry.register(
         REPORT_PIPELINE_JOB_TYPE,
         handle_configured_report_pipeline,
+    )
+
+    async def handle_configured_report_illustration(job: WorkflowJob) -> None:
+        async with httpx.AsyncClient() as client:
+            illustration = UnavailableIllustrationProvider()
+            if _settings.report_illustration_available():
+                illustration = SeedreamIllustrationProvider(
+                    client=client,
+                    endpoint=_settings.report_illustration_api_url,
+                    api_key=_settings.report_illustration_api_key,
+                    model=_settings.report_illustration_model,
+                    timeout_seconds=_settings.report_illustration_timeout_seconds,
+                )
+            handler = report_illustration_handler(
+                provider=illustration,
+                storage=LocalStorage(Path(_settings.media_root)),
+            )
+            await handler(job)
+
+    registry.register(
+        REPORT_ILLUSTRATION_JOB_TYPE,
+        handle_configured_report_illustration,
     )

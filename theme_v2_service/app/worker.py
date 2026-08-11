@@ -12,9 +12,7 @@ from app.domains.reports.templates import get_template_registry
 from app.domains.triggers.maintenance import run_trigger_maintenance_scheduler
 from app.jobs.registry import registry
 from app.jobs.runner import run_worker
-
-
-REPORT_ILLUSTRATION_JOB_TYPE = "report_illustration"
+from app.domains.reports.illustration_jobs import REPORT_ILLUSTRATION_JOB_TYPE
 
 
 async def _run_worker_lanes(*, stop_event: asyncio.Event, owner: str) -> None:
