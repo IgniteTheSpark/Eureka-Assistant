@@ -14,6 +14,7 @@ class TimeRange(StrictModel):
 
 
 EvidenceKind = Literal["asset", "event", "contact"]
+ScopeAdapterKind = Literal["pre_event_briefing", "period_summary", "generic"]
 
 
 class EvidenceReference(StrictModel):
@@ -49,6 +50,59 @@ class EvidenceScope(StrictModel):
             if reference.kind == "asset"
         ]
         return self
+
+
+class ReportScopeDraft(StrictModel):
+    adapter_kind: ScopeAdapterKind
+    primary_reference: EvidenceReference | None = None
+    supporting_references: list[EvidenceReference] = Field(default_factory=list)
+    skill_ids: list[str] = Field(default_factory=list)
+    time_range: TimeRange | None = None
+    attention_focus: list[str] = Field(default_factory=list, max_length=8)
+    additional_focus: str = Field(default="", max_length=500)
+
+    @model_validator(mode="after")
+    def normalize_and_validate(self) -> "ReportScopeDraft":
+        self.skill_ids = list(dict.fromkeys(self.skill_ids))
+        normalized: list[EvidenceReference] = []
+        seen: set[tuple[str, str]] = set()
+        primary_key = None
+        if self.primary_reference is not None:
+            primary_key = (self.primary_reference.kind, self.primary_reference.id)
+        for reference in self.supporting_references:
+            key = (reference.kind, reference.id)
+            if key == primary_key or key in seen:
+                continue
+            seen.add(key)
+            normalized.append(reference)
+        self.supporting_references = normalized
+        if (
+            self.adapter_kind == "pre_event_briefing"
+            and self.primary_reference is not None
+            and self.primary_reference.kind != "event"
+        ):
+            raise ValueError("pre-event primary reference must be an Event")
+        return self
+
+    def to_evidence_scope(self) -> EvidenceScope:
+        references = []
+        if self.primary_reference is not None:
+            references.append(self.primary_reference)
+        references.extend(self.supporting_references)
+        return EvidenceScope(
+            time_range=self.time_range,
+            skill_ids=self.skill_ids,
+            references=references,
+        )
+
+
+class ReportScopeDraftUpdate(StrictModel):
+    expected_revision: int = Field(ge=0)
+    draft: ReportScopeDraft
+
+
+class ReportScopePrepareRequest(StrictModel):
+    expected_revision: int = Field(ge=0)
 
 
 class ResearchEntity(StrictModel):

@@ -113,6 +113,16 @@ def test_foundation_migration_round_trip_and_physical_types():
     assert isinstance(skill_columns["queryable_fields_json"]["type"], mysql.JSON)
     assert isinstance(skill_columns["global_skill_id"]["type"], Integer)
 
+    report_run_columns = {
+        column["name"]: column
+        for column in inspector.get_columns("report_generation_runs")
+    }
+    assert report_run_columns["scope_adapter"]["type"].length == 32
+    assert isinstance(report_run_columns["scope_draft"]["type"], mysql.JSON)
+    assert isinstance(report_run_columns["scope_revision"]["type"], Integer)
+    assert report_run_columns["scope_hash"]["type"].length == 64
+    assert report_run_columns["plan_scope_hash"]["type"].length == 64
+
     contact_columns = {
         column["name"]: column for column in inspector.get_columns("contacts")
     }
@@ -173,7 +183,7 @@ def test_foundation_migration_round_trip_and_physical_types():
     assert isinstance(rhythm_columns["patterns_json"]["type"], mysql.JSON)
     assert rhythm_columns["timezone_name"]["type"].length == 64
 
-    assert revision == "0021_capture_device_identity"
+    assert revision == "0022_report_scope_draft"
     engine.dispose()
 
 
@@ -351,7 +361,7 @@ def test_internal_mcp_migration_backfills_existing_domain_data():
         revision = connection.execute(
             text("SELECT version_num FROM alembic_version")
         ).scalar_one()
-    assert revision == "0021_capture_device_identity"
+    assert revision == "0022_report_scope_draft"
     engine.dispose()
 
 
