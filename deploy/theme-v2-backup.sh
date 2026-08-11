@@ -33,9 +33,15 @@ timestamp=$(date -u +%Y%m%dT%H%M%SZ)
 target="$BACKUP_DIR/$timestamp"
 mkdir -p "$target"
 
-compose exec -T db sh -c \
-  'exec mysqldump --single-transaction --quick --lock-tables=false -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"' \
-  | gzip -9 > "$target/mysql.sql.gz"
+mysql_dump="$target/mysql.sql"
+if ! compose exec -T db sh -c \
+  'exec mysqldump --single-transaction --quick --lock-tables=false --no-tablespaces -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"' \
+  > "$mysql_dump"; then
+  rm -f "$mysql_dump"
+  echo "MySQL backup failed; no successful backup was recorded." >&2
+  exit 1
+fi
+gzip -9 "$mysql_dump"
 
 compose run --rm --no-deps -T api python -c \
   'import sys, tarfile; archive = tarfile.open(fileobj=sys.stdout.buffer, mode="w|gz"); archive.add("/data/media", arcname="media"); archive.close()' \

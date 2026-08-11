@@ -145,6 +145,8 @@ class ThemeV2ProductionDeploymentTest(unittest.TestCase):
         self.assertIn("--retry-all-errors", deploy_script)
         self.assertIn("set -eu", backup_script)
         self.assertIn("mysqldump", backup_script)
+        self.assertIn("--no-tablespaces", backup_script)
+        self.assertIn("if ! compose exec -T db", backup_script)
         self.assertIn("/data/media", backup_script)
 
     def test_deploy_script_rejects_example_placeholder_secrets(self) -> None:
