@@ -169,6 +169,8 @@ class _ReportContainerPageState extends State<ReportContainerPage> {
           enableLegacyEnhancements: false,
           enableThemeV2Actions: true,
           themeV2Palette: report.palette,
+          initialIllustrationStatus: report.illustrationStatus,
+          initialRevision: report.revision,
           api: _api,
         ),
       ),

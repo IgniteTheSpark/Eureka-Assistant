@@ -127,6 +127,9 @@ async def test_report_list_detail_viewer_and_active_run_exclusion(client, sessio
 
     assert [item["id"] for item in listed.json()] == [report.id]
     assert detail.json()["content_md"].startswith("# Private")
+    assert detail.json()["revision"] == 1
+    assert detail.json()["illustration_status"] == "not_required"
+    assert detail.json()["updated_at"].endswith("Z")
     assert "job" not in detail.json()
     assert viewer.status_code == 200
     assert "Private viewer" in viewer.text

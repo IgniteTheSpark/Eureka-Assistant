@@ -54,7 +54,10 @@ def _serialize_report(report: Report) -> dict:
         "share_card": report.share_card_spec,
         "tokens_used": report.tokens_used,
         "gen_ms": report.gen_ms,
+        "illustration_status": report.illustration_status,
+        "revision": report.revision,
         "created_at": _timestamp(report.created_at),
+        "updated_at": _timestamp(report.updated_at),
     }
 
 

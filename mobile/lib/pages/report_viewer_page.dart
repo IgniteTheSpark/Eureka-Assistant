@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -15,6 +17,81 @@ import '../widgets/toast.dart';
 /// Theme V2 HTML owns its palette and color-scheme. Retained as a compatibility
 /// seam for older callers, but intentionally does not mutate report CSS.
 String applyThemeV2ReportViewerTheme(String html, {String? palette}) => html;
+
+final _trustedReadyIllustrationSlot = RegExp(
+  r'<figure id="reka-report-illustration" class="r-illustration" '
+  r'data-illustration-status="ready"><img src="/api/files/[A-Za-z0-9_-]+" '
+  r'alt="报告插图" loading="lazy"></figure>',
+);
+
+String? extractTrustedReportIllustrationSlot(String html) {
+  final matches = _trustedReadyIllustrationSlot.allMatches(html).toList();
+  return matches.length == 1 ? matches.single.group(0) : null;
+}
+
+@immutable
+class ReportViewerChromePalette {
+  const ReportViewerChromePalette({
+    required this.background,
+    required this.foreground,
+    required this.muted,
+    required this.accent,
+  });
+
+  final Color background;
+  final Color foreground;
+  final Color muted;
+  final Color accent;
+}
+
+/// Mirrors the immutable CSS palette owned by the Theme V2 report renderer.
+/// Keeping native chrome on the same exact tokens avoids a visible seam between
+/// the AppBar and the HTML document.
+ReportViewerChromePalette reportViewerChromePalette(String? palette) =>
+    switch (palette) {
+      'pal-dashboard' => const ReportViewerChromePalette(
+        background: Color(0xFF0C1118),
+        foreground: Color(0xFFEAF1FB),
+        muted: Color.fromRGBO(200, 215, 235, 0.58),
+        accent: Color(0xFF4F8CFF),
+      ),
+      'pal-neon' => const ReportViewerChromePalette(
+        background: Color(0xFF06070F),
+        foreground: Color(0xFFF4F0FF),
+        muted: Color.fromRGBO(200, 194, 240, 0.58),
+        accent: Color(0xFFA06BFF),
+      ),
+      'pal-ink' => const ReportViewerChromePalette(
+        background: Color(0xFF14130F),
+        foreground: Color(0xFFF6F1E6),
+        muted: Color.fromRGBO(228, 220, 200, 0.60),
+        accent: Color(0xFFD98A4B),
+      ),
+      'pal-minimal' => const ReportViewerChromePalette(
+        background: Color(0xFFF6F5F1),
+        foreground: Color(0xFF1A1813),
+        muted: Color.fromRGBO(26, 24, 19, 0.56),
+        accent: Color(0xFF2F63D6),
+      ),
+      'pal-warm' => const ReportViewerChromePalette(
+        background: Color(0xFFF3ECE0),
+        foreground: Color(0xFF2A2015),
+        muted: Color.fromRGBO(70, 54, 34, 0.58),
+        accent: Color(0xFFC9722E),
+      ),
+      'pal-forest' => const ReportViewerChromePalette(
+        background: Color(0xFF0C1410),
+        foreground: Color(0xFFEEF6EF),
+        muted: Color.fromRGBO(195, 220, 200, 0.58),
+        accent: Color(0xFF4FB37A),
+      ),
+      _ => const ReportViewerChromePalette(
+        background: Color(0xFF0B1220),
+        foreground: Color(0xFFF3F6FB),
+        muted: Color.fromRGBO(255, 255, 255, 0.62),
+        accent: Color(0xFF6F9EFF),
+      ),
+    };
 
 bool isExternalReportUrl(String raw) {
   final uri = Uri.tryParse(raw);
@@ -59,6 +136,8 @@ class ReportViewerPage extends StatefulWidget {
   final String? themeV2Palette;
   final ApiClient? api;
   final Future<bool> Function(Uri)? externalLinkLauncher;
+  final String initialIllustrationStatus;
+  final int initialRevision;
 
   const ReportViewerPage({
     super.key,
@@ -70,13 +149,16 @@ class ReportViewerPage extends StatefulWidget {
     this.themeV2Palette,
     this.api,
     this.externalLinkLauncher,
+    this.initialIllustrationStatus = 'not_required',
+    this.initialRevision = 1,
   });
 
   @override
   State<ReportViewerPage> createState() => _ReportViewerPageState();
 }
 
-class _ReportViewerPageState extends State<ReportViewerPage> {
+class _ReportViewerPageState extends State<ReportViewerPage>
+    with WidgetsBindingObserver {
   late final ApiClient _api = widget.api ?? ApiClient();
   late final bool _ownsApi = widget.api == null;
   late final ReportActionsController _actionsController =
@@ -89,23 +171,27 @@ class _ReportViewerPageState extends State<ReportViewerPage> {
   String? _pixel; // pixel.js — pet render engine (§6.6.1 signature band)
   String? _mascot; // mascot.js — Mascot.mount() for the REKA band
   bool _busy = false;
+  Timer? _illustrationPoll;
+  bool _illustrationPollInFlight = false;
+  bool _viewerVisible = true;
+  late String _illustrationStatus = widget.initialIllustrationStatus;
+  late int _revision = widget.initialRevision;
 
   bool get _lightReport =>
       const {'pal-minimal', 'pal-warm'}.contains(widget.themeV2Palette);
 
-  Color get _reportBackground =>
-      _lightReport ? const Color(0xFFF3ECE0) : const Color(0xFF0B0E16);
+  ReportViewerChromePalette get _chrome =>
+      reportViewerChromePalette(widget.themeV2Palette);
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(_reportBackground)
+      ..setBackgroundColor(_chrome.background)
       ..setNavigationDelegate(
-        NavigationDelegate(
-          onNavigationRequest: _handleNavigationRequest,
-        ),
+        NavigationDelegate(onNavigationRequest: _handleNavigationRequest),
       );
     _bootstrap();
     final id = widget.reportId;
@@ -137,6 +223,7 @@ class _ReportViewerPageState extends State<ReportViewerPage> {
   Future<void> _bootstrap() async {
     if (!widget.enableLegacyEnhancements) {
       await _controller.loadHtmlString(_html);
+      _scheduleIllustrationPoll();
       return;
     }
     try {
@@ -159,6 +246,115 @@ class _ReportViewerPageState extends State<ReportViewerPage> {
       _pixel = _mascot = null; // missing → signature band shows wordmark only
     }
     await _controller.loadHtmlString(_withEngines(_html));
+    _scheduleIllustrationPoll();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _viewerVisible = state == AppLifecycleState.resumed;
+    if (!_viewerVisible) {
+      _illustrationPoll?.cancel();
+      return;
+    }
+    if (_illustrationStatus == 'pending') {
+      unawaited(_refreshIllustration());
+    }
+  }
+
+  void _scheduleIllustrationPoll() {
+    _illustrationPoll?.cancel();
+    if (!mounted ||
+        !_viewerVisible ||
+        !widget.enableThemeV2Actions ||
+        widget.reportId == null ||
+        _illustrationStatus != 'pending') {
+      return;
+    }
+    _illustrationPoll = Timer(const Duration(seconds: 3), _refreshIllustration);
+  }
+
+  Future<void> _refreshIllustration() async {
+    final reportId = widget.reportId;
+    if (!mounted ||
+        !_viewerVisible ||
+        reportId == null ||
+        _illustrationStatus != 'pending' ||
+        _illustrationPollInFlight) {
+      return;
+    }
+    _illustrationPollInFlight = true;
+    try {
+      final response = await _api.getJson('/api/reports/$reportId');
+      if (response is! Map) return;
+      final nextRevision = (response['revision'] as num?)?.toInt() ?? _revision;
+      final nextStatus =
+          response['illustration_status']?.toString() ?? _illustrationStatus;
+      if (nextRevision <= _revision && nextStatus == _illustrationStatus) {
+        return;
+      }
+      final nextHtml = response['html']?.toString() ?? '';
+      if (nextHtml.isEmpty) return;
+      if (nextStatus == 'ready' || nextStatus == 'failed') {
+        final patched = await _patchIllustrationSlot(nextHtml, nextStatus);
+        if (!patched) await _reloadPreservingScroll(nextHtml);
+        _html = nextHtml;
+        _revision = nextRevision;
+        _illustrationStatus = nextStatus;
+      }
+    } catch (_) {
+      // Keep the readable report open; the next bounded poll retries.
+    } finally {
+      _illustrationPollInFlight = false;
+      _scheduleIllustrationPoll();
+    }
+  }
+
+  Future<bool> _patchIllustrationSlot(String html, String status) async {
+    final slot = extractTrustedReportIllustrationSlot(html);
+    final String? script;
+    if (status == 'ready' && slot != null) {
+      script =
+          '''(() => {
+          const current = document.getElementById('reka-report-illustration');
+          if (!current) return false;
+          const template = document.createElement('template');
+          template.innerHTML = ${jsonEncode(slot)};
+          const replacement = template.content.firstElementChild;
+          if (!replacement || replacement.id !== 'reka-report-illustration') return false;
+          current.replaceWith(replacement);
+          return true;
+        })()''';
+    } else if (status == 'failed') {
+      script = '''(() => {
+          const current = document.getElementById('reka-report-illustration');
+          if (!current) return false;
+          current.remove();
+          return true;
+        })()''';
+    } else {
+      script = null;
+    }
+    if (script == null) return false;
+    try {
+      final result = await _controller.runJavaScriptReturningResult(script);
+      return result == true || result.toString() == 'true';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _reloadPreservingScroll(String html) async {
+    var scrollY = 0.0;
+    try {
+      final raw = await _controller.runJavaScriptReturningResult(
+        'Number(window.scrollY || 0)',
+      );
+      scrollY = raw is num ? raw.toDouble() : double.tryParse('$raw') ?? 0;
+    } catch (_) {
+      scrollY = 0;
+    }
+    await _controller.loadHtmlString(_withEngines(html));
+    await _controller.runJavaScript('window.scrollTo(0, ${scrollY.round()})');
   }
 
   /// Splice the bundled engines into the document head so `window.gsap` (animation)
@@ -186,6 +382,8 @@ class _ReportViewerPageState extends State<ReportViewerPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _illustrationPoll?.cancel();
     _actionsController.dispose();
     if (_ownsApi) _api.close();
     super.dispose();
@@ -235,12 +433,13 @@ class _ReportViewerPageState extends State<ReportViewerPage> {
   @override
   Widget build(BuildContext context) {
     final eu = _lightReport ? EurekaColors.light : EurekaColors.dark;
+    final chrome = _chrome;
     final reportId = widget.reportId;
     return Scaffold(
-      backgroundColor: _reportBackground,
+      backgroundColor: chrome.background,
       appBar: AppBar(
-        backgroundColor: _reportBackground,
-        foregroundColor: eu.textHi,
+        backgroundColor: chrome.background,
+        foregroundColor: chrome.foreground,
         elevation: 0,
         title: Text(
           widget.title,
@@ -257,7 +456,7 @@ class _ReportViewerPageState extends State<ReportViewerPage> {
             ),
           IconButton(
             tooltip: '分享',
-            icon: Icon(Icons.ios_share, color: eu.textMid),
+            icon: Icon(Icons.ios_share, color: chrome.muted),
             onPressed: _busy ? null : _share,
           ),
         ],
@@ -276,7 +475,7 @@ class _ReportViewerPageState extends State<ReportViewerPage> {
                     child: LinearProgressIndicator(
                       minHeight: 2,
                       backgroundColor: Colors.transparent,
-                      color: eu.brand,
+                      color: chrome.accent,
                     ),
                   ),
               ],

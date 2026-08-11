@@ -97,6 +97,9 @@ class CompletedReportSummary {
     required this.baseFamily,
     required this.createdAt,
     this.palette,
+    this.illustrationStatus = 'not_required',
+    this.revision = 1,
+    this.updatedAt,
   });
 
   final String id;
@@ -106,6 +109,9 @@ class CompletedReportSummary {
   final String? baseFamily;
   final String? palette;
   final DateTime? createdAt;
+  final String illustrationStatus;
+  final int revision;
+  final DateTime? updatedAt;
 
   static CompletedReportSummary? fromJson(Map<String, dynamic> json) {
     final id = _requiredString(json['id']);
@@ -120,6 +126,10 @@ class CompletedReportSummary {
       baseFamily: _optionalString(json['base_family']),
       palette: _optionalString(spec?['palette']),
       createdAt: _date(json['created_at']),
+      illustrationStatus:
+          _optionalString(json['illustration_status']) ?? 'not_required',
+      revision: (json['revision'] as num?)?.toInt() ?? 1,
+      updatedAt: _date(json['updated_at']),
     );
   }
 }

@@ -1,4 +1,5 @@
 import 'package:eureka/pages/report_viewer_page.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -19,11 +20,60 @@ void main() {
       enableLegacyEnhancements: false,
       enableThemeV2Actions: true,
       themeV2Palette: 'pal-ink',
+      initialIllustrationStatus: 'pending',
+      initialRevision: 1,
     );
 
     expect(page.enableLegacyEnhancements, isFalse);
     expect(page.enableThemeV2Actions, isTrue);
     expect(page.themeV2Palette, 'pal-ink');
+    expect(page.initialIllustrationStatus, 'pending');
+    expect(page.initialRevision, 1);
+  });
+
+  test('late illustration patch accepts only the renderer-owned slot', () {
+    const trusted =
+        '<figure id="reka-report-illustration" class="r-illustration" '
+        'data-illustration-status="ready"><img src="/api/files/file-1" '
+        'alt="报告插图" loading="lazy"></figure>';
+    const external =
+        '<figure id="reka-report-illustration" class="r-illustration" '
+        'data-illustration-status="ready"><img src="https://evil.test/x" '
+        'alt="报告插图" loading="lazy"></figure>';
+
+    expect(
+      extractTrustedReportIllustrationSlot('<main>$trusted</main>'),
+      trusted,
+    );
+    expect(extractTrustedReportIllustrationSlot(external), isNull);
+    expect(extractTrustedReportIllustrationSlot('$trusted$trusted'), isNull);
+  });
+
+  test('viewer chrome follows the exact report-owned palette', () {
+    expect(
+      reportViewerChromePalette('pal-minimal').background,
+      const Color(0xFFF6F5F1),
+    );
+    expect(
+      reportViewerChromePalette('pal-warm').background,
+      const Color(0xFFF3ECE0),
+    );
+    expect(
+      reportViewerChromePalette('pal-dashboard').background,
+      const Color(0xFF0C1118),
+    );
+    expect(
+      reportViewerChromePalette('pal-neon').background,
+      const Color(0xFF06070F),
+    );
+    expect(
+      reportViewerChromePalette('pal-ink').background,
+      const Color(0xFF14130F),
+    );
+    expect(
+      reportViewerChromePalette('pal-forest').background,
+      const Color(0xFF0C1410),
+    );
   });
 
   test('report citations open only external http links', () async {

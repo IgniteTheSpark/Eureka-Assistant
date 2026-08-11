@@ -138,6 +138,9 @@ ReportViewerPage buildThemeV2ReportViewerPage(
     enableLegacyEnhancements: false,
     enableThemeV2Actions: true,
     themeV2Palette: (report['spec'] as Map?)?['palette']?.toString(),
+    initialIllustrationStatus:
+        report['illustration_status']?.toString() ?? 'not_required',
+    initialRevision: (report['revision'] as num?)?.toInt() ?? 1,
     api: api,
   );
 }

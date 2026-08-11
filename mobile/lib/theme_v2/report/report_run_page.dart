@@ -80,7 +80,11 @@ class _ReportRunPageState extends State<ReportRunPage> {
         unawaited(_controller.generateConfirmedDraft());
       }
     }
-    if (_controller.state == 'completed' && !_openingReport) {
+    if (const {
+          'completed',
+          'illustration_pending',
+        }.contains(_controller.state) &&
+        !_openingReport) {
       unawaited(_openCompletedReport());
     }
   }
@@ -112,6 +116,9 @@ class _ReportRunPageState extends State<ReportRunPage> {
             enableLegacyEnhancements: false,
             enableThemeV2Actions: true,
             themeV2Palette: (report['spec'] as Map?)?['palette']?.toString(),
+            initialIllustrationStatus:
+                report['illustration_status']?.toString() ?? 'not_required',
+            initialRevision: (report['revision'] as num?)?.toInt() ?? 1,
             api: widget.api,
           ),
         ),
@@ -190,6 +197,7 @@ class _ReportRunPageState extends State<ReportRunPage> {
                             actionKey: const ValueKey('report-run-open-retry'),
                             onAction: _openCompletedReport,
                           ),
+                  'illustration_pending' => _message('报告正文已完成，正在打开…'),
                   'generating' => _progress('正在生成报告…'),
                   _ when _controller.error != null => _message(
                     _controller.error!,
