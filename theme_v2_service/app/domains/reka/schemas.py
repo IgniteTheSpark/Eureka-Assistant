@@ -14,14 +14,14 @@ class _UtcModel(BaseModel):
 
 
 class RekaSignalTarget(BaseModel):
-    type: Literal["asset", "skill"]
+    type: Literal["asset", "skill", "trigger_execution"]
     id: str
 
 
 class RekaSignalPayload(_UtcModel):
     id: str
     natural_key: str
-    kind: Literal["overdue", "rhythm_gap"]
+    kind: Literal["overdue", "rhythm_gap", "report"]
     title: str
     body: str
     target: RekaSignalTarget

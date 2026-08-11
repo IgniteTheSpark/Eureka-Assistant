@@ -52,6 +52,7 @@ List<TodayRekaItem> mapTodayRekaSignals(Iterable<RekaSignal> signals) {
         type: switch (signal.kind) {
           RekaSignalKind.overdue => 'overdue',
           RekaSignalKind.rhythmGap => 'rhythm_gap',
+          RekaSignalKind.report => 'report',
         },
         title: signal.title,
         body: signal.body,
@@ -61,6 +62,7 @@ List<TodayRekaItem> mapTodayRekaSignals(Iterable<RekaSignal> signals) {
         targetType: switch (signal.target.type) {
           RekaSignalTargetType.asset => 'asset',
           RekaSignalTargetType.skill => 'skill',
+          RekaSignalTargetType.triggerExecution => 'trigger_execution',
         },
         targetId: signal.target.id,
         actions: List<String>.unmodifiable(

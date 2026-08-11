@@ -44,6 +44,37 @@ void main() {
     expect(opened, 'overdue-1');
   });
 
+  testWidgets('lists a report offer as a first-class Reka discovery', (
+    tester,
+  ) async {
+    final repository = _FakeRepository(
+      RekaSignalBatch(
+        signals: [_report()],
+        partialFailures: const [],
+        generatedAt: DateTime(2026, 8, 10, 10),
+      ),
+    );
+    String? targetType;
+
+    await tester.pumpWidget(
+      _Host(
+        child: RekaSignalsPage(
+          repository: repository,
+          onOpenTarget: (_, item) async => targetType = item.targetType,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('为球队建设会议准备会前调研'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('theme-v2-reka-icon-report')),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('为球队建设会议准备会前调研'));
+    expect(targetType, 'trigger_execution');
+  });
+
   testWidgets('dismisses one signal without turning it into a receipt', (
     tester,
   ) async {
@@ -249,4 +280,18 @@ RekaSignal _rhythm() => RekaSignal(
   ),
   actions: const [RekaSignalAction.open, RekaSignalAction.dismiss],
   deliveredAt: DateTime(2026, 8, 10, 8),
+);
+
+RekaSignal _report() => RekaSignal(
+  id: 'report-1',
+  naturalKey: 'report:execution-1',
+  kind: RekaSignalKind.report,
+  title: '为球队建设会议准备会前调研',
+  body: '会议即将开始，可以先确认调研范围。',
+  target: const RekaSignalTarget(
+    type: RekaSignalTargetType.triggerExecution,
+    id: 'execution-1',
+  ),
+  actions: const [RekaSignalAction.open, RekaSignalAction.dismiss],
+  deliveredAt: DateTime(2026, 8, 10, 11),
 );

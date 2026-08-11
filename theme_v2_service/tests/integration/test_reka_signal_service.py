@@ -1,12 +1,13 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 
-from app.db.models import Asset, UserSkill
+from app.db.models import Asset, Event, UserSkill
 from app.domains.notifications.models import Notification
 from app.domains.reka.models import Nudge, RhythmProfile
 from app.domains.reka.service import dismiss_signal, list_signals
+from app.domains.triggers.models import TriggerExecution
 
 
 UTC = timezone.utc
@@ -115,6 +116,102 @@ async def test_read_is_idempotent_ranked_and_does_not_create_notifications(sessi
     ]
     assert await session.scalar(select(func.count()).select_from(Nudge)) == 2
     assert await session.scalar(select(func.count()).select_from(Notification)) == 0
+
+
+async def test_available_pre_event_execution_is_a_reka_report_signal(session):
+    event = Event(
+        id="event-report",
+        user_id="user-1",
+        title="球队建设会议",
+        description="对比欧美足球体系",
+        start_at=(NOW + timedelta(hours=2)).replace(tzinfo=None),
+        end_at=(NOW + timedelta(hours=3)).replace(tzinfo=None),
+        all_day=False,
+    )
+    execution = TriggerExecution(
+        id="execution-report",
+        user_id="user-1",
+        trigger_type="pre_event_report",
+        workflow_type="report_generation",
+        tracker_id=None,
+        scope_type="event",
+        scope_id=event.id,
+        status="available",
+        dedupe_key="pre-event:event-report",
+        revision=1,
+        payload_json={
+            "event_id": event.id,
+            "event_title": event.title,
+        },
+        first_fired_at=NOW.replace(tzinfo=None),
+        last_fired_at=NOW.replace(tzinfo=None),
+        expires_at=(NOW + timedelta(hours=2)).replace(tzinfo=None),
+    )
+    session.add_all([event, execution])
+    await session.flush()
+
+    result = await list_signals(
+        session,
+        user_id="user-1",
+        now=NOW,
+        timezone_name="Asia/Shanghai",
+    )
+
+    signal = result["signals"][0]
+    assert signal["kind"] == "report"
+    assert signal["natural_key"] == f"report:{execution.id}"
+    assert signal["target"] == {
+        "type": "trigger_execution",
+        "id": execution.id,
+    }
+    assert signal["actions"] == ["open", "dismiss"]
+
+
+async def test_report_signal_ignores_stale_cancelled_and_cross_user_events(session):
+    cases = [
+        ("past", "user-1", NOW - timedelta(hours=1), "scheduled"),
+        ("cancelled", "user-1", NOW + timedelta(hours=1), "cancelled"),
+        ("other", "user-2", NOW + timedelta(hours=1), "scheduled"),
+    ]
+    for name, user_id, start_at, status in cases:
+        event = Event(
+            id=f"event-{name}",
+            user_id=user_id,
+            title=name,
+            start_at=start_at.replace(tzinfo=None),
+            end_at=(start_at + timedelta(hours=1)).replace(tzinfo=None),
+            all_day=False,
+            status=status,
+        )
+        session.add(event)
+        session.add(
+            TriggerExecution(
+                id=f"execution-{name}",
+                user_id=user_id,
+                trigger_type="pre_event_report",
+                workflow_type="report_generation",
+                tracker_id=None,
+                scope_type="event",
+                scope_id=event.id,
+                status="available",
+                dedupe_key=f"pre-event:{name}",
+                revision=1,
+                payload_json={"event_id": event.id, "event_title": name},
+                first_fired_at=NOW.replace(tzinfo=None),
+                last_fired_at=NOW.replace(tzinfo=None),
+                expires_at=(NOW + timedelta(hours=2)).replace(tzinfo=None),
+            )
+        )
+    await session.flush()
+
+    result = await list_signals(
+        session,
+        user_id="user-1",
+        now=NOW,
+        timezone_name="Asia/Shanghai",
+    )
+
+    assert result["signals"] == []
 
 
 async def test_dismissed_overdue_occurrence_stays_hidden_but_reschedule_is_new(session):

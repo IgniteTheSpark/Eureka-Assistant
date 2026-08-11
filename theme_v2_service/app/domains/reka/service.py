@@ -5,12 +5,14 @@ from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domains.reka.models import Nudge
 from app.domains.reka.overdue import collect_overdue_candidates
 from app.domains.reka.rhythm import collect_rhythm_candidates
+from app.db.models import Event
+from app.domains.triggers.models import TriggerExecution
 
 
 logger = logging.getLogger(__name__)
@@ -65,6 +67,56 @@ async def _collect_candidates(
 ) -> tuple[list[_SignalCandidate], list[str]]:
     candidates: list[_SignalCandidate] = []
     failures: list[str] = []
+    try:
+        report_rows = (
+            await session.execute(
+                select(TriggerExecution, Event)
+                .join(Event, Event.id == TriggerExecution.scope_id)
+                .where(
+                    TriggerExecution.user_id == user_id,
+                    TriggerExecution.trigger_type == "pre_event_report",
+                    TriggerExecution.workflow_type == "report_generation",
+                    TriggerExecution.status == "available",
+                    or_(
+                        TriggerExecution.expires_at.is_(None),
+                        TriggerExecution.expires_at > _db_time(now),
+                    ),
+                    Event.user_id == user_id,
+                    Event.start_at > _db_time(now),
+                    Event.status.not_in(("cancelled", "deleted", "completed")),
+                )
+                .order_by(
+                    TriggerExecution.first_fired_at.desc(),
+                    TriggerExecution.id.asc(),
+                )
+            )
+        ).all()
+        for execution, event in report_rows:
+            event_title = (
+                (execution.payload_json or {}).get("event_title") or event.title
+            )
+            candidates.append(
+                _SignalCandidate(
+                    natural_key=f"report:{execution.id}",
+                    kind="report",
+                    ref=execution.id,
+                    title=f"为{event_title}准备会前调研",
+                    body="会议即将开始，可以先确认调研范围再生成报告。",
+                    target_type="trigger_execution",
+                    target_id=execution.id,
+                    actions=("open", "dismiss"),
+                    expires_at=execution.expires_at,
+                    rank=(
+                        0,
+                        -_aware_utc(execution.first_fired_at).timestamp(),
+                        execution.id,
+                    ),
+                )
+            )
+    except Exception as exc:
+        failures.append("report")
+        logger.warning("Reka Report source failed: %s", type(exc).__name__)
+
     try:
         rhythm = await collect_rhythm_candidates(
             session,

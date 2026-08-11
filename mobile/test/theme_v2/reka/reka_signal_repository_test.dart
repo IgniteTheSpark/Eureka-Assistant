@@ -59,6 +59,24 @@ void main() {
         isNull,
       );
     });
+
+    test('parses a report offer backed by a trigger execution', () {
+      final signal = RekaSignal.tryParse({
+        'id': 'report-offer',
+        'natural_key': 'report:execution-1',
+        'kind': 'report',
+        'title': '为球队建设会议准备会前调研',
+        'body': '会议即将开始，可以先确认调研范围。',
+        'target': {'type': 'trigger_execution', 'id': 'execution-1'},
+        'actions': ['open', 'dismiss'],
+        'delivered_at': '2026-08-10T03:57:32Z',
+      });
+
+      expect(signal, isNotNull);
+      expect(signal!.kind, RekaSignalKind.report);
+      expect(signal.target.type, RekaSignalTargetType.triggerExecution);
+      expect(signal.target.id, 'execution-1');
+    });
   });
 
   group('ApiRekaSignalRepository', () {

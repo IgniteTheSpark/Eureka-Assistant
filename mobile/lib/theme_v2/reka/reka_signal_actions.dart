@@ -7,6 +7,7 @@ import '../asset_detail/open_asset_detail.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
 import '../library/asset/asset_list_page.dart';
+import '../report/report_run_page.dart';
 
 typedef RekaSignalMutationCallback =
     Future<void> Function(TodayRekaItem item, String action);
@@ -19,6 +20,14 @@ Future<void> openRekaSignalTarget(
   TodayRekaItem item,
 ) async {
   if (item.targetId.isEmpty) return;
+  if (item.targetType == 'trigger_execution') {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ReportRunPage(triggerExecutionId: item.targetId),
+      ),
+    );
+    return;
+  }
   if (item.targetType == 'asset') {
     return openAssetDetail(
       context,

@@ -375,12 +375,14 @@ class _EmptyRekaState extends StatelessWidget {
 IconData _rekaIcon(String type) => switch (type) {
   'overdue' => Icons.schedule_outlined,
   'rhythm_gap' => Icons.waves_outlined,
+  'report' => Icons.description_outlined,
   _ => Icons.lightbulb_outline_rounded,
 };
 
 String _rekaTypeLabel(String type) => switch (type) {
   'overdue' => '逾期提醒',
   'rhythm_gap' => '节律提醒',
+  'report' => '报告建议',
   _ => 'Reka 信号',
 };
 

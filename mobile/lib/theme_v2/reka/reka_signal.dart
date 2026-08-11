@@ -1,8 +1,8 @@
 import 'package:flutter/foundation.dart';
 
-enum RekaSignalKind { overdue, rhythmGap }
+enum RekaSignalKind { overdue, rhythmGap, report }
 
-enum RekaSignalTargetType { asset, skill }
+enum RekaSignalTargetType { asset, skill, triggerExecution }
 
 enum RekaSignalAction { open, complete, reschedule, dismiss }
 
@@ -82,12 +82,14 @@ String _text(Object? value) => value is String ? value.trim() : '';
 RekaSignalKind? _kind(Object? value) => switch (_text(value)) {
   'overdue' => RekaSignalKind.overdue,
   'rhythm_gap' => RekaSignalKind.rhythmGap,
+  'report' => RekaSignalKind.report,
   _ => null,
 };
 
 RekaSignalTargetType? _targetType(Object? value) => switch (_text(value)) {
   'asset' => RekaSignalTargetType.asset,
   'skill' => RekaSignalTargetType.skill,
+  'trigger_execution' => RekaSignalTargetType.triggerExecution,
   _ => null,
 };
 
