@@ -1,5 +1,8 @@
 import asyncio
+import os
 import signal
+import socket
+from uuid import uuid4
 
 from app.config import get_settings
 from app.domains.notifications.maintenance import run_notification_prune_scheduler
@@ -9,6 +12,26 @@ from app.domains.reports.templates import get_template_registry
 from app.domains.triggers.maintenance import run_trigger_maintenance_scheduler
 from app.jobs.registry import registry
 from app.jobs.runner import run_worker
+
+
+REPORT_ILLUSTRATION_JOB_TYPE = "report_illustration"
+
+
+async def _run_worker_lanes(*, stop_event: asyncio.Event, owner: str) -> None:
+    await asyncio.gather(
+        run_worker(
+            registry,
+            stop_event=stop_event,
+            owner=f"{owner}:primary",
+            exclude_job_types={REPORT_ILLUSTRATION_JOB_TYPE},
+        ),
+        run_worker(
+            registry,
+            stop_event=stop_event,
+            owner=f"{owner}:illustration",
+            include_job_types={REPORT_ILLUSTRATION_JOB_TYPE},
+        ),
+    )
 
 
 async def serve() -> None:
@@ -35,7 +58,8 @@ async def serve() -> None:
         ),
     )
     try:
-        await run_worker(registry, stop_event=stop_event)
+        owner = f"{socket.gethostname()}:{os.getpid()}:{uuid4()}"
+        await _run_worker_lanes(stop_event=stop_event, owner=owner)
     finally:
         stop_event.set()
         await asyncio.gather(*scheduler_tasks)

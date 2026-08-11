@@ -1,6 +1,8 @@
 import asyncio
 from datetime import datetime, timedelta
 
+import pytest
+
 from app.db.models import WorkflowJob
 from app.db.session import AsyncSessionFactory
 from app.jobs.queue import (
@@ -95,6 +97,74 @@ async def test_expired_lease_can_be_reclaimed(session):
     assert reclaimed.id == job_id
     assert reclaimed.lease_owner == "worker-b"
     assert reclaimed.attempt == 2
+
+
+async def test_worker_lane_claims_only_included_types(session):
+    await enqueue_job(
+        session,
+        job_type="report_pipeline",
+        dedupe_key="lane:primary",
+        available_at=NOW,
+    )
+    illustration = await enqueue_job(
+        session,
+        job_type="report_illustration",
+        dedupe_key="lane:illustration",
+        available_at=NOW,
+    )
+    await session.commit()
+
+    async with AsyncSessionFactory() as database_session:
+        async with database_session.begin():
+            claimed = await claim_next_job(
+                database_session,
+                owner="illustration-worker",
+                now=NOW,
+                lease_seconds=60,
+                include_job_types={"report_illustration"},
+            )
+
+    assert claimed.id == illustration.id
+
+
+async def test_worker_lane_can_exclude_job_types(session):
+    primary = await enqueue_job(
+        session,
+        job_type="report_pipeline",
+        dedupe_key="lane:primary-exclude",
+        available_at=NOW,
+    )
+    await enqueue_job(
+        session,
+        job_type="report_illustration",
+        dedupe_key="lane:illustration-exclude",
+        available_at=NOW,
+    )
+    await session.commit()
+
+    async with AsyncSessionFactory() as database_session:
+        async with database_session.begin():
+            claimed = await claim_next_job(
+                database_session,
+                owner="primary-worker",
+                now=NOW,
+                lease_seconds=60,
+                exclude_job_types={"report_illustration"},
+            )
+
+    assert claimed.id == primary.id
+
+
+async def test_worker_lane_rejects_include_and_exclude_together(session):
+    with pytest.raises(ValueError, match="include_job_types"):
+        await claim_next_job(
+            session,
+            owner="invalid-worker",
+            now=NOW,
+            lease_seconds=60,
+            include_job_types={"report_illustration"},
+            exclude_job_types={"report_pipeline"},
+        )
 
 
 async def test_only_lease_owner_can_complete_job(session):

@@ -91,7 +91,18 @@ async def claim_next_job(
     owner: str,
     now: datetime,
     lease_seconds: int,
+    include_job_types: set[str] | None = None,
+    exclude_job_types: set[str] | None = None,
 ) -> WorkflowJob | None:
+    if include_job_types is not None and exclude_job_types is not None:
+        raise ValueError(
+            "include_job_types and exclude_job_types are mutually exclusive"
+        )
+    filters = []
+    if include_job_types is not None:
+        filters.append(WorkflowJob.job_type.in_(include_job_types))
+    elif exclude_job_types is not None:
+        filters.append(WorkflowJob.job_type.notin_(exclude_job_types))
     candidate = await session.scalar(
         select(WorkflowJob)
         .where(
@@ -104,7 +115,8 @@ async def claim_next_job(
                     WorkflowJob.status == JobStatus.RUNNING.value,
                     WorkflowJob.lease_expires_at < now,
                 ),
-            )
+            ),
+            *filters,
         )
         .order_by(WorkflowJob.available_at, WorkflowJob.created_at)
         .with_for_update(skip_locked=True)

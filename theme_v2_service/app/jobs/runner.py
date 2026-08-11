@@ -54,6 +54,8 @@ async def run_worker_once(
     owner: str,
     lease_seconds: int,
     now: datetime | None = None,
+    include_job_types: set[str] | None = None,
+    exclude_job_types: set[str] | None = None,
 ) -> bool:
     clock = (lambda: now) if now is not None else utc_now
     async with session_scope() as session:
@@ -62,6 +64,8 @@ async def run_worker_once(
             owner=owner,
             now=clock(),
             lease_seconds=lease_seconds,
+            include_job_types=include_job_types,
+            exclude_job_types=exclude_job_types,
         )
     if job is None:
         return False
@@ -147,6 +151,8 @@ async def run_worker(
     *,
     stop_event: asyncio.Event,
     owner: str | None = None,
+    include_job_types: set[str] | None = None,
+    exclude_job_types: set[str] | None = None,
 ) -> None:
     settings = get_settings()
     worker_owner = owner or _worker_owner()
@@ -155,6 +161,8 @@ async def run_worker(
             registry,
             owner=worker_owner,
             lease_seconds=settings.job_lease_seconds,
+            include_job_types=include_job_types,
+            exclude_job_types=exclude_job_types,
         )
         if not handled:
             await _wait_for_work_or_stop(
