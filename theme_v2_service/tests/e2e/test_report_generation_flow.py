@@ -9,6 +9,7 @@ from sqlalchemy import select
 from app.db.models import WorkflowJob
 from app.db.session import AsyncSessionFactory
 from app.domains.reports.models import ReportGenerationRun
+from app.domains.reports.illustration_jobs import execute_report_illustration_job
 from app.domains.reports.pipeline import report_pipeline_handler
 from app.domains.reports.planner import PlannerResult, execute_report_planner_job
 from app.domains.reports.providers import (
@@ -172,24 +173,57 @@ async def test_report_flow_from_records_through_share_card_and_revocation(
         ),
         registry=TemplateRegistry.load(TEMPLATES),
         storage=LocalStorage(tmp_path / "pipeline-media"),
+        optional_illustration_timeout_seconds=0.001,
         session_factory=AsyncSessionFactory,
     )
     await pipeline(pipeline_job)
 
-    completed = await client.get(
+    pending = await client.get(
         f"/api/report-generation-runs/{run_id}",
         headers=headers,
     )
-    assert completed.json()["state"] == "completed"
-    report_id = completed.json()["report_id"]
+    assert pending.json()["state"] == "illustration_pending"
+    report_id = pending.json()["report_id"]
     private_report = await client.get(f"/api/reports/{report_id}", headers=headers)
     assert private_report.status_code == 200
+    assert private_report.json()["illustration_status"] == "pending"
+    assert private_report.json()["revision"] == 1
+    assert 'data-illustration-status="pending"' in private_report.json()["html"]
     assert "[evidence:" not in private_report.json()["content_md"]
     assert "[evidence:" not in private_report.json()["html"]
     assert private_report.json()["spec"]["citations"]
     assert private_report.json()["spec"]["suggested_actions"][0]["title"] == (
         "安排下一次月度复盘"
     )
+
+    async with AsyncSessionFactory() as worker_session:
+        illustration_job = await worker_session.scalar(
+            select(WorkflowJob).where(
+                WorkflowJob.run_id == run_id,
+                WorkflowJob.job_type == "report_illustration",
+            )
+        )
+        assert illustration_job is not None
+        illustration_job.status = "running"
+        illustration_job.lease_owner = "e2e-illustration-worker"
+        illustration_job.attempt = 1
+        await worker_session.commit()
+    await execute_report_illustration_job(
+        illustration_job,
+        provider=FakeIllustrationProvider(
+            GeneratedImage(data=b"ready-image", mime_type="image/png")
+        ),
+        storage=LocalStorage(tmp_path / "illustration-media"),
+    )
+    completed = await client.get(
+        f"/api/report-generation-runs/{run_id}",
+        headers=headers,
+    )
+    ready_report = await client.get(f"/api/reports/{report_id}", headers=headers)
+    assert completed.json()["state"] == "completed"
+    assert ready_report.json()["illustration_status"] == "ready"
+    assert ready_report.json()["revision"] == 2
+    assert 'data-illustration-status="ready"' in ready_report.json()["html"]
 
     actions = await client.get(
         f"/api/reports/{report_id}/actions",
