@@ -14,6 +14,7 @@ from app.domains.notifications.service import create_notification
 from app.domains.reports.models import Report, ReportGenerationRun
 from app.domains.reports.schemas import (
     EvidenceScope,
+    IllustrationStatus,
     PendingDecision,
     ReportPlanDraft,
     ReportPlanDraftUpdate,
@@ -74,6 +75,8 @@ class CompletedReportData(BaseModel):
     share_card_spec: ShareCardSpec
     tokens_used: int = Field(default=0, ge=0)
     gen_ms: int = Field(default=0, ge=0)
+    illustration_status: IllustrationStatus = "not_required"
+    illustration_job_id: str | None = None
 
     @model_validator(mode="after")
     def reject_internal_citation_markers(self) -> "CompletedReportData":
@@ -940,14 +943,24 @@ async def persist_completed_report(
         share_card_spec=data.share_card_spec.model_dump(mode="json"),
         tokens_used=data.tokens_used,
         gen_ms=data.gen_ms,
+        illustration_status=data.illustration_status,
+        illustration_job_id=data.illustration_job_id,
+        revision=1,
         created_at=completed_at,
+        updated_at=completed_at,
     )
     session.add(report)
     await session.flush()
     run.report_id = report.id
     run.completed_at = completed_at
     run.active_stage = None
-    transition_run(run, "completed", now=completed_at)
+    transition_run(
+        run,
+        "illustration_pending"
+        if data.illustration_status == "pending"
+        else "completed",
+        now=completed_at,
+    )
     checkpoint = dict(job.checkpoint_json or {})
     results = dict(checkpoint.get("stage_results", {}))
     results["persist"] = {"report_id": report.id}

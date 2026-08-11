@@ -30,6 +30,7 @@ class PresentationRequest:
     seed: int
     chart_svgs: dict[str, str] = field(default_factory=dict)
     illustration_url: str | None = None
+    illustration_status: str = "not_required"
     external_sources: list[dict[str, Any]] = field(default_factory=list)
     suggested_actions: list[ReportSuggestedAction] = field(default_factory=list)
 
@@ -61,14 +62,28 @@ def _masthead(title: str, base_family: str) -> str:
     )
 
 
-def _illustration(url: str | None, warnings: list[str]) -> str:
+def _illustration(
+    url: str | None,
+    status: str,
+    warnings: list[str],
+) -> str:
+    if status == "pending":
+        return (
+            '<figure id="reka-report-illustration" '
+            'class="r-illustration r-illustration--pending" '
+            'data-illustration-status="pending" '
+            'aria-label="报告配图生成中">'
+            '<div class="r-illustration-placeholder"></div>'
+            "</figure>"
+        )
     if not url:
         return ""
     if not url.startswith(OWNED_IMAGE_PREFIXES):
         warnings.append("illustration URL was not owned")
         return ""
     return (
-        '<figure class="r-illustration">'
+        '<figure id="reka-report-illustration" class="r-illustration" '
+        'data-illustration-status="ready">'
         f'<img src="{escape(url)}" alt="报告插图" loading="lazy">'
         "</figure>"
     )
@@ -138,7 +153,11 @@ def _sources(sources: list[dict[str, Any]]) -> str:
 def render_presentation(request: PresentationRequest) -> PresentationResult:
     variant, used_fallback = select_variant(request.base_family, request.seed)
     warnings = ["unknown base family used briefing fallback"] if used_fallback else []
-    illustration_html = _illustration(request.illustration_url, warnings)
+    illustration_html = _illustration(
+        request.illustration_url,
+        request.illustration_status,
+        warnings,
+    )
     body_html = render_blocks(request.content_md, chart_svgs=request.chart_svgs)
     template = _environment().get_template("report.html.j2")
     rendered = template.render(

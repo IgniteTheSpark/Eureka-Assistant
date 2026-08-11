@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     report_provider_api_key: str | None = None
     report_provider_timeout_seconds: float = 60.0
     report_illustration_timeout_seconds: float = 90.0
+    report_optional_illustration_timeout_seconds: float = Field(
+        default=30.0,
+        gt=0,
+    )
     report_provider_max_attempts: int = 3
     report_planning_timeout_seconds: int = 300
     report_generation_timeout_seconds: int = 1800

@@ -50,6 +50,7 @@ def test_theme_v2_defaults_are_isolated(monkeypatch):
         "REPORT_ILLUSTRATION_API_URL",
         "REPORT_ILLUSTRATION_API_KEY",
         "REPORT_ILLUSTRATION_TIMEOUT_SECONDS",
+        "REPORT_OPTIONAL_ILLUSTRATION_TIMEOUT_SECONDS",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -75,6 +76,7 @@ def test_theme_v2_defaults_are_isolated(monkeypatch):
     assert settings.capture_flash_wait_seconds == 20
     assert settings.capture_flash_poll_interval_seconds == 0.05
     assert settings.report_illustration_available() is False
+    assert settings.report_optional_illustration_timeout_seconds == 30
 
 
 def test_fake_provider_workflows_remain_available_only_in_test_environment():

@@ -144,6 +144,33 @@ async def test_persist_retry_creates_exactly_one_report_and_notification(session
     assert job.lease_owner is None
 
 
+async def test_pending_illustration_publishes_a_readable_report(session):
+    run, job = await _current(session)
+
+    report = await persist_completed_report(
+        session,
+        run_id=run.id,
+        job_id=job.id,
+        lease_owner="worker-1",
+        data=_data().model_copy(
+            update={
+                "illustration_status": "pending",
+                "illustration_job_id": "illustration-job-1",
+            }
+        ),
+        now=NOW,
+    )
+    await session.commit()
+
+    await session.refresh(run)
+    assert run.state == "illustration_pending"
+    assert run.report_id == report.id
+    assert report.illustration_status == "pending"
+    assert report.illustration_job_id == "illustration-job-1"
+    assert report.revision == 1
+    assert await session.scalar(select(func.count()).select_from(Notification)) == 1
+
+
 @pytest.mark.parametrize(
     ("state", "expected_owner"),
     [("cancelled", "worker-1"), ("generating", "worker-2")],

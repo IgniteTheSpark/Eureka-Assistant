@@ -43,7 +43,7 @@ def _context(
     async def assert_current():
         return None
 
-    async def save(stage, result):
+    async def save(stage, result, duration_ms):
         if stage == reject_after:
             raise PipelineWriteRejected("run cancelled or superseded")
         checkpoints[stage] = result
@@ -78,6 +78,19 @@ async def test_fresh_pipeline_executes_fixed_stage_order():
 
     assert calls == list(STAGES)
     assert list(context.checkpoints) == list(STAGES)
+
+
+async def test_pipeline_records_stage_timings_without_polluting_stage_results():
+    context = _context(calls=[])
+
+    await execute_report_job(context)
+
+    assert set(context.stage_timings_ms) == set(STAGES)
+    assert all(value >= 0 for value in context.stage_timings_ms.values())
+    assert all(
+        "duration_ms" not in result and "_duration_ms" not in result
+        for result in context.checkpoints.values()
+    )
 
 
 async def test_resume_after_content_does_not_repeat_paid_stages():

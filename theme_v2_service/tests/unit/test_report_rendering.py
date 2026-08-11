@@ -1,6 +1,9 @@
+import asyncio
+
 from app.domains.reports.rendering import (
     generate_optional_illustration,
     render_report_html,
+    render_report_presentation,
 )
 
 
@@ -11,6 +14,11 @@ class FailingIllustrationProvider:
     async def generate(self, prompt):
         self.prompts.append(prompt)
         raise RuntimeError("provider unavailable")
+
+
+class SlowIllustrationProvider:
+    async def generate(self, prompt):
+        await asyncio.sleep(1)
 
 
 def test_renderer_strips_scripts_events_and_uncontrolled_images():
@@ -85,3 +93,32 @@ async def test_illustration_failure_degrades_and_keeps_rendering():
     assert "chart" not in provider.prompts[0].casefold()
     assert "text" not in provider.prompts[0].casefold()
     assert "42" not in provider.prompts[0]
+
+
+async def test_optional_illustration_respects_a_short_critical_path_budget():
+    outcome = await generate_optional_illustration(
+        policy="optional",
+        prompt="calm layered editorial forms",
+        provider=SlowIllustrationProvider(),
+        store_image=None,
+        optional_timeout_seconds=0.001,
+    )
+
+    assert outcome.execution.status == "failed_degraded"
+    assert outcome.file_id is None
+    assert outcome.warnings == ["illustration exceeded optional time budget"]
+
+
+def test_pending_illustration_reserves_one_trusted_slot():
+    rendered = render_report_presentation(
+        title="Pending report",
+        content_md="Readable body",
+        chart_svgs={},
+        media_urls={},
+        illustration_status="pending",
+    )
+
+    assert rendered.html.count('id="reka-report-illustration"') == 1
+    assert 'data-illustration-status="pending"' in rendered.html
+    assert "r-illustration-placeholder" in rendered.html
+    assert "Readable body" in rendered.html

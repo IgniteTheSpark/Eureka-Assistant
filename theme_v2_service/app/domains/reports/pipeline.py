@@ -1,5 +1,6 @@
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
+import asyncio
 import hashlib
 import logging
 from time import perf_counter
@@ -14,6 +15,7 @@ from app.db.session import AsyncSessionFactory
 from app.domains.reports.charts import ChartDirective, render_chart
 from app.domains.reports.evidence import InsufficientEvidence, load_latest_evidence
 from app.domains.reports.models import ReportGenerationRun
+from app.domains.reports.illustration_jobs import enqueue_report_illustration
 from app.domains.reports.providers import (
     GeneratedSuggestedAction,
     GeneratorRequest,
@@ -23,14 +25,12 @@ from app.domains.reports.providers import (
     RetryableProviderError,
     WebSearchProvider,
 )
-from app.domains.reports.rendering import (
-    generate_optional_illustration,
-    render_report_presentation,
-)
+from app.domains.reports.rendering import render_report_presentation
 from app.domains.reports.normalization import normalize_report_content
 from app.domains.reports.schemas import ReportExecutionPlan, ReportSpec
 from app.domains.reports.security import validate_generator_result
-from app.domains.reports.storage import Storage, persist_owned_file
+from app.domains.reports.storage import Storage
+from app.domains.reports.providers_image import sanitize_illustration_prompt
 from app.domains.reports.templates import TemplateRegistry
 from app.domains.reports.web_search import build_web_queries, execute_web_search
 from app.observability import metrics
@@ -52,7 +52,7 @@ STAGES = (
 StageResult = dict[str, Any]
 StageHandler = Callable[["PipelineContext"], Awaitable[StageResult]]
 AssertCurrent = Callable[[], Awaitable[None]]
-SaveCheckpoint = Callable[[str, StageResult], Awaitable[None]]
+SaveCheckpoint = Callable[[str, StageResult, int], Awaitable[None]]
 
 
 class PipelineWriteRejected(RuntimeError):
@@ -66,6 +66,7 @@ class PipelineContext:
     execution_plan: ReportExecutionPlan | dict
     handlers: Mapping[str, StageHandler]
     checkpoints: dict[str, StageResult] = field(default_factory=dict)
+    stage_timings_ms: dict[str, int] = field(default_factory=dict)
     assert_current_callback: AssertCurrent | None = None
     save_checkpoint_callback: SaveCheckpoint | None = None
 
@@ -83,10 +84,16 @@ class PipelineContext:
         if self.assert_current_callback is not None:
             await self.assert_current_callback()
 
-    async def save_checkpoint(self, stage: str, result: StageResult) -> None:
+    async def save_checkpoint(
+        self,
+        stage: str,
+        result: StageResult,
+        duration_ms: int = 0,
+    ) -> None:
         if self.save_checkpoint_callback is not None:
-            await self.save_checkpoint_callback(stage, result)
+            await self.save_checkpoint_callback(stage, result, duration_ms)
         self.checkpoints[stage] = result
+        self.stage_timings_ms[stage] = duration_ms
 
 
 async def execute_report_job(context: PipelineContext) -> None:
@@ -95,13 +102,21 @@ async def execute_report_job(context: PipelineContext) -> None:
         raise ValueError(f"missing pipeline handlers: {sorted(missing)}")
     for stage in STAGES[context.resume_index :]:
         await context.assert_current_and_not_cancelled()
+        started = perf_counter()
         result = await context.handlers[stage](context)
+        duration_ms = max(0, round((perf_counter() - started) * 1000))
+        context.stage_timings_ms[stage] = duration_ms
+        metrics.observe(
+            "pipeline_stage_duration_ms",
+            duration_ms,
+            labels={"stage": stage},
+        )
         if stage == "persist":
             # Persist owns the final Report/Run/Job/Notification transaction and
             # writes its own terminal checkpoint.
             context.checkpoints[stage] = result
         else:
-            await context.save_checkpoint(stage, result)
+            await context.save_checkpoint(stage, result, duration_ms)
 
 
 async def _assert_database_current(
@@ -139,6 +154,7 @@ async def _save_database_checkpoint(
     lease_owner: str | None,
     stage: str,
     result: StageResult,
+    duration_ms: int,
 ) -> None:
     async with session_factory() as session:
         run = await session.scalar(
@@ -163,10 +179,13 @@ async def _save_database_checkpoint(
         checkpoint = dict(job.checkpoint_json or {})
         stage_results = dict(checkpoint.get("stage_results", {}))
         stage_results[stage] = result
+        stage_timings_ms = dict(checkpoint.get("stage_timings_ms", {}))
+        stage_timings_ms[stage] = duration_ms
         completed = [name for name in STAGES if name in stage_results]
         checkpoint = {
             "completed_stages": completed,
             "stage_results": stage_results,
+            "stage_timings_ms": stage_timings_ms,
         }
         job.checkpoint_json = checkpoint
         generation_context = dict(run.generation_context or {})
@@ -212,6 +231,12 @@ async def database_pipeline_context(
             raise PipelineWriteRejected("run is cancelled or generation job is stale")
         checkpoint = stored_job.checkpoint_json or {}
         checkpoints = dict(checkpoint.get("stage_results", {}))
+        stage_timings_ms = {
+            str(stage): int(duration)
+            for stage, duration in dict(
+                checkpoint.get("stage_timings_ms", {})
+            ).items()
+        }
         execution_plan = ReportExecutionPlan.model_validate(run.execution_plan)
         expected_lease_owner = stored_job.lease_owner
 
@@ -223,7 +248,7 @@ async def database_pipeline_context(
             lease_owner=expected_lease_owner,
         )
 
-    async def save(stage: str, result: StageResult) -> None:
+    async def save(stage: str, result: StageResult, duration_ms: int) -> None:
         await _save_database_checkpoint(
             session_factory,
             run_id=job.run_id,
@@ -231,6 +256,7 @@ async def database_pipeline_context(
             lease_owner=expected_lease_owner,
             stage=stage,
             result=result,
+            duration_ms=duration_ms,
         )
 
     return PipelineContext(
@@ -239,6 +265,7 @@ async def database_pipeline_context(
         execution_plan=execution_plan,
         handlers=handlers,
         checkpoints=checkpoints,
+        stage_timings_ms=stage_timings_ms,
         assert_current_callback=assert_current,
         save_checkpoint_callback=save,
     )
@@ -260,15 +287,6 @@ def _collect_sensitive_strings(value: Any) -> list[str]:
             for item in _collect_sensitive_strings(child)
         ]
     return []
-
-
-def _image_extension(mime_type: str) -> str:
-    return {
-        "image/png": "png",
-        "image/jpeg": "jpg",
-        "image/webp": "webp",
-        "image/gif": "gif",
-    }.get(mime_type, "bin")
 
 
 def _report_seed(run_id: str) -> int:
@@ -293,6 +311,36 @@ def _resolved_illustration_prompt(
     )
 
 
+async def wait_for_illustration_result(
+    *,
+    job_id: str,
+    timeout_seconds: float,
+    poll_seconds: float = 0.25,
+    session_factory: async_sessionmaker[AsyncSession] = AsyncSessionFactory,
+) -> dict[str, str]:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + max(0.0, timeout_seconds)
+    while True:
+        async with session_factory() as session:
+            job = await session.get(WorkflowJob, job_id)
+            if job is None:
+                return {"status": "failed", "job_id": job_id}
+            checkpoint = dict(job.checkpoint_json or {})
+            file_id = str(checkpoint.get("file_id") or "")
+            if file_id:
+                return {
+                    "status": "ready",
+                    "job_id": job_id,
+                    "file_id": file_id,
+                }
+            if job.status in {"failed", "cancelled"}:
+                return {"status": "failed", "job_id": job_id}
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            return {"status": "pending", "job_id": job_id}
+        await asyncio.sleep(min(poll_seconds, remaining))
+
+
 def build_pipeline_handlers(
     *,
     job: WorkflowJob,
@@ -301,6 +349,7 @@ def build_pipeline_handlers(
     illustration: IllustrationProvider,
     registry: TemplateRegistry,
     storage: Storage,
+    optional_illustration_timeout_seconds: float = 30.0,
     session_factory: async_sessionmaker[AsyncSession] = AsyncSessionFactory,
 ) -> dict[str, StageHandler]:
     async def load_evidence_stage(context: PipelineContext) -> StageResult:
@@ -366,46 +415,85 @@ def build_pipeline_handlers(
     async def illustration_stage(context: PipelineContext) -> StageResult:
         content = context.checkpoints["content_generation"]
         evidence = context.checkpoints["load_evidence"]
-
-        async def store_image(image) -> str:
-            async with session_factory() as session:
-                run = await session.get(ReportGenerationRun, context.run_id)
-                if run is None or run.state != "generating":
-                    raise PipelineWriteRejected("Run is no longer generating")
-                extension = _image_extension(image.mime_type)
-                file = await persist_owned_file(
-                    session,
-                    storage=storage,
-                    user_id=run.user_id,
-                    purpose="report_illustration",
-                    key=(
-                        f"reports/{run.user_id}/{run.id}/"
-                        f"illustration-{context.job_id}.{extension}"
-                    ),
-                    content=image.data,
-                    mime_type=image.mime_type,
-                )
-                await session.commit()
-                return file.id
-
-        outcome = await generate_optional_illustration(
-            policy=context.execution_plan.illustration_policy,
-            prompt=_resolved_illustration_prompt(
+        policy = context.execution_plan.illustration_policy
+        if policy == "none":
+            return {
+                "status": "not_required",
+                "execution": {
+                    "policy": policy,
+                    "status": "not_requested",
+                    "sources": [],
+                    "file_ids": [],
+                },
+                "file_id": None,
+                "job_id": None,
+                "warnings": [],
+            }
+        prompt = sanitize_illustration_prompt(
+            _resolved_illustration_prompt(
                 plan=context.execution_plan,
                 model_prompt=content.get("illustration_prompt"),
-            ),
-            provider=illustration,
-            store_image=store_image,
+            )
+            or "",
             sensitive_values=_collect_sensitive_strings(evidence),
         )
-        if context.execution_plan.illustration_policy != "none":
-            metrics.increment("image_generation_count")
-        if outcome.execution.status == "failed_degraded":
+        if not prompt:
             metrics.increment("image_degraded_total")
+            return {
+                "status": "failed",
+                "execution": {
+                    "policy": policy,
+                    "status": "failed_degraded",
+                    "sources": [],
+                    "file_ids": [],
+                },
+                "file_id": None,
+                "job_id": None,
+                "warnings": ["illustration prompt was removed by safety policy"],
+            }
+        async with session_factory() as session:
+            run = await session.get(ReportGenerationRun, context.run_id)
+            if run is None or run.state != "generating":
+                raise PipelineWriteRejected("Run is no longer generating")
+            child = await enqueue_report_illustration(
+                session,
+                run=run,
+                parent_job_id=context.job_id,
+                prompt=prompt,
+                policy=policy,
+            )
+            child_id = child.id
+            await session.commit()
+        metrics.increment("image_generation_count")
+        result = await wait_for_illustration_result(
+            job_id=child_id,
+            timeout_seconds=optional_illustration_timeout_seconds,
+            session_factory=session_factory,
+        )
+        status = result["status"]
+        file_id = result.get("file_id")
+        execution_status = {
+            "ready": "succeeded",
+            "pending": "pending",
+            "failed": "failed_degraded",
+        }[status]
+        warnings = []
+        if status == "pending":
+            warnings.append("illustration continues in background")
+        elif status == "failed":
+            metrics.increment("image_degraded_total")
+            warnings.append("illustration generation failed")
         return {
-            "execution": outcome.execution.model_dump(mode="json"),
-            "file_id": outcome.file_id,
-            "warnings": outcome.warnings,
+            "status": status,
+            "execution": {
+                "policy": policy,
+                "status": execution_status,
+                "sources": [],
+                "file_ids": [file_id] if file_id else [],
+            },
+            "file_id": file_id,
+            "job_id": child_id,
+            "warnings": warnings,
         }
 
     async def html_render_stage(context: PipelineContext) -> StageResult:
@@ -447,6 +535,9 @@ def build_pipeline_handlers(
             external_sources=normalized.used_external_sources,
             suggested_actions=normalized.suggested_actions,
             illustration_file_id=file_id,
+            illustration_status=illustration_result.get(
+                "status", "not_required"
+            ),
         )
         metrics.observe("render_duration_ms", (perf_counter() - started) * 1000)
         return {
@@ -517,7 +608,11 @@ def build_pipeline_handlers(
                         share_card_spec=content["share_card_spec"],
                         tokens_used=int(usage.get("input_tokens", 0))
                         + int(usage.get("output_tokens", 0)),
-                        gen_ms=0,
+                        gen_ms=sum(context.stage_timings_ms.values()),
+                        illustration_status=illustration_result.get(
+                            "status", "not_required"
+                        ),
+                        illustration_job_id=illustration_result.get("job_id"),
                     ),
                 )
                 await session.commit()
@@ -543,6 +638,7 @@ def report_pipeline_handler(
     illustration: IllustrationProvider,
     registry: TemplateRegistry,
     storage: Storage,
+    optional_illustration_timeout_seconds: float = 30.0,
     session_factory: async_sessionmaker[AsyncSession] = AsyncSessionFactory,
 ) -> Callable[[WorkflowJob], Awaitable[None]]:
     async def handle(job: WorkflowJob) -> None:
@@ -555,6 +651,9 @@ def report_pipeline_handler(
             illustration=illustration,
             registry=registry,
             storage=storage,
+            optional_illustration_timeout_seconds=(
+                optional_illustration_timeout_seconds
+            ),
             session_factory=session_factory,
         )
         try:
