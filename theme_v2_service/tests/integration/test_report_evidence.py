@@ -183,6 +183,7 @@ async def test_evidence_loads_owned_event_contact_and_complete_private_fields(se
         run=_run(user_id="user-1"),
         execution_plan=plan,
         registry=TemplateRegistry.load(TEMPLATES),
+        timezone_name="Asia/Shanghai",
     )
 
     assert [(item.kind, item.reference_id) for item in bundle.user_evidence] == [
@@ -191,6 +192,20 @@ async def test_evidence_loads_owned_event_contact_and_complete_private_fields(se
     ]
     assert bundle.user_evidence[0].payload["description"].endswith("暂不公开。")
     assert bundle.user_evidence[0].payload["attendees"][0]["name"] == "Kevin"
+    assert bundle.user_evidence[0].effective_at.isoformat() == (
+        "2026-08-08T23:00:00+08:00"
+    )
+    assert bundle.user_evidence[0].payload["start_at"].isoformat() == (
+        "2026-08-08T23:00:00+08:00"
+    )
+    assert bundle.user_evidence[0].temporal_facts.model_dump() == {
+        "timezone": "Asia/Shanghai",
+        "local_date": "2026-08-08",
+        "local_start_time": "23:00",
+        "local_end_time": "00:00",
+        "local_interval_text": "23:00–00:00",
+        "duration_minutes": 60,
+    }
     assert bundle.user_evidence[1].payload["notes"] == ["内部联系人备注"]
     assert bundle.unavailable_references == [
         {"kind": "contact", "id": other_contact.id}

@@ -43,6 +43,24 @@ def test_normalizer_removes_citation_tags_and_keeps_paragraph_manifest():
     ]
 
 
+def test_normalizer_keeps_generic_event_evidence_and_asset_compatibility():
+    normalized = normalize_report_content(
+        content_md=(
+            "会议时间是 21:00。[evidence:event-1]\n\n"
+            "跑步记录为 5 公里。[evidence:asset-1]"
+        ),
+        allowed_evidence_ids=["event-1", "asset-1"],
+        allowed_asset_ids=["asset-1"],
+        external_sources=[],
+        suggested_actions=[],
+    )
+
+    assert normalized.citations[0].evidence_ids == ["event-1"]
+    assert normalized.citations[0].asset_ids == []
+    assert normalized.citations[1].evidence_ids == ["asset-1"]
+    assert normalized.citations[1].asset_ids == ["asset-1"]
+
+
 def test_action_ids_are_stable_and_include_position_title_and_due_time():
     due_at = datetime.fromisoformat("2026-08-10T09:00:00+08:00")
     action = GeneratedSuggestedAction(title="准备访谈问题", due_at=due_at)

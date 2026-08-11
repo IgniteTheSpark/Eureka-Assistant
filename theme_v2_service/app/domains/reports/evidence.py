@@ -1,5 +1,6 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
@@ -31,6 +32,16 @@ class EvidenceItem(EvidenceModel):
     effective_at: datetime
     payload: dict
     bound_fields: dict[str, Any] = Field(default_factory=dict)
+    temporal_facts: "EvidenceTemporalFacts | None" = None
+
+
+class EvidenceTemporalFacts(EvidenceModel):
+    timezone: str
+    local_date: str
+    local_start_time: str
+    local_end_time: str
+    local_interval_text: str
+    duration_minutes: int = Field(ge=0)
 
 
 class EvidenceBundle(EvidenceModel):
@@ -73,6 +84,7 @@ async def load_latest_evidence(
     run: ReportGenerationRun,
     execution_plan: ReportExecutionPlan,
     registry: TemplateRegistry,
+    timezone_name: str = "Asia/Shanghai",
 ) -> EvidenceBundle:
     package = registry.get(
         execution_plan.template_id,
@@ -158,6 +170,7 @@ async def load_latest_evidence(
     evidence: list[EvidenceItem] = []
     unavailable: list[str] = []
     unavailable_references: list[dict[str, str]] = []
+    zone = ZoneInfo(timezone_name)
     for reference in references:
         if reference.kind == "asset":
             asset = by_id.get(reference.id)
@@ -185,21 +198,48 @@ async def load_latest_evidence(
             if event is None:
                 unavailable_references.append(reference.model_dump())
                 continue
+            utc_start = (
+                event.start_at
+                if event.start_at.tzinfo is not None
+                else event.start_at.replace(tzinfo=timezone.utc)
+            ).astimezone(timezone.utc)
+            utc_end = (
+                event.end_at
+                if event.end_at.tzinfo is not None
+                else event.end_at.replace(tzinfo=timezone.utc)
+            ).astimezone(timezone.utc)
+            local_start = utc_start.astimezone(zone)
+            local_end = utc_end.astimezone(zone)
+            local_start_text = local_start.strftime("%H:%M")
+            local_end_text = local_end.strftime("%H:%M")
             evidence.append(
                 EvidenceItem(
                     kind="event",
                     reference_id=event.id,
-                    effective_at=event.start_at,
+                    effective_at=local_start,
                     payload={
                         "title": event.title,
                         "description": event.description,
                         "location": event.location,
-                        "start_at": event.start_at,
-                        "end_at": event.end_at,
+                        "start_at": local_start,
+                        "end_at": local_end,
                         "all_day": event.all_day,
                         "status": event.status,
                         "attendees": event_attendees.get(event.id, []),
                     },
+                    temporal_facts=EvidenceTemporalFacts(
+                        timezone=timezone_name,
+                        local_date=local_start.date().isoformat(),
+                        local_start_time=local_start_text,
+                        local_end_time=local_end_text,
+                        local_interval_text=(
+                            f"{local_start_text}–{local_end_text}"
+                        ),
+                        duration_minutes=max(
+                            0,
+                            int((utc_end - utc_start).total_seconds() // 60),
+                        ),
+                    ),
                 )
             )
             continue

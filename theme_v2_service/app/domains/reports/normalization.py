@@ -87,11 +87,13 @@ def normalize_report_content(
     *,
     content_md: str,
     allowed_asset_ids: list[str],
+    allowed_evidence_ids: list[str] | None = None,
     external_sources: list[dict],
     suggested_actions: list[GeneratedSuggestedAction],
 ) -> NormalizedReportContent:
     without_actions, legacy_titles = _legacy_action_titles(content_md)
     allowed_assets = set(allowed_asset_ids)
+    allowed_evidence = set(allowed_evidence_ids or allowed_asset_ids)
     sources_by_url = {
         str(source.get("url")): source
         for source in external_sources
@@ -105,15 +107,18 @@ def normalize_report_content(
         if not paragraph.strip():
             continue
         asset_ids: list[str] = []
+        evidence_ids: list[str] = []
         source_urls: list[str] = []
 
         def replace_citation(match: re.Match[str]) -> str:
             kind = match.group("kind").casefold()
             value = match.group("value").strip()
             if kind == "evidence":
-                if value not in allowed_assets:
+                if value not in allowed_evidence:
                     raise ValueError("unknown report citation")
-                if value not in asset_ids:
+                if value not in evidence_ids:
+                    evidence_ids.append(value)
+                if value in allowed_assets and value not in asset_ids:
                     asset_ids.append(value)
             else:
                 if value not in sources_by_url:
@@ -130,12 +135,13 @@ def normalize_report_content(
         if not clean:
             continue
         clean_paragraphs.append(clean)
-        if asset_ids or source_urls:
+        if evidence_ids or source_urls:
             citations.append(
                 ReportCitation(
                     paragraph_hash=hashlib.sha256(
                         clean.encode("utf-8")
                     ).hexdigest(),
+                    evidence_ids=evidence_ids,
                     asset_ids=asset_ids,
                     source_urls=source_urls,
                 )

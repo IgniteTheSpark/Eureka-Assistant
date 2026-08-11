@@ -39,6 +39,18 @@ def allowed_numeric_claims(request: GeneratorRequest) -> set[str]:
             skill_id = record.get("skill_id")
             if isinstance(skill_id, str) and skill_id:
                 counts_by_skill[skill_id] = counts_by_skill.get(skill_id, 0) + 1
+            temporal_facts = record.get("temporal_facts")
+            if isinstance(temporal_facts, dict):
+                for key in (
+                    "local_date",
+                    "local_start_time",
+                    "local_end_time",
+                    "local_interval_text",
+                    "duration_minutes",
+                ):
+                    value = temporal_facts.get(key)
+                    if isinstance(value, (str, int, float)):
+                        allowed.update(NUMBER_RE.findall(str(value)))
         allowed.update(str(count) for count in counts_by_skill.values())
     allowed.add(str(len(request.external_sources)))
     return allowed
@@ -49,6 +61,10 @@ def allowed_citation_tags(request: GeneratorRequest) -> set[str]:
         f"[evidence:{asset_id}]"
         for asset_id in request.execution_plan.resolved_asset_ids
     }
+    tags.update(
+        f"[evidence:{reference.id}]"
+        for reference in request.execution_plan.resolved_references
+    )
     tags.update(
         f"[source:{url}]"
         for source in request.external_sources
@@ -148,6 +164,9 @@ def validate_generator_result(
             raise ValueError("suggested action due_at is not grounded")
 
     internal_ids = set(request.execution_plan.resolved_asset_ids)
+    internal_ids.update(
+        reference.id for reference in request.execution_plan.resolved_references
+    )
     internal_ids.update(_walk_internal_ids(request.evidence_bundle))
     share_copy = " ".join(
         [

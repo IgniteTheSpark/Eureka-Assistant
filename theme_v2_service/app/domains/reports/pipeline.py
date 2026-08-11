@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.config import get_settings
 from app.db.models import WorkflowJob
 from app.db.session import AsyncSessionFactory
 from app.domains.reports.charts import ChartDirective, render_chart
@@ -312,6 +313,7 @@ def build_pipeline_handlers(
                 run=run,
                 execution_plan=context.execution_plan,
                 registry=registry,
+                timezone_name=get_settings().default_user_timezone,
             )
         return bundle.model_dump(mode="json", by_alias=True)
 
@@ -414,6 +416,17 @@ def build_pipeline_handlers(
         web_result = context.checkpoints["web_search"]
         normalized = normalize_report_content(
             content_md=content["content_md"],
+            allowed_evidence_ids=list(
+                dict.fromkeys(
+                    [
+                        *(
+                            reference.id
+                            for reference in context.execution_plan.resolved_references
+                        ),
+                        *context.execution_plan.resolved_asset_ids,
+                    ]
+                )
+            ),
             allowed_asset_ids=context.execution_plan.resolved_asset_ids,
             external_sources=web_result.get("sources", []),
             suggested_actions=[
