@@ -14,6 +14,7 @@ from app.domains.reports.planner import (
     InvalidPlannerResult,
     PlannerLimits,
     PlannerResult,
+    build_planner_request,
     execute_report_planner_job,
     persist_planner_result,
     validate_planner_result,
@@ -361,6 +362,48 @@ async def test_planner_uses_custom_skill_schema_and_persists_primary_option(sess
         ("report_plan_ready", f"report-run:{run.id}")
     ]
     assert await session.scalar(select(func.count()).select_from(OutboxEvent)) == 1
+
+
+async def test_planner_normalizes_current_flat_skill_schema(session):
+    skill = _skill(user_id="user-1", name="舞蹈记录")
+    skill.schema_json = {
+        "duration_minutes": {
+            "type": "number",
+            "label": "时长",
+            "required": False,
+        },
+        "venue": {
+            "type": "string",
+            "label": "地点",
+            "required": False,
+        },
+        "x-routing-profile": {"intent": "记录已经发生的舞蹈活动"},
+    }
+    session.add(skill)
+    await session.flush()
+    asset = _asset(user_id="user-1", skill=skill, index=1)
+    session.add(asset)
+    await session.flush()
+    run = _run(user_id="user-1", skill=skill, asset=asset)
+    session.add(run)
+    await session.flush()
+
+    request = await build_planner_request(
+        run=run,
+        tools=PlannerTools(session, user_id="user-1"),
+        registry=TemplateRegistry.load(TEMPLATES),
+    )
+
+    assert set(request.primary_skills[0].capabilities) >= {
+        "daily_log",
+        "free_text",
+        "location",
+        "time_series_measurement",
+    }
+    assert {template.id for template in request.templates} >= {
+        "general_period_review",
+        "idea_synthesis",
+    }
 
 
 async def test_planner_can_request_clarification_and_notification_is_deduplicated(

@@ -8,6 +8,7 @@ from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Asset, Contact, Event, EventAttendee, UserSkill
+from app.domains.assets.validation import normalize_payload_schema
 from app.domains.reports.schemas import TimeRange
 
 
@@ -76,6 +77,7 @@ class PlannerLimits:
 
 
 def _capabilities(schema: dict) -> set[str]:
+    schema = normalize_payload_schema(schema)
     explicit = schema.get("x-data-capabilities", schema.get("capabilities", []))
     capabilities = {
         str(item) for item in explicit if isinstance(item, str) and item.strip()

@@ -110,6 +110,38 @@ class PlannerResult(PlannerModel):
         return self
 
 
+def canonicalize_planner_result(
+    *,
+    request: PlannerRequest,
+    result: PlannerResult,
+) -> PlannerResult:
+    """Restore policy fields owned by the selected official template."""
+    templates = {
+        (template.id, template.version): template for template in request.templates
+    }
+    options = []
+    for option in result.options:
+        template = templates.get((option.template_id, option.template_version))
+        if template is None:
+            options.append(option)
+            continue
+        options.append(
+            option.model_copy(
+                update={
+                    "base_family": template.base_family,
+                    "web_search": option.web_search.model_copy(
+                        update={"policy": template.web_policy}
+                    ),
+                    "illustration": option.illustration.model_copy(
+                        update={"policy": template.illustration_policy}
+                    ),
+                    "render_policy": template.render_policy,
+                }
+            )
+        )
+    return result.model_copy(update={"options": options})
+
+
 def _template_view(package: TemplatePackage) -> PlannerTemplate:
     manifest = package.manifest
     return PlannerTemplate(
@@ -216,17 +248,16 @@ async def build_planner_request(
     return request
 
 
-def validate_planner_result(
+def validate_planner_result_against_request(
     *,
     request: PlannerRequest,
     result: PlannerResult,
-    registry: TemplateRegistry,
 ) -> None:
     if result.clarification_questions:
         return
 
     available_templates = {
-        (template.id, template.version) for template in request.templates
+        (template.id, template.version): template for template in request.templates
     }
     available_skill_ids = {
         skill.id for skill in [*request.primary_skills, *request.related_skills]
@@ -246,15 +277,14 @@ def validate_planner_result(
         key = (option.template_id, option.template_version)
         if key not in available_templates:
             raise InvalidPlannerResult("option uses an unavailable template")
-        package = registry.get(option.template_id, option.template_version)
-        manifest = package.manifest
-        if option.base_family != manifest.base_family:
+        template = available_templates[key]
+        if option.base_family != template.base_family:
             raise InvalidPlannerResult("option base family conflicts with template")
-        if option.web_search.policy != manifest.web_policy:
+        if option.web_search.policy != template.web_policy:
             raise InvalidPlannerResult("option web policy conflicts with template")
-        if option.illustration.policy != manifest.illustration_policy:
+        if option.illustration.policy != template.illustration_policy:
             raise InvalidPlannerResult("option illustration policy conflicts with template")
-        if option.render_policy != manifest.render_policy:
+        if option.render_policy != template.render_policy:
             raise InvalidPlannerResult("option render policy conflicts with template")
         if not set(option.evidence_scope.skill_ids).issubset(available_skill_ids):
             raise InvalidPlannerResult("option references an unavailable Skill")
@@ -279,6 +309,20 @@ def validate_planner_result(
             raise InvalidPlannerResult(
                 "sufficient evidence requires a primary-only option"
             )
+
+
+def validate_planner_result(
+    *,
+    request: PlannerRequest,
+    result: PlannerResult,
+    registry: TemplateRegistry,
+) -> None:
+    # The request catalog is built from this registry. Validate against the exact
+    # catalog shown to the provider, then verify every selected package still
+    # exists in the authoritative local registry at the persistence boundary.
+    validate_planner_result_against_request(request=request, result=result)
+    for option in result.options:
+        registry.get(option.template_id, option.template_version)
 
 
 async def _ensure_plan_notification(
@@ -392,7 +436,10 @@ async def execute_report_planner_job(
                 registry=registry,
             )
 
-        result = PlannerResult.model_validate(await provider.plan(request))
+        result = canonicalize_planner_result(
+            request=request,
+            result=PlannerResult.model_validate(await provider.plan(request)),
+        )
         validate_planner_result(request=request, result=result, registry=registry)
 
         async with session_factory() as write_session:

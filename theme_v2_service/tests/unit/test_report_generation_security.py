@@ -18,7 +18,7 @@ from app.domains.reports.providers_litellm import (
     build_generator_messages,
     build_planner_messages,
 )
-from app.domains.reports.planner import PlannerRequest
+from app.domains.reports.planner import PlannerRequest, PlannerTemplate
 from app.domains.reports.scope_resolution import (
     LiteLLMScopeResolverProvider,
     ScopeResolutionRequest,
@@ -239,6 +239,40 @@ def test_report_messages_supply_required_schema_for_json_object_fallback():
     assert "clarification_questions" in planner_messages
     assert "required_output_schema" in generator_messages
     assert "chart_directives" in generator_messages
+
+
+def test_planner_messages_keep_official_template_catalog_trusted():
+    planner_request = PlannerRequest(
+        run_id="run-1",
+        origin="user_initiated",
+        intent="总结",
+        launch_context={},
+        answers={},
+        evidence_scope=EvidenceScope(),
+        primary_skills=[],
+        related_skills=[],
+        asset_summaries=[],
+        templates=[
+            PlannerTemplate(
+                id="general_period_review",
+                version="1.0.0",
+                base_family="theme_synthesis",
+                planner_description="通用复盘",
+                data_fit=["free_text"],
+                analysis_method="period_summary",
+                web_policy="none",
+                illustration_policy="optional",
+                render_policy="report_html_v1",
+                skill_markdown="Use evidence only.",
+            )
+        ],
+    )
+
+    messages = build_planner_messages(planner_request)
+
+    assert "official_templates" in messages[1]["content"]
+    assert "general_period_review" in messages[1]["content"]
+    assert "general_period_review" not in messages[2]["content"]
 
 
 def test_planner_schema_requires_an_explicit_recommendation_flag():
@@ -512,6 +546,162 @@ async def test_deepseek_planner_repairs_one_invalid_structured_response():
     assert result.clarification_questions[0].id == "goal"
     assert len(calls) == 2
     assert "failed local validation" in calls[1]["messages"][-1]["content"]
+
+
+async def test_deepseek_planner_repairs_unavailable_template_selection():
+    calls = []
+    planner_request = PlannerRequest(
+        run_id="run-1",
+        origin="user_initiated",
+        intent="总结最近的记录",
+        launch_context={},
+        answers={},
+        evidence_scope=EvidenceScope(),
+        primary_skills=[],
+        related_skills=[],
+        asset_summaries=[],
+        templates=[
+            PlannerTemplate(
+                id="general_period_review",
+                version="1.0.0",
+                base_family="theme_synthesis",
+                planner_description="通用复盘",
+                data_fit=["free_text"],
+                analysis_method="period_summary",
+                web_policy="none",
+                illustration_policy="optional",
+                render_policy="report_html_v1",
+                skill_markdown="Use evidence only.",
+            )
+        ],
+    )
+
+    async def completion(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            content = {
+                "clarification_questions": [],
+                "options": [
+                    {
+                        "id": "invented",
+                        "recommended": True,
+                        "title": "总结",
+                        "summary": "总结记录",
+                        "report_goal": "总结记录",
+                        "template_id": "default",
+                        "template_version": "1.0.0",
+                        "base_family": "theme_synthesis",
+                        "evidence_scope": {},
+                        "field_bindings": {},
+                        "web_search": {"policy": "none"},
+                        "illustration": {"policy": "optional"},
+                        "render_policy": "report_html_v1",
+                    }
+                ],
+            }
+        else:
+            content = {
+                "clarification_questions": [
+                    {"id": "goal", "question": "你希望重点关注什么？"}
+                ],
+                "options": [],
+            }
+        return {"choices": [{"message": {"content": json.dumps(content)}}]}
+
+    provider = LiteLLMPlannerProvider(
+        model="deepseek/deepseek-chat",
+        api_key="secret",
+        timeout_seconds=30,
+        completion=completion,
+    )
+
+    result = await provider.plan(planner_request)
+
+    assert result.clarification_questions[0].id == "goal"
+    assert len(calls) == 2
+    repair_message = calls[1]["messages"][-1]["content"]
+    assert "unavailable template" in repair_message
+    assert "general_period_review@1.0.0" in repair_message
+
+
+async def test_planner_canonicalizes_template_owned_policy_fields():
+    calls = []
+    planner_request = PlannerRequest(
+        run_id="run-1",
+        origin="user_initiated",
+        intent="总结并加入公开资料",
+        launch_context={},
+        answers={},
+        evidence_scope=EvidenceScope(),
+        primary_skills=[],
+        related_skills=[],
+        asset_summaries=[],
+        templates=[
+            PlannerTemplate(
+                id="general_period_review",
+                version="1.0.0",
+                base_family="theme_synthesis",
+                planner_description="通用复盘",
+                data_fit=["free_text"],
+                analysis_method="period_summary",
+                web_policy="none",
+                illustration_policy="optional",
+                render_policy="report_html_v1",
+                skill_markdown="Use evidence only.",
+            )
+        ],
+    )
+
+    async def completion(**kwargs):
+        calls.append(kwargs)
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "clarification_questions": [],
+                                "options": [
+                                    {
+                                        "id": "summary",
+                                        "recommended": True,
+                                        "title": "总结",
+                                        "summary": "总结记录",
+                                        "report_goal": "总结记录",
+                                        "template_id": "general_period_review",
+                                        "template_version": "1.0.0",
+                                        "base_family": "professional_evaluation",
+                                        "evidence_scope": {},
+                                        "field_bindings": {},
+                                        "web_search": {
+                                            "policy": "authoritative_only"
+                                        },
+                                        "illustration": {"policy": "required"},
+                                        "render_policy": "invented_renderer",
+                                    }
+                                ],
+                            }
+                        )
+                    }
+                }
+            ]
+        }
+
+    provider = LiteLLMPlannerProvider(
+        model="deepseek/deepseek-chat",
+        api_key="secret",
+        timeout_seconds=30,
+        completion=completion,
+    )
+
+    result = await provider.plan(planner_request)
+
+    assert len(calls) == 1
+    option = result.options[0]
+    assert option.base_family == "theme_synthesis"
+    assert option.web_search.policy == "none"
+    assert option.illustration.policy == "optional"
+    assert option.render_policy == "report_html_v1"
 
 
 async def test_deepseek_generator_accepts_one_json_object_with_presentation_text():
