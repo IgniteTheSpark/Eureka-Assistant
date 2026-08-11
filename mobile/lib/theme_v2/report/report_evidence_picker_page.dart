@@ -13,6 +13,29 @@ typedef ReportEvidenceLoader =
       String? cursor,
     });
 
+Color _pickerSurface(BuildContext context) =>
+    Theme.of(context).extension<ThemeV2Tokens>()?.surface ??
+    Theme.of(context).colorScheme.surface;
+
+Future<List<EvidenceReferenceView>?> showReportEvidencePickerSheet(
+  BuildContext context, {
+  required ReportEvidenceLoader loadPage,
+  List<EvidenceReferenceView> initialSelected = const [],
+}) => showModalBottomSheet<List<EvidenceReferenceView>>(
+  context: context,
+  isScrollControlled: true,
+  useSafeArea: true,
+  showDragHandle: true,
+  backgroundColor: _pickerSurface(context),
+  builder: (_) => FractionallySizedBox(
+    heightFactor: 0.92,
+    child: ReportEvidencePickerPage(
+      loadPage: loadPage,
+      initialSelected: initialSelected,
+    ),
+  ),
+);
+
 class ReportEvidencePickerPage extends StatefulWidget {
   const ReportEvidencePickerPage({
     super.key,
@@ -120,7 +143,10 @@ class _ReportEvidencePickerPageState extends State<ReportEvidencePickerPage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
+    backgroundColor: _pickerSurface(context),
     appBar: AppBar(
+      automaticallyImplyLeading: false,
+      backgroundColor: _pickerSurface(context),
       title: const Text('参考资产'),
       leading: IconButton(
         key: const ValueKey('report-evidence-cancel'),
