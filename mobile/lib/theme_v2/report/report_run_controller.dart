@@ -19,6 +19,8 @@ class ReportRunController extends ChangeNotifier {
   final Duration pollInterval;
 
   Map<String, dynamic>? _run;
+  ReportScopeCandidateResponseView? _scopeCandidates;
+  ReportScopeDraftView? _scopeDraftOverride;
   String? error;
   String? cancellationError;
   bool busy = false;
@@ -31,6 +33,7 @@ class ReportRunController extends ChangeNotifier {
   String get state => _run?['state']?.toString() ?? 'idle';
   String get activeStage => _run?['active_stage']?.toString() ?? '';
   int get planRevision => (_run?['plan_revision'] as num?)?.toInt() ?? 0;
+  int get scopeRevision => (_run?['scope_revision'] as num?)?.toInt() ?? 0;
   String? get reportId => _run?['report_id']?.toString();
   String? get failureMessage {
     final failure = _run?['failure'];
@@ -72,6 +75,16 @@ class ReportRunController extends ChangeNotifier {
       (_run?['pending_decision'] as Map?)?.cast<String, dynamic>() ?? const {};
   bool get needsClarification =>
       pendingDecision['type']?.toString() == 'clarification';
+  bool get needsScopeConfirmation =>
+      pendingDecision['type']?.toString() == 'scope_confirmation';
+  ReportScopeCandidateResponseView? get scopeCandidates => _scopeCandidates;
+  ReportScopeDraftView? get scopeDraft {
+    if (_scopeDraftOverride != null) return _scopeDraftOverride;
+    final raw = _run?['scope_draft'];
+    if (raw is! Map) return null;
+    return ReportScopeDraftView.fromJson(raw.cast<String, dynamic>());
+  }
+
   List<Map<String, dynamic>> get clarificationQuestions =>
       (pendingDecision['questions'] as List? ?? const [])
           .whereType<Map>()
@@ -192,6 +205,155 @@ class ReportRunController extends ChangeNotifier {
     selectedOptionId = optionId;
     error = null;
     _notify();
+  }
+
+  Future<void> loadScopeCandidates() async {
+    final id = runId;
+    if (_disposed || id.isEmpty || busy) return;
+    busy = true;
+    error = null;
+    _notify();
+    try {
+      final response = await _api.getJson(
+        '/api/report-generation-runs/$id/scope-candidates',
+      );
+      if (response is! Map) {
+        throw const FormatException('报告范围候选项返回格式不正确');
+      }
+      final candidates = ReportScopeCandidateResponseView.fromJson(
+        response.cast<String, dynamic>(),
+      );
+      _scopeCandidates = candidates;
+      final current = scopeDraft;
+      if (current == null || _scopeIsEmpty(current)) {
+        _scopeDraftOverride = candidates.defaultScope;
+      }
+    } catch (exception) {
+      _setError(exception);
+    } finally {
+      _finishRequest();
+    }
+  }
+
+  void selectScopeEvent(EvidenceReferenceView reference) {
+    final current = scopeDraft;
+    if (current == null) return;
+    _scopeDraftOverride = current.copyWith(primaryReference: reference);
+    error = null;
+    _notify();
+  }
+
+  void updateScopeAdditionalFocus(String value) {
+    final current = scopeDraft;
+    if (current == null) return;
+    _scopeDraftOverride = current.copyWith(additionalFocus: value);
+    error = null;
+    _notify();
+  }
+
+  void replaceScopeSupportingReferences(
+    List<EvidenceReferenceView> references,
+  ) {
+    final current = scopeDraft;
+    if (current == null) return;
+    _scopeDraftOverride = current.copyWith(supportingReferences: references);
+    error = null;
+    _notify();
+  }
+
+  void toggleScopeGroup(String skillId, bool selected) {
+    final current = scopeDraft;
+    final candidates = scopeCandidates;
+    if (current == null || candidates == null) return;
+    final group = candidates.recordGroups
+        .where((item) => item.skillId == skillId)
+        .firstOrNull;
+    if (group == null) return;
+    final skillIds = current.skillIds.toSet();
+    final references = current.supportingReferences.toSet();
+    if (selected) {
+      skillIds.add(skillId);
+      references.addAll(group.records.map((item) => item.reference));
+    } else {
+      skillIds.remove(skillId);
+      references.removeAll(group.records.map((item) => item.reference));
+    }
+    _scopeDraftOverride = current.copyWith(
+      skillIds: skillIds.toList(growable: false),
+      supportingReferences: references.toList(growable: false),
+    );
+    error = null;
+    _notify();
+  }
+
+  void toggleScopeRecord(EvidenceReferenceView reference, bool selected) {
+    final current = scopeDraft;
+    final candidates = scopeCandidates;
+    if (current == null || candidates == null) return;
+    final references = current.supportingReferences.toSet();
+    if (selected) {
+      references.add(reference);
+    } else {
+      references.remove(reference);
+    }
+    final skillIds = <String>[];
+    for (final group in candidates.recordGroups) {
+      if (group.records.any(
+        (record) => references.contains(record.reference),
+      )) {
+        skillIds.add(group.skillId);
+      }
+    }
+    _scopeDraftOverride = current.copyWith(
+      skillIds: skillIds,
+      supportingReferences: references.toList(growable: false),
+    );
+    error = null;
+    _notify();
+  }
+
+  Future<void> saveScopeDraft(ReportScopeDraftView draft) async {
+    final id = runId;
+    if (_disposed || id.isEmpty || busy) return;
+    busy = true;
+    error = null;
+    _notify();
+    try {
+      final response = await _api.putJson(
+        '/api/report-generation-runs/$id/scope-draft',
+        {'expected_revision': scopeRevision, 'draft': draft.toJson()},
+      );
+      _applyRun(response);
+    } catch (exception) {
+      _setError(exception);
+    } finally {
+      _finishRequest();
+    }
+  }
+
+  Future<void> preparePlan() async {
+    final id = runId;
+    if (_disposed || id.isEmpty || busy) return;
+    busy = true;
+    error = null;
+    _notify();
+    try {
+      final response = await _api.postJson(
+        '/api/report-generation-runs/$id/prepare-plan',
+        {'expected_revision': scopeRevision},
+      );
+      _applyRun(response);
+    } catch (exception) {
+      _setError(exception);
+    } finally {
+      _finishRequest();
+    }
+  }
+
+  Future<void> confirmScope(ReportScopeDraftView draft) async {
+    await saveScopeDraft(draft);
+    if (_disposed || error != null) return;
+    await preparePlan();
   }
 
   Future<void> generate() async {
@@ -330,7 +492,18 @@ class ReportRunController extends ChangeNotifier {
     if (response is! Map) {
       throw const FormatException('报告任务返回格式不正确');
     }
+    final previousRunId = runId;
+    final previousScopeRevision = scopeRevision;
     _run = response.cast<String, dynamic>();
+    if (previousRunId != runId) {
+      _scopeCandidates = null;
+      _scopeDraftOverride = null;
+    } else if (previousScopeRevision != scopeRevision) {
+      final rawScope = _run?['scope_draft'];
+      _scopeDraftOverride = rawScope is Map
+          ? ReportScopeDraftView.fromJson(rawScope.cast<String, dynamic>())
+          : null;
+    }
     error = null;
     if (!needsClarification) clarificationAnswers.clear();
     final options = planOptions;
@@ -349,6 +522,13 @@ class ReportRunController extends ChangeNotifier {
     }
     _schedulePoll();
   }
+
+  bool _scopeIsEmpty(ReportScopeDraftView draft) =>
+      draft.primaryReference == null &&
+      draft.supportingReferences.isEmpty &&
+      draft.skillIds.isEmpty &&
+      draft.attentionFocus.isEmpty &&
+      draft.additionalFocus.trim().isEmpty;
 
   void _schedulePoll() {
     if (_disposed) return;

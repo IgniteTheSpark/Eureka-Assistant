@@ -26,6 +26,223 @@ class EvidenceReferenceView {
 }
 
 @immutable
+class ReportScopeDraftView {
+  const ReportScopeDraftView({
+    required this.adapterKind,
+    this.primaryReference,
+    this.supportingReferences = const [],
+    this.skillIds = const [],
+    this.timeRange,
+    this.attentionFocus = const [],
+    this.additionalFocus = '',
+  });
+
+  final String adapterKind;
+  final EvidenceReferenceView? primaryReference;
+  final List<EvidenceReferenceView> supportingReferences;
+  final List<String> skillIds;
+  final Map<String, dynamic>? timeRange;
+  final List<String> attentionFocus;
+  final String additionalFocus;
+
+  List<EvidenceReferenceView> get references => [
+    ?primaryReference,
+    ...supportingReferences,
+  ];
+
+  factory ReportScopeDraftView.fromJson(
+    Map<String, dynamic> json,
+  ) => ReportScopeDraftView(
+    adapterKind: json['adapter_kind']?.toString() ?? 'generic',
+    primaryReference: json['primary_reference'] is Map
+        ? EvidenceReferenceView.fromJson(
+            (json['primary_reference'] as Map).cast<String, dynamic>(),
+          )
+        : null,
+    supportingReferences: (json['supporting_references'] as List? ?? const [])
+        .whereType<Map>()
+        .map(
+          (item) =>
+              EvidenceReferenceView.fromJson(item.cast<String, dynamic>()),
+        )
+        .toList(growable: false),
+    skillIds: (json['skill_ids'] as List? ?? const [])
+        .map((item) => item.toString())
+        .where((item) => item.isNotEmpty)
+        .toList(growable: false),
+    timeRange: (json['time_range'] as Map?)?.cast<String, dynamic>(),
+    attentionFocus: (json['attention_focus'] as List? ?? const [])
+        .map((item) => item.toString())
+        .where((item) => item.isNotEmpty)
+        .toList(growable: false),
+    additionalFocus: json['additional_focus']?.toString() ?? '',
+  );
+
+  ReportScopeDraftView copyWith({
+    EvidenceReferenceView? primaryReference,
+    bool clearPrimaryReference = false,
+    List<EvidenceReferenceView>? supportingReferences,
+    List<String>? skillIds,
+    Map<String, dynamic>? timeRange,
+    List<String>? attentionFocus,
+    String? additionalFocus,
+  }) => ReportScopeDraftView(
+    adapterKind: adapterKind,
+    primaryReference: clearPrimaryReference
+        ? null
+        : primaryReference ?? this.primaryReference,
+    supportingReferences: supportingReferences ?? this.supportingReferences,
+    skillIds: skillIds ?? this.skillIds,
+    timeRange: timeRange ?? this.timeRange,
+    attentionFocus: attentionFocus ?? this.attentionFocus,
+    additionalFocus: additionalFocus ?? this.additionalFocus,
+  );
+
+  Map<String, dynamic> toJson() => {
+    'adapter_kind': adapterKind,
+    'primary_reference': primaryReference?.toJson(),
+    'supporting_references': supportingReferences
+        .map((item) => item.toJson())
+        .toList(growable: false),
+    'skill_ids': skillIds,
+    'time_range': timeRange,
+    'attention_focus': attentionFocus,
+    'additional_focus': additionalFocus,
+  };
+}
+
+@immutable
+class ReportScopeEventCandidateView {
+  const ReportScopeEventCandidateView({
+    required this.reference,
+    required this.title,
+    required this.localDate,
+    required this.localStart,
+    required this.localEnd,
+    this.location,
+    this.notes,
+  });
+
+  final EvidenceReferenceView reference;
+  final String title;
+  final String localDate;
+  final String localStart;
+  final String localEnd;
+  final String? location;
+  final String? notes;
+
+  factory ReportScopeEventCandidateView.fromJson(Map<String, dynamic> json) =>
+      ReportScopeEventCandidateView(
+        reference: EvidenceReferenceView.fromJson(
+          (json['reference'] as Map).cast<String, dynamic>(),
+        ),
+        title: json['title']?.toString() ?? '未命名日程',
+        localDate: json['local_date']?.toString() ?? '',
+        localStart: json['local_start']?.toString() ?? '',
+        localEnd: json['local_end']?.toString() ?? '',
+        location: json['location']?.toString(),
+        notes: json['notes']?.toString(),
+      );
+}
+
+@immutable
+class ReportScopeRecordCandidateView {
+  const ReportScopeRecordCandidateView({
+    required this.reference,
+    required this.title,
+    required this.effectiveAt,
+    this.preview = const {},
+  });
+
+  final EvidenceReferenceView reference;
+  final String title;
+  final DateTime? effectiveAt;
+  final Map<String, dynamic> preview;
+
+  factory ReportScopeRecordCandidateView.fromJson(Map<String, dynamic> json) =>
+      ReportScopeRecordCandidateView(
+        reference: EvidenceReferenceView.fromJson(
+          (json['reference'] as Map).cast<String, dynamic>(),
+        ),
+        title: json['title']?.toString() ?? '记录',
+        effectiveAt: DateTime.tryParse(json['effective_at']?.toString() ?? ''),
+        preview: (json['preview'] as Map?)?.cast<String, dynamic>() ?? const {},
+      );
+}
+
+@immutable
+class ReportScopeRecordGroupView {
+  const ReportScopeRecordGroupView({
+    required this.skillId,
+    required this.label,
+    required this.count,
+    required this.records,
+    this.defaultSelected = true,
+  });
+
+  final String skillId;
+  final String label;
+  final int count;
+  final bool defaultSelected;
+  final List<ReportScopeRecordCandidateView> records;
+
+  factory ReportScopeRecordGroupView.fromJson(Map<String, dynamic> json) =>
+      ReportScopeRecordGroupView(
+        skillId: json['skill_id']?.toString() ?? '',
+        label: json['label']?.toString() ?? '记录',
+        count: (json['count'] as num?)?.toInt() ?? 0,
+        defaultSelected: json['default_selected'] != false,
+        records: (json['records'] as List? ?? const [])
+            .whereType<Map>()
+            .map(
+              (item) => ReportScopeRecordCandidateView.fromJson(
+                item.cast<String, dynamic>(),
+              ),
+            )
+            .toList(growable: false),
+      );
+}
+
+@immutable
+class ReportScopeCandidateResponseView {
+  const ReportScopeCandidateResponseView({
+    required this.adapterKind,
+    required this.events,
+    required this.recordGroups,
+    required this.defaultScope,
+  });
+
+  final String adapterKind;
+  final List<ReportScopeEventCandidateView> events;
+  final List<ReportScopeRecordGroupView> recordGroups;
+  final ReportScopeDraftView defaultScope;
+
+  factory ReportScopeCandidateResponseView.fromJson(
+    Map<String, dynamic> json,
+  ) => ReportScopeCandidateResponseView(
+    adapterKind: json['adapter_kind']?.toString() ?? 'generic',
+    events: (json['events'] as List? ?? const [])
+        .whereType<Map>()
+        .map(
+          (item) => ReportScopeEventCandidateView.fromJson(
+            item.cast<String, dynamic>(),
+          ),
+        )
+        .toList(growable: false),
+    recordGroups: (json['record_groups'] as List? ?? const [])
+        .whereType<Map>()
+        .map(
+          (item) =>
+              ReportScopeRecordGroupView.fromJson(item.cast<String, dynamic>()),
+        )
+        .toList(growable: false),
+    defaultScope: ReportScopeDraftView.fromJson(
+      (json['default_scope'] as Map?)?.cast<String, dynamic>() ?? const {},
+    ),
+  );
+}
+
+@immutable
 class ResearchEntityView {
   const ResearchEntityView({
     required this.id,

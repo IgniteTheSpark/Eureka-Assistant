@@ -53,12 +53,24 @@ class _ReportRunPageState extends State<ReportRunPage> {
   }
 
   void _changed() {
+    if (_controller.needsScopeConfirmation &&
+        _controller.scopeCandidates == null &&
+        !_controller.busy &&
+        _controller.error == null) {
+      unawaited(_controller.loadScopeCandidates());
+    }
     final serverDraft = _controller.planDraft;
-    if (serverDraft != null && (_planStep == 0 || _draft == null)) {
+    if (serverDraft != null && (_planStep <= 1 || _draft == null)) {
       _draft = serverDraft;
-      if (_focusController.text != serverDraft.additionalFocus) {
-        _focusController.text = serverDraft.additionalFocus;
-      }
+    }
+    final scopeFocus = _controller.scopeDraft?.additionalFocus ?? '';
+    if (_planStep == 0 && _focusController.text != scopeFocus) {
+      _focusController.text = scopeFocus;
+    }
+    if (!_controller.needsScopeConfirmation &&
+        serverDraft != null &&
+        _planStep == 0) {
+      _planStep = 1;
     }
     if (mounted) setState(() {});
     if (_generateAfterScopeResolution &&
@@ -245,11 +257,18 @@ class _ReportRunPageState extends State<ReportRunPage> {
     final options = _controller.planOptions;
     final recommended = _controller.recommendedOption;
     final draft = _draft ?? _controller.planDraft;
-    if (draft == null) return _progress('正在准备报告方案…');
+    final scope = _controller.scopeDraft;
+    if (_planStep == 0 &&
+        (_controller.scopeCandidates == null || scope == null)) {
+      return _progress('正在准备可选范围…');
+    }
+    if (_planStep > 0 && draft == null) {
+      return _progress('正在准备报告方案…');
+    }
     final body = switch (_planStep) {
-      0 => _planStepBody(options, recommended, draft),
-      1 => _scopeStepBody(draft),
-      _ => _confirmationStepBody(options, draft),
+      0 => _scopeStepBody(scope!),
+      1 => _planStepBody(options, recommended, draft!),
+      _ => _confirmationStepBody(options, draft!),
     };
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -266,7 +285,7 @@ class _ReportRunPageState extends State<ReportRunPage> {
           ),
         ),
         const SizedBox(height: ThemeV2Spacing.md),
-        _planStepActions(recommended, draft),
+        _planStepActions(recommended, scope, draft),
       ],
     );
   }
@@ -319,11 +338,6 @@ class _ReportRunPageState extends State<ReportRunPage> {
           ),
           const SizedBox(height: ThemeV2Spacing.md),
         ],
-        if (draft.references.isEmpty)
-          Text(
-            '当前方案还没有参考资产，请先选择后再生成。',
-            style: TextStyle(color: context.themeV2.critical),
-          ),
       ],
     );
   }
@@ -405,127 +419,227 @@ class _ReportRunPageState extends State<ReportRunPage> {
     ),
   );
 
-  Widget _scopeStepBody(ReportPlanDraftView draft) {
+  Widget _scopeStepBody(ReportScopeDraftView scope) {
+    final candidates = _controller.scopeCandidates!;
+    final adapter = scope.adapterKind;
     return ListView(
       key: const ValueKey('report-step-scope'),
       children: [
         const Text(
-          '确认范围与资料',
+          '这份报告要看什么',
           style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: ThemeV2Spacing.sm),
-        const Text('确认报告需要回答的问题、使用的个人资产，以及允许进行的公开调研。'),
+        Text(switch (adapter) {
+          'pre_event_briefing' => '先选择要准备的会议，再补充你最关心的问题。',
+          'period_summary' => '默认纳入这段时间里的全部相关记录，你可以按类型或单条调整。',
+          _ => '选择需要参考的日程、联系人或记录；也可以只补充你的关注点。',
+        }),
+        const SizedBox(height: ThemeV2Spacing.xl),
+        if (adapter == 'pre_event_briefing') ...[
+          const Text(
+            '选择会议',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: ThemeV2Spacing.sm),
+          if (candidates.events.isEmpty)
+            _emptyScopeCard('未来没有可用于会前调研的日程')
+          else
+            for (final event in candidates.events) ...[
+              _eventScopeCard(
+                event,
+                selected: scope.primaryReference == event.reference,
+                onTap: () => _controller.selectScopeEvent(event.reference),
+              ),
+              const SizedBox(height: ThemeV2Spacing.sm),
+            ],
+        ] else if (adapter == 'period_summary') ...[
+          const Text(
+            '选择记录',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: ThemeV2Spacing.sm),
+          if (candidates.recordGroups.isEmpty)
+            _emptyScopeCard('这段时间内还没有可汇总的记录')
+          else
+            for (final group in candidates.recordGroups)
+              _recordScopeGroup(group, scope),
+        ],
+        if (adapter != 'period_summary') ...[
+          if (adapter == 'pre_event_briefing')
+            const SizedBox(height: ThemeV2Spacing.md),
+          const Text(
+            '补充参考资料',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: ThemeV2Spacing.xs),
+          Text('已选择 ${scope.supportingReferences.length} 项，可随时取消。'),
+          const SizedBox(height: ThemeV2Spacing.sm),
+          OutlinedButton.icon(
+            key: const ValueKey('report-open-evidence-picker'),
+            onPressed: _openEvidencePicker,
+            icon: const Icon(Icons.add_rounded),
+            label: const Text('选择日程、联系人或记录'),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(ThemeV2Sizes.minTouchTarget),
+            ),
+          ),
+        ],
         const SizedBox(height: ThemeV2Spacing.xl),
         const Text(
           '关注的问题',
           style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: ThemeV2Spacing.sm),
-        if (draft.attentionQuestions.isNotEmpty)
+        if (scope.attentionFocus.isNotEmpty) ...[
           Wrap(
             spacing: ThemeV2Spacing.sm,
             runSpacing: ThemeV2Spacing.sm,
             children: [
-              for (final question in draft.attentionQuestions)
-                InputChip(
-                  label: Text(question),
-                  onDeleted: () => setState(
-                    () => _draft = draft.copyWith(
-                      attentionQuestions: draft.attentionQuestions
-                          .where((item) => item != question)
-                          .toList(growable: false),
-                    ),
-                  ),
-                ),
+              for (final focus in scope.attentionFocus)
+                Chip(label: Text(focus)),
             ],
           ),
-        const SizedBox(height: ThemeV2Spacing.sm),
+          const SizedBox(height: ThemeV2Spacing.sm),
+        ],
         TextField(
           key: const ValueKey('report-additional-focus'),
           controller: _focusController,
           maxLength: 500,
           maxLines: 3,
-          onChanged: (value) => _draft = draft.copyWith(additionalFocus: value),
+          onChanged: _controller.updateScopeAdditionalFocus,
           decoration: const InputDecoration(
-            labelText: '补充你的关注点',
-            hintText: '例如：补充 Kevin（Eureka CEO）的公开职业背景',
+            labelText: '还想重点了解什么？（选填）',
+            hintText: '例如：补充 Kevin 的公开职业背景，重点比较青训体系',
           ),
         ),
-        if (draft.publicResearch.entities.isNotEmpty) ...[
-          const SizedBox(height: ThemeV2Spacing.sm),
-          const Text(
-            '公开调研对象',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: ThemeV2Spacing.sm),
-          Wrap(
-            spacing: ThemeV2Spacing.sm,
-            runSpacing: ThemeV2Spacing.sm,
-            children: [
-              for (
-                var index = 0;
-                index < draft.publicResearch.entities.length;
-                index++
-              )
-                FilterChip(
-                  label: Text(
-                    [
-                      draft.publicResearch.entities[index].name,
-                      draft.publicResearch.entities[index].qualifier,
-                    ].whereType<String>().join(' · '),
-                  ),
-                  selected: draft.publicResearch.entities[index].enabled,
-                  onSelected: (selected) {
-                    final entities = [...draft.publicResearch.entities];
-                    entities[index] = entities[index].copyWith(
-                      enabled: selected,
-                    );
-                    setState(
-                      () => _draft = draft.copyWith(
-                        publicResearch: draft.publicResearch.copyWith(
-                          entities: entities,
-                        ),
-                      ),
-                    );
-                  },
-                ),
-            ],
-          ),
-        ],
-        const SizedBox(height: ThemeV2Spacing.xl),
-        const Text(
-          '参考资产',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-        ),
-        const SizedBox(height: ThemeV2Spacing.xs),
-        Text('已选择 ${draft.references.length} 项，可包含日程、联系人和自定义资产。'),
-        const SizedBox(height: ThemeV2Spacing.sm),
-        OutlinedButton.icon(
-          key: const ValueKey('report-open-evidence-picker'),
-          onPressed: _openEvidencePicker,
-          icon: const Icon(Icons.add_rounded),
-          label: const Text('选择参考资产'),
-          style: OutlinedButton.styleFrom(
-            minimumSize: const Size.fromHeight(ThemeV2Sizes.minTouchTarget),
-          ),
-        ),
-        if (draft.blockers.isNotEmpty) ...[
-          const SizedBox(height: ThemeV2Spacing.lg),
-          for (final blocker in draft.blockers)
-            Text(
-              blocker.message,
-              style: TextStyle(color: context.themeV2.critical),
-            ),
-        ],
-        if (draft.references.isEmpty) ...[
-          const SizedBox(height: ThemeV2Spacing.lg),
-          Text(
-            '请至少选择一项参考资产。',
-            style: TextStyle(color: context.themeV2.critical),
-          ),
-        ],
       ],
     );
+  }
+
+  Widget _eventScopeCard(
+    ReportScopeEventCandidateView event, {
+    required bool selected,
+    required VoidCallback onTap,
+  }) => InkWell(
+    key: ValueKey('report-scope-event-${event.reference.id}'),
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(18),
+    child: Container(
+      padding: const EdgeInsets.all(ThemeV2Spacing.lg),
+      decoration: BoxDecoration(
+        color: context.themeV2.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: selected
+              ? Theme.of(context).colorScheme.primary
+              : context.themeV2.border,
+          width: selected ? 2 : 1,
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            selected
+                ? Icons.radio_button_checked_rounded
+                : Icons.radio_button_unchecked_rounded,
+            color: selected
+                ? Theme.of(context).colorScheme.primary
+                : context.themeV2.muted,
+          ),
+          const SizedBox(width: ThemeV2Spacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  event.title,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: ThemeV2Spacing.xs),
+                Text(
+                  '${event.localDate}  ${event.localStart}–${event.localEnd}',
+                ),
+                if ((event.location ?? '').trim().isNotEmpty)
+                  Text(event.location!, style: _scopeSecondaryStyle()),
+                if ((event.notes ?? '').trim().isNotEmpty) ...[
+                  const SizedBox(height: ThemeV2Spacing.xs),
+                  Text(
+                    event.notes!,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: _scopeSecondaryStyle(),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  Widget _recordScopeGroup(
+    ReportScopeRecordGroupView group,
+    ReportScopeDraftView scope,
+  ) {
+    final groupSelected = scope.skillIds.contains(group.skillId);
+    return Card(
+      margin: const EdgeInsets.only(bottom: ThemeV2Spacing.sm),
+      color: context.themeV2.surface,
+      child: ExpansionTile(
+        key: ValueKey('report-scope-group-${group.skillId}'),
+        leading: Checkbox(
+          value: groupSelected,
+          onChanged: (value) =>
+              _controller.toggleScopeGroup(group.skillId, value ?? false),
+        ),
+        title: Text(
+          group.label,
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+        subtitle: Text('${group.count} 条记录'),
+        children: [
+          for (final record in group.records)
+            CheckboxListTile(
+              key: ValueKey('report-scope-record-${record.reference.id}'),
+              value: scope.supportingReferences.contains(record.reference),
+              onChanged: (value) => _controller.toggleScopeRecord(
+                record.reference,
+                value ?? false,
+              ),
+              title: Text(record.title),
+              subtitle: record.effectiveAt == null
+                  ? null
+                  : Text(_formatScopeRecordTime(record.effectiveAt!)),
+              controlAffinity: ListTileControlAffinity.leading,
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _emptyScopeCard(String message) => Container(
+    padding: const EdgeInsets.all(ThemeV2Spacing.lg),
+    decoration: BoxDecoration(
+      color: context.themeV2.surface,
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(color: context.themeV2.border),
+    ),
+    child: Text(message, style: _scopeSecondaryStyle()),
+  );
+
+  TextStyle _scopeSecondaryStyle() =>
+      TextStyle(color: context.themeV2.muted, height: 1.35);
+
+  String _formatScopeRecordTime(DateTime value) {
+    final local = value.toLocal();
+    String two(int number) => number.toString().padLeft(2, '0');
+    return '${local.month}月${local.day}日 ${two(local.hour)}:${two(local.minute)}';
   }
 
   Widget _confirmationStepBody(
@@ -629,13 +743,6 @@ class _ReportRunPageState extends State<ReportRunPage> {
               style: TextStyle(color: context.themeV2.critical),
             ),
         ],
-        if (draft.references.isEmpty) ...[
-          const SizedBox(height: ThemeV2Spacing.lg),
-          Text(
-            '请至少选择一项参考资产。',
-            style: TextStyle(color: context.themeV2.critical),
-          ),
-        ],
       ],
     );
   }
@@ -666,62 +773,66 @@ class _ReportRunPageState extends State<ReportRunPage> {
 
   Widget _planStepActions(
     Map<String, dynamic>? recommended,
-    ReportPlanDraftView draft,
+    ReportScopeDraftView? scope,
+    ReportPlanDraftView? draft,
   ) => switch (_planStep) {
-    0 => Column(
+    0 => FilledButton(
+      key: const ValueKey('report-scope-confirm'),
+      onPressed: _controller.busy || scope == null || !_scopeCanContinue(scope)
+          ? null
+          : () => _controller.confirmScope(
+              scope.copyWith(additionalFocus: _focusController.text.trim()),
+            ),
+      style: FilledButton.styleFrom(
+        minimumSize: const Size.fromHeight(ThemeV2Sizes.minTouchTarget),
+      ),
+      child: Text(_controller.busy ? '确认中…' : '确认范围，生成方案'),
+    ),
+    1 => Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         FilledButton(
           key: const ValueKey('report-run-generate'),
-          onPressed: _controller.busy || recommended == null
+          onPressed:
+              _controller.busy ||
+                  recommended == null ||
+                  (draft?.blockers.isNotEmpty ?? true)
               ? null
-              : draft.references.isEmpty
-              ? () => setState(() => _planStep = 1)
               : _controller.quickGenerate,
           style: FilledButton.styleFrom(
             minimumSize: const Size.fromHeight(ThemeV2Sizes.minTouchTarget),
           ),
-          child: Text(
-            _controller.busy
-                ? '启动中…'
-                : draft.references.isEmpty
-                ? '选择参考资产'
-                : '一键生成',
-          ),
+          child: Text(_controller.busy ? '启动中…' : '按推荐方案生成'),
         ),
         const SizedBox(height: ThemeV2Spacing.sm),
-        OutlinedButton(
-          key: const ValueKey('report-run-adjust'),
-          onPressed: () => setState(() => _planStep = 1),
-          style: OutlinedButton.styleFrom(
-            minimumSize: const Size.fromHeight(ThemeV2Sizes.minTouchTarget),
-          ),
-          child: const Text('调整关注范围与资料'),
-        ),
-      ],
-    ),
-    1 => Row(
-      children: [
-        Expanded(
-          child: OutlinedButton(
-            key: const ValueKey('report-step-back'),
-            onPressed: () => setState(() => _planStep = 0),
-            style: OutlinedButton.styleFrom(
-              minimumSize: const Size.fromHeight(ThemeV2Sizes.minTouchTarget),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                key: const ValueKey('report-run-adjust'),
+                onPressed: () => setState(() => _planStep = 0),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(
+                    ThemeV2Sizes.minTouchTarget,
+                  ),
+                ),
+                child: const Text('调整范围'),
+              ),
             ),
-            child: const Text('上一步'),
-          ),
-        ),
-        const SizedBox(width: ThemeV2Spacing.sm),
-        Expanded(
-          child: FilledButton(
-            key: const ValueKey('report-step-next'),
-            onPressed: () => setState(() => _planStep = 2),
-            style: FilledButton.styleFrom(
-              minimumSize: const Size.fromHeight(ThemeV2Sizes.minTouchTarget),
+            const SizedBox(width: ThemeV2Spacing.sm),
+            Expanded(
+              child: OutlinedButton(
+                key: const ValueKey('report-step-next'),
+                onPressed: () => setState(() => _planStep = 2),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(
+                    ThemeV2Sizes.minTouchTarget,
+                  ),
+                ),
+                child: const Text('检查后生成'),
+              ),
             ),
-            child: const Text('下一步'),
-          ),
+          ],
         ),
       ],
     ),
@@ -742,9 +853,7 @@ class _ReportRunPageState extends State<ReportRunPage> {
           child: FilledButton(
             key: const ValueKey('report-run-confirm-generate'),
             onPressed:
-                _controller.busy ||
-                    draft.blockers.isNotEmpty ||
-                    draft.references.isEmpty
+                _controller.busy || draft == null || draft.blockers.isNotEmpty
                 ? null
                 : _confirmAdjusted,
             style: FilledButton.styleFrom(
@@ -757,20 +866,23 @@ class _ReportRunPageState extends State<ReportRunPage> {
     ),
   };
 
+  bool _scopeCanContinue(ReportScopeDraftView scope) =>
+      switch (scope.adapterKind) {
+        'pre_event_briefing' => scope.primaryReference != null,
+        'period_summary' => scope.supportingReferences.isNotEmpty,
+        _ => true,
+      };
+
   Future<void> _openEvidencePicker() async {
-    final draft = _draft;
-    if (draft == null) return;
-    final selected = await Navigator.of(context)
-        .push<List<EvidenceReferenceView>>(
-          MaterialPageRoute(
-            builder: (_) => ReportEvidencePickerPage(
-              loadPage: _controller.loadEvidenceOptions,
-              initialSelected: draft.references,
-            ),
-          ),
-        );
+    final scope = _controller.scopeDraft;
+    if (scope == null) return;
+    final selected = await showReportEvidencePickerSheet(
+      context,
+      loadPage: _controller.loadEvidenceOptions,
+      initialSelected: scope.supportingReferences,
+    );
     if (!mounted || selected == null) return;
-    setState(() => _draft = draft.copyWith(references: selected));
+    _controller.replaceScopeSupportingReferences(selected);
   }
 
   Future<void> _confirmAdjusted() async {
@@ -869,7 +981,7 @@ class _ReportPlanStepper extends StatelessWidget {
 
   final int currentStep;
 
-  static const _labels = ['方案', '范围', '确认'];
+  static const _labels = ['范围', '方案', '生成'];
 
   @override
   Widget build(BuildContext context) {

@@ -9,19 +9,40 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 void main() {
-  test('manual report creation posts an intent-only user run', () async {
+  test('manual pre-event loads candidates before planning', () async {
     final requested = <String>[];
     final api = _api((request) async {
       requested.add('${request.method} ${request.url.path}');
-      expect(jsonDecode(request.body), {
-        'origin': 'user_initiated',
-        'intent': '总结最近的跑步训练',
-      });
+      if (request.method == 'POST') {
+        expect(jsonDecode(request.body), {
+          'origin': 'user_initiated',
+          'intent': '会前调研',
+        });
+        return _json({
+          'id': 'run-manual',
+          'origin': 'user_initiated',
+          'state': 'awaiting_selection',
+          'scope_revision': 0,
+          'pending_decision': {
+            'type': 'scope_confirmation',
+            'adapter_kind': 'pre_event_briefing',
+          },
+          'scope_draft': {'adapter_kind': 'pre_event_briefing'},
+        });
+      }
       return _json({
-        'id': 'run-manual',
-        'origin': 'user_initiated',
-        'state': 'planning',
-        'intent': '总结最近的跑步训练',
+        'adapter_kind': 'pre_event_briefing',
+        'events': [
+          {
+            'reference': {'kind': 'event', 'id': 'event-1'},
+            'title': '球队建设会议',
+            'local_date': '2026-08-12',
+            'local_start': '15:00',
+            'local_end': '16:00',
+          },
+        ],
+        'record_groups': [],
+        'default_scope': {'adapter_kind': 'pre_event_briefing'},
       });
     });
     final controller = ReportRunController(api: api, autoPoll: false);
@@ -30,12 +51,159 @@ void main() {
       api.close();
     });
 
-    await controller.startUserInitiated('  总结最近的跑步训练  ');
+    await controller.startUserInitiated('  会前调研  ');
+    expect(controller.needsScopeConfirmation, isTrue);
+    await controller.loadScopeCandidates();
 
     expect(controller.runId, 'run-manual');
-    expect(controller.state, 'planning');
-    expect(requested, ['POST /api/report-generation-runs']);
+    expect(controller.state, 'awaiting_selection');
+    expect(controller.scopeCandidates?.events.single.title, '球队建设会议');
+    expect(requested, [
+      'POST /api/report-generation-runs',
+      'GET /api/report-generation-runs/run-manual/scope-candidates',
+    ]);
   });
+
+  test('period summary preserves group and record multi-selection', () async {
+    final api = _api((request) async {
+      if (request.url.path.endsWith('/scope-candidates')) {
+        return _json({
+          'adapter_kind': 'period_summary',
+          'events': [],
+          'record_groups': [
+            {
+              'skill_id': 'water',
+              'label': '喝水记录',
+              'count': 2,
+              'default_selected': true,
+              'records': [
+                {
+                  'reference': {'kind': 'asset', 'id': 'water-1'},
+                  'title': '500ml',
+                  'effective_at': '2026-08-11T09:00:00+08:00',
+                },
+                {
+                  'reference': {'kind': 'asset', 'id': 'water-2'},
+                  'title': '300ml',
+                  'effective_at': '2026-08-11T14:00:00+08:00',
+                },
+              ],
+            },
+            {
+              'skill_id': 'running',
+              'label': '跑步记录',
+              'count': 1,
+              'default_selected': true,
+              'records': [
+                {
+                  'reference': {'kind': 'asset', 'id': 'run-1'},
+                  'title': '5km',
+                  'effective_at': '2026-08-11T18:00:00+08:00',
+                },
+              ],
+            },
+          ],
+          'default_scope': {
+            'adapter_kind': 'period_summary',
+            'skill_ids': ['water', 'running'],
+            'supporting_references': [
+              {'kind': 'asset', 'id': 'water-1'},
+              {'kind': 'asset', 'id': 'water-2'},
+              {'kind': 'asset', 'id': 'run-1'},
+            ],
+          },
+        });
+      }
+      return _json({
+        'id': 'run-period',
+        'state': 'awaiting_selection',
+        'scope_revision': 0,
+        'pending_decision': {
+          'type': 'scope_confirmation',
+          'adapter_kind': 'period_summary',
+        },
+        'scope_draft': {'adapter_kind': 'period_summary'},
+      });
+    });
+    final controller = ReportRunController(api: api, autoPoll: false);
+    addTearDown(() {
+      controller.dispose();
+      api.close();
+    });
+
+    await controller.loadRun('run-period');
+    await controller.loadScopeCandidates();
+    controller.toggleScopeGroup('water', false);
+    controller.toggleScopeRecord(
+      const EvidenceReferenceView(kind: 'asset', id: 'run-1'),
+      true,
+    );
+
+    expect(controller.scopeDraft?.skillIds, ['running']);
+    expect(controller.scopeDraft?.supportingReferences.map((item) => item.id), [
+      'run-1',
+    ]);
+  });
+
+  test(
+    'confirming scope saves its revision before preparing the plan',
+    () async {
+      final requested = <String>[];
+      final bodies = <Map<String, dynamic>>[];
+      final api = _api((request) async {
+        requested.add('${request.method} ${request.url.path}');
+        if (request.method == 'GET') {
+          return _json({
+            'id': 'run-1',
+            'state': 'awaiting_selection',
+            'scope_revision': 0,
+            'pending_decision': {
+              'type': 'scope_confirmation',
+              'adapter_kind': 'pre_event_briefing',
+            },
+            'scope_draft': {'adapter_kind': 'pre_event_briefing'},
+          });
+        }
+        bodies.add(jsonDecode(request.body) as Map<String, dynamic>);
+        if (request.method == 'PUT') {
+          return _json({
+            'id': 'run-1',
+            'state': 'awaiting_selection',
+            'scope_revision': 1,
+            'pending_decision': {
+              'type': 'scope_confirmation',
+              'adapter_kind': 'pre_event_briefing',
+            },
+            'scope_draft': (bodies.last['draft'] as Map)
+                .cast<String, dynamic>(),
+          });
+        }
+        return _json({'id': 'run-1', 'state': 'planning', 'scope_revision': 1});
+      });
+      final controller = ReportRunController(api: api, autoPoll: false);
+      addTearDown(() {
+        controller.dispose();
+        api.close();
+      });
+      await controller.loadRun('run-1');
+
+      await controller.confirmScope(
+        const ReportScopeDraftView(
+          adapterKind: 'pre_event_briefing',
+          primaryReference: EvidenceReferenceView(kind: 'event', id: 'event-1'),
+        ),
+      );
+
+      expect(requested, [
+        'GET /api/report-generation-runs/run-1',
+        'PUT /api/report-generation-runs/run-1/scope-draft',
+        'POST /api/report-generation-runs/run-1/prepare-plan',
+      ]);
+      expect(bodies.first['expected_revision'], 0);
+      expect(bodies.last, {'expected_revision': 1});
+      expect(controller.state, 'planning');
+    },
+  );
 
   test('active report run can be cancelled', () async {
     final requested = <String>[];

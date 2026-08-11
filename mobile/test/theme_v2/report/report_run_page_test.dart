@@ -244,7 +244,30 @@ void main() {
     final api = ApiClient(
       baseUrl: 'https://reports.test',
       enableLogging: false,
-      client: MockClient((request) async => _json(_planRun())),
+      client: MockClient((request) async {
+        if (request.url.path.endsWith('/scope-candidates')) {
+          return _json(_preEventCandidates());
+        }
+        if (request.url.path.endsWith('/evidence-options')) {
+          return _json({
+            'items': [],
+            'filters': [
+              {'id': 'all', 'label': '全部'},
+            ],
+          });
+        }
+        if (request.method == 'PUT') {
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          return _json(
+            _scopeRun(
+              revision: 1,
+              draft: (body['draft'] as Map).cast<String, dynamic>(),
+            ),
+          );
+        }
+        if (request.method == 'POST') return _json(_planRun());
+        return _json(_scopeRun());
+      }),
     );
     addTearDown(api.close);
 
@@ -256,39 +279,63 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    expect(find.byKey(const ValueKey('report-plan-stepper')), findsOneWidget);
+    expect(find.text('范围'), findsOneWidget);
+    expect(find.text('方案'), findsOneWidget);
+    expect(find.text('生成'), findsOneWidget);
+    expect(find.byKey(const ValueKey('report-step-scope')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('report-scope-event-event-1')),
+      findsOneWidget,
+    );
+    expect(find.text('球队建设会议'), findsOneWidget);
+    expect(find.text('2026-08-12  21:00–22:00'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('report-scope-event-event-1')));
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('report-additional-focus')),
+      240,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(
+      find.byKey(const ValueKey('report-additional-focus')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('report-final-summary')), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('report-scope-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('report-step-plan')), findsOneWidget);
     expect(
       find.byKey(const ValueKey('report-recommended-plan')),
       findsOneWidget,
     );
     expect(find.text('球队建设会前调研'), findsOneWidget);
     expect(find.textContaining('公开调研 皇家马德里、巴塞罗那'), findsOneWidget);
-    expect(find.text('一键生成'), findsOneWidget);
-    expect(find.byKey(const ValueKey('report-plan-stepper')), findsOneWidget);
-    expect(find.byKey(const ValueKey('report-step-plan')), findsOneWidget);
-    expect(find.byKey(const ValueKey('report-additional-focus')), findsNothing);
-    expect(find.byKey(const ValueKey('report-final-summary')), findsNothing);
+    expect(find.text('按推荐方案生成'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('report-run-adjust')));
     await tester.pumpAndSettle();
-
-    expect(find.byKey(const ValueKey('report-step-scope')), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey('report-additional-focus')),
-      findsOneWidget,
-    );
     await tester.scrollUntilVisible(
       find.byKey(const ValueKey('report-open-evidence-picker')),
       240,
       scrollable: find.byType(Scrollable).last,
     );
+    await tester.tap(find.byKey(const ValueKey('report-open-evidence-picker')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(BottomSheet), findsOneWidget);
     expect(
-      find.byKey(const ValueKey('report-open-evidence-picker')),
+      find.byKey(const ValueKey('report-evidence-confirm')),
       findsOneWidget,
     );
-    expect(find.text('球队建设会前调研'), findsNothing);
-    expect(find.byKey(const ValueKey('report-final-summary')), findsNothing);
-    expect(find.textContaining('时间范围'), findsNothing);
+    expect(find.byType(ReportRunPage), findsOneWidget);
 
+    await tester.tap(find.byKey(const ValueKey('report-evidence-cancel')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('report-scope-confirm')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('report-step-next')));
     await tester.pumpAndSettle();
 
@@ -310,14 +357,25 @@ void main() {
       enableLogging: false,
       client: MockClient((request) async {
         requests.add('${request.method} ${request.url.path}');
-        if (request.method == 'GET') return _json(_planRun());
-        bodies.add(jsonDecode(request.body) as Map<String, dynamic>);
+        if (request.url.path.endsWith('/scope-candidates')) {
+          return _json(_preEventCandidates());
+        }
+        if (request.method == 'GET') return _json(_scopeRun());
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        bodies.add(body);
+        if (request.url.path.endsWith('/scope-draft')) {
+          return _json(
+            _scopeRun(
+              revision: 1,
+              draft: (body['draft'] as Map).cast<String, dynamic>(),
+            ),
+          );
+        }
+        if (request.url.path.endsWith('/prepare-plan')) {
+          return _json(_planRun());
+        }
         if (request.method == 'PUT') {
-          return _json({
-            ..._planRun(),
-            'plan_revision': 4,
-            'plan_draft': bodies.last,
-          });
+          return _json({..._planRun(), 'plan_revision': 4, 'plan_draft': body});
         }
         return _json({
           'id': 'run-plan',
@@ -336,20 +394,35 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('report-run-adjust')));
-    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('report-scope-event-event-1')));
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('report-additional-focus')),
+      240,
+      scrollable: find.byType(Scrollable).last,
+    );
     await tester.enterText(
       find.byKey(const ValueKey('report-additional-focus')),
       '重点关注年轻球员培养',
     );
-    await tester.tap(find.byKey(const ValueKey('report-step-next')));
+    await tester.tap(find.byKey(const ValueKey('report-scope-confirm')));
     await tester.pumpAndSettle();
 
-    expect(find.text('重点关注年轻球员培养'), findsOneWidget);
-    expect(requests, ['GET /api/report-generation-runs/run-plan']);
+    expect(find.byKey(const ValueKey('report-step-plan')), findsOneWidget);
+    expect(requests, [
+      'GET /api/report-generation-runs/run-plan',
+      'GET /api/report-generation-runs/run-plan/scope-candidates',
+      'PUT /api/report-generation-runs/run-plan/scope-draft',
+      'POST /api/report-generation-runs/run-plan/prepare-plan',
+    ]);
+    expect((bodies.first['draft'] as Map)['additional_focus'], '重点关注年轻球员培养');
 
-    await tester.tap(find.byKey(const ValueKey('report-step-back')));
+    await tester.tap(find.byKey(const ValueKey('report-run-adjust')));
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('report-additional-focus')),
+      240,
+      scrollable: find.byType(Scrollable).last,
+    );
     expect(
       tester
           .widget<TextField>(
@@ -360,6 +433,8 @@ void main() {
       '重点关注年轻球员培养',
     );
 
+    await tester.tap(find.byKey(const ValueKey('report-scope-confirm')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('report-step-next')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('report-run-confirm-generate')));
@@ -368,10 +443,15 @@ void main() {
 
     expect(requests, [
       'GET /api/report-generation-runs/run-plan',
+      'GET /api/report-generation-runs/run-plan/scope-candidates',
+      'PUT /api/report-generation-runs/run-plan/scope-draft',
+      'POST /api/report-generation-runs/run-plan/prepare-plan',
+      'PUT /api/report-generation-runs/run-plan/scope-draft',
+      'POST /api/report-generation-runs/run-plan/prepare-plan',
       'PUT /api/report-generation-runs/run-plan/plan-draft',
       'POST /api/report-generation-runs/run-plan/generate',
     ]);
-    expect(bodies.first['additional_focus'], '重点关注年轻球员培养');
+    expect(bodies[bodies.length - 2]['additional_focus'], '重点关注年轻球员培养');
     expect(bodies.last, {
       'selected_option_id': 'briefing',
       'expected_plan_revision': 4,
@@ -379,9 +459,51 @@ void main() {
   });
 }
 
+Map<String, dynamic> _scopeRun({
+  int revision = 0,
+  Map<String, dynamic>? draft,
+}) => {
+  'id': 'run-plan',
+  'state': 'awaiting_selection',
+  'scope_revision': revision,
+  'pending_decision': {
+    'type': 'scope_confirmation',
+    'adapter_kind': 'pre_event_briefing',
+  },
+  'scope_draft':
+      draft ??
+      {'adapter_kind': 'pre_event_briefing', 'supporting_references': []},
+};
+
+Map<String, dynamic> _preEventCandidates() => {
+  'adapter_kind': 'pre_event_briefing',
+  'events': [
+    {
+      'reference': {'kind': 'event', 'id': 'event-1'},
+      'title': '球队建设会议',
+      'local_date': '2026-08-12',
+      'local_start': '21:00',
+      'local_end': '22:00',
+      'location': '会议室 A',
+      'notes': '讨论中国足球建设，对比欧美足球体系',
+    },
+  ],
+  'record_groups': [],
+  'default_scope': {
+    'adapter_kind': 'pre_event_briefing',
+    'supporting_references': [],
+  },
+};
+
 Map<String, dynamic> _planRun() => {
   'id': 'run-plan',
   'state': 'awaiting_selection',
+  'scope_revision': 1,
+  'scope_draft': {
+    'adapter_kind': 'pre_event_briefing',
+    'primary_reference': {'kind': 'event', 'id': 'event-1'},
+    'additional_focus': '重点关注年轻球员培养',
+  },
   'plan_revision': 3,
   'plan_options': [
     {
