@@ -153,9 +153,10 @@ class ClarificationQuestion(StrictModel):
 
 
 class PendingDecision(StrictModel):
-    type: Literal["clarification", "plan_selection"]
+    type: Literal["scope_confirmation", "clarification", "plan_selection"]
     questions: list[ClarificationQuestion] = Field(default_factory=list)
     recommended_option_id: str | None = None
+    adapter_kind: ScopeAdapterKind | None = None
 
     @model_validator(mode="after")
     def validate_shape(self) -> "PendingDecision":
@@ -163,6 +164,8 @@ class PendingDecision(StrictModel):
             raise ValueError("clarification requires questions")
         if self.type == "plan_selection" and not self.recommended_option_id:
             raise ValueError("plan_selection requires recommended_option_id")
+        if self.type == "scope_confirmation" and self.adapter_kind is None:
+            raise ValueError("scope_confirmation requires adapter_kind")
         return self
 
 

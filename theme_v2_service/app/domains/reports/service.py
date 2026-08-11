@@ -14,8 +14,11 @@ from app.domains.notifications.service import create_notification
 from app.domains.reports.models import Report, ReportGenerationRun
 from app.domains.reports.schemas import (
     EvidenceScope,
+    PendingDecision,
     ReportPlanDraft,
     ReportPlanDraftUpdate,
+    ReportScopeDraft,
+    ReportScopeDraftUpdate,
     ReportSpec,
     ReportExecutionPlan,
     ReportPlanOption,
@@ -23,6 +26,12 @@ from app.domains.reports.schemas import (
     TriggerRunCreate,
     UserRunCreate,
     ShareCardSpec,
+)
+from app.domains.reports.scope_adapters import (
+    ReportScopeCandidateResponse,
+    initial_scope,
+    list_scope_candidates,
+    scope_digest,
 )
 from app.domains.reports.state_machine import (
     InvalidRunTransition,
@@ -102,24 +111,65 @@ async def create_user_run(
     user_id: str,
     command: UserRunCreate,
 ) -> ReportGenerationRun:
-    scope = command.to_evidence_scope()
+    now = utc_now()
+    settings = get_settings()
+    draft = initial_scope(
+        command.intent,
+        now=now,
+        timezone_name=settings.default_user_timezone,
+    )
+    if draft.adapter_kind == "period_summary" and not (
+        command.skill_ids or command.asset_ids
+    ):
+        candidates = await list_scope_candidates(
+            session,
+            user_id=user_id,
+            adapter_kind=draft.adapter_kind,
+            intent=command.intent,
+            now=now,
+            timezone_name=settings.default_user_timezone,
+        )
+        draft = candidates.default_scope
+    else:
+        draft = ReportScopeDraft.model_validate(
+            {
+                **draft.model_dump(mode="python", by_alias=True),
+                "skill_ids": list(command.skill_ids),
+                "supporting_references": [
+                    {"kind": "asset", "id": asset_id}
+                    for asset_id in command.asset_ids
+                ],
+                "time_range": command.time_range or draft.time_range,
+            }
+        )
+    scope = await _validate_owned_scope(
+        session,
+        user_id=user_id,
+        scope=draft.to_evidence_scope(),
+    )
     run = ReportGenerationRun(
         user_id=user_id,
         origin="user_initiated",
-        state="planning",
-        active_stage="intake",
+        state="awaiting_selection",
+        active_stage="scope_confirmation",
         launch_context={},
         intent=command.intent,
         answers={},
         evidence_scope=scope.model_dump(mode="json", by_alias=True),
+        pending_decision=PendingDecision(
+            type="scope_confirmation",
+            adapter_kind=draft.adapter_kind,
+        ).model_dump(mode="json", exclude_none=True),
         plan_options=[],
+        scope_adapter=draft.adapter_kind,
+        scope_draft=draft.model_dump(mode="json", by_alias=True),
+        scope_revision=0,
+        scope_hash=scope_digest(draft, primary_version=None),
         resolved_asset_ids=[],
         generation_context={},
         usage_json={},
     )
     session.add(run)
-    await session.flush()
-    await _enqueue_planner(session, run, reason="initial")
     await session.flush()
     metrics.increment("run_created_total", labels={"origin": run.origin})
     return run
@@ -147,7 +197,7 @@ async def create_trigger_run(
             return existing
 
     launch_context = deepcopy(execution.payload_json)
-    scope = EvidenceScope(
+    legacy_scope = EvidenceScope(
         skill_ids=(
             [launch_context["primary_skill_id"]]
             if launch_context.get("primary_skill_id")
@@ -155,17 +205,39 @@ async def create_trigger_run(
         ),
         asset_ids=list(launch_context.get("asset_ids", [])),
     )
+    base_draft = initial_scope(
+        "",
+        now=utc_now(),
+        timezone_name=get_settings().default_user_timezone,
+        trigger_event_id=launch_context.get("event_id"),
+    )
+    draft = ReportScopeDraft.model_validate(
+        {
+            **base_draft.model_dump(mode="python", by_alias=True),
+            "skill_ids": legacy_scope.skill_ids,
+            "supporting_references": legacy_scope.references,
+        }
+    )
+    scope = draft.to_evidence_scope()
     run = ReportGenerationRun(
         user_id=user_id,
         origin="trigger",
         trigger_execution_id=execution.id,
-        state="planning",
-        active_stage="intake",
+        state="awaiting_selection",
+        active_stage="scope_confirmation",
         launch_context=launch_context,
         intent=None,
         answers={},
         evidence_scope=scope.model_dump(mode="json", by_alias=True),
+        pending_decision=PendingDecision(
+            type="scope_confirmation",
+            adapter_kind=draft.adapter_kind,
+        ).model_dump(mode="json", exclude_none=True),
         plan_options=[],
+        scope_adapter=draft.adapter_kind,
+        scope_draft=draft.model_dump(mode="json", by_alias=True),
+        scope_revision=0,
+        scope_hash=scope_digest(draft, primary_version=None),
         resolved_asset_ids=[],
         generation_context={},
         usage_json={},
@@ -179,8 +251,6 @@ async def create_trigger_run(
         workflow_run_id=run.id,
         now=utc_now(),
     )
-    await _enqueue_planner(session, run, reason="initial")
-    await session.flush()
     metrics.increment("run_created_total", labels={"origin": run.origin})
     return run
 
@@ -257,6 +327,8 @@ async def submit_decision(
     )
     if run.state != "awaiting_selection":
         raise RunConflict("run is not awaiting a decision")
+    if (run.pending_decision or {}).get("type") == "scope_confirmation":
+        raise RunConflict("report scope must be prepared through the scope workflow")
     run.answers = {**run.answers, **command.answers}
     if command.evidence_scope is not None:
         run.evidence_scope = command.evidence_scope.model_dump(
@@ -272,6 +344,165 @@ async def submit_decision(
     transition_run(run, "planning", now=now or utc_now())
     await session.flush()
     return run
+
+
+async def get_scope_candidates(
+    session: AsyncSession,
+    *,
+    user_id: str,
+    run_id: str,
+    now: datetime | None = None,
+) -> ReportScopeCandidateResponse:
+    run = await get_owned_run(session, user_id=user_id, run_id=run_id)
+    if run.scope_adapter is None:
+        raise RunConflict("run does not support report scope selection")
+    return await list_scope_candidates(
+        session,
+        user_id=user_id,
+        adapter_kind=run.scope_adapter,
+        intent=run.intent or "",
+        now=now or utc_now(),
+        timezone_name=get_settings().default_user_timezone,
+    )
+
+
+async def _scope_primary_event(
+    session: AsyncSession,
+    *,
+    user_id: str,
+    draft: ReportScopeDraft,
+) -> Event | None:
+    reference = draft.primary_reference
+    if reference is None:
+        return None
+    if reference.kind != "event":
+        return None
+    event = await session.scalar(
+        select(Event).where(
+            Event.id == reference.id,
+            Event.user_id == user_id,
+        )
+    )
+    if event is None:
+        raise RunConflict("evidence scope contains unavailable references")
+    if event.status in {"cancelled", "deleted", "completed"}:
+        raise RunConflict("primary Event is no longer available")
+    return event
+
+
+def _apply_primary_event_context(
+    run: ReportGenerationRun,
+    event: Event | None,
+) -> None:
+    context = dict(run.launch_context or {})
+    if event is None:
+        context.pop("event_id", None)
+        context.pop("event_title", None)
+    else:
+        context["event_id"] = event.id
+        context["event_title"] = event.title
+    run.launch_context = context
+
+
+async def update_scope_draft(
+    session: AsyncSession,
+    *,
+    user_id: str,
+    run_id: str,
+    command: ReportScopeDraftUpdate,
+) -> ReportGenerationRun:
+    run = await owned_run_for_update(session, user_id=user_id, run_id=run_id)
+    if run.state != "awaiting_selection":
+        raise RunConflict("run is not awaiting scope confirmation")
+    if run.scope_adapter is None:
+        raise RunConflict("run does not support report scope selection")
+    if int(run.scope_revision or 0) != command.expected_revision:
+        raise RunConflict("scope revision is stale")
+    draft = command.draft
+    if draft.adapter_kind != run.scope_adapter:
+        raise RunConflict("scope adapter cannot be changed")
+    if draft.adapter_kind == "pre_event_briefing" and draft.primary_reference is None:
+        raise RunConflict("pre-event report requires a primary Event")
+    scope = await _validate_owned_scope(
+        session,
+        user_id=user_id,
+        scope=draft.to_evidence_scope(),
+    )
+    event = await _scope_primary_event(
+        session,
+        user_id=user_id,
+        draft=draft,
+    )
+    primary_version = _timestamp(event.updated_at) if event is not None else None
+    run.scope_draft = draft.model_dump(mode="json", by_alias=True)
+    run.scope_revision = int(run.scope_revision or 0) + 1
+    run.scope_hash = scope_digest(draft, primary_version=primary_version)
+    run.evidence_scope = scope.model_dump(mode="json", by_alias=True)
+    run.pending_decision = PendingDecision(
+        type="scope_confirmation",
+        adapter_kind=draft.adapter_kind,
+    ).model_dump(mode="json", exclude_none=True)
+    run.active_stage = "scope_confirmation"
+    run.plan_options = []
+    run.plan_draft = None
+    run.plan_scope_hash = None
+    run.selected_option_id = None
+    run.execution_plan = None
+    run.planner_job_id = None
+    _apply_primary_event_context(run, event)
+    await session.flush()
+    return run
+
+
+async def prepare_scope_plan(
+    session: AsyncSession,
+    *,
+    user_id: str,
+    run_id: str,
+    expected_revision: int,
+    now: datetime | None = None,
+) -> tuple[ReportGenerationRun, WorkflowJob]:
+    run = await owned_run_for_update(session, user_id=user_id, run_id=run_id)
+    if run.state == "planning" and run.planner_job_id is not None:
+        job = await session.get(WorkflowJob, run.planner_job_id)
+        if job is not None:
+            return run, job
+    if run.state != "awaiting_selection":
+        raise RunConflict("run is not awaiting scope confirmation")
+    if int(run.scope_revision or 0) != expected_revision:
+        raise RunConflict("scope revision is stale")
+    if run.scope_draft is None:
+        raise RunConflict("report scope is missing")
+    draft = ReportScopeDraft.model_validate(run.scope_draft)
+    if draft.adapter_kind == "pre_event_briefing" and draft.primary_reference is None:
+        raise RunConflict("pre-event report requires a primary Event")
+    scope = await _validate_owned_scope(
+        session,
+        user_id=user_id,
+        scope=draft.to_evidence_scope(),
+    )
+    if not scope.references and not scope.skill_ids:
+        raise RunConflict("report scope requires at least one evidence reference")
+    event = await _scope_primary_event(
+        session,
+        user_id=user_id,
+        draft=draft,
+    )
+    primary_version = _timestamp(event.updated_at) if event is not None else None
+    current_hash = scope_digest(draft, primary_version=primary_version)
+    run.scope_hash = current_hash
+    run.evidence_scope = scope.model_dump(mode="json", by_alias=True)
+    run.pending_decision = None
+    run.plan_options = []
+    run.plan_draft = None
+    run.plan_scope_hash = None
+    run.selected_option_id = None
+    run.execution_plan = None
+    _apply_primary_event_context(run, event)
+    job = await _enqueue_planner(session, run, reason=f"scope:{current_hash}")
+    transition_run(run, "planning", now=now or utc_now())
+    await session.flush()
+    return run, job
 
 
 async def _validate_owned_scope(
@@ -437,6 +668,8 @@ async def generate_run(
             return run, current
     if run.state != "awaiting_selection":
         raise RunConflict("run is not awaiting plan selection")
+    if run.scope_hash is not None and run.plan_scope_hash != run.scope_hash:
+        raise RunConflict("report plan was built from a stale scope")
 
     raw_option = next(
         (
@@ -964,6 +1197,11 @@ async def serialize_run(
     if run.plan_draft is not None:
         draft = ReportPlanDraft.model_validate(run.plan_draft)
         public_draft = draft.model_dump(mode="json", by_alias=True)
+    public_scope_draft = None
+    if run.scope_draft is not None:
+        public_scope_draft = ReportScopeDraft.model_validate(
+            run.scope_draft
+        ).model_dump(mode="json", by_alias=True)
     return {
         "id": run.id,
         "origin": run.origin,
@@ -972,6 +1210,9 @@ async def serialize_run(
         "intent": run.intent,
         "answers": run.answers,
         "evidence_scope": public_scope(scope),
+        "scope_adapter": run.scope_adapter,
+        "scope_draft": public_scope_draft,
+        "scope_revision": int(run.scope_revision or 0),
         "pending_decision": run.pending_decision,
         "plan_options": public_options,
         "plan_draft": public_draft,

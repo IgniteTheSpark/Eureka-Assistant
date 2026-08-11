@@ -11,6 +11,8 @@ from app.domains.reports.evidence_options import list_evidence_options
 from app.domains.reports.schemas import (
     ReportPlanDraftUpdate,
     ReportRunCreate,
+    ReportScopeDraftUpdate,
+    ReportScopePrepareRequest,
     RunDecisionRequest,
     RunGenerateRequest,
     TriggerRunCreate,
@@ -40,10 +42,6 @@ async def create_report_run(
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
-    _require_provider(
-        get_settings().report_planner_available(),
-        "report planner is not configured",
-    )
     try:
         if isinstance(command, TriggerRunCreate):
             run = await service.create_trigger_run(
@@ -57,7 +55,66 @@ async def create_report_run(
                 user_id=user_id,
                 command=command,
             )
-    except (ExecutionNotFound, ExecutionExpired) as exc:
+    except (ExecutionNotFound, ExecutionExpired, service.RunConflict) as exc:
+        raise _translate_error(exc) from exc
+    return await service.serialize_run(session, run)
+
+
+@router.get("/{run_id}/scope-candidates")
+async def get_report_scope_candidates(
+    run_id: str,
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    try:
+        candidates = await service.get_scope_candidates(
+            session,
+            user_id=user_id,
+            run_id=run_id,
+        )
+    except (service.RunNotFound, service.RunConflict) as exc:
+        raise _translate_error(exc) from exc
+    return candidates.model_dump(mode="json", by_alias=True)
+
+
+@router.put("/{run_id}/scope-draft")
+async def update_report_scope_draft(
+    run_id: str,
+    command: ReportScopeDraftUpdate,
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    try:
+        run = await service.update_scope_draft(
+            session,
+            user_id=user_id,
+            run_id=run_id,
+            command=command,
+        )
+    except (service.RunNotFound, service.RunConflict) as exc:
+        raise _translate_error(exc) from exc
+    return await service.serialize_run(session, run)
+
+
+@router.post("/{run_id}/prepare-plan")
+async def prepare_report_plan(
+    run_id: str,
+    command: ReportScopePrepareRequest,
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    _require_provider(
+        get_settings().report_planner_available(),
+        "report planner is not configured",
+    )
+    try:
+        run, _ = await service.prepare_scope_plan(
+            session,
+            user_id=user_id,
+            run_id=run_id,
+            expected_revision=command.expected_revision,
+        )
+    except (service.RunNotFound, service.RunConflict) as exc:
         raise _translate_error(exc) from exc
     return await service.serialize_run(session, run)
 

@@ -169,7 +169,15 @@ async def test_pre_event_plan_preserves_private_context_and_public_entities(sess
         launch_context={"event_id": event.id},
         intent=None,
         answers={},
-        evidence_scope={},
+        evidence_scope={"references": [{"kind": "event", "id": event.id}]},
+        scope_adapter="pre_event_briefing",
+        scope_draft={
+            "adapter_kind": "pre_event_briefing",
+            "primary_reference": {"kind": "event", "id": event.id},
+            "attention_focus": ["真实阵容对比"],
+            "additional_focus": "补充 Kevin 的公开职业背景",
+        },
+        scope_hash="confirmed-scope",
         plan_options=[],
         resolved_asset_ids=[],
         generation_context={},
@@ -236,7 +244,14 @@ async def test_pre_event_plan_preserves_private_context_and_public_entities(sess
 
     assert provider.request.event.description.endswith("内部预算安排。")
     assert provider.request.event.attendees[0].contact_id == contact.id
+    assert provider.request.scope_draft.additional_focus == "补充 Kevin 的公开职业背景"
     await session.refresh(run)
+    assert run.plan_scope_hash == "confirmed-scope"
+    assert run.plan_draft["additional_focus"] == "补充 Kevin 的公开职业背景"
+    assert run.plan_draft["attention_questions"] == [
+        "真实阵容对比",
+        "两队当前阵容与建设策略有何差异？",
+    ]
     assert run.plan_draft["evidence_scope"]["references"] == [
         {"kind": "event", "id": event.id},
         {"kind": "contact", "id": contact.id},

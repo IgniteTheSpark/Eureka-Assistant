@@ -91,6 +91,12 @@ async def test_report_flow_from_records_through_share_card_and_revocation(
     )
     assert created.status_code == 200
     run_id = created.json()["id"]
+    prepared = await client.post(
+        f"/api/report-generation-runs/{run_id}/prepare-plan",
+        headers=headers,
+        json={"expected_revision": created.json()["scope_revision"]},
+    )
+    assert prepared.status_code == 200
 
     async with AsyncSessionFactory() as worker_session:
         run = await worker_session.get(ReportGenerationRun, run_id)

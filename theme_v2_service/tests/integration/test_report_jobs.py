@@ -3,7 +3,7 @@ from datetime import datetime
 import pytest
 from sqlalchemy import func, select
 
-from app.db.models import WorkflowJob
+from app.db.models import Asset, UserSkill, WorkflowJob
 from app.domains.reports.models import ReportGenerationRun
 from app.domains.reports.pipeline import (
     PipelineWriteRejected,
@@ -17,6 +17,7 @@ from app.domains.reports.scope_resolution import (
 from app.domains.reports.service import (
     create_user_run,
     generation_write_guard,
+    prepare_scope_plan,
     planner_write_guard,
 )
 
@@ -24,7 +25,24 @@ from app.domains.reports.service import (
 NOW = datetime(2026, 7, 31, 10, 0, 0)
 
 
-async def test_user_run_and_planner_job_share_outer_transaction(session):
+async def test_user_run_scope_confirmation_shares_outer_transaction(session):
+    skill = UserSkill(
+        id="skill-1",
+        user_id="user-1",
+        machine_name="notes",
+        display_name="Notes",
+        schema_json={"type": "object", "properties": {"note": {"type": "string"}}},
+    )
+    session.add(skill)
+    await session.flush()
+    asset = Asset(
+        id="asset-1",
+        user_id="user-1",
+        user_skill_id=skill.id,
+        payload_json={"note": "test"},
+    )
+    session.add(asset)
+    await session.flush()
     run = await create_user_run(
         session,
         user_id="user-1",
@@ -36,8 +54,7 @@ async def test_user_run_and_planner_job_share_outer_transaction(session):
         ),
     )
 
-    job = await session.get(WorkflowJob, run.planner_job_id)
-    assert run.state == "planning"
+    assert run.state == "awaiting_selection"
     assert run.origin == "user_initiated"
     assert run.evidence_scope == {
         "time_range": None,
@@ -46,8 +63,8 @@ async def test_user_run_and_planner_job_share_outer_transaction(session):
         "references": [{"kind": "asset", "id": "asset-1"}],
         "counts_by_skill": {},
     }
-    assert job.job_type == "report_planner"
-    assert job.run_id == run.id
+    assert run.planner_job_id is None
+    assert run.pending_decision["type"] == "scope_confirmation"
 
     await session.rollback()
     assert await session.scalar(
@@ -59,15 +76,40 @@ async def test_user_run_and_planner_job_share_outer_transaction(session):
 
 
 async def test_only_current_job_can_write_back(session):
+    skill = UserSkill(
+        id="skill-1",
+        user_id="user-1",
+        machine_name="notes",
+        display_name="Notes",
+        schema_json={"type": "object", "properties": {"note": {"type": "string"}}},
+    )
+    session.add(skill)
+    await session.flush()
+    asset = Asset(
+        id="asset-1",
+        user_id="user-1",
+        user_skill_id=skill.id,
+        payload_json={"note": "test"},
+    )
+    session.add(asset)
+    await session.flush()
     run = await create_user_run(
         session,
         user_id="user-1",
         command=UserRunCreate(
             origin="user_initiated",
             intent="Summarize",
+            skill_ids=[skill.id],
+            asset_ids=[asset.id],
         ),
     )
-    current_planner = run.planner_job_id
+    run, planner_job = await prepare_scope_plan(
+        session,
+        user_id="user-1",
+        run_id=run.id,
+        expected_revision=0,
+    )
+    current_planner = planner_job.id
 
     assert await planner_write_guard(
         session,

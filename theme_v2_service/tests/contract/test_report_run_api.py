@@ -133,8 +133,140 @@ async def test_manual_run_requires_auth_and_appears_in_active_list(client):
     )
 
     assert created.status_code == 200
-    assert created.json()["state"] == "planning"
+    assert created.json()["state"] == "awaiting_selection"
+    assert created.json()["scope_adapter"] == "generic"
+    assert created.json()["pending_decision"] == {
+        "type": "scope_confirmation",
+        "questions": [],
+        "adapter_kind": "generic",
+    }
+    assert created.json()["job_id"] is None
     assert [item["id"] for item in listed.json()] == [created.json()["id"]]
+
+
+async def test_pre_event_scope_lists_three_future_meetings_and_only_plans_after_confirmation(
+    client,
+    session,
+    monkeypatch,
+):
+    token, user_id = await _register(client, "pre-event@example.com")
+    monkeypatch.setattr("app.domains.reports.service.utc_now", lambda: NOW)
+    events = []
+    for index in range(4):
+        event = Event(
+            user_id=user_id,
+            title=f"会议 {index + 1}",
+            description=f"备注 {index + 1}",
+            start_at=NOW + timedelta(hours=index + 1),
+            end_at=NOW + timedelta(hours=index + 2),
+            all_day=False,
+        )
+        events.append(event)
+        session.add(event)
+    await session.commit()
+    event_ids = [event.id for event in events]
+
+    created = await client.post(
+        "/api/report-generation-runs",
+        headers=_headers(token),
+        json={"origin": "user_initiated", "intent": "会前调研"},
+    )
+    run_id = created.json()["id"]
+    candidates = await client.get(
+        f"/api/report-generation-runs/{run_id}/scope-candidates",
+        headers=_headers(token),
+    )
+
+    assert created.status_code == 200
+    assert created.json()["scope_adapter"] == "pre_event_briefing"
+    assert candidates.status_code == 200
+    assert [item["reference"]["id"] for item in candidates.json()["events"]] == [
+        *event_ids[:3]
+    ]
+    assert candidates.json()["events"][0]["notes"] == "备注 1"
+    assert await session.scalar(
+        select(func.count())
+        .select_from(WorkflowJob)
+        .where(WorkflowJob.job_type == "report_planner")
+    ) == 0
+
+    updated = await client.put(
+        f"/api/report-generation-runs/{run_id}/scope-draft",
+        headers=_headers(token),
+        json={
+            "expected_revision": 0,
+            "draft": {
+                "adapter_kind": "pre_event_briefing",
+                "primary_reference": {"kind": "event", "id": event_ids[0]},
+                "attention_focus": ["对方公开背景"],
+                "additional_focus": "重点看欧洲足球体系",
+            },
+        },
+    )
+    assert updated.status_code == 200
+    assert updated.json()["scope_revision"] == 1
+    assert updated.json()["evidence_scope"]["references"] == [
+        {"kind": "event", "id": event_ids[0]}
+    ]
+
+    prepared = await client.post(
+        f"/api/report-generation-runs/{run_id}/prepare-plan",
+        headers=_headers(token),
+        json={"expected_revision": 1},
+    )
+    assert prepared.status_code == 200
+    assert prepared.json()["state"] == "planning"
+    assert prepared.json()["active_stage"] == "intake"
+    await session.rollback()
+    job = await session.get(WorkflowJob, prepared.json()["job_id"])
+    assert job.job_type == "report_planner"
+    run = await session.get(ReportGenerationRun, run_id)
+    assert run.launch_context["event_id"] == event_ids[0]
+    assert run.scope_hash is not None
+    assert run.plan_scope_hash is None
+
+
+async def test_scope_update_rejects_stale_revision_and_cross_user_reference(
+    client,
+    session,
+):
+    token, _ = await _register(client, "scope-owner@example.com")
+    _, other_user_id = await _register(client, "scope-other@example.com")
+    other_event = Event(
+        user_id=other_user_id,
+        title="Other private meeting",
+        start_at=NOW + timedelta(hours=1),
+        end_at=NOW + timedelta(hours=2),
+        all_day=False,
+    )
+    session.add(other_event)
+    await session.commit()
+    created = await client.post(
+        "/api/report-generation-runs",
+        headers=_headers(token),
+        json={"origin": "user_initiated", "intent": "会前调研"},
+    )
+    run_id = created.json()["id"]
+    payload = {
+        "draft": {
+            "adapter_kind": "pre_event_briefing",
+            "primary_reference": {"kind": "event", "id": other_event.id},
+        }
+    }
+
+    stale = await client.put(
+        f"/api/report-generation-runs/{run_id}/scope-draft",
+        headers=_headers(token),
+        json={**payload, "expected_revision": 1},
+    )
+    forbidden = await client.put(
+        f"/api/report-generation-runs/{run_id}/scope-draft",
+        headers=_headers(token),
+        json={**payload, "expected_revision": 0},
+    )
+
+    assert stale.status_code == 409
+    assert forbidden.status_code == 409
 
 
 async def test_trigger_run_consumes_once_and_hides_cross_user(client, session, monkeypatch):
@@ -245,6 +377,23 @@ async def test_decision_replans_and_generate_is_idempotent(client, session):
         .select_from(WorkflowJob)
         .where(WorkflowJob.job_type == "report_pipeline")
     ) == 1
+
+
+async def test_generate_rejects_a_plan_built_from_an_old_scope(client, session):
+    token, user_id = await _register(client, "stale-plan@example.com")
+    run = await _awaiting_run(session, user_id=user_id)
+    run.scope_hash = "new-scope"
+    run.plan_scope_hash = "old-scope"
+    await session.commit()
+
+    response = await client.post(
+        f"/api/report-generation-runs/{run.id}/generate",
+        headers=_headers(token),
+        json={"selected_option_id": "option-1", "expected_plan_revision": 0},
+    )
+
+    assert response.status_code == 409
+    assert "scope" in response.json()["detail"]
 
 
 async def test_cancelled_and_completed_runs_reject_mutation(client, session):

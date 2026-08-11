@@ -25,6 +25,7 @@ from app.domains.reports.schemas import (
     PendingDecision,
     ReportPlanDraft,
     ReportPlanOption,
+    ReportScopeDraft,
 )
 from app.domains.reports.state_machine import transition_run
 from app.domains.reports.templates import TemplatePackage, TemplateRegistry
@@ -65,6 +66,7 @@ class PlannerRequest(PlannerModel):
     intent: str | None
     launch_context: dict
     answers: dict
+    scope_draft: ReportScopeDraft | None = None
     evidence_scope: EvidenceScope
     primary_skills: list[PlannerSkill]
     related_skills: list[PlannerSkill]
@@ -216,7 +218,14 @@ async def build_planner_request(
         )
 
     event = None
-    event_id = run.launch_context.get("event_id")
+    event_id = run.launch_context.get("event_id") or next(
+        (
+            reference.id
+            for reference in scope.references
+            if reference.kind == "event"
+        ),
+        None,
+    )
     if event_id:
         event = await tools.get_event(event_id)
 
@@ -236,6 +245,11 @@ async def build_planner_request(
         intent=run.intent,
         launch_context=run.launch_context,
         answers=run.answers,
+        scope_draft=(
+            ReportScopeDraft.model_validate(run.scope_draft)
+            if run.scope_draft is not None
+            else None
+        ),
         evidence_scope=scope,
         primary_skills=primary,
         related_skills=related,
@@ -375,15 +389,31 @@ async def persist_planner_result(
         run.pending_decision = PendingDecision(
             type="clarification",
             questions=result.clarification_questions,
-        ).model_dump(mode="json")
+        ).model_dump(mode="json", exclude_none=True)
     else:
         run.plan_options = [
             option.model_dump(mode="json", by_alias=True) for option in result.options
         ]
         recommended = next(option for option in result.options if option.recommended)
+        scope_draft = (
+            ReportScopeDraft.model_validate(run.scope_draft)
+            if run.scope_draft is not None
+            else None
+        )
+        attention_questions = list(
+            dict.fromkeys(
+                [
+                    *(scope_draft.attention_focus if scope_draft else []),
+                    *recommended.attention_questions,
+                ]
+            )
+        )[:8]
         run.plan_draft = ReportPlanDraft(
             selected_option_id=recommended.id,
-            attention_questions=recommended.attention_questions,
+            attention_questions=attention_questions,
+            additional_focus=(
+                scope_draft.additional_focus if scope_draft is not None else ""
+            ),
             evidence_scope=recommended.evidence_scope,
             public_research_scope=recommended.public_research_scope,
             blockers=recommended.blockers,
@@ -392,7 +422,8 @@ async def persist_planner_result(
         run.pending_decision = PendingDecision(
             type="plan_selection",
             recommended_option_id=recommended.id,
-        ).model_dump(mode="json")
+        ).model_dump(mode="json", exclude_none=True)
+        run.plan_scope_hash = run.scope_hash
     run.active_stage = "awaiting_selection"
     usage = dict(run.usage_json or {})
     usage["planner"] = result.usage.model_dump(mode="json")

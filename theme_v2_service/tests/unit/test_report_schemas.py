@@ -4,6 +4,7 @@ from pydantic import ValidationError
 from app.domains.reports.schemas import (
     EvidenceReference,
     EvidenceScope,
+    PendingDecision,
     ReportPlanDraft,
     ReportScopeDraft,
     RunGenerateRequest,
@@ -149,3 +150,16 @@ def test_period_summary_scope_accepts_multiple_skills_and_records():
         "water-1",
         "run-1",
     ]
+
+
+def test_scope_confirmation_is_a_first_class_pending_decision():
+    decision = PendingDecision(
+        type="scope_confirmation",
+        adapter_kind="pre_event_briefing",
+    )
+
+    assert decision.model_dump(exclude_none=True) == {
+        "type": "scope_confirmation",
+        "questions": [],
+        "adapter_kind": "pre_event_briefing",
+    }
