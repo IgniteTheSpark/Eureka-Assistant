@@ -346,6 +346,11 @@ class _ReportRunPageState extends State<ReportRunPage> {
           ),
           const SizedBox(height: ThemeV2Spacing.md),
         ],
+        if (_draftNeedsEvidence(draft))
+          Text(
+            '当前方案还没有参考资产，请先选择后再生成。',
+            style: TextStyle(color: context.themeV2.critical),
+          ),
       ],
     );
   }
@@ -804,7 +809,8 @@ class _ReportRunPageState extends State<ReportRunPage> {
           onPressed:
               _controller.busy ||
                   recommended == null ||
-                  (draft?.blockers.isNotEmpty ?? true)
+                  (draft?.blockers.isNotEmpty ?? true) ||
+                  (draft != null && _draftNeedsEvidence(draft))
               ? null
               : _controller.quickGenerate,
           style: FilledButton.styleFrom(
@@ -861,7 +867,10 @@ class _ReportRunPageState extends State<ReportRunPage> {
           child: FilledButton(
             key: const ValueKey('report-run-confirm-generate'),
             onPressed:
-                _controller.busy || draft == null || draft.blockers.isNotEmpty
+                _controller.busy ||
+                    draft == null ||
+                    draft.blockers.isNotEmpty ||
+                    _draftNeedsEvidence(draft)
                 ? null
                 : _confirmAdjusted,
             style: FilledButton.styleFrom(
@@ -880,6 +889,12 @@ class _ReportRunPageState extends State<ReportRunPage> {
         'period_summary' => scope.supportingReferences.isNotEmpty,
         _ => true,
       };
+
+  bool _draftNeedsEvidence(ReportPlanDraftView draft) {
+    final scope = _controller.scopeDraft;
+    return draft.references.isEmpty &&
+        (scope == null || scope.adapterKind != 'generic');
+  }
 
   Future<void> _openEvidencePicker() async {
     final scope = _controller.scopeDraft;

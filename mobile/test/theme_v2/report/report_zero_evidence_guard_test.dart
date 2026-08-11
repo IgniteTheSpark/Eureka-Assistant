@@ -32,28 +32,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('当前方案还没有参考资产，请先选择后再生成。'), findsOneWidget);
-    expect(find.text('选择参考资产'), findsOneWidget);
-    expect(find.text('一键生成'), findsNothing);
-
-    await tester.tap(find.byKey(const ValueKey('report-run-generate')));
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const ValueKey('report-step-scope')), findsOneWidget);
+    expect(find.text('按推荐方案生成'), findsOneWidget);
+    final quickGenerate = tester.widget<FilledButton>(
+      find.byKey(const ValueKey('report-run-generate')),
+    );
+    expect(quickGenerate.onPressed, isNull);
     expect(requests, ['GET /api/report-generation-runs/run-empty']);
-
-    await tester.tap(find.byKey(const ValueKey('report-step-next')));
-    await tester.pumpAndSettle();
-
-    final confirm = tester.widget<FilledButton>(
-      find.byKey(const ValueKey('report-run-confirm-generate')),
-    );
-    expect(confirm.onPressed, isNull);
-    await tester.scrollUntilVisible(
-      find.text('请至少选择一项参考资产。'),
-      200,
-      scrollable: find.byType(Scrollable).last,
-    );
-    expect(find.text('请至少选择一项参考资产。'), findsOneWidget);
   });
 }
 
