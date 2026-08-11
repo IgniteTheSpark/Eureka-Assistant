@@ -277,3 +277,24 @@ def test_enabled_custom_skill_accepts_existing_shorthand_schema():
     )
 
     assert validate_capture_result(result, [skill]) is result
+
+
+def test_enabled_user_skill_is_capturable_without_schema_capability_marker():
+    model = UserSkill(
+        id="skill-water",
+        user_id="user-1",
+        machine_name="daily_water_intake",
+        display_name="喝水记录",
+        description="记录每次饮水量",
+        schema_json={
+            "type": "object",
+            "properties": {
+                "amount_ml": {"type": "number", "title": "饮水量"},
+            },
+        },
+        enabled=True,
+    )
+
+    skill = capture_skill_from_model(model)
+
+    assert skill.enabled is True

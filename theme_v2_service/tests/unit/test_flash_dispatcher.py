@@ -238,7 +238,9 @@ async def test_dispatcher_teaches_custom_skills_without_overriding_structured_ty
 
     prompt = captured[0]["messages"][0]["content"]
     assert "running_training" in prompt
-    assert "只压过 notes" in prompt
+    assert "优先于 notes" in prompt
+    assert "已经完成的历史事实" in prompt
+    assert "提醒、未来计划仍归 todo" in prompt
     assert result.items[0].status == "reply"
 
 
@@ -892,7 +894,21 @@ def test_dispatcher_factory_is_toolless_and_includes_custom_skill_and_schema():
                 description="记录已经完成的跑步",
                 schema_definition={
                     "type": "object",
-                    "properties": {"distance": {"type": "number"}},
+                    "properties": {
+                        "distance": {
+                            "type": "number",
+                            "title": "距离",
+                            "description": "本次跑步公里数",
+                        }
+                    },
+                    "x-routing": {
+                        "intent": "记录用户已经完成的跑步活动",
+                        "aliases": ["跑步", "晨跑"],
+                        "include": ["实际完成的跑步"],
+                        "exclude": ["未来跑步计划"],
+                        "positive_examples": ["刚跑完五公里"],
+                        "negative_examples": ["明早去跑五公里"],
+                    },
                 },
             )
         ]
@@ -904,6 +920,15 @@ def test_dispatcher_factory_is_toolless_and_includes_custom_skill_and_schema():
     assert "FlashDispatchResult JSON Schema" in agent.instruction
     assert '"intents"' in agent.instruction
     assert "外部产品时,统一归 `qa`" in agent.instruction
+    assert "不能只做字面连续匹配" in agent.instruction
+    assert "用途=记录用户已经完成的跑步活动" in agent.instruction
+    assert "别名=跑步 / 晨跑" in agent.instruction
+    assert "包含=实际完成的跑步" in agent.instruction
+    assert "排除=未来跑步计划" in agent.instruction
+    assert "正例=刚跑完五公里" in agent.instruction
+    assert "反例=明早去跑五公里" in agent.instruction
+    assert "字段=距离(distance, number): 本次跑步公里数" in agent.instruction
+    assert "schema={" not in agent.instruction
 
 
 def test_builtin_factory_exposes_only_supported_skill_tools():

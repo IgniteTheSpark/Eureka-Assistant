@@ -239,7 +239,7 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
     switch (container.type) {
       case LibraryContainerType.event:
         return ThemeV2AssetListPage.entities(
-          title: '事件档案',
+          title: '日程',
           cardType: 'event',
           initialEntities: const [],
           api: _detailApi,

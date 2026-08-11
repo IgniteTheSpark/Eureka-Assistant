@@ -15,7 +15,16 @@ void main() {
                 'key': 'frequency',
                 'prompt': '多久记录一次？',
                 'type': 'choice',
+                'multiple': false,
                 'options': ['每天', '每周'],
+              },
+              {
+                'key': 'recording_content',
+                'prompt': '每次最想记录哪些内容？',
+                'type': 'choice',
+                'multiple': true,
+                'options': ['距离', '配速', '感受'],
+                'placeholder': '请输入其他想记录的内容',
               },
             ],
           },
@@ -31,15 +40,23 @@ void main() {
       controller.setDescription('记录跑步');
       expect(await controller.generate(), isTrue);
       expect(controller.stage, SkillWizardStage.describe);
-      expect(controller.questions.single.key, 'frequency');
+      expect(controller.questions.map((question) => question.key), [
+        'frequency',
+        'recording_content',
+      ]);
 
-      controller.answer('frequency', '每天');
+      controller.toggleQuestionOption('frequency', '每天');
+      controller.toggleQuestionOption('recording_content', '感受');
+      controller.toggleQuestionOption('recording_content', '距离');
+      controller.toggleQuestionOther('recording_content');
+      controller.setQuestionOtherText('recording_content', '天气');
       expect(await controller.generate(), isTrue);
       expect(controller.stage, SkillWizardStage.fields);
       expect(repository.draftBodies.last, {
         'description': '记录跑步',
         'answers': [
           {'key': 'frequency', 'value': '每天'},
+          {'key': 'recording_content', 'value': '距离、感受、天气'},
         ],
       });
     },
@@ -68,6 +85,43 @@ void main() {
       expect(controller.fields[1].meaning, '本次跑步总距离');
       expect(controller.fields[1].required, isTrue);
       expect(controller.payloadSchema['id'], {'type': 'uuid'});
+    },
+  );
+
+  test(
+    'clarification cannot generate fields until recording content is answered',
+    () async {
+      final repository = _FakeSkillWizardRepository(
+        draftResponses: [
+          {
+            'questions': [
+              {
+                'key': 'recording_scope',
+                'prompt': '记录训练、课程还是比赛？',
+                'type': 'choice',
+                'options': ['训练', '课程', '比赛'],
+              },
+              {
+                'key': 'recording_content',
+                'prompt': '每次最想记录哪些内容？',
+                'type': 'choice',
+                'multiple': true,
+                'options': ['舞种', '时长', '地点', '感受'],
+              },
+            ],
+          },
+          {'draft': _danceDraft()},
+        ],
+      );
+      final controller = SkillWizardController(repository: repository);
+      addTearDown(controller.dispose);
+      controller.setDescription('跳舞记录');
+      await controller.generate();
+      controller.toggleQuestionOption('recording_scope', '训练');
+
+      expect(await controller.generate(), isFalse);
+      expect(controller.errorMessage, '请至少选择一项想记录的内容');
+      expect(repository.draftBodies, hasLength(1));
     },
   );
 
@@ -112,8 +166,88 @@ void main() {
         'required': true,
         'long': false,
       });
-      expect(controller.samplePayload['kilometers'], 5.2);
+      expect(controller.samplePayload['kilometers'], '公里');
       expect(controller.samplePayload.containsKey('distance'), isFalse);
+    },
+  );
+
+  test(
+    'added field updates its selector label and receives preview data',
+    () async {
+      final controller = await _generatedController();
+      addTearDown(controller.dispose);
+
+      final added = controller.addField();
+      controller.updateField(added.id, label: '地点');
+
+      final selectable = controller.cardSelection!.fields.singleWhere(
+        (field) => field.id == added.key,
+      );
+      expect(selectable.label, '地点');
+      expect(controller.samplePayload[added.key], '地点');
+      expect(
+        controller.cardSelection!.config.secondaryFieldIds,
+        contains(added.key),
+      );
+    },
+  );
+
+  test('selected Other is incomplete until custom text is entered', () async {
+    final repository = _FakeSkillWizardRepository(
+      draftResponses: [
+        {
+          'questions': [
+            {
+              'key': 'recording_scope',
+              'prompt': '记录什么？',
+              'type': 'choice',
+              'multiple': false,
+              'options': ['训练', '课程'],
+            },
+          ],
+        },
+      ],
+    );
+    final controller = SkillWizardController(repository: repository);
+    addTearDown(controller.dispose);
+    controller.setDescription('跳舞记录');
+    await controller.generate();
+    controller.toggleQuestionOther('recording_scope');
+
+    expect(await controller.generate(), isFalse);
+    expect(controller.errorMessage, '请填写“其他”内容');
+  });
+
+  test(
+    'sparse generated card defaults to one primary and three secondary fields',
+    () async {
+      final controller = SkillWizardController(
+        repository: _FakeSkillWizardRepository(
+          draftResponses: [
+            {'draft': _danceDraft()},
+          ],
+        ),
+      );
+      addTearDown(controller.dispose);
+      controller.setDescription('跳舞记录');
+
+      await controller.generate();
+
+      expect(controller.cardSelection!.config.primaryFieldId, 'dance_style');
+      expect(controller.cardSelection!.config.secondaryFieldIds, [
+        'duration_minutes',
+        'venue',
+        'notes',
+      ]);
+      expect(
+        controller.samplePayload.keys,
+        containsAll(<String>[
+          'dance_style',
+          'duration_minutes',
+          'venue',
+          'notes',
+        ]),
+      );
     },
   );
 
@@ -160,6 +294,39 @@ void main() {
         },
       });
       expect(await controller.confirm(), isFalse);
+    },
+  );
+
+  test(
+    'confirm carries description and routing profile without visible fields',
+    () async {
+      final repository = _FakeSkillWizardRepository(
+        draftResponses: [
+          {'draft': _draft()},
+        ],
+      );
+      final controller = SkillWizardController(repository: repository);
+      addTearDown(controller.dispose);
+      controller.setDescription('记录跑步');
+
+      await controller.generate();
+      expect(
+        controller.fields.map((field) => field.key),
+        isNot(contains('routing')),
+      );
+      expect(controller.goToCard(), isTrue);
+      expect(await controller.confirm(), isTrue);
+
+      final body = repository.confirmBodies.single;
+      expect(body['description'], '记录已经完成的跑步活动');
+      expect(body['routing_profile'], {
+        'intent': '记录已经完成的跑步活动',
+        'aliases': ['跑步', '晨跑'],
+        'include': ['实际完成的跑步'],
+        'exclude': ['未来跑步计划'],
+        'positive_examples': ['刚跑完五公里'],
+        'negative_examples': ['明早去跑五公里'],
+      });
     },
   );
 
@@ -212,6 +379,7 @@ Map<String, dynamic> _draft({String displayName = '跑步记录'}) {
   return {
     'name': 'running_log',
     'display_name': displayName,
+    'description': '记录已经完成的跑步活动',
     'payload_schema': {
       'id': {'type': 'uuid'},
       'occurred_date': {
@@ -242,6 +410,30 @@ Map<String, dynamic> _draft({String displayName = '跑步记录'}) {
       'notes': '轻松跑',
     },
     'chat_starters': ['记录今天跑步'],
+    'routing_profile': {
+      'intent': '记录已经完成的跑步活动',
+      'aliases': ['跑步', '晨跑'],
+      'include': ['实际完成的跑步'],
+      'exclude': ['未来跑步计划'],
+      'positive_examples': ['刚跑完五公里'],
+      'negative_examples': ['明早去跑五公里'],
+    },
+  };
+}
+
+Map<String, dynamic> _danceDraft() {
+  return {
+    'name': 'dance_log',
+    'display_name': '跳舞记录',
+    'description': '记录已经完成的跳舞活动',
+    'payload_schema': {
+      'dance_style': {'type': 'string', 'label': '舞种'},
+      'duration_minutes': {'type': 'integer', 'label': '时长'},
+      'venue': {'type': 'string', 'label': '地点'},
+      'notes': {'type': 'string', 'label': '感受'},
+    },
+    'render_spec': {'icon': '💃', 'primary_field': 'dance_style'},
+    'sample_payload': const <String, dynamic>{},
   };
 }
 

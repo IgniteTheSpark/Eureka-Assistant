@@ -81,12 +81,18 @@ CardData resolveSkillCardData(
     final entity = _canonicalEntity(card);
     if (kind == 'asset') {
       final skill = card['skill_machine_name']!.toString();
+      final spec = specs[skill] ?? synthesizeSpec(skill);
       final payload =
           (entity['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
       final data = buildCard(
         payload: payload,
-        spec: specs[skill] ?? synthesizeSpec(skill),
-        displayName: skill,
+        spec: spec,
+        displayName: resolveEntityLabel(
+          skill,
+          configuredLabel: spec.displayName,
+          fallback: '自定义记录',
+        ),
+        entityName: skill,
       ).copyWith(domain: entity['domain']?.toString());
       if (skill == 'todo') {
         final rawDeadline = payload['due_date']?.toString().trim() ?? '';
@@ -102,7 +108,8 @@ CardData resolveSkillCardData(
     return buildCard(
       payload: entity,
       spec: synthesizeSpec(kind),
-      displayName: kind,
+      displayName: resolveEntityLabel(kind),
+      entityName: kind,
     ).copyWith(domain: entity['domain']?.toString());
   }
   if (card.containsKey('accent_color') || card.containsKey('meta_fields')) {
@@ -169,7 +176,11 @@ CardData resolveSkillCardData(
   return buildCard(
     payload: payload,
     spec: spec ?? synthesizeSpec(skill ?? 'misc'),
-    displayName: skill ?? '资产',
+    displayName: resolveEntityLabel(
+      skill ?? '',
+      configuredLabel: spec?.displayName ?? card['display_name']?.toString(),
+    ),
+    entityName: skill,
   ).copyWith(domain: card['domain'] as String?);
 }
 

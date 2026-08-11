@@ -21,7 +21,7 @@ void main() {
         displayName: 'event',
       );
 
-      expect(card.subtitle, '14:00–15:00 · 会议室 · Alex +3');
+      expect(card.subtitle, '22:00–23:00 · 会议室 · Alex +3');
       expect(card.metaFields, isEmpty);
     });
 
@@ -39,7 +39,7 @@ void main() {
         displayName: 'event',
       );
 
-      expect(card.subtitle, '09:30–10:00 · Alex');
+      expect(card.subtitle, '17:30–18:00 · Alex');
     });
 
     test('all-day events do not invent clock times', () {

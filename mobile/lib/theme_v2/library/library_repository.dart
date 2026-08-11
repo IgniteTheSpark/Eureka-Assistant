@@ -264,7 +264,7 @@ class ApiLibraryRepository implements LibraryRepository {
     required int count,
   }) => LibraryContainerSummary(
     id: id,
-    label: skill?.label ?? label,
+    label: resolveEntityLabel(id, configuredLabel: skill?.label ?? label),
     mark: _mark(skill, fallbackMark, identity: id),
     type: type,
     totalCount: count,

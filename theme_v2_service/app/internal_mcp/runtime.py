@@ -7,7 +7,7 @@ import json
 import os
 import sys
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from functools import lru_cache
 from typing import Any, Callable
 
@@ -35,6 +35,9 @@ class InternalMCPTrustedContext:
     timezone_name: str = "Asia/Shanghai"
     intent_id: str | None = None
     intent_operation: str | None = None
+    source_text: str | None = None
+    source_anchor_date: date | None = None
+    source_period: str | None = None
 
 
 ClientFactory = Callable[[dict[str, Any]], Any]
@@ -218,6 +221,13 @@ class InternalMCPRuntime:
             "timezone_name": trusted.timezone_name,
             "intent_id": trusted.intent_id or "",
             "intent_operation": trusted.intent_operation or "",
+            "source_text": trusted.source_text or "",
+            "source_anchor_date": (
+                trusted.source_anchor_date.isoformat()
+                if trusted.source_anchor_date is not None
+                else ""
+            ),
+            "source_period": trusted.source_period or "",
         }
         for key in declared:
             if key in {"intent_id", "intent_operation"} and not values[key]:

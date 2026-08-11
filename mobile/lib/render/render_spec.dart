@@ -14,6 +14,7 @@ class RenderSpec {
   final String? secondaryFormat;
   final List<MetaFieldSpec> metaFields;
   final List<String> actions;
+  final String? displayName;
 
   /// Per-field display labels from the skill's `payload_schema` (field → label).
   /// The skill author (design agent / seed) defines these, so the detail sheet
@@ -50,6 +51,7 @@ class RenderSpec {
     this.secondaryFormat,
     this.metaFields = const [],
     this.actions = const [],
+    this.displayName,
     this.fieldLabels = const {},
     this.schemaFields = const [],
     this.longFields = const {},
@@ -67,6 +69,7 @@ class RenderSpec {
     String? secondaryFormat,
     List<MetaFieldSpec>? metaFields,
     List<String>? actions,
+    String? displayName,
     Map<String, String>? fieldLabels,
     List<String>? schemaFields,
     Set<String>? longFields,
@@ -82,6 +85,7 @@ class RenderSpec {
     secondaryFormat: secondaryFormat ?? this.secondaryFormat,
     metaFields: metaFields ?? this.metaFields,
     actions: actions ?? this.actions,
+    displayName: displayName ?? this.displayName,
     fieldLabels: fieldLabels ?? this.fieldLabels,
     schemaFields: schemaFields ?? this.schemaFields,
     longFields: longFields ?? this.longFields,
@@ -139,6 +143,7 @@ class RenderSpec {
       secondaryFormat: secondaryFormat,
       metaFields: metaFields,
       actions: actions,
+      displayName: displayName,
       fieldLabels: labels,
       schemaFields: fields,
       longFields: longs,
@@ -213,7 +218,23 @@ String eventCardSummary(Map<String, dynamic> event) {
 DateTime? _eventDate(dynamic value) {
   final raw = value?.toString().trim() ?? '';
   if (raw.isEmpty) return null;
-  return DateTime.tryParse(raw.replaceAll('Z', '+00:00'))?.toLocal();
+  var parsed = DateTime.tryParse(raw.replaceAll('Z', '+00:00'));
+  if (parsed == null) return null;
+  final hasTimezone =
+      raw.endsWith('Z') || RegExp(r'[+-]\d{2}:?\d{2}$').hasMatch(raw);
+  if (!hasTimezone) {
+    parsed = DateTime.utc(
+      parsed.year,
+      parsed.month,
+      parsed.day,
+      parsed.hour,
+      parsed.minute,
+      parsed.second,
+      parsed.millisecond,
+      parsed.microsecond,
+    );
+  }
+  return parsed.toLocal();
 }
 
 String _eventClock(DateTime value) =>
@@ -295,7 +316,9 @@ CardData buildCard({
   required Map<String, dynamic> payload,
   required RenderSpec? spec,
   required String displayName,
+  String? entityName,
 }) {
+  final identity = entityName ?? displayName;
   if (spec == null) {
     return CardData(
       layout: 'horizontal',
@@ -309,13 +332,13 @@ CardData buildCard({
   var primary = spec.primaryField != null
       ? applyFormat(payload[spec.primaryField], spec.primaryFormat)
       : '';
-  if (displayName == 'todo' && primary.isEmpty) {
+  if (identity == 'todo' && primary.isEmpty) {
     // Back-compat: historical todos only have `content`. The current UI treats
     // todo as title + content, so old rows use content as the compact title
     // while still rendering content as the body in the detail sheet.
     primary = applyFormat(payload['content'], null);
   }
-  final isEvent = displayName == 'event';
+  final isEvent = identity == 'event';
   final eventSummary = isEvent ? eventCardSummary(payload) : '';
   final secondary = isEvent
       ? (eventSummary.isNotEmpty
@@ -334,12 +357,12 @@ CardData buildCard({
   // Checkable skills (todo) always carry a bool checkDone so the card shows a
   // toggleable checkbox even before a status is set.
   bool? checkDone;
-  if (displayName == 'todo' || spec.actions.contains('check')) {
+  if (identity == 'todo' || spec.actions.contains('check')) {
     checkDone = todoPayloadIsDone(payload);
   }
   return CardData(
     layout: spec.cardLayout,
-    icon: resolveEntityIcon(displayName, configuredIcon: spec.icon),
+    icon: resolveEntityIcon(identity, configuredIcon: spec.icon),
     accentColor: spec.accentColor,
     title: primary.isNotEmpty ? primary : displayName,
     subtitle: secondary,
@@ -424,6 +447,10 @@ Future<Map<String, RenderSpec>> fetchRenderSpecs(
       if (name == 'todo') spec = normalizeTodoSpec(spec);
       spec = spec.copyWith(
         icon: resolveEntityIcon(name, configuredIcon: spec.icon),
+        displayName: resolveEntityLabel(
+          name,
+          configuredLabel: s['display_name']?.toString(),
+        ),
       );
       out[name] = spec;
       continue;
@@ -436,6 +463,10 @@ Future<Map<String, RenderSpec>> fetchRenderSpecs(
       if (name == 'todo') spec = normalizeTodoSpec(spec);
       spec = spec.copyWith(
         icon: resolveEntityIcon(name, configuredIcon: spec.icon),
+        displayName: resolveEntityLabel(
+          name,
+          configuredLabel: s['display_name']?.toString(),
+        ),
       );
       out[name] = spec;
     }

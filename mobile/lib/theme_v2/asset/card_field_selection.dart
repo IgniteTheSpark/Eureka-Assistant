@@ -157,6 +157,16 @@ class CardFieldSelector extends StatelessWidget {
                 ],
               ),
             ),
+            if (controller.fields.length == 1)
+              Padding(
+                padding: const EdgeInsets.only(top: ThemeV2Spacing.sm),
+                child: Text(
+                  '当前只有一个可展示字段，已固定为主字段。返回上一步添加字段后即可调整。',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: tokens.muted),
+                ),
+              ),
             if (controller.errorMessage case final message?)
               Padding(
                 padding: const EdgeInsets.only(top: ThemeV2Spacing.sm),
@@ -205,38 +215,47 @@ class _FieldSelectionRow extends StatelessWidget {
       ),
       child: Row(
         children: [
-          IconButton(
-            key: ValueKey('card-primary-${field.id}'),
-            tooltip: '设为主字段',
-            onPressed: onPrimary,
-            icon: Icon(
-              primary
-                  ? Icons.radio_button_checked
-                  : Icons.radio_button_unchecked,
-              color: primary ? tokens.accent : tokens.muted,
-              size: 21,
-            ),
-          ),
-          const SizedBox(width: ThemeV2Spacing.xs),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  field.label,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
-                ),
-                Text(
-                  _fieldTypeLabel(field.type),
-                  style: ThemeV2Typography.mono(
-                    fontSize: 8,
-                    color: tokens.muted,
+            child: InkWell(
+              onTap: onPrimary,
+              borderRadius: BorderRadius.circular(ThemeV2Radii.md),
+              child: Row(
+                children: [
+                  IconButton(
+                    key: ValueKey('card-primary-${field.id}'),
+                    tooltip: '设为主字段',
+                    onPressed: onPrimary,
+                    icon: Icon(
+                      primary
+                          ? Icons.radio_button_checked
+                          : Icons.radio_button_unchecked,
+                      color: primary ? tokens.accent : tokens.muted,
+                      size: 21,
+                    ),
                   ),
-                ),
-              ],
+                  const SizedBox(width: ThemeV2Spacing.xs),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          field.label,
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(fontWeight: FontWeight.w700),
+                        ),
+                        Text(
+                          _fieldTypeLabel(field.type),
+                          style: ThemeV2Typography.mono(
+                            fontSize: 8,
+                            color: tokens.muted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           if (order case final number?)

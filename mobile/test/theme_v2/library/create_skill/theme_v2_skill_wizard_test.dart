@@ -1,4 +1,5 @@
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
+import 'package:eureka/theme_v2/asset/asset_card.dart';
 import 'package:eureka/theme_v2/asset/asset_card_display.dart';
 import 'package:eureka/theme_v2/library/create_skill_action.dart';
 import 'package:eureka/theme_v2/library/create_skill/skill_configuration_repository.dart';
@@ -57,10 +58,16 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('skill-describe-step')), findsOneWidget);
-    expect(find.text('多久记录一次？'), findsOneWidget);
+    expect(find.text('确认记录目标'), findsOneWidget);
+    expect(find.text('记录训练、课程还是比赛？'), findsOneWidget);
+    expect(find.text('每次最想记录哪些内容？'), findsOneWidget);
+    expect(find.text('确认目标并生成字段'), findsOneWidget);
     expect(find.text('Questions'), findsNothing);
 
-    await tester.tap(find.text('每天'));
+    await tester.tap(find.text('训练'));
+    await tester.tap(find.text('舞种'));
+    await tester.tap(find.text('地点'));
+    expect(find.text('其他'), findsNWidgets(2));
     await tester.tap(find.byKey(const ValueKey('skill-describe-generate')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('skill-fields-step')), findsOneWidget);
@@ -83,6 +90,14 @@ void main() {
       find.byKey(const ValueKey('skill-field-occurred_date')),
       findsOneWidget,
     );
+    expect(
+      find.byKey(const ValueKey('skill-field-key-occurred_date')),
+      findsNothing,
+    );
+    expect(find.text('Key'), findsNothing);
+    expect(find.text('名称'), findsWidgets);
+    expect(find.text('类型'), findsWidgets);
+    expect(find.text('含义'), findsWidgets);
     await tester.ensureVisible(find.byKey(const ValueKey('skill-add-field')));
     await tester.tap(find.byKey(const ValueKey('skill-add-field')));
     await tester.pump();
@@ -97,6 +112,37 @@ void main() {
     await tester.pumpAndSettle();
     expect(repository.confirmBodies, hasLength(1));
   });
+
+  testWidgets(
+    'Card preview renders field labels and three default secondary fields',
+    (tester) async {
+      final controller = SkillWizardController(
+        repository: _DanceWidgetRepository(),
+      );
+      addTearDown(controller.dispose);
+      await _pump(tester, ThemeV2SkillWizardSheet(controller: controller));
+
+      await tester.enterText(
+        find.byKey(const ValueKey('skill-wizard-description')),
+        '跳舞记录',
+      );
+      await tester.tap(find.byKey(const ValueKey('skill-describe-generate')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('skill-fields-next')));
+      await tester.pumpAndSettle();
+
+      final card = tester.widget<ThemeV2AssetCard>(
+        find.descendant(
+          of: find.byKey(const ValueKey('skill-card-preview')),
+          matching: find.byType(ThemeV2AssetCard),
+        ),
+      );
+      expect(card.data.primaryValue, '舞种');
+      expect(card.data.secondaryValues, ['时长', '地点', '感受']);
+      expect(card.data.secondaryValues, hasLength(3));
+      expect(controller.cardSelection!.config.secondaryFieldIds, hasLength(3));
+    },
+  );
 
   testWidgets('Fields can author explicit Markdown long text', (tester) async {
     final repository = _WidgetRepository();
@@ -211,10 +257,19 @@ class _WidgetRepository implements SkillWizardRepository {
       return {
         'questions': [
           {
-            'key': 'frequency',
-            'prompt': '多久记录一次？',
+            'key': 'recording_scope',
+            'prompt': '记录训练、课程还是比赛？',
             'type': 'choice',
-            'options': ['每天', '每周'],
+            'multiple': false,
+            'options': ['训练', '课程', '比赛'],
+          },
+          {
+            'key': 'recording_content',
+            'prompt': '每次最想记录哪些内容？',
+            'type': 'choice',
+            'multiple': true,
+            'options': ['舞种', '时长', '地点', '感受'],
+            'placeholder': '请输入其他想记录的内容',
           },
         ],
       };
@@ -307,6 +362,29 @@ class _ConfigurationRepository implements SkillConfigurationRepository {
   ) async {
     saved = true;
   }
+}
+
+class _DanceWidgetRepository implements SkillWizardRepository {
+  @override
+  Future<Map<String, dynamic>> draft(Map<String, dynamic> body) async {
+    return {
+      'draft': {
+        'name': 'dance_log',
+        'display_name': '跳舞记录',
+        'payload_schema': {
+          'dance_style': {'type': 'string', 'label': '舞种'},
+          'duration_minutes': {'type': 'integer', 'label': '时长'},
+          'venue': {'type': 'string', 'label': '地点'},
+          'notes': {'type': 'string', 'label': '感受'},
+        },
+        'render_spec': {'icon': '💃', 'primary_field': 'dance_style'},
+        'sample_payload': const <String, dynamic>{},
+      },
+    };
+  }
+
+  @override
+  Future<void> confirm(Map<String, dynamic> body) async {}
 }
 
 class _BuiltInConfigurationRepository implements SkillConfigurationRepository {

@@ -173,7 +173,7 @@ def test_foundation_migration_round_trip_and_physical_types():
     assert isinstance(rhythm_columns["patterns_json"]["type"], mysql.JSON)
     assert rhythm_columns["timezone_name"]["type"].length == 64
 
-    assert revision == "0020_capture_root_mutation_key"
+    assert revision == "0021_capture_device_identity"
     engine.dispose()
 
 
@@ -351,7 +351,7 @@ def test_internal_mcp_migration_backfills_existing_domain_data():
         revision = connection.execute(
             text("SELECT version_num FROM alembic_version")
         ).scalar_one()
-    assert revision == "0020_capture_root_mutation_key"
+    assert revision == "0021_capture_device_identity"
     engine.dispose()
 
 

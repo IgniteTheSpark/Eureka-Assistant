@@ -21,4 +21,15 @@ void main() {
     expect(resolveEntityIcon('running_training', configuredIcon: '🏃'), '🏃');
     expect(resolveEntityIcon('running_training'), '•');
   });
+
+  test('uses one user-facing label for the event entity', () {
+    expect(resolveEntityLabel('event', configuredLabel: '事件'), '日程');
+    expect(resolveEntityLabel('calendar'), '日程');
+    expect(resolveEntityLabel('todo'), '待办');
+    expect(
+      resolveEntityLabel('running_training', configuredLabel: '跑步训练'),
+      '跑步训练',
+    );
+    expect(resolveEntityLabel('running_training', fallback: '自定义记录'), '自定义记录');
+  });
 }

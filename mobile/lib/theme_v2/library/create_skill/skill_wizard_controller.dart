@@ -14,6 +14,7 @@ class SkillWizardQuestion {
     required this.key,
     required this.prompt,
     required this.type,
+    required this.multiple,
     required this.options,
     required this.placeholder,
   });
@@ -23,6 +24,7 @@ class SkillWizardQuestion {
       key: json['key']?.toString() ?? '',
       prompt: json['prompt']?.toString() ?? '',
       type: json['type']?.toString() ?? 'text',
+      multiple: json['multiple'] == true,
       options: List.unmodifiable(
         (json['options'] as List? ?? const []).map((item) => item.toString()),
       ),
@@ -33,6 +35,7 @@ class SkillWizardQuestion {
   final String key;
   final String prompt;
   final String type;
+  final bool multiple;
   final List<String> options;
   final String placeholder;
 }
@@ -124,10 +127,13 @@ class ApiSkillWizardRepository implements SkillWizardRepository {
   Future<void> confirm(Map<String, dynamic> body) async {
     final payloadSchema =
         (body['payload_schema'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final routingProfile =
+        (body['routing_profile'] as Map?)?.cast<String, dynamic>() ?? const {};
     await _api.postJson('/api/user-skills', {
       'machine_name': body['name'],
       'display_name': body['display_name'],
-      'schema': _themeV2SkillSchema(payloadSchema),
+      'description': body['description'],
+      'schema': _themeV2SkillSchema(payloadSchema, routingProfile),
       'render_spec': body['render_spec'] ?? const <String, dynamic>{},
       'chat_starters': body['chat_starters'] ?? const <dynamic>[],
     });
@@ -138,7 +144,10 @@ class ApiSkillWizardRepository implements SkillWizardRepository {
   }
 }
 
-Map<String, dynamic> _themeV2SkillSchema(Map<String, dynamic> payloadSchema) {
+Map<String, dynamic> _themeV2SkillSchema(
+  Map<String, dynamic> payloadSchema,
+  Map<String, dynamic> routingProfile,
+) {
   final properties = <String, dynamic>{};
   for (final entry in payloadSchema.entries) {
     final metadata = (entry.value as Map?)?.cast<String, dynamic>() ?? const {};
@@ -165,6 +174,8 @@ Map<String, dynamic> _themeV2SkillSchema(Map<String, dynamic> payloadSchema) {
     'required': const <String>[],
     'additionalProperties': false,
     'x-capture-enabled': true,
+    if (routingProfile.isNotEmpty)
+      'x-routing': Map<String, dynamic>.from(routingProfile),
   };
 }
 
@@ -186,12 +197,18 @@ class SkillWizardController extends ChangeNotifier {
   String? _errorMessage;
   List<SkillWizardQuestion> _questions = const [];
   final Map<String, String> _answers = {};
+  final Map<String, Set<String>> _selectedQuestionOptions = {};
+  final Set<String> _questionOtherSelected = {};
+  final Map<String, String> _questionOtherText = {};
   Map<String, dynamic>? _draft;
   final List<SkillDraftField> _fields = [];
   final Map<String, dynamic> _hiddenSchema = {};
   Map<String, dynamic> _originalRenderSpec = {};
   Map<String, dynamic> _samplePayload = {};
+  final Set<String> _generatedSampleKeys = {};
   List<dynamic> _chatStarters = const [];
+  String _skillDescription = '';
+  Map<String, dynamic> _routingProfile = {};
   String _displayName = '';
   String _icon = '•';
   CardFieldSelectionController? _cardSelection;
@@ -230,11 +247,81 @@ class SkillWizardController extends ChangeNotifier {
 
   void answer(String key, String value) {
     _answers[key] = value;
+    final question = _questionFor(key);
+    if (question != null) {
+      final parts = value
+          .split(RegExp(r'[、,，]'))
+          .map((part) => part.trim())
+          .where((part) => part.isNotEmpty)
+          .toList();
+      final selected = <String>{
+        for (final option in question.options)
+          if (parts.contains(option)) option,
+      };
+      _selectedQuestionOptions[key] = selected;
+      final custom = parts
+          .where((part) => !question.options.contains(part))
+          .join('、');
+      if (custom.isEmpty) {
+        _questionOtherSelected.remove(key);
+        _questionOtherText.remove(key);
+      } else {
+        _questionOtherSelected.add(key);
+        _questionOtherText[key] = custom;
+      }
+    }
     _errorMessage = null;
     _notify();
   }
 
   String answerFor(String key) => _answers[key] ?? '';
+
+  Set<String> selectedOptionsFor(String key) =>
+      Set.unmodifiable(_selectedQuestionOptions[key] ?? const <String>{});
+
+  bool isOtherSelected(String key) => _questionOtherSelected.contains(key);
+
+  String otherTextFor(String key) => _questionOtherText[key] ?? '';
+
+  void toggleQuestionOption(String key, String option) {
+    final question = _questionFor(key);
+    if (question == null || !question.options.contains(option)) return;
+    final selected = _selectedQuestionOptions.putIfAbsent(
+      key,
+      () => <String>{},
+    );
+    if (question.multiple) {
+      if (!selected.remove(option)) selected.add(option);
+    } else {
+      selected
+        ..clear()
+        ..add(option);
+      _questionOtherSelected.remove(key);
+      _questionOtherText.remove(key);
+    }
+    _syncQuestionAnswer(question);
+  }
+
+  void toggleQuestionOther(String key) {
+    final question = _questionFor(key);
+    if (question == null) return;
+    if (!_questionOtherSelected.remove(key)) {
+      _questionOtherSelected.add(key);
+      if (!question.multiple) {
+        _selectedQuestionOptions[key]?.clear();
+      }
+    } else {
+      _questionOtherText.remove(key);
+    }
+    _syncQuestionAnswer(question);
+  }
+
+  void setQuestionOtherText(String key, String value) {
+    final question = _questionFor(key);
+    if (question == null || !_questionOtherSelected.contains(key)) return;
+    _questionOtherText[key] = value;
+    _syncQuestionAnswer(question);
+  }
 
   void setDisplayName(String value) {
     if (_displayName == value) return;
@@ -253,6 +340,17 @@ class SkillWizardController extends ChangeNotifier {
     final description = _description.trim();
     if (description.isEmpty) {
       _errorMessage = '先描述一下你想记录什么';
+      _notify();
+      return false;
+    }
+    for (final question in _questions) {
+      if (_isQuestionComplete(question)) continue;
+      if (_questionOtherSelected.contains(question.key) &&
+          otherTextFor(question.key).trim().isEmpty) {
+        _errorMessage = '请填写“其他”内容';
+      } else {
+        _errorMessage = question.multiple ? '请至少选择一项想记录的内容' : '请先选择记录范围';
+      }
       _notify();
       return false;
     }
@@ -287,6 +385,15 @@ class SkillWizardController extends ChangeNotifier {
           ),
         );
         _answers.removeWhere(
+          (key, _) => !_questions.any((question) => question.key == key),
+        );
+        _selectedQuestionOptions.removeWhere(
+          (key, _) => !_questions.any((question) => question.key == key),
+        );
+        _questionOtherSelected.removeWhere(
+          (key) => !_questions.any((question) => question.key == key),
+        );
+        _questionOtherText.removeWhere(
           (key, _) => !_questions.any((question) => question.key == key),
         );
         _stage = SkillWizardStage.describe;
@@ -349,12 +456,23 @@ class SkillWizardController extends ChangeNotifier {
       long: long ?? (type != null && type != 'string' ? false : null),
     );
     _fields[index] = next;
+    final generatedSample = _generatedSampleKeys.remove(previous.key);
     if (next.key != previous.key) {
       if (_samplePayload.containsKey(previous.key)) {
         final value = _samplePayload.remove(previous.key);
         _samplePayload[next.key] = value;
       }
-      _rebuildSelection(rename: {previous.key: next.key});
+    }
+    if (generatedSample) {
+      _generatedSampleKeys.add(next.key);
+      _samplePayload[next.key] = _previewValue(next);
+    }
+    if (next.key != previous.key ||
+        next.label != previous.label ||
+        next.type != previous.type) {
+      _rebuildSelection(
+        rename: next.key == previous.key ? const {} : {previous.key: next.key},
+      );
     }
     _errorMessage = null;
     _notify();
@@ -382,7 +500,9 @@ class SkillWizardController extends ChangeNotifier {
       long: long,
     );
     _fields.add(field);
-    _rebuildSelection();
+    _samplePayload[field.key] = _previewValue(field);
+    _generatedSampleKeys.add(field.key);
+    _rebuildSelection(fillSecondary: true);
     _errorMessage = null;
     _notify();
     return field;
@@ -393,7 +513,8 @@ class SkillWizardController extends ChangeNotifier {
     if (index < 0) return;
     final removed = _fields.removeAt(index);
     _samplePayload.remove(removed.key);
-    _rebuildSelection();
+    _generatedSampleKeys.remove(removed.key);
+    _rebuildSelection(fillSecondary: true);
     _errorMessage = null;
     _notify();
   }
@@ -470,7 +591,9 @@ class SkillWizardController extends ChangeNotifier {
         'display_name': _displayName.trim().isEmpty
             ? currentDraft['display_name']
             : _displayName.trim(),
+        'description': _skillDescription,
         'payload_schema': payloadSchema,
+        if (_routingProfile.isNotEmpty) 'routing_profile': _routingProfile,
         'render_spec': composeRenderSpec(),
         if (_chatStarters.isNotEmpty) 'chat_starters': _chatStarters,
       });
@@ -527,11 +650,15 @@ class SkillWizardController extends ChangeNotifier {
     _originalRenderSpec =
         (draft['render_spec'] as Map?)?.cast<String, dynamic>() ??
         <String, dynamic>{};
-    _samplePayload =
-        (draft['sample_payload'] as Map?)?.cast<String, dynamic>() ??
-        <String, dynamic>{};
+    _samplePayload = {};
+    _generatedSampleKeys.clear();
     _chatStarters = List<dynamic>.from(
       draft['chat_starters'] as List? ?? const [],
+    );
+    _skillDescription =
+        draft['description']?.toString().trim() ?? _description.trim();
+    _routingProfile = Map<String, dynamic>.from(
+      (draft['routing_profile'] as Map?)?.cast<String, dynamic>() ?? const {},
     );
     _displayName =
         draft['display_name']?.toString() ?? draft['name']?.toString() ?? '新技能';
@@ -563,9 +690,16 @@ class SkillWizardController extends ChangeNotifier {
         ),
       );
     }
+    for (final field in _fields) {
+      _samplePayload[field.key] = _previewValue(field);
+      _generatedSampleKeys.add(field.key);
+    }
     _replaceSelection(_initialDisplayConfig());
     _questions = const [];
     _answers.clear();
+    _selectedQuestionOptions.clear();
+    _questionOtherSelected.clear();
+    _questionOtherText.clear();
     _completed = false;
   }
 
@@ -574,13 +708,42 @@ class SkillWizardController extends ChangeNotifier {
       return CardDisplayConfig(primaryFieldId: 'title');
     }
     try {
-      return CardDisplayConfig.fromRenderSpec(_originalRenderSpec);
+      return _fillSecondaryFields(
+        CardDisplayConfig.fromRenderSpec(_originalRenderSpec),
+      );
     } on FormatException {
-      return CardDisplayConfig(primaryFieldId: _fields.first.key);
+      return _fillSecondaryFields(
+        CardDisplayConfig(primaryFieldId: _fields.first.key),
+      );
     }
   }
 
-  void _rebuildSelection({Map<String, String> rename = const {}}) {
+  CardDisplayConfig _fillSecondaryFields(CardDisplayConfig source) {
+    if (_fields.isEmpty) return source;
+    final available = _fields.map((field) => field.key).toSet();
+    final primary = available.contains(source.primaryFieldId)
+        ? source.primaryFieldId
+        : _fields.first.key;
+    final secondary = <String>[
+      for (final key in source.secondaryFieldIds)
+        if (available.contains(key) && key != primary) key,
+    ];
+    for (final field in _fields) {
+      if (secondary.length == 3) break;
+      if (field.key != primary && !secondary.contains(field.key)) {
+        secondary.add(field.key);
+      }
+    }
+    return CardDisplayConfig(
+      primaryFieldId: primary,
+      secondaryFieldIds: secondary,
+    );
+  }
+
+  void _rebuildSelection({
+    Map<String, String> rename = const {},
+    bool fillSecondary = false,
+  }) {
     if (_fields.isEmpty) {
       _cardSelection?.removeListener(_selectionChanged);
       _cardSelection?.dispose();
@@ -594,14 +757,49 @@ class SkillWizardController extends ChangeNotifier {
     final primary = available.contains(mappedPrimary)
         ? mappedPrimary
         : _fields.first.key;
-    _replaceSelection(
-      CardDisplayConfig(
-        primaryFieldId: primary,
-        secondaryFieldIds: previous.secondaryFieldIds
-            .map(mapped)
-            .where(available.contains),
-      ),
+    final rebuilt = CardDisplayConfig(
+      primaryFieldId: primary,
+      secondaryFieldIds: previous.secondaryFieldIds
+          .map(mapped)
+          .where(available.contains),
     );
+    _replaceSelection(fillSecondary ? _fillSecondaryFields(rebuilt) : rebuilt);
+  }
+
+  dynamic _previewValue(SkillDraftField field) {
+    final label = field.label.trim();
+    return label.isEmpty ? '字段' : label;
+  }
+
+  SkillWizardQuestion? _questionFor(String key) {
+    for (final question in _questions) {
+      if (question.key == key) return question;
+    }
+    return null;
+  }
+
+  void _syncQuestionAnswer(SkillWizardQuestion question) {
+    final selected = _selectedQuestionOptions[question.key] ?? const <String>{};
+    final values = <String>[
+      for (final option in question.options)
+        if (selected.contains(option)) option,
+    ];
+    if (_questionOtherSelected.contains(question.key)) {
+      final custom = otherTextFor(question.key).trim();
+      if (custom.isNotEmpty) values.add(custom);
+    }
+    _answers[question.key] = values.join('、');
+    _errorMessage = null;
+    _notify();
+  }
+
+  bool _isQuestionComplete(SkillWizardQuestion question) {
+    final hasSelection =
+        (_selectedQuestionOptions[question.key] ?? const <String>{}).isNotEmpty;
+    final hasOther = _questionOtherSelected.contains(question.key);
+    if (hasOther && otherTextFor(question.key).trim().isEmpty) return false;
+    if (hasSelection || hasOther) return true;
+    return answerFor(question.key).trim().isNotEmpty;
   }
 
   void _replaceSelection(CardDisplayConfig config) {

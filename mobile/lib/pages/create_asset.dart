@@ -66,7 +66,12 @@ Future<List<SkillDef>> fetchSkillDefs(ApiClient api) async {
   final out = <SkillDef>[];
   for (final s in skills.whereType<Map>()) {
     final name = s['name'] as String?;
-    if (name == null || name == 'qa' || name == 'external_ref') continue;
+    if (name == null ||
+        name == 'event' ||
+        name == 'qa' ||
+        name == 'external_ref') {
+      continue;
+    }
     final rs = (s['render_spec'] as Map?)?.cast<String, dynamic>() ?? const {};
     out.add(
       SkillDef(
@@ -151,7 +156,7 @@ class _CreateMenuState extends State<_CreateMenu> {
                     _tile(
                       eu,
                       '📅',
-                      '事件',
+                      resolveEntityLabel('event'),
                       'purple',
                       () => _open(EventForm(presetDate: widget.presetDate)),
                     ),
@@ -576,7 +581,7 @@ class _EventFormState extends State<EventForm> {
                 : <String, dynamic>{
                     'event_id': savedEventId,
                     'user_skill_name': 'event',
-                    'display_name': '事件',
+                    'display_name': '日程',
                     'icon': '📅',
                     'payload': {'title': _title.text.trim()},
                   },
@@ -629,7 +634,7 @@ class _EventFormState extends State<EventForm> {
               : <String, dynamic>{
                   'event_id': savedEventId,
                   'user_skill_name': 'event',
-                  'display_name': '事件',
+                  'display_name': '日程',
                   'icon': '📅',
                   'payload': {'title': _title.text.trim()},
                 },

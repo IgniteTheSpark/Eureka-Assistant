@@ -22,7 +22,7 @@ from app.domains.assets.schemas import (
 from app.domains.assets.skill_design import (
     InvalidSkillDraft,
     SkillDesignUnavailable,
-    design_skill_draft,
+    design_skill_step,
 )
 from app.domains.assets.validation import AssetPayloadInvalid
 
@@ -75,12 +75,12 @@ async def draft_user_skill(
 ):
     del user_id
     try:
-        draft = await design_skill_draft(command.description, command.answers)
+        result = await design_skill_step(command.description, command.answers)
     except SkillDesignUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except InvalidSkillDraft as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    return {"ok": True, "draft": draft}
+    return {"ok": True, **result}
 
 
 @router.get("/user-skills/{skill_id}", response_model=UserSkillRead)

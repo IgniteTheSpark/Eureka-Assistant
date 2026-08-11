@@ -235,6 +235,14 @@ void main() {
     final parsed = parseCalendarSkillOptions({
       'skills': [
         {
+          'name': 'event',
+          'display_name': '事件',
+          'user_skill_id': 'event-id',
+          'enabled': 1,
+          'render_spec': {'icon': '⏰'},
+          'payload_schema': <String, dynamic>{},
+        },
+        {
           'name': 'todo',
           'display_name': '待办',
           'user_skill_id': 'todo-id',
@@ -293,6 +301,8 @@ void main() {
       'contact',
     ]);
     expect(parsed.map((option) => option.icon), ['📅', '📋', '💳', '👤']);
+    expect(parsed.where((option) => option.name == 'event'), hasLength(1));
+    expect(parsed.first.displayName, '日程');
   });
 
   test('recent parser preserves order, deduplicates, and caps at four', () {

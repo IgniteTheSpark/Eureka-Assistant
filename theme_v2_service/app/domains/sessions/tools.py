@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from app.internal_mcp.runtime import (
@@ -180,6 +180,8 @@ class SessionToolExecutor:
         reference_datetime: datetime | None = None,
         timezone_name: str = "Asia/Shanghai",
         capture_source_text: str | None = None,
+        capture_source_anchor_date: date | None = None,
+        capture_source_period: str | None = None,
         capture_domain: str | None = None,
         capture_intent_id: str | None = None,
         capture_operation: str | None = None,
@@ -193,6 +195,8 @@ class SessionToolExecutor:
         self.reference_datetime = reference_datetime
         self.timezone_name = timezone_name
         self.capture_source_text = (capture_source_text or "").strip()
+        self.capture_source_anchor_date = capture_source_anchor_date
+        self.capture_source_period = (capture_source_period or "").strip()
         self.capture_domain = (capture_domain or "").strip()
         self.capture_intent_id = (capture_intent_id or "").strip()
         self.capture_operation = (capture_operation or "").strip()
@@ -209,6 +213,8 @@ class SessionToolExecutor:
             reference_datetime=self.reference_datetime,
             timezone_name=self.timezone_name,
             capture_source_text=self.capture_source_text,
+            capture_source_anchor_date=self.capture_source_anchor_date,
+            capture_source_period=self.capture_source_period,
             capture_domain=self.capture_domain,
             capture_intent_id=self.capture_intent_id,
             capture_operation=self.capture_operation,
@@ -254,8 +260,7 @@ class SessionToolExecutor:
             "tool_create_note",
             "tool_create_event",
         }:
-            if self.capture_source_text:
-                normalized["source_text"] = self.capture_source_text
+            normalized.pop("source_text", None)
             if self.capture_domain and internal_name != "tool_create_event":
                 normalized["domain"] = self.capture_domain
         if "period" in normalized:
@@ -279,6 +284,9 @@ class SessionToolExecutor:
                 timezone_name=self.timezone_name,
                 intent_id=self.capture_intent_id or None,
                 intent_operation=self.capture_operation or None,
+                source_text=self.capture_source_text or None,
+                source_anchor_date=self.capture_source_anchor_date,
+                source_period=self.capture_source_period or None,
             ),
         )
         cards: list[dict] = []

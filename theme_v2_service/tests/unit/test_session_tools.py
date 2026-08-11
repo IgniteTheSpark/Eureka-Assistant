@@ -218,7 +218,8 @@ async def test_capture_executor_forces_intent_source_and_domain_on_create():
         },
     )
 
-    assert runtime.calls[0][1]["source_text"] == "昨天早上买早餐花了8块"
+    assert "source_text" not in runtime.calls[0][1]
+    assert runtime.calls[0][2].source_text == "昨天早上买早餐花了8块"
     assert runtime.calls[0][1]["domain"] == "生活"
 
 

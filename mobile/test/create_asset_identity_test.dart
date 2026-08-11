@@ -16,6 +16,11 @@ void main() {
           jsonEncode({
             'skills': [
               {
+                'name': 'event',
+                'display_name': '事件',
+                'render_spec': {'icon': '⏰'},
+              },
+              {
                 'name': 'expense',
                 'display_name': '消费',
                 'render_spec': {'icon': '🍔'},

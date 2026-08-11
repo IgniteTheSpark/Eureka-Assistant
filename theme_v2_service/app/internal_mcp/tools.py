@@ -30,6 +30,7 @@ from app.config import get_settings
 from app.domains.contacts import service as contact_service
 from app.domains.contacts.schemas import ContactCreate, ContactUpdate
 from app.domains.capture.target_resolver import resolve_capture_target
+from app.domains.capture.semantic_grounding import has_expense_evidence
 from app.domains.capture.temporal import (
     canonical_asset_temporal_values,
     date_anchor_field,
@@ -58,6 +59,8 @@ class EurekaToolContext:
     timezone_name: str = "Asia/Shanghai"
     intent_id: str | None = None
     intent_operation: str | None = None
+    source_anchor_date: date | None = None
+    source_period: str | None = None
 
 
 ToolHandler = Callable[
@@ -87,7 +90,14 @@ def _json_object(value: Any, *, label: str) -> dict[str, Any]:
 
 
 def _iso(value: datetime | None) -> str | None:
-    return value.isoformat() if value is not None else None
+    if value is None:
+        return None
+    aware = (
+        value.replace(tzinfo=timezone.utc)
+        if value.tzinfo is None
+        else value.astimezone(timezone.utc)
+    )
+    return aware.isoformat().replace("+00:00", "Z")
 
 
 def _parse_datetime(value: Any, *, field: str) -> datetime | None:
@@ -266,11 +276,19 @@ async def _create_asset(
         payload = _json_object(arguments.get("payload") or {}, label="payload")
         temporal_arguments = dict(arguments)
         source_text = str(arguments.get("source_text") or "").strip()
+        if (
+            machine_name == "expense"
+            and source_text
+            and not has_expense_evidence(source_text)
+        ):
+            return _error("expense intent is not grounded in source_text")
         if source_text and context.reference_datetime is not None:
             hints, period, occurred_at, effective_at = (
                 canonical_asset_temporal_values(
                     source_text,
                     context.reference_datetime,
+                    inherited_period=context.source_period,
+                    inherited_date=context.source_anchor_date,
                 )
             )
             temporal_arguments.update(
@@ -379,7 +397,12 @@ async def _create_todo(database, arguments, context):
     effective_at = None
     source_text = str(arguments.get("source_text") or "").strip()
     if source_text and context.reference_datetime is not None:
-        hints = extract_temporal_hints(source_text, context.reference_datetime)
+        hints = extract_temporal_hints(
+            source_text,
+            context.reference_datetime,
+            inherited_period=context.source_period,
+            inherited_date=context.source_anchor_date,
+        )
         due_date = hints.occurred_at.isoformat() if hints.occurred_at else ""
         period = hints.period
         effective_at = (
@@ -436,6 +459,8 @@ async def _create_note(database, arguments, context):
             canonical_asset_temporal_values(
                 source_text,
                 context.reference_datetime,
+                inherited_period=context.source_period,
+                inherited_date=context.source_anchor_date,
             )
         )
         temporal_arguments.update(
@@ -814,12 +839,18 @@ async def _create_event(database, arguments, context):
         all_day = bool(arguments.get("all_day", False))
         source_text = str(arguments.get("source_text") or "").strip()
         if source_text and context.reference_datetime is not None:
-            hints = extract_temporal_hints(source_text, context.reference_datetime)
+            hints = extract_temporal_hints(
+                source_text,
+                context.reference_datetime,
+                inherited_period=context.source_period,
+                inherited_date=context.source_anchor_date,
+            )
             try:
                 zone = ZoneInfo(context.timezone_name)
             except (ZoneInfoNotFoundError, ValueError):
                 zone = ZoneInfo(get_settings().default_user_timezone)
-            if all_day and hints.anchor_date is not None:
+            if hints.shape == "all_day" and hints.anchor_date is not None:
+                all_day = True
                 start = datetime(
                     hints.anchor_date.year,
                     hints.anchor_date.month,
@@ -827,19 +858,35 @@ async def _create_event(database, arguments, context):
                     tzinfo=zone,
                 )
                 end = start + timedelta(days=1)
-            elif hints.occurred_at is not None:
-                duration = (
-                    end - start
-                    if start is not None
-                    and end is not None
-                    and end > start
-                    and end - start <= timedelta(days=1)
-                    else timedelta(hours=1)
+            elif hints.shape in {"range", "duration"}:
+                if start is None or end is None:
+                    return _error("event time span is required")
+                proposed_start = (
+                    start.replace(tzinfo=zone)
+                    if start.tzinfo is None
+                    else start.astimezone(zone)
                 )
-                start = hints.occurred_at.astimezone(zone)
-                end = start + duration
+                proposed_end = (
+                    end.replace(tzinfo=zone)
+                    if end.tzinfo is None
+                    else end.astimezone(zone)
+                )
+                matched = next(
+                    (
+                        interval
+                        for interval in hints.interval_candidates
+                        if interval[0].astimezone(timezone.utc)
+                        == proposed_start.astimezone(timezone.utc)
+                        and interval[1].astimezone(timezone.utc)
+                        == proposed_end.astimezone(timezone.utc)
+                    ),
+                    None,
+                )
+                if matched is None:
+                    return _error("event time does not match source range")
+                start, end = matched
             else:
-                return _error("event source requires an explicit clock or all-day date")
+                return _error("event source requires a time span or all-day date")
         if start is None:
             return _error("start_at is required")
         if end is None:

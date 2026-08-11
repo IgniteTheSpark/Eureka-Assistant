@@ -9,9 +9,11 @@ natural Chinese utterances route to the intended enabled Skill.
 ## Product Rules
 
 - Users describe what they want to record in ordinary language.
-- When the description leaves a material scope ambiguity, the designer returns
-  one concise clarification question before generating fields.
-- The question confirms the recording boundary, not technical schema details.
+- When the description leaves a material ambiguity, the designer returns one
+  compact confirmation group before generating fields: a choice question for
+  the recording boundary and a text question for the information the user
+  wants to retain.
+- Neither question exposes technical schema details.
   For example, `喝水记录` asks whether the Skill covers plain water only or all
   non-alcoholic drinks.
 - A sufficiently specific description can proceed directly to the editable
@@ -57,7 +59,8 @@ built-ins:
 - future actions remain Todo/Event;
 - purchases remain Expense even when the purchased object resembles a custom
   record;
-- custom Skills outrank Notes only;
+- custom Skills outrank Notes and may correct a Todo classification only when
+  the source is clearly a completed historical fact;
 - ambiguous custom candidates fall back to Notes rather than guessing.
 
 Deterministic phrase matching remains a bounded recovery layer, not the primary
@@ -68,7 +71,7 @@ semantic engine.
 The visible flow remains three stages: Describe, Fields, Card.
 
 1. Describe: the user enters the recording goal. The first design request may
-   return one clarification question inside the same stage.
+   return the scope and recording-content questions inside the same stage.
 2. Fields: after the answer, the Agent generates editable labels, descriptions,
    types, sample data, and the hidden routing profile.
 3. Card: the existing real-data preview and display selector are used before
@@ -100,8 +103,10 @@ recording `e4f4226d-c9e7-4502-ab1e-3d36622de79d` as a regression case.
 - A malformed designer response returns a bounded 502 and creates no Skill.
 - A designer provider outage returns 503 and keeps the user's description and
   answers in the Wizard.
-- A clarification response is capped at one question with two or three choices;
-  unsupported question shapes are rejected.
+- A clarification response is capped at two questions: one choice with two or
+  three options and one text answer for desired recording content. If the
+  provider omits the content question, the service adds the stable product
+  question.
 - Missing or invalid routing metadata does not block Skill creation; the normal
   display name, description, and field catalog remain valid routing context.
 - Live evaluation failures identify the exact utterance, expected route, and
@@ -119,4 +124,3 @@ recording `e4f4226d-c9e7-4502-ab1e-3d36622de79d` as a regression case.
   field/card compatibility.
 - A live DeepSeek suite asserts concrete Skill routes for the reviewed natural
   language matrix.
-

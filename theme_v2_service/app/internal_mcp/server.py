@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from fastmcp import FastMCP
@@ -31,6 +31,9 @@ _TRUSTED_TEMPORAL_MUTATION_ARGS = [
     *_TRUSTED_ROOT_MUTATION_ARGS,
     "reference_datetime",
     "timezone_name",
+    "source_text",
+    "source_anchor_date",
+    "source_period",
 ]
 _TRUSTED_QUERY_ARGS = ["user_id"]
 _TRUSTED_CONTEXT_QUERY_ARGS = [
@@ -49,6 +52,8 @@ def _context(
     timezone_name: str = "Asia/Shanghai",
     intent_id: str = "",
     intent_operation: str = "",
+    source_anchor_date: str = "",
+    source_period: str = "",
 ) -> EurekaToolContext:
     turn_id = source_input_turn_id.strip() or None
     owner_session_id = session_id.strip() or None
@@ -66,6 +71,12 @@ def _context(
         timezone_name=timezone_name.strip() or "Asia/Shanghai",
         intent_id=intent_id.strip() or None,
         intent_operation=intent_operation.strip() or None,
+        source_anchor_date=(
+            date.fromisoformat(source_anchor_date)
+            if source_anchor_date.strip()
+            else None
+        ),
+        source_period=source_period.strip() or None,
     )
 
 
@@ -81,6 +92,8 @@ async def _run(
     timezone_name: str = "Asia/Shanghai",
     intent_id: str = "",
     intent_operation: str = "",
+    source_anchor_date: str = "",
+    source_period: str = "",
 ) -> str:
     result = await execute_tool(
         name,
@@ -93,6 +106,8 @@ async def _run(
             timezone_name=timezone_name,
             intent_id=intent_id,
             intent_operation=intent_operation,
+            source_anchor_date=source_anchor_date,
+            source_period=source_period,
         ),
         tool_call_id=tool_call_id or None,
     )
@@ -117,6 +132,8 @@ async def tool_create_asset(
     timezone_name: str = "Asia/Shanghai",
     intent_id: str = "",
     intent_operation: str = "",
+    source_anchor_date: str = "",
+    source_period: str = "",
 ) -> str:
     """Create an asset under a registered built-in or custom skill."""
     return await _run(
@@ -139,6 +156,8 @@ async def tool_create_asset(
         timezone_name=timezone_name,
         intent_id=intent_id,
         intent_operation=intent_operation,
+        source_anchor_date=source_anchor_date,
+        source_period=source_period,
     )
 
 
@@ -159,6 +178,8 @@ async def tool_create_todo(
     tool_call_id: str = "",
     intent_id: str = "",
     intent_operation: str = "",
+    source_anchor_date: str = "",
+    source_period: str = "",
 ) -> str:
     """Create a Todo with an optional deadline and fuzzy occurrence period."""
     return await _run(
@@ -180,6 +201,8 @@ async def tool_create_todo(
         timezone_name=timezone_name,
         intent_id=intent_id,
         intent_operation=intent_operation,
+        source_anchor_date=source_anchor_date,
+        source_period=source_period,
     )
 
 
@@ -198,6 +221,8 @@ async def tool_create_note(
     timezone_name: str = "Asia/Shanghai",
     intent_id: str = "",
     intent_operation: str = "",
+    source_anchor_date: str = "",
+    source_period: str = "",
 ) -> str:
     """Create a free-form note without inventing absent source facts."""
     return await _run(
@@ -217,6 +242,8 @@ async def tool_create_note(
         timezone_name=timezone_name,
         intent_id=intent_id,
         intent_operation=intent_operation,
+        source_anchor_date=source_anchor_date,
+        source_period=source_period,
     )
 
 
@@ -482,6 +509,8 @@ async def tool_create_event(
     timezone_name: str = "Asia/Shanghai",
     intent_id: str = "",
     intent_operation: str = "",
+    source_anchor_date: str = "",
+    source_period: str = "",
 ) -> str:
     """Create an Event with a valid range or all-day interval."""
     return await _run(
@@ -504,6 +533,8 @@ async def tool_create_event(
         timezone_name=timezone_name,
         intent_id=intent_id,
         intent_operation=intent_operation,
+        source_anchor_date=source_anchor_date,
+        source_period=source_period,
     )
 
 

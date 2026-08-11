@@ -84,6 +84,7 @@ List<CalendarSkillOption> parseCalendarSkillOptions(Object? response) {
         raw['machine_name']?.toString().trim() ??
         '';
     if (name.isEmpty ||
+        name == 'event' ||
         name == 'qa' ||
         name == 'external_ref' ||
         raw['enabled'] == 0 ||

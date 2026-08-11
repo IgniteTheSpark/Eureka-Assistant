@@ -4,6 +4,8 @@ import re
 
 from app.domains.capture.agent import CaptureSkill
 from app.domains.capture.dispatcher import FlashIntent
+from app.domains.capture.semantic_grounding import has_expense_evidence
+from app.domains.capture.temporal import schedule_shape
 
 
 _MONEY_RE = re.compile(r"\d+(?:\.\d+)?\s*(?:块钱|块|元|人民币|rmb|RMB|¥)")
@@ -15,10 +17,6 @@ _TIME_WORD_RE = re.compile(
     r"(今天|明天|后天|早上|上午|中午|下午|晚上|今晚|周[一二三四五六日天]|"
     r"\d{1,2}\s*(?:点|时|[:：]))"
 )
-_RANGE_RE = re.compile(
-    r"(\d{1,2}\s*(?:点|时|[:：])?\s*(?:到|~|-|—|－)\s*\d{1,2}\s*(?:点|时|[:：])?)|"
-    r"(\d+(?:\.\d+)?\s*(?:小时|个小时|分钟))|全天|一整天"
-)
 _DONE_RECORD_WORD_RE = re.compile(
     r"(赢|输了?|比分|成绩|得分|打了|跑了|练了|完成|感觉|复盘|记录一下)"
 )
@@ -27,7 +25,15 @@ _UPDATE_WORD_RE = re.compile(r"(改成|改为|修改|更新|更正|纠正|调整
 _QUERY_WORD_RE = re.compile(
     r"(帮我看看|看一下|看看|查一下|查询|统计|汇总|多少(?:钱|元|个)?|几个|有哪些|是什么|为什么|怎么样|如何)"
 )
+_EXPLICIT_TODO_WORD_RE = re.compile(r"(提醒|记得|别忘|待办|需要|计划|打算|准备|安排|要去|想去)")
+_FUTURE_WORD_RE = re.compile(r"(明天|后天|下周|下个月|以后|将来|稍后|一会儿|等会儿)")
+_PAST_OR_DONE_WORD_RE = re.compile(
+    r"(昨天|前天|上周|刚刚|刚才|已经|完成|结束|练完|跑完|跳了|喝了|吃了|做了)"
+)
 _BUILTIN = {"todo", "event", "expense", "contact", "notes", "qa"}
+_CUSTOM_DISPLAY_SUFFIXES = ("记录", "日志")
+_CJK_CONCEPT_RE = re.compile(r"^[\u3400-\u9fff]{2,8}$")
+_ATOMIC_GAP = r"[^，,。；;！？!?]{0,24}"
 
 
 def normalize_intents(
@@ -47,7 +53,18 @@ def normalize_intents(
     }
     normalized: list[FlashIntent] = []
     for intent in intents:
-        canonical = _route_custom_skill(intent.model_copy(), enabled_custom_skills)
+        canonical = intent.model_copy()
+        if (
+            canonical.type.strip().lower() == "expense"
+            and not has_expense_evidence(canonical.source_text)
+        ):
+            canonical = canonical.model_copy(
+                update={
+                    "type": "notes",
+                    "custom_skill_id": None,
+                }
+            )
+        canonical = _route_custom_skill(canonical, enabled_custom_skills)
         lowered = canonical.type.strip().lower()
         if lowered in {"idea", "misc", "other", "note"}:
             canonical.type = "notes"
@@ -59,6 +76,7 @@ def normalize_intents(
             canonical.type = lowered
 
         canonical.operation = _canonical_operation(canonical)
+        canonical = _normalize_scheduled_builtin(canonical)
         pieces = _split_expense(canonical)
         for piece in pieces:
             normalized.append(
@@ -76,13 +94,10 @@ def _route_custom_skill(
     intent: FlashIntent,
     custom_skills: tuple[CaptureSkill, ...],
 ) -> FlashIntent:
-    if not custom_skills or intent.type.strip().lower() in {
-        "todo",
-        "event",
-        "expense",
-        "contact",
-        "qa",
-    }:
+    intent_type = intent.type.strip().lower()
+    if not custom_skills or intent_type in {"event", "expense", "contact", "qa"}:
+        return intent
+    if intent_type == "todo" and not _todo_can_be_completed_custom(intent):
         return intent
 
     if intent.custom_skill_id:
@@ -116,6 +131,24 @@ def _route_custom_skill(
     def display_key(skill: CaptureSkill) -> str:
         return re.sub(r"\s+", "", skill.display_name).casefold()
 
+    def display_stem(skill: CaptureSkill) -> str:
+        key = display_key(skill)
+        for suffix in _CUSTOM_DISPLAY_SUFFIXES:
+            if key.endswith(suffix) and len(key) > len(suffix):
+                return key[: -len(suffix)]
+        return key
+
+    def display_concept_matches(skill: CaptureSkill) -> bool:
+        concept = display_stem(skill)
+        if len(concept) < 2:
+            return False
+        if concept in source:
+            return True
+        if not _CJK_CONCEPT_RE.fullmatch(concept):
+            return False
+        ordered_pattern = _ATOMIC_GAP.join(re.escape(char) for char in concept)
+        return re.search(ordered_pattern, source) is not None
+
     tiers = [
         [skill for skill in custom_skills if machine_key(skill) == requested],
         [skill for skill in custom_skills if display_key(skill) == requested],
@@ -133,6 +166,11 @@ def _route_custom_skill(
             skill
             for skill in custom_skills
             if display_key(skill) and display_key(skill) in source
+        ],
+        [
+            skill
+            for skill in custom_skills
+            if display_concept_matches(skill)
         ],
     ]
     for matches in tiers:
@@ -154,6 +192,17 @@ def _route_custom_skill(
                 }
             )
     return intent
+
+
+def _todo_can_be_completed_custom(intent: FlashIntent) -> bool:
+    if intent.operation in {"query", "update", "delete"}:
+        return True
+    source = intent.source_text.strip()
+    if not source or _EXPLICIT_TODO_WORD_RE.search(source):
+        return False
+    if _FUTURE_WORD_RE.search(source) and not _PAST_OR_DONE_WORD_RE.search(source):
+        return False
+    return _PAST_OR_DONE_WORD_RE.search(source) is not None
 
 
 def _canonical_operation(intent: FlashIntent) -> str:
@@ -194,12 +243,32 @@ def _normalize_scheduled_custom(
         _SCHEDULE_WORD_RE.search(source)
         and _TIME_WORD_RE.search(source)
         and not _DONE_RECORD_WORD_RE.search(source)
+        and not _PAST_OR_DONE_WORD_RE.search(source)
     )
     if not scheduled:
         return intent
     return intent.model_copy(
         update={
-            "type": "event" if _RANGE_RE.search(source) else "todo",
+            "type": (
+                "event"
+                if schedule_shape(source) in {"range", "duration", "all_day"}
+                else "todo"
+            ),
+            "custom_skill_id": None,
+        }
+    )
+
+
+def _normalize_scheduled_builtin(intent: FlashIntent) -> FlashIntent:
+    if intent.operation != "create" or intent.type not in {"todo", "event"}:
+        return intent
+    shape = schedule_shape(intent.source_text)
+    expected = "event" if shape in {"range", "duration", "all_day"} else "todo"
+    if intent.type == expected:
+        return intent
+    return intent.model_copy(
+        update={
+            "type": expected,
             "custom_skill_id": None,
         }
     )

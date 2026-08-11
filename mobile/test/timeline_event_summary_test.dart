@@ -26,6 +26,6 @@ void main() {
     });
 
     expect(item.payload['description'], 'Review');
-    expect(item.subtitle, '14:00–15:00 · 会议室 · Alex +1');
+    expect(item.subtitle, '22:00–23:00 · 会议室 · Alex +1');
   });
 }

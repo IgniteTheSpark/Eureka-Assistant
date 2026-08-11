@@ -104,7 +104,8 @@ class AssetDetailController extends ChangeNotifier {
     _data = buildCard(
       payload: model.values,
       spec: _spec,
-      displayName: model.skill.machineName,
+      displayName: model.skill.displayName,
+      entityName: model.skill.machineName,
     );
     if (replaceDraft) {
       _draft?.dispose();

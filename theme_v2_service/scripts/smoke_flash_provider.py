@@ -7,6 +7,7 @@ import logging
 import os
 import sys
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -40,13 +41,37 @@ from app.domains.reports import models as _report_models  # noqa: F401
 from app.domains.sessions.models import ChatSession, InputTurn, SessionMessage
 from app.domains.triggers import models as _trigger_models  # noqa: F401
 from app.internal_mcp.runtime import get_internal_mcp_runtime
+from evals.capture_semantic_cases import CUSTOM_SKILLS
 
 
-SYNTHETIC_INPUTS = (
-    "今天午饭花了28元",
-    "昨天早上吃饭8元，昨晚喝水200毫升",
-    "刚跑完两公里，配速六分半",
-    "拿铁和美式有什么区别",
+@dataclass(frozen=True)
+class SyntheticCase:
+    case_id: str
+    utterance: str
+    expected_types: tuple[str, ...]
+    expected_operations: tuple[str, ...]
+
+
+SYNTHETIC_CASES = (
+    SyntheticCase("expense_only", "今天午饭花了28元", ("expense",), ("create",)),
+    SyntheticCase(
+        "mixed_expense_water",
+        "早上吃饭花了28块，刚刚还喝了123ml的水。",
+        ("expense", "daily_water_intake"),
+        ("create", "create"),
+    ),
+    SyntheticCase(
+        "running_natural",
+        "刚跑完两公里，配速六分半",
+        ("running_log",),
+        ("create",),
+    ),
+    SyntheticCase(
+        "knowledge_qa",
+        "拿铁和美式有什么区别",
+        ("qa",),
+        ("answer",),
+    ),
 )
 
 
@@ -78,7 +103,7 @@ async def _seed(user_id: str):
         database.add(session)
         await database.flush()
         turns = []
-        for index in range(len(SYNTHETIC_INPUTS)):
+        for index in range(len(SYNTHETIC_CASES)):
             turn = InputTurn(
                 user_id=user_id,
                 session_id=session.id,
@@ -90,7 +115,30 @@ async def _seed(user_id: str):
             database.add(turn)
             turns.append(turn)
         await database.flush()
-        skill_models = await ensure_capture_skills(database, user_id)
+        for definition in CUSTOM_SKILLS:
+            database.add(
+                UserSkill(
+                    user_id=user_id,
+                    machine_name=definition.machine_name,
+                    display_name=definition.display_name,
+                    description=definition.description,
+                    schema_json=definition.schema_definition,
+                    render_spec_json={},
+                    chat_starters_json=[],
+                    queryable_fields_json=[],
+                    enabled=True,
+                )
+            )
+        await ensure_capture_skills(database, user_id)
+        await database.flush()
+        skill_models = list(
+            await database.scalars(
+                select(UserSkill).where(
+                    UserSkill.user_id == user_id,
+                    UserSkill.enabled.is_(True),
+                )
+            )
+        )
         skills = tuple(capture_skill_from_model(skill) for skill in skill_models)
         return session.id, tuple(turn.id for turn in turns), skills
 
@@ -165,24 +213,38 @@ async def main() -> int:
     try:
         session_id, turn_ids, skills = await _seed(user_id)
         reference = datetime.now(ZoneInfo(settings.default_user_timezone))
-        for index, synthetic_input in enumerate(SYNTHETIC_INPUTS):
+        for index, case in enumerate(SYNTHETIC_CASES):
             result = await provider.execute(
                 context=FlashExecutionContext(
                     recording_id=f"synthetic-recording-{index + 1}",
                     user_id=user_id,
                     session_id=session_id,
                     input_turn_id=turn_ids[index],
-                    transcript=synthetic_input,
+                    transcript=case.utterance,
                     reference_datetime=reference,
                     skills=skills,
                 )
             )
             statuses = [item.status for item in result.items]
             kinds = _reference_kinds(result)
+            actual_types = tuple(item.intent.type for item in result.items)
+            actual_operations = tuple(item.intent.operation for item in result.items)
             print(
-                f"case={index + 1} stage=complete "
+                f"case={case.case_id} stage=complete "
                 f"statuses={','.join(statuses)} references={','.join(kinds)}"
             )
+            if (
+                actual_types != case.expected_types
+                or actual_operations != case.expected_operations
+            ):
+                print(
+                    f"failed: case={case.case_id} expected_types={case.expected_types} "
+                    f"actual_types={actual_types} "
+                    f"expected_operations={case.expected_operations} "
+                    f"actual_operations={actual_operations}"
+                )
+                exit_code = 1
+                break
             if any(status == "error" for status in statuses):
                 exit_code = 1
                 break

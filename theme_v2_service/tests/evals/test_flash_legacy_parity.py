@@ -5,7 +5,10 @@ import pytest
 
 from app.domains.capture.agent import CaptureSkill
 from app.domains.capture.dispatcher import FlashIntent
-from app.domains.capture.execution import FlashExecutionContext
+from app.domains.capture.execution import (
+    FlashExecutionContext,
+    RetryableFlashExecutionError,
+)
 from app.domains.capture.intent_normalizer import normalize_intents
 from app.domains.capture.providers_legacy_flash import LiteLLMLegacyFlashProvider
 
@@ -268,14 +271,20 @@ async def test_production_kernel_preserves_atomic_order_and_retry_ids():
     assert len(first_ids) == 2
 
 
-async def test_invalid_dispatch_falls_back_to_notes_and_qa_never_writes():
+async def test_invalid_dispatch_is_retried_instead_of_writing_a_note():
     notes_runtime = _Runtime()
-    notes = await _provider("not json").execute(
-        context=_context("产品应该更安静一点"),
-        tool_runtime=notes_runtime,
-    )
-    assert [item.intent.type for item in notes.items] == ["notes"]
-    assert [call[0] for call in notes_runtime.calls] == ["tool_create_note"]
+    with pytest.raises(
+        RetryableFlashExecutionError,
+        match="dispatcher response invalid",
+    ):
+        await _provider("not json").execute(
+            context=_context("产品应该更安静一点"),
+            tool_runtime=notes_runtime,
+        )
+    assert notes_runtime.calls == []
+
+
+async def test_qa_never_writes():
 
     qa_dispatch = (
         '{"intents":[{"type":"qa","source_text":"拿铁和美式有什么区别"}]}'
@@ -328,3 +337,58 @@ async def test_tool_rejection_exposes_only_generic_warning_code():
     assert result.items[0].status == "error"
     assert result.warnings == ("intent_tool_rejected",)
     assert "private" not in json.dumps(result.items[0].result)
+
+
+async def test_each_intent_executor_cannot_see_sibling_intent_text():
+    dispatch = json.dumps(
+        {
+            "intents": [
+                {"type": "expense", "source_text": "早餐花了25元"},
+                {"type": "expense", "source_text": "晚餐花了40元"},
+            ]
+        },
+        ensure_ascii=False,
+    )
+    seen_messages: list[dict] = []
+
+    async def completion(**kwargs):
+        messages = kwargs["messages"]
+        if "FLASH_DISPATCHER" in messages[0]["content"]:
+            return _response(content=dispatch)
+        if messages[-1]["role"] == "tool":
+            return _response(content='{"ok":true}')
+        payload = json.loads(messages[-1]["content"])
+        seen_messages.append(payload)
+        amount = 25 if "早餐" in payload["source_text"] else 40
+        return _response(
+            tool_calls=[
+                _tool_call(
+                    "tool_create_asset",
+                    {
+                        "user_skill_name": "expense",
+                        "payload": {"amount": amount},
+                    },
+                )
+            ]
+        )
+
+    provider = LiteLLMLegacyFlashProvider(
+        model="test-model",
+        api_key=None,
+        timeout_seconds=5,
+        completion=completion,
+    )
+    result = await provider.execute(
+        context=_context("早餐花了25元，晚餐花了40元"),
+        tool_runtime=_Runtime(),
+    )
+
+    assert [item.status for item in result.items] == ["success", "success"]
+    assert [message["source_text"] for message in seen_messages] == [
+        "早餐花了25元",
+        "晚餐花了40元",
+    ]
+    assert [message["user_text"] for message in seen_messages] == [
+        "早餐花了25元",
+        "晚餐花了40元",
+    ]

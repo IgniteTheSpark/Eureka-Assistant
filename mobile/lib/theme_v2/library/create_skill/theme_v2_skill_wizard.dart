@@ -171,7 +171,7 @@ class _ThemeV2SkillWizardSheetState extends State<ThemeV2SkillWizardSheet> {
           ),
           const SizedBox(height: ThemeV2Spacing.xs),
           Text(
-            'AI 会先生成字段，你仍可在下一步完整修改。',
+            'AI 会先确认记录目标，再生成可编辑字段和后台识别规则。',
             style: Theme.of(
               context,
             ).textTheme.bodyMedium?.copyWith(color: tokens.muted),
@@ -207,17 +207,23 @@ class _ThemeV2SkillWizardSheetState extends State<ThemeV2SkillWizardSheet> {
           if (controller.questions.isNotEmpty) ...[
             const SizedBox(height: ThemeV2Spacing.xl),
             Text(
-              '再补充一点',
+              '确认记录目标',
               style: Theme.of(
                 context,
               ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: ThemeV2Spacing.xs),
+            Text(
+              '确认记录范围与每次想保留的信息，路由规则会在后台自动生成。',
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: tokens.muted),
             ),
             const SizedBox(height: ThemeV2Spacing.md),
             for (final question in controller.questions)
               _ClarificationQuestion(
                 question: question,
-                value: controller.answerFor(question.key),
-                onChanged: (value) => controller.answer(question.key, value),
+                controller: controller,
               ),
           ],
           const SizedBox(height: ThemeV2Spacing.xl),
@@ -493,7 +499,13 @@ class _ThemeV2SkillWizardSheetState extends State<ThemeV2SkillWizardSheet> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.auto_awesome),
-            label: Text(controller.busy ? '生成中…' : '下一步：生成字段'),
+            label: Text(
+              controller.busy
+                  ? '生成中…'
+                  : controller.questions.isNotEmpty
+                  ? '确认目标并生成字段'
+                  : '下一步：确认并生成',
+            ),
           ),
         ),
         SkillWizardStage.fields => Row(
@@ -685,13 +697,11 @@ class _WizardProgress extends StatelessWidget {
 class _ClarificationQuestion extends StatelessWidget {
   const _ClarificationQuestion({
     required this.question,
-    required this.value,
-    required this.onChanged,
+    required this.controller,
   });
 
   final SkillWizardQuestion question;
-  final String value;
-  final ValueChanged<String> onChanged;
+  final SkillWizardController controller;
 
   @override
   Widget build(BuildContext context) {
@@ -707,26 +717,37 @@ class _ClarificationQuestion extends StatelessWidget {
             ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: ThemeV2Spacing.sm),
-          if (question.options.isNotEmpty)
-            Wrap(
-              spacing: ThemeV2Spacing.sm,
-              runSpacing: ThemeV2Spacing.sm,
-              children: [
-                for (final option in question.options)
-                  _SuggestionChip(
-                    label: option,
-                    selected: value == option,
-                    onPressed: () => onChanged(option),
-                  ),
-              ],
-            )
-          else
+          Wrap(
+            spacing: ThemeV2Spacing.sm,
+            runSpacing: ThemeV2Spacing.sm,
+            children: [
+              for (final option in question.options)
+                _SuggestionChip(
+                  label: option,
+                  selected: controller
+                      .selectedOptionsFor(question.key)
+                      .contains(option),
+                  onPressed: () =>
+                      controller.toggleQuestionOption(question.key, option),
+                ),
+              _SuggestionChip(
+                key: ValueKey('skill-question-other-${question.key}'),
+                label: '其他',
+                selected: controller.isOtherSelected(question.key),
+                onPressed: () => controller.toggleQuestionOther(question.key),
+              ),
+            ],
+          ),
+          if (controller.isOtherSelected(question.key)) ...[
+            const SizedBox(height: ThemeV2Spacing.sm),
             TextFormField(
-              key: ValueKey('skill-question-${question.key}'),
-              initialValue: value,
-              onChanged: onChanged,
+              key: ValueKey('skill-question-other-input-${question.key}'),
+              initialValue: controller.otherTextFor(question.key),
+              onChanged: (value) =>
+                  controller.setQuestionOtherText(question.key, value),
               decoration: InputDecoration(hintText: question.placeholder),
             ),
+          ],
         ],
       ),
     );
@@ -807,26 +828,11 @@ class _SkillFieldEditor extends StatelessWidget {
               ),
             ],
           ),
-          Row(
-            children: [
-              Expanded(
-                child: TextFormField(
-                  key: ValueKey('skill-field-label-${field.id}'),
-                  initialValue: field.label,
-                  onChanged: (value) => onChanged(label: value),
-                  decoration: const InputDecoration(labelText: '名称'),
-                ),
-              ),
-              const SizedBox(width: ThemeV2Spacing.sm),
-              Expanded(
-                child: TextFormField(
-                  key: ValueKey('skill-field-key-${field.id}'),
-                  initialValue: field.key,
-                  onChanged: (value) => onChanged(key: value),
-                  decoration: const InputDecoration(labelText: 'Key'),
-                ),
-              ),
-            ],
+          TextFormField(
+            key: ValueKey('skill-field-label-${field.id}'),
+            initialValue: field.label,
+            onChanged: (value) => onChanged(label: value),
+            decoration: const InputDecoration(labelText: '名称'),
           ),
           const SizedBox(height: ThemeV2Spacing.sm),
           DropdownButtonFormField<String>(
@@ -861,6 +867,7 @@ class _SkillFieldEditor extends StatelessWidget {
 
 class _SuggestionChip extends StatelessWidget {
   const _SuggestionChip({
+    super.key,
     required this.label,
     required this.onPressed,
     this.selected = false,

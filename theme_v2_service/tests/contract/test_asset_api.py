@@ -131,31 +131,42 @@ async def test_user_skill_and_asset_crud_are_owner_scoped(client):
 async def test_theme_v2_skill_builder_routes_draft_create_and_configure(client, monkeypatch):
     owner = await _register(client, "skill-builder@example.com")
 
-    async def fake_draft(description, answers=None):
+    async def fake_design_step(description, answers=None):
         assert description == "记录跑步"
         assert answers == []
         return {
-            "name": "running_log",
-            "display_name": "跑步记录",
-            "payload_schema": {
-                "distance": {
-                    "type": "number",
-                    "label": "距离",
-                    "description": "本次跑步距离",
-                    "required": True,
-                    "long": False,
-                }
-            },
-            "render_spec": {
-                "icon": "🏃",
-                "primary_field": "distance",
-            },
-            "sample_payload": {"distance": 5.2},
+            "draft": {
+                "name": "running_log",
+                "display_name": "跑步记录",
+                "description": "记录已经完成的跑步活动",
+                "payload_schema": {
+                    "distance": {
+                        "type": "number",
+                        "label": "距离",
+                        "description": "本次跑步距离",
+                        "required": True,
+                        "long": False,
+                    }
+                },
+                "render_spec": {
+                    "icon": "🏃",
+                    "primary_field": "distance",
+                },
+                "sample_payload": {"distance": 5.2},
+                "routing_profile": {
+                    "intent": "记录已经完成的跑步活动",
+                    "aliases": ["跑步", "晨跑"],
+                    "include": ["实际完成的跑步"],
+                    "exclude": ["未来跑步计划"],
+                    "positive_examples": ["刚跑完五公里"],
+                    "negative_examples": ["明早去跑五公里"],
+                },
+            }
         }
 
     monkeypatch.setattr(
-        "app.domains.assets.api.design_skill_draft",
-        fake_draft,
+        "app.domains.assets.api.design_skill_step",
+        fake_design_step,
         raising=False,
     )
     drafted = await client.post(
@@ -165,6 +176,10 @@ async def test_theme_v2_skill_builder_routes_draft_create_and_configure(client, 
     )
     assert drafted.status_code == 200
     assert drafted.json()["draft"]["name"] == "running_log"
+    assert drafted.json()["draft"]["routing_profile"]["aliases"] == [
+        "跑步",
+        "晨跑",
+    ]
 
     created = await client.post(
         "/api/user-skills",

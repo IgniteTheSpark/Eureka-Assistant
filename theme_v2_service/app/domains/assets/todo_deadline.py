@@ -149,5 +149,5 @@ def normalize_new_todo_payload(
         timezone_name=zone.key,
     )
     result["due_date"] = deadline.isoformat()
-    result["status"] = "pending"
+    result["status"] = "completed" if deadline < reference else "pending"
     return result

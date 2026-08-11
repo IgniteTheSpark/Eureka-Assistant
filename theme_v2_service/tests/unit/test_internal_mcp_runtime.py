@@ -86,6 +86,7 @@ def _trusted() -> InternalMCPTrustedContext:
             tzinfo=ZoneInfo("Asia/Shanghai"),
         ),
         timezone_name="Asia/Shanghai",
+        source_text="昨天晚上喝水了160ml",
     )
 
 
@@ -244,8 +245,24 @@ def test_runtime_injects_temporal_context_only_for_declared_tools():
 
     assert todo["reference_datetime"] == "2026-08-10T16:26:00+08:00"
     assert todo["timezone_name"] == "Asia/Shanghai"
+    assert todo["source_text"] == "昨天晚上喝水了160ml"
     assert "reference_datetime" not in query
     assert "timezone_name" not in query
+    assert "source_text" not in query
+
+
+def test_runtime_overrides_model_supplied_capture_source_text():
+    arguments = InternalMCPRuntime._trusted_arguments(
+        "tool_create_asset",
+        {
+            "user_skill_name": "expense",
+            "payload": '{"amount":25}',
+            "source_text": "今天早上吃饭花了25块钱",
+        },
+        _trusted(),
+    )
+
+    assert arguments["source_text"] == "昨天晚上喝水了160ml"
 
 
 async def test_runtime_fails_startup_when_transport_schema_is_incomplete():

@@ -35,6 +35,10 @@ from app.domains.capture.skill_factory import (
     make_dispatcher_agent,
 )
 from app.domains.capture.tool_results import resolve_agent_result
+from app.domains.capture.temporal import (
+    schedule_shape,
+    temporal_contexts_for_intents,
+)
 from app.domains.sessions.tools import SessionToolExecutor
 from app.observability import metrics
 
@@ -171,6 +175,9 @@ class LiteLLMLegacyFlashProvider:
                 "flash_dispatch_fallback_total",
                 labels={"reason_code": "dispatcher_output_invalid"},
             )
+            raise RetryableFlashExecutionError(
+                "flash dispatcher response invalid"
+            )
         intents = normalize_intents(
             decode_dispatcher_output(dispatch_run.text, fallback_text=transcript),
             custom_skill_names=set(custom_by_name),
@@ -178,6 +185,12 @@ class LiteLLMLegacyFlashProvider:
         )
         if not intents:
             raise PermanentFlashExecutionError("flash dispatcher produced no intent")
+
+        temporal_contexts = temporal_contexts_for_intents(
+            transcript,
+            [intent.source_text for intent in intents],
+            context.reference_datetime,
+        )
 
         outcomes = await asyncio.gather(
             *(
@@ -197,6 +210,8 @@ class LiteLLMLegacyFlashProvider:
                         reference_datetime=context.reference_datetime,
                         timezone_name=context.timezone_name,
                         capture_source_text=intent.source_text,
+                        capture_source_anchor_date=temporal_context.anchor_date,
+                        capture_source_period=temporal_context.period,
                         capture_domain=intent.domain,
                         capture_intent_id=intent.intent_id,
                         capture_operation=intent.operation,
@@ -204,7 +219,9 @@ class LiteLLMLegacyFlashProvider:
                         runtime=tool_runtime,
                     ),
                 )
-                for ordinal, intent in enumerate(intents)
+                for ordinal, (intent, temporal_context) in enumerate(
+                    zip(intents, temporal_contexts, strict=True)
+                )
             ),
             return_exceptions=True,
         )
@@ -478,7 +495,9 @@ class LiteLLMLegacyFlashProvider:
                 "intent_ordinal": intent.ordinal,
                 "operation": intent.operation,
                 "source_text": intent.source_text,
-                "user_text": context.transcript,
+                # Each executor receives only its atomic slice. Exposing the full
+                # transcript here lets sibling intents leak fields into a tool call.
+                "user_text": intent.source_text,
                 "reference_datetime": context.reference_datetime.isoformat(),
                 "domain": intent.domain,
                 "resolved_target": resolved_target,
@@ -548,6 +567,8 @@ class LiteLLMLegacyFlashProvider:
                 intent.type == "event"
                 and intent.operation == "create"
                 and resolved.status == "error"
+                and schedule_shape(intent.source_text)
+                not in {"range", "duration", "all_day"}
             ):
                 resolved = await run_event_to_todo_fallback(
                     intent=intent,

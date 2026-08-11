@@ -2,6 +2,7 @@ import asyncio
 from dataclasses import replace
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 
@@ -454,6 +455,47 @@ async def test_capture_asset_time_is_forced_from_source_at_mcp_boundary(session)
     assert asset.effective_at == datetime(2026, 8, 8, 16, 0)
 
 
+async def test_expense_create_rejects_source_without_expense_evidence(session):
+    context = replace(
+        await _context(),
+        reference_datetime=datetime(
+            2026, 8, 11, 8, 48, tzinfo=ZoneInfo("Asia/Shanghai")
+        ),
+        timezone_name="Asia/Shanghai",
+    )
+    async with AsyncSessionFactory() as database:
+        database.add(
+            UserSkill(
+                user_id="owner",
+                machine_name="expense",
+                display_name="消费",
+                schema_json={
+                    "type": "object",
+                    "properties": {"amount": {"type": "number"}},
+                },
+            )
+        )
+        await database.commit()
+
+    rejected = await execute_tool(
+        "tool_create_asset",
+        {
+            "user_skill_name": "expense",
+            "payload": {"amount": 25},
+            "source_text": "昨天晚上喝水了160ml",
+        },
+        context=context,
+        tool_call_id="ungrounded-expense",
+    )
+
+    assert rejected == {
+        "ok": False,
+        "error": "expense intent is not grounded in source_text",
+    }
+    async with AsyncSessionFactory() as database:
+        assert await database.scalar(select(func.count(Asset.id))) == 0
+
+
 async def test_capture_todo_deadline_is_forced_from_source_at_mcp_boundary(session):
     reference = datetime(2026, 8, 10, 19, 1, tzinfo=ZoneInfo("Asia/Shanghai"))
     context = replace(
@@ -512,7 +554,7 @@ async def test_capture_todo_deadline_is_forced_from_source_at_mcp_boundary(sessi
     assert exact["payload"]["due_date"] == "2026-08-11T21:00:00+08:00"
 
 
-async def test_capture_event_range_is_anchored_to_source_clock(session):
+async def test_capture_event_rejects_model_clock_outside_source_range(session):
     context = replace(
         await _context(),
         reference_datetime=datetime(
@@ -533,9 +575,10 @@ async def test_capture_event_range_is_anchored_to_source_clock(session):
         tool_call_id="source-time-event",
     )
 
-    assert created["ok"] is True
-    assert created["start_at"] == "2026-08-11T07:00:00"
-    assert created["end_at"] == "2026-08-11T08:00:00"
+    assert created == {
+        "ok": False,
+        "error": "event time does not match source range",
+    }
 
 
 async def test_typed_todo_normalizes_once_and_generic_builtin_write_is_rejected(
@@ -726,6 +769,33 @@ async def test_contact_and_attendee_tools_preserve_safe_exact_matching(session):
     assert stored_attendee.name_raw == "冯总"
 
 
+async def test_event_uses_source_supported_chinese_range_and_returns_utc_z(session):
+    context = replace(
+        await _context(session_date=date(2026, 8, 11)),
+        reference_datetime=datetime(
+            2026, 8, 11, 13, 40, tzinfo=ZoneInfo("Asia/Shanghai")
+        ),
+        source_anchor_date=date(2026, 8, 11),
+        source_period="下午",
+    )
+
+    event = await execute_tool(
+        "tool_create_event",
+        {
+            "title": "周会",
+            "start_at": "2026-08-11T16:00:00+08:00",
+            "end_at": "2026-08-11T18:00:00+08:00",
+            "source_text": "4点到6点周会",
+        },
+        context=context,
+        tool_call_id="source-range-event",
+    )
+
+    assert event["ok"] is True
+    assert event["start_at"] == "2026-08-11T08:00:00Z"
+    assert event["end_at"] == "2026-08-11T10:00:00Z"
+
+
 async def test_input_turn_tools_return_only_owned_provenance(session):
     owner = await _context(user_id="owner")
     foreign = await _context(user_id="foreign")
@@ -817,7 +887,7 @@ async def test_asset_mutation_surface_and_idempotency_conflict(session):
         tool_call_id="delete-note",
     )
 
-    assert todo["payload"]["status"] == "pending"
+    assert todo["payload"]["status"] == "completed"
     assert todo["payload"]["due_date"] == "2026-08-06T15:00:00+08:00"
     assert conflict == {
         "ok": False,

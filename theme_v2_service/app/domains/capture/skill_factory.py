@@ -113,6 +113,47 @@ def _value(skill: CaptureSkill | dict[str, Any], name: str, default: Any = None)
     return getattr(skill, name, default)
 
 
+def _compact_catalog_text(value: Any, *, limit: int = 240) -> str:
+    return " ".join(str(value or "").split())[:limit]
+
+
+def _catalog_list(value: Any) -> str:
+    if not isinstance(value, list):
+        return ""
+    output: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        text = _compact_catalog_text(item, limit=120)
+        folded = text.casefold()
+        if not text or folded in seen:
+            continue
+        seen.add(folded)
+        output.append(text)
+        if len(output) >= 8:
+            break
+    return " / ".join(output)
+
+
+def _custom_field_summary(schema: dict[str, Any]) -> str:
+    fields: list[str] = []
+    for name, metadata in _schema_properties(schema).items():
+        if not isinstance(metadata, dict):
+            continue
+        label = _compact_catalog_text(
+            metadata.get("title") or metadata.get("label") or name,
+            limit=80,
+        )
+        field_type = _compact_catalog_text(metadata.get("type") or "string", limit=32)
+        description = _compact_catalog_text(metadata.get("description"), limit=160)
+        detail = f"{label}({name}, {field_type})"
+        if description:
+            detail += f": {description}"
+        fields.append(detail)
+        if len(fields) >= 8:
+            break
+    return "；".join(fields)
+
+
 def _custom_skill_hint(skills: Iterable[CaptureSkill | dict[str, Any]]) -> str:
     lines: list[str] = []
     for skill in skills:
@@ -121,17 +162,35 @@ def _custom_skill_hint(skills: Iterable[CaptureSkill | dict[str, Any]]) -> str:
             continue
         if _value(skill, "enabled", True) is False:
             continue
-        display_name = str(_value(skill, "display_name", machine_name) or machine_name)
-        description = str(_value(skill, "description", "") or "")
-        user_skill_id = str(_value(skill, "user_skill_id", "") or "")
+        display_name = _compact_catalog_text(
+            _value(skill, "display_name", machine_name) or machine_name,
+            limit=160,
+        )
+        description = _compact_catalog_text(_value(skill, "description", ""), limit=500)
+        user_skill_id = _compact_catalog_text(_value(skill, "user_skill_id", ""), limit=100)
         schema = _value(skill, "schema_definition", None)
         if schema is None:
             schema = _value(skill, "schema", {})
-        lines.append(
-            f"- id=`{user_skill_id}`; machine=`{machine_name}`; "
-            f"display={display_name}: {description}; "
-            f"schema={json.dumps(schema or {}, ensure_ascii=False, sort_keys=True)}"
-        )
+        schema = schema if isinstance(schema, dict) else {}
+        routing = schema.get("x-routing")
+        routing = routing if isinstance(routing, dict) else {}
+        intent = _compact_catalog_text(routing.get("intent") or description, limit=500)
+        lines.append(f"- id=`{user_skill_id}`; machine=`{machine_name}`; display={display_name}")
+        if intent:
+            lines.append(f"  用途={intent}")
+        for label, key in (
+            ("别名", "aliases"),
+            ("包含", "include"),
+            ("排除", "exclude"),
+            ("正例", "positive_examples"),
+            ("反例", "negative_examples"),
+        ):
+            values = _catalog_list(routing.get(key))
+            if values:
+                lines.append(f"  {label}={values}")
+        fields = _custom_field_summary(schema)
+        if fields:
+            lines.append(f"  字段={fields}")
     if not lines:
         return "(无)"
     return "\n".join(lines)
@@ -148,15 +207,19 @@ def make_dispatcher_agent(
         "## Theme V2 runtime contract (优先级最高)\n\n"
         "只允许 todo / event / expense / contact / notes / qa 和下列用户自定义 "
         "machine_name。不得输出 idea、misc、other 或 task;未知类型归 notes,"
-        "外部产品动作归 qa。用户自定义 Skill 只压过 notes,绝不覆盖 "
-        "todo/event/expense/contact。未来计划不得写入记录型自定义 Skill。"
+        "外部产品动作归 qa。用户自定义 Skill 优先于 notes；当一段话明确是已经完成的"
+        "历史事实时，也优先于模型误判的 todo。提醒、未来计划仍归 todo，用户自定义"
+        "Skill 绝不覆盖 event/expense/contact。未来计划不得写入记录型自定义 Skill。"
         "每个 intent 必须明确 operation=create/query/update/delete/answer；"
         "记录事实用 create，读取或汇总已有信息用 query，纠正已有记录用 update，"
         "删除已有记录用 delete，普通知识问答用 answer。ordinal 与 intent_id 由运行时"
         "重写，不要依赖模型生成值。update/delete 可在用户明确给出 ID 时填写 target_id，"
         "或把明确名称写入 target_query；不得编造目标 ID。Contact update 还必须把"
         "用户明确说出的全部变更写入 contact_patch，只允许 name/phone/company/title/"
-        "email/notes/socials，未提到的字段不得补充；其他类型的 contact_patch 必须为空。\n\n"
+        "email/notes/socials，未提到的字段不得补充；其他类型的 contact_patch 必须为空。"
+        "候选内容若与某个用户自定义 Skill 的 display、description 或 schema 语义一致，"
+        "必须输出该 machine_name 和 custom_skill_id，不能只做字面连续匹配；例如动作、"
+        "数量和对象之间可以夹有助词或数值。只有无法唯一匹配时才落 notes。\n\n"
         "### 用户自定义 Skill\n"
         f"{_custom_skill_hint(custom_skills)}\n\n"
         "### FlashDispatchResult JSON Schema (仅作输出指导)\n"

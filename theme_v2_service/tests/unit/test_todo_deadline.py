@@ -175,7 +175,7 @@ def test_unknown_timezone_uses_product_default():
     assert actual.isoformat() == "2026-08-09T05:00:00+08:00"
 
 
-def test_new_todo_starts_pending_even_when_deadline_has_passed():
+def test_new_todo_is_completed_when_deadline_has_already_passed():
     reference = datetime(2026, 8, 8, 18, 0, tzinfo=SHANGHAI)
 
     past = normalize_new_todo_payload(
@@ -195,7 +195,7 @@ def test_new_todo_starts_pending_even_when_deadline_has_passed():
         timezone_name="Asia/Shanghai",
     )
 
-    assert past["status"] == "pending"
+    assert past["status"] == "completed"
     assert boundary["status"] == "pending"
     assert boundary["due_date"] == "2026-08-08T18:00:00+08:00"
 

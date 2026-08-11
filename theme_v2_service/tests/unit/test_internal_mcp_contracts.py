@@ -129,6 +129,9 @@ async def test_every_registered_tool_accepts_a_synthetic_transport_call(monkeypa
             "timezone_name": "Asia/Shanghai",
             "intent_id": "intent-1",
             "intent_operation": "create",
+            "source_text": "测试原文",
+            "source_anchor_date": "2026-08-10",
+            "source_period": "下午",
         }
         arguments.update(
             {key: trusted_values[key] for key in trusted}

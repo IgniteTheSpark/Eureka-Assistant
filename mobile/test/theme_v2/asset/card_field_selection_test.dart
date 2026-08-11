@@ -90,6 +90,48 @@ void main() {
       );
     },
   );
+
+  testWidgets('tapping a field row changes the primary card field', (
+    tester,
+  ) async {
+    final controller = CardFieldSelectionController(
+      fields: _fields.take(3).toList(),
+      config: CardDisplayConfig(primaryFieldId: 'title'),
+    );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildThemeV2Theme(Brightness.light),
+        home: Scaffold(body: CardFieldSelector(controller: controller)),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('card-field-city')));
+    await tester.pump();
+
+    expect(controller.config.primaryFieldId, 'city');
+  });
+
+  testWidgets(
+    'single-field cards explain why there is nothing else to select',
+    (tester) async {
+      final controller = CardFieldSelectionController(
+        fields: _fields.take(1).toList(),
+        config: CardDisplayConfig(primaryFieldId: 'title'),
+      );
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildThemeV2Theme(Brightness.light),
+          home: Scaffold(body: CardFieldSelector(controller: controller)),
+        ),
+      );
+
+      expect(find.text('当前只有一个可展示字段，已固定为主字段。返回上一步添加字段后即可调整。'), findsOneWidget);
+    },
+  );
 }
 
 const _fields = [

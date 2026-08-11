@@ -137,7 +137,7 @@ class _ConcurrentRuntime:
 
     async def call_tool(self, name, arguments, *, trusted):
         assert name == "tool_create_asset"
-        source_text = str(arguments.get("source_text") or "")
+        source_text = str(trusted.source_text or "")
         index = int(source_text.split("#", 1)[1].split("：", 1)[0])
         self.active += 1
         self.max_active = max(self.max_active, self.active)

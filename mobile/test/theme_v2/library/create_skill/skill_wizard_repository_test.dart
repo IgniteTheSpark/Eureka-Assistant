@@ -37,6 +37,7 @@ void main() {
     await repository.confirm({
       'name': 'running_log',
       'display_name': '跑步记录',
+      'description': '记录已经完成的跑步活动',
       'payload_schema': {
         'distance': {
           'type': 'number',
@@ -55,6 +56,14 @@ void main() {
       },
       'render_spec': {'icon': '🏃', 'primary_field': 'distance'},
       'chat_starters': ['记录一次跑步'],
+      'routing_profile': {
+        'intent': '记录已经完成的跑步活动',
+        'aliases': ['跑步', '晨跑'],
+        'include': ['实际完成的跑步'],
+        'exclude': ['未来跑步计划'],
+        'positive_examples': ['刚跑完五公里'],
+        'negative_examples': ['明早去跑五公里'],
+      },
     });
 
     expect(requests.map((request) => '${request.method} ${request.url.path}'), [
@@ -63,6 +72,7 @@ void main() {
     ]);
     final createBody = jsonDecode(requests.last.body) as Map<String, dynamic>;
     expect(createBody['machine_name'], 'running_log');
+    expect(createBody['description'], '记录已经完成的跑步活动');
     expect(createBody['schema'], {
       'type': 'object',
       'properties': {
@@ -83,6 +93,14 @@ void main() {
       'required': <String>[],
       'additionalProperties': false,
       'x-capture-enabled': true,
+      'x-routing': {
+        'intent': '记录已经完成的跑步活动',
+        'aliases': ['跑步', '晨跑'],
+        'include': ['实际完成的跑步'],
+        'exclude': ['未来跑步计划'],
+        'positive_examples': ['刚跑完五公里'],
+        'negative_examples': ['明早去跑五公里'],
+      },
     });
     expect(createBody['render_spec']['icon'], '🏃');
   });

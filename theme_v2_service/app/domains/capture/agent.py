@@ -223,16 +223,16 @@ class UnavailableCaptureAgentProvider:
 
 def capture_skill_from_model(skill: UserSkill) -> CaptureSkill:
     schema = skill.schema_json or {}
-    enabled = skill.machine_name in BASELINE_CAPTURE_SKILL_NAMES or (
-        schema.get("x-capture-enabled") is True
-    )
     return CaptureSkill(
         user_skill_id=skill.id,
         machine_name=skill.machine_name,
         display_name=skill.display_name,
         description=skill.description,
         schema_definition=schema,
-        enabled=enabled,
+        # UserSkill.enabled is the product-level source of truth. Requiring a
+        # second hidden schema flag silently removed otherwise valid custom
+        # Skills from the dispatcher catalog.
+        enabled=skill.enabled is not False,
     )
 
 

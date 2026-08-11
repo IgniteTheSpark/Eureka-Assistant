@@ -115,6 +115,14 @@ void main() {
         expect(
           overview.systemContainers
               .singleWhere(
+                (container) => container.type == LibraryContainerType.event,
+              )
+              .label,
+          '日程',
+        );
+        expect(
+          overview.systemContainers
+              .singleWhere(
                 (container) => container.type == LibraryContainerType.contact,
               )
               .mark,

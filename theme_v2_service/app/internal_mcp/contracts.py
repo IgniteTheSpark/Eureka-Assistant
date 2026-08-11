@@ -14,6 +14,8 @@ ALL_TRUSTED_ARGUMENTS = frozenset(
         "timezone_name",
         "intent_id",
         "intent_operation",
+        "source_anchor_date",
+        "source_period",
     }
 )
 
@@ -57,7 +59,15 @@ def trusted_arguments_for_tool(
     if tool_name in ROOT_MUTATION_TOOLS:
         names.update({"intent_id", "intent_operation"})
     if tool_name in _TEMPORAL_TOOLS:
-        names.update({"reference_datetime", "timezone_name"})
+        names.update(
+            {
+                "reference_datetime",
+                "timezone_name",
+                "source_text",
+                "source_anchor_date",
+                "source_period",
+            }
+        )
     return frozenset(names)
 
 
