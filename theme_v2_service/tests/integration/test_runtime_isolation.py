@@ -1,3 +1,5 @@
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 
@@ -15,6 +17,9 @@ async def test_runtime_uses_only_theme_v2_database_and_migration():
         ready = await client.get("/ready")
 
     settings = get_settings()
+    migration_head = ScriptDirectory.from_config(
+        Config("alembic.ini")
+    ).get_current_head()
     expected_database = (
         "eureka_theme_v2_test" if settings.env == "test" else "eureka_theme_v2"
     )
@@ -27,4 +32,4 @@ async def test_runtime_uses_only_theme_v2_database_and_migration():
     assert health.json() == {"status": "ok", "service": "theme-v2"}
     assert ready.json() == {"status": "ready"}
     assert database == expected_database
-    assert revision == "0021_capture_device_identity"
+    assert revision == migration_head
