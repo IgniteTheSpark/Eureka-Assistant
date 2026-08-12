@@ -1,4 +1,5 @@
 import json
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -19,12 +20,16 @@ from app.domains.reports.providers import (
 )
 from app.domains.reports.security import (
     allowed_numeric_claims,
+    unsupported_numeric_claims,
     validate_generator_result,
 )
 from app.structured_output import extract_json_object
 
 
 Completion = Callable[..., Awaitable[Any]]
+MARKDOWN_LIST_ITEM_RE = re.compile(
+    r"^[ \t]{0,3}(?:[-+*]|\d{1,9}[.)])(?=[ \t]+)"
+)
 
 
 def build_planner_messages(request: PlannerRequest) -> list[dict[str, str]]:
@@ -237,6 +242,88 @@ def _drop_untrusted_due_times(
         return None
 
 
+def _contains_unsupported_numeric_claim(
+    text: str,
+    *,
+    request: GeneratorRequest,
+) -> bool:
+    return bool(
+        unsupported_numeric_claims(
+            text,
+            request=request,
+            ignore_ordered_list_markers=True,
+        )
+    )
+
+
+def _drop_unsupported_numeric_fragments(
+    raw: Any,
+    *,
+    request: GeneratorRequest,
+    error: Exception,
+) -> GeneratorResult | None:
+    if not str(error).startswith("unreferenced numeric claim:"):
+        return None
+    try:
+        candidate = GeneratorResult.model_validate(raw)
+        retained_blocks: list[str] = []
+        for block in re.split(r"\n[ \t]*\n", candidate.content_md.strip()):
+            lines = block.splitlines()
+            if lines and all(MARKDOWN_LIST_ITEM_RE.match(line) for line in lines):
+                retained_lines = [
+                    line
+                    for line in lines
+                    if not _contains_unsupported_numeric_claim(
+                        line,
+                        request=request,
+                    )
+                ]
+                if retained_lines:
+                    retained_blocks.append("\n".join(retained_lines))
+                continue
+            if not _contains_unsupported_numeric_claim(
+                block,
+                request=request,
+            ):
+                retained_blocks.append(block)
+
+        content_md = "\n\n".join(retained_blocks).strip()
+        if not content_md:
+            return None
+        candidate = candidate.model_copy(
+            update={
+                "content_md": content_md,
+                "suggested_actions": [
+                    action
+                    for action in candidate.suggested_actions
+                    if not _contains_unsupported_numeric_claim(
+                        action.title,
+                        request=request,
+                    )
+                ],
+            }
+        )
+        return validate_generator_result(candidate, request=request)
+    except Exception:
+        return None
+
+
+def _recover_bounded_generator_result(
+    raw: Any,
+    *,
+    request: GeneratorRequest,
+    error: Exception,
+) -> GeneratorResult | None:
+    for recovery in (
+        _drop_untrusted_due_times,
+        _drop_unsupported_numeric_fragments,
+    ):
+        result = recovery(raw, request=request, error=error)
+        if result is not None:
+            return result
+    return None
+
+
 class LiteLLMPlannerProvider:
     def __init__(
         self,
@@ -376,7 +463,7 @@ class LiteLLMGeneratorProvider:
                 break
             except Exception as exc:
                 if attempt == 1:
-                    result = _drop_untrusted_due_times(
+                    result = _recover_bounded_generator_result(
                         raw_result,
                         request=request,
                         error=exc,

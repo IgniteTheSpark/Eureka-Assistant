@@ -113,6 +113,23 @@ def _unsupported_numeric_claims(
     return unsupported
 
 
+def unsupported_numeric_claims(
+    text: str,
+    *,
+    request: GeneratorRequest,
+    ignore_ordered_list_markers: bool = False,
+) -> set[str]:
+    claim_text = (
+        MARKDOWN_ORDERED_LIST_MARKER_RE.sub("", text)
+        if ignore_ordered_list_markers
+        else text
+    )
+    return _unsupported_numeric_claims(
+        set(NUMBER_RE.findall(claim_text)),
+        allowed_numeric_claims(request),
+    )
+
+
 def allowed_citation_tags(request: GeneratorRequest) -> set[str]:
     tags = {
         f"[evidence:{asset_id}]"
@@ -196,13 +213,15 @@ def validate_generator_result(
     if any(tag not in allowed_tags for tag in citation_tags):
         raise ValueError("citation is not allowed")
 
-    allowed_numbers = allowed_numeric_claims(request)
     action_copy = " ".join(action.title for action in result.suggested_actions)
     if HTML_TAG_RE.search(action_copy):
         raise ValueError("model-supplied HTML is not allowed")
     claim_content = MARKDOWN_ORDERED_LIST_MARKER_RE.sub("", result.content_md)
     claimed_numbers = set(NUMBER_RE.findall(f"{claim_content} {action_copy}"))
-    unsupported = _unsupported_numeric_claims(claimed_numbers, allowed_numbers)
+    unsupported = unsupported_numeric_claims(
+        f"{claim_content} {action_copy}",
+        request=request,
+    )
     if unsupported:
         raise ValueError(
             f"unreferenced numeric claim: {sorted(unsupported)[0]}"

@@ -978,6 +978,120 @@ async def test_generator_drops_untrusted_due_times_after_bounded_repair():
     )
 
 
+async def test_generator_drops_unsupported_numeric_markdown_after_bounded_repair():
+    calls = []
+
+    async def completion(**kwargs):
+        calls.append(kwargs)
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            _result(
+                                content_md=(
+                                    "## 会前准备\n\n"
+                                    "已有记录值为 12。"
+                                    "[evidence:asset-private-id]\n\n"
+                                    "- 保持已有记录方式。"
+                                    "[source:https://example.com/research]\n"
+                                    "- 每日饮水 2000 毫升。"
+                                    "[source:https://example.com/research]\n\n"
+                                    "先确认本次讨论目标。"
+                                )
+                            )
+                        )
+                    }
+                }
+            ],
+            "usage": {"prompt_tokens": 7, "completion_tokens": 9},
+        }
+
+    provider = LiteLLMGeneratorProvider(
+        model="deepseek/deepseek-chat",
+        api_key="secret",
+        timeout_seconds=30,
+        completion=completion,
+    )
+
+    result = await provider.generate(_request_with_source_and_due_time())
+
+    assert len(calls) == 2
+    assert "2000" not in result.content_md
+    assert "已有记录值为 12" in result.content_md
+    assert "保持已有记录方式" in result.content_md
+    assert "先确认本次讨论目标" in result.content_md
+
+
+async def test_generator_drops_unsupported_numeric_action_after_bounded_repair():
+    calls = []
+
+    async def completion(**kwargs):
+        calls.append(kwargs)
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            _result(
+                                suggested_actions=[
+                                    {"title": "确认会议目标"},
+                                    {"title": "准备 2000 毫升饮水"},
+                                ]
+                            )
+                        )
+                    }
+                }
+            ],
+            "usage": {"prompt_tokens": 7, "completion_tokens": 9},
+        }
+
+    provider = LiteLLMGeneratorProvider(
+        model="deepseek/deepseek-chat",
+        api_key="secret",
+        timeout_seconds=30,
+        completion=completion,
+    )
+
+    result = await provider.generate(_request_with_source_and_due_time())
+
+    assert len(calls) == 2
+    assert [action.title for action in result.suggested_actions] == [
+        "确认会议目标"
+    ]
+
+
+async def test_generator_rejects_numeric_recovery_that_removes_all_content():
+    calls = []
+
+    async def completion(**kwargs):
+        calls.append(kwargs)
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            _result(content_md="每日饮水 2000 毫升。")
+                        )
+                    }
+                }
+            ],
+            "usage": {"prompt_tokens": 7, "completion_tokens": 9},
+        }
+
+    provider = LiteLLMGeneratorProvider(
+        model="deepseek/deepseek-chat",
+        api_key="secret",
+        timeout_seconds=30,
+        completion=completion,
+    )
+
+    with pytest.raises(PermanentProviderError):
+        await provider.generate(_request_with_source_and_due_time())
+
+    assert len(calls) == 2
+
+
 async def test_image_adapter_sends_only_sanitized_prompt_and_rejects_non_image():
     payloads = []
 
