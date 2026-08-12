@@ -24,6 +24,10 @@ def allowed_numeric_claims(request: GeneratorRequest) -> set[str]:
         {
             "evidence": request.evidence_bundle,
             "sources": request.external_sources,
+            "confirmed_report_context": {
+                "report_goal": request.execution_plan.report_goal,
+                "attention_questions": request.execution_plan.attention_questions,
+            },
         },
         ensure_ascii=False,
         default=str,

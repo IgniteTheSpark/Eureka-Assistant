@@ -5,7 +5,7 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy import func, select
 
-from app.db.models import Asset, UserSkill, WorkflowJob
+from app.db.models import Asset, Event, UserSkill, WorkflowJob
 from app.db.session import AsyncSessionFactory
 from app.domains.notifications.models import Notification, OutboxEvent
 from app.domains.reports.models import Report, ReportGenerationRun
@@ -22,6 +22,7 @@ from app.domains.reports.service import (
     record_report_failure,
 )
 from app.domains.reports.storage import LocalStorage
+from app.domains.reports.schemas import EvidenceReference
 from app.domains.reports.templates import TemplateRegistry
 from tests.fakes.report_providers import (
     FakeGeneratorProvider,
@@ -344,3 +345,100 @@ async def test_real_pipeline_stages_close_workflow_with_fake_providers(session, 
     assert report.spec_json["surface"] == expected_surface
     assert report.spec_json["palette"] in {"pal-ink", "pal-warm"}
     assert report.spec_json["presentation_version"] == "report_html_v2"
+
+
+async def test_event_only_report_persists_without_null_source_asset_id(
+    session,
+    tmp_path,
+):
+    event = Event(
+        user_id="user-1",
+        title="球队建设讨论",
+        description="比较不同球队的建设方式",
+        location="会议室",
+        start_at=datetime(2026, 8, 12, 1, 0),
+        end_at=datetime(2026, 8, 12, 2, 0),
+        all_day=False,
+    )
+    session.add(event)
+    await session.flush()
+    plan = {
+        "template_id": "pre_event_briefing",
+        "template_version": "1.0.0",
+        "base_family": "briefing_research",
+        "report_goal": "准备会议",
+        "resolved_asset_ids": [],
+        "resolved_references": [
+            EvidenceReference(kind="event", id=event.id).model_dump()
+        ],
+        "field_bindings": {},
+        "time_range": None,
+        "web_policy": "optional",
+        "illustration_policy": "none",
+        "render_policy": "report_html_v1",
+    }
+    run = ReportGenerationRun(
+        user_id="user-1",
+        origin="user_initiated",
+        state="generating",
+        active_stage="load_evidence",
+        launch_context={"event_id": event.id},
+        intent="会前调研",
+        answers={},
+        evidence_scope={},
+        plan_options=[],
+        execution_plan=plan,
+        template_id="pre_event_briefing",
+        template_version="1.0.0",
+        resolved_asset_ids=[],
+        generation_context={},
+        usage_json={},
+    )
+    session.add(run)
+    await session.flush()
+    job = WorkflowJob(
+        run_id=run.id,
+        job_type="report_pipeline",
+        status="running",
+        lease_owner="worker-1",
+    )
+    session.add(job)
+    await session.flush()
+    run.generation_job_id = job.id
+    await session.commit()
+    generator = FakeGeneratorProvider(
+        GeneratorResult(
+            content_md=f"会议时间为 09:00。[evidence:{event.id}]",
+            chart_directives=[],
+            illustration_prompt=None,
+            suggested_actions=[],
+            share_card_spec={
+                "headline": "会前调研",
+                "summary": "会议信息已整理",
+                "highlights": ["09:00 开始"],
+                "time_range": "2026-08-12",
+            },
+        )
+    )
+    handler = report_pipeline_handler(
+        generator=generator,
+        web_search=FakeWebSearchProvider(),
+        illustration=FakeIllustrationProvider(
+            GeneratedImage(data=b"unused", mime_type="image/png")
+        ),
+        registry=TemplateRegistry.load(
+            Path(__file__).parents[2] / "report-templates"
+        ),
+        storage=LocalStorage(tmp_path / "media"),
+        session_factory=AsyncSessionFactory,
+    )
+
+    await handler(job)
+
+    await session.refresh(run)
+    report = await session.scalar(
+        select(Report).where(Report.generation_run_id == run.id)
+    )
+    assert run.state == "completed"
+    assert report is not None
+    assert report.spec_json["source_asset_ids"] == []

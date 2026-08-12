@@ -152,6 +152,25 @@ def test_generator_allows_deterministic_evidence_counts_with_citation():
     assert result.content_md == "共 1 条记录。[evidence:asset-private-id]"
 
 
+def test_generator_allows_numbers_from_confirmed_execution_plan_context():
+    request = _request().model_copy(
+        update={
+            "execution_plan": _request().execution_plan.model_copy(
+                update={
+                    "attention_questions": ["结合用户确认的身高 175 厘米分析"],
+                }
+            )
+        }
+    )
+
+    result = validate_generator_result(
+        _result(content_md="用户确认的身高为 175 厘米。[evidence:asset-private-id]"),
+        request=request,
+    )
+
+    assert "175" in result.content_md
+
+
 def test_generator_rejects_unknown_or_insecure_citation_tags():
     request = _request_with_source_and_due_time()
 

@@ -577,7 +577,11 @@ def build_pipeline_handlers(
             template_version=context.execution_plan.template_version,
             base_family=context.execution_plan.base_family,
             source_asset_ids=[
-                item["asset_id"] for item in evidence.get("user_evidence", [])
+                asset_id
+                for item in evidence.get("user_evidence", [])
+                if isinstance(item, dict)
+                and isinstance((asset_id := item.get("asset_id")), str)
+                and asset_id
             ],
             unavailable_asset_ids=evidence.get("unavailable_asset_ids", []),
             field_bindings=context.execution_plan.field_bindings,

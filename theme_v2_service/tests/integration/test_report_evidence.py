@@ -107,6 +107,42 @@ async def test_evidence_uses_latest_owned_assets_in_requested_order(session):
     assert "must-not-leak" not in bundle.model_dump_json()
 
 
+async def test_evidence_resolves_fields_alias_and_builds_trusted_aggregates(session):
+    skill = await _skill(session, user_id="user-1", name="expense")
+    first = await _asset(session, user_id="user-1", skill=skill, value="unused")
+    second = await _asset(session, user_id="user-1", skill=skill, value="unused")
+    first.payload_json = {"amount": 8, "category": "餐饮"}
+    second.payload_json = {"amount": 12, "category": "交通"}
+    await session.commit()
+    plan = _plan([first.id, second.id]).model_copy(
+        update={
+            "field_bindings": {
+                "amount": "fields.amount",
+                "category": "fields.category",
+            }
+        }
+    )
+
+    bundle = await load_latest_evidence(
+        session,
+        run=_run(user_id="user-1"),
+        execution_plan=plan,
+        registry=TemplateRegistry.load(TEMPLATES),
+    )
+
+    assert [item.bound_fields["amount"] for item in bundle.user_evidence] == [
+        8,
+        12,
+    ]
+    assert bundle.derived_metrics["record_count"] == 2
+    assert bundle.derived_metrics["fields"]["amount"]["sum"] == 20
+    assert bundle.derived_metrics["fields"]["category"]["distinct_count"] == 2
+    assert bundle.derived_metrics["fields"]["category"]["counts_by_value"] == {
+        "餐饮": 1,
+        "交通": 1,
+    }
+
+
 async def test_sufficient_remainder_continues_when_one_asset_disappears(session):
     skill = await _skill(session, user_id="user-1", name="own")
     remaining = await _asset(session, user_id="user-1", skill=skill, value="kept")

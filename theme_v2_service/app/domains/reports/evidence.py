@@ -46,6 +46,7 @@ class EvidenceTemporalFacts(EvidenceModel):
 
 class EvidenceBundle(EvidenceModel):
     user_evidence: list[EvidenceItem]
+    derived_metrics: dict[str, Any] = Field(default_factory=dict)
     unavailable_asset_ids: list[str]
     unavailable_references: list[dict[str, str]] = Field(default_factory=list)
     field_bindings: dict[str, str]
@@ -58,6 +59,8 @@ class EvidenceBundle(EvidenceModel):
 def _resolve_path(asset: Asset, path: str) -> Any:
     if path == "effective_at":
         return asset.effective_at or asset.created_at
+    if path.startswith("fields."):
+        path = f"payload.{path.removeprefix('fields.')}"
     if not path.startswith("payload."):
         return None
     value: Any = asset.payload_json
@@ -66,6 +69,62 @@ def _resolve_path(asset: Asset, path: str) -> Any:
             return None
         value = value[part]
     return value
+
+
+def _derived_metrics(evidence: list[EvidenceItem]) -> dict[str, Any]:
+    fields: dict[str, dict[str, Any]] = {}
+    binding_names = sorted(
+        {
+            name
+            for item in evidence
+            for name, value in item.bound_fields.items()
+            if value is not None
+        }
+    )
+    for name in binding_names:
+        values = [
+            item.bound_fields[name]
+            for item in evidence
+            if item.bound_fields.get(name) is not None
+        ]
+        scalar_values = [
+            value
+            for value in values
+            if isinstance(value, (str, int, float, bool))
+        ]
+        stats: dict[str, Any] = {"value_count": len(values)}
+        if scalar_values:
+            counts: dict[str, int] = {}
+            for value in scalar_values:
+                label = str(value)
+                counts[label] = counts.get(label, 0) + 1
+            stats["distinct_count"] = len(counts)
+            stats["counts_by_value"] = counts
+        numeric_values = [
+            value
+            for value in values
+            if isinstance(value, (int, float)) and not isinstance(value, bool)
+        ]
+        if numeric_values:
+            total = sum(numeric_values)
+            stats.update(
+                {
+                    "sum": total,
+                    "average": total / len(numeric_values),
+                    "minimum": min(numeric_values),
+                    "maximum": max(numeric_values),
+                }
+            )
+        fields[name] = stats
+
+    return {
+        "record_count": len(evidence),
+        "counts_by_kind": {
+            kind: sum(1 for item in evidence if item.kind == kind)
+            for kind in sorted({item.kind for item in evidence})
+        },
+        "fields": fields,
+    }
 
 
 def _minimum_data_satisfied(
@@ -270,6 +329,7 @@ async def load_latest_evidence(
         )
     return EvidenceBundle(
         user_evidence=evidence,
+        derived_metrics=_derived_metrics(evidence),
         unavailable_asset_ids=unavailable,
         unavailable_references=unavailable_references,
         field_bindings=execution_plan.field_bindings,
