@@ -1,4 +1,5 @@
 from datetime import datetime
+import asyncio
 import json
 
 import httpx
@@ -150,6 +151,120 @@ async def test_provider_calls_once_per_query_and_keeps_stable_url_order():
         "https://example.com/one",
         "https://example.com/two",
     ]
+
+
+async def test_provider_runs_queries_with_bounded_concurrency():
+    class ConcurrentProvider(DeepSeekResponsesWebSearchProvider):
+        active = 0
+        max_active = 0
+        first_wave_started = asyncio.Event()
+
+        async def _request(self, query: str):
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+            if self.active == 3:
+                self.first_wave_started.set()
+            await asyncio.wait_for(self.first_wave_started.wait(), timeout=0.5)
+            self.active -= 1
+            return {
+                "output": [
+                    {
+                        "type": "web_search_call",
+                        "action": {
+                            "sources": [
+                                {
+                                    "title": query,
+                                    "url": f"https://example.com/{query}",
+                                    "snippet": f"Public result for {query}",
+                                }
+                            ]
+                        },
+                    }
+                ]
+            }
+
+    async with httpx.AsyncClient() as client:
+        provider = ConcurrentProvider(
+            client=client,
+            endpoint="https://api.deepseek.test/responses",
+            api_key="deepseek-secret",
+        )
+        sources = await provider.search(
+            [
+                _query(f"query-{index}", query_id=f"web-{index}")
+                for index in range(1, 7)
+            ]
+        )
+
+    assert provider.max_active == 3
+    assert [source.query_id for source in sources] == [
+        "web-1",
+        "web-2",
+        "web-3",
+        "web-4",
+        "web-5",
+        "web-6",
+    ]
+
+
+async def test_provider_keeps_successful_sources_when_one_query_fails():
+    class PartialProvider(DeepSeekResponsesWebSearchProvider):
+        async def _request(self, query: str):
+            if query == "query two":
+                raise RetryableProviderError("one query timed out")
+            return {
+                "output": [
+                    {
+                        "type": "web_search_call",
+                        "action": {
+                            "sources": [
+                                {
+                                    "title": query,
+                                    "url": f"https://example.com/{query[-3:]}",
+                                    "snippet": f"Public result for {query}",
+                                }
+                            ]
+                        },
+                    }
+                ]
+            }
+
+    async with httpx.AsyncClient() as client:
+        provider = PartialProvider(
+            client=client,
+            endpoint="https://api.deepseek.test/responses",
+            api_key="deepseek-secret",
+        )
+        sources = await provider.search(
+            [
+                _query("query one", query_id="web-1"),
+                _query("query two", query_id="web-2"),
+                _query("query three", query_id="web-3"),
+            ]
+        )
+
+    assert [source.query_id for source in sources] == ["web-1", "web-3"]
+
+
+async def test_provider_raises_when_all_queries_fail():
+    class FailingProvider(DeepSeekResponsesWebSearchProvider):
+        async def _request(self, query: str):
+            del query
+            raise RetryableProviderError("all queries timed out")
+
+    async with httpx.AsyncClient() as client:
+        provider = FailingProvider(
+            client=client,
+            endpoint="https://api.deepseek.test/responses",
+            api_key="deepseek-secret",
+        )
+        with pytest.raises(RetryableProviderError, match="all queries"):
+            await provider.search(
+                [
+                    _query("query one", query_id="web-1"),
+                    _query("query two", query_id="web-2"),
+                ]
+            )
 
 
 async def test_provider_rejects_deepseek_open_page_action_without_evidence():

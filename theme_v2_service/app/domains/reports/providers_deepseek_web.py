@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
@@ -30,6 +31,8 @@ def _valid_url(value: object) -> str | None:
 
 
 class DeepSeekResponsesWebSearchProvider:
+    MAX_CONCURRENT_QUERIES = 3
+
     def __init__(
         self,
         *,
@@ -48,9 +51,23 @@ class DeepSeekResponsesWebSearchProvider:
         self.clock = clock
 
     async def search(self, queries: list[WebQuery]) -> list[WebSource]:
+        semaphore = asyncio.Semaphore(self.MAX_CONCURRENT_QUERIES)
+
+        async def request(query: WebQuery) -> dict[str, Any]:
+            async with semaphore:
+                return await self._request(query.text)
+
+        responses = await asyncio.gather(
+            *(request(query) for query in queries),
+            return_exceptions=True,
+        )
         unique: dict[str, WebSource] = {}
-        for query in queries:
-            payload = await self._request(query.text)
+        errors: list[Exception] = []
+        for query, response in zip(queries, responses, strict=True):
+            if isinstance(response, Exception):
+                errors.append(response)
+                continue
+            payload = response
             for source in self._normalize(payload, query=query):
                 current = unique.get(source.url)
                 if current is None:
@@ -74,6 +91,18 @@ class DeepSeekResponsesWebSearchProvider:
                     }
                 )
         if queries and not unique:
+            if len(errors) == len(queries):
+                retryable = next(
+                    (
+                        error
+                        for error in errors
+                        if isinstance(error, RetryableProviderError)
+                    ),
+                    None,
+                )
+                if retryable is not None:
+                    raise retryable
+                raise errors[0]
             raise PermanentProviderError(
                 "DeepSeek Web Search returned no verifiable URL"
             )
