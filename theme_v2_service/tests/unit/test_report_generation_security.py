@@ -171,6 +171,93 @@ def test_generator_allows_numbers_from_confirmed_execution_plan_context():
     assert "175" in result.content_md
 
 
+def test_generator_allows_components_of_grounded_iso_dates_and_times():
+    request = _request()
+    evidence = dict(request.evidence_bundle)
+    evidence["user_evidence"] = [
+        {
+            **evidence["user_evidence"][0],
+            "effective_at": "2026-08-09T15:30:00+08:00",
+        }
+    ]
+    request = request.model_copy(update={"evidence_bundle": evidence})
+
+    result = validate_generator_result(
+        _result(
+            content_md=(
+                "记录发生在 8 月 9 日 15:30。"
+                "[evidence:asset-private-id]"
+            )
+        ),
+        request=request,
+    )
+
+    assert "8 月 9 日" in result.content_md
+
+
+def test_generator_treats_decimal_next_to_chinese_as_one_numeric_claim():
+    request = _request()
+    evidence = dict(request.evidence_bundle)
+    evidence["derived_metrics"] = {"average_group_sum": 221.67}
+    request = request.model_copy(update={"evidence_bundle": evidence})
+
+    result = validate_generator_result(
+        _result(
+            content_md="日均消费约221.67元。[evidence:asset-private-id]"
+        ),
+        request=request,
+    )
+
+    assert "221.67" in result.content_md
+
+
+def test_generator_treats_equivalent_decimal_formats_as_the_same_claim():
+    request = _request()
+
+    result = validate_generator_result(
+        _result(content_md="记录值为12.0。[evidence:asset-private-id]"),
+        request=request,
+    )
+
+    assert "12.0" in result.content_md
+    with pytest.raises(ValueError, match="numeric claim"):
+        validate_generator_result(
+            _result(content_md="记录值为12.1。[evidence:asset-private-id]"),
+            request=request,
+        )
+
+
+def test_generator_ignores_markdown_ordered_list_markers_but_not_numeric_claims():
+    request = _request()
+    evidence = dict(request.evidence_bundle)
+    evidence["user_evidence"] = [
+        *evidence["user_evidence"],
+        {
+            **evidence["user_evidence"][0],
+            "payload": {"value": 12, "note": "second record"},
+        },
+    ]
+    request = request.model_copy(update={"evidence_bundle": evidence})
+
+    result = validate_generator_result(
+        _result(
+            content_md=(
+                "1. 餐饮观察\n"
+                "2. 交通观察\n"
+                "记录值为 12。[evidence:asset-private-id]"
+            )
+        ),
+        request=request,
+    )
+
+    assert result.content_md.startswith("1. 餐饮观察")
+    with pytest.raises(ValueError, match="numeric claim"):
+        validate_generator_result(
+            _result(content_md="排名为 1。[evidence:asset-private-id]"),
+            request=request,
+        )
+
+
 def test_generator_rejects_unknown_or_insecure_citation_tags():
     request = _request_with_source_and_due_time()
 

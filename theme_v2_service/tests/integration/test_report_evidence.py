@@ -141,6 +141,144 @@ async def test_evidence_resolves_fields_alias_and_builds_trusted_aggregates(sess
         "餐饮": 1,
         "交通": 1,
     }
+    assert bundle.derived_metrics["grouped_fields"]["category"]["餐饮"] == {
+        "record_count": 1,
+        "numeric_fields": {
+            "amount": {
+                "value_count": 1,
+                "sum": 8,
+                "average": 8,
+                "average_rounded": {
+                    "rounded_0": 8,
+                    "rounded_1": 8.0,
+                    "rounded_2": 8.0,
+                },
+                "minimum": 8,
+                "maximum": 8,
+                "share_of_total_percent": {
+                    "rounded_0": 40,
+                    "rounded_1": 40.0,
+                    "rounded_2": 40.0,
+                },
+            }
+        },
+    }
+    assert bundle.derived_metrics["grouped_fields"]["category"]["交通"] == {
+        "record_count": 1,
+        "numeric_fields": {
+            "amount": {
+                "value_count": 1,
+                "sum": 12,
+                "average": 12,
+                "average_rounded": {
+                    "rounded_0": 12,
+                    "rounded_1": 12.0,
+                    "rounded_2": 12.0,
+                },
+                "minimum": 12,
+                "maximum": 12,
+                "share_of_total_percent": {
+                    "rounded_0": 60,
+                    "rounded_1": 60.0,
+                    "rounded_2": 60.0,
+                },
+            }
+        },
+    }
+
+
+async def test_evidence_groups_selected_records_without_planner_dimension_bindings(
+    session,
+):
+    skill = await _skill(session, user_id="user-1", name="expense")
+    first = await _asset(session, user_id="user-1", skill=skill, value="unused")
+    second = await _asset(session, user_id="user-1", skill=skill, value="unused")
+    third = await _asset(session, user_id="user-1", skill=skill, value="unused")
+    first.payload_json = {"amount": 8, "category": "餐饮"}
+    second.payload_json = {"amount": 12, "category": "餐饮"}
+    third.payload_json = {"amount": 30, "category": "交通"}
+    first.effective_at = datetime.fromisoformat("2026-08-08T04:00:00")
+    second.effective_at = datetime.fromisoformat("2026-08-09T04:00:00")
+    third.effective_at = datetime.fromisoformat("2026-08-09T10:00:00")
+    await session.commit()
+    plan = _plan([first.id, second.id, third.id]).model_copy(
+        update={"field_bindings": {"amount": "fields.amount"}}
+    )
+
+    bundle = await load_latest_evidence(
+        session,
+        run=_run(user_id="user-1"),
+        execution_plan=plan,
+        registry=TemplateRegistry.load(TEMPLATES),
+    )
+
+    assert bundle.derived_metrics["grouped_fields"]["category"]["餐饮"][
+        "record_count"
+    ] == 2
+    assert bundle.derived_metrics["grouped_fields"]["category"]["餐饮"][
+        "numeric_fields"
+    ]["amount"]["sum"] == 20
+    assert bundle.derived_metrics["grouped_fields"]["effective_date"][
+        "2026-08-09"
+    ]["numeric_fields"]["amount"]["sum"] == 42
+    assert bundle.derived_metrics["grouped_field_summaries"]["effective_date"][
+        "amount"
+    ]["average_group_sum_rounded"]["rounded_0"] == 25
+    assert bundle.derived_metrics["grouped_field_summaries"]["effective_date"][
+        "amount"
+    ]["ordered_changes"] == [
+        {
+            "from": "2026-08-08",
+            "to": "2026-08-09",
+            "delta": 34,
+            "absolute_delta": 34,
+            "percentage_change": 425.0,
+            "percentage_change_rounded": {
+                "rounded_0": 425,
+                "rounded_1": 425.0,
+                "rounded_2": 425.0,
+            },
+            "absolute_percentage_change": 425.0,
+            "absolute_percentage_change_rounded": {
+                "rounded_0": 425,
+                "rounded_1": 425.0,
+                "rounded_2": 425.0,
+            },
+        }
+    ]
+
+
+async def test_evidence_resolves_bare_top_level_planner_bindings(session):
+    skill = await _skill(session, user_id="user-1", name="expense")
+    asset = await _asset(session, user_id="user-1", skill=skill, value="unused")
+    asset.payload_json = {"amount": 45, "category": "运动"}
+    await session.commit()
+    plan = _plan([asset.id]).model_copy(
+        update={
+            "field_bindings": {
+                "amount": "amount",
+                "category": "category",
+                "missing": "missing",
+            }
+        }
+    )
+
+    bundle = await load_latest_evidence(
+        session,
+        run=_run(user_id="user-1"),
+        execution_plan=plan,
+        registry=TemplateRegistry.load(TEMPLATES),
+    )
+
+    assert bundle.user_evidence[0].bound_fields == {
+        "amount": 45,
+        "category": "运动",
+        "missing": None,
+    }
+    assert bundle.derived_metrics["fields"]["amount"]["sum"] == 45
+    assert bundle.derived_metrics["grouped_fields"]["category"]["运动"][
+        "numeric_fields"
+    ]["amount"]["sum"] == 45
 
 
 async def test_sufficient_remainder_continues_when_one_asset_disappears(session):

@@ -1,13 +1,17 @@
 import json
 import re
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from app.domains.reports.providers import GeneratorRequest, GeneratorResult
 
 
 HTML_TAG_RE = re.compile(r"<\s*/?\s*[a-zA-Z][^>]*>")
-NUMBER_RE = re.compile(r"(?<![\w-])-?\d+(?:\.\d+)?")
+NUMBER_RE = re.compile(r"(?<![A-Za-z0-9_.-])-?\d+(?:\.\d+)?")
+MARKDOWN_ORDERED_LIST_MARKER_RE = re.compile(
+    r"(?m)^[ \t]{0,3}\d{1,9}[.)](?=[ \t]+)"
+)
 UUID_RE = re.compile(
     r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-"
     r"[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}\b"
@@ -17,6 +21,25 @@ CITATION_RE = re.compile(
     re.IGNORECASE,
 )
 CITATION_START_RE = re.compile(r"\[(?:evidence|source):", re.IGNORECASE)
+ISO_TEMPORAL_RE = re.compile(
+    r"\b\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})?)?\b"
+)
+
+
+def _grounded_temporal_components(value: Any) -> set[str]:
+    components: set[str] = set()
+    if isinstance(value, str):
+        for match in ISO_TEMPORAL_RE.finditer(value):
+            for component in re.findall(r"\d+", match.group(0)):
+                components.add(component)
+                components.add(str(int(component)))
+    elif isinstance(value, dict):
+        for child in value.values():
+            components.update(_grounded_temporal_components(child))
+    elif isinstance(value, list):
+        for child in value:
+            components.update(_grounded_temporal_components(child))
+    return components
 
 
 def allowed_numeric_claims(request: GeneratorRequest) -> set[str]:
@@ -33,6 +56,14 @@ def allowed_numeric_claims(request: GeneratorRequest) -> set[str]:
         default=str,
     )
     allowed = set(NUMBER_RE.findall(evidence_text))
+    allowed.update(
+        _grounded_temporal_components(
+            {
+                "evidence": request.evidence_bundle,
+                "execution_plan": request.execution_plan.model_dump(mode="json"),
+            }
+        )
+    )
     records = request.evidence_bundle.get("user_evidence", [])
     if isinstance(records, list):
         allowed.add(str(len(records)))
@@ -58,6 +89,28 @@ def allowed_numeric_claims(request: GeneratorRequest) -> set[str]:
         allowed.update(str(count) for count in counts_by_skill.values())
     allowed.add(str(len(request.external_sources)))
     return allowed
+
+
+def _unsupported_numeric_claims(
+    claimed: set[str],
+    allowed: set[str],
+) -> set[str]:
+    allowed_values: set[Decimal] = set()
+    for value in allowed:
+        try:
+            allowed_values.add(Decimal(value))
+        except InvalidOperation:
+            continue
+    unsupported = set()
+    for value in claimed:
+        try:
+            numeric = Decimal(value)
+        except InvalidOperation:
+            unsupported.add(value)
+            continue
+        if numeric not in allowed_values:
+            unsupported.add(value)
+    return unsupported
 
 
 def allowed_citation_tags(request: GeneratorRequest) -> set[str]:
@@ -147,8 +200,9 @@ def validate_generator_result(
     action_copy = " ".join(action.title for action in result.suggested_actions)
     if HTML_TAG_RE.search(action_copy):
         raise ValueError("model-supplied HTML is not allowed")
-    claimed_numbers = set(NUMBER_RE.findall(f"{result.content_md} {action_copy}"))
-    unsupported = claimed_numbers.difference(allowed_numbers)
+    claim_content = MARKDOWN_ORDERED_LIST_MARKER_RE.sub("", result.content_md)
+    claimed_numbers = set(NUMBER_RE.findall(f"{claim_content} {action_copy}"))
+    unsupported = _unsupported_numeric_claims(claimed_numbers, allowed_numbers)
     if unsupported:
         raise ValueError(
             f"unreferenced numeric claim: {sorted(unsupported)[0]}"

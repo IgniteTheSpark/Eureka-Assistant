@@ -56,11 +56,19 @@ class EvidenceBundle(EvidenceModel):
     launch_context: dict = Field(default_factory=dict)
 
 
+MAX_GROUPED_DIMENSIONS = 8
+MAX_GROUP_VALUES = 50
+MAX_GROUPED_NUMERIC_FIELDS = 8
+MAX_METRIC_LABEL_CHARS = 120
+
+
 def _resolve_path(asset: Asset, path: str) -> Any:
     if path == "effective_at":
         return asset.effective_at or asset.created_at
     if path.startswith("fields."):
         path = f"payload.{path.removeprefix('fields.')}"
+    elif "." not in path:
+        path = f"payload.{path}"
     if not path.startswith("payload."):
         return None
     value: Any = asset.payload_json
@@ -71,9 +79,54 @@ def _resolve_path(asset: Asset, path: str) -> Any:
     return value
 
 
-def _derived_metrics(evidence: list[EvidenceItem]) -> dict[str, Any]:
+def _metric_values(
+    item: EvidenceItem,
+    *,
+    zone: ZoneInfo,
+) -> dict[str, Any]:
+    values = dict(item.bound_fields)
+    bound_suffixes = {
+        name.rsplit(".", 1)[-1]
+        for name, value in item.bound_fields.items()
+        if value is not None
+    }
+    for name, value in sorted(item.payload.items()):
+        if (
+            not isinstance(name, str)
+            or (name in values and values[name] is not None)
+            or name in bound_suffixes
+            or not isinstance(value, (str, int, float, bool))
+            or (
+                isinstance(value, str)
+                and (not value.strip() or len(value) > MAX_METRIC_LABEL_CHARS)
+            )
+        ):
+            continue
+        values[name] = value
+    effective_at = item.effective_at
+    if effective_at.tzinfo is None:
+        effective_at = effective_at.replace(tzinfo=timezone.utc)
+    values["effective_date"] = effective_at.astimezone(zone).date().isoformat()
+    return values
+
+
+def _rounded_values(value: float) -> dict[str, int | float]:
+    return {
+        "rounded_0": round(value),
+        "rounded_1": round(value, 1),
+        "rounded_2": round(value, 2),
+    }
+
+
+def _derived_metrics(
+    evidence: list[EvidenceItem],
+    *,
+    timezone_name: str = "Asia/Shanghai",
+) -> dict[str, Any]:
+    zone = ZoneInfo(timezone_name)
+    item_values = [(item, _metric_values(item, zone=zone)) for item in evidence]
     fields: dict[str, dict[str, Any]] = {}
-    binding_names = sorted(
+    bound_names = sorted(
         {
             name
             for item in evidence
@@ -81,11 +134,20 @@ def _derived_metrics(evidence: list[EvidenceItem]) -> dict[str, Any]:
             if value is not None
         }
     )
-    for name in binding_names:
+    discovered_names = sorted(
+        {
+            name
+            for _item, values in item_values
+            for name, value in values.items()
+            if value is not None
+        }.difference(bound_names)
+    )
+    metric_names = [*bound_names, *discovered_names]
+    for name in metric_names:
         values = [
-            item.bound_fields[name]
-            for item in evidence
-            if item.bound_fields.get(name) is not None
+            item_value[name]
+            for _item, item_value in item_values
+            if item_value.get(name) is not None
         ]
         scalar_values = [
             value
@@ -111,11 +173,162 @@ def _derived_metrics(evidence: list[EvidenceItem]) -> dict[str, Any]:
                 {
                     "sum": total,
                     "average": total / len(numeric_values),
+                    "average_rounded": _rounded_values(
+                        total / len(numeric_values)
+                    ),
                     "minimum": min(numeric_values),
                     "maximum": max(numeric_values),
                 }
             )
         fields[name] = stats
+
+    numeric_field_names = [
+        name
+        for name in metric_names
+        if any(
+            isinstance(values.get(name), (int, float))
+            and not isinstance(values.get(name), bool)
+            for _item, values in item_values
+        )
+    ][:MAX_GROUPED_NUMERIC_FIELDS]
+    available_dimensions = {
+        name
+        for name in metric_names
+        if any(
+            isinstance(values.get(name), (str, bool))
+            for _item, values in item_values
+        )
+    }
+    dimension_names = [
+        name
+        for name in [
+            "effective_date",
+            *bound_names,
+            *discovered_names,
+        ]
+        if name in available_dimensions
+    ][:MAX_GROUPED_DIMENSIONS]
+    grouped_fields: dict[str, dict[str, Any]] = {}
+    for dimension_name in dimension_names:
+        groups: dict[str, list[EvidenceItem]] = {}
+        for item, values in item_values:
+            dimension_value = values.get(dimension_name)
+            if not isinstance(dimension_value, (str, bool)):
+                continue
+            groups.setdefault(str(dimension_value), []).append(item)
+        if not groups or len(groups) > MAX_GROUP_VALUES:
+            continue
+        grouped_fields[dimension_name] = {}
+        for label in sorted(groups):
+            group_items = groups[label]
+            numeric_fields: dict[str, dict[str, Any]] = {}
+            for numeric_name in numeric_field_names:
+                values = [
+                    value
+                    for item, item_value in item_values
+                    if item in group_items
+                    if isinstance(
+                        (value := item_value.get(numeric_name)),
+                        (int, float),
+                    )
+                    and not isinstance(value, bool)
+                ]
+                if not values:
+                    continue
+                total_values = [
+                    value
+                    for _item, item_value in item_values
+                    if isinstance(
+                        (value := item_value.get(numeric_name)),
+                        (int, float),
+                    )
+                    and not isinstance(value, bool)
+                ]
+                group_total = sum(values)
+                total = sum(total_values)
+                stats = {
+                    "value_count": len(values),
+                    "sum": group_total,
+                    "average": group_total / len(values),
+                    "average_rounded": _rounded_values(
+                        group_total / len(values)
+                    ),
+                    "minimum": min(values),
+                    "maximum": max(values),
+                }
+                if total:
+                    percentage = group_total / total * 100
+                    stats["share_of_total_percent"] = _rounded_values(percentage)
+                numeric_fields[numeric_name] = stats
+            grouped_fields[dimension_name][label] = {
+                "record_count": len(group_items),
+                "numeric_fields": numeric_fields,
+            }
+
+    grouped_field_summaries: dict[str, dict[str, Any]] = {}
+    for dimension_name, groups in grouped_fields.items():
+        numeric_summaries: dict[str, Any] = {}
+        for numeric_name in numeric_field_names:
+            group_sums = [
+                numeric_fields[numeric_name]["sum"]
+                for group in groups.values()
+                if isinstance((numeric_fields := group["numeric_fields"]), dict)
+                and numeric_name in numeric_fields
+            ]
+            if not group_sums:
+                continue
+            numeric_summaries[numeric_name] = {
+                "group_count": len(group_sums),
+                "average_group_sum": sum(group_sums) / len(group_sums),
+                "average_group_sum_rounded": _rounded_values(
+                    sum(group_sums) / len(group_sums)
+                ),
+                "minimum_group_sum": min(group_sums),
+                "maximum_group_sum": max(group_sums),
+            }
+            try:
+                ordered_group_sums = [
+                    (
+                        datetime.fromisoformat(label).date(),
+                        label,
+                        group["numeric_fields"][numeric_name]["sum"],
+                    )
+                    for label, group in groups.items()
+                    if numeric_name in group["numeric_fields"]
+                ]
+            except ValueError:
+                ordered_group_sums = []
+            if len(ordered_group_sums) >= 2:
+                ordered_group_sums.sort(key=lambda value: value[0])
+                changes = []
+                for previous, current in zip(
+                    ordered_group_sums,
+                    ordered_group_sums[1:],
+                ):
+                    delta = current[2] - previous[2]
+                    change = {
+                        "from": previous[1],
+                        "to": current[1],
+                        "delta": delta,
+                        "absolute_delta": abs(delta),
+                    }
+                    if previous[2]:
+                        percentage = delta / previous[2] * 100
+                        change.update(
+                            {
+                                "percentage_change": percentage,
+                                "percentage_change_rounded": _rounded_values(
+                                    percentage
+                                ),
+                                "absolute_percentage_change": abs(percentage),
+                                "absolute_percentage_change_rounded": (
+                                    _rounded_values(abs(percentage))
+                                ),
+                            }
+                        )
+                    changes.append(change)
+                numeric_summaries[numeric_name]["ordered_changes"] = changes
+        grouped_field_summaries[dimension_name] = numeric_summaries
 
     return {
         "record_count": len(evidence),
@@ -124,6 +337,8 @@ def _derived_metrics(evidence: list[EvidenceItem]) -> dict[str, Any]:
             for kind in sorted({item.kind for item in evidence})
         },
         "fields": fields,
+        "grouped_fields": grouped_fields,
+        "grouped_field_summaries": grouped_field_summaries,
     }
 
 
@@ -329,7 +544,7 @@ async def load_latest_evidence(
         )
     return EvidenceBundle(
         user_evidence=evidence,
-        derived_metrics=_derived_metrics(evidence),
+        derived_metrics=_derived_metrics(evidence, timezone_name=timezone_name),
         unavailable_asset_ids=unavailable,
         unavailable_references=unavailable_references,
         field_bindings=execution_plan.field_bindings,
