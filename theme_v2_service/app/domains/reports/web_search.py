@@ -41,36 +41,82 @@ _FRESHNESS_TEXT = {
 
 def build_web_queries(brief: PublicResearchBrief) -> list[WebQuery]:
     """Build bounded public queries without accepting raw Event/Asset content."""
-    questions = [value.strip() for value in brief.questions if value.strip()][:8]
+    questions = [
+        (index, value.strip())
+        for index, value in enumerate(brief.questions[:8])
+        if value.strip()
+    ]
     if not questions:
-        questions = ["公开背景与关键信息"]
+        questions = [(0, "公开背景与关键信息")]
+    entities = [
+        entity
+        for entity in brief.entities
+        if entity.enabled
+        and not (entity.kind == "person" and not (entity.qualifier or "").strip())
+    ]
     queries: list[WebQuery] = []
     seen: set[str] = set()
     freshness = _FRESHNESS_TEXT[brief.freshness]
-    for entity in brief.entities:
-        if not entity.enabled:
-            continue
+    entity_names = [entity.name.strip().casefold() for entity in entities]
+
+    def relevant_questions(entity_name: str) -> list[tuple[int, str]]:
+        own_name = entity_name.casefold()
+        own = [item for item in questions if own_name in item[1].casefold()]
+        generic = [
+            item
+            for item in questions
+            if not any(name and name in item[1].casefold() for name in entity_names)
+        ]
+        return [*own, *generic]
+
+    def add_query(entity, question_index: int, question: str) -> None:
         qualifier = (entity.qualifier or "").strip()
-        if entity.kind == "person" and not qualifier:
-            continue
-        for question_index, question in enumerate(questions):
-            parts = [entity.name.strip(), qualifier, question, freshness]
-            text = " ".join(part for part in parts if part)
-            normalized = " ".join(text.split())[:300]
-            fingerprint = normalized.casefold()
-            if not normalized or fingerprint in seen:
-                continue
-            seen.add(fingerprint)
-            queries.append(
-                WebQuery(
-                    id=f"web-{len(queries) + 1}",
-                    text=normalized,
-                    entity_ids=[entity.id],
-                    question_ids=[f"question-{question_index + 1}"],
-                )
+        name = entity.name.strip()
+        parts = (
+            [question, qualifier, freshness]
+            if name.casefold() in question.casefold()
+            else [name, qualifier, question, freshness]
+        )
+        normalized = " ".join(" ".join(part for part in parts if part).split())[:300]
+        fingerprint = normalized.casefold()
+        if not normalized or fingerprint in seen or len(queries) >= 6:
+            return
+        seen.add(fingerprint)
+        queries.append(
+            WebQuery(
+                id=f"web-{len(queries) + 1}",
+                text=normalized,
+                entity_ids=[entity.id],
+                entity_terms=[name],
+                question_ids=[f"question-{question_index + 1}"],
             )
+        )
+
+    # The first pass guarantees at least one bounded query per confirmed entity.
+    selected_by_entity: dict[str, list[tuple[int, str]]] = {}
+    for entity in entities:
+        selected = relevant_questions(entity.name.strip())
+        selected_by_entity[entity.id] = selected
+        question_index, question = selected[0] if selected else questions[0]
+        add_query(entity, question_index, question)
+
+    # Only after coverage is guaranteed do remaining slots deepen each entity.
+    depth = 1
+    while len(queries) < 6:
+        added = False
+        for entity in entities:
+            selected = selected_by_entity[entity.id]
+            if depth >= len(selected):
+                continue
+            question_index, question = selected[depth]
+            before = len(queries)
+            add_query(entity, question_index, question)
+            added = added or len(queries) > before
             if len(queries) >= 6:
-                return queries
+                break
+        if not added:
+            break
+        depth += 1
     return queries
 
 
@@ -106,6 +152,12 @@ def _source_is_relevant(
     if query is None:
         return False
     haystack = f"{source.title} {source.snippet}".casefold()
+    if query.entity_terms and not any(
+        term.casefold() in haystack
+        for entity_term in query.entity_terms
+        for term in _meaningful_tokens(entity_term)
+    ):
+        return False
     query_tokens = _meaningful_tokens(query.text)
     return any(token in haystack for token in query_tokens)
 

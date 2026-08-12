@@ -50,6 +50,17 @@ def test_renderer_injects_only_known_deterministic_chart_svg():
     assert "chart:missing" not in html
 
 
+def test_renderer_places_validated_chart_when_model_omits_marker():
+    html = render_report_html(
+        title="Report",
+        content_md="# 消费概览\n\n本期支出有明显变化。",
+        chart_svgs={"daily-spending": '<svg role="img"><text>681</text></svg>'},
+        media_urls={},
+    )
+
+    assert '<svg role="img"><text>681</text></svg>' in html
+
+
 def test_identical_render_input_produces_identical_html():
     kwargs = {
         "title": "Stable",

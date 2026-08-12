@@ -296,13 +296,17 @@ class _SessionTranscriptState extends State<SessionTranscript> {
             }
             return false;
           },
-          child: NotificationListener<ScrollUpdateNotification>(
+          child: NotificationListener<ScrollNotification>(
             onNotification: (notification) {
-              if (notification.dragDetails != null) {
+              if (notification is ScrollStartNotification &&
+                  notification.dragDetails != null) {
+                _followingTail = false;
+              } else if (notification is ScrollUpdateNotification &&
+                  notification.dragDetails != null) {
                 _followingTail =
                     notification.metrics.maxScrollExtent -
                         notification.metrics.pixels <=
-                    72;
+                    16;
               }
               return false;
             },

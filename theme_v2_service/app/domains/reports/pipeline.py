@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.config import get_settings
 from app.db.models import WorkflowJob
 from app.db.session import AsyncSessionFactory
-from app.domains.reports.charts import ChartDirective, render_chart
+from app.domains.reports.charts import render_validated_charts
 from app.domains.reports.evidence import InsufficientEvidence, load_latest_evidence
 from app.domains.reports.models import ReportGenerationRun
 from app.domains.reports.illustration_jobs import enqueue_report_illustration
@@ -402,15 +402,13 @@ def build_pipeline_handlers(
     async def chart_validation_stage(context: PipelineContext) -> StageResult:
         content = context.checkpoints["content_generation"]
         evidence = context.checkpoints["load_evidence"]
-        svgs: dict[str, str] = {}
-        warnings = []
-        for raw in content.get("chart_directives", []):
-            directive = ChartDirective.model_validate(raw)
-            rendered = render_chart(directive, evidence=evidence)
-            warnings.extend(rendered.warnings)
-            if rendered.svg is not None:
-                svgs[directive.id] = rendered.svg
-        return {"svgs": svgs, "warnings": warnings}
+        result = render_validated_charts(
+            content.get("chart_directives", []),
+            evidence=evidence,
+            include_default=context.execution_plan.base_family == "data_trend",
+            template_id=context.execution_plan.template_id,
+        )
+        return {"svgs": result.svgs, "warnings": result.warnings}
 
     async def illustration_stage(context: PipelineContext) -> StageResult:
         content = context.checkpoints["content_generation"]

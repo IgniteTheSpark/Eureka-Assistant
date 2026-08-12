@@ -91,7 +91,13 @@ def normalize_report_content(
     external_sources: list[dict],
     suggested_actions: list[GeneratedSuggestedAction],
 ) -> NormalizedReportContent:
-    without_actions, legacy_titles = _legacy_action_titles(content_md)
+    canonical_citations = re.sub(
+        r"\[\[((?:evidence|source):[^\]\n]+)\]\]",
+        r"[\1]",
+        content_md,
+        flags=re.IGNORECASE,
+    )
+    without_actions, legacy_titles = _legacy_action_titles(canonical_citations)
     allowed_assets = set(allowed_asset_ids)
     allowed_evidence = set(allowed_evidence_ids or allowed_asset_ids)
     sources_by_url = {

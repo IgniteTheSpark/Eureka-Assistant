@@ -103,6 +103,13 @@ def build_generator_messages(request: GeneratorRequest) -> list[dict[str, str]]:
             "required_output_schema": GeneratorResult.model_json_schema(),
             "allowed_numeric_claims": sorted(allowed_numeric_claims(request)),
             "allowed_citation_tags": [*evidence_citations, *source_citations],
+            "chart_contract": {
+                "source_paths": (
+                    "RFC 6901 JSON pointers beginning with /user_evidence/ "
+                    "or /derived_metrics/"
+                ),
+                "content_marker": "[[chart:<id>]]",
+            },
         },
         ensure_ascii=False,
     )
@@ -136,6 +143,13 @@ def build_generator_messages(request: GeneratorRequest) -> list[dict[str, str]]:
                 "evidence, acceptance_marker, payload_json, or field_bindings. Cite "
                 "external facts with descriptive Markdown links at the supporting "
                 "sentence instead of dumping bare URLs or a raw source list."
+                " When public research is requested, every enabled public research entity "
+                "must be named and addressed in content_md. If qualified sources are "
+                "unavailable for one entity, name it and state that public information "
+                "was insufficient instead of omitting it or inventing facts."
+                " Chart source_paths must be exact RFC 6901 pointers beginning with "
+                "/user_evidence/ or /derived_metrics/. When returning a chart, include "
+                "its exact [[chart:<id>]] marker in content_md."
                 " When execution_plan.illustration_policy is not none, return a "
                 "concise non-empty illustration_prompt for an abstract editorial "
                 "image without words, numbers, logos, charts, or identifiable people."

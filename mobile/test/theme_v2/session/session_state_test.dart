@@ -411,6 +411,52 @@ void main() {
     );
   });
 
+  testWidgets('first user drag pauses streaming tail follow immediately', (
+    tester,
+  ) async {
+    final messages = [
+      for (var i = 0; i < 18; i++) _assistant('第 $i 条较长的历史回复，用来制造可滚动的会话内容。'),
+    ];
+    final streaming = _assistant('开始', streaming: true);
+    messages.add(streaming);
+    final controller = FakeSessionController(
+      messages: messages,
+      streaming: true,
+    );
+    await _pumpSession(
+      tester,
+      controller: controller,
+      size: const Size(360, 640),
+    );
+
+    final scrollableFinder = find.descendant(
+      of: find.byType(SessionTranscript),
+      matching: find.byType(Scrollable),
+    );
+    final scrollable = tester.state<ScrollableState>(scrollableFinder);
+    scrollable.position.jumpTo(scrollable.position.maxScrollExtent);
+    final gesture = await tester.startGesture(
+      tester.getCenter(scrollableFinder),
+    );
+    await gesture.moveBy(const Offset(0, 24));
+    await tester.pump();
+    await gesture.up();
+    final userPosition = scrollable.position.pixels;
+
+    streaming
+      ..parts[0] = TextPart('开始${List.filled(30, '持续增长的流式内容').join()}')
+      ..text = '持续增长的流式内容';
+    controller.notifyListeners();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+
+    expect(scrollable.position.pixels, closeTo(userPosition, 3));
+    expect(
+      scrollable.position.maxScrollExtent - scrollable.position.pixels,
+      greaterThan(20),
+    );
+  });
+
   testWidgets(
     'only the latest concurrent history selection closes the drawer',
     (tester) async {

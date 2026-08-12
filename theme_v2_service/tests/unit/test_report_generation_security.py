@@ -211,6 +211,144 @@ def test_generator_treats_decimal_next_to_chinese_as_one_numeric_claim():
     assert "221.67" in result.content_md
 
 
+def test_finance_generator_rejects_semantically_wrong_daily_average():
+    request = _request()
+    request = request.model_copy(
+        update={
+            "execution_plan": request.execution_plan.model_copy(
+                update={"template_id": "finance_review"}
+            ),
+            "evidence_bundle": {
+                **request.evidence_bundle,
+                "derived_metrics": {
+                    "fields": {"amount": {"sum": 681}},
+                    "grouped_field_summaries": {
+                        "effective_date": {
+                            "amount": {
+                                "average_group_sum": 340.5,
+                                "percentage_change": 286.43,
+                            }
+                        }
+                    },
+                },
+            },
+        }
+    )
+
+    with pytest.raises(ValueError, match="日均支出"):
+        validate_generator_result(
+            _result(
+                content_md=(
+                    "本期总支出为 681 元，日均支出为 286.43 元。"
+                    "[evidence:asset-private-id]"
+                )
+            ),
+            request=request,
+        )
+
+    result = validate_generator_result(
+        _result(
+            content_md=(
+                "本期总支出为 681 元，日均支出为 340.5 元。"
+                "[evidence:asset-private-id]"
+            )
+        ),
+        request=request,
+    )
+    assert "340.5" in result.content_md
+
+
+def test_finance_semantics_does_not_treat_a_change_sentence_as_total_claim():
+    request = _request()
+    request = request.model_copy(
+        update={
+            "execution_plan": request.execution_plan.model_copy(
+                update={"template_id": "finance_review"}
+            ),
+            "evidence_bundle": {
+                **request.evidence_bundle,
+                "derived_metrics": {
+                    "fields": {"amount": {"sum": 681}},
+                    "grouped_fields": {
+                        "effective_date": {
+                            "2026-08-09": {
+                                "numeric_fields": {"amount": {"sum": 140}}
+                            },
+                            "2026-08-10": {
+                                "numeric_fields": {"amount": {"sum": 541}}
+                            },
+                        }
+                    },
+                },
+            },
+        }
+    )
+
+    result = validate_generator_result(
+        _result(
+            content_md=(
+                "每日总支出从 140 元增长到 541 元。"
+                "[evidence:asset-private-id]"
+            )
+        ),
+        request=request,
+    )
+
+    assert "140" in result.content_md
+
+
+def test_generator_requires_every_confirmed_public_entity_in_report():
+    request = _request()
+    request = request.model_copy(
+        update={
+            "execution_plan": request.execution_plan.model_copy(
+                update={
+                    "web_policy": "optional",
+                    "public_research_brief": PublicResearchBrief.model_validate(
+                        {
+                            "entities": [
+                                {
+                                    "id": "plaud",
+                                    "kind": "organization",
+                                    "name": "Plaud",
+                                },
+                                {
+                                    "id": "blinq",
+                                    "kind": "organization",
+                                    "name": "Blinq",
+                                },
+                                {
+                                    "id": "ticnotes",
+                                    "kind": "organization",
+                                    "name": "TicNotes",
+                                },
+                            ],
+                            "questions": ["竞品差异"],
+                        }
+                    ),
+                }
+            )
+        }
+    )
+
+    with pytest.raises(ValueError, match="Blinq, TicNotes"):
+        validate_generator_result(
+            _result(content_md="Plaud 的录音能力较完整。"),
+            request=request,
+        )
+
+    result = validate_generator_result(
+        _result(
+            content_md=(
+                "Plaud 的录音能力较完整；Blinq 侧重名片交换；"
+                "TicNotes 的公开资料暂不足。"
+            )
+        ),
+        request=request,
+    )
+    assert "TicNotes" in result.content_md
+
+
 def test_generator_treats_equivalent_decimal_formats_as_the_same_claim():
     request = _request()
 
@@ -366,6 +504,9 @@ def test_report_messages_supply_required_schema_for_json_object_fallback():
     assert "clarification_questions" in planner_messages
     assert "required_output_schema" in generator_messages
     assert "chart_directives" in generator_messages
+    assert "/derived_metrics/" in generator_messages
+    assert "every enabled public research entity" in generator_messages
+    assert "[[chart:<id>]]" in generator_messages
 
 
 def test_planner_messages_keep_official_template_catalog_trusted():

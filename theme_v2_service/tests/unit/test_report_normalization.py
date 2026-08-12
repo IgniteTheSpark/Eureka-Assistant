@@ -43,6 +43,19 @@ def test_normalizer_removes_citation_tags_and_keeps_paragraph_manifest():
     ]
 
 
+def test_normalizer_removes_double_wrapped_citations_without_empty_brackets():
+    normalized = normalize_report_content(
+        content_md="本期总支出为 681 元。[[evidence:asset-1]]",
+        allowed_asset_ids=["asset-1"],
+        external_sources=[],
+        suggested_actions=[],
+    )
+
+    assert normalized.content_md == "本期总支出为 681 元。"
+    assert "[]" not in normalized.content_md
+    assert normalized.citations[0].asset_ids == ["asset-1"]
+
+
 def test_normalizer_keeps_generic_event_evidence_and_asset_compatibility():
     normalized = normalize_report_content(
         content_md=(

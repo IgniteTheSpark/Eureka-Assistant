@@ -158,7 +158,23 @@ def render_presentation(request: PresentationRequest) -> PresentationResult:
         request.illustration_status,
         warnings,
     )
-    body_html = render_blocks(request.content_md, chart_svgs=request.chart_svgs)
+    content_md = request.content_md
+    missing_chart_markers = [
+        chart_id
+        for chart_id in request.chart_svgs
+        if f"[[chart:{chart_id}]]" not in content_md
+    ]
+    if missing_chart_markers:
+        content_md = "\n\n".join(
+            [
+                content_md.rstrip(),
+                *(
+                    f"[[chart:{chart_id}]]"
+                    for chart_id in missing_chart_markers
+                ),
+            ]
+        )
+    body_html = render_blocks(content_md, chart_svgs=request.chart_svgs)
     template = _environment().get_template("report.html.j2")
     rendered = template.render(
         title=request.title,

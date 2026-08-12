@@ -24,6 +24,16 @@ CITATION_START_RE = re.compile(r"\[(?:evidence|source):", re.IGNORECASE)
 ISO_TEMPORAL_RE = re.compile(
     r"\b\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})?)?\b"
 )
+FINANCE_CLAIM_PATTERNS = {
+    "总支出": re.compile(
+        r"(?:本期|周期内|合计|总计)?总支出(?:为|是|[:：])\s*"
+        r"(?:\*\*)?(-?\d+(?:\.\d+)?)"
+    ),
+    "日均支出": re.compile(
+        r"日均(?:支出|消费)?(?:为|是|[:：]|约)\s*"
+        r"(?:\*\*)?(-?\d+(?:\.\d+)?)"
+    ),
+}
 
 
 def _grounded_temporal_components(value: Any) -> set[str]:
@@ -197,6 +207,99 @@ def _walk_internal_ids(value: Any, *, key: str = "") -> set[str]:
     return found
 
 
+def _decimal_values(*values: Any) -> set[Decimal]:
+    decimals: set[Decimal] = set()
+    for value in values:
+        if isinstance(value, dict):
+            decimals.update(_decimal_values(*value.values()))
+        elif isinstance(value, (int, float, str)) and not isinstance(value, bool):
+            try:
+                decimals.add(Decimal(str(value)))
+            except InvalidOperation:
+                continue
+    return decimals
+
+
+def _finance_expected_claims(request: GeneratorRequest) -> dict[str, set[Decimal]]:
+    metrics = request.evidence_bundle.get("derived_metrics")
+    if not isinstance(metrics, dict):
+        return {}
+    fields = metrics.get("fields")
+    amount_name = None
+    if isinstance(fields, dict):
+        amount_name = next(
+            (
+                name
+                for name in fields
+                if str(name).casefold().rsplit(".", 1)[-1]
+                in {"amount", "expense", "cost", "value"}
+                and isinstance(fields.get(name), dict)
+                and isinstance(fields[name].get("sum"), (int, float))
+            ),
+            None,
+        )
+    if amount_name is None:
+        return {}
+    expected: dict[str, set[Decimal]] = {
+        "总支出": _decimal_values(fields[amount_name].get("sum"))
+    }
+    summaries = metrics.get("grouped_field_summaries")
+    if isinstance(summaries, dict):
+        for dimension in ("effective_date", "date"):
+            dimension_stats = summaries.get(dimension)
+            amount_stats = (
+                dimension_stats.get(amount_name)
+                if isinstance(dimension_stats, dict)
+                else None
+            )
+            if not isinstance(amount_stats, dict):
+                continue
+            expected["日均支出"] = _decimal_values(
+                amount_stats.get("average_group_sum"),
+                amount_stats.get("average_group_sum_rounded"),
+            )
+            break
+    return expected
+
+
+def _validate_finance_claim_semantics(
+    result: GeneratorResult,
+    *,
+    request: GeneratorRequest,
+) -> None:
+    if request.execution_plan.template_id != "finance_review":
+        return
+    expected = _finance_expected_claims(request)
+    for label, pattern in FINANCE_CLAIM_PATTERNS.items():
+        if not expected.get(label):
+            continue
+        for match in pattern.finditer(result.content_md):
+            if Decimal(match.group(1)) not in expected[label]:
+                raise ValueError(f"{label} does not match derived metric")
+
+
+def _validate_public_entity_coverage(
+    result: GeneratorResult,
+    *,
+    request: GeneratorRequest,
+) -> None:
+    if request.execution_plan.web_policy == "none":
+        return
+    missing = [
+        entity.name
+        for entity in request.execution_plan.public_research_brief.entities
+        if entity.enabled
+        and not (
+            entity.kind == "person" and not (entity.qualifier or "").strip()
+        )
+        and entity.name.casefold() not in result.content_md.casefold()
+    ]
+    if missing:
+        raise ValueError(
+            "missing public research entity coverage: " + ", ".join(missing)
+        )
+
+
 def validate_generator_result(
     raw: GeneratorResult | dict,
     *,
@@ -232,6 +335,9 @@ def validate_generator_result(
         re.IGNORECASE,
     ):
         raise ValueError("numeric claim requires an evidence or source reference")
+
+    _validate_finance_claim_semantics(result, request=request)
+    _validate_public_entity_coverage(result, request=request)
 
     allowed_due_times = allowed_action_due_times(request)
     for action in result.suggested_actions:

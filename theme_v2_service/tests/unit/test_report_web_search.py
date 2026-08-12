@@ -89,6 +89,39 @@ def test_query_builder_uses_only_confirmed_public_entities_and_questions():
     assert all(query.entity_ids and query.question_ids for query in queries)
 
 
+def test_query_builder_covers_each_competitor_before_spending_extra_queries():
+    brief = PublicResearchBrief(
+        entities=[
+            ResearchEntity(id="plaud", kind="organization", name="Plaud"),
+            ResearchEntity(id="blinq", kind="organization", name="Blinq"),
+            ResearchEntity(
+                id="ticnotes",
+                kind="organization",
+                name="TicNotes",
+            ),
+        ],
+        questions=[
+            "Plaud 的录音与总结能力",
+            "Blinq 的联系人交换体验",
+            "TicNotes 的会议记录能力",
+        ],
+        freshness="current",
+    )
+
+    queries = build_web_queries(brief)
+    by_entity = {
+        entity_id: [query for query in queries if query.entity_ids == [entity_id]]
+        for entity_id in ("plaud", "blinq", "ticnotes")
+    }
+
+    assert all(by_entity.values())
+    assert "Blinq" not in by_entity["plaud"][0].text
+    assert "TicNotes" not in by_entity["plaud"][0].text
+    assert "Plaud" not in by_entity["blinq"][0].text
+    assert "Plaud" not in by_entity["ticnotes"][0].text
+    assert by_entity["ticnotes"][0].entity_terms == ["TicNotes"]
+
+
 def test_ambiguous_person_never_becomes_a_query():
     brief = PublicResearchBrief(
         entities=[
@@ -164,6 +197,38 @@ async def test_source_qualification_rejects_url_only_http_and_irrelevant_results
         policy="optional",
         provider=provider,
         queries=[_query()],
+    )
+
+    assert execution.status == "failed_degraded"
+    assert execution.sources == []
+
+
+async def test_source_qualification_requires_the_confirmed_entity_name():
+    query = WebQuery(
+        id="web-1",
+        text="Blinq 联系人交换体验 最新 当前",
+        entity_ids=["blinq"],
+        entity_terms=["Blinq"],
+        question_ids=["question-1"],
+    )
+    provider = FakeSearch(
+        sources=[
+            WebSource(
+                title="Plaud AI recording review",
+                url="https://example.com/plaud",
+                snippet="A detailed review of Plaud recording and summary features.",
+                accessed_at="2026-08-07T10:00:00Z",
+                query_id="web-1",
+                entity_ids=["blinq"],
+                question_ids=["question-1"],
+            )
+        ]
+    )
+
+    execution = await execute_web_search(
+        policy="optional",
+        provider=provider,
+        queries=[query],
     )
 
     assert execution.status == "failed_degraded"

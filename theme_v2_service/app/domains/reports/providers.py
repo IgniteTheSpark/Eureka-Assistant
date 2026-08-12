@@ -62,6 +62,7 @@ class WebQuery(ProviderModel):
     id: str
     text: str
     entity_ids: list[str] = Field(default_factory=list)
+    entity_terms: list[str] = Field(default_factory=list)
     question_ids: list[str] = Field(default_factory=list)
 
 
