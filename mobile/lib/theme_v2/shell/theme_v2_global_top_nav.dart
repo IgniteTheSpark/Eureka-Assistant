@@ -6,6 +6,7 @@ import '../foundation/theme_v2_semantics.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
 import 'device_status_summary.dart';
+import 'theme_v2_floating_dock.dart';
 
 class ThemeV2GlobalTopNav extends StatelessWidget {
   const ThemeV2GlobalTopNav({
@@ -15,6 +16,7 @@ class ThemeV2GlobalTopNav extends StatelessWidget {
     required this.onNotificationsPressed,
     this.unreadNotificationCount = 0,
     this.transparentSurface = false,
+    this.floatingDock = false,
   });
 
   final DeviceStatusSummary deviceStatus;
@@ -22,110 +24,167 @@ class ThemeV2GlobalTopNav extends StatelessWidget {
   final VoidCallback onNotificationsPressed;
   final int unreadNotificationCount;
   final bool transparentSurface;
+  final bool floatingDock;
   static const double height = 56;
+  static const floatingDockKey = Key('theme-v2-floating-top-dock');
+  static const double floatingHorizontalInset = 16;
+  static const double floatingVerticalInset = 8;
+  static const double floatingContentHeight = 60;
+  static const double floatingExtent = 76;
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
+    final content = _TopNavContent(
+      deviceStatus: deviceStatus,
+      onDeviceSelected: onDeviceSelected,
+      onNotificationsPressed: onNotificationsPressed,
+      unreadNotificationCount: unreadNotificationCount,
+    );
+    if (floatingDock) {
+      return SizedBox(
+        height: floatingExtent,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: floatingHorizontalInset,
+            vertical: floatingVerticalInset,
+          ),
+          child: Material(
+            key: floatingDockKey,
+            elevation: ThemeV2FloatingDock.elevation,
+            shadowColor: ThemeV2FloatingDock.lightShadowColor,
+            color: tokens.surface,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(
+                ThemeV2FloatingDock.lightRadius,
+              ),
+              side: BorderSide(color: tokens.border),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: SizedBox(height: floatingContentHeight, child: content),
+          ),
+        ),
+      );
+    }
     return Material(
       color: transparentSurface ? Colors.transparent : tokens.background,
       child: Container(
         height: height,
-        padding: const EdgeInsets.symmetric(horizontal: ThemeV2Spacing.lg),
         decoration: BoxDecoration(
           border: Border(bottom: BorderSide(color: tokens.border)),
         ),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final narrow = constraints.maxWidth < 380;
-            return Row(
-              children: [
-                Semantics(
-                  label: 'UReka logo',
-                  image: true,
-                  child: ExcludeSemantics(
-                    child: SizedBox(
-                      width: narrow ? 68 : 84,
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: SvgPicture.asset(
-                          'assets/logo/eureka_wordmark.svg',
-                          height: 18,
-                          colorFilter: ColorFilter.mode(
-                            tokens.accent,
-                            BlendMode.srcIn,
-                          ),
+        child: content,
+      ),
+    );
+  }
+}
+
+class _TopNavContent extends StatelessWidget {
+  const _TopNavContent({
+    required this.deviceStatus,
+    required this.onDeviceSelected,
+    required this.onNotificationsPressed,
+    required this.unreadNotificationCount,
+  });
+
+  final DeviceStatusSummary deviceStatus;
+  final ValueChanged<ThemeV2DeviceTarget> onDeviceSelected;
+  final VoidCallback onNotificationsPressed;
+  final int unreadNotificationCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.themeV2;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: ThemeV2Spacing.lg),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final narrow = constraints.maxWidth < 380;
+          return Row(
+            children: [
+              Semantics(
+                label: 'UReka logo',
+                image: true,
+                child: ExcludeSemantics(
+                  child: SizedBox(
+                    width: narrow ? 68 : 84,
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: SvgPicture.asset(
+                        'assets/logo/eureka_wordmark.svg',
+                        height: 18,
+                        colorFilter: ColorFilter.mode(
+                          tokens.accent,
+                          BlendMode.srcIn,
                         ),
                       ),
                     ),
                   ),
                 ),
-                const Spacer(),
-                _DeviceStatusButton(
-                  summary: deviceStatus,
-                  onDeviceSelected: onDeviceSelected,
-                  maxWidth: narrow ? 100 : 124,
-                ),
-                const SizedBox(width: ThemeV2Spacing.xs),
-                const _ThemeV2ThemeToggle(),
-                Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    ThemeV2IconButton(
-                      semanticLabel: unreadNotificationCount > 0
-                          ? '通知，$unreadNotificationCount 条未读'
-                          : '通知',
-                      icon: Icons.notifications_none_outlined,
-                      color: tokens.muted,
-                      onPressed: onNotificationsPressed,
-                    ),
-                    if (unreadNotificationCount > 0)
-                      Positioned(
-                        right: 1,
-                        top: 2,
-                        child: IgnorePointer(
-                          child: ExcludeSemantics(
-                            child: Container(
-                              constraints: const BoxConstraints(
-                                minWidth: 16,
-                                minHeight: 16,
+              ),
+              const Spacer(),
+              _DeviceStatusButton(
+                summary: deviceStatus,
+                onDeviceSelected: onDeviceSelected,
+                maxWidth: narrow ? 100 : 124,
+              ),
+              const SizedBox(width: ThemeV2Spacing.xs),
+              const _ThemeV2ThemeToggle(),
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  ThemeV2IconButton(
+                    semanticLabel: unreadNotificationCount > 0
+                        ? '通知，$unreadNotificationCount 条未读'
+                        : '通知',
+                    icon: Icons.notifications_none_outlined,
+                    color: tokens.muted,
+                    onPressed: onNotificationsPressed,
+                  ),
+                  if (unreadNotificationCount > 0)
+                    Positioned(
+                      right: 1,
+                      top: 2,
+                      child: IgnorePointer(
+                        child: ExcludeSemantics(
+                          child: Container(
+                            constraints: const BoxConstraints(
+                              minWidth: 16,
+                              minHeight: 16,
+                            ),
+                            alignment: Alignment.center,
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            decoration: BoxDecoration(
+                              color: tokens.critical,
+                              borderRadius: BorderRadius.circular(
+                                ThemeV2Radii.pill,
                               ),
-                              alignment: Alignment.center,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 4,
+                              border: Border.all(
+                                color: tokens.background,
+                                width: 1.5,
                               ),
-                              decoration: BoxDecoration(
-                                color: tokens.critical,
-                                borderRadius: BorderRadius.circular(
-                                  ThemeV2Radii.pill,
-                                ),
-                                border: Border.all(
-                                  color: tokens.background,
-                                  width: 1.5,
-                                ),
-                              ),
-                              child: Text(
-                                unreadNotificationCount > 99
-                                    ? '99+'
-                                    : '$unreadNotificationCount',
-                                style: Theme.of(context).textTheme.labelSmall
-                                    ?.copyWith(
-                                      color: tokens.background,
-                                      fontSize: 8,
-                                      height: 1,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                              ),
+                            ),
+                            child: Text(
+                              unreadNotificationCount > 99
+                                  ? '99+'
+                                  : '$unreadNotificationCount',
+                              style: Theme.of(context).textTheme.labelSmall
+                                  ?.copyWith(
+                                    color: tokens.background,
+                                    fontSize: 8,
+                                    height: 1,
+                                    fontWeight: FontWeight.w800,
+                                  ),
                             ),
                           ),
                         ),
                       ),
-                  ],
-                ),
-              ],
-            );
-          },
-        ),
+                    ),
+                ],
+              ),
+            ],
+          );
+        },
       ),
     );
   }

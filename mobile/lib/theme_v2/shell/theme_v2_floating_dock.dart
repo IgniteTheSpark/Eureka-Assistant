@@ -14,6 +14,9 @@ class ThemeV2FloatingDock extends StatelessWidget {
 
   static const safeAreaPaddingKey = Key('theme-v2-dock-safe-area');
   static const dockKey = Key('theme-v2-floating-dock');
+  static const double elevation = 8;
+  static const double lightRadius = 18;
+  static Color get lightShadowColor => Colors.black.withValues(alpha: 0.12);
   static const double contentClearance = 80;
   static const double viewportBottomPadding = 35;
 
@@ -55,13 +58,13 @@ class ThemeV2FloatingDock extends StatelessWidget {
           width: 169,
           child: Material(
             key: dockKey,
-            elevation: 8,
+            elevation: elevation,
             shadowColor: dark
                 ? Colors.black.withValues(alpha: 0.22)
-                : Colors.black.withValues(alpha: 0.12),
+                : lightShadowColor,
             color: dark ? const Color(0xE8191E29) : tokens.surface,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(dark ? 20 : 18),
+              borderRadius: BorderRadius.circular(dark ? 20 : lightRadius),
               side: dark
                   ? const BorderSide(color: Color(0xFF343B4A))
                   : BorderSide(color: tokens.border),

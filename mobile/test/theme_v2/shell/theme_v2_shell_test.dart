@@ -102,6 +102,48 @@ void main() {
     },
   );
 
+  testWidgets('floating top dock matches bottom dock surface and fits 360px', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(360, 800);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    await tester.pumpWidget(
+      const _TestHost(
+        size: Size(360, 800),
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: ThemeV2GlobalTopNav(
+            floatingDock: true,
+            transparentSurface: true,
+            deviceStatus: DeviceStatusSummary.disconnected(),
+            onDeviceSelected: _noopDeviceTarget,
+            onNotificationsPressed: _noop,
+          ),
+        ),
+      ),
+    );
+
+    final dock = find.byKey(ThemeV2GlobalTopNav.floatingDockKey);
+    expect(tester.getSize(dock), const Size(328, 60));
+    expect(
+      tester.getSize(find.byType(ThemeV2GlobalTopNav)).height,
+      ThemeV2GlobalTopNav.floatingExtent,
+    );
+    final material = tester.widget<Material>(dock);
+    final shape = material.shape! as RoundedRectangleBorder;
+    expect(material.elevation, ThemeV2FloatingDock.elevation);
+    expect(material.shadowColor, ThemeV2FloatingDock.lightShadowColor);
+    expect(material.color, ThemeV2Tokens.light.surface);
+    expect(
+      shape.borderRadius,
+      BorderRadius.circular(ThemeV2FloatingDock.lightRadius),
+    );
+    expect(shape.side.color, ThemeV2Tokens.light.border);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('connected device entries use accessible icon-only controls', (
     tester,
   ) async {
