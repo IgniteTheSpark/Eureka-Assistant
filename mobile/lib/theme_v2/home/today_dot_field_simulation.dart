@@ -24,9 +24,11 @@ class TodayDotFieldSimulation {
   List<TodayDotNode> _nodes = <TodayDotNode>[];
   Size _size = Size.zero;
   int _layoutRevision = 0;
+  int _paintRevision = 0;
 
   List<TodayDotNode> get nodes => _nodes;
   int get layoutRevision => _layoutRevision;
+  int get paintRevision => _paintRevision;
   bool get isAtRest => _nodes.every(
     (node) =>
         (node.position - node.anchor).distance < .05 &&
@@ -101,6 +103,7 @@ class TodayDotFieldSimulation {
         node.velocity = Offset.zero;
       }
     }
+    _paintRevision++;
   }
 
   static double _smooth(double value) {

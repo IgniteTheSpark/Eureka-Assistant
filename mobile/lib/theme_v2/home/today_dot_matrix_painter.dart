@@ -2,6 +2,9 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import 'today_dot_field_controller.dart';
+import 'today_dot_field_simulation.dart';
+
 @immutable
 class TodayDotMatrixPalette {
   const TodayDotMatrixPalette({
@@ -34,36 +37,50 @@ class TodayDotMatrixPalette {
 class TodayDotSceneGeometry {
   const TodayDotSceneGeometry({
     required this.size,
-    required this.rekaCenter,
+    required this.initialRekaCenter,
     required this.rekaInfluenceRadius,
     this.gridInterval = 8,
   });
 
-  factory TodayDotSceneGeometry.forSize(Size size) {
-    final heightDelta = math.max(0.0, size.height - 860);
-    return TodayDotSceneGeometry(
-      size: size,
-      rekaCenter: Offset(78, 505 + heightDelta * 0.20),
-      rekaInfluenceRadius: 92,
-    );
-  }
+  factory TodayDotSceneGeometry.forSize(Size size) => TodayDotSceneGeometry(
+    size: size,
+    initialRekaCenter: Offset(size.width * .29, size.height * .46),
+    rekaInfluenceRadius: 120,
+  );
 
   final Size size;
-  final Offset rekaCenter;
+  final Offset initialRekaCenter;
   final double rekaInfluenceRadius;
   final double gridInterval;
+
+  @Deprecated('Use initialRekaCenter while migrating to the draggable scene.')
+  Offset get rekaCenter => initialRekaCenter;
 }
 
 class TodayDotMatrixPainter extends CustomPainter {
-  const TodayDotMatrixPainter({
-    required this.rekaPhase,
+  TodayDotMatrixPainter({
+    this.simulation,
+    this.rekaCenter,
+    this.rekaState = TodayRekaMotionState.idle,
+    this.breathAmount,
+    this.eyeOpacity,
+    this.rekaPhase,
     required this.refreshEmphasis,
     required this.reduceMotion,
     required this.devicePixelRatio,
     this.palette = TodayDotMatrixPalette.light,
-  });
+  }) : simulationRevision = simulation?.paintRevision ?? -1;
 
-  final double rekaPhase;
+  final TodayDotFieldSimulation? simulation;
+  final int simulationRevision;
+  final Offset? rekaCenter;
+  final TodayRekaMotionState rekaState;
+  final double? breathAmount;
+  final double? eyeOpacity;
+
+  @Deprecated('Pass controller-derived breathAmount and eyeOpacity.')
+  final double? rekaPhase;
+
   final double refreshEmphasis;
   final bool reduceMotion;
   final double devicePixelRatio;
@@ -74,43 +91,70 @@ class TodayDotMatrixPainter extends CustomPainter {
     canvas.drawRect(Offset.zero & size, Paint()..color = palette.surface);
 
     final geometry = TodayDotSceneGeometry.forSize(size);
-    final breath = reduceMotion ? 0.0 : math.sin(rekaPhase * math.pi * 2);
-    final rekaCenter = geometry.rekaCenter + Offset(0, breath * 1.5);
-    final rekaRadius = geometry.rekaInfluenceRadius + breath * 4;
-    final dotPaint = Paint()..isAntiAlias = true;
-    final halfInterval = geometry.gridInterval / 2;
-
-    for (var y = halfInterval; y < size.height; y += geometry.gridInterval) {
-      final refreshFalloff = (1 - y / 96).clamp(0.0, 1.0);
-      for (var x = halfInterval; x < size.width; x += geometry.gridInterval) {
-        final point = Offset(x, y);
-        final delta = point - rekaCenter;
-        final distance = delta.distance;
-        final normalized = (1 - distance / rekaRadius).clamp(0.0, 1.0);
-        final falloff = normalized * normalized * (3 - 2 * normalized);
-        final direction = distance == 0 ? Offset.zero : delta / distance;
-        final displaced = point + direction * (falloff * 5.5);
-        final center = Offset(_snap(displaced.dx), _snap(displaced.dy));
-        final radius = 0.9 + falloff * 1.5;
-        final baseColor = Color.lerp(palette.dot, palette.rekaDot, falloff)!;
-        final refreshAlpha =
-            refreshEmphasis.clamp(0.0, 1.0) * refreshFalloff * 0.24;
-        dotPaint.color = baseColor.withValues(
-          alpha: (baseColor.a + refreshAlpha).clamp(0.0, 1.0),
-        );
-        canvas.drawCircle(center, radius, dotPaint);
-      }
+    final resolvedCenter = rekaCenter ?? geometry.initialRekaCenter;
+    final resolvedBreath = breathAmount ?? _legacyBreathAmount;
+    final resolvedEyeOpacity = eyeOpacity ?? _legacyEyeOpacity;
+    final field = simulation ?? (TodayDotFieldSimulation()..layout(size));
+    if (simulation == null) {
+      field.step(
+        1 / 60,
+        rekaCenter: resolvedCenter,
+        state: rekaState,
+        dragEngagement: 0,
+        breathAmount: resolvedBreath,
+        reduceMotion: reduceMotion,
+      );
     }
 
-    _paintEyes(canvas, rekaCenter, dotPaint);
+    final dotPaint = Paint()..isAntiAlias = true;
+    for (final node in field.nodes) {
+      final falloff = rekaMaterialFalloff(node.anchor, resolvedCenter);
+      final refreshFalloff = (1 - node.anchor.dy / 96).clamp(0.0, 1.0);
+      final center = Offset(_snap(node.position.dx), _snap(node.position.dy));
+      final radius = .9 + falloff * (1.25 + resolvedBreath * .2);
+      final baseColor = Color.lerp(palette.dot, palette.rekaDot, falloff)!;
+      final refreshAlpha =
+          refreshEmphasis.clamp(0.0, 1.0) * refreshFalloff * .24;
+      dotPaint.color = baseColor.withValues(
+        alpha: (baseColor.a + refreshAlpha).clamp(0.0, 1.0),
+      );
+      canvas.drawCircle(center, radius, dotPaint);
+    }
+
+    if (resolvedEyeOpacity > .001) {
+      _paintEyes(canvas, resolvedCenter, resolvedEyeOpacity, dotPaint);
+    }
   }
 
-  void _paintEyes(Canvas canvas, Offset rekaCenter, Paint paint) {
-    paint.color = palette.eye;
+  double get _legacyBreathAmount {
+    if (reduceMotion || rekaPhase == null) return 0;
+    final wave = math.sin(rekaPhase! * math.pi * 2 - math.pi / 2);
+    return (wave + 1) / 2;
+  }
+
+  double get _legacyEyeOpacity {
+    if (reduceMotion) return .42;
+    return TodayDotFieldController.eyeOpacityForPhase(rekaPhase ?? 0);
+  }
+
+  static double rekaMaterialFalloff(Offset point, Offset center) {
+    final delta = point - center;
+    final angle = math.atan2(delta.dy, delta.dx);
+    final organicRadius =
+        45 *
+        (1 + .08 * math.sin(angle * 3 + .6) + .05 * math.sin(angle * 5 - .8));
+    final normalized = (1 - delta.distance / organicRadius).clamp(0.0, 1.0);
+    return normalized * normalized * (3 - 2 * normalized);
+  }
+
+  void _paintEyes(Canvas canvas, Offset center, double opacity, Paint paint) {
+    paint.color = palette.eye.withValues(
+      alpha: palette.eye.a * opacity.clamp(0.0, 1.0),
+    );
     for (final eyeX in [-15.0, 15.0]) {
       for (var dot = -1; dot <= 1; dot++) {
         canvas.drawCircle(
-          Offset(_snap(rekaCenter.dx + eyeX + dot * 4.5), _snap(rekaCenter.dy)),
+          Offset(_snap(center.dx + eyeX + dot * 4.5), _snap(center.dy)),
           2,
           paint,
         );
@@ -123,7 +167,12 @@ class TodayDotMatrixPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant TodayDotMatrixPainter oldDelegate) {
-    return rekaPhase != oldDelegate.rekaPhase ||
+    return simulationRevision != oldDelegate.simulationRevision ||
+        rekaCenter != oldDelegate.rekaCenter ||
+        rekaState != oldDelegate.rekaState ||
+        breathAmount != oldDelegate.breathAmount ||
+        eyeOpacity != oldDelegate.eyeOpacity ||
+        rekaPhase != oldDelegate.rekaPhase ||
         refreshEmphasis != oldDelegate.refreshEmphasis ||
         reduceMotion != oldDelegate.reduceMotion ||
         devicePixelRatio != oldDelegate.devicePixelRatio ||
