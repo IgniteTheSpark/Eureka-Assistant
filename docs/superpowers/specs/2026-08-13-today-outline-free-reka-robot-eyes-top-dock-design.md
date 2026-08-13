@@ -1,7 +1,7 @@
 # Today Outline-Free Reka, Robot Eyes, and Top Dock Design
 
-**Date:** 2026-08-13  
-**Status:** Approved  
+**Date:** 2026-08-13
+**Status:** Approved
 **Scope:** Theme V2 Today page, light mode only
 
 ## Goal

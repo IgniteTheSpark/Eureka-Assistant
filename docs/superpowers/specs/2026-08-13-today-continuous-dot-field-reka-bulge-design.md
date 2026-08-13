@@ -1,7 +1,7 @@
 # Today Continuous Dot Field and Reka Bulge Design
 
-**Date:** 2026-08-13  
-**Branch:** `首页-revamp`  
+**Date:** 2026-08-13
+**Branch:** `首页-revamp`
 **Status:** Approved direction, pending implementation plan
 
 ## Goal
