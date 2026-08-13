@@ -1,6 +1,7 @@
 import 'dart:ui' as ui;
 
 import 'package:eureka/theme_v2/home/today_dot_field_controller.dart';
+import 'package:eureka/theme_v2/home/today_dot_field_config.dart';
 import 'package:eureka/theme_v2/home/today_dot_field_simulation.dart';
 import 'package:eureka/theme_v2/home/today_dot_matrix_painter.dart';
 import 'package:flutter/material.dart';
@@ -10,7 +11,7 @@ void main() {
   test('reference geometry starts Reka in the middle-left region', () {
     final geometry = TodayDotSceneGeometry.forSize(const Size(411, 860));
 
-    expect(geometry.gridInterval, 8);
+    expect(geometry.gridInterval, 14);
     expect(geometry.initialRekaCenter.dx, inInclusiveRange(80, 150));
     expect(geometry.initialRekaCenter.dy, inInclusiveRange(300, 470));
   });
@@ -55,20 +56,60 @@ void main() {
     expect(same.shouldRepaint(first), isFalse);
   });
 
-  test('organic material has no hard circular boundary', () {
-    const center = Offset(120, 400);
-    final horizontal = TodayDotMatrixPainter.rekaMaterialFalloff(
-      center + const Offset(39, 0),
-      center,
+  test('Reka is a white convex core with an independent black glow', () async {
+    const config = TodayDotFieldConfig(
+      cursorRadius: 32,
+      glowRadius: 72,
+      dotSpacing: 14,
+      glowColor: Colors.black,
     );
-    final diagonal = TodayDotMatrixPainter.rekaMaterialFalloff(
-      center + const Offset(27.5, 27.5),
-      center,
+    final image = await _renderPainter(
+      config: config,
+      rekaCenter: const Offset(100, 100),
+      breathAmount: 1,
+      eyeOpacity: 0,
     );
 
-    expect(horizontal, isNot(closeTo(diagonal, .001)));
-    expect(horizontal, inInclusiveRange(0, 1));
-    expect(diagonal, inInclusiveRange(0, 1));
+    final center = await _pixel(image, 100, 100);
+    final halo = await _pixel(image, 150, 100);
+    final outside = await _pixel(image, 190, 100);
+
+    expect(_brightness(center), greaterThan(_brightness(outside)));
+    expect(_brightness(halo), lessThan(_brightness(outside)));
+  });
+
+  test('eyes are local to the white core and hidden while dragging', () async {
+    final idle = await _renderPainter(
+      config: const TodayDotFieldConfig(),
+      rekaCenter: const Offset(100, 100),
+      breathAmount: 1,
+      eyeOpacity: 1,
+    );
+    final dragging = await _renderPainter(
+      config: const TodayDotFieldConfig(),
+      rekaCenter: const Offset(100, 100),
+      rekaState: TodayRekaMotionState.dragging,
+      breathAmount: 1,
+      eyeOpacity: 0,
+    );
+
+    expect(await _pixel(idle, 85, 100), isNot(await _pixel(dragging, 85, 100)));
+    expect(await _pixel(idle, 10, 10), await _pixel(dragging, 10, 10));
+  });
+
+  test('gradient and sparkle parameters affect dot rendering', () async {
+    final image = await _renderPainter(
+      config: const TodayDotFieldConfig(
+        gradientFrom: Colors.red,
+        gradientTo: Colors.blue,
+        sparkle: true,
+      ),
+      rekaCenter: const Offset(100, 100),
+      breathAmount: 0,
+      eyeOpacity: 0,
+    );
+
+    expect(await _pixel(image, 7, 7), isNot(await _pixel(image, 189, 189)));
   });
 }
 
@@ -103,6 +144,54 @@ Future<ui.Image> _paintState({
   final picture = recorder.endRecording();
   return picture.toImage(size.width.toInt(), size.height.toInt());
 }
+
+Future<ui.Image> _renderPainter({
+  required TodayDotFieldConfig config,
+  required Offset rekaCenter,
+  required double breathAmount,
+  required double eyeOpacity,
+  TodayRekaMotionState rekaState = TodayRekaMotionState.idle,
+}) async {
+  const size = Size.square(200);
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder);
+  final simulation = TodayDotFieldSimulation(config: config)..layout(size);
+  simulation.step(
+    1 / 60,
+    rekaCenter: rekaCenter,
+    state: rekaState,
+    dragEngagement: rekaState == TodayRekaMotionState.dragging ? 1 : 0,
+    breathAmount: breathAmount,
+    fieldPhase: 0,
+    reduceMotion: false,
+  );
+  TodayDotMatrixPainter(
+    config: config,
+    simulation: simulation,
+    rekaCenter: rekaCenter,
+    rekaState: rekaState,
+    breathAmount: breathAmount,
+    eyeOpacity: eyeOpacity,
+    refreshEmphasis: 0,
+    reduceMotion: false,
+    devicePixelRatio: 1,
+  ).paint(canvas, size);
+  return recorder.endRecording().toImage(200, 200);
+}
+
+Future<Color> _pixel(ui.Image image, int x, int y) async {
+  final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+  final bytes = data!.buffer.asUint8List();
+  final offset = (y * image.width + x) * 4;
+  return Color.fromARGB(
+    bytes[offset + 3],
+    bytes[offset],
+    bytes[offset + 1],
+    bytes[offset + 2],
+  );
+}
+
+int _brightness(Color color) => ((color.r + color.g + color.b) * 255).round();
 
 Future<List<int>> _regionBytes(ui.Image image, Rect region) async {
   final recorder = ui.PictureRecorder();

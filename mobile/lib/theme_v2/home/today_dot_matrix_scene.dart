@@ -229,6 +229,7 @@ class _TodayDotMatrixSceneState extends State<TodayDotMatrixScene>
               RepaintBoundary(
                 child: CustomPaint(
                   painter: TodayDotMatrixPainter(
+                    config: widget.config,
                     simulation: _simulation,
                     rekaCenter: _controller.rekaCenter,
                     rekaState: _controller.state,
