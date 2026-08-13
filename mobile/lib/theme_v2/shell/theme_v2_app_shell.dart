@@ -6,6 +6,8 @@ import '../../app_shell.dart' show scheduleShellStartupSurface;
 import '../../config.dart';
 import '../../data_revision.dart';
 import '../../pages/calendar_page.dart' show calendarHome;
+import '../../pages/chat_page.dart';
+import '../../pages/create_asset.dart' show showCreateMenu;
 import '../../pages/device_pairing_page.dart';
 import '../../pages/notifications_page.dart';
 import '../../pet/reka_notifications.dart';
@@ -20,6 +22,7 @@ import '../device/theme_v2_device_route.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../home/home_repository.dart';
 import '../home/theme_v2_home_page.dart';
+import '../home/today_dot_experiment_page.dart';
 import '../inbox/reka_inbox_controller.dart';
 import '../inbox/reka_inbox_page.dart';
 import '../library/library_navigation.dart';
@@ -55,6 +58,9 @@ class ThemeV2AppShell extends StatefulWidget {
     this.captureActivityCoordinator,
     this.onCaptureActivitySelected,
     this.todayDotExperimentOverride,
+    this.onCreateAsset,
+    this.onCreateReport,
+    this.onStartChat,
     this.initialIndex = const int.fromEnvironment('START_TAB', defaultValue: 0),
     this.showStartupOverlays = true,
   }) : assert(deviceStatus == null || deviceStatusAdapter == null);
@@ -81,6 +87,9 @@ class ThemeV2AppShell extends StatefulWidget {
   final CaptureActivityCoordinator? captureActivityCoordinator;
   final ValueChanged<CaptureActivityItem>? onCaptureActivitySelected;
   final bool? todayDotExperimentOverride;
+  final VoidCallback? onCreateAsset;
+  final VoidCallback? onCreateReport;
+  final VoidCallback? onStartChat;
   final int initialIndex;
 
   bool get usesTodayDotExperiment =>
@@ -285,6 +294,37 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
     );
   }
 
+  void _createAsset(BuildContext context) {
+    final callback = widget.onCreateAsset;
+    if (callback != null) {
+      callback();
+      return;
+    }
+    showCreateMenu(context);
+  }
+
+  void _createReport(BuildContext context) {
+    final callback = widget.onCreateReport;
+    if (callback != null) {
+      callback();
+      return;
+    }
+    _openReports(context, startCreate: true);
+  }
+
+  void _startBlankChat(BuildContext context) {
+    final callback = widget.onStartChat;
+    if (callback != null) {
+      callback();
+      return;
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const ChatPage(startBlank: true, themeV2Override: true),
+      ),
+    );
+  }
+
   void _openRekaSignals(BuildContext context) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -323,14 +363,21 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
     return widget.pages ??
         [
           ThemeV2PageScaffold(
-            body: ThemeV2HomePage(
-              active: _index == 0,
-              repository: widget.homeRepository,
-              rekaSignals: widget.rekaSignalRepository,
-              onOpenReka: () => _openRekaSignals(context),
-              onOpenReports: () => _openReports(context),
-              onCreateReport: () => _openReports(context, startCreate: true),
-            ),
+            body: widget.usesTodayDotExperiment
+                ? TodayDotExperimentPage(
+                    repository: widget.homeRepository,
+                    onCreateAsset: () => _createAsset(context),
+                    onCreateReport: () => _createReport(context),
+                    onStartChat: () => _startBlankChat(context),
+                  )
+                : ThemeV2HomePage(
+                    active: _index == 0,
+                    repository: widget.homeRepository,
+                    rekaSignals: widget.rekaSignalRepository,
+                    onOpenReka: () => _openRekaSignals(context),
+                    onOpenReports: () => _openReports(context),
+                    onCreateReport: () => _createReport(context),
+                  ),
           ),
           ThemeV2PageScaffold(
             body: ThemeV2CalendarPage(controller: _calendarController),

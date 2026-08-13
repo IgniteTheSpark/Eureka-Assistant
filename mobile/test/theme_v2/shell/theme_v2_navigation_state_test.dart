@@ -7,6 +7,7 @@ import 'package:eureka/theme_v2/foundation/theme_v2_tokens.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_typography.dart';
 import 'package:eureka/theme_v2/home/theme_v2_home_page.dart';
 import 'package:eureka/theme_v2/home/home_repository.dart';
+import 'package:eureka/theme_v2/home/today_dot_experiment_page.dart';
 import 'package:eureka/theme_v2/reka/reka_signal_repository.dart';
 import 'package:eureka/theme_v2/reka/reka_signals_page.dart';
 import 'package:eureka/today/today_data.dart';
@@ -190,6 +191,7 @@ void main() {
       _ThemeHost(
         child: ThemeV2AppShell(
           initialIndex: 0,
+          todayDotExperimentOverride: false,
           showStartupOverlays: false,
           deviceStatus: const DeviceStatusSummary.disconnected(),
           onDeviceSelected: selected.add,
@@ -216,6 +218,50 @@ void main() {
     await tester.pump();
     expect(find.byType(ThemeV2GlobalTopNav), findsOneWidget);
   });
+
+  testWidgets(
+    'Today dot experiment replaces only Home and wires Reka actions',
+    (tester) async {
+      tester.view.physicalSize = const Size(411, 960);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      var createAssetCount = 0;
+      var createReportCount = 0;
+      var startChatCount = 0;
+      await tester.pumpWidget(
+        _ThemeHost(
+          child: ThemeV2AppShell(
+            showStartupOverlays: false,
+            deviceStatus: const DeviceStatusSummary.disconnected(),
+            homeRepository: const _HomeRepository(),
+            todayDotExperimentOverride: true,
+            onCreateAsset: () => createAssetCount++,
+            onCreateReport: () => createReportCount++,
+            onStartChat: () => startChatCount++,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byType(TodayDotExperimentPage), findsOneWidget);
+      expect(find.byType(ThemeV2HomePage), findsNothing);
+      expect(find.byType(ThemeV2GlobalTopNav), findsOneWidget);
+      expect(find.byKey(ThemeV2FloatingDock.dockKey), findsOneWidget);
+
+      for (final label in ['创建资产', '创建报告', '开始新聊天']) {
+        await tester.tap(find.bySemanticsLabel('Reka 快捷操作'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(label));
+        await tester.pumpAndSettle();
+      }
+
+      expect(createAssetCount, 1);
+      expect(createReportCount, 1);
+      expect(startChatCount, 1);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('Home Reka entry opens signals instead of notifications', (
     tester,
