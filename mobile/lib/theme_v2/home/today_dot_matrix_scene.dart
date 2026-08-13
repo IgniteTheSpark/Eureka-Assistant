@@ -8,11 +8,15 @@ class TodayDotMatrixScene extends StatefulWidget {
     required this.refreshEmphasis,
     required this.onRekaTap,
     this.menuExpanded = false,
+    this.now,
+    this.active = true,
   });
 
   final double refreshEmphasis;
   final VoidCallback onRekaTap;
   final bool menuExpanded;
+  final DateTime? now;
+  final bool active;
 
   @override
   State<TodayDotMatrixScene> createState() => _TodayDotMatrixSceneState();
@@ -26,6 +30,14 @@ class _TodayDotMatrixSceneState extends State<TodayDotMatrixScene>
   );
   bool? _reduceMotion;
 
+  void _syncBreathing() {
+    if ((_reduceMotion ?? true) || !widget.active) {
+      _breathing.stop();
+      return;
+    }
+    _breathing.repeat();
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -37,8 +49,14 @@ class _TodayDotMatrixSceneState extends State<TodayDotMatrixScene>
         ..stop()
         ..value = 0;
     } else {
-      _breathing.repeat();
+      _syncBreathing();
     }
+  }
+
+  @override
+  void didUpdateWidget(covariant TodayDotMatrixScene oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.active != widget.active) _syncBreathing();
   }
 
   @override
@@ -73,7 +91,11 @@ class _TodayDotMatrixSceneState extends State<TodayDotMatrixScene>
                   ),
                 ),
               ),
-              const Positioned(left: 18, top: 14, child: _TodayHeading()),
+              Positioned(
+                left: 18,
+                top: 14,
+                child: _TodayHeading(now: widget.now ?? DateTime.now()),
+              ),
               Positioned(
                 left: geometry.rekaCenter.dx + 61,
                 top: geometry.rekaCenter.dy - 18,
@@ -114,11 +136,12 @@ class _TodayDotMatrixSceneState extends State<TodayDotMatrixScene>
 }
 
 class _TodayHeading extends StatelessWidget {
-  const _TodayHeading();
+  const _TodayHeading({required this.now});
+
+  final DateTime now;
 
   @override
   Widget build(BuildContext context) {
-    final now = DateTime.now();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

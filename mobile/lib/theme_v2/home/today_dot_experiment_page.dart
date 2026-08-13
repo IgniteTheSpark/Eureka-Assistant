@@ -14,6 +14,8 @@ class TodayDotExperimentPage extends StatefulWidget {
     this.onCreateAsset,
     this.onCreateReport,
     this.onStartChat,
+    this.now,
+    this.active = true,
   });
 
   static const scrollKey = ValueKey<String>('today-dot-experiment-scroll');
@@ -22,6 +24,8 @@ class TodayDotExperimentPage extends StatefulWidget {
   final VoidCallback? onCreateAsset;
   final VoidCallback? onCreateReport;
   final VoidCallback? onStartChat;
+  final DateTime? now;
+  final bool active;
 
   @override
   State<TodayDotExperimentPage> createState() => _TodayDotExperimentPageState();
@@ -182,6 +186,8 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage>
                         key: _sceneKey,
                         refreshEmphasis: _refreshEmphasis.value,
                         menuExpanded: _menuExpanded,
+                        now: widget.now,
+                        active: widget.active,
                         onRekaTap: () => unawaited(_openQuickActions()),
                       ),
                     ),

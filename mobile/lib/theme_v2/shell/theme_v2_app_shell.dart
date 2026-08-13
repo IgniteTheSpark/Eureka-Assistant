@@ -365,6 +365,7 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
           ThemeV2PageScaffold(
             body: widget.usesTodayDotExperiment
                 ? TodayDotExperimentPage(
+                    active: _index == 0,
                     repository: widget.homeRepository,
                     onCreateAsset: () => _createAsset(context),
                     onCreateReport: () => _createReport(context),

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:eureka/theme_v2/home/home_repository.dart';
 import 'package:eureka/theme_v2/home/today_dot_experiment_page.dart';
+import 'package:eureka/theme_v2/home/today_dot_matrix_painter.dart';
 import 'package:eureka/theme_v2/home/today_dot_matrix_scene.dart';
 import 'package:eureka/theme_v2/home/today_reka_quick_actions.dart';
 import 'package:eureka/today/today_data.dart';
@@ -25,6 +26,44 @@ void main() {
     expect(find.byType(CustomPaint), findsWidgets);
 
     semantics.dispose();
+  });
+
+  testWidgets('scene accepts a deterministic date for visual verification', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _Host(
+        child: TodayDotMatrixScene(
+          refreshEmphasis: 0,
+          now: DateTime(2026, 7, 31),
+          onRekaTap: () {},
+        ),
+      ),
+    );
+
+    expect(find.text('7月31日 · 周五'), findsOneWidget);
+  });
+
+  testWidgets('Reka breathes only while the Today scene is active', (
+    tester,
+  ) async {
+    Widget scene({required bool active}) => _Host(
+      disableAnimations: false,
+      child: TodayDotMatrixScene(
+        active: active,
+        refreshEmphasis: 0,
+        onRekaTap: () {},
+      ),
+    );
+
+    await tester.pumpWidget(scene(active: false));
+    await tester.pump(const Duration(seconds: 1));
+    expect(_matrixPainter(tester).rekaPhase, 0);
+
+    await tester.pumpWidget(scene(active: true));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expect(_matrixPainter(tester).rekaPhase, greaterThan(0));
   });
 
   testWidgets('quick actions invoke only the selected callback', (
@@ -161,18 +200,19 @@ class _QueueRepository implements ThemeV2HomeRepository {
 }
 
 class _Host extends StatelessWidget {
-  const _Host({required this.child});
+  const _Host({required this.child, this.disableAnimations = true});
 
   final Widget child;
+  final bool disableAnimations;
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       home: MediaQuery(
-        data: const MediaQueryData(
-          size: Size(411, 860),
+        data: MediaQueryData(
+          size: const Size(411, 860),
           devicePixelRatio: 1,
-          disableAnimations: true,
+          disableAnimations: disableAnimations,
           textScaler: TextScaler.noScaling,
         ),
         child: Scaffold(body: child),
@@ -180,3 +220,15 @@ class _Host extends StatelessWidget {
     );
   }
 }
+
+TodayDotMatrixPainter _matrixPainter(WidgetTester tester) =>
+    tester
+            .widget<CustomPaint>(
+              find.byWidgetPredicate(
+                (widget) =>
+                    widget is CustomPaint &&
+                    widget.painter is TodayDotMatrixPainter,
+              ),
+            )
+            .painter!
+        as TodayDotMatrixPainter;
