@@ -162,6 +162,7 @@ Future<void> _pumpGolden(
       child: ThemeV2PageScaffold(
         extendBodyBehindChrome: true,
         topNav: const ThemeV2GlobalTopNav(
+          floatingDock: true,
           transparentSurface: true,
           deviceStatus: DeviceStatusSummary.disconnected(),
           onDeviceSelected: _noopDeviceTarget,

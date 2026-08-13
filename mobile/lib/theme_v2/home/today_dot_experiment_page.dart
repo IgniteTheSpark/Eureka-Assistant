@@ -174,7 +174,7 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage>
   Widget build(BuildContext context) {
     final bottomPadding = MediaQuery.paddingOf(context).bottom;
     final topChromeInset = widget.extendUnderChrome
-        ? ThemeV2GlobalTopNav.height
+        ? ThemeV2GlobalTopNav.floatingExtent
         : 0.0;
     final bottomChromeInset = widget.extendUnderChrome
         ? ThemeV2FloatingDock.contentClearance + bottomPadding

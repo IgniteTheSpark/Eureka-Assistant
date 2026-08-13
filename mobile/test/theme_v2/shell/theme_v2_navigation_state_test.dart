@@ -286,6 +286,7 @@ void main() {
     );
     expect(scaffold.extendBodyBehindChrome, isTrue);
     expect(nav.transparentSurface, isTrue);
+    expect(nav.floatingDock, isTrue);
 
     await tester.tap(find.bySemanticsLabel('日历'));
     await tester.pumpAndSettle();
@@ -300,6 +301,12 @@ void main() {
       tester
           .widget<ThemeV2GlobalTopNav>(find.byType(ThemeV2GlobalTopNav))
           .transparentSurface,
+      isFalse,
+    );
+    expect(
+      tester
+          .widget<ThemeV2GlobalTopNav>(find.byType(ThemeV2GlobalTopNav))
+          .floatingDock,
       isFalse,
     );
   });
@@ -332,6 +339,12 @@ void main() {
       tester
           .widget<ThemeV2GlobalTopNav>(find.byType(ThemeV2GlobalTopNav))
           .transparentSurface,
+      isFalse,
+    );
+    expect(
+      tester
+          .widget<ThemeV2GlobalTopNav>(find.byType(ThemeV2GlobalTopNav))
+          .floatingDock,
       isFalse,
     );
   });

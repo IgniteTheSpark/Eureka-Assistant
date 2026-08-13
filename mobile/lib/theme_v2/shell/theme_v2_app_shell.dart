@@ -415,8 +415,10 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
         ambientTheme.brightness == Brightness.light;
     final pages = _pages(continuousToday: continuousToday);
     final activePage = pages[_index];
+    final todayFloatingDock = continuousToday && _index == 0;
     final standardTopNav = ThemeV2GlobalTopNav(
-      transparentSurface: continuousToday && _index == 0,
+      transparentSurface: todayFloatingDock,
+      floatingDock: todayFloatingDock,
       deviceStatus:
           widget.deviceStatus ??
           _deviceStatusAdapter?.value ??
