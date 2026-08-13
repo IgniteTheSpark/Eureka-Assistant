@@ -464,7 +464,7 @@ void main() {
           title: '未说明时间',
           at: day.add(const Duration(hours: 13)),
           kind: 'asset',
-          skillName: 'notes',
+          skillName: 'journal',
         ),
         calendarFixtureItem(
           id: 'afternoon-timed',

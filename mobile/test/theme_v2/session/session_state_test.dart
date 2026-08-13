@@ -108,6 +108,55 @@ void main() {
     );
   });
 
+  testWidgets('streaming agent shows its live thinking timer', (tester) async {
+    final agent = _assistant('', streaming: true)
+      ..processingStartedAt = DateTime.now();
+    await _pumpSession(
+      tester,
+      controller: FakeSessionController(messages: [agent], streaming: true),
+    );
+
+    expect(
+      find.byKey(const ValueKey('session-thinking-timer')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('session-analyzing')),
+        matching: find.byKey(const ValueKey('session-thinking-timer')),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('completed agent shows final thinking time without token copy', (
+    tester,
+  ) async {
+    final agent = _assistant('已经完成')
+      ..elapsedMs = 68000
+      ..tokens = 42;
+    await _pumpSession(
+      tester,
+      controller: FakeSessionController(messages: [agent]),
+    );
+
+    expect(find.text('思考 1 分 8 秒'), findsOneWidget);
+    expect(find.textContaining('token'), findsNothing);
+    expect(find.textContaining('用时'), findsNothing);
+  });
+
+  testWidgets('failed agent shows elapsed processing time', (tester) async {
+    final agent = _assistant('')..elapsedMs = 12000;
+    agent.parts.add(const ErrorPart('回答暂未完成，请重试'));
+    await _pumpSession(
+      tester,
+      controller: FakeSessionController(messages: [agent]),
+    );
+
+    expect(find.text('处理 12 秒后未完成'), findsOneWidget);
+    expect(find.text('思考 12 秒'), findsNothing);
+  });
+
   testWidgets('failure stays on its turn and retry uses controller contract', (
     tester,
   ) async {
@@ -122,6 +171,7 @@ void main() {
     expect(find.text('整理录音'), findsOneWidget);
     expect(find.text('整理中断'), findsNothing);
     expect(find.byKey(const ValueKey('session-turn-failure')), findsOneWidget);
+    expect(find.text('这条回复暂未完成'), findsOneWidget);
 
     await tester.ensureVisible(find.text('重试'));
     await tester.pumpAndSettle();

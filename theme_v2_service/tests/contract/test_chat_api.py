@@ -270,6 +270,8 @@ async def test_chat_persists_unexpected_provider_failure_as_terminal(client):
     frames = _frames(response.text)
     assert [event for event, _ in frames] == ["meta", "error"]
     assert frames[-1][1]["message"] == "Agent 暂时不可用，请重试"
+    assert isinstance(frames[-1][1]["elapsed_ms"], int)
+    assert frames[-1][1]["elapsed_ms"] >= 0
     async with AsyncSessionFactory() as database:
         message = await database.scalar(
             select(SessionMessage)
@@ -279,3 +281,4 @@ async def test_chat_persists_unexpected_provider_failure_as_terminal(client):
     assert message is not None
     assert message.status == "failed"
     assert message.text == "Agent 暂时不可用，请重试"
+    assert message.elapsed_ms == frames[-1][1]["elapsed_ms"]

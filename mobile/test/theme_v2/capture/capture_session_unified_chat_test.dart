@@ -64,6 +64,7 @@ void main() {
                     'text': '已记录跑步。',
                     'input_turn_id': 'turn-voice-1',
                     'cards': const [],
+                    'elapsed_ms': 1420,
                   },
                   {
                     'id': 'typed-user-1',
@@ -80,6 +81,7 @@ void main() {
                     'text': '刚才记录的是两公里。',
                     'input_turn_id': 'turn-typed-1',
                     'cards': const [],
+                    'elapsed_ms': 860,
                   },
                 ],
               }),
@@ -92,6 +94,7 @@ void main() {
       );
       final controller = CaptureSessionController(
         api: api,
+        now: () => DateTime.utc(2026, 8, 5, 3),
         turnStream: (path, body) {
           turns.add((path, body));
           return Stream<SseEvent>.fromIterable([
@@ -127,6 +130,8 @@ void main() {
         '刚才那个是多少？',
         '刚才记录的是两公里。',
       ]);
+      expect(controller.messages[1].elapsedMs, 1420);
+      expect(controller.messages[3].elapsedMs, 860);
 
       await controller.send('把刚才那个改成三公里');
 
@@ -140,6 +145,7 @@ void main() {
       final agent = controller.messages.last;
       expect(agent.text, '改好啦，跑步距离是 3 公里。');
       expect(agent.inputTurnId, 'turn-typed-2');
+      expect(agent.processingStartedAt, DateTime.utc(2026, 8, 5, 3));
       expect(
         agent.parts.whereType<ToolCallPart>().single.name,
         'tool_update_asset',
@@ -161,7 +167,9 @@ void main() {
     );
     final controller = CaptureSessionController(
       api: api,
-      turnStream: (_, _) => Stream<SseEvent>.error(StateError('offline')),
+      turnStream: (_, _) => Stream<SseEvent>.fromIterable([
+        SseEvent('error', {'elapsed_ms': 2400}),
+      ]),
     )..sessionId = 'physical-session-1';
     addTearDown(() {
       controller.dispose();
@@ -174,8 +182,9 @@ void main() {
     expect(controller.error, isNull);
     expect(
       controller.messages.last.parts.whereType<ErrorPart>().single.message,
-      '发送失败，请稍后重试',
+      '回答暂未完成，请重试',
     );
+    expect(controller.messages.last.elapsedMs, 2400);
   });
 
   testWidgets('flash header counts hardware recordings, not typed chat turns', (

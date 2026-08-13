@@ -4,8 +4,9 @@ import '../../timeline/timeline.dart';
 
 /// Calendar's interpretation of the backend-owned effective time.
 ///
-/// The Calendar domain deliberately accepts [TimelineItem], not raw timestamps,
-/// so there is no path for substituting an asset's capture/created time.
+/// The effective date stays backend-owned. Notes are the one presentation
+/// exception: when no semantic clock was supplied, their visible clock comes
+/// from [TimelineItem.createdAt] instead of being labeled as untimed.
 enum CalendarRecordTiming { timed, untimed, allDay }
 
 class CalendarRecord {
@@ -24,6 +25,10 @@ class CalendarRecord {
             : CalendarRecordTiming.untimed,
       ('input_turn', _) => CalendarRecordTiming.untimed,
       _ when item.period.trim().isNotEmpty => CalendarRecordTiming.untimed,
+      (_, 'notes') =>
+        item.hasClockTime || _hasNonMidnightTime(item.createdAt)
+            ? CalendarRecordTiming.timed
+            : CalendarRecordTiming.untimed,
       ('contact', _) =>
         item.hasClockTime || _hasNonMidnightTime(item.effectiveAt)
             ? CalendarRecordTiming.timed
@@ -38,6 +43,7 @@ class CalendarRecord {
 
   String get id => item.id;
   DateTime get effectiveAt => item.effectiveAt;
+  DateTime get displayAt => _displayAtFor(item);
   DateTime? get endAt => item.endAt;
   String get period => item.period;
   bool get isTimed => timing == CalendarRecordTiming.timed;
@@ -55,6 +61,26 @@ bool _hasNonMidnightTime(DateTime value) =>
     value.second != 0 ||
     value.millisecond != 0 ||
     value.microsecond != 0;
+
+DateTime _displayAtFor(TimelineItem item) {
+  if (item.skillName != 'notes' ||
+      item.hasClockTime ||
+      item.period.trim().isNotEmpty) {
+    return item.effectiveAt;
+  }
+  final effective = item.effectiveAt;
+  final created = item.createdAt;
+  return DateTime(
+    effective.year,
+    effective.month,
+    effective.day,
+    created.hour,
+    created.minute,
+    created.second,
+    created.millisecond,
+    created.microsecond,
+  );
+}
 
 DateTime calendarDayOf(DateTime effectiveAt) =>
     DateTime(effectiveAt.year, effectiveAt.month, effectiveAt.day);

@@ -76,6 +76,46 @@ void main() {
     expect(coordinator.snapshot.canOpenSession, isTrue);
   });
 
+  test('keeps the first event time and tracks the current phase start', () {
+    final coordinator = CaptureActivityCoordinator();
+    addTearDown(coordinator.dispose);
+    final listeningAt = DateTime.utc(2026, 8, 7, 1);
+    final transcribingAt = DateTime.utc(2026, 8, 7, 1, 1);
+    final understandingAt = DateTime.utc(2026, 8, 7, 1, 2);
+
+    coordinator.apply(
+      event(
+        aliases: {'client:ring-task-1'},
+        source: CaptureActivitySource.ring,
+        phase: CaptureActivityPhase.listening,
+        isRealtime: true,
+        occurredAt: listeningAt,
+      ),
+    );
+    coordinator.apply(
+      event(
+        aliases: {'client:ring-task-1'},
+        source: CaptureActivitySource.ring,
+        phase: CaptureActivityPhase.transcribing,
+        isRealtime: true,
+        occurredAt: transcribingAt,
+      ),
+    );
+    coordinator.apply(
+      event(
+        aliases: {'client:ring-task-1', 'recording:recording-1'},
+        source: CaptureActivitySource.ring,
+        phase: CaptureActivityPhase.understanding,
+        isRealtime: true,
+        occurredAt: understandingAt,
+      ),
+    );
+
+    final active = coordinator.snapshot.active!;
+    expect(active.occurredAt, listeningAt);
+    expect(active.phaseStartedAt, understandingAt);
+  });
+
   test(
     'realtime activity preempts offline work and selection stays stable',
     () {

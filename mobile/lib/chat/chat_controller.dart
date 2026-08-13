@@ -25,10 +25,12 @@ class ChatController extends ChangeNotifier {
   ChatController({
     ApiClient? api,
     ChatTurnStream? turnStream,
+    DateTime Function()? now,
     Duration reconcileInterval = const Duration(milliseconds: 1500),
     Duration reconcileTimeout = const Duration(seconds: 150),
   }) : _reconcileInterval = reconcileInterval,
        _reconcileTimeout = reconcileTimeout,
+       _now = now ?? DateTime.now,
        _api = api ?? ApiClient(),
        _ownsApi = api == null,
        _turnStream = turnStream ?? ((path, body) => postSse(path, body));
@@ -54,6 +56,7 @@ class ChatController extends ChangeNotifier {
   final ApiClient _api;
   final bool _ownsApi;
   final ChatTurnStream _turnStream;
+  final DateTime Function() _now;
   final Duration _reconcileInterval;
   final Duration _reconcileTimeout;
 
@@ -317,6 +320,7 @@ class ChatController extends ChangeNotifier {
           inputTurnId: m['input_turn_id'] as String?,
         );
         msg.streaming = running; // running → 「分析中…」 (chat_page renders it)
+        if (running) msg.processingStartedAt = _now();
         _appendStoredToolCalls(msg, m['tool_call']);
         _appendStoredToolResults(msg, m['tool_result']);
         final text = m['text'] as String?;
@@ -579,6 +583,7 @@ class ChatController extends ChangeNotifier {
     final text = _retryableUserText;
     if (text == null || text.isEmpty || streaming) return;
     _failedAgent?.parts.removeWhere((part) => part is ErrorPart);
+    _failedAgent?.elapsedMs = null;
     await _sendTurn(text, appendUserMessage: false);
   }
 
@@ -608,7 +613,7 @@ class ChatController extends ChangeNotifier {
 
     final stamp = DateTime.now().microsecondsSinceEpoch;
     if (appendUserMessage) messages.add(ChatMessage.user('u-$stamp', t));
-    final agent = ChatMessage.agent('a-$stamp');
+    final agent = ChatMessage.agent('a-$stamp')..processingStartedAt = _now();
     messages.add(agent);
     _activeAgent = agent;
     _notify();
@@ -728,6 +733,8 @@ class ChatController extends ChangeNotifier {
       case 'error':
         final message = ev.json['message'] as String? ?? 'stream error';
         agent.parts.add(const ErrorPart('回答暂未完成，请重试'));
+        final elapsed = ev.json['elapsed_ms'];
+        if (elapsed is num) agent.elapsedMs = elapsed.toInt();
         error = message;
       case 'done':
         agent.elapsedMs = (ev.json['elapsed_ms'] as num?)?.toInt();

@@ -4,6 +4,7 @@ import '../../chat/chat_models.dart';
 import '../capture/thinking_orb.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
+import 'session_thinking_time.dart';
 
 ThinkingOrbVisualState thinkingOrbStateForAgent(AgentWorkPhase phase) =>
     switch (phase) {
@@ -17,9 +18,11 @@ class SessionAnalysisBlock extends StatelessWidget {
   const SessionAnalysisBlock({
     super.key,
     this.phase = AgentWorkPhase.understanding,
+    this.processingStartedAt,
   });
 
   final AgentWorkPhase phase;
+  final DateTime? processingStartedAt;
 
   @override
   Widget build(BuildContext context) {
@@ -56,7 +59,10 @@ class SessionAnalysisBlock extends StatelessWidget {
                 ),
               ),
             ),
-            Text('处理中', style: TextStyle(color: tokens.muted, fontSize: 9)),
+            if (processingStartedAt case final startedAt?)
+              SessionThinkingTimer(startedAt: startedAt)
+            else
+              Text('处理中', style: TextStyle(color: tokens.muted, fontSize: 9)),
           ],
         ),
       ),
@@ -65,13 +71,21 @@ class SessionAnalysisBlock extends StatelessWidget {
 }
 
 class SessionTurnFailureBlock extends StatelessWidget {
-  const SessionTurnFailureBlock({super.key, required this.onRetry});
+  const SessionTurnFailureBlock({
+    super.key,
+    required this.onRetry,
+    this.elapsedMs,
+  });
 
   final VoidCallback onRetry;
+  final int? elapsedMs;
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
+    final failureLabel = elapsedMs == null
+        ? '这条回复暂未完成'
+        : '${formatThinkingSummary(elapsedMs!, verb: '处理')}后未完成';
     return Container(
       key: const ValueKey('session-turn-failure'),
       margin: const EdgeInsets.only(top: 4, bottom: 8),
@@ -87,7 +101,7 @@ class SessionTurnFailureBlock extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              '这条回复暂未完成',
+              failureLabel,
               style: TextStyle(
                 color: tokens.foreground,
                 fontSize: 11,

@@ -482,11 +482,13 @@ class ChatMessageBubble extends StatelessWidget {
   final ChatMessage m;
   final Future<void> Function(String skill)? onPrecipitate;
   final bool showStreamingStatus;
+  final bool showCostFooter;
   const ChatMessageBubble(
     this.m, {
     super.key,
     this.onPrecipitate,
     this.showStreamingStatus = true,
+    this.showCostFooter = true,
   });
 
   @override
@@ -556,7 +558,9 @@ class ChatMessageBubble extends StatelessWidget {
                 (m.parts.last is ToolResultPart || m.parts.last is CardsPart))
               _workingHint(context),
             if (showPrecipitate) _PrecipitateMenu(onPick: onPrecipitate!),
-            if (!m.streaming && (m.elapsedMs != null || m.tokens != null))
+            if (showCostFooter &&
+                !m.streaming &&
+                (m.elapsedMs != null || m.tokens != null))
               _costFooter(context, m),
           ],
         ),

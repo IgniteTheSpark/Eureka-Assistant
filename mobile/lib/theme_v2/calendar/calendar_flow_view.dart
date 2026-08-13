@@ -697,8 +697,8 @@ _FlowBand _flowBandFor(CalendarRecord record) {
       return _FlowBand.evening;
   }
   if (!record.isTimed) return _FlowBand.untimed;
-  if (record.effectiveAt.hour < 12) return _FlowBand.morning;
-  if (record.effectiveAt.hour < 18) return _FlowBand.afternoon;
+  if (record.displayAt.hour < 12) return _FlowBand.morning;
+  if (record.displayAt.hour < 18) return _FlowBand.afternoon;
   return _FlowBand.evening;
 }
 

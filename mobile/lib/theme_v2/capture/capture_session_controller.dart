@@ -32,13 +32,15 @@ class CaptureSessionController extends ChangeNotifier
     Duration invalidationDebounce = const Duration(milliseconds: 200),
     CaptureChatTurnStream? turnStream,
     CaptureActivityCoordinator? activityCoordinator,
+    DateTime Function()? now,
   }) : _api = api ?? ApiClient(),
        _ownsApi = api == null,
        _invalidations = invalidations ?? SessionInvalidations.instance,
        _invalidationDebounce = invalidationDebounce,
        _turnStream = turnStream ?? ((path, body) => postSse(path, body)),
        _activityCoordinator =
-           activityCoordinator ?? CaptureActivityCoordinator.instance {
+           activityCoordinator ?? CaptureActivityCoordinator.instance,
+       _now = now ?? DateTime.now {
     _invalidations.addListener(_onInvalidation);
     _activityCoordinator.addListener(_onActivityChanged);
   }
@@ -49,6 +51,7 @@ class CaptureSessionController extends ChangeNotifier
   final Duration _invalidationDebounce;
   final CaptureChatTurnStream _turnStream;
   final CaptureActivityCoordinator _activityCoordinator;
+  final DateTime Function() _now;
 
   @override
   final List<ChatMessage> messages = [];
@@ -241,6 +244,39 @@ class CaptureSessionController extends ChangeNotifier
           }
         }
       }
+      final existingStartsByMessageId = <String, DateTime>{};
+      final existingStartsByTurn = <String, DateTime>{};
+      for (final message in messages) {
+        final startedAt = message.processingStartedAt;
+        if (message.isUser || startedAt == null) continue;
+        existingStartsByMessageId[message.id] = startedAt;
+        final turn = message.inputTurnId?.trim() ?? '';
+        if (turn.isNotEmpty) existingStartsByTurn[turn] = startedAt;
+      }
+      final recordingStatusByTurn = <String, String>{};
+      for (final recording in recordings) {
+        final turn = recording['input_turn_id']?.toString().trim() ?? '';
+        if (turn.isNotEmpty) {
+          recordingStatusByTurn[turn] =
+              recording['process_status']?.toString() ?? '';
+        }
+      }
+      for (final message in nextMessages) {
+        if (message.isUser || !message.streaming) continue;
+        final turn = message.inputTurnId?.trim() ?? '';
+        final preserved =
+            existingStartsByMessageId[message.id] ??
+            (turn.isEmpty ? null : existingStartsByTurn[turn]);
+        if (preserved != null) {
+          message.processingStartedAt = preserved;
+          continue;
+        }
+        if (turn.isEmpty) continue;
+        final recordingStatus = recordingStatusByTurn[turn];
+        if (recordingStatus == null || recordingStatus == 'agent_processing') {
+          message.processingStartedAt = _now();
+        }
+      }
       if (_disposed || revision != _loadRevision) return;
       messages
         ..clear()
@@ -336,6 +372,12 @@ class CaptureSessionController extends ChangeNotifier
 
     var messageChanged = false;
     for (final activity in matchingActivities) {
+      if (!const {
+        CaptureActivityPhase.understanding,
+        CaptureActivityPhase.organizing,
+      }.contains(activity.phase)) {
+        continue;
+      }
       if (activity.inputTurnId == null) continue;
       for (final message in messages.reversed) {
         if (message.isUser ||
@@ -347,8 +389,16 @@ class CaptureSessionController extends ChangeNotifier
             ? AgentWorkPhase.organizing
             : AgentWorkPhase.understanding;
         final before = message.workPhase;
+        final beforeStartedAt = message.processingStartedAt;
+        if (beforeStartedAt == null ||
+            activity.phaseStartedAt.isBefore(beforeStartedAt)) {
+          message.processingStartedAt = activity.phaseStartedAt;
+        }
         message.advanceWorkPhase(next);
-        messageChanged = messageChanged || before != message.workPhase;
+        messageChanged =
+            messageChanged ||
+            before != message.workPhase ||
+            beforeStartedAt != message.processingStartedAt;
         break;
       }
     }
@@ -497,9 +547,11 @@ class CaptureSessionController extends ChangeNotifier
       _notify();
       return;
     }
-    final localId = 'flash-chat-${DateTime.now().microsecondsSinceEpoch}';
+    final startedAt = _now();
+    final localId = 'flash-chat-${startedAt.microsecondsSinceEpoch}';
     final userMessage = ChatMessage.user(localId, normalized);
-    final agent = ChatMessage.agent('$localId-agent');
+    final agent = ChatMessage.agent('$localId-agent')
+      ..processingStartedAt = startedAt;
     messages.add(userMessage);
     messages.add(agent);
     streaming = true;
@@ -590,6 +642,8 @@ class CaptureSessionController extends ChangeNotifier
         );
       case 'error':
         agent.parts.add(const ErrorPart('回答暂未完成，请重试'));
+        final elapsed = event.json['elapsed_ms'];
+        if (elapsed is num) agent.elapsedMs = elapsed.toInt();
       case 'done':
         final elapsed = event.json['elapsed_ms'];
         if (elapsed is num) agent.elapsedMs = elapsed.toInt();

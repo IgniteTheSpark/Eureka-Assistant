@@ -149,6 +149,7 @@ class _CaptureTask {
       phase = event.phase,
       isRealtime = event.isRealtime,
       occurredAt = event.occurredAt,
+      phaseStartedAt = event.occurredAt,
       sessionId = event.sessionId,
       inputTurnId = event.inputTurnId,
       resultCount = event.resultCount;
@@ -159,6 +160,7 @@ class _CaptureTask {
   CaptureActivityPhase phase;
   bool isRealtime;
   DateTime occurredAt;
+  DateTime phaseStartedAt;
   String? sessionId;
   String? inputTurnId;
   int? resultCount;
@@ -172,8 +174,11 @@ class _CaptureTask {
     resultCount = event.resultCount ?? resultCount;
     if (!phase.isTerminal &&
         (event.phase.isTerminal || event.phase.index >= phase.index)) {
-      phase = event.phase;
-      source = event.source;
+      if (event.phase != phase) {
+        phase = event.phase;
+        source = event.source;
+        phaseStartedAt = event.occurredAt;
+      }
     }
   }
 
@@ -188,6 +193,10 @@ class _CaptureTask {
         (other.phase.isTerminal || other.phase.index > phase.index)) {
       phase = other.phase;
       source = other.source;
+      phaseStartedAt = other.phaseStartedAt;
+    } else if (other.phase == phase &&
+        other.phaseStartedAt.isBefore(phaseStartedAt)) {
+      phaseStartedAt = other.phaseStartedAt;
     }
   }
 
@@ -197,6 +206,7 @@ class _CaptureTask {
     phase: phase,
     isRealtime: isRealtime,
     occurredAt: occurredAt,
+    phaseStartedAt: phaseStartedAt,
     sessionId: sessionId,
     inputTurnId: inputTurnId,
     resultCount: resultCount,

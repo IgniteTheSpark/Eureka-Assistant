@@ -175,7 +175,7 @@ class CalendarRecordRow extends StatelessWidget {
         : resolveTimelineItemMeta(item, skills);
     return Semantics(
       label:
-          '${record.isTimed ? calendarTimeLabel(record.effectiveAt) : '未指定时间'} ${item.title}',
+          '${record.isTimed ? calendarTimeLabel(record.displayAt) : '未指定时间'} ${item.title}',
       button: true,
       onTap: onTap,
       child: ExcludeSemantics(
@@ -191,7 +191,7 @@ class CalendarRecordRow extends StatelessWidget {
                     width: 48,
                     child: Text(
                       record.isTimed
-                          ? calendarTimeLabel(record.effectiveAt)
+                          ? calendarTimeLabel(record.displayAt)
                           : '—',
                       style: ThemeV2Typography.mono(
                         fontSize: 9,

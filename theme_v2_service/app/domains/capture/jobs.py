@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 import logging
+from time import monotonic
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -57,6 +58,34 @@ logger = logging.getLogger(__name__)
 async def _load_recording(recording_id: str) -> CaptureRecording | None:
     async with session_scope() as session:
         return await session.get(CaptureRecording, recording_id)
+
+
+async def _checkpoint_agent_elapsed(
+    *,
+    job_id: str,
+    owner: str,
+    elapsed_ms: int,
+) -> int:
+    async with session_scope() as session:
+        job = await session.scalar(
+            select(WorkflowJob)
+            .where(
+                WorkflowJob.id == job_id,
+                WorkflowJob.status == "running",
+                WorkflowJob.lease_owner == owner,
+            )
+            .with_for_update()
+        )
+        if job is None:
+            raise RuntimeError("capture process lease lost while timing")
+        checkpoint = dict(job.checkpoint_json or {})
+        total = max(0, int(checkpoint.get("agent_elapsed_ms") or 0)) + max(
+            0,
+            elapsed_ms,
+        )
+        checkpoint["agent_elapsed_ms"] = total
+        job.checkpoint_json = checkpoint
+        return total
 
 
 async def _persist_external_task(
@@ -468,6 +497,7 @@ async def _fail_agent_capture(
     recording_id: str,
     message: str,
     now: datetime,
+    elapsed_ms: int,
 ) -> None:
     safe_message = (message or "capture agent failed")[:500]
     async with session_scope() as session:
@@ -490,6 +520,7 @@ async def _fail_agent_capture(
             if agent_message is not None:
                 agent_message.status = "failed"
                 agent_message.text = "这条闪念暂时没有整理完成，可以重试"
+                agent_message.elapsed_ms = max(0, elapsed_ms)
                 agent_message.updated_at = now
         if recording.session_id:
             daily_session = await session.get(ChatSession, recording.session_id)
@@ -565,6 +596,7 @@ async def _persist_flash_execution(
     recording_id: str,
     result: FlashExecutionResult,
     now: datetime,
+    elapsed_ms: int,
 ) -> None:
     async with session_scope() as session:
         recording = await session.scalar(
@@ -753,6 +785,7 @@ async def _persist_flash_execution(
                 )
                 agent_message.text = recording.result_summary
                 agent_message.cards_json = references
+                agent_message.elapsed_ms = max(0, elapsed_ms)
                 agent_message.updated_at = now
         if recording.session_id:
             daily_session = await session.get(ChatSession, recording.session_id)
@@ -801,6 +834,7 @@ def capture_process_handler(
     provider: FlashExecutionProvider,
     *,
     clock: Callable[[], datetime] = utc_now,
+    monotonic_clock: Callable[[], float] = monotonic,
     timezone_name: str = "Asia/Shanghai",
     tool_runtime=None,
 ):
@@ -811,6 +845,7 @@ def capture_process_handler(
                 "capture_process_invalid_job",
                 "capture process job is missing recording or lease owner",
             )
+        owner = job.lease_owner
         prepared = await _prepare_capture_processing(recording_id=recording_id)
         if prepared is None:
             return
@@ -824,6 +859,23 @@ def capture_process_handler(
         ) = prepared
         now = clock()
         reference_datetime = _reference_in_timezone(captured_at, timezone_name)
+        attempt_started = monotonic_clock()
+        checkpoint_started = attempt_started
+
+        async def checkpoint_attempt() -> int:
+            nonlocal checkpoint_started
+            checkpointed_at = monotonic_clock()
+            attempt_elapsed_ms = max(
+                0,
+                int((checkpointed_at - checkpoint_started) * 1000),
+            )
+            checkpoint_started = checkpointed_at
+            return await _checkpoint_agent_elapsed(
+                job_id=job.id,
+                owner=owner,
+                elapsed_ms=attempt_elapsed_ms,
+            )
+
         try:
             result = await provider.execute(
                 context=FlashExecutionContext(
@@ -841,33 +893,68 @@ def capture_process_handler(
                 raise PermanentFlashExecutionError(
                     "capture provider returned invalid execution"
                 )
-            await _publish_organizing_phase(recording_id=recording_id)
         except PermanentFlashExecutionError as exc:
+            total_elapsed_ms = await checkpoint_attempt()
             await _fail_agent_capture(
                 recording_id=recording_id,
                 message=str(exc),
                 now=now,
+                elapsed_ms=total_elapsed_ms,
             )
             raise JobPermanentFailure(
                 "capture_agent_permanent",
                 "capture agent permanently failed",
             ) from exc
         except RetryableFlashExecutionError as exc:
+            total_elapsed_ms = await checkpoint_attempt()
             if job.attempt >= job.max_attempts:
                 await _fail_agent_capture(
                     recording_id=recording_id,
                     message=str(exc),
                     now=now,
+                    elapsed_ms=total_elapsed_ms,
                 )
                 raise JobPermanentFailure(
                     "capture_agent_retries_exhausted",
                     "capture agent retry budget exhausted",
                 ) from exc
             raise
-        await _persist_flash_execution(
-            recording_id=recording_id,
-            result=result,
-            now=now,
-        )
+        except Exception as exc:
+            total_elapsed_ms = await checkpoint_attempt()
+            if job.attempt >= job.max_attempts:
+                await _fail_agent_capture(
+                    recording_id=recording_id,
+                    message=str(exc),
+                    now=now,
+                    elapsed_ms=total_elapsed_ms,
+                )
+                raise JobPermanentFailure(
+                    "capture_agent_unexpected",
+                    "capture agent unexpectedly failed",
+                ) from exc
+            raise
+        total_elapsed_ms = await checkpoint_attempt()
+        try:
+            await _publish_organizing_phase(recording_id=recording_id)
+            await _persist_flash_execution(
+                recording_id=recording_id,
+                result=result,
+                now=now,
+                elapsed_ms=total_elapsed_ms,
+            )
+        except Exception as exc:
+            total_elapsed_ms = await checkpoint_attempt()
+            if job.attempt >= job.max_attempts:
+                await _fail_agent_capture(
+                    recording_id=recording_id,
+                    message=str(exc),
+                    now=now,
+                    elapsed_ms=total_elapsed_ms,
+                )
+                raise JobPermanentFailure(
+                    "capture_agent_persistence_failed",
+                    "capture agent result persistence failed",
+                ) from exc
+            raise
 
     return handle

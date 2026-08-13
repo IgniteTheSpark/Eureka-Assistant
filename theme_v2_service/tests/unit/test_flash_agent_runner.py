@@ -206,6 +206,64 @@ async def test_runner_executes_only_one_root_mutation_for_one_intent_round():
     }
 
 
+@pytest.mark.parametrize(
+    ("tool_name", "arguments"),
+    [
+        ("tool_create_contact", '{"name":"Alex","company":"Eureka"}'),
+        (
+            "tool_create_asset",
+            '{"user_skill_name":"dance","payload":{"duration":30}}',
+        ),
+    ],
+)
+async def test_runner_returns_immediately_after_terminal_create_mutation(
+    tool_name,
+    arguments,
+):
+    responses = iter(
+        [
+            _response(
+                tool_calls=[
+                    _tool_call(
+                        "model-call-a",
+                        tool_name,
+                        arguments,
+                    )
+                ],
+                tokens=11,
+            ),
+            _response(content="这次额外的模型收尾不应该发生", tokens=7),
+        ]
+    )
+    completion_calls = 0
+
+    async def completion(**_):
+        nonlocal completion_calls
+        completion_calls += 1
+        return next(responses)
+
+    result = await run_agent_once(
+        FlashAgentDefinition(
+            name="create",
+            instruction="Create the requested record.",
+            allowed_tools=frozenset({tool_name}),
+        ),
+        "input",
+        _FakeExecutor(),
+        completion=completion,
+        model="test-model",
+        api_key=None,
+        timeout_seconds=10,
+        recording_id="rec-1",
+        intent_ordinal=0,
+    )
+
+    assert completion_calls == 1
+    assert result.text == ""
+    assert result.usage_tokens == 11
+    assert [event["name"] for event in result.tool_events] == [tool_name]
+
+
 async def test_runner_exposes_only_agent_allowed_tools():
     observed = {}
 

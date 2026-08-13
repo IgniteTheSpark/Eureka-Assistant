@@ -162,7 +162,9 @@ async def test_legacy_flash_provider_dispatches_then_runs_sibling_skills_in_para
         tool_runtime=runtime,
     )
 
-    assert len(calls) == 5
+    # One dispatcher call plus one parallel skill call per intent. Successful
+    # create tools are already authoritative, so no model-only receipt round.
+    assert len(calls) == 3
     assert [item.status for item in result.items] == ["success", "success"]
     assert result.items[0].result["asset_id"] == "expense-1"
     assert result.items[1].result["name"] == "Alex"

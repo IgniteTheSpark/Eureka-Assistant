@@ -119,7 +119,7 @@ void main() {
         title: '整理项目复盘',
         at: day.add(const Duration(hours: 16)),
         kind: 'asset',
-        skillName: 'notes',
+        skillName: 'journal',
       ),
       calendarFixtureItem(
         id: 'afternoon',

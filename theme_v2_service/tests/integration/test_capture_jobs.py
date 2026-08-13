@@ -283,17 +283,25 @@ def _process_registry(
     provider: FakeCaptureAgentProvider,
     *,
     tool_runtime=None,
+    monotonic_clock=None,
 ) -> JobHandlerRegistry:
     registry = JobHandlerRegistry()
+    options = {
+        "clock": lambda: NOW,
+        "tool_runtime": tool_runtime,
+    }
+    if monotonic_clock is not None:
+        options["monotonic_clock"] = monotonic_clock
     registry.register(
         "capture_process",
-        capture_process_handler(
-            provider,
-            clock=lambda: NOW,
-            tool_runtime=tool_runtime,
-        ),
+        capture_process_handler(provider, **options),
     )
     return registry
+
+
+def _monotonic_sequence(*values: float):
+    iterator = iter(values)
+    return lambda: next(iterator)
 
 
 class _InProcessToolRuntime:
@@ -582,7 +590,11 @@ async def test_capture_job_creates_multiple_records_and_notification(session):
     recording_id, job_id = await _seed_transcribed_capture()
 
     assert await run_worker_once(
-        _process_registry(provider, tool_runtime=tool_runtime),
+        _process_registry(
+            provider,
+            tool_runtime=tool_runtime,
+            monotonic_clock=_monotonic_sequence(100.0, 101.25),
+        ),
         owner="worker-a",
         lease_seconds=60,
         now=NOW,
@@ -591,6 +603,10 @@ async def test_capture_job_creates_multiple_records_and_notification(session):
     async with AsyncSessionFactory() as database_session:
         recording = await database_session.get(CaptureRecording, recording_id)
         job = await database_session.get(WorkflowJob, job_id)
+        agent_message = await database_session.get(
+            SessionMessage,
+            recording.agent_message_id,
+        )
         assets = list(await database_session.scalars(select(Asset)))
         events = list(await database_session.scalars(select(Event)))
         attendees = list(await database_session.scalars(select(EventAttendee)))
@@ -605,6 +621,7 @@ async def test_capture_job_creates_multiple_records_and_notification(session):
             )
         )
     assert recording.process_status == "done"
+    assert agent_message.elapsed_ms == 1250
     assert recording.result_summary == "已记录项目会和 28 元咖啡消费。"
     assert len(recording.result_records_json) == 2
     assert {card["entity_kind"] for card in recording.result_records_json} == {
@@ -1139,7 +1156,10 @@ async def test_exhausted_agent_retry_updates_persisted_agent_message(session):
         await database_session.commit()
 
     await run_worker_once(
-        _process_registry(provider),
+        _process_registry(
+            provider,
+            monotonic_clock=_monotonic_sequence(30.0, 30.5),
+        ),
         owner="worker-a",
         lease_seconds=60,
         now=NOW,
@@ -1156,6 +1176,7 @@ async def test_exhausted_agent_retry_updates_persisted_agent_message(session):
     assert recording.error_message == "temporary agent outage"
     assert agent_message.status == "failed"
     assert agent_message.text == "这条闪念暂时没有整理完成，可以重试"
+    assert agent_message.elapsed_ms == 500
     assert job.status == "failed"
 
 
@@ -1166,7 +1187,10 @@ async def test_permanent_capture_provider_error_fails_without_retry(session):
     recording_id, job_id = await _seed_transcribed_capture()
 
     await run_worker_once(
-        _process_registry(provider),
+        _process_registry(
+            provider,
+            monotonic_clock=_monotonic_sequence(20.0, 20.25),
+        ),
         owner="worker-a",
         lease_seconds=60,
         now=NOW,
@@ -1175,9 +1199,124 @@ async def test_permanent_capture_provider_error_fails_without_retry(session):
     async with AsyncSessionFactory() as database_session:
         recording = await database_session.get(CaptureRecording, recording_id)
         job = await database_session.get(WorkflowJob, job_id)
+        agent_message = await database_session.get(
+            SessionMessage,
+            recording.agent_message_id,
+        )
     assert recording.process_status == "failed"
+    assert agent_message.elapsed_ms == 250
     assert job.status == "failed"
     assert job.attempt == 1
+
+
+async def test_exhausted_unexpected_provider_error_terminalizes_message(session):
+    provider = FakeCaptureAgentProvider(RuntimeError("provider crashed"))
+    recording_id, job_id = await _seed_transcribed_capture()
+    async with AsyncSessionFactory() as database_session:
+        job = await database_session.get(WorkflowJob, job_id)
+        job.max_attempts = 1
+        await database_session.commit()
+
+    await run_worker_once(
+        _process_registry(
+            provider,
+            monotonic_clock=_monotonic_sequence(40.0, 40.75),
+        ),
+        owner="worker-a",
+        lease_seconds=60,
+        now=NOW,
+    )
+
+    async with AsyncSessionFactory() as database_session:
+        recording = await database_session.get(CaptureRecording, recording_id)
+        job = await database_session.get(WorkflowJob, job_id)
+        agent_message = await database_session.get(
+            SessionMessage,
+            recording.agent_message_id,
+        )
+    assert recording.process_status == "failed"
+    assert agent_message.status == "failed"
+    assert agent_message.elapsed_ms == 750
+    assert job.status == "failed"
+
+
+async def test_exhausted_post_provider_error_terminalizes_message(
+    session,
+    monkeypatch,
+):
+    provider = FakeCaptureAgentProvider(_event_and_expense_result())
+    recording_id, job_id = await _seed_transcribed_capture()
+    async with AsyncSessionFactory() as database_session:
+        job = await database_session.get(WorkflowJob, job_id)
+        job.max_attempts = 1
+        await database_session.commit()
+
+    async def fail_persist(**_kwargs):
+        raise RuntimeError("persistence crashed")
+
+    monkeypatch.setattr(
+        "app.domains.capture.jobs._persist_flash_execution",
+        fail_persist,
+    )
+    await run_worker_once(
+        _process_registry(
+            provider,
+            monotonic_clock=_monotonic_sequence(50.0, 50.5, 50.7),
+        ),
+        owner="worker-a",
+        lease_seconds=60,
+        now=NOW,
+    )
+
+    async with AsyncSessionFactory() as database_session:
+        recording = await database_session.get(CaptureRecording, recording_id)
+        job = await database_session.get(WorkflowJob, job_id)
+        agent_message = await database_session.get(
+            SessionMessage,
+            recording.agent_message_id,
+        )
+    assert recording.process_status == "failed"
+    assert agent_message.status == "failed"
+    assert agent_message.elapsed_ms == 700
+    assert job.status == "failed"
+
+
+async def test_capture_agent_elapsed_accumulates_compute_not_retry_queue(session):
+    provider = FakeCaptureAgentProvider(
+        RetryableCaptureAgentError("temporary provider issue")
+    )
+    recording_id, job_id = await _seed_transcribed_capture()
+    registry = _process_registry(
+        provider,
+        monotonic_clock=_monotonic_sequence(10.0, 10.4, 20.0, 20.6),
+    )
+
+    await run_worker_once(
+        registry,
+        owner="worker-a",
+        lease_seconds=60,
+        now=NOW,
+    )
+    async with AsyncSessionFactory() as database_session:
+        job = await database_session.get(WorkflowJob, job_id)
+        retry_at = job.available_at
+        assert job.checkpoint_json["agent_elapsed_ms"] == 400
+
+    provider.result = _event_and_expense_result()
+    await run_worker_once(
+        registry,
+        owner="worker-b",
+        lease_seconds=60,
+        now=retry_at,
+    )
+
+    async with AsyncSessionFactory() as database_session:
+        recording = await database_session.get(CaptureRecording, recording_id)
+        agent_message = await database_session.get(
+            SessionMessage,
+            recording.agent_message_id,
+        )
+    assert agent_message.elapsed_ms == 1000
 
 
 async def test_capture_output_retry_reuses_successful_mcp_mutations(

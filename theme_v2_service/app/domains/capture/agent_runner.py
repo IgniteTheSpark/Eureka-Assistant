@@ -16,6 +16,14 @@ from app.domains.capture.tool_results import tool_effect_for_name
 
 
 Completion = Callable[..., Awaitable[Any]]
+_TERMINAL_CREATE_TOOLS = frozenset(
+    {
+        "tool_create_asset",
+        "tool_create_todo",
+        "tool_create_note",
+        "tool_create_contact",
+    }
+)
 _TRUSTED_ARGUMENT_FIELDS = frozenset(
     {
         "user_id",
@@ -370,6 +378,15 @@ async def run_agent_once(
                         default=str,
                     ),
                 }
+            )
+        if len(outcomes) == 1 and any(
+            name in _TERMINAL_CREATE_TOOLS and payload.get("ok") is True
+            for _model_id, name, _args, _trusted_id, payload in outcomes
+        ):
+            return AgentRunResult(
+                text=_message_content(provider_message),
+                tool_events=tuple(tool_events),
+                usage_tokens=usage_tokens,
             )
 
     conversation.append(

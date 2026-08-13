@@ -10,6 +10,34 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 void main() {
+  test(
+    'ordinary chat starts locally and settles to server elapsed time',
+    () async {
+      final events = StreamController<SseEvent>();
+      final startedAt = DateTime(2026, 8, 13, 10, 30);
+      final controller = ChatController(
+        now: () => startedAt,
+        turnStream: (_, _) => events.stream,
+      );
+      addTearDown(() async {
+        await events.close();
+        controller.dispose();
+      });
+
+      final pending = controller.send('开始计时');
+      await Future<void>.delayed(Duration.zero);
+      final agent = controller.messages.last;
+      expect(agent.processingStartedAt, startedAt);
+
+      events.add(SseEvent('done', {'elapsed_ms': 1250}));
+      await events.close();
+      await pending;
+
+      expect(agent.elapsedMs, 1250);
+      expect(agent.streaming, isFalse);
+    },
+  );
+
   test('agent work phase advances monotonically across SSE frames', () async {
     final events = StreamController<SseEvent>();
     final controller = ChatController(turnStream: (_, _) => events.stream);
@@ -43,7 +71,9 @@ void main() {
     'retry replays the failed turn without duplicating the user message',
     () async {
       var attempts = 0;
+      var now = DateTime(2026, 8, 13, 10);
       final controller = ChatController(
+        now: () => now,
         turnStream: (_, _) {
           attempts++;
           if (attempts == 1) {
@@ -58,12 +88,14 @@ void main() {
       addTearDown(controller.dispose);
 
       await controller.send('整理这段录音');
+      final failedStartedAt = controller.messages.last.processingStartedAt;
       expect(controller.error, isNotNull);
       expect(
         controller.messages.where((message) => message.isUser),
         hasLength(1),
       );
 
+      now = now.add(const Duration(seconds: 5));
       await controller.retryLastFailedTurn();
 
       expect(attempts, 2);
@@ -80,6 +112,11 @@ void main() {
             .map((part) => part.text),
         contains('已恢复'),
       );
+      expect(controller.messages.last.processingStartedAt, now);
+      expect(
+        controller.messages.last.processingStartedAt,
+        isNot(failedStartedAt),
+      );
     },
   );
 
@@ -90,7 +127,7 @@ void main() {
         attempts++;
         if (attempts == 1) {
           return Stream<SseEvent>.value(
-            SseEvent('error', {'message': '录音不可访问'}),
+            SseEvent('error', {'message': '录音不可访问', 'elapsed_ms': 2400}),
           );
         }
         return Stream<SseEvent>.value(SseEvent('token', {'text': '重试成功'}));
@@ -100,9 +137,11 @@ void main() {
 
     await controller.send('整理录音');
     expect(controller.error, '录音不可访问');
+    expect(controller.messages.last.elapsedMs, 2400);
 
     await controller.retryLastFailedTurn();
     expect(attempts, 2);
+    expect(controller.messages[1].elapsedMs, isNull);
     expect(
       controller.messages.where((message) => message.isUser),
       hasLength(1),

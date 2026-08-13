@@ -4,6 +4,8 @@ import 'package:eureka/theme_v2/calendar/calendar_time_layout.dart';
 import 'package:eureka/timeline/timeline.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'calendar_test_fixtures.dart';
+
 void main() {
   TimelineItem item({
     required String id,
@@ -201,8 +203,8 @@ void main() {
         skillName: 'notes',
         hasClockTime: true,
       );
-      final captureFallbackAsset = record(
-        id: 'capture-fallback',
+      final notesCreationTime = record(
+        id: 'notes-creation-time',
         at: at,
         kind: 'asset',
         skillName: 'notes',
@@ -238,7 +240,7 @@ void main() {
       expect(scheduledTodo.timing, CalendarRecordTiming.timed);
       expect(captureFallbackTodo.timing, CalendarRecordTiming.untimed);
       expect(clockAsset.timing, CalendarRecordTiming.timed);
-      expect(captureFallbackAsset.timing, CalendarRecordTiming.untimed);
+      expect(notesCreationTime.timing, CalendarRecordTiming.timed);
       expect(periodAsset.timing, CalendarRecordTiming.untimed);
       expect(periodAsset.period, '下午');
       expect(contactCaptureFallback.timing, CalendarRecordTiming.timed);
@@ -259,6 +261,33 @@ void main() {
         'a',
         'b',
       ]);
+    });
+
+    testWidgets('notes render their creation clock instead of no time', (
+      tester,
+    ) async {
+      final note = record(
+        id: 'note-created-in-afternoon',
+        at: DateTime(2026, 7, 9),
+        createdAt: DateTime(2026, 7, 9, 14, 26),
+        kind: 'asset',
+        skillName: 'notes',
+      );
+
+      await tester.pumpWidget(
+        calendarTestHost(
+          CalendarRecordRow(
+            record: note,
+            skills: const {'notes': SkillMeta('📝', '随记')},
+            onTap: () {},
+          ),
+        ),
+      );
+
+      expect(note.timing, CalendarRecordTiming.timed);
+      expect(find.text('14:26'), findsOneWidget);
+      expect(find.text('00:00'), findsNothing);
+      expect(find.text('—'), findsNothing);
     });
   });
 

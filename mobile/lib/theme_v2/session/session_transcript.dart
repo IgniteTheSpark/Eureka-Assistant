@@ -6,6 +6,7 @@ import '../../pages/chat_page.dart' show ChatMessageBubble;
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
 import 'session_analysis_block.dart';
+import 'session_thinking_time.dart';
 import '../capture/thinking_orb.dart';
 
 class SessionTranscript extends StatefulWidget {
@@ -161,6 +162,10 @@ class _SessionTranscriptState extends State<SessionTranscript> {
         ..write(message.id)
         ..write(':')
         ..write(message.streaming)
+        ..write(':')
+        ..write(message.processingStartedAt?.microsecondsSinceEpoch)
+        ..write(':')
+        ..write(message.elapsedMs)
         ..write(':')
         ..write(message.text.length)
         ..write(':')
@@ -342,18 +347,29 @@ class _SessionTranscriptState extends State<SessionTranscript> {
   }
 
   Widget _messageRow(BuildContext context, ChatMessage message) {
-    final renderedBubble = Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: ChatMessageBubble(
-        message,
-        showStreamingStatus: false,
-        onPrecipitate: message.isUser
-            ? null
-            : (skill) => widget.onPrecipitate(message, skill),
-      ),
-    );
     final hasFailure =
         !message.isUser && message.parts.whereType<ErrorPart>().isNotEmpty;
+    final renderedBubble = Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ChatMessageBubble(
+            message,
+            showStreamingStatus: false,
+            showCostFooter: false,
+            onPrecipitate: message.isUser
+                ? null
+                : (skill) => widget.onPrecipitate(message, skill),
+          ),
+          if (!message.isUser &&
+              !message.streaming &&
+              !hasFailure &&
+              message.elapsedMs != null)
+            SessionThinkingFooter(elapsedMs: message.elapsedMs!),
+        ],
+      ),
+    );
     final bubble = !message.isUser && message.streaming
         ? Padding(
             padding: const EdgeInsets.only(bottom: 8),
@@ -361,7 +377,10 @@ class _SessionTranscriptState extends State<SessionTranscript> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (message.parts.isNotEmpty) renderedBubble,
-                SessionAnalysisBlock(phase: message.workPhase),
+                SessionAnalysisBlock(
+                  phase: message.workPhase,
+                  processingStartedAt: message.processingStartedAt,
+                ),
               ],
             ),
           )
@@ -370,7 +389,10 @@ class _SessionTranscriptState extends State<SessionTranscript> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               renderedBubble,
-              SessionTurnFailureBlock(onRetry: widget.onRetry),
+              SessionTurnFailureBlock(
+                onRetry: widget.onRetry,
+                elapsedMs: message.elapsedMs,
+              ),
             ],
           )
         : renderedBubble;

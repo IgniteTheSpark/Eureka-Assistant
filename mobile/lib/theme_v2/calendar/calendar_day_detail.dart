@@ -387,8 +387,8 @@ class _DayBands extends StatelessWidget {
         return _DayBand.evening;
     }
     if (!record.isTimed) return _DayBand.untimed;
-    if (record.effectiveAt.hour < 12) return _DayBand.morning;
-    if (record.effectiveAt.hour < 18) return _DayBand.afternoon;
+    if (record.displayAt.hour < 12) return _DayBand.morning;
+    if (record.displayAt.hour < 18) return _DayBand.afternoon;
     return _DayBand.evening;
   }
 }
@@ -460,7 +460,7 @@ class _DayRecordRow extends StatelessWidget {
     final icon = resolveTimelineItemMeta(item, skills).icon;
     return Semantics(
       label:
-          '${record.isTimed ? calendarTimeLabel(record.effectiveAt) : '没说时间'}，${item.title}',
+          '${record.isTimed ? calendarTimeLabel(record.displayAt) : '没说时间'}，${item.title}',
       button: true,
       onTap: onTap,
       child: ExcludeSemantics(
@@ -477,7 +477,7 @@ class _DayRecordRow extends StatelessWidget {
                     padding: const EdgeInsets.only(top: 14),
                     child: Text(
                       record.isTimed
-                          ? calendarTimeLabel(record.effectiveAt)
+                          ? calendarTimeLabel(record.displayAt)
                           : '—',
                       style: ThemeV2Typography.mono(
                         fontSize: 9,

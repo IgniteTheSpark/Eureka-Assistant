@@ -10,16 +10,18 @@ class CaptureActivityItem {
     required this.phase,
     required this.isRealtime,
     required this.occurredAt,
+    DateTime? phaseStartedAt,
     this.sessionId,
     this.inputTurnId,
     this.resultCount,
-  });
+  }) : phaseStartedAt = phaseStartedAt ?? occurredAt;
 
   final Set<String> aliases;
   final CaptureActivitySource source;
   final CaptureActivityPhase phase;
   final bool isRealtime;
   final DateTime occurredAt;
+  final DateTime phaseStartedAt;
   final String? sessionId;
   final String? inputTurnId;
   final int? resultCount;

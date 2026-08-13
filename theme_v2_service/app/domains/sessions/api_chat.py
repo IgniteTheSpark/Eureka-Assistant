@@ -58,7 +58,13 @@ async def chat(
                 },
             )
         elif completed.public_error is not None:
-            yield _frame("error", {"message": completed.public_error})
+            yield _frame(
+                "error",
+                {
+                    "message": completed.public_error,
+                    "elapsed_ms": completed.elapsed_ms,
+                },
+            )
 
     return StreamingResponse(
         stream(),

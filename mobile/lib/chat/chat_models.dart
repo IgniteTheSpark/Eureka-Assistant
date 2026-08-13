@@ -57,6 +57,7 @@ class ChatMessage {
 
   bool streaming;
   AgentWorkPhase workPhase;
+  DateTime? processingStartedAt;
   int? elapsedMs;
   int? tokens;
 
