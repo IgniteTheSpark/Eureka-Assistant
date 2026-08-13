@@ -359,13 +359,15 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
     );
   }
 
-  List<ThemeV2PageScaffold> _pages() {
+  List<ThemeV2PageScaffold> _pages({required bool continuousToday}) {
     return widget.pages ??
         [
           ThemeV2PageScaffold(
+            extendBodyBehindChrome: continuousToday,
             body: widget.usesTodayDotExperiment
                 ? TodayDotExperimentPage(
                     active: _index == 0,
+                    extendUnderChrome: continuousToday,
                     repository: widget.homeRepository,
                     onCreateAsset: () => _createAsset(context),
                     onCreateReport: () => _createReport(context),
@@ -407,9 +409,14 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
       );
     }
 
-    final pages = _pages();
+    final continuousToday =
+        widget.pages == null &&
+        widget.usesTodayDotExperiment &&
+        ambientTheme.brightness == Brightness.light;
+    final pages = _pages(continuousToday: continuousToday);
     final activePage = pages[_index];
     final standardTopNav = ThemeV2GlobalTopNav(
+      transparentSurface: continuousToday && _index == 0,
       deviceStatus:
           widget.deviceStatus ??
           _deviceStatusAdapter?.value ??

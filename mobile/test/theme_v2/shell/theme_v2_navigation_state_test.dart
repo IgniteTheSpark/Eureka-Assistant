@@ -263,6 +263,79 @@ void main() {
     },
   );
 
+  testWidgets('Today experiment extends one body behind transparent chrome', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _ThemeHost(
+        child: ThemeV2AppShell(
+          showStartupOverlays: false,
+          todayDotExperimentOverride: true,
+          deviceStatus: const DeviceStatusSummary.disconnected(),
+          homeRepository: const _HomeRepository(),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final scaffold = tester.widget<ThemeV2PageScaffold>(
+      find.byType(ThemeV2PageScaffold),
+    );
+    final nav = tester.widget<ThemeV2GlobalTopNav>(
+      find.byType(ThemeV2GlobalTopNav),
+    );
+    expect(scaffold.extendBodyBehindChrome, isTrue);
+    expect(nav.transparentSurface, isTrue);
+
+    await tester.tap(find.bySemanticsLabel('日历'));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .widget<ThemeV2PageScaffold>(find.byType(ThemeV2PageScaffold))
+          .extendBodyBehindChrome,
+      isFalse,
+    );
+    expect(
+      tester
+          .widget<ThemeV2GlobalTopNav>(find.byType(ThemeV2GlobalTopNav))
+          .transparentSurface,
+      isFalse,
+    );
+  });
+
+  testWidgets('Today experiment keeps the existing chrome in dark mode', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _ThemeHost(
+        child: ThemeV2AppShell(
+          showStartupOverlays: false,
+          todayDotExperimentOverride: true,
+          deviceStatus: const DeviceStatusSummary.disconnected(),
+          homeRepository: const _HomeRepository(),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.bySemanticsLabel('切换到夜间'));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .widget<ThemeV2PageScaffold>(find.byType(ThemeV2PageScaffold))
+          .extendBodyBehindChrome,
+      isFalse,
+    );
+    expect(
+      tester
+          .widget<ThemeV2GlobalTopNav>(find.byType(ThemeV2GlobalTopNav))
+          .transparentSurface,
+      isFalse,
+    );
+  });
+
   testWidgets('Home Reka entry opens signals instead of notifications', (
     tester,
   ) async {

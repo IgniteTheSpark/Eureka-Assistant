@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:eureka/theme_v2/home/home_repository.dart';
 import 'package:eureka/theme_v2/home/today_dot_field_controller.dart';
+import 'package:eureka/theme_v2/home/today_dot_field_config.dart';
 import 'package:eureka/theme_v2/home/today_dot_experiment_page.dart';
 import 'package:eureka/theme_v2/home/today_dot_matrix_scene.dart';
 import 'package:eureka/theme_v2/home/today_reka_quick_actions.dart';
@@ -10,7 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('scene exposes a quiet living Reka with a 64 px hotspot', (
+  testWidgets('scene exposes a quiet living Reka with a core-sized hotspot', (
     tester,
   ) async {
     final semantics = tester.ensureSemantics();
@@ -26,6 +27,24 @@ void main() {
     expect(find.byType(CustomPaint), findsWidgets);
 
     semantics.dispose();
+  });
+
+  testWidgets('Reka target covers the configured white core', (tester) async {
+    await tester.pumpWidget(
+      _Host(
+        child: TodayDotMatrixScene(
+          config: const TodayDotFieldConfig(cursorRadius: 60),
+          refreshEmphasis: 0,
+          onRekaTap: (_) {},
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      tester.getSize(find.byKey(TodayDotMatrixScene.rekaTargetKey)),
+      const Size.square(120),
+    );
   });
 
   testWidgets('scene accepts a deterministic date for visual verification', (
@@ -132,7 +151,7 @@ void main() {
 
     expect(anchor, isNotNull);
     expect(anchor!.center, tester.getCenter(target));
-    expect(anchor!.size, const Size.square(64));
+    expect(anchor!.size, const Size.square(108));
   });
 
   testWidgets('inactive scene stops phase and cancels drag', (tester) async {

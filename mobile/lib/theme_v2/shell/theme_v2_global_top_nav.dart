@@ -14,19 +14,21 @@ class ThemeV2GlobalTopNav extends StatelessWidget {
     required this.onDeviceSelected,
     required this.onNotificationsPressed,
     this.unreadNotificationCount = 0,
+    this.transparentSurface = false,
   });
 
   final DeviceStatusSummary deviceStatus;
   final ValueChanged<ThemeV2DeviceTarget> onDeviceSelected;
   final VoidCallback onNotificationsPressed;
   final int unreadNotificationCount;
+  final bool transparentSurface;
   static const double height = 56;
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
     return Material(
-      color: tokens.background,
+      color: transparentSurface ? Colors.transparent : tokens.background,
       child: Container(
         height: height,
         padding: const EdgeInsets.symmetric(horizontal: ThemeV2Spacing.lg),

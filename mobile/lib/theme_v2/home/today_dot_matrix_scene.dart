@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
@@ -14,6 +16,8 @@ class TodayDotMatrixScene extends StatefulWidget {
     this.controller,
     this.simulation,
     this.config = const TodayDotFieldConfig(),
+    this.topChromeInset = 0,
+    this.bottomChromeInset = 0,
     this.menuExpanded = false,
     this.now,
     this.active = true,
@@ -26,6 +30,8 @@ class TodayDotMatrixScene extends StatefulWidget {
   final TodayDotFieldController? controller;
   final TodayDotFieldSimulation? simulation;
   final TodayDotFieldConfig config;
+  final double topChromeInset;
+  final double bottomChromeInset;
   final bool menuExpanded;
   final DateTime? now;
   final bool active;
@@ -36,8 +42,6 @@ class TodayDotMatrixScene extends StatefulWidget {
 
 class _TodayDotMatrixSceneState extends State<TodayDotMatrixScene>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
-  static const _reservedInsets = EdgeInsets.fromLTRB(18, 88, 18, 118);
-
   final GlobalKey _sceneKey = GlobalKey();
   final GlobalKey _rekaGeometryKey = GlobalKey();
   late final TodayDotFieldController _controller;
@@ -48,6 +52,7 @@ class _TodayDotMatrixSceneState extends State<TodayDotMatrixScene>
   Duration? _lastDragTimestamp;
   Offset _dragGrabOffset = Offset.zero;
   Size _lastSize = Size.zero;
+  EdgeInsets? _lastReservedInsets;
   bool? _reduceMotion;
 
   @override
@@ -205,19 +210,30 @@ class _TodayDotMatrixSceneState extends State<TodayDotMatrixScene>
     return LayoutBuilder(
       builder: (context, constraints) {
         final size = constraints.biggest;
-        if (size != _lastSize && !size.isEmpty) {
+        final reservedInsets = EdgeInsets.fromLTRB(
+          18,
+          widget.topChromeInset + 88,
+          18,
+          widget.bottomChromeInset + 38,
+        );
+        if ((size != _lastSize || reservedInsets != _lastReservedInsets) &&
+            !size.isEmpty) {
           _lastSize = size;
-          _controller.layout(size, reservedInsets: _reservedInsets);
+          _lastReservedInsets = reservedInsets;
+          _controller.layout(size, reservedInsets: reservedInsets);
           _simulation.layout(size);
           _stepSimulation(0);
         }
         final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
         final reduceMotion = _reduceMotion ?? true;
-        final copyLeft = (_controller.rekaCenter.dx + 61)
-            .clamp(18.0, size.width - 110)
-            .toDouble();
+        final targetSize = math.max(64.0, widget.config.cursorRadius * 2);
+        final targetRadius = targetSize / 2;
+        final copyLeft =
+            (_controller.rekaCenter.dx + widget.config.cursorRadius + 16)
+                .clamp(18.0, size.width - 110)
+                .toDouble();
         final copyTop = (_controller.rekaCenter.dy - 18)
-            .clamp(80.0, size.height - 90)
+            .clamp(widget.topChromeInset + 80, size.height - 90)
             .toDouble();
 
         return ColoredBox(
@@ -243,7 +259,7 @@ class _TodayDotMatrixSceneState extends State<TodayDotMatrixScene>
               ),
               Positioned(
                 left: 18,
-                top: 14,
+                top: widget.topChromeInset + 14,
                 child: _TodayHeading(now: widget.now ?? DateTime.now()),
               ),
               Positioned(
@@ -261,8 +277,8 @@ class _TodayDotMatrixSceneState extends State<TodayDotMatrixScene>
                 ),
               ),
               Positioned(
-                left: _controller.rekaCenter.dx - 32,
-                top: _controller.rekaCenter.dy - 32,
+                left: _controller.rekaCenter.dx - targetRadius,
+                top: _controller.rekaCenter.dy - targetRadius,
                 child: Semantics(
                   label: 'Reka 快捷操作，可拖动',
                   button: true,
@@ -279,7 +295,7 @@ class _TodayDotMatrixSceneState extends State<TodayDotMatrixScene>
                       onPanCancel: _handlePanCancel,
                       child: SizedBox.square(
                         key: _rekaGeometryKey,
-                        dimension: 64,
+                        dimension: targetSize,
                         child: const SizedBox.expand(),
                       ),
                     ),

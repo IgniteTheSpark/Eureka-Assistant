@@ -4,10 +4,13 @@ import 'package:flutter/material.dart';
 
 import 'home_repository.dart';
 import 'today_dot_field_controller.dart';
+import 'today_dot_field_config.dart';
 import 'today_dot_field_simulation.dart';
 import 'today_dot_matrix_painter.dart';
 import 'today_dot_matrix_scene.dart';
 import 'today_reka_quick_actions.dart';
+import '../shell/theme_v2_floating_dock.dart';
+import '../shell/theme_v2_global_top_nav.dart';
 
 class TodayDotExperimentPage extends StatefulWidget {
   const TodayDotExperimentPage({
@@ -20,6 +23,8 @@ class TodayDotExperimentPage extends StatefulWidget {
     this.active = true,
     this.sceneController,
     this.sceneSimulation,
+    this.config = const TodayDotFieldConfig(),
+    this.extendUnderChrome = false,
   });
 
   static const scrollKey = ValueKey<String>('today-dot-experiment-scroll');
@@ -32,6 +37,8 @@ class TodayDotExperimentPage extends StatefulWidget {
   final bool active;
   final TodayDotFieldController? sceneController;
   final TodayDotFieldSimulation? sceneSimulation;
+  final TodayDotFieldConfig config;
+  final bool extendUnderChrome;
 
   @override
   State<TodayDotExperimentPage> createState() => _TodayDotExperimentPageState();
@@ -165,6 +172,13 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage>
 
   @override
   Widget build(BuildContext context) {
+    final bottomPadding = MediaQuery.paddingOf(context).bottom;
+    final topChromeInset = widget.extendUnderChrome
+        ? ThemeV2GlobalTopNav.height
+        : 0.0;
+    final bottomChromeInset = widget.extendUnderChrome
+        ? ThemeV2FloatingDock.contentClearance + bottomPadding
+        : 0.0;
     return ColoredBox(
       color: TodayDotMatrixPalette.light.surface,
       child: Stack(
@@ -183,6 +197,9 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage>
                     child: AnimatedBuilder(
                       animation: _refreshEmphasis,
                       builder: (context, _) => TodayDotMatrixScene(
+                        config: widget.config,
+                        topChromeInset: topChromeInset,
+                        bottomChromeInset: bottomChromeInset,
                         refreshEmphasis: _refreshEmphasis.value,
                         menuExpanded: _menuExpanded,
                         now: widget.now,
@@ -210,7 +227,7 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage>
             ),
           if (_refreshFailed)
             Positioned(
-              top: 12,
+              top: topChromeInset + 12,
               left: 18,
               right: 18,
               child: _RefreshFailure(onRetry: () => unawaited(_refresh())),
