@@ -1,8 +1,8 @@
 import 'dart:async';
 
 import 'package:eureka/theme_v2/home/home_repository.dart';
+import 'package:eureka/theme_v2/home/today_dot_field_controller.dart';
 import 'package:eureka/theme_v2/home/today_dot_experiment_page.dart';
-import 'package:eureka/theme_v2/home/today_dot_matrix_painter.dart';
 import 'package:eureka/theme_v2/home/today_dot_matrix_scene.dart';
 import 'package:eureka/theme_v2/home/today_reka_quick_actions.dart';
 import 'package:eureka/today/today_data.dart';
@@ -15,10 +15,10 @@ void main() {
   ) async {
     final semantics = tester.ensureSemantics();
     await tester.pumpWidget(
-      _Host(child: TodayDotMatrixScene(refreshEmphasis: 0, onRekaTap: () {})),
+      _Host(child: TodayDotMatrixScene(refreshEmphasis: 0, onRekaTap: (_) {})),
     );
 
-    final reka = find.bySemanticsLabel('Reka 快捷操作');
+    final reka = find.bySemanticsLabel('Reka 快捷操作，可拖动');
     expect(reka, findsOneWidget);
     expect(tester.getSize(reka).width, greaterThanOrEqualTo(64));
     expect(tester.getSize(reka).height, greaterThanOrEqualTo(64));
@@ -36,7 +36,7 @@ void main() {
         child: TodayDotMatrixScene(
           refreshEmphasis: 0,
           now: DateTime(2026, 7, 31),
-          onRekaTap: () {},
+          onRekaTap: (_) {},
         ),
       ),
     );
@@ -47,23 +47,120 @@ void main() {
   testWidgets('Reka breathes only while the Today scene is active', (
     tester,
   ) async {
+    final controller = TodayDotFieldController();
     Widget scene({required bool active}) => _Host(
       disableAnimations: false,
       child: TodayDotMatrixScene(
         active: active,
+        controller: controller,
         refreshEmphasis: 0,
-        onRekaTap: () {},
+        onRekaTap: (_) {},
       ),
     );
 
     await tester.pumpWidget(scene(active: false));
     await tester.pump(const Duration(seconds: 1));
-    expect(_matrixPainter(tester).rekaPhase, 0);
+    expect(controller.breathPhase, 0);
 
     await tester.pumpWidget(scene(active: true));
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
-    expect(_matrixPainter(tester).rekaPhase, greaterThan(0));
+    expect(controller.breathPhase, greaterThan(0));
+  });
+
+  testWidgets('empty background drag does not move Reka', (tester) async {
+    final controller = TodayDotFieldController();
+    await tester.pumpWidget(
+      _Host(
+        disableAnimations: false,
+        child: TodayDotMatrixScene(
+          controller: controller,
+          refreshEmphasis: 0,
+          onRekaTap: (_) {},
+        ),
+      ),
+    );
+    final before = controller.rekaCenter;
+
+    await tester.dragFrom(const Offset(330, 260), const Offset(-90, 80));
+    await tester.pump();
+
+    expect(controller.rekaCenter, before);
+  });
+
+  testWidgets('dragging Reka moves it without opening quick actions', (
+    tester,
+  ) async {
+    final controller = TodayDotFieldController();
+    var taps = 0;
+    await tester.pumpWidget(
+      _Host(
+        disableAnimations: false,
+        child: TodayDotMatrixScene(
+          controller: controller,
+          refreshEmphasis: 0,
+          onRekaTap: (_) => taps++,
+        ),
+      ),
+    );
+    final before = controller.rekaCenter;
+
+    await tester.drag(
+      find.byKey(TodayDotMatrixScene.rekaTargetKey),
+      const Offset(100, -30),
+    );
+    await tester.pump(const Duration(milliseconds: 32));
+
+    expect(controller.rekaCenter.dx, greaterThan(before.dx + 50));
+    expect(taps, 0);
+  });
+
+  testWidgets('tap reports the current global Reka anchor', (tester) async {
+    Rect? anchor;
+    await tester.pumpWidget(
+      _Host(
+        child: TodayDotMatrixScene(
+          refreshEmphasis: 0,
+          onRekaTap: (value) => anchor = value,
+        ),
+      ),
+    );
+    final target = find.byKey(TodayDotMatrixScene.rekaTargetKey);
+
+    await tester.tap(target);
+    await tester.pump();
+
+    expect(anchor, isNotNull);
+    expect(anchor!.center, tester.getCenter(target));
+    expect(anchor!.size, const Size.square(64));
+  });
+
+  testWidgets('inactive scene stops phase and cancels drag', (tester) async {
+    final controller = TodayDotFieldController();
+    Widget build(bool active) => _Host(
+      disableAnimations: false,
+      child: TodayDotMatrixScene(
+        active: active,
+        controller: controller,
+        refreshEmphasis: 0,
+        onRekaTap: (_) {},
+      ),
+    );
+    await tester.pumpWidget(build(true));
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byKey(TodayDotMatrixScene.rekaTargetKey)),
+    );
+    await gesture.moveBy(const Offset(40, 0));
+    await tester.pump();
+    expect(controller.state, TodayRekaMotionState.dragging);
+
+    await tester.pumpWidget(build(false));
+    final phase = controller.breathPhase;
+    await tester.pump(const Duration(seconds: 1));
+
+    expect(controller.state, TodayRekaMotionState.idle);
+    expect(controller.breathPhase, phase);
+    await gesture.cancel();
   });
 
   testWidgets('quick actions invoke only the selected callback', (
@@ -220,15 +317,3 @@ class _Host extends StatelessWidget {
     );
   }
 }
-
-TodayDotMatrixPainter _matrixPainter(WidgetTester tester) =>
-    tester
-            .widget<CustomPaint>(
-              find.byWidgetPredicate(
-                (widget) =>
-                    widget is CustomPaint &&
-                    widget.painter is TodayDotMatrixPainter,
-              ),
-            )
-            .painter!
-        as TodayDotMatrixPainter;

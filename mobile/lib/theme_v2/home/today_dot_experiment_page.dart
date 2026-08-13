@@ -33,7 +33,6 @@ class TodayDotExperimentPage extends StatefulWidget {
 
 class _TodayDotExperimentPageState extends State<TodayDotExperimentPage>
     with SingleTickerProviderStateMixin {
-  final GlobalKey _sceneKey = GlobalKey();
   late ThemeV2HomeRepository _repository;
   late bool _ownsRepository;
   late final AnimationController _refreshEmphasis = AnimationController(
@@ -135,12 +134,7 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage>
     }
   }
 
-  Future<void> _openQuickActions() async {
-    final renderObject = _sceneKey.currentContext?.findRenderObject();
-    if (renderObject is! RenderBox) return;
-    final geometry = TodayDotSceneGeometry.forSize(renderObject.size);
-    final globalCenter = renderObject.localToGlobal(geometry.rekaCenter);
-    final anchor = Rect.fromCenter(center: globalCenter, width: 64, height: 64);
+  Future<void> _openQuickActions(Rect anchor) async {
     setState(() => _menuExpanded = true);
     try {
       await showTodayRekaQuickActions(
@@ -183,12 +177,12 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage>
                     child: AnimatedBuilder(
                       animation: _refreshEmphasis,
                       builder: (context, _) => TodayDotMatrixScene(
-                        key: _sceneKey,
                         refreshEmphasis: _refreshEmphasis.value,
                         menuExpanded: _menuExpanded,
                         now: widget.now,
                         active: widget.active,
-                        onRekaTap: () => unawaited(_openQuickActions()),
+                        onRekaTap: (anchor) =>
+                            unawaited(_openQuickActions(anchor)),
                       ),
                     ),
                   ),

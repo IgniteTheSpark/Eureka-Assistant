@@ -123,8 +123,8 @@ class TodayDotFieldController extends ChangeNotifier {
     final dt = dtSeconds.clamp(0.0, 1 / 20);
     if (reduceMotion) {
       _dragVelocity = Offset.zero;
-      _dragEngagement = 0;
       if (_state != TodayRekaMotionState.dragging) {
+        _dragEngagement = 0;
         _state = TodayRekaMotionState.idle;
       }
       notifyListeners();
