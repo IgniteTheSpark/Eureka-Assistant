@@ -1,21 +1,21 @@
 import 'package:eureka/theme_v2/home/today_dot_field_controller.dart';
+import 'package:eureka/theme_v2/home/today_dot_field_config.dart';
 import 'package:eureka/theme_v2/home/today_dot_field_simulation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('layout builds an 8 px anchored field and reuses stable geometry', () {
-    final simulation = TodayDotFieldSimulation();
-    simulation.layout(const Size(411, 860));
-    final firstNodes = simulation.nodes;
-    final firstRevision = simulation.layoutRevision;
+  test('dotSpacing builds the reusable geometry', () {
+    final simulation = TodayDotFieldSimulation(
+      config: const TodayDotFieldConfig(dotSpacing: 14),
+    );
+    simulation.layout(const Size(42, 42));
+    final nodes = simulation.nodes;
 
-    simulation.layout(const Size(411, 860));
-
-    expect(simulation.interval, 8);
-    expect(simulation.nodes, same(firstNodes));
-    expect(simulation.layoutRevision, firstRevision);
-    expect(simulation.nodes, isNotEmpty);
+    expect(nodes, hasLength(9));
+    expect(nodes.first.anchor, const Offset(7, 7));
+    simulation.layout(const Size(42, 42));
+    expect(identical(nodes, simulation.nodes), isTrue);
   });
 
   test('drag deformation is local, speed-sensitive, and capped', () {
@@ -36,6 +36,7 @@ void main() {
       state: TodayRekaMotionState.dragging,
       dragEngagement: .25,
       breathAmount: 0,
+      fieldPhase: 0,
       reduceMotion: false,
     );
     final slow = (near.position - near.anchor).distance;
@@ -45,6 +46,7 @@ void main() {
       state: TodayRekaMotionState.dragging,
       dragEngagement: 1,
       breathAmount: 0,
+      fieldPhase: 0,
       reduceMotion: false,
     );
 
@@ -65,6 +67,7 @@ void main() {
       state: TodayRekaMotionState.idle,
       dragEngagement: 0,
       breathAmount: 1,
+      fieldPhase: 0,
       reduceMotion: false,
     );
 
@@ -95,6 +98,7 @@ void main() {
         state: TodayRekaMotionState.dragging,
         dragEngagement: 1,
         breathAmount: 0,
+        fieldPhase: 0,
         reduceMotion: false,
       );
     }
@@ -106,6 +110,7 @@ void main() {
         state: TodayRekaMotionState.settling,
         dragEngagement: 0,
         breathAmount: 0,
+        fieldPhase: 0,
         reduceMotion: false,
       );
     }
@@ -129,6 +134,7 @@ void main() {
       state: TodayRekaMotionState.dragging,
       dragEngagement: 1,
       breathAmount: 0,
+      fieldPhase: 0,
       reduceMotion: true,
     );
     final maxOffset = simulation.nodes
@@ -140,6 +146,7 @@ void main() {
       state: TodayRekaMotionState.idle,
       dragEngagement: 0,
       breathAmount: 0,
+      fieldPhase: 0,
       reduceMotion: true,
     );
 
@@ -148,5 +155,69 @@ void main() {
       lessThanOrEqualTo(TodayDotFieldSimulation.reducedMotionDisplacement),
     );
     expect(simulation.isAtRest, isTrue);
+  });
+
+  test('bulge strength and cursor force affect distinct modes', () {
+    final bulge = TodayDotFieldSimulation(
+      config: const TodayDotFieldConfig(
+        dotSpacing: 14,
+        bulgeOnly: true,
+        bulgeStrength: 80,
+      ),
+    )..layout(const Size(280, 280));
+    final physics = TodayDotFieldSimulation(
+      config: const TodayDotFieldConfig(
+        dotSpacing: 14,
+        bulgeOnly: false,
+        cursorForce: .5,
+      ),
+    )..layout(const Size(280, 280));
+
+    for (var frame = 0; frame < 20; frame++) {
+      for (final simulation in [bulge, physics]) {
+        simulation.step(
+          1 / 60,
+          rekaCenter: const Offset(140, 140),
+          state: TodayRekaMotionState.dragging,
+          dragEngagement: 1,
+          breathAmount: 1,
+          fieldPhase: frame / 20,
+          reduceMotion: false,
+        );
+      }
+    }
+
+    expect(bulge.nodes.any((node) => node.position != node.anchor), isTrue);
+    expect(physics.nodes.any((node) => node.velocity.distance > 0), isTrue);
+  });
+
+  test('wave and sparkle are deterministic and configurable', () {
+    final simulation = TodayDotFieldSimulation(
+      config: const TodayDotFieldConfig(
+        dotSpacing: 14,
+        waveAmplitude: 2,
+        sparkle: true,
+      ),
+    )..layout(const Size(280, 280));
+    simulation.step(
+      1 / 60,
+      rekaCenter: const Offset(140, 140),
+      state: TodayRekaMotionState.idle,
+      dragEngagement: 0,
+      breathAmount: 0,
+      fieldPhase: .25,
+      reduceMotion: false,
+    );
+
+    expect(
+      simulation.nodes.any((node) => node.position.dy != node.anchor.dy),
+      isTrue,
+    );
+    final first = List.generate(simulation.nodes.length, simulation.isSparkle);
+    expect(first.where((value) => value), isNotEmpty);
+    expect(
+      List.generate(simulation.nodes.length, simulation.isSparkle),
+      equals(first),
+    );
   });
 }

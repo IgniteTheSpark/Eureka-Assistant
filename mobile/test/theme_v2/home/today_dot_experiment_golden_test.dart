@@ -215,6 +215,7 @@ void _configureState(
         state: controller.state,
         dragEngagement: controller.dragEngagement,
         breathAmount: controller.breathAmount,
+        fieldPhase: controller.breathPhase,
         reduceMotion: true,
       );
       break;
@@ -235,6 +236,7 @@ void _settleDots(
       state: controller.state,
       dragEngagement: controller.dragEngagement,
       breathAmount: controller.breathAmount,
+      fieldPhase: controller.breathPhase,
       reduceMotion: false,
     );
   }

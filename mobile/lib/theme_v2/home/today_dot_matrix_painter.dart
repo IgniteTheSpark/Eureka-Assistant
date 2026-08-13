@@ -102,6 +102,7 @@ class TodayDotMatrixPainter extends CustomPainter {
         state: rekaState,
         dragEngagement: 0,
         breathAmount: resolvedBreath,
+        fieldPhase: rekaPhase ?? 0,
         reduceMotion: reduceMotion,
       );
     }

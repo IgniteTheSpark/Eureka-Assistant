@@ -2,14 +2,19 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import 'today_dot_field_config.dart';
+
 enum TodayRekaMotionState { idle, dragging, settling }
 
 class TodayDotFieldController extends ChangeNotifier {
   static const breathPeriodSeconds = 5.2;
-  static const rekaVisualRadius = 45.0;
   static const maxDragSpeed = 1800.0;
   static const maxInertiaSpeed = 520.0;
   static const edgeAttractionDistance = 72.0;
+
+  TodayDotFieldController({this.config = const TodayDotFieldConfig()});
+
+  final TodayDotFieldConfig config;
 
   TodayRekaMotionState _state = TodayRekaMotionState.idle;
   Rect _safeBounds = Rect.zero;
@@ -53,13 +58,12 @@ class TodayDotFieldController extends ChangeNotifier {
 
   void layout(Size size, {required EdgeInsets reservedInsets}) {
     if (size.isEmpty) return;
-    final horizontalMargin = rekaVisualRadius + 12;
-    final verticalMargin = rekaVisualRadius + 12;
+    final margin = config.cursorRadius + 12;
     final next = Rect.fromLTRB(
-      reservedInsets.left + horizontalMargin,
-      reservedInsets.top + verticalMargin,
-      size.width - reservedInsets.right - horizontalMargin,
-      size.height - reservedInsets.bottom - verticalMargin,
+      reservedInsets.left + margin,
+      reservedInsets.top + margin,
+      size.width - reservedInsets.right - margin,
+      size.height - reservedInsets.bottom - margin,
     );
     assert(next.width > 0 && next.height > 0);
     _safeBounds = next;

@@ -1,4 +1,5 @@
 import 'package:eureka/theme_v2/home/today_dot_field_controller.dart';
+import 'package:eureka/theme_v2/home/today_dot_field_config.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -133,6 +134,26 @@ void main() {
       expect(controller.normalizedRekaPosition.dx, closeTo(before.dx, .02));
       expect(controller.normalizedRekaPosition.dy, closeTo(before.dy, .02));
       expect(controller.safeBounds.contains(controller.rekaCenter), isTrue);
+    });
+
+    test('larger cursor radius expands safe bounds and visual target', () {
+      final small =
+          TodayDotFieldController(
+            config: const TodayDotFieldConfig(cursorRadius: 40),
+          )..layout(
+            const Size(411, 960),
+            reservedInsets: const EdgeInsets.fromLTRB(18, 144, 18, 153),
+          );
+      final large =
+          TodayDotFieldController(
+            config: const TodayDotFieldConfig(cursorRadius: 60),
+          )..layout(
+            const Size(411, 960),
+            reservedInsets: const EdgeInsets.fromLTRB(18, 144, 18, 153),
+          );
+
+      expect(large.safeBounds.left, greaterThan(small.safeBounds.left));
+      expect(large.safeBounds.right, lessThan(small.safeBounds.right));
     });
   });
 }

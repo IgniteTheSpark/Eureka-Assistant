@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import 'today_dot_field_controller.dart';
+import 'today_dot_field_config.dart';
 
 class TodayDotNode {
   TodayDotNode(this.anchor) : position = anchor;
@@ -13,14 +14,12 @@ class TodayDotNode {
 }
 
 class TodayDotFieldSimulation {
-  TodayDotFieldSimulation({this.interval = 8});
+  TodayDotFieldSimulation({this.config = const TodayDotFieldConfig()});
 
-  static const dragRadius = 160.0;
-  static const breathRadius = 120.0;
   static const maxDisplacement = 18.0;
   static const reducedMotionDisplacement = 4.0;
 
-  final double interval;
+  final TodayDotFieldConfig config;
   List<TodayDotNode> _nodes = <TodayDotNode>[];
   Size _size = Size.zero;
   int _layoutRevision = 0;
@@ -38,6 +37,7 @@ class TodayDotFieldSimulation {
   void layout(Size size) {
     if (size == _size || size.isEmpty) return;
     _size = size;
+    final interval = config.dotSpacing;
     final half = interval / 2;
     final nodes = <TodayDotNode>[];
     for (var y = half; y < size.height; y += interval) {
@@ -55,6 +55,7 @@ class TodayDotFieldSimulation {
     required TodayRekaMotionState state,
     required double dragEngagement,
     required double breathAmount,
+    required double fieldPhase,
     required bool reduceMotion,
   }) {
     final dt = dtSeconds.clamp(0.0, 1 / 20);
@@ -64,18 +65,39 @@ class TodayDotFieldSimulation {
       final direction = distance == 0 ? const Offset(1, 0) : delta / distance;
       var target = node.anchor;
 
-      if (state == TodayRekaMotionState.dragging && distance < dragRadius) {
-        final falloff = _smooth(1 - distance / dragRadius);
-        final cap = reduceMotion ? reducedMotionDisplacement : maxDisplacement;
-        target += direction * (falloff * cap * dragEngagement);
-      } else if (!reduceMotion &&
-          state == TodayRekaMotionState.idle &&
-          distance < breathRadius) {
-        final falloff = _smooth(1 - distance / breathRadius);
+      if (distance < config.glowRadius &&
+          state != TodayRekaMotionState.settling) {
+        final falloff = _smooth(1 - distance / config.glowRadius);
+        final strength = config.bulgeStrength / 67;
+        final motionAmount = state == TodayRekaMotionState.dragging
+            ? dragEngagement
+            : breathAmount;
+        final reducedScale = reduceMotion ? .22 : 1.0;
         final angle = math.atan2(delta.dy, delta.dx);
         final asymmetric =
             1 + .08 * math.sin(angle * 3 + .6) + .05 * math.sin(angle * 5 - .8);
-        target += direction * (falloff * 5.5 * breathAmount * asymmetric);
+        final displacement =
+            12 * strength * motionAmount * falloff * asymmetric * reducedScale;
+
+        if (config.bulgeOnly) {
+          target += direction * displacement;
+        } else {
+          target += direction * displacement * .35;
+          if (!reduceMotion) {
+            node.velocity +=
+                direction *
+                (config.cursorForce * 180 * falloff * dragEngagement * dt);
+          }
+        }
+      }
+
+      if (!reduceMotion && config.waveAmplitude > 0) {
+        final wave = math.sin(
+          node.anchor.dx * .035 +
+              node.anchor.dy * .021 +
+              fieldPhase * math.pi * 2,
+        );
+        target += Offset(0, wave * config.waveAmplitude);
       }
 
       if (reduceMotion) {
@@ -92,9 +114,12 @@ class TodayDotFieldSimulation {
       node.position += node.velocity * dt;
 
       final offset = node.position - node.anchor;
-      if (offset.distance > maxDisplacement) {
+      final displacementCap = reduceMotion
+          ? reducedMotionDisplacement
+          : maxDisplacement;
+      if (offset.distance > displacementCap) {
         node.position =
-            node.anchor + offset / offset.distance * maxDisplacement;
+            node.anchor + offset / offset.distance * displacementCap;
         node.velocity *= .5;
       }
       if ((node.position - node.anchor).distance < .025 &&
@@ -105,6 +130,8 @@ class TodayDotFieldSimulation {
     }
     _paintRevision++;
   }
+
+  bool isSparkle(int index) => config.sparkle && ((index * 37 + 17) % 100) < 3;
 
   static double _smooth(double value) {
     final x = value.clamp(0.0, 1.0);

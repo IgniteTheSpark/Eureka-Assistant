@@ -87,6 +87,7 @@ Future<ui.Image> _paintState({
     state: TodayRekaMotionState.idle,
     dragEngagement: 0,
     breathAmount: breathAmount,
+    fieldPhase: 0,
     reduceMotion: false,
   );
   TodayDotMatrixPainter(

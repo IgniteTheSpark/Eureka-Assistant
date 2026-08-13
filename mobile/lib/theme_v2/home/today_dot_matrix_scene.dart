@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import 'today_dot_field_controller.dart';
+import 'today_dot_field_config.dart';
 import 'today_dot_field_simulation.dart';
 import 'today_dot_matrix_painter.dart';
 
@@ -12,6 +13,7 @@ class TodayDotMatrixScene extends StatefulWidget {
     required this.onRekaTap,
     this.controller,
     this.simulation,
+    this.config = const TodayDotFieldConfig(),
     this.menuExpanded = false,
     this.now,
     this.active = true,
@@ -23,6 +25,7 @@ class TodayDotMatrixScene extends StatefulWidget {
   final ValueChanged<Rect> onRekaTap;
   final TodayDotFieldController? controller;
   final TodayDotFieldSimulation? simulation;
+  final TodayDotFieldConfig config;
   final bool menuExpanded;
   final DateTime? now;
   final bool active;
@@ -50,8 +53,10 @@ class _TodayDotMatrixSceneState extends State<TodayDotMatrixScene>
   @override
   void initState() {
     super.initState();
-    _controller = widget.controller ?? TodayDotFieldController();
-    _simulation = widget.simulation ?? TodayDotFieldSimulation();
+    _controller =
+        widget.controller ?? TodayDotFieldController(config: widget.config);
+    _simulation =
+        widget.simulation ?? TodayDotFieldSimulation(config: widget.config);
     _lifecycleState =
         WidgetsBinding.instance.lifecycleState ?? AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
@@ -125,6 +130,7 @@ class _TodayDotMatrixSceneState extends State<TodayDotMatrixScene>
       state: _controller.state,
       dragEngagement: _controller.dragEngagement,
       breathAmount: _controller.breathAmount,
+      fieldPhase: _controller.breathPhase,
       reduceMotion: _reduceMotion ?? true,
     );
   }
