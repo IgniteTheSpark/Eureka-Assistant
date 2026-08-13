@@ -100,6 +100,16 @@ class ApiClient {
     if (res.statusCode >= 400) throw ApiException(res.statusCode, res.body);
   }
 
+  /// DELETE with a JSON body (e.g. account deletion re-authentication).
+  Future<dynamic> deleteWithBody(String path, Map<String, dynamic> body) async {
+    final res = await _client.delete(
+      _uri(path),
+      headers: _headers(json: true),
+      body: jsonEncode(body),
+    );
+    return _decode(res);
+  }
+
   dynamic _decode(http.Response res) {
     // Token expired/invalid while we had one → let the app bounce to login.
     if (res.statusCode == 401 && AuthStore.token != null) {

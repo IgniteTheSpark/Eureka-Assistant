@@ -49,3 +49,10 @@ mobile/test/**/failures/
 # prod TLS certs (acme.sh-managed on the server, never committed)
 deploy/certs/*.pem
 deploy/.env.prod
+
+# Local-only Flutter dependency overrides (private vendor packages).
+# Keeps pubspec.yaml clean with internal git deps while running locally.
+mobile/pubspec_overrides.yaml
+mobile/vendor/
+.omo/
+mobile/*.png

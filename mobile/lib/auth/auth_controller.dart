@@ -28,17 +28,20 @@ class AuthController extends ChangeNotifier {
   static const _kToken = 'eureka_token';
   static const _kEmail = 'eureka_email';
   static const _kUserId = 'eureka_user_id';
+  static const _kOnboardingStatus = 'eureka_onboarding_status';
   // Deep-link scheme the backend redirects to after 百智 OAuth (matches
   // EUREKA_APP_SCHEME server-side). The web-auth session intercepts it.
   static const _kBaizhiScheme = 'eureka';
 
   String? _email;
   String? _userId;
+  String? _onboardingStatus;
   bool _loaded = false;
   int _sessionEpoch = 0;
 
   String? get email => _email;
   String? get userId => _userId;
+  String? get onboardingStatus => _onboardingStatus;
   bool get isAuthed => AuthStore.token != null && _userId != null;
   bool get loaded => _loaded;
   int get sessionEpoch => _sessionEpoch;
@@ -63,8 +66,12 @@ class AuthController extends ChangeNotifier {
         AuthStore.token = sp.getString(_kToken);
         _email = sp.getString(_kEmail);
         _userId = sp.getString(_kUserId);
+        _onboardingStatus = sp.getString(_kOnboardingStatus);
         AuthStore.userId = _userId;
-        if (AuthStore.token != null && _userId == null) {
+        // Restore the user when identity or onboarding status is missing
+        // (covers sessions minted before onboarding-status persistence).
+        if (AuthStore.token != null &&
+            (_userId == null || _onboardingStatus == null)) {
           await _restoreCurrentUser();
         }
         if (isAuthed) _sessionEpoch++;
@@ -78,16 +85,10 @@ class AuthController extends ChangeNotifier {
   }
 
   /// Returns null on success, or a user-facing error message.
-  Future<String?> login(String email, String password) =>
-      _auth('/api/auth/login', email, password);
-
-  Future<String?> register(String email, String password) =>
-      _auth('/api/auth/register', email, password);
-
-  Future<String?> _auth(String path, String email, String password) async {
+  Future<String?> login(String email, String password) async {
     final api = ApiClient();
     try {
-      final res = await api.postJson(path, {
+      final res = await api.postJson('/api/auth/login', {
         'email': email.trim(),
         'password': password,
       });
@@ -99,8 +100,113 @@ class AuthController extends ChangeNotifier {
         token,
         userId: user?['id']?.toString(),
         email: user?['email'] as String?,
+        onboardingStatus: user?['onboarding_status'] as String?,
       );
       if (!ok) return '登录失败，请重试';
+      return null;
+    } on ApiException catch (e) {
+      return _errMsg(e);
+    } catch (_) {
+      return '网络错误，请检查连接';
+    } finally {
+      api.close();
+    }
+  }
+
+  /// Request a 6-digit verification code for `register` or `password_reset`.
+  /// Returns null on success or a user-facing error message.
+  Future<String?> requestVerificationCode(String email, String purpose) async {
+    final api = ApiClient();
+    try {
+      await api.postJson('/api/auth/verification-codes', {
+        'email': email.trim(),
+        'purpose': purpose,
+      });
+      return null;
+    } on ApiException catch (e) {
+      return _errMsg(e);
+    } catch (_) {
+      return '网络错误，请检查连接';
+    } finally {
+      api.close();
+    }
+  }
+
+  /// Register with an email verification code (§5.5). Terms acceptance is
+  /// required server-side.
+  Future<String?> register(
+    String email,
+    String verificationCode,
+    String password, {
+    String termsVersion = '2026-08-v1',
+  }) async {
+    final api = ApiClient();
+    try {
+      final res = await api.postJson('/api/auth/register', {
+        'email': email.trim(),
+        'verification_code': verificationCode,
+        'password': password,
+        'terms_version': termsVersion,
+        'terms_accepted': true,
+      });
+      final m = (res as Map).cast<String, dynamic>();
+      final token = m['token'] as String?;
+      if (token == null) return '注册失败，请重试';
+      final user = (m['user'] as Map?)?.cast<String, dynamic>();
+      final ok = await _finishLogin(
+        token,
+        userId: user?['id']?.toString(),
+        email: user?['email'] as String?,
+        onboardingStatus: user?['onboarding_status'] as String?,
+      );
+      if (!ok) return '注册失败，请重试';
+      return null;
+    } on ApiException catch (e) {
+      return _errMsg(e);
+    } catch (_) {
+      return '网络错误，请检查连接';
+    } finally {
+      api.close();
+    }
+  }
+
+  /// Verify a password-reset code and replace the password (§5.5).
+  Future<String?> resetPassword(
+    String email,
+    String verificationCode,
+    String newPassword,
+  ) async {
+    final api = ApiClient();
+    try {
+      await api.postJson('/api/auth/password-reset', {
+        'email': email.trim(),
+        'verification_code': verificationCode,
+        'new_password': newPassword,
+      });
+      return null;
+    } on ApiException catch (e) {
+      return _errMsg(e);
+    } catch (_) {
+      return '网络错误，请检查连接';
+    } finally {
+      api.close();
+    }
+  }
+
+  /// Change the authenticated user's password (§8.3). Returns the replacement
+  /// token on success (old sessions are revoked).
+  Future<String?> changePassword(String currentPassword, String newPassword) async {
+    final api = ApiClient();
+    try {
+      final res = await api.patchJson('/api/account/password', {
+        'current_password': currentPassword,
+        'new_password': newPassword,
+      });
+      final m = (res as Map).cast<String, dynamic>();
+      final token = m['token'] as String?;
+      if (token == null) return '修改密码失败，请重试';
+      AuthStore.token = token;
+      notifyListeners();
       return null;
     } on ApiException catch (e) {
       return _errMsg(e);
@@ -152,6 +258,7 @@ class AuthController extends ChangeNotifier {
     String token, {
     required String? userId,
     required String? email,
+    String? onboardingStatus,
   }) async {
     await _resetPerUserState();
     AuthStore.token = token;
@@ -168,6 +275,7 @@ class AuthController extends ChangeNotifier {
     }
     _userId = resolvedUserId;
     _email = resolvedEmail;
+    _onboardingStatus = onboardingStatus;
     AuthStore.userId = resolvedUserId;
     _sessionEpoch++;
     final sp = await SharedPreferences.getInstance();
@@ -178,9 +286,21 @@ class AuthController extends ChangeNotifier {
     } else {
       await sp.remove(_kEmail);
     }
+    if (onboardingStatus != null) {
+      await sp.setString(_kOnboardingStatus, onboardingStatus);
+    }
     notifyListeners();
     _tryReconnectAfterAuth();
     return true;
+  }
+
+  /// Update the durable onboarding status after skip/complete; the gate reads
+  /// this to route pending users into onboarding.
+  Future<void> updateOnboardingStatus(String status) async {
+    _onboardingStatus = status;
+    final sp = await SharedPreferences.getInstance();
+    await sp.setString(_kOnboardingStatus, status);
+    notifyListeners();
   }
 
   void _tryReconnectAfterAuth() {
@@ -207,6 +327,7 @@ class AuthController extends ChangeNotifier {
     await sp.remove(_kToken);
     await sp.remove(_kEmail);
     await sp.remove(_kUserId);
+    await sp.remove(_kOnboardingStatus);
     await sp.remove(
       'eureka:active_chat_session',
     ); // don't resume across accounts
@@ -222,13 +343,23 @@ class AuthController extends ChangeNotifier {
   Future<void> _resetPerUserState() async {
     AppEvents.instance.stop();
     FlashFileWorkflow.instance.stop();
-    await stopRingCapture();
-    await DeviceSilentReconnect.instance.stop();
-    await BleFlashManager.instance.stop();
-    await DeviceController.instance.disconnectForLogout();
+    // Each cleanup is best-effort: on Web the native BLE/ring plugins throw
+    // MissingPluginException, which must not block logout or auth reset.
+    await _guard(() => stopRingCapture());
+    await _guard(() => DeviceSilentReconnect.instance.stop());
+    await _guard(() => BleFlashManager.instance.stop());
+    await _guard(() => DeviceController.instance.disconnectForLogout());
     PetController.instance.reset();
     RekaNudges.instance.reset();
     RekaNotifications.instance.clear();
+  }
+
+  Future<void> _guard(Future<void> Function() action) async {
+    try {
+      await action();
+    } catch (_) {
+      // Best-effort cleanup: swallow platform errors.
+    }
   }
 
   void _onUnauthorized() {
@@ -241,6 +372,7 @@ class AuthController extends ChangeNotifier {
       sp.remove(_kToken);
       sp.remove(_kEmail);
       sp.remove(_kUserId);
+      sp.remove(_kOnboardingStatus);
     });
     notifyListeners();
   }
@@ -254,14 +386,19 @@ class AuthController extends ChangeNotifier {
       await sp.remove(_kToken);
       await sp.remove(_kEmail);
       await sp.remove(_kUserId);
+      await sp.remove(_kOnboardingStatus);
       return;
     }
     _userId = id;
     _email = me?['email'] as String? ?? _email;
+    _onboardingStatus = me?['onboarding_status'] as String? ?? _onboardingStatus;
     AuthStore.userId = id;
     final sp = await SharedPreferences.getInstance();
     await sp.setString(_kUserId, id);
     if (_email != null) await sp.setString(_kEmail, _email!);
+    if (_onboardingStatus != null) {
+      await sp.setString(_kOnboardingStatus, _onboardingStatus!);
+    }
   }
 
   Future<Map<String, dynamic>?> _fetchCurrentUser() async {
@@ -282,6 +419,7 @@ class AuthController extends ChangeNotifier {
     AuthStore.userId = null;
     _email = null;
     _userId = null;
+    _onboardingStatus = null;
   }
 
   String? _clean(Object? value) {

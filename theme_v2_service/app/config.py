@@ -66,6 +66,27 @@ class Settings(BaseSettings):
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
     )
 
+    # --- Email verification (§5.2 / §5.3) ---
+    email_provider: str = "mock"  # mock | aliyun_directmail | disabled
+    email_from_address: str = "noreply@example.com"
+    email_from_name: str = "UReka"
+    email_code_ttl_seconds: int = 600  # 10 minutes
+    email_resend_cooldown_seconds: int = 60
+    email_send_per_hour_per_email: int = 5
+    email_send_per_day_per_email: int = 20
+    email_send_per_hour_per_ip: int = 20
+    email_send_per_day_per_ip: int = 100
+    email_max_failed_attempts: int = 5
+    email_lockout_seconds: int = 900  # 15 minutes
+    # Aliyun DirectMail (production mainland-China provider)
+    directmail_access_key_id: str = ""
+    directmail_access_key_secret: str = ""
+    directmail_account_name: str = ""
+    # Legal links / versions (front end pulls via /api/auth/config)
+    terms_url: str = ""
+    privacy_url: str = ""
+    terms_version_current: str = "2026-08-v1"
+
     @model_validator(mode="after")
     def reject_insecure_prod(self) -> "Settings":
         if self.env in {"prod", "production"} and self.jwt_secret == "dev-insecure-change-me":

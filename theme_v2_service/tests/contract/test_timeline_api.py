@@ -11,6 +11,8 @@ from app.domains.capture.models import (
 )
 from app.main import app
 
+from tests.fakes.auth_helpers import register_user
+
 
 @pytest_asyncio.fixture
 async def client(session):
@@ -26,12 +28,7 @@ def _headers(token: str) -> dict[str, str]:
 
 
 async def _register(client: AsyncClient, email: str) -> tuple[str, str]:
-    response = await client.post(
-        "/api/auth/register",
-        json={"email": email, "password": "secret1"},
-    )
-    assert response.status_code == 200
-    body = response.json()
+    body = await register_user(client, email, password="secret123")
     return body["token"], body["user"]["id"]
 
 
