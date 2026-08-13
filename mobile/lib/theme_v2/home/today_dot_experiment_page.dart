@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'home_repository.dart';
+import 'today_dot_field_controller.dart';
+import 'today_dot_field_simulation.dart';
 import 'today_dot_matrix_painter.dart';
 import 'today_dot_matrix_scene.dart';
 import 'today_reka_quick_actions.dart';
@@ -16,6 +18,8 @@ class TodayDotExperimentPage extends StatefulWidget {
     this.onStartChat,
     this.now,
     this.active = true,
+    this.sceneController,
+    this.sceneSimulation,
   });
 
   static const scrollKey = ValueKey<String>('today-dot-experiment-scroll');
@@ -26,6 +30,8 @@ class TodayDotExperimentPage extends StatefulWidget {
   final VoidCallback? onStartChat;
   final DateTime? now;
   final bool active;
+  final TodayDotFieldController? sceneController;
+  final TodayDotFieldSimulation? sceneSimulation;
 
   @override
   State<TodayDotExperimentPage> createState() => _TodayDotExperimentPageState();
@@ -181,6 +187,8 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage>
                         menuExpanded: _menuExpanded,
                         now: widget.now,
                         active: widget.active,
+                        controller: widget.sceneController,
+                        simulation: widget.sceneSimulation,
                         onRekaTap: (anchor) =>
                             unawaited(_openQuickActions(anchor)),
                       ),

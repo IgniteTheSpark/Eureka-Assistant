@@ -250,7 +250,7 @@ void main() {
       expect(find.byKey(ThemeV2FloatingDock.dockKey), findsOneWidget);
 
       for (final label in ['创建资产', '创建报告', '开始新聊天']) {
-        await tester.tap(find.bySemanticsLabel('Reka 快捷操作'));
+        await tester.tap(find.bySemanticsLabel('Reka 快捷操作，可拖动'));
         await tester.pumpAndSettle();
         await tester.tap(find.text(label));
         await tester.pumpAndSettle();
