@@ -12,6 +12,12 @@ class AppConfig {
   ///   flutter run --dart-define=THEME_V2=false
   static const themeV2 = bool.fromEnvironment('THEME_V2', defaultValue: true);
 
+  /// Enables the reversible Light Today dot-matrix evaluation surface.
+  static const todayDotExperiment = bool.fromEnvironment(
+    'TODAY_DOT_EXPERIMENT',
+    defaultValue: false,
+  );
+
   static const apiBase = String.fromEnvironment(
     'API_BASE',
     defaultValue: 'https://api.ureka.chat',

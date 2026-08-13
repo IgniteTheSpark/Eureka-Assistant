@@ -6,6 +6,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'theme_v2_test_app.dart';
 
 void main() {
+  test('Today dot experiment is opt-in', () {
+    const expected = bool.fromEnvironment(
+      'TODAY_DOT_EXPERIMENT',
+      defaultValue: false,
+    );
+    expect(AppConfig.todayDotExperiment, expected);
+  });
+
   testWidgets('a build without rollout defines selects the Theme V2 shell', (
     tester,
   ) async {

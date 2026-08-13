@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../app_shell.dart' show scheduleShellStartupSurface;
+import '../../config.dart';
 import '../../data_revision.dart';
 import '../../pages/calendar_page.dart' show calendarHome;
 import '../../pages/device_pairing_page.dart';
@@ -53,6 +54,7 @@ class ThemeV2AppShell extends StatefulWidget {
     this.rekaSignalRepository,
     this.captureActivityCoordinator,
     this.onCaptureActivitySelected,
+    this.todayDotExperimentOverride,
     this.initialIndex = const int.fromEnvironment('START_TAB', defaultValue: 0),
     this.showStartupOverlays = true,
   }) : assert(deviceStatus == null || deviceStatusAdapter == null);
@@ -78,7 +80,11 @@ class ThemeV2AppShell extends StatefulWidget {
   final RekaSignalRepository? rekaSignalRepository;
   final CaptureActivityCoordinator? captureActivityCoordinator;
   final ValueChanged<CaptureActivityItem>? onCaptureActivitySelected;
+  final bool? todayDotExperimentOverride;
   final int initialIndex;
+
+  bool get usesTodayDotExperiment =>
+      todayDotExperimentOverride ?? AppConfig.todayDotExperiment;
 
   /// Test seam only. Production keeps START_OVERLAY and morning briefing on.
   final bool showStartupOverlays;
