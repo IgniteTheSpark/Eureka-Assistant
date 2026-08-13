@@ -4,6 +4,7 @@ import 'package:eureka/theme/theme_controller.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/home/today_dot_experiment_page.dart';
 import 'package:eureka/theme_v2/home/today_dot_field_controller.dart';
+import 'package:eureka/theme_v2/home/today_dot_field_config.dart';
 import 'package:eureka/theme_v2/home/today_dot_field_simulation.dart';
 import 'package:eureka/theme_v2/shell/device_status_summary.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_floating_dock.dart';
@@ -16,6 +17,7 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   const surface = ValueKey<String>('today-dot-experiment-golden');
   const size = Size(411, 960);
+  const config = TodayDotFieldConfig();
 
   setUpAll(() async {
     await (FontLoader(
@@ -42,8 +44,8 @@ void main() {
 
   for (final state in _GoldenState.values) {
     testWidgets('Today dot experiment ${state.name} light 411', (tester) async {
-      final controller = TodayDotFieldController();
-      final simulation = TodayDotFieldSimulation();
+      final controller = TodayDotFieldController(config: config);
+      final simulation = TodayDotFieldSimulation(config: config);
       addTearDown(controller.dispose);
 
       await _pumpGolden(
@@ -52,12 +54,17 @@ void main() {
         size: size,
         controller: controller,
         simulation: simulation,
+        config: config,
         state: state,
       );
 
       expect(find.text('7月31日 · 周五'), findsOneWidget);
       expect(find.text('今天很安静，我在这里。'), findsOneWidget);
       expect(find.byKey(ThemeV2FloatingDock.dockKey), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.byType(TodayDotExperimentPage)).dy,
+        lessThan(tester.getBottomLeft(find.byType(ThemeV2GlobalTopNav)).dy),
+      );
       await expectLater(
         find.byKey(surface),
         matchesGoldenFile('goldens/today-dot-${state.fileName}-411-light.png'),
@@ -67,8 +74,8 @@ void main() {
 
   testWidgets('Today dot experiment exhale tall light 411', (tester) async {
     const tallSize = Size(411, 1080);
-    final controller = TodayDotFieldController();
-    final simulation = TodayDotFieldSimulation();
+    final controller = TodayDotFieldController(config: config);
+    final simulation = TodayDotFieldSimulation(config: config);
     addTearDown(controller.dispose);
 
     await _pumpGolden(
@@ -77,7 +84,13 @@ void main() {
       size: tallSize,
       controller: controller,
       simulation: simulation,
+      config: config,
       state: _GoldenState.exhale,
+    );
+
+    expect(
+      tester.getTopLeft(find.byType(TodayDotExperimentPage)).dy,
+      lessThan(tester.getBottomLeft(find.byType(ThemeV2GlobalTopNav)).dy),
     );
 
     await expectLater(
@@ -133,6 +146,7 @@ Future<void> _pumpGolden(
   required Size size,
   required TodayDotFieldController controller,
   required TodayDotFieldSimulation simulation,
+  required TodayDotFieldConfig config,
   required _GoldenState state,
 }) async {
   tester.view.devicePixelRatio = 1;
@@ -146,7 +160,9 @@ Future<void> _pumpGolden(
     child: RepaintBoundary(
       key: surface,
       child: ThemeV2PageScaffold(
+        extendBodyBehindChrome: true,
         topNav: const ThemeV2GlobalTopNav(
+          transparentSurface: true,
           deviceStatus: DeviceStatusSummary.disconnected(),
           onDeviceSelected: _noopDeviceTarget,
           onNotificationsPressed: _noop,
@@ -156,6 +172,8 @@ Future<void> _pumpGolden(
           onDestinationSelected: _noopIndex,
         ),
         body: TodayDotExperimentPage(
+          config: config,
+          extendUnderChrome: true,
           now: DateTime(2026, 7, 31),
           active: false,
           sceneController: controller,
