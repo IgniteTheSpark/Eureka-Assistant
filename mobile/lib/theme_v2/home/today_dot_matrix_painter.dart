@@ -133,7 +133,7 @@ class TodayDotMatrixPainter extends CustomPainter {
     }
 
     _paintRekaGlow(canvas, resolvedCenter, resolvedBreath);
-    _paintRekaCore(canvas, resolvedCenter, resolvedBreath);
+    _paintRekaRise(canvas, resolvedCenter, resolvedBreath);
 
     if (rekaState != TodayRekaMotionState.dragging &&
         resolvedEyeOpacity > .001) {
@@ -161,49 +161,110 @@ class TodayDotMatrixPainter extends CustomPainter {
       Paint()
         ..shader = RadialGradient(
           colors: [
-            config.glowColor.withValues(alpha: .16 * strength),
-            config.glowColor.withValues(alpha: .055 * strength),
+            config.glowColor.withValues(alpha: .06 * strength),
+            config.glowColor.withValues(alpha: .022 * strength),
             config.glowColor.withValues(alpha: 0),
           ],
-          stops: const [0, .46, 1],
+          stops: const [0, .58, 1],
         ).createShader(rect),
     );
   }
 
-  void _paintRekaCore(Canvas canvas, Offset center, double breath) {
+  void _paintRekaRise(Canvas canvas, Offset center, double breath) {
     final strength = reduceMotion ? .82 : .78 + breath * .22;
     final radius =
         config.cursorRadius *
         (reduceMotion ? 1 : .96 + breath.clamp(0.0, 1.0) * .04);
-    final rect = Rect.fromCircle(center: center, radius: radius);
-    canvas.drawCircle(
-      center,
-      radius,
-      Paint()
-        ..shader = RadialGradient(
-          center: const Alignment(-.22, -.28),
-          colors: [
-            Colors.white.withValues(alpha: .94 * strength),
-            Colors.white.withValues(alpha: .76 * strength),
-            Colors.white.withValues(alpha: .18 * strength),
-            Colors.white.withValues(alpha: 0),
-          ],
-          stops: const [0, .34, .76, 1],
-        ).createShader(rect),
+    _paintSoftLightField(
+      canvas,
+      center: center + Offset(-radius * .08, -radius * .04),
+      horizontalRadius: radius * 1.6,
+      verticalRadius: radius * 1.14,
+      alignment: const Alignment(-.04, -.08),
+      strength: strength,
+      peakAlpha: .86,
+    );
+    _paintSoftLightField(
+      canvas,
+      center: center + Offset(-radius * .24, -radius * .22),
+      horizontalRadius: radius * .78,
+      verticalRadius: radius * .66,
+      alignment: const Alignment(-.24, -.28),
+      strength: strength,
+      peakAlpha: .46,
+    );
+    _paintSoftLightField(
+      canvas,
+      center: center + Offset(radius * .18, radius * .16),
+      horizontalRadius: radius * .92,
+      verticalRadius: radius * .72,
+      alignment: const Alignment(-.08, -.12),
+      strength: strength,
+      peakAlpha: .22,
     );
   }
 
-  void _paintEyes(Canvas canvas, Offset center, double opacity, Paint paint) {
-    paint.color = palette.eye.withValues(
-      alpha: palette.eye.a * opacity.clamp(0.0, 1.0),
+  void _paintSoftLightField(
+    Canvas canvas, {
+    required Offset center,
+    required double horizontalRadius,
+    required double verticalRadius,
+    required Alignment alignment,
+    required double strength,
+    required double peakAlpha,
+  }) {
+    final horizontalScale = horizontalRadius / verticalRadius;
+    final shaderRect = Rect.fromCircle(
+      center: Offset.zero,
+      radius: verticalRadius,
     );
+    canvas
+      ..save()
+      ..translate(center.dx, center.dy)
+      ..scale(horizontalScale, 1)
+      ..drawCircle(
+        Offset.zero,
+        verticalRadius,
+        Paint()
+          ..shader = RadialGradient(
+            center: alignment,
+            colors: [
+              Colors.white.withValues(alpha: peakAlpha * strength),
+              Colors.white.withValues(alpha: peakAlpha * strength * .62),
+              Colors.white.withValues(alpha: peakAlpha * strength * .42),
+              Colors.white.withValues(alpha: 0),
+            ],
+            stops: const [0, .34, .7, 1],
+          ).createShader(shaderRect),
+      )
+      ..restore();
+  }
+
+  void _paintEyes(Canvas canvas, Offset center, double opacity, Paint paint) {
+    final resolvedOpacity = opacity.clamp(0.0, 1.0);
     final eyeOffset = config.cursorRadius * .28;
-    for (final eyeX in [-eyeOffset, eyeOffset]) {
-      canvas.drawCircle(
-        Offset(_snap(center.dx + eyeX), _snap(center.dy)),
-        math.max(1.8, config.dotRadius * 1.35),
-        paint,
-      );
+    final ledRadius = math.max(1.25, config.dotRadius * .72);
+    final pitch = math.max(5.0, config.dotRadius * 3.0);
+    for (final eyeX in [center.dx - eyeOffset, center.dx + eyeOffset]) {
+      for (var row = -1; row <= 1; row++) {
+        for (var column = -1; column <= 1; column++) {
+          final corner = row.abs() == 1 && column.abs() == 1;
+          final edge = row == 0 || column == 0;
+          final ledStrength = corner ? .46 : (edge ? .78 : 1.0);
+          final ledCenter = Offset(
+            _snap(eyeX + column * pitch),
+            _snap(center.dy + row * pitch),
+          );
+          paint.color = palette.eye.withValues(
+            alpha: palette.eye.a * resolvedOpacity * ledStrength * .18,
+          );
+          canvas.drawCircle(ledCenter, ledRadius * 2.2, paint);
+          paint.color = palette.eye.withValues(
+            alpha: palette.eye.a * resolvedOpacity * ledStrength,
+          );
+          canvas.drawCircle(ledCenter, ledRadius, paint);
+        }
+      }
     }
   }
 

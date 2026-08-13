@@ -33,7 +33,7 @@ class TodayDotFieldConfig {
   /// Center-to-center spacing between dots in logical pixels.
   final double dotSpacing;
 
-  /// Radius of the visible white Reka convex core in this mobile adaptation.
+  /// Radius of the visible white Reka rise in this mobile adaptation.
   final double cursorRadius;
 
   /// Force applied to nearby dots when [bulgeOnly] is false.

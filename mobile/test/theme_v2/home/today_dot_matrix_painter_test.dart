@@ -56,10 +56,10 @@ void main() {
     expect(same.shouldRepaint(first), isFalse);
   });
 
-  test('Reka is a white convex core with an independent black glow', () async {
+  test('Reka rise spreads beyond a circular core without a dark rim', () async {
     const config = TodayDotFieldConfig(
-      cursorRadius: 32,
-      glowRadius: 72,
+      cursorRadius: 36,
+      glowRadius: 76,
       dotSpacing: 14,
       glowColor: Colors.black,
     );
@@ -70,31 +70,65 @@ void main() {
       eyeOpacity: 0,
     );
 
-    final center = await _pixel(image, 100, 100);
-    final halo = await _pixel(image, 150, 100);
+    final center = await _pixel(image, 94, 94);
+    final horizontalFalloff = await _pixel(image, 140, 100);
+    final verticalFalloff = await _pixel(image, 100, 140);
     final outside = await _pixel(image, 190, 100);
 
     expect(_brightness(center), greaterThan(_brightness(outside)));
-    expect(_brightness(halo), lessThan(_brightness(outside)));
+    expect(_brightness(horizontalFalloff), greaterThan(_brightness(outside)));
+    expect(horizontalFalloff, isNot(verticalFalloff));
   });
 
-  test('eyes are local to the white core and hidden while dragging', () async {
-    final idle = await _renderPainter(
+  test('eyes render as two warm 3 by 3 LED matrices', () async {
+    final visible = await _renderPainter(
       config: const TodayDotFieldConfig(),
       rekaCenter: const Offset(100, 100),
       breathAmount: 1,
       eyeOpacity: 1,
+    );
+    final hidden = await _renderPainter(
+      config: const TodayDotFieldConfig(),
+      rekaCenter: const Offset(100, 100),
+      breathAmount: 1,
+      eyeOpacity: 0,
+    );
+
+    for (final eyeCenterX in [85, 115]) {
+      for (final row in [-1, 0, 1]) {
+        for (final column in [-1, 0, 1]) {
+          expect(
+            await _pixel(visible, eyeCenterX + column * 5, 100 + row * 5),
+            isNot(await _pixel(hidden, eyeCenterX + column * 5, 100 + row * 5)),
+          );
+        }
+      }
+    }
+    expect(
+      _warmth(await _pixel(visible, 85, 100)),
+      greaterThan(_warmth(await _pixel(visible, 80, 95))),
+    );
+  });
+
+  test('robot eyes remain hidden while dragging', () async {
+    final hidden = await _renderPainter(
+      config: const TodayDotFieldConfig(),
+      rekaCenter: const Offset(100, 100),
+      breathAmount: 1,
+      eyeOpacity: 0,
     );
     final dragging = await _renderPainter(
       config: const TodayDotFieldConfig(),
       rekaCenter: const Offset(100, 100),
       rekaState: TodayRekaMotionState.dragging,
       breathAmount: 1,
-      eyeOpacity: 0,
+      eyeOpacity: 1,
     );
 
-    expect(await _pixel(idle, 85, 100), isNot(await _pixel(dragging, 85, 100)));
-    expect(await _pixel(idle, 10, 10), await _pixel(dragging, 10, 10));
+    expect(
+      await _regionBytes(hidden, const Rect.fromLTWH(72, 88, 56, 24)),
+      await _regionBytes(dragging, const Rect.fromLTWH(72, 88, 56, 24)),
+    );
   });
 
   test('gradient and sparkle parameters affect dot rendering', () async {
@@ -192,6 +226,8 @@ Future<Color> _pixel(ui.Image image, int x, int y) async {
 }
 
 int _brightness(Color color) => ((color.r + color.g + color.b) * 255).round();
+
+int _warmth(Color color) => ((color.r - color.b) * 255).round();
 
 Future<List<int>> _regionBytes(ui.Image image, Rect region) async {
   final recorder = ui.PictureRecorder();
