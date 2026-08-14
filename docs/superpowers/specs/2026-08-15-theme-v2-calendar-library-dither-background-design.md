@@ -1,4 +1,4 @@
-# Theme V2 Calendar and Library Dither Background Design
+# Theme V2 Dither Surfaces and Today Agenda Design
 
 Date: 2026-08-15
 Status: Approved for implementation planning
@@ -11,6 +11,11 @@ non-interactive background field. Visible foreground content creates local,
 constant-strength pressure in that field, making the content feel seated in the
 same material system as Today without turning dense information surfaces into
 glass panels.
+
+Restore the main branch's Today-agenda contract inside the renewed Today page.
+The right-aligned agenda banner summarizes the next future time group. Tapping
+it expands the Todo/Event timeline inside Today rather than navigating to the
+Calendar tab.
 
 Calendar flows horizontally to suggest time advancing. Library flows downward
 to suggest accumulated assets settling. The content pressure never changes in
@@ -30,6 +35,11 @@ visibility change.
   current card hierarchy.
 - Keep animation continuous across internal surface transitions.
 - Bound shader and layout work on dense pages.
+- Keep the Today date on the left and align the complete agenda summary to the
+  right.
+- Represent simultaneous Todo and Event records as one upcoming time group in
+  the compact banner.
+- Restore the in-Today expanded timeline and its direct item-detail actions.
 
 ## Non-goals
 
@@ -43,6 +53,11 @@ visibility change.
   information architecture.
 - No page-specific shader implementation. The pages vary only through shared
   presets and source geometry.
+- No Calendar-tab navigation from the Today agenda banner.
+- No carousel, marquee, or automatic title rotation inside the agenda banner.
+- No "in progress" state. Once a start time arrives, the banner advances to the
+  next future time group.
+- No redesign of Todo or Event detail surfaces as part of the agenda work.
 
 ## Chosen Direction
 
@@ -55,6 +70,79 @@ Three directions were compared:
 Direction 2 is selected. It preserves the material relationship to Today while
 keeping whitespace and card boundaries legible. Empty grid cells, decorative
 controls, and offscreen content do not become pressure sources.
+
+## Today Agenda Banner and Timeline
+
+### Banner placement
+
+The renewed Today header remains one horizontal row:
+
+- The localized date occupies the left side.
+- The complete agenda banner occupies the right side.
+- The banner's time, countdown, summary, and empty-state copy align right.
+- The entire visible banner is one minimum-44-point semantic button.
+
+The banner remains visually compact. It is a summary and entry point, not a
+miniature timeline.
+
+### Upcoming-group selection
+
+The banner derives its content only from today's supported Todo and Event
+records. Timed records strictly after the current local minute are sorted by
+start time. All records sharing the first record's local year, month, day,
+hour, and minute form the next group.
+
+Records inside one group sort deterministically:
+
+1. Event records.
+2. Todo records.
+3. Stable record ID.
+
+The banner renders:
+
+- The shared start time and total count, for example `10:30 · 3 项`.
+- A countdown to the shared start time.
+- At most the first two titles, followed by `+N` when records remain, for
+  example `周会、提交方案 +1`.
+
+The banner does not cycle between titles. At the start minute the whole group
+leaves the banner and the next future group appears. When no future group
+exists, the right-aligned empty state reads `今天暂无安排` and remains tappable.
+
+### Expanded Today timeline
+
+Tapping any part of the banner changes the renewed Today page from its living
+surface presentation to its agenda presentation. It must not call the shell's
+Calendar destination callback.
+
+The agenda presentation reuses the established main-branch `HomeAgendaPanel`
+contract:
+
+- It remains inside the Today page between the floating top and bottom docks.
+- It includes only today's Todo and Event records, sorted chronologically.
+- Records sharing one minute retain the existing grouped time-node behavior.
+- The current-time marker remains visible.
+- Each record opens its existing Todo or Event detail.
+- The explicit collapse action returns to the living Today surface.
+
+While the agenda presentation is open, the draggable Reka object and output
+birth choreography are not painted above the timeline. Their state is retained
+and resumes when the timeline closes. This keeps timeline gestures and record
+actions unobstructed.
+
+Opening and closing uses the existing Theme V2 standard fade-and-short-slide
+transition and honors Reduce Motion.
+
+### Ownership
+
+The renewed Today page owns its local `today` versus `agenda` presentation
+state. `TodayLivingSurface` continues to expose a single `onOpenAgenda` action,
+but that action changes local presentation instead of selecting a bottom-nav
+destination. The shell no longer owns Today-agenda navigation.
+
+The banner and expanded timeline consume the same loaded `TodayData` snapshot,
+so opening the timeline does not trigger another fetch or cause the visible
+agenda to mechanically refresh.
 
 ## Shared Architecture
 
@@ -222,6 +310,30 @@ remain most visible in page whitespace and around displaced content edges.
 
 ## Testing
 
+### Today agenda
+
+- The header keeps the date on the left and the agenda banner on the right at
+  supported phone widths.
+- All banner text is right-aligned and the complete banner hit target opens the
+  local agenda presentation.
+- One upcoming record shows its time, countdown, and title without a count
+  suffix.
+- Multiple Todo/Event records at one minute show one shared time, the total
+  count, at most two titles, and the correct `+N` remainder.
+- Same-time records sort Event before Todo and use stable IDs as the final
+  tie-break.
+- The clock advancing into a group's start minute selects the next strictly
+  future group without showing an in-progress state.
+- The empty state remains tappable and opens an empty Today timeline.
+- Opening the banner does not select the Calendar tab or issue a second Today
+  data request.
+- The expanded timeline contains only Todo and Event records, keeps same-minute
+  grouping, and opens the correct existing detail for each record.
+- Reka and output birth visuals do not obstruct the expanded timeline and
+  resume after collapse.
+- Reduce Motion removes the presentation slide while preserving the state
+  change.
+
 ### Shared primitive
 
 - Existing Today shader and fallback behavior remains unchanged after the
@@ -258,6 +370,14 @@ remain most visible in page whitespace and around displaced content edges.
 
 ## Acceptance Criteria
 
+- The renewed Today header visibly aligns its agenda banner to the right of the
+  date.
+- A simultaneous upcoming group is summarized as one time and count without
+  carousel or title rotation.
+- Tapping the agenda banner expands the Todo/Event timeline inside Today; it
+  never switches to Calendar.
+- The expanded timeline can open individual Todo and Event details and collapse
+  back to the living Today surface without refetching.
 - Every approved Calendar and Library surface visibly shares the Today dither
   material at a calmer intensity.
 - Visible semantic content locally pushes the field at one uniform strength.
