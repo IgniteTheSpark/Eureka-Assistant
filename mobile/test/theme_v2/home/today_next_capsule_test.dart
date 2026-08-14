@@ -25,7 +25,7 @@ void main() {
   test('next group excludes the displayed minute and groups equal minutes', () {
     final now = DateTime(2026, 8, 14, 14, 30);
     final group = todayNextGroup([
-      _item('current', '当前事项', DateTime(2026, 8, 14, 14, 30)),
+      _item('current', '当前事项', DateTime(2026, 8, 14, 14, 30, 40)),
       _item('next-a', '下一项', DateTime(2026, 8, 14, 15)),
       _item('next-b', '同分钟事项', DateTime(2026, 8, 14, 15, 0, 40)),
       _item('later', '更晚事项', DateTime(2026, 8, 14, 16)),

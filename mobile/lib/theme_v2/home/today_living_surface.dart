@@ -38,22 +38,34 @@ class TodayLivingSurface extends StatefulWidget {
   State<TodayLivingSurface> createState() => _TodayLivingSurfaceState();
 }
 
-class _TodayLivingSurfaceState extends State<TodayLivingSurface> {
+class _TodayLivingSurfaceState extends State<TodayLivingSurface>
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late final TodayOutputCoordinator _coordinator =
       widget.outputCoordinator ?? TodayOutputCoordinator();
   late final bool _ownsCoordinator = widget.outputCoordinator == null;
+  late final AnimationController _ambientMotion = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 120),
+  );
+  late AppLifecycleState _lifecycleState;
   bool _reconciling = false;
+  bool _reduceMotion = false;
   final Map<String, Offset> _assetSpawnCenters = {};
 
   @override
   void initState() {
     super.initState();
+    _lifecycleState =
+        WidgetsBinding.instance.lifecycleState ?? AppLifecycleState.resumed;
+    WidgetsBinding.instance.addObserver(this);
     _coordinator.addListener(_changed);
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _reduceMotion = MediaQuery.disableAnimationsOf(context);
+    _syncAmbientMotion();
     _reconcile();
   }
 
@@ -61,7 +73,26 @@ class _TodayLivingSurfaceState extends State<TodayLivingSurface> {
   void didUpdateWidget(covariant TodayLivingSurface oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!widget.active && oldWidget.active) _coordinator.cancelAll();
+    if (oldWidget.active != widget.active) _syncAmbientMotion();
     _reconcile();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _lifecycleState = state;
+    _syncAmbientMotion();
+  }
+
+  void _syncAmbientMotion() {
+    final shouldRun =
+        widget.active &&
+        !_reduceMotion &&
+        _lifecycleState == AppLifecycleState.resumed;
+    if (shouldRun && !_ambientMotion.isAnimating) {
+      _ambientMotion.repeat();
+    } else if (!shouldRun && _ambientMotion.isAnimating) {
+      _ambientMotion.stop(canceled: false);
+    }
   }
 
   void _reconcile() {
@@ -86,8 +117,10 @@ class _TodayLivingSurfaceState extends State<TodayLivingSurface> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _coordinator.removeListener(_changed);
     if (_ownsCoordinator) _coordinator.dispose();
+    _ambientMotion.dispose();
     super.dispose();
   }
 
@@ -109,20 +142,35 @@ class _TodayLivingSurfaceState extends State<TodayLivingSurface> {
       builder: (context, constraints) {
         final contentHeight = constraints.maxHeight - 74;
         final assetChamberTop = 74 + contentHeight / 3;
+        final localRekaCenter = Offset(
+          widget.rekaCenter.dx - 18,
+          widget.rekaCenter.dy,
+        );
         return Padding(
           key: const ValueKey('today-living-surface'),
           padding: const EdgeInsets.symmetric(horizontal: 18),
           child: Stack(
             fit: StackFit.expand,
             children: [
-              Positioned.fill(
-                top: 74,
+              AnimatedPositioned(
+                key: const ValueKey('today-local-dither-field-position'),
+                duration: _reduceMotion
+                    ? Duration.zero
+                    : const Duration(milliseconds: 140),
+                curve: Curves.easeOutCubic,
+                left: localRekaCenter.dx - 140,
+                top: localRekaCenter.dy - 140,
+                width: 280,
+                height: 280,
                 child: IgnorePointer(
                   child: TodayDitherMaterial(
                     key: const ValueKey('today-local-dither-field'),
                     shape: TodayDitherShape.field,
-                    color: context.themeV2.foreground.withValues(alpha: .09),
-                    strength: .24,
+                    color: context.themeV2.foreground.withValues(alpha: .08),
+                    strength: .28,
+                    seed: 31,
+                    motion: _ambientMotion,
+                    flow: .34,
                   ),
                 ),
               ),
@@ -151,6 +199,7 @@ class _TodayLivingSurfaceState extends State<TodayLivingSurface> {
                     flex: 1,
                     child: TodaySignalBand(
                       items: stableSignals,
+                      motion: _ambientMotion,
                       onOpenSignal: widget.onOpenSignal,
                     ),
                   ),
@@ -163,6 +212,7 @@ class _TodayLivingSurfaceState extends State<TodayLivingSurface> {
                       skills: widget.data.skills,
                       active: widget.active,
                       spawnCenters: _assetSpawnCenters,
+                      motion: _ambientMotion,
                     ),
                   ),
                 ],
@@ -174,6 +224,7 @@ class _TodayLivingSurfaceState extends State<TodayLivingSurface> {
                       'today-output-owner-${output.kind.name}-${output.id}',
                     ),
                     item: output,
+                    motion: _ambientMotion,
                     onHandoff: output.kind == TodayOutputKind.asset
                         ? (point) {
                             _assetSpawnCenters[output.id] = Offset(

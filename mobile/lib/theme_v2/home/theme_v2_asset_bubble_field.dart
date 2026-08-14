@@ -11,6 +11,8 @@ import '../../timeline/timeline.dart';
 import '../asset_detail/asset_entity_ref.dart';
 import '../asset_detail/open_asset_detail.dart';
 import '../foundation/theme_v2_theme.dart';
+import 'today_dither_material.dart';
+import 'today_region_watermark.dart';
 
 Offset themeV2GravityForAcceleration(double x, double y) {
   const magnitude = 20.0;
@@ -55,6 +57,8 @@ class ThemeV2AssetBubbleField extends StatefulWidget {
     this.active = true,
     this.gravityStream,
     this.onOpenAsset,
+    this.spawnCenters = const {},
+    this.motion,
   });
 
   final List<PoolAsset> assets;
@@ -63,6 +67,8 @@ class ThemeV2AssetBubbleField extends StatefulWidget {
   final bool active;
   final Stream<Offset>? gravityStream;
   final ValueChanged<PoolAsset>? onOpenAsset;
+  final Map<String, Offset> spawnCenters;
+  final Animation<double>? motion;
 
   void _openAsset(BuildContext context, PoolAsset asset) {
     final callback = onOpenAsset;
@@ -224,6 +230,15 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
     );
   }
 
+  Offset _spawnCenter(PoolAsset asset, double radius, Offset fallback) {
+    final configured = widget.spawnCenters[asset.id];
+    if (configured == null) return fallback;
+    return Offset(
+      configured.dx.clamp(radius, math.max(radius, _box.width - radius)),
+      configured.dy.clamp(radius, math.max(radius, _box.height - radius)),
+    );
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -380,7 +395,9 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
       final radius = radii[index];
       field.addBubble(
         asset.id,
-        _reduceMotion ? _settledCenter(index, radius) : spawnCenters[index],
+        _reduceMotion
+            ? _settledCenter(index, radius)
+            : _spawnCenter(asset, radius, spawnCenters[index]),
         radius,
       );
     }
@@ -445,7 +462,11 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
         addition.asset.id,
         _reduceMotion
             ? _settledCenter(addition.index, addition.radius)
-            : spawnCenters[additionIndex],
+            : _spawnCenter(
+                addition.asset,
+                addition.radius,
+                spawnCenters[additionIndex],
+              ),
         addition.radius,
       );
     }
@@ -515,7 +536,6 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
 
   @override
   Widget build(BuildContext context) {
-    final tokens = context.themeV2;
     return LayoutBuilder(
       builder: (context, constraints) {
         final box = constraints.biggest;
@@ -528,51 +548,11 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
         return Stack(
           fit: StackFit.expand,
           children: [
-            Positioned(
-              right: 18,
-              bottom: 82,
-              child: IgnorePointer(
-                child: Text(
-                  '${widget.trueCount}',
-                  style: TextStyle(
-                    color: tokens.accent.withValues(alpha: 0.07),
-                    fontFamily: 'Geist',
-                    fontSize: 112,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -6,
-                    height: 1.15,
-                  ),
-                ),
-              ),
+            TodayRegionWatermark(
+              count: widget.trueCount,
+              label: 'Reka 生成',
+              alignment: Alignment.bottomRight,
             ),
-            Positioned(
-              right: 24,
-              bottom: 72,
-              child: IgnorePointer(
-                child: Text(
-                  '今日生成',
-                  style: TextStyle(
-                    color: tokens.accent.withValues(alpha: 0.28),
-                    fontFamily: 'Geist Mono',
-                    fontSize: 9,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 1.2,
-                    height: 1.15,
-                  ),
-                ),
-              ),
-            ),
-            if (widget.assets.isEmpty)
-              Center(
-                child: Text(
-                  '今天生成的资产会落在这里',
-                  style: TextStyle(
-                    color: tokens.muted,
-                    fontFamily: 'Geist',
-                    fontSize: 12,
-                  ),
-                ),
-              ),
             for (final snapshot in _retiring)
               Positioned(
                 key: ValueKey('theme-v2-retiring-bubble-${snapshot.asset.id}'),
@@ -602,6 +582,7 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                             asset: snapshot.asset,
                             skills: widget.skills,
                             index: snapshot.index,
+                            motion: widget.motion,
                             onTap: _noop,
                           ),
                         ),
@@ -615,6 +596,7 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                 child: _ThemeV2CompactAssetGrid(
                   assets: widget.assets,
                   skills: widget.skills,
+                  motion: widget.motion,
                   onOpenAsset: (asset) => widget._openAsset(context, asset),
                 ),
               )
@@ -714,6 +696,7 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                                                   asset: asset,
                                                   skills: widget.skills,
                                                   index: index,
+                                                  motion: widget.motion,
                                                   onTap: () =>
                                                       widget._openAsset(
                                                         context,
@@ -746,11 +729,13 @@ class _ThemeV2CompactAssetGrid extends StatelessWidget {
   const _ThemeV2CompactAssetGrid({
     required this.assets,
     required this.skills,
+    required this.motion,
     required this.onOpenAsset,
   });
 
   final List<PoolAsset> assets;
   final Map<String, SkillMeta> skills;
+  final Animation<double>? motion;
   final ValueChanged<PoolAsset> onOpenAsset;
 
   @override
@@ -802,6 +787,7 @@ class _ThemeV2CompactAssetGrid extends StatelessWidget {
                     asset: asset,
                     skills: skills,
                     index: index,
+                    motion: motion,
                     onTap: () => onOpenAsset(asset),
                   ),
                 ),
@@ -819,39 +805,30 @@ class _ThemeV2BubbleVisual extends StatelessWidget {
     required this.asset,
     required this.skills,
     required this.index,
+    required this.motion,
     required this.onTap,
   });
 
   final PoolAsset asset;
   final Map<String, SkillMeta> skills;
   final int index;
+  final Animation<double>? motion;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
     final highlighted = index < 5;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: highlighted ? null : tokens.background.withValues(alpha: 0.78),
-        gradient: highlighted ? _bubbleGradient(context, index) : null,
-        shape: BoxShape.circle,
-        border: Border.all(
-          color: highlighted
-              ? Colors.white.withValues(alpha: 0.4)
-              : tokens.border,
-        ),
-        boxShadow: highlighted
-            ? const [
-                BoxShadow(
-                  color: Color(0x55697BFF),
-                  offset: Offset(0, 5),
-                  blurRadius: 14,
-                  spreadRadius: -5,
-                ),
-              ]
-            : null,
-      ),
+    return TodayDitherMaterial(
+      shape: TodayDitherShape.circle,
+      color: _bubbleDitherColor(
+        context,
+        index,
+      ).withValues(alpha: highlighted ? .92 : .55),
+      strength: highlighted ? .82 : .52,
+      seed: asset.id.hashCode,
+      motion: motion,
+      flow: .18,
       child: Material(
         color: Colors.transparent,
         shape: const CircleBorder(),
@@ -878,36 +855,13 @@ class _ThemeV2BubbleVisual extends StatelessWidget {
   }
 }
 
-LinearGradient _bubbleGradient(BuildContext context, int index) {
+Color _bubbleDitherColor(BuildContext context, int index) {
   final dark = Theme.of(context).brightness == Brightness.dark;
   return switch (index) {
-    0 => LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [
-        dark ? const Color(0xFF8A82FF) : const Color(0xFF25B6D6),
-        const Color(0xFF58D6FF),
-      ],
-    ),
-    1 => const LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [Color(0xFF8A82FF), Color(0xFFD06BFF)],
-    ),
-    2 => const LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [Color(0xFF32D7A1), Color(0xFF58D6FF)],
-    ),
-    3 => const LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [Color(0xFFFF9B68), Color(0xFFE36BFF)],
-    ),
-    _ => const LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [Color(0xFF6F7CFF), Color(0xFF58D6FF)],
-    ),
+    0 => dark ? const Color(0xFF8A82FF) : const Color(0xFF159DBE),
+    1 => const Color(0xFFA25BE3),
+    2 => const Color(0xFF20B985),
+    3 => const Color(0xFFE7764C),
+    _ => const Color(0xFF6574E8),
   };
 }

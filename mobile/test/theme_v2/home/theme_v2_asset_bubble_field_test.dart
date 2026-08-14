@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:eureka/theme_v2/asset_detail/asset_entity_ref.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/home/theme_v2_asset_bubble_field.dart';
+import 'package:eureka/theme_v2/home/today_dither_material.dart';
 import 'package:eureka/timeline/timeline.dart';
 import 'package:eureka/today/today_data.dart';
 import 'package:flutter/material.dart';
@@ -176,7 +177,7 @@ void main() {
         expect(firstRowCount, (width / 44).floor(), reason: '$width px');
         _expectSeparateTargetsInside(visibleTargets, fieldRect);
         expect(find.text('50'), findsOneWidget);
-        expect(find.text('今日生成'), findsOneWidget);
+        expect(find.text('Reka 生成'), findsOneWidget);
         expect(gravityListenCount, 0);
       }
 
@@ -225,14 +226,42 @@ void main() {
     },
   );
 
-  testWidgets('empty chamber preserves its watermark and guidance', (
+  testWidgets('empty chamber omits its watermark and empty copy', (
     tester,
   ) async {
     await _pumpField(tester, assets: const [], disableAnimations: true);
 
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('今日生成'), findsOneWidget);
-    expect(find.text('今天生成的资产会落在这里'), findsOneWidget);
+    expect(find.text('0'), findsNothing);
+    expect(find.text('Reka 生成'), findsNothing);
+    expect(find.text('今天生成的资产会落在这里'), findsNothing);
+  });
+
+  testWidgets('bubble dither uses asset identity and shared motion', (
+    tester,
+  ) async {
+    const motion = AlwaysStoppedAnimation<double>(.35);
+    await _pumpField(
+      tester,
+      assets: [asset],
+      disableAnimations: true,
+      motion: motion,
+    );
+
+    final paint = tester.widget<CustomPaint>(
+      find.descendant(
+        of: find.byKey(
+          const ValueKey('theme-v2-asset-bubble-rotation-asset-1'),
+        ),
+        matching: find.byWidgetPredicate(
+          (widget) =>
+              widget is CustomPaint && widget.painter is TodayDitherPainter,
+        ),
+      ),
+    );
+    final painter = paint.painter! as TodayDitherPainter;
+    expect(painter.seed, asset.id.hashCode);
+    expect(identical(painter.motion, motion), isTrue);
+    expect(painter.flow, greaterThan(0));
   });
 
   testWidgets('compact metadata refresh opens the updated same-id asset', (
@@ -903,6 +932,7 @@ Future<void> _pumpField(
   Stream<Offset>? gravityStream,
   Map<String, SkillMeta> skills = const {},
   ValueChanged<PoolAsset>? onOpenAsset,
+  Animation<double>? motion,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = size;
@@ -923,6 +953,7 @@ Future<void> _pumpField(
             active: active,
             gravityStream: gravityStream,
             onOpenAsset: onOpenAsset,
+            motion: motion,
           ),
         ),
       ),

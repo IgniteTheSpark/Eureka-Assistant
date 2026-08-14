@@ -9,9 +9,26 @@ import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
 
 List<ChainItem> todayNextGroup(List<ChainItem> items, DateTime now) {
+  final nowMinute = DateTime(
+    now.year,
+    now.month,
+    now.day,
+    now.hour,
+    now.minute,
+  );
   final future =
       items
-          .where((item) => item.timed && item.at.isAfter(now))
+          .where((item) {
+            final at = item.at;
+            final itemMinute = DateTime(
+              at.year,
+              at.month,
+              at.day,
+              at.hour,
+              at.minute,
+            );
+            return item.timed && itemMinute.isAfter(nowMinute);
+          })
           .toList(growable: false)
         ..sort((a, b) => a.at.compareTo(b.at));
   if (future.isEmpty) return const [];
