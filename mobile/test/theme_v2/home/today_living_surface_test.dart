@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
-import 'package:eureka/theme_v2/home/today_dither_field.dart';
+import 'package:eureka/theme_v2/foundation/theme_v2_dither_field.dart';
 import 'package:eureka/theme_v2/home/today_living_surface.dart';
 import 'package:eureka/today/today_data.dart';
 import 'package:flutter/material.dart';
@@ -25,7 +25,7 @@ void main() {
       find.byKey(const ValueKey('today-local-dither-field')),
       findsNothing,
     );
-    expect(find.byType(TodayDitherField), findsNWidgets(2));
+    expect(find.byType(ThemeV2DitherField), findsNWidgets(2));
     expect(find.byKey(const ValueKey('today-container-seam')), findsOneWidget);
   });
 
@@ -47,7 +47,7 @@ void main() {
       ),
     );
     await tester.pump();
-    final field = tester.widget<TodayDitherField>(
+    final field = tester.widget<ThemeV2DitherField>(
       find.byKey(const ValueKey('today-signal-dither-field')),
     );
     final motion = field.motion!;

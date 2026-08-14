@@ -12,7 +12,7 @@ import '../../timeline/timeline.dart';
 import '../asset_detail/asset_entity_ref.dart';
 import '../asset_detail/open_asset_detail.dart';
 import '../foundation/theme_v2_theme.dart';
-import 'today_dither_field.dart';
+import '../foundation/theme_v2_dither_field.dart';
 import 'today_region_watermark.dart';
 
 Offset themeV2GravityForAcceleration(double x, double y) {
@@ -563,9 +563,9 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                 Positioned.fill(
                   child: AnimatedBuilder(
                     animation: _repaint,
-                    builder: (context, _) => TodayDitherField(
+                    builder: (context, _) => ThemeV2DitherField(
                       key: const ValueKey('today-asset-dither-field'),
-                      config: TodayDitherFieldConfig.asset(
+                      config: ThemeV2DitherFieldConfig.asset(
                         waveColor: context.themeV2.foreground,
                         opacity: Theme.of(context).brightness == Brightness.dark
                             ? .30
@@ -573,13 +573,13 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                       ),
                       sources: [
                         for (final bubble in field?.bubbles ?? const <Bubble>[])
-                          TodayDitherSource.circle(
+                          ThemeV2DitherSource.circle(
                             center: Offset(bubble.x, bubble.y),
                             radius: bubble.r,
                             energy: _ditherEnergy(bubble),
                           ),
                         for (final snapshot in _retiring)
-                          TodayDitherSource.circle(
+                          ThemeV2DitherSource.circle(
                             center: snapshot.center,
                             radius: snapshot.radius,
                             energy: .16,
@@ -805,9 +805,9 @@ class _ThemeV2CompactAssetGrid extends StatelessWidget {
         return Stack(
           fit: StackFit.expand,
           children: [
-            TodayDitherField(
+            ThemeV2DitherField(
               key: const ValueKey('today-asset-dither-field'),
-              config: TodayDitherFieldConfig.asset(
+              config: ThemeV2DitherFieldConfig.asset(
                 waveColor: context.themeV2.foreground,
                 opacity: Theme.of(context).brightness == Brightness.dark
                     ? .30
@@ -815,7 +815,7 @@ class _ThemeV2CompactAssetGrid extends StatelessWidget {
               ),
               sources: [
                 for (var index = 0; index < assets.length; index++)
-                  TodayDitherSource.circle(
+                  ThemeV2DitherSource.circle(
                     center: Offset(
                       (index % columns + .5) * cellWidth,
                       top +

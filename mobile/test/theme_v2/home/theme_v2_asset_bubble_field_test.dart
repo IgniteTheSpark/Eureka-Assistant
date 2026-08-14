@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:eureka/theme_v2/asset_detail/asset_entity_ref.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/home/theme_v2_asset_bubble_field.dart';
-import 'package:eureka/theme_v2/home/today_dither_field.dart';
+import 'package:eureka/theme_v2/foundation/theme_v2_dither_field.dart';
 import 'package:eureka/theme_v2/home/today_dither_material.dart';
 import 'package:eureka/theme_v2/home/today_region_watermark.dart';
 import 'package:eureka/timeline/timeline.dart';
@@ -263,7 +263,7 @@ void main() {
         disableAnimations: true,
         brightness: brightness,
       );
-      final field = tester.widget<TodayDitherField>(
+      final field = tester.widget<ThemeV2DitherField>(
         find.byKey(const ValueKey('today-asset-dither-field')),
       );
       final count = tester.widget<Text>(find.text('1'));
@@ -319,11 +319,11 @@ void main() {
       motion: motion,
     );
 
-    final field = tester.widget<TodayDitherField>(
+    final field = tester.widget<ThemeV2DitherField>(
       find.byKey(const ValueKey('today-asset-dither-field')),
     );
     expect(field.sources, hasLength(1));
-    expect(field.sources.single.shape, TodayDitherSourceShape.circle);
+    expect(field.sources.single.shape, ThemeV2DitherSourceShape.circle);
     expect(identical(field.motion, motion), isTrue);
     expect(field.config.opacity, greaterThanOrEqualTo(.28));
     final outline = tester.widget<DecoratedBox>(
@@ -352,7 +352,7 @@ void main() {
       gravityStream: const Stream<Offset>.empty(),
       motion: const AlwaysStoppedAnimation<double>(.2),
     );
-    TodayDitherField field() => tester.widget<TodayDitherField>(
+    ThemeV2DitherField field() => tester.widget<ThemeV2DitherField>(
       find.byKey(const ValueKey('today-asset-dither-field')),
     );
     final restingEnergy = field().sources.single.energy;

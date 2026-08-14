@@ -3,29 +3,29 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
-import 'today_dither_material.dart';
+import '../home/today_dither_material.dart';
 
-enum TodayDitherSourceShape { circle, capsule }
+enum ThemeV2DitherSourceShape { circle, capsule }
 
 @immutable
-class TodayDitherSource {
-  const TodayDitherSource.circle({
+class ThemeV2DitherSource {
+  const ThemeV2DitherSource.circle({
     required this.center,
     required double radius,
     this.energy = 0,
-  }) : shape = TodayDitherSourceShape.circle,
+  }) : shape = ThemeV2DitherSourceShape.circle,
        _radius = radius,
        _capsuleSize = null;
 
-  const TodayDitherSource.capsule({
+  const ThemeV2DitherSource.capsule({
     required this.center,
     required Size size,
     this.energy = 0,
-  }) : shape = TodayDitherSourceShape.capsule,
+  }) : shape = ThemeV2DitherSourceShape.capsule,
        _radius = 0,
        _capsuleSize = size;
 
-  final TodayDitherSourceShape shape;
+  final ThemeV2DitherSourceShape shape;
   final Offset center;
   final double _radius;
   final Size? _capsuleSize;
@@ -34,13 +34,13 @@ class TodayDitherSource {
   Size get size => _capsuleSize ?? Size.square(_radius * 2);
 }
 
-double todayDitherPressureAt(Offset point, TodayDitherSource source) {
+double themeV2DitherPressureAt(Offset point, ThemeV2DitherSource source) {
   final delta = point - source.center;
   final halfWidth = source.size.width / 2;
   final halfHeight = source.size.height / 2;
   final signedDistance = switch (source.shape) {
-    TodayDitherSourceShape.circle => delta.distance - halfWidth,
-    TodayDitherSourceShape.capsule => () {
+    ThemeV2DitherSourceShape.circle => delta.distance - halfWidth,
+    ThemeV2DitherSourceShape.capsule => () {
       final segment = math.max(0.0, halfWidth - halfHeight);
       final x = math.max(0.0, delta.dx.abs() - segment);
       return math.sqrt(x * x + delta.dy * delta.dy) - halfHeight;
@@ -56,8 +56,8 @@ double todayDitherPressureAt(Offset point, TodayDitherSource source) {
 }
 
 @immutable
-class TodayDitherFieldConfig {
-  const TodayDitherFieldConfig.signal({
+class ThemeV2DitherFieldConfig {
+  const ThemeV2DitherFieldConfig.signal({
     this.waveColor = const Color(0xFF6D7480),
     this.colorNum = 4,
     this.pixelSize = 4,
@@ -69,7 +69,7 @@ class TodayDitherFieldConfig {
     this.displacementStrength = .92,
   });
 
-  const TodayDitherFieldConfig.asset({
+  const ThemeV2DitherFieldConfig.asset({
     this.waveColor = const Color(0xFF69717B),
     this.colorNum = 4,
     this.pixelSize = 4,
@@ -79,6 +79,42 @@ class TodayDitherFieldConfig {
     this.flowDirection = const Offset(.1, 1),
     this.opacity = .16,
     this.displacementStrength = .88,
+  });
+
+  const ThemeV2DitherFieldConfig.calendar({
+    this.waveColor = const Color(0xFF6D7480),
+    this.colorNum = 4,
+    this.pixelSize = 4,
+    this.waveAmplitude = .24,
+    this.waveFrequency = 2.8,
+    this.waveSpeed = .035,
+    this.flowDirection = const Offset(1, .08),
+    this.opacity = .28,
+    this.displacementStrength = .84,
+  });
+
+  const ThemeV2DitherFieldConfig.library({
+    this.waveColor = const Color(0xFF69717B),
+    this.colorNum = 4,
+    this.pixelSize = 4,
+    this.waveAmplitude = .24,
+    this.waveFrequency = 2.6,
+    this.waveSpeed = .028,
+    this.flowDirection = const Offset(.1, 1),
+    this.opacity = .28,
+    this.displacementStrength = .84,
+  });
+
+  const ThemeV2DitherFieldConfig.raw({
+    required this.waveColor,
+    required this.colorNum,
+    required this.pixelSize,
+    required this.waveAmplitude,
+    required this.waveFrequency,
+    required this.waveSpeed,
+    required this.flowDirection,
+    required this.opacity,
+    required this.displacementStrength,
   });
 
   final Color waveColor;
@@ -91,11 +127,11 @@ class TodayDitherFieldConfig {
   final double opacity;
   final double displacementStrength;
 
-  TodayDitherFieldConfig copyWith({
+  ThemeV2DitherFieldConfig copyWith({
     Color? waveColor,
     double? opacity,
     double? waveSpeed,
-  }) => TodayDitherFieldConfig.signal(
+  }) => ThemeV2DitherFieldConfig.raw(
     waveColor: waveColor ?? this.waveColor,
     colorNum: colorNum,
     pixelSize: pixelSize,
@@ -108,8 +144,8 @@ class TodayDitherFieldConfig {
   );
 }
 
-class TodayDitherField extends StatefulWidget {
-  const TodayDitherField({
+class ThemeV2DitherField extends StatefulWidget {
+  const ThemeV2DitherField({
     super.key,
     required this.config,
     this.sources = const [],
@@ -121,16 +157,16 @@ class TodayDitherField extends StatefulWidget {
   static const maxSources = 24;
   static const shaderSurfaceKey = ValueKey('today-dither-shader-surface');
 
-  final TodayDitherFieldConfig config;
-  final List<TodayDitherSource> sources;
+  final ThemeV2DitherFieldConfig config;
+  final List<ThemeV2DitherSource> sources;
   final Animation<double>? motion;
   final bool reduceMotion;
 
   @override
-  State<TodayDitherField> createState() => _TodayDitherFieldState();
+  State<ThemeV2DitherField> createState() => _ThemeV2DitherFieldState();
 }
 
-class _TodayDitherFieldState extends State<TodayDitherField> {
+class _ThemeV2DitherFieldState extends State<ThemeV2DitherField> {
   static Future<ui.FragmentProgram>? _programFuture;
   ui.FragmentShader? _shader;
 
@@ -143,7 +179,7 @@ class _TodayDitherFieldState extends State<TodayDitherField> {
   Future<void> _loadShader() async {
     try {
       final program = await (_programFuture ??= ui.FragmentProgram.fromAsset(
-        TodayDitherField.shaderAsset,
+        ThemeV2DitherField.shaderAsset,
       ));
       if (!mounted) return;
       setState(() => _shader = program.fragmentShader());
@@ -163,27 +199,29 @@ class _TodayDitherFieldState extends State<TodayDitherField> {
   Widget build(BuildContext context) {
     final motion = widget.motion ?? const AlwaysStoppedAnimation<double>(0);
     return IgnorePointer(
-      child: AnimatedBuilder(
-        animation: motion,
-        builder: (context, _) => CustomPaint(
-          key: TodayDitherField.shaderSurfaceKey,
-          painter: TodayDitherFieldPainter(
-            shader: _shader,
-            config: widget.config,
-            sources: widget.sources
-                .take(TodayDitherField.maxSources)
-                .toList(growable: false),
-            phase: widget.reduceMotion ? 0 : motion.value,
+      child: ExcludeSemantics(
+        child: AnimatedBuilder(
+          animation: motion,
+          builder: (context, _) => CustomPaint(
+            key: ThemeV2DitherField.shaderSurfaceKey,
+            painter: ThemeV2DitherFieldPainter(
+              shader: _shader,
+              config: widget.config,
+              sources: widget.sources
+                  .take(ThemeV2DitherField.maxSources)
+                  .toList(growable: false),
+              phase: widget.reduceMotion ? 0 : motion.value,
+            ),
+            size: Size.infinite,
           ),
-          size: Size.infinite,
         ),
       ),
     );
   }
 }
 
-class TodayDitherFieldPainter extends CustomPainter {
-  const TodayDitherFieldPainter({
+class ThemeV2DitherFieldPainter extends CustomPainter {
+  const ThemeV2DitherFieldPainter({
     required this.shader,
     required this.config,
     required this.sources,
@@ -191,8 +229,8 @@ class TodayDitherFieldPainter extends CustomPainter {
   });
 
   final ui.FragmentShader? shader;
-  final TodayDitherFieldConfig config;
-  final List<TodayDitherSource> sources;
+  final ThemeV2DitherFieldConfig config;
+  final List<ThemeV2DitherSource> sources;
   final double phase;
 
   @override
@@ -224,7 +262,7 @@ class TodayDitherFieldPainter extends CustomPainter {
     set(sources.length.toDouble());
     for (
       var sourceIndex = 0;
-      sourceIndex < TodayDitherField.maxSources;
+      sourceIndex < ThemeV2DitherField.maxSources;
       sourceIndex++
     ) {
       final source = sourceIndex < sources.length ? sources[sourceIndex] : null;
@@ -235,11 +273,11 @@ class TodayDitherFieldPainter extends CustomPainter {
     }
     for (
       var sourceIndex = 0;
-      sourceIndex < TodayDitherField.maxSources;
+      sourceIndex < ThemeV2DitherField.maxSources;
       sourceIndex++
     ) {
       final source = sourceIndex < sources.length ? sources[sourceIndex] : null;
-      set(source?.shape == TodayDitherSourceShape.capsule ? 1 : 0);
+      set(source?.shape == ThemeV2DitherSourceShape.capsule ? 1 : 0);
       set(source?.energy.clamp(0, 1).toDouble() ?? 0);
     }
     canvas.drawRect(Offset.zero & size, Paint()..shader = fragment);
@@ -263,7 +301,7 @@ class TodayDitherFieldPainter extends CustomPainter {
         final pressure = sources.fold<double>(
           0,
           (value, source) =>
-              math.max(value, todayDitherPressureAt(center, source)),
+              math.max(value, themeV2DitherPressureAt(center, source)),
         );
         final wave =
             .52 +
@@ -286,7 +324,7 @@ class TodayDitherFieldPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(TodayDitherFieldPainter oldDelegate) =>
+  bool shouldRepaint(ThemeV2DitherFieldPainter oldDelegate) =>
       shader != oldDelegate.shader ||
       config != oldDelegate.config ||
       !identical(sources, oldDelegate.sources) ||

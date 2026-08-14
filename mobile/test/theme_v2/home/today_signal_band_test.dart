@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
-import 'package:eureka/theme_v2/home/today_dither_field.dart';
+import 'package:eureka/theme_v2/foundation/theme_v2_dither_field.dart';
 import 'package:eureka/theme_v2/home/today_dither_material.dart';
 import 'package:eureka/theme_v2/home/today_region_watermark.dart';
 import 'package:eureka/theme_v2/home/today_signal_band.dart';
@@ -51,7 +51,7 @@ void main() {
       ),
       findsNothing,
     );
-    final field = tester.widget<TodayDitherField>(
+    final field = tester.widget<ThemeV2DitherField>(
       find.byKey(const ValueKey('today-signal-dither-field')),
     );
     expect(field.sources, hasLength(items.length));
@@ -247,7 +247,7 @@ void main() {
           brightness: brightness,
         ),
       );
-      final field = tester.widget<TodayDitherField>(
+      final field = tester.widget<ThemeV2DitherField>(
         find.byKey(const ValueKey('today-signal-dither-field')),
       );
       final count = tester.widget<Text>(find.text('1'));

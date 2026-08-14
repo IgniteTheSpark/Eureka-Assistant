@@ -7,7 +7,7 @@ import 'package:flutter/material.dart';
 import '../../today/today_data.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
-import 'today_dither_field.dart';
+import '../foundation/theme_v2_dither_field.dart';
 import 'today_region_watermark.dart';
 
 typedef TodaySignalOpenCallback = Future<void> Function(TodayRekaItem item);
@@ -183,15 +183,15 @@ class _TodaySignalBandState extends State<TodaySignalBand> {
                   clipBehavior: Clip.hardEdge,
                   children: [
                     Positioned.fill(
-                      child: TodayDitherField(
+                      child: ThemeV2DitherField(
                         key: const ValueKey('today-signal-dither-field'),
-                        config: TodayDitherFieldConfig.signal(
+                        config: ThemeV2DitherFieldConfig.signal(
                           waveColor: tokens.foreground,
                           opacity: dark ? .32 : .40,
                         ),
                         sources: [
                           for (final placement in visiblePlacements)
-                            TodayDitherSource.capsule(
+                            ThemeV2DitherSource.capsule(
                               center: placement.center,
                               size: const Size(_stripWidth, _stripHeight),
                               energy: placement.isPaused ? .18 : 0,
