@@ -3,8 +3,8 @@ import 'package:flutter/foundation.dart';
 @immutable
 class TodayDitheredRekaConfig {
   const TodayDitheredRekaConfig({
-    this.renderExtent = 216,
-    this.hitExtent = 176,
+    this.renderExtent = 248,
+    this.hitExtent = 200,
     this.maxTiltDegrees = 8,
     this.ditherGridSize = 4,
     this.pixelSizeRatio = 1,

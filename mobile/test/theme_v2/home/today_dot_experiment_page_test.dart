@@ -4,6 +4,7 @@ import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/home/home_repository.dart';
 import 'package:eureka/theme_v2/home/today_dot_experiment_page.dart';
 import 'package:eureka/theme_v2/home/today_reka_quick_actions.dart';
+import 'package:eureka/theme_v2/home/today_reka_scene.dart';
 import 'package:eureka/today/today_data.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -23,7 +24,7 @@ void main() {
             builder: (context) => TextButton(
               onPressed: () => showTodayRekaQuickActions(
                 context,
-                anchor: const Rect.fromLTWH(32, 420, 176, 176),
+                anchor: const Rect.fromLTWH(32, 420, 200, 200),
                 onCreateAsset: () => counts[TodayRekaAction.createAsset] =
                     counts[TodayRekaAction.createAsset]! + 1,
                 onCreateReport: () => counts[TodayRekaAction.createReport] =
@@ -82,7 +83,7 @@ void main() {
     expect(repository.loadCount, 1);
     expect(latestRefreshSignal, 1);
     expect(find.bySemanticsLabel('正在刷新今日'), findsOneWidget);
-    expect(find.text('今天很安静，我在这里。'), findsOneWidget);
+    expect(find.byKey(TodayRekaScene.backgroundKey), findsOneWidget);
     expect(
       tester
           .widget<SingleChildScrollView>(
@@ -102,7 +103,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.bySemanticsLabel('正在刷新今日'), findsNothing);
-    expect(find.text('今天很安静，我在这里。'), findsOneWidget);
+    expect(find.text('今天很安静，我在这里。'), findsNothing);
     semantics.dispose();
   });
 
@@ -135,7 +136,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(latestRefreshSignal, 1);
-    expect(find.text('今天很安静，我在这里。'), findsOneWidget);
+    expect(find.byKey(TodayRekaScene.backgroundKey), findsOneWidget);
     expect(find.text('刷新失败，已保留当前场景'), findsOneWidget);
     expect(find.text('重试'), findsOneWidget);
 

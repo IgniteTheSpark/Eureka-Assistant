@@ -8,8 +8,8 @@ void main() {
     test('exposes the approved local render contract', () {
       const config = TodayDitheredRekaConfig();
 
-      expect(config.renderExtent, 216);
-      expect(config.hitExtent, 176);
+      expect(config.renderExtent, 248);
+      expect(config.hitExtent, 200);
       expect(config.maxTiltDegrees, 8);
       expect(config.ditherGridSize, 4);
       expect(config.pixelSizeRatio, 1);
@@ -18,7 +18,7 @@ void main() {
 
     test('rejects invalid geometry and renderer values', () {
       expect(
-        () => TodayDitheredRekaConfig(renderExtent: 120, hitExtent: 176),
+        () => TodayDitheredRekaConfig(renderExtent: 120, hitExtent: 200),
         throwsAssertionError,
       );
       expect(
@@ -50,8 +50,8 @@ void main() {
 
       expect(controller.state, TodayRekaMotionState.idle);
       _expectInsideInclusive(controller.safeBounds, controller.rekaCenter);
-      expect(controller.safeBounds.left, 126);
-      expect(controller.safeBounds.right, 285);
+      expect(controller.safeBounds.left, 142);
+      expect(controller.safeBounds.right, 269);
       expect(controller.pose.eyeOpacity, 1);
       expect(controller.pose.tiltXDegrees, 0);
       expect(controller.pose.tiltYDegrees, 0);

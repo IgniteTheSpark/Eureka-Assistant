@@ -53,7 +53,7 @@ void main() {
       );
 
       expect(find.text('7月31日 · 周五'), findsOneWidget);
-      expect(find.text('今天很安静，我在这里。'), findsOneWidget);
+      expect(find.text('今天很安静，我在这里。'), findsNothing);
       expect(find.byKey(ThemeV2GlobalTopNav.floatingDockKey), findsOneWidget);
       expect(find.byKey(ThemeV2FloatingDock.dockKey), findsOneWidget);
       expect(find.byKey(TodayRekaScene.backgroundKey), findsOneWidget);

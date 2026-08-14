@@ -4,7 +4,7 @@
 
 **Goal:** Replace the active Today dot-field experiment with a draggable, locally hosted, dithered 3D Reka robot head on the standard Today background while keeping the approved floating Top Dock.
 
-**Architecture:** Flutter owns Today layout, Reka position, gesture arbitration, safe bounds, quick-action anchoring, lifecycle, and Reduce Motion. A small transparent local WebView owns procedural Three.js geometry, studio lighting, Bayer post-processing, permanent non-dithered eye meshes, and internal idle motion. The WebView never receives pointer input and falls back to a deterministic Flutter painter if WebGL cannot initialize.
+**Architecture:** Flutter owns Today layout, Reka position, gesture arbitration, safe bounds, quick-action anchoring, lifecycle, and Reduce Motion. A small transparent local WebView owns procedural Three.js geometry, studio lighting, Bayer post-processing, permanent emissive eye geometry inside the same dither pass, and internal idle motion. The WebView never receives pointer input and falls back to a deterministic Flutter painter if WebGL cannot initialize.
 
 **Tech Stack:** Flutter/Dart, `webview_flutter`, local HTML/JavaScript assets, Three.js r185, WebGL2/GLSL3, Flutter widget/unit/golden tests, Android physical-device verification.
 
@@ -16,7 +16,8 @@
 - Both orange `3 × 3` eyes remain visible in idle, dragging, settling, Reduce Motion, and fallback states.
 - Drag moves Reka across the page; it never orbits or freely rotates the camera.
 - Velocity-driven head tilt is clamped to `8°`.
-- The local render region is `216 × 216` logical pixels and caps DPR at `2`.
+- The local render region is `248 × 248` logical pixels, the centered gesture target is `200 × 200`, and DPR is capped at `2`.
+- Today intentionally renders no empty-state copy in this round; that content treatment remains deferred.
 - Initial dither settings are Bayer, `4 CSS px` grid, pixel ratio `1`, grayscale on, invert off, and transparent background.
 - Runtime renderer loading is fully local; no model, decoder, texture, script, font, or configuration fetch is allowed.
 - The minimum loop remains behind the existing `TODAY_DOT_EXPERIMENT` compile-time flag for this round.
@@ -73,7 +74,7 @@
 
 **Interfaces:**
 - Produces: `TodayDitheredRekaConfig`, `TodayRekaMotionState`, `TodayRekaPose`, and `TodayRekaMotionController`.
-- `TodayRekaMotionController.layout(Size, {required EdgeInsets reservedInsets})` computes safe center bounds using half the `216` render extent.
+- `TodayRekaMotionController.layout(Size, {required EdgeInsets reservedInsets})` computes safe center bounds using half the `248` render extent.
 - `TodayRekaMotionController.pose` supplies `state`, `tiltXDegrees`, and `tiltYDegrees` to later renderer tasks.
 - `TodayRekaMotionController.step(double, {required bool reduceMotion})` advances only bounded settling; idle 3D animation belongs to JavaScript.
 
@@ -84,8 +85,8 @@ Create tests that pin the new contract:
 ```dart
 test('config exposes the approved local render contract', () {
   const config = TodayDitheredRekaConfig();
-  expect(config.renderExtent, 216);
-  expect(config.hitExtent, 176);
+  expect(config.renderExtent, 248);
+  expect(config.hitExtent, 200);
   expect(config.maxTiltDegrees, 8);
   expect(config.ditherGridSize, 4);
   expect(config.maxDevicePixelRatio, 2);
@@ -148,8 +149,8 @@ Use immutable values and explicit assertions:
 @immutable
 class TodayDitheredRekaConfig {
   const TodayDitheredRekaConfig({
-    this.renderExtent = 216,
-    this.hitExtent = 176,
+    this.renderExtent = 248,
+    this.hitExtent = 200,
     this.maxTiltDegrees = 8,
     this.ditherGridSize = 4,
     this.pixelSizeRatio = 1,
@@ -391,7 +392,7 @@ testWidgets('forced fallback keeps the approved head and permanent eyes', (
   expect(find.byKey(TodayDitheredReka.fallbackKey), findsOneWidget);
   expect(find.byKey(TodayDitheredReka.leftEyeKey), findsOneWidget);
   expect(find.byKey(TodayDitheredReka.rightEyeKey), findsOneWidget);
-  expect(tester.getSize(find.byType(TodayDitheredReka)), const Size.square(216));
+  expect(tester.getSize(find.byType(TodayDitheredReka)), const Size.square(248));
 });
 
 testWidgets('renderer content is excluded from semantics', (tester) async {
@@ -503,7 +504,7 @@ testWidgets('scene uses standard background and has no dot painter', (tester) as
   )));
   expect(find.byKey(TodayRekaScene.backgroundKey), findsOneWidget);
   expect(find.byKey(TodayRekaScene.rekaRenderKey), findsOneWidget);
-  expect(find.text('今天很安静，我在这里。'), findsOneWidget);
+  expect(find.text('今天很安静，我在这里。'), findsNothing);
 });
 
 testWidgets('drag moves Reka, creates tilt, and does not tap', (tester) async {
@@ -540,7 +541,7 @@ Expected: compilation fails because `TodayRekaScene` does not exist.
 
 - [ ] **Step 3: Implement `TodayRekaScene`**
 
-Use the existing scene's tested gesture code but remove simulation and full-page painting. The build stack contains only heading/copy, the positioned `216 × 216` renderer, and the centered `176 × 176` gesture target.
+Use the existing scene's tested gesture code but remove simulation and full-page painting. The build stack contains only the heading, the positioned `248 × 248` renderer, and the centered `200 × 200` gesture target. Do not add empty-state copy in this round.
 
 Reserve safe insets with:
 
@@ -571,7 +572,7 @@ Semantics(
     onPanUpdate: handlePanUpdate,
     onPanEnd: handlePanEnd,
     onPanCancel: handlePanCancel,
-    child: const SizedBox.square(dimension: 176),
+    child: const SizedBox.square(dimension: 200),
   ),
 )
 ```

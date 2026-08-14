@@ -20,10 +20,10 @@ void main() {
 
     expect(find.byKey(TodayRekaScene.backgroundKey), findsOneWidget);
     expect(find.byKey(TodayRekaScene.rekaRenderKey), findsOneWidget);
-    expect(find.text('今天很安静，我在这里。'), findsOneWidget);
+    expect(find.text('今天很安静，我在这里。'), findsNothing);
     expect(
       tester.getSize(find.byKey(TodayRekaScene.rekaTargetKey)),
-      const Size.square(176),
+      const Size.square(200),
     );
   });
 
@@ -91,7 +91,7 @@ void main() {
     expect(taps, 0);
   });
 
-  testWidgets('tap reports the live 176 square global anchor', (tester) async {
+  testWidgets('tap reports the live 200 square global anchor', (tester) async {
     Rect? anchor;
     await tester.pumpWidget(
       _host(
@@ -109,7 +109,7 @@ void main() {
 
     expect(anchor, isNotNull);
     expect(anchor!.center, tester.getCenter(target));
-    expect(anchor!.size, const Size.square(176));
+    expect(anchor!.size, const Size.square(200));
   });
 
   testWidgets('inactive scene cancels an active drag', (tester) async {

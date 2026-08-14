@@ -49,7 +49,7 @@ void main() {
     expect(find.byKey(TodayDitheredReka.rightEyeKey), findsOneWidget);
     expect(
       tester.getSize(find.byType(TodayDitheredReka)),
-      const Size.square(216),
+      const Size.square(248),
     );
   });
 

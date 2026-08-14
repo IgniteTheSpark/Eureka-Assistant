@@ -67,7 +67,7 @@ Reka is a complete character even though only the head is shown. The visible geo
 - two compact side modules;
 - no torso, legs, antenna, mouth, outline halo, or separate circular container.
 
-The head should occupy approximately `80%` of a `216 × 216` logical-pixel render region on a typical phone. The canvas is transparent, so only the head, eyes, and their natural 3D shading appear over Today.
+The head should occupy approximately `80%` of a `248 × 248` logical-pixel render region on a typical phone. The canvas is transparent, so only the head, eyes, and their natural 3D shading appear over Today. This round intentionally carries no empty-state copy; that content treatment will be designed separately.
 
 ### 4.2 Dither treatment
 
@@ -122,7 +122,7 @@ The existing experiment entry point and feature flag remain in place for this ro
 
 Flutter widget that owns:
 
-- the `216 × 216` transparent render region;
+- the `248 × 248` transparent render region;
 - loading, ready, fallback, pause, and disposed states;
 - the `WebViewController`;
 - the local renderer asset bootstrap;
@@ -167,7 +167,7 @@ The renderer is loaded entirely from Flutter assets and owns:
 - local studio lighting;
 - offscreen render target;
 - Bayer post-process;
-- non-dithered eye pass;
+- emissive eye geometry integrated into the same depth and Bayer dither pass;
 - idle floating and rocking;
 - drag tilt interpolation;
 - pause, resume, resize, Reduce Motion, and destroy behavior.
@@ -269,7 +269,7 @@ Flutter remains the source of truth for position and motion state. JavaScript re
 
 ## 10. Lifecycle and Performance
 
-- Render region: approximately `216 × 216` logical pixels.
+- Render region: approximately `248 × 248` logical pixels.
 - Device pixel ratio: capped at `2`.
 - Dither mode: Bayer only for the minimum loop.
 - Offscreen target: downsampled according to the dither cell size.
