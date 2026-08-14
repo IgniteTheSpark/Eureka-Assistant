@@ -4,6 +4,7 @@ import 'package:flutter/scheduler.dart';
 import '../foundation/theme_v2_theme.dart';
 import 'today_dithered_reka.dart';
 import 'today_dithered_reka_config.dart';
+import 'today_output_coordinator.dart';
 import 'today_reka_motion_controller.dart';
 
 typedef TodayRekaBuilder =
@@ -13,6 +14,7 @@ typedef TodayRekaBuilder =
       bool active,
       bool reduceMotion,
       int refreshSignal,
+      TodayOutputCue cue,
     );
 
 class TodayRekaScene extends StatefulWidget {
@@ -28,6 +30,8 @@ class TodayRekaScene extends StatefulWidget {
     this.now,
     this.active = true,
     this.rekaBuilder,
+    this.content,
+    this.cue = const TodayOutputCue.idle(),
   });
 
   static const backgroundKey = ValueKey<String>('today-reka-background');
@@ -44,6 +48,8 @@ class TodayRekaScene extends StatefulWidget {
   final DateTime? now;
   final bool active;
   final TodayRekaBuilder? rekaBuilder;
+  final Widget? content;
+  final TodayOutputCue cue;
 
   @override
   State<TodayRekaScene> createState() => _TodayRekaSceneState();
@@ -229,11 +235,14 @@ class _TodayRekaSceneState extends State<TodayRekaScene>
             key: _sceneKey,
             fit: StackFit.expand,
             children: [
-              Positioned(
-                left: 18,
-                top: widget.topChromeInset + 14,
-                child: _TodayHeading(now: widget.now ?? DateTime.now()),
-              ),
+              if (widget.content case final content?)
+                Positioned.fill(child: content)
+              else
+                Positioned(
+                  left: 18,
+                  top: widget.topChromeInset + 14,
+                  child: _TodayHeading(now: widget.now ?? DateTime.now()),
+                ),
               Positioned(
                 left: _controller.rekaCenter.dx - renderRadius,
                 top: _controller.rekaCenter.dy - renderRadius,
@@ -247,6 +256,7 @@ class _TodayRekaSceneState extends State<TodayRekaScene>
                     widget.active,
                     reduceMotion,
                     widget.refreshSignal,
+                    widget.cue,
                   ),
                 ),
               ),
@@ -288,11 +298,13 @@ class _TodayRekaSceneState extends State<TodayRekaScene>
     bool active,
     bool reduceMotion,
     int refreshSignal,
+    TodayOutputCue cue,
   ) => TodayDitheredReka(
     pose: pose,
     active: active,
     reduceMotion: reduceMotion,
     refreshSignal: refreshSignal,
+    cue: cue,
     config: widget.config,
   );
 }

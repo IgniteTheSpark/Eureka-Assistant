@@ -70,6 +70,7 @@ window.RekaRendererFactory = function ReKaRendererFactory(
   let postCamera = null;
   let postMaterial = null;
   let motionGroup = null;
+  let eyeGroup = null;
   let keyLight = null;
   let fillLight = null;
   let rimLight = null;
@@ -86,6 +87,12 @@ window.RekaRendererFactory = function ReKaRendererFactory(
   let targetTiltY = 0;
   let currentTiltX = 0;
   let currentTiltY = 0;
+  let productionPitch = 0;
+  let productionYaw = 0;
+  let productionEyeY = 0;
+  let productionRecoil = 0;
+  let productionImpulse = 0;
+  let production = { kind: null, phase: 'idle', side: 'right' };
   let options = {
     gridSize: 4,
     pixelSizeRatio: 1,
@@ -126,8 +133,8 @@ window.RekaRendererFactory = function ReKaRendererFactory(
       metalness: 0.3,
     }));
     const eyeMaterial = ownMaterial(new THREE.MeshStandardMaterial({
-      color: 0xff5a24,
-      emissive: 0xff3f12,
+      color: 0x78ff74,
+      emissive: 0x2acb63,
       emissiveIntensity: 2.4,
       roughness: 0.3,
       metalness: 0.04,
@@ -165,6 +172,8 @@ window.RekaRendererFactory = function ReKaRendererFactory(
     }
 
     const pixelGeometry = ownGeometry(new THREE.PlaneGeometry(0.105, 0.105));
+    eyeGroup = new THREE.Group();
+    motionGroup.add(eyeGroup);
     const eyeCenters = [-0.46, 0.46];
     const pixelGap = 0.135;
     for (const eyeCenter of eyeCenters) {
@@ -178,12 +187,12 @@ window.RekaRendererFactory = function ReKaRendererFactory(
             0.732,
           );
           pixel.layers.set(0);
-          motionGroup.add(pixel);
+          eyeGroup.add(pixel);
         }
       }
     }
 
-    motionGroup.scale.setScalar(1.08);
+    motionGroup.scale.setScalar(1.12);
     motionGroup.position.y = 0.03;
   }
 
@@ -284,6 +293,36 @@ window.RekaRendererFactory = function ReKaRendererFactory(
         motionGroup.position.y = 0.03;
         motionGroup.rotation.set(0, 0, 0);
       }
+      if (eyeGroup) eyeGroup.position.y = productionTargets().eyeY * 0.65;
+    }
+  }
+
+  function productionTargets() {
+    const active = production.phase === 'emit' || production.phase === 'handoff';
+    const charging = production.phase === 'charge';
+    const signal = production.kind === 'signal';
+    return {
+      pitch: active ? (signal ? -0.18 : 0.21) : 0,
+      yaw: charging ? (production.side === 'right' ? 0.13 : -0.13) : 0,
+      eyeY: active ? (signal ? 0.11 : -0.11) : 0,
+      recoil: active ? (signal ? -0.055 : 0.055) : 0,
+    };
+  }
+
+  function setProduction(nextCue) {
+    if (disposed) return;
+    const next = nextCue || {};
+    const nextPhase = next.phase || 'idle';
+    if (nextPhase === 'charge' && production.phase !== 'charge') {
+      productionImpulse = 1;
+    }
+    production = {
+      kind: next.kind || null,
+      phase: nextPhase,
+      side: next.side === 'left' ? 'left' : 'right',
+    };
+    if (reduceMotion && eyeGroup) {
+      eyeGroup.position.y = productionTargets().eyeY * 0.65;
     }
   }
 
@@ -301,13 +340,31 @@ window.RekaRendererFactory = function ReKaRendererFactory(
     currentTiltX += (targetTiltX - currentTiltX) * follow;
     currentTiltY += (targetTiltY - currentTiltY) * follow;
     refreshPulse = Math.max(0, refreshPulse - delta / 0.32);
+    const productionTarget = productionTargets();
+    const productionFollow = 1 - Math.exp(-delta * 10);
+    productionPitch += (productionTarget.pitch - productionPitch) * productionFollow;
+    productionYaw += (productionTarget.yaw - productionYaw) * productionFollow;
+    productionEyeY += (productionTarget.eyeY - productionEyeY) * productionFollow;
+    productionRecoil += (productionTarget.recoil - productionRecoil) * productionFollow;
+    productionImpulse = Math.max(0, productionImpulse - delta / 0.24);
 
     if (!reduceMotion) {
       const idleWeight = state === 'idle' ? 1 : 0.18;
-      motionGroup.position.y = 0.03 + Math.sin(elapsed * 1.15) * 0.055 * idleWeight;
-      motionGroup.rotation.x = currentTiltX + Math.cos(elapsed * 0.7) * 0.025 * idleWeight;
-      motionGroup.rotation.y = currentTiltY + Math.sin(elapsed * 0.62) * 0.04 * idleWeight;
-      motionGroup.rotation.z = Math.sin(elapsed * 0.48) * 0.018 * idleWeight;
+      const shake = Math.sin(elapsed * 54) * productionImpulse * 0.028;
+      motionGroup.position.y = 0.03 +
+        Math.sin(elapsed * 1.15) * 0.055 * idleWeight +
+        productionRecoil;
+      motionGroup.rotation.x = currentTiltX +
+        Math.cos(elapsed * 0.7) * 0.025 * idleWeight +
+        productionPitch;
+      motionGroup.rotation.y = currentTiltY +
+        Math.sin(elapsed * 0.62) * 0.04 * idleWeight +
+        productionYaw;
+      motionGroup.rotation.z =
+        Math.sin(elapsed * 0.48) * 0.018 * idleWeight + shake;
+      if (eyeGroup) eyeGroup.position.y = productionEyeY;
+    } else if (eyeGroup) {
+      eyeGroup.position.y = productionTarget.eyeY * 0.65;
     }
 
     const breath = reduceMotion ? 0 : (Math.sin(elapsed * 1.25) + 1) * 0.5;
@@ -366,7 +423,7 @@ window.RekaRendererFactory = function ReKaRendererFactory(
 
     scene = new THREE.Scene();
     camera = new THREE.PerspectiveCamera(65, 1, 0.1, 100);
-    camera.position.set(0, 0, 4.2);
+    camera.position.set(0, 0, 4.0);
     camera.lookAt(0, 0, 0);
 
     scene.add(new THREE.AmbientLight(0xffffff, 0.42));
@@ -410,6 +467,7 @@ window.RekaRendererFactory = function ReKaRendererFactory(
     scene = null;
     postScene = null;
     motionGroup = null;
+    eyeGroup = null;
   }
 
   window.RekaRenderer = Object.freeze({
@@ -417,6 +475,7 @@ window.RekaRendererFactory = function ReKaRendererFactory(
     setMotion,
     setReduceMotion,
     setPaused,
+    setProduction,
     pulseRefresh,
     resize,
     destroy,

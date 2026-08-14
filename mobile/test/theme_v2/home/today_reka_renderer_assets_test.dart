@@ -26,6 +26,9 @@ void main() {
     expect(engine, contains('setReduceMotion'));
     expect(engine, contains('setPaused'));
     expect(engine, contains('pulseRefresh'));
+    expect(engine, contains('setProduction'));
+    expect(engine, contains('0x78ff74'));
+    expect(engine, contains('eyeGroup'));
     expect(engine, contains('destroy'));
     expect(engine, contains('THRESHOLDS'));
     expect(engine, contains('WebGLRenderTarget'));

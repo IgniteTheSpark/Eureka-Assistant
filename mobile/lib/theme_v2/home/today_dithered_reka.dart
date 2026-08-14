@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import 'today_dithered_reka_config.dart';
+import 'today_output_coordinator.dart';
 import 'today_reka_fallback_painter.dart';
 import 'today_reka_motion_controller.dart';
 
@@ -30,6 +31,7 @@ class TodayDitheredReka extends StatefulWidget {
     required this.active,
     required this.reduceMotion,
     required this.refreshSignal,
+    this.cue = const TodayOutputCue.idle(),
     this.config = const TodayDitheredRekaConfig(),
     this.forceFallback = false,
   });
@@ -42,6 +44,7 @@ class TodayDitheredReka extends StatefulWidget {
   final bool active;
   final bool reduceMotion;
   final int refreshSignal;
+  final TodayOutputCue cue;
   final TodayDitheredRekaConfig config;
   final bool forceFallback;
 
@@ -91,6 +94,7 @@ class _TodayDitheredRekaState extends State<TodayDitheredReka>
       _sendPaused();
     }
     if (widget.refreshSignal != oldWidget.refreshSignal) _pulseRefresh();
+    if (!_sameCue(widget.cue, oldWidget.cue)) _sendProduction();
   }
 
   @override
@@ -168,6 +172,7 @@ class _TodayDitheredRekaState extends State<TodayDitheredReka>
           _sendMotion();
           _sendReduceMotion();
           _sendPaused();
+          _sendProduction();
           if (_pendingRefreshPulse) {
             _pendingRefreshPulse = false;
             _pulseRefresh();
@@ -197,6 +202,11 @@ class _TodayDitheredRekaState extends State<TodayDitheredReka>
 
   void _pulseRefresh() => _runJavaScript(
     'window.RekaRenderer && window.RekaRenderer.pulseRefresh()',
+  );
+
+  void _sendProduction() => _runJavaScript(
+    'window.RekaRenderer && window.RekaRenderer.setProduction('
+    '${jsonEncode(<String, Object?>{'kind': widget.cue.kind?.name, 'phase': widget.cue.phase.name, 'side': widget.cue.side.name})})',
   );
 
   void _runJavaScript(String script) {
@@ -256,6 +266,7 @@ class _TodayDitheredRekaState extends State<TodayDitheredReka>
       ..setEntry(3, 2, .0015)
       ..rotateX(x)
       ..rotateY(y);
+    final eyeOffset = _fallbackEyeOffset(widget.cue);
 
     return Transform(
       key: TodayDitheredReka.fallbackKey,
@@ -266,16 +277,16 @@ class _TodayDitheredRekaState extends State<TodayDitheredReka>
         children: [
           const CustomPaint(painter: TodayRekaFallbackPainter()),
           Positioned(
-            left: 64,
-            top: 86,
+            left: 94 + eyeOffset.dx,
+            top: 108 + eyeOffset.dy,
             child: Opacity(
               opacity: widget.pose.eyeOpacity,
               child: const _PixelEye(key: TodayDitheredReka.leftEyeKey),
             ),
           ),
           Positioned(
-            left: 124,
-            top: 86,
+            left: 162 + eyeOffset.dx,
+            top: 108 + eyeOffset.dy,
             child: Opacity(
               opacity: widget.pose.eyeOpacity,
               child: const _PixelEye(key: TodayDitheredReka.rightEyeKey),
@@ -291,12 +302,35 @@ class _TodayDitheredRekaState extends State<TodayDitheredReka>
       a.tiltXDegrees == b.tiltXDegrees &&
       a.tiltYDegrees == b.tiltYDegrees &&
       a.eyeOpacity == b.eyeOpacity;
+
+  static bool _sameCue(TodayOutputCue a, TodayOutputCue b) =>
+      a.phase == b.phase &&
+      a.kind == b.kind &&
+      a.id == b.id &&
+      a.side == b.side;
+
+  static Offset _fallbackEyeOffset(TodayOutputCue cue) {
+    final horizontal = switch (cue.phase) {
+      TodayOutputPhase.charge => cue.side == TodayOutputSide.right ? 4.0 : -4.0,
+      _ => 0.0,
+    };
+    final vertical = switch ((cue.kind, cue.phase)) {
+      (TodayOutputKind.signal, TodayOutputPhase.emit) ||
+      (TodayOutputKind.signal, TodayOutputPhase.handoff) => -9.0,
+      (TodayOutputKind.asset, TodayOutputPhase.emit) ||
+      (TodayOutputKind.asset, TodayOutputPhase.handoff) => 9.0,
+      (TodayOutputKind.signal, TodayOutputPhase.recover) => -3.0,
+      (TodayOutputKind.asset, TodayOutputPhase.recover) => 3.0,
+      _ => 0.0,
+    };
+    return Offset(horizontal, vertical);
+  }
 }
 
 class _PixelEye extends StatelessWidget {
   const _PixelEye({super.key});
 
-  static const _orange = Color(0xFFFF5A1F);
+  static const _terminalGreen = Color(0xFF78FF74);
 
   @override
   Widget build(BuildContext context) => SizedBox.square(
@@ -311,7 +345,7 @@ class _PixelEye extends StatelessWidget {
       ),
       itemCount: 9,
       itemBuilder: (context, index) =>
-          ColoredBox(color: index == 4 ? Colors.transparent : _orange),
+          ColoredBox(color: index == 4 ? Colors.transparent : _terminalGreen),
     ),
   );
 }

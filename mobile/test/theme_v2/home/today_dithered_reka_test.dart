@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:eureka/theme_v2/home/today_dithered_reka.dart';
+import 'package:eureka/theme_v2/home/today_output_coordinator.dart';
 import 'package:eureka/theme_v2/home/today_reka_motion_controller.dart';
 
 void main() {
@@ -49,7 +50,50 @@ void main() {
     expect(find.byKey(TodayDitheredReka.rightEyeKey), findsOneWidget);
     expect(
       tester.getSize(find.byType(TodayDitheredReka)),
-      const Size.square(248),
+      const Size.square(288),
+    );
+    final eyePixel = tester.widget<ColoredBox>(
+      find
+          .descendant(
+            of: find.byKey(TodayDitheredReka.leftEyeKey),
+            matching: find.byType(ColoredBox),
+          )
+          .first,
+    );
+    expect(eyePixel.color, const Color(0xFF78FF74));
+  });
+
+  testWidgets('fallback eyes look upward while emitting a Signal', (
+    tester,
+  ) async {
+    Widget reka(TodayOutputCue cue) => MaterialApp(
+      home: Center(
+        child: TodayDitheredReka(
+          pose: idlePose,
+          active: true,
+          reduceMotion: false,
+          refreshSignal: 0,
+          cue: cue,
+          forceFallback: true,
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(reka(const TodayOutputCue.idle()));
+    final idle = tester.getCenter(find.byKey(TodayDitheredReka.leftEyeKey));
+    await tester.pumpWidget(
+      reka(
+        const TodayOutputCue(
+          phase: TodayOutputPhase.emit,
+          kind: TodayOutputKind.signal,
+          id: 'signal-1',
+        ),
+      ),
+    );
+
+    expect(
+      tester.getCenter(find.byKey(TodayDitheredReka.leftEyeKey)).dy,
+      lessThan(idle.dy),
     );
   });
 

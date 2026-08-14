@@ -108,8 +108,9 @@ void main() {
           repository: _ImmediateRepository(TodayData.empty),
           rekaController: controller,
           extendUnderChrome: true,
-          rekaBuilder: (context, pose, active, reduceMotion, refreshSignal) =>
-              const ColoredBox(color: Colors.black),
+          rekaBuilder:
+              (context, pose, active, reduceMotion, refreshSignal, cue) =>
+                  const ColoredBox(color: Colors.black),
         ),
       ),
     );
@@ -259,10 +260,11 @@ void main() {
       _Host(
         child: TodayDotExperimentPage(
           repository: repository,
-          rekaBuilder: (context, pose, active, reduceMotion, refreshSignal) {
-            latestRefreshSignal = refreshSignal;
-            return const SizedBox.expand();
-          },
+          rekaBuilder:
+              (context, pose, active, reduceMotion, refreshSignal, cue) {
+                latestRefreshSignal = refreshSignal;
+                return const SizedBox.expand();
+              },
         ),
       ),
     );
@@ -312,10 +314,11 @@ void main() {
       _Host(
         child: TodayDotExperimentPage(
           repository: repository,
-          rekaBuilder: (context, pose, active, reduceMotion, refreshSignal) {
-            latestRefreshSignal = refreshSignal;
-            return const SizedBox.expand();
-          },
+          rekaBuilder:
+              (context, pose, active, reduceMotion, refreshSignal, cue) {
+                latestRefreshSignal = refreshSignal;
+                return const SizedBox.expand();
+              },
         ),
       ),
     );

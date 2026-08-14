@@ -1,6 +1,7 @@
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/home/today_reka_motion_controller.dart';
 import 'package:eureka/theme_v2/home/today_reka_scene.dart';
+import 'package:eureka/theme_v2/home/today_output_coordinator.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -23,7 +24,7 @@ void main() {
     expect(find.text('今天很安静，我在这里。'), findsNothing);
     expect(
       tester.getSize(find.byKey(TodayRekaScene.rekaTargetKey)),
-      const Size.square(200),
+      const Size.square(220),
     );
   });
 
@@ -91,7 +92,7 @@ void main() {
     expect(taps, 0);
   });
 
-  testWidgets('tap reports the live 200 square global anchor', (tester) async {
+  testWidgets('tap reports the live 220 square global anchor', (tester) async {
     Rect? anchor;
     await tester.pumpWidget(
       _host(
@@ -109,7 +110,7 @@ void main() {
 
     expect(anchor, isNotNull);
     expect(anchor!.center, tester.getCenter(target));
-    expect(anchor!.size, const Size.square(200));
+    expect(anchor!.size, const Size.square(220));
   });
 
   testWidgets('inactive scene cancels an active drag', (tester) async {
@@ -179,6 +180,7 @@ void main() {
       bool active,
       bool reduceMotion,
       int refreshSignal,
+      TodayOutputCue cue,
     ) {
       builds++;
       return const SizedBox.expand();
@@ -207,6 +209,7 @@ Widget _fakeReka(
   bool active,
   bool reduceMotion,
   int refreshSignal,
+  TodayOutputCue cue,
 ) => const SizedBox.expand();
 
 Widget _host(Widget child, {bool disableAnimations = true}) => MaterialApp(

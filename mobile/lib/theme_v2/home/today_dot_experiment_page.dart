@@ -222,6 +222,7 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
                 menuExpanded: _menuExpanded,
                 now: widget.now,
                 active: widget.active,
+                cue: _outputCoordinator.cue,
                 controller: _sceneRekaController,
                 rekaBuilder: widget.rekaBuilder,
                 content: RefreshIndicator.noSpinner(

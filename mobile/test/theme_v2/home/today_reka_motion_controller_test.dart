@@ -8,8 +8,8 @@ void main() {
     test('exposes the approved local render contract', () {
       const config = TodayDitheredRekaConfig();
 
-      expect(config.renderExtent, 248);
-      expect(config.hitExtent, 200);
+      expect(config.renderExtent, 288);
+      expect(config.hitExtent, 220);
       expect(config.maxTiltDegrees, 8);
       expect(config.ditherGridSize, 4);
       expect(config.pixelSizeRatio, 1);
@@ -50,8 +50,8 @@ void main() {
 
       expect(controller.state, TodayRekaMotionState.idle);
       _expectInsideInclusive(controller.safeBounds, controller.rekaCenter);
-      expect(controller.safeBounds.left, 142);
-      expect(controller.safeBounds.right, 269);
+      expect(controller.safeBounds.left, 162);
+      expect(controller.safeBounds.right, 249);
       expect(controller.pose.eyeOpacity, 1);
       expect(controller.pose.tiltXDegrees, 0);
       expect(controller.pose.tiltYDegrees, 0);
