@@ -1,5 +1,7 @@
 # Today Dithered 3D Reka and Floating Top Dock Design
 
+> **Supersession note (2026-08-14):** `2026-08-14-theme-v2-today-reka-dither-output-world-design.md` supersedes this document's page-composition and empty-scene scope. The 3D Reka renderer, permanent eyes, drag behavior, lifecycle, local-asset strategy, and floating Top Dock defined here remain authoritative. Today now also includes a signal band, the existing physical Asset chamber, and Dither-based production motion.
+
 ## 1. Goal
 
 Replace the current Today-page dot-field Reka experiment with a focused minimum loop:
