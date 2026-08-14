@@ -373,3 +373,15 @@ Automated coverage must verify:
 - existing Reduce Motion, lifecycle, Signal lane clearing, and Asset physics behavior remains green.
 
 Device verification must include slow and fast four-direction Reka drags plus one Signal and one Asset production sequence captured without developer overlays.
+
+### 15.6 Theme-specific contrast calibration
+
+Dither texture and watermark contrast are calibrated independently by brightness rather than sharing one opacity across both themes.
+
+- In light mode, the Signal field uses an opacity target of `.40` and the Asset field uses `.38`, both using the semantic foreground color. This intentionally makes the flow texture clearly visible against the light surface without adding borders or a separate container fill.
+- In dark mode, the existing Signal `.32` and Asset `.30` field opacity targets remain unchanged unless device verification reveals clipping or banding.
+- In light mode, the watermark keeps its restrained count and label opacity targets of `.07` and `.44`.
+- In dark mode, the watermark count opacity increases to `.14` and the label opacity increases to `.68` so both the quantity and destination label remain readable without competing with moving content.
+- These values are component-level presentation parameters; they do not modify shared semantic color tokens or the shader's displacement/pressure response.
+
+Golden coverage must include light and dark Signal/Asset regions and explicitly assert the brightness-specific field and watermark opacity choices. Device verification must check that light-mode Dither remains visible at normal phone brightness and that dark-mode watermarks remain legible without reading as foreground content.
