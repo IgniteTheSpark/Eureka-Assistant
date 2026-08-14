@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../render/render_spec.dart';
 import '../../timeline/timeline.dart';
+import '../foundation/theme_v2_dither_field.dart';
+import '../foundation/theme_v2_dither_surface.dart';
 import '../foundation/theme_v2_semantics.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
@@ -118,7 +120,7 @@ class _CalendarScheduleGridState extends State<CalendarScheduleGrid> {
     if (activeDraft != null) _displayedDraft = activeDraft;
 
     return ColoredBox(
-      color: context.themeV2.background,
+      color: Colors.transparent,
       child: Column(
         children: [
           if (allDay.isNotEmpty || untimed.isNotEmpty)
@@ -408,18 +410,23 @@ class _TimedRecordBlock extends StatelessWidget {
               ),
       ),
     );
+    final reportedBlock = ThemeV2DitherSourceReporter(
+      id: 'calendar-schedule-event-${entry.id}',
+      shape: ThemeV2DitherSourceShape.capsule,
+      child: block,
+    );
     return Positioned(
       top: top,
       left: left,
       width: width,
       height: hitHeight,
       child: entry.record.isTodo
-          ? block
+          ? reportedBlock
           : Semantics(
               label: entry.record.item.title,
               button: true,
               onTap: onTap,
-              child: ExcludeSemantics(child: block),
+              child: ExcludeSemantics(child: reportedBlock),
             ),
     );
   }
@@ -522,94 +529,102 @@ class _TodoBandBlock extends StatelessWidget {
       height: expanded
           ? ThemeV2Sizes.minTouchTarget + band.todos.length * expandedRowHeight
           : ThemeV2Sizes.minTouchTarget,
-      child: OverflowBox(
-        // Grow the collapsed hit target upward from the true 15-minute band,
-        // keeping later scheduled records' hit regions unambiguous.
-        alignment: expanded ? Alignment.topCenter : Alignment.bottomCenter,
-        minHeight: ThemeV2Sizes.minTouchTarget,
-        maxHeight: expanded
-            ? ThemeV2Sizes.minTouchTarget +
-                  band.todos.length * expandedRowHeight
-            : ThemeV2Sizes.minTouchTarget,
-        child: Container(
-          decoration: BoxDecoration(
-            color: expanded ? tokens.accentSoft : null,
-            gradient: expanded
-                ? null
-                : LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.transparent,
-                      Colors.transparent,
-                      tokens.accentSoft,
-                      tokens.accentSoft,
-                    ],
-                    stops: [
-                      0,
-                      1 - collapsedHeight / ThemeV2Sizes.minTouchTarget,
-                      1 - collapsedHeight / ThemeV2Sizes.minTouchTarget,
-                      1,
-                    ],
+      child: ThemeV2DitherSourceReporter(
+        id:
+            'calendar-schedule-todo-band-${calendarDayKey(band.startAt)}-'
+            '${band.startAt.hour}-${band.startAt.minute}',
+        shape: ThemeV2DitherSourceShape.capsule,
+        child: OverflowBox(
+          // Grow the collapsed hit target upward from the true 15-minute band,
+          // keeping later scheduled records' hit regions unambiguous.
+          alignment: expanded ? Alignment.topCenter : Alignment.bottomCenter,
+          minHeight: ThemeV2Sizes.minTouchTarget,
+          maxHeight: expanded
+              ? ThemeV2Sizes.minTouchTarget +
+                    band.todos.length * expandedRowHeight
+              : ThemeV2Sizes.minTouchTarget,
+          child: Container(
+            decoration: BoxDecoration(
+              color: expanded ? tokens.accentSoft : null,
+              gradient: expanded
+                  ? null
+                  : LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.transparent,
+                        Colors.transparent,
+                        tokens.accentSoft,
+                        tokens.accentSoft,
+                      ],
+                      stops: [
+                        0,
+                        1 - collapsedHeight / ThemeV2Sizes.minTouchTarget,
+                        1 - collapsedHeight / ThemeV2Sizes.minTouchTarget,
+                        1,
+                      ],
+                    ),
+              borderRadius: BorderRadius.circular(ThemeV2Radii.sm),
+            ),
+            child: Column(
+              children: [
+                Semantics(
+                  key: ValueKey(
+                    'calendar-grid-todo-band-${calendarDayKey(band.startAt)}-'
+                    '${band.startAt.hour.toString().padLeft(2, '0')}'
+                    '${band.startAt.minute.toString().padLeft(2, '0')}',
                   ),
-            borderRadius: BorderRadius.circular(ThemeV2Radii.sm),
-          ),
-          child: Column(
-            children: [
-              Semantics(
-                key: ValueKey(
-                  'calendar-grid-todo-band-${calendarDayKey(band.startAt)}-'
-                  '${band.startAt.hour.toString().padLeft(2, '0')}'
-                  '${band.startAt.minute.toString().padLeft(2, '0')}',
-                ),
-                label: '${expanded ? '收起' : '展开'} ${band.todos.length} 个待办',
-                button: true,
-                onTap: onToggle,
-                child: ExcludeSemantics(
-                  child: ThemeV2HitTarget(
-                    child: InkWell(
-                      onTap: onToggle,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: ThemeV2Spacing.sm,
-                        ),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                '${band.todos.length} 个待办',
-                                style: Theme.of(context).textTheme.labelSmall
-                                    ?.copyWith(
-                                      color: tokens.accent,
-                                      fontWeight: FontWeight.w700,
-                                    ),
+                  label: '${expanded ? '收起' : '展开'} ${band.todos.length} 个待办',
+                  button: true,
+                  onTap: onToggle,
+                  child: ExcludeSemantics(
+                    child: ThemeV2HitTarget(
+                      child: InkWell(
+                        onTap: onToggle,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: ThemeV2Spacing.sm,
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  '${band.todos.length} 个待办',
+                                  style: Theme.of(context).textTheme.labelSmall
+                                      ?.copyWith(
+                                        color: tokens.accent,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                ),
                               ),
-                            ),
-                            Icon(
-                              expanded ? Icons.expand_less : Icons.expand_more,
-                              size: 16,
-                              color: tokens.accent,
-                            ),
-                          ],
+                              Icon(
+                                expanded
+                                    ? Icons.expand_less
+                                    : Icons.expand_more,
+                                size: 16,
+                                color: tokens.accent,
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
-              ),
-              if (expanded)
-                for (final todo in band.todos)
-                  SizedBox(
-                    height: expandedRowHeight,
-                    child: _ScheduleTodoRow(
-                      record: todo,
-                      onOpen: () => onOpenRecord(todo),
-                      onToggle: onToggleTodo == null
-                          ? null
-                          : () => onToggleTodo!(todo),
+                if (expanded)
+                  for (final todo in band.todos)
+                    SizedBox(
+                      height: expandedRowHeight,
+                      child: _ScheduleTodoRow(
+                        record: todo,
+                        onOpen: () => onOpenRecord(todo),
+                        onToggle: onToggleTodo == null
+                            ? null
+                            : () => onToggleTodo!(todo),
+                      ),
                     ),
-                  ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

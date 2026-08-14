@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../timeline/timeline.dart';
+import '../foundation/theme_v2_dither_field.dart';
+import '../foundation/theme_v2_dither_surface.dart';
 import '../foundation/theme_v2_semantics.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
@@ -30,10 +32,9 @@ class CalendarDayDetail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tokens = context.themeV2;
     return ColoredBox(
       key: const ValueKey('calendar-day-detail'),
-      color: tokens.background,
+      color: Colors.transparent,
       child: ListView(
         key: ValueKey('calendar-day-detail-${calendarDayKey(dayData.day)}'),
         padding: const EdgeInsets.fromLTRB(
@@ -458,74 +459,80 @@ class _DayRecordRow extends StatelessWidget {
     final tokens = context.themeV2;
     final item = record.item;
     final icon = resolveTimelineItemMeta(item, skills).icon;
-    return Semantics(
-      label:
-          '${record.isTimed ? calendarTimeLabel(record.displayAt) : '没说时间'}，${item.title}',
-      button: true,
-      onTap: onTap,
-      child: ExcludeSemantics(
-        child: ThemeV2HitTarget(
-          child: InkWell(
-            key: ValueKey('calendar-day-record-${record.id}'),
-            onTap: onTap,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SizedBox(
-                  width: 48,
-                  child: Padding(
-                    padding: const EdgeInsets.only(top: 14),
-                    child: Text(
-                      record.isTimed
-                          ? calendarTimeLabel(record.displayAt)
-                          : '—',
-                      style: ThemeV2Typography.mono(
-                        fontSize: 9,
-                        color: tokens.muted,
-                        fontWeight: FontWeight.w600,
+    return ThemeV2DitherSourceReporter(
+      id: 'calendar-day-detail-${record.id}',
+      shape: ThemeV2DitherSourceShape.capsule,
+      child: Semantics(
+        label:
+            '${record.isTimed ? calendarTimeLabel(record.displayAt) : '没说时间'}，${item.title}',
+        button: true,
+        onTap: onTap,
+        child: ExcludeSemantics(
+          child: ThemeV2HitTarget(
+            child: InkWell(
+              key: ValueKey('calendar-day-record-${record.id}'),
+              onTap: onTap,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: 48,
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 14),
+                      child: Text(
+                        record.isTimed
+                            ? calendarTimeLabel(record.displayAt)
+                            : '—',
+                        style: ThemeV2Typography.mono(
+                          fontSize: 9,
+                          color: tokens.muted,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.only(top: 10),
-                  child: Text(icon, style: const TextStyle(fontSize: 16)),
-                ),
-                const SizedBox(width: ThemeV2Spacing.sm),
-                Expanded(
-                  child: Container(
-                    constraints: const BoxConstraints(minHeight: 48),
-                    padding: const EdgeInsets.symmetric(vertical: 9),
-                    decoration: BoxDecoration(
-                      border: Border(bottom: BorderSide(color: tokens.border)),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          item.title.isEmpty ? '记录' : item.title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(
-                                color: tokens.foreground,
-                                fontWeight: FontWeight.w600,
-                                height: 1.2,
-                              ),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: Text(icon, style: const TextStyle(fontSize: 16)),
+                  ),
+                  const SizedBox(width: ThemeV2Spacing.sm),
+                  Expanded(
+                    child: Container(
+                      constraints: const BoxConstraints(minHeight: 48),
+                      padding: const EdgeInsets.symmetric(vertical: 9),
+                      decoration: BoxDecoration(
+                        border: Border(
+                          bottom: BorderSide(color: tokens.border),
                         ),
-                        if (item.subtitle.isNotEmpty)
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
                           Text(
-                            item.subtitle,
-                            maxLines: 1,
+                            item.title.isEmpty ? '记录' : item.title,
+                            maxLines: 2,
                             overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.labelSmall
-                                ?.copyWith(color: tokens.muted),
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(
+                                  color: tokens.foreground,
+                                  fontWeight: FontWeight.w600,
+                                  height: 1.2,
+                                ),
                           ),
-                      ],
+                          if (item.subtitle.isNotEmpty)
+                            Text(
+                              item.subtitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.labelSmall
+                                  ?.copyWith(color: tokens.muted),
+                            ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

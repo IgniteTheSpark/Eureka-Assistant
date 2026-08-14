@@ -8,6 +8,8 @@ import '../../pages/calendar_page.dart';
 import '../../render/render_spec.dart';
 import '../../timeline/timeline.dart';
 import '../capture/capture_session_page.dart';
+import '../foundation/theme_v2_dither_field.dart';
+import '../foundation/theme_v2_dither_surface.dart';
 import '../foundation/theme_v2_motion.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
@@ -53,6 +55,7 @@ class ThemeV2CalendarPage extends StatefulWidget {
     this.onOpenFlash,
     this.onCreateDraft,
     this.onOpenDraftEditor,
+    this.active = true,
   });
 
   final ApiClient? api;
@@ -66,6 +69,7 @@ class ThemeV2CalendarPage extends StatefulWidget {
   final ValueChanged<DateTime>? onOpenFlash;
   final CalendarDraftMutation? onCreateDraft;
   final ValueChanged<CalendarInlineDraft>? onOpenDraftEditor;
+  final bool active;
 
   @override
   State<ThemeV2CalendarPage> createState() => _ThemeV2CalendarPageState();
@@ -419,14 +423,15 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
 
   @override
   Widget build(BuildContext context) {
-    final tokens = context.themeV2;
     return PopScope(
       canPop: _controller.surface == CalendarSurface.overview,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop && _controller.back()) setState(() {});
       },
-      child: ColoredBox(
-        color: tokens.background,
+      child: ThemeV2DitherSurface(
+        key: const ValueKey('calendar-dither-surface'),
+        active: widget.active,
+        config: const ThemeV2DitherFieldConfig.calendar(),
         child: widget.initialData != null
             ? _dataBody(widget.initialData!)
             : ValueListenableBuilder<int>(
@@ -722,7 +727,7 @@ class _CalendarScheduleRoute extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
     return ColoredBox(
-      color: tokens.background,
+      color: Colors.transparent,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(
           ThemeV2Spacing.lg,

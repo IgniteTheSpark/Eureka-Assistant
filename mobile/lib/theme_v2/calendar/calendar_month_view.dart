@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../timeline/timeline.dart';
+import '../foundation/theme_v2_dither_field.dart';
+import '../foundation/theme_v2_dither_surface.dart';
 import '../foundation/theme_v2_semantics.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
@@ -62,13 +64,12 @@ class _CalendarMonthViewState extends State<CalendarMonthView> {
 
   @override
   Widget build(BuildContext context) {
-    final tokens = context.themeV2;
     final selected = widget.controller.selectedDate ?? widget.today;
     final selectedRecords =
         widget.data.byDay[calendarDayOf(selected)] ?? const <TimelineItem>[];
     return Container(
       key: const ValueKey('calendar-month-view'),
-      color: tokens.background,
+      color: Colors.transparent,
       padding: const EdgeInsets.symmetric(horizontal: ThemeV2Spacing.lg),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -271,7 +272,7 @@ class _MonthCell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
-    return Semantics(
+    final cell = Semantics(
       label: '${day.month}月${day.day}日，$count 项',
       button: true,
       selected: selected,
@@ -332,6 +333,13 @@ class _MonthCell extends StatelessWidget {
           ),
         ),
       ),
+    );
+    if (!selected && !today) return cell;
+    return ThemeV2DitherSourceReporter(
+      id: 'calendar-month-day-${calendarDayKey(day)}',
+      shape: ThemeV2DitherSourceShape.circle,
+      priority: selected ? 100 : 90,
+      child: cell,
     );
   }
 }
@@ -420,6 +428,8 @@ class _ProgressiveDaySummary extends StatelessWidget {
                     children: [
                       for (final record in records)
                         CalendarRecordRow(
+                          ditherSourceId:
+                              'calendar-month-summary-${calendarDayKey(day)}-${record.id}',
                           record: record,
                           skills: skills,
                           onTap: () => onOpenRecord(record),

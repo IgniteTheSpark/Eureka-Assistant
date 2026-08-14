@@ -632,6 +632,7 @@ class _FlowDay extends StatelessWidget {
                         children: [
                           for (final group in groups)
                             _FlowBandSection(
+                              day: day,
                               group: group,
                               skills: skills,
                               onOpenRecord: onOpenRecord,
@@ -704,11 +705,13 @@ _FlowBand _flowBandFor(CalendarRecord record) {
 
 class _FlowBandSection extends StatelessWidget {
   const _FlowBandSection({
+    required this.day,
     required this.group,
     required this.skills,
     required this.onOpenRecord,
   });
 
+  final DateTime day;
   final _FlowBandGroup group;
   final Map<String, SkillMeta> skills;
   final ValueChanged<CalendarRecord> onOpenRecord;
@@ -740,6 +743,8 @@ class _FlowBandSection extends StatelessWidget {
           const SizedBox(height: ThemeV2Spacing.xs),
           for (final record in group.timed)
             CalendarRecordRow(
+              ditherSourceId:
+                  'calendar-flow-${calendarDayKey(day)}-${record.id}',
               record: record,
               skills: skills,
               onTap: () => onOpenRecord(record),
@@ -748,6 +753,8 @@ class _FlowBandSection extends StatelessWidget {
             CalendarUntimedDivider(recordId: group.untimed.first.id),
           for (final record in group.untimed)
             CalendarRecordRow(
+              ditherSourceId:
+                  'calendar-flow-${calendarDayKey(day)}-${record.id}',
               record: record,
               skills: skills,
               muted: true,

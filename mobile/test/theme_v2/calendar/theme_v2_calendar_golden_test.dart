@@ -45,6 +45,7 @@ void main() {
     required CalendarData data,
   }) {
     return ThemeV2CalendarPage(
+      active: false,
       controller: controller,
       today: today,
       initialData: data,

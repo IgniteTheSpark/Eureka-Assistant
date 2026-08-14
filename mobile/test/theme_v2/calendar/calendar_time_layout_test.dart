@@ -277,6 +277,7 @@ void main() {
       await tester.pumpWidget(
         calendarTestHost(
           CalendarRecordRow(
+            ditherSourceId: 'test-note',
             record: note,
             skills: const {'notes': SkillMeta('📝', '随记')},
             onTap: () {},

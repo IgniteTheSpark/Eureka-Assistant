@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../timeline/timeline.dart';
 import '../foundation/theme_v2_semantics.dart';
+import '../foundation/theme_v2_dither_field.dart';
+import '../foundation/theme_v2_dither_surface.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
 import '../foundation/theme_v2_typography.dart';
@@ -158,12 +160,14 @@ class CalendarRecordRow extends StatelessWidget {
     required this.record,
     required this.skills,
     required this.onTap,
+    required this.ditherSourceId,
     this.muted = false,
   });
 
   final CalendarRecord record;
   final Map<String, SkillMeta> skills;
   final VoidCallback onTap;
+  final String ditherSourceId;
   final bool muted;
 
   @override
@@ -173,54 +177,60 @@ class CalendarRecordRow extends StatelessWidget {
     final meta = item.kind == 'input_turn'
         ? null
         : resolveTimelineItemMeta(item, skills);
-    return Semantics(
-      label:
-          '${record.isTimed ? calendarTimeLabel(record.displayAt) : '未指定时间'} ${item.title}',
-      button: true,
-      onTap: onTap,
-      child: ExcludeSemantics(
-        child: ThemeV2HitTarget(
-          child: InkWell(
-            key: ValueKey('calendar-record-${record.id}'),
-            onTap: onTap,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: ThemeV2Spacing.xs),
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: 48,
-                    child: Text(
-                      record.isTimed
-                          ? calendarTimeLabel(record.displayAt)
-                          : '—',
-                      style: ThemeV2Typography.mono(
-                        fontSize: 9,
-                        color: tokens.muted,
-                        fontWeight: FontWeight.w600,
+    return ThemeV2DitherSourceReporter(
+      id: ditherSourceId,
+      shape: ThemeV2DitherSourceShape.capsule,
+      child: Semantics(
+        label:
+            '${record.isTimed ? calendarTimeLabel(record.displayAt) : '未指定时间'} ${item.title}',
+        button: true,
+        onTap: onTap,
+        child: ExcludeSemantics(
+          child: ThemeV2HitTarget(
+            child: InkWell(
+              key: ValueKey('calendar-record-${record.id}'),
+              onTap: onTap,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  vertical: ThemeV2Spacing.xs,
+                ),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 48,
+                      child: Text(
+                        record.isTimed
+                            ? calendarTimeLabel(record.displayAt)
+                            : '—',
+                        style: ThemeV2Typography.mono(
+                          fontSize: 9,
+                          color: tokens.muted,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
-                  ),
-                  if (meta == null)
-                    Icon(
-                      Icons.bolt_outlined,
-                      size: 16,
-                      color: muted ? tokens.muted : tokens.accent,
-                    )
-                  else
-                    Text(meta.icon, style: const TextStyle(fontSize: 16)),
-                  const SizedBox(width: ThemeV2Spacing.sm),
-                  Expanded(
-                    child: Text(
-                      item.title.isEmpty ? '记录' : item.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: muted ? tokens.muted : tokens.foreground,
-                        fontWeight: FontWeight.w600,
+                    if (meta == null)
+                      Icon(
+                        Icons.bolt_outlined,
+                        size: 16,
+                        color: muted ? tokens.muted : tokens.accent,
+                      )
+                    else
+                      Text(meta.icon, style: const TextStyle(fontSize: 16)),
+                    const SizedBox(width: ThemeV2Spacing.sm),
+                    Expanded(
+                      child: Text(
+                        item.title.isEmpty ? '记录' : item.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: muted ? tokens.muted : tokens.foreground,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),

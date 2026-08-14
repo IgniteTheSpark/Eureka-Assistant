@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../foundation/theme_v2_dither_field.dart';
+import '../foundation/theme_v2_dither_surface.dart';
 import '../foundation/theme_v2_semantics.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
@@ -70,7 +72,7 @@ class _CalendarYearViewState extends State<CalendarYearView> {
     final selectedFlashes = _flashesFor(_selectedMonth);
     return Container(
       key: const ValueKey('calendar-year-view'),
-      color: tokens.background,
+      color: Colors.transparent,
       padding: const EdgeInsets.symmetric(horizontal: ThemeV2Spacing.lg),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -170,6 +172,9 @@ class _CalendarYearViewState extends State<CalendarYearView> {
                             flashCount: _flashesFor(month),
                             activity: count / maxCount,
                             selected: month == _selectedMonth,
+                            today:
+                                _year == widget.today.year &&
+                                month == widget.today.month,
                             onTap: () {
                               setState(() => _selectedMonth = month);
                             },
@@ -205,6 +210,7 @@ class _YearMonthCell extends StatelessWidget {
     required this.flashCount,
     required this.activity,
     required this.selected,
+    required this.today,
     required this.onTap,
   });
 
@@ -214,75 +220,85 @@ class _YearMonthCell extends StatelessWidget {
   final int flashCount;
   final double activity;
   final bool selected;
+  final bool today;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
-    return Semantics(
-      label: '$year年$month月，$recordCount 条记录，$flashCount 条闪念',
-      button: true,
-      selected: selected,
-      onTap: onTap,
-      child: ExcludeSemantics(
-        child: ThemeV2HitTarget(
-          child: InkWell(
-            key: ValueKey('calendar-year-$year-$month'),
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(ThemeV2Radii.md),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
-              decoration: BoxDecoration(
-                color: selected ? tokens.accentSoft : tokens.surface,
-                borderRadius: BorderRadius.circular(ThemeV2Radii.md),
-                border: Border.all(
-                  color: selected ? tokens.accent : tokens.border,
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '$month月',
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+    return ThemeV2DitherSourceReporter(
+      id: 'calendar-year-month-$year-$month',
+      shape: ThemeV2DitherSourceShape.capsule,
+      priority: selected
+          ? 100
+          : today
+          ? 90
+          : 0,
+      child: Semantics(
+        label: '$year年$month月，$recordCount 条记录，$flashCount 条闪念',
+        button: true,
+        selected: selected,
+        onTap: onTap,
+        child: ExcludeSemantics(
+          child: ThemeV2HitTarget(
+            child: InkWell(
+              key: ValueKey('calendar-year-$year-$month'),
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(ThemeV2Radii.md),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
+                decoration: BoxDecoration(
+                  color: selected ? tokens.accentSoft : tokens.surface,
+                  borderRadius: BorderRadius.circular(ThemeV2Radii.md),
+                  border: Border.all(
+                    color: selected ? tokens.accent : tokens.border,
                   ),
-                  const Spacer(),
-                  Row(
-                    children: [
-                      Text(
-                        '$recordCount 条',
-                        style: ThemeV2Typography.mono(
-                          fontSize: 14,
-                          color: tokens.foreground,
-                          fontWeight: FontWeight.w600,
-                        ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '$month月',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
                       ),
-                      const Spacer(),
-                      if (flashCount > 0)
+                    ),
+                    const Spacer(),
+                    Row(
+                      children: [
                         Text(
-                          '⚡ $flashCount',
+                          '$recordCount 条',
                           style: ThemeV2Typography.mono(
-                            fontSize: 8,
-                            color: tokens.muted,
+                            fontSize: 14,
+                            color: tokens.foreground,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
-                    ],
-                  ),
-                  const SizedBox(height: 2),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(ThemeV2Radii.pill),
-                    child: LinearProgressIndicator(
-                      value: activity,
-                      minHeight: 4,
-                      backgroundColor: tokens.border,
-                      valueColor: AlwaysStoppedAnimation(
-                        selected ? tokens.accent : tokens.muted,
+                        const Spacer(),
+                        if (flashCount > 0)
+                          Text(
+                            '⚡ $flashCount',
+                            style: ThemeV2Typography.mono(
+                              fontSize: 8,
+                              color: tokens.muted,
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(ThemeV2Radii.pill),
+                      child: LinearProgressIndicator(
+                        value: activity,
+                        minHeight: 4,
+                        backgroundColor: tokens.border,
+                        valueColor: AlwaysStoppedAnimation(
+                          selected ? tokens.accent : tokens.muted,
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
