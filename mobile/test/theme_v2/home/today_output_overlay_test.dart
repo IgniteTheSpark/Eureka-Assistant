@@ -1,5 +1,4 @@
 import 'package:eureka/theme_v2/home/today_output_coordinator.dart';
-import 'package:eureka/theme_v2/home/today_dither_material.dart';
 import 'package:eureka/theme_v2/home/today_output_overlay.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,6 +8,8 @@ void main() {
     tester,
   ) async {
     var completed = 0;
+    Offset? handoff;
+    final phases = <TodayOutputPhase>[];
     const item = TodayOutputItem(
       kind: TodayOutputKind.signal,
       id: 'signal-1',
@@ -16,20 +17,36 @@ void main() {
       reduceMotion: false,
     );
     await tester.pumpWidget(
-      _host(TodayOutputOverlay(item: item, onComplete: () => completed++)),
+      _host(
+        TodayOutputOverlay(
+          item: item,
+          signalBoundaryY: 74,
+          assetFloorY: 760,
+          onPhaseChanged: phases.add,
+          onHandoff: (point) => handoff = point,
+          onComplete: () => completed++,
+        ),
+      ),
     );
 
-    expect(
-      find.byKey(const ValueKey('today-output-signal-signal-1')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const ValueKey('today-output-seed')), findsOneWidget);
     expect(
       find.byKey(const ValueKey('today-output-signal-trail')),
-      findsOneWidget,
+      findsNothing,
     );
-    await tester.pump(const Duration(milliseconds: 700));
+    await tester.pump(const Duration(milliseconds: 760));
     await tester.pump();
     expect(completed, 1);
+    expect(handoff?.dy, 74);
+    expect(
+      phases,
+      containsAllInOrder([
+        TodayOutputPhase.charge,
+        TodayOutputPhase.emit,
+        TodayOutputPhase.handoff,
+        TodayOutputPhase.recover,
+      ]),
+    );
     await tester.pump(const Duration(seconds: 1));
     expect(completed, 1);
   });
@@ -38,6 +55,7 @@ void main() {
     tester,
   ) async {
     var completed = 0;
+    Offset? handoff;
     const item = TodayOutputItem(
       kind: TodayOutputKind.asset,
       id: 'asset-1',
@@ -45,41 +63,48 @@ void main() {
       reduceMotion: true,
     );
     await tester.pumpWidget(
-      _host(TodayOutputOverlay(item: item, onComplete: () => completed++)),
-    );
-    final before = tester.getCenter(
-      find.byKey(const ValueKey('today-output-asset-asset-1')),
+      _host(
+        TodayOutputOverlay(
+          item: item,
+          signalBoundaryY: 74,
+          assetFloorY: 760,
+          onHandoff: (point) => handoff = point,
+          onComplete: () => completed++,
+        ),
+      ),
     );
     await tester.pump(const Duration(milliseconds: 180));
-    final after = tester.getCenter(
-      find.byKey(const ValueKey('today-output-asset-asset-1')),
-    );
 
-    expect(after, before);
+    expect(find.byKey(const ValueKey('today-output-seed')), findsNothing);
+    expect(handoff?.dy, 760);
     expect(completed, 1);
   });
 
-  testWidgets('output body shares the ambient dither motion', (tester) async {
-    const motion = AlwaysStoppedAnimation<double>(.6);
+  testWidgets('seed chooses the left side when Reka is near the right edge', (
+    tester,
+  ) async {
     const item = TodayOutputItem(
       kind: TodayOutputKind.asset,
       id: 'asset-motion',
-      source: Offset(120, 300),
+      source: Offset(350, 300),
       reduceMotion: false,
     );
     await tester.pumpWidget(
-      _host(TodayOutputOverlay(item: item, motion: motion, onComplete: () {})),
-    );
-
-    final paint = tester.widget<CustomPaint>(
-      find.descendant(
-        of: find.byKey(const ValueKey('today-output-asset-asset-motion')),
-        matching: find.byType(CustomPaint),
+      _host(
+        TodayOutputOverlay(
+          item: item,
+          side: TodayOutputSide.left,
+          signalBoundaryY: 74,
+          assetFloorY: 760,
+          onComplete: () {},
+        ),
       ),
     );
-    final painter = paint.painter! as TodayDitherPainter;
-    expect(identical(painter.motion, motion), isTrue);
-    expect(painter.flow, greaterThan(0));
+
+    expect(
+      tester.getCenter(find.byKey(const ValueKey('today-output-seed'))).dx,
+      lessThan(item.source.dx),
+    );
   });
 }
 

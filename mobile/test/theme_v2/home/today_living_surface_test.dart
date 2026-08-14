@@ -1,13 +1,13 @@
 import 'package:flutter/foundation.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
-import 'package:eureka/theme_v2/home/today_dither_material.dart';
+import 'package:eureka/theme_v2/home/today_dither_field.dart';
 import 'package:eureka/theme_v2/home/today_living_surface.dart';
 import 'package:eureka/today/today_data.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('local dither field follows Reka and stays behind the scene', (
+  testWidgets('scene has two container fields and no local Reka dither', (
     tester,
   ) async {
     final clock = ValueNotifier(DateTime(2026, 8, 14, 10));
@@ -21,22 +21,12 @@ void main() {
       ),
     );
     await tester.pump();
-    final field = find.byKey(const ValueKey('today-local-dither-field'));
-
-    expect(field, findsOneWidget);
-    expect(tester.getSize(field), const Size.square(280));
-    expect(tester.getCenter(field), const Offset(112, 330));
-
-    await tester.pumpWidget(
-      _host(
-        rekaCenter: const Offset(288, 510),
-        disableAnimations: true,
-        clock: clock,
-      ),
+    expect(
+      find.byKey(const ValueKey('today-local-dither-field')),
+      findsNothing,
     );
-    await tester.pump();
-
-    expect(tester.getCenter(field), const Offset(288, 510));
+    expect(find.byType(TodayDitherField), findsNWidgets(2));
+    expect(find.byKey(const ValueKey('today-container-seam')), findsOneWidget);
   });
 
   testWidgets('shared dither motion pauses with the app lifecycle', (
@@ -57,8 +47,10 @@ void main() {
       ),
     );
     await tester.pump();
-    final painter = _fieldPainter(tester);
-    final motion = painter.motion!;
+    final field = tester.widget<TodayDitherField>(
+      find.byKey(const ValueKey('today-signal-dither-field')),
+    );
+    final motion = field.motion!;
     final before = motion.value;
 
     await tester.pump(const Duration(seconds: 1));
@@ -72,17 +64,6 @@ void main() {
     expect(motion.value, paused);
   });
 }
-
-TodayDitherPainter _fieldPainter(WidgetTester tester) =>
-    tester
-            .widget<CustomPaint>(
-              find.descendant(
-                of: find.byKey(const ValueKey('today-local-dither-field')),
-                matching: find.byType(CustomPaint),
-              ),
-            )
-            .painter!
-        as TodayDitherPainter;
 
 Widget _host({
   required Offset rekaCenter,

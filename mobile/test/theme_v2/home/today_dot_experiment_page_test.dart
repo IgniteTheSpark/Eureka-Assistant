@@ -4,6 +4,7 @@ import 'package:eureka/data_revision.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/home/home_repository.dart';
 import 'package:eureka/theme_v2/home/today_dot_experiment_page.dart';
+import 'package:eureka/theme_v2/home/today_living_surface.dart';
 import 'package:eureka/theme_v2/home/today_reka_quick_actions.dart';
 import 'package:eureka/theme_v2/home/today_reka_motion_controller.dart';
 import 'package:eureka/theme_v2/home/today_reka_scene.dart';
@@ -96,7 +97,7 @@ void main() {
     expect(find.text('8月14日 · 周五'), findsOneWidget);
   });
 
-  testWidgets('immersive Reka and its local field share one center', (
+  testWidgets('immersive Reka stays above content without a local field', (
     tester,
   ) async {
     final controller = TodayRekaMotionController();
@@ -115,8 +116,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      tester.getCenter(find.byKey(const ValueKey('today-local-dither-field'))),
-      tester.getCenter(find.byKey(TodayRekaScene.rekaRenderKey)),
+      find.byKey(const ValueKey('today-local-dither-field')),
+      findsNothing,
     );
     expect(
       find.ancestor(
@@ -126,6 +127,7 @@ void main() {
       findsNothing,
     );
 
+    final before = tester.getCenter(find.byKey(TodayRekaScene.rekaRenderKey));
     await tester.drag(
       find.byKey(TodayRekaScene.rekaTargetKey),
       const Offset(96, 120),
@@ -133,8 +135,8 @@ void main() {
     await tester.pump();
 
     expect(
-      tester.getCenter(find.byKey(const ValueKey('today-local-dither-field'))),
       tester.getCenter(find.byKey(TodayRekaScene.rekaRenderKey)),
+      isNot(before),
     );
   });
 
@@ -178,15 +180,24 @@ void main() {
     );
     await tester.pump();
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 16));
+
+    final living = tester.widget<TodayLivingSurface>(
+      find.byType(TodayLivingSurface),
+    );
+    expect(living.data.rekaQueue.single.id, 'signal-new');
+    expect(living.suppressProduction, isFalse);
+    expect(living.outputCoordinator?.producing?.id, 'signal-new');
 
     expect(
       find.byKey(const ValueKey('today-output-signal-signal-new')),
-      findsOneWidget,
+      findsNothing,
     );
     expect(find.text('新报告发现'), findsNothing);
     await tester.pump(const Duration(milliseconds: 180));
     await tester.pump();
     expect(find.text('新报告发现'), findsOneWidget);
+    expect(living.outputCoordinator?.producing, isNull);
     expect(
       find.byKey(const ValueKey('today-output-signal-signal-new')),
       findsNothing,

@@ -11,6 +11,7 @@ import '../shell/theme_v2_global_top_nav.dart';
 import '../reka/reka_signal_actions.dart';
 import 'home_repository.dart';
 import 'today_dithered_reka_config.dart';
+import 'today_output_coordinator.dart';
 import 'today_reka_motion_controller.dart';
 import 'today_reka_quick_actions.dart';
 import 'today_reka_scene.dart';
@@ -67,11 +68,15 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
       widget.rekaController ??
       TodayRekaMotionController(config: widget.rekaConfig);
   late final bool _ownsSceneRekaController = widget.rekaController == null;
+  late final TodayOutputCoordinator _outputCoordinator =
+      TodayOutputCoordinator();
+  bool _outputRebuildScheduled = false;
 
   @override
   void initState() {
     super.initState();
     _installRepository(widget.repository);
+    _outputCoordinator.addListener(_onOutputChanged);
     dataRevision.addListener(_onDataRevision);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) unawaited(_refresh());
@@ -107,6 +112,15 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
   }
 
   void _onDataRevision() => unawaited(_refresh(suppressProduction: false));
+
+  void _onOutputChanged() {
+    if (_outputRebuildScheduled) return;
+    _outputRebuildScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _outputRebuildScheduled = false;
+      if (mounted) setState(() {});
+    });
+  }
 
   Future<void> _refresh({bool suppressProduction = true}) {
     final inflight = _inflightRefresh;
@@ -180,6 +194,8 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
     dataRevision.removeListener(_onDataRevision);
     _disposeOwnedRepository();
     if (_ownsSceneRekaController) _sceneRekaController.dispose();
+    _outputCoordinator.removeListener(_onOutputChanged);
+    _outputCoordinator.dispose();
     super.dispose();
   }
 
@@ -231,6 +247,7 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
                                 _sceneRekaController.rekaCenter -
                                 Offset(0, topChromeInset),
                             suppressProduction: _suppressProduction,
+                            outputCoordinator: _outputCoordinator,
                             onOpenSignal: _openRekaSignal,
                             onOpenAgenda: widget.onOpenAgenda,
                             clock: widget.clock,

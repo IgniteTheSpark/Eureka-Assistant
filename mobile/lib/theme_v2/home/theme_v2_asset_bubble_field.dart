@@ -555,7 +555,7 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
         return Stack(
           fit: StackFit.expand,
           children: [
-            if (field != null && !_usesCompactGrid)
+            if (!_usesCompactGrid)
               Positioned.fill(
                 child: AnimatedBuilder(
                   animation: _repaint,
@@ -566,7 +566,7 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                       opacity: .14,
                     ),
                     sources: [
-                      for (final bubble in field.bubbles)
+                      for (final bubble in field?.bubbles ?? const <Bubble>[])
                         TodayDitherSource.circle(
                           center: Offset(bubble.x, bubble.y),
                           radius: bubble.r,

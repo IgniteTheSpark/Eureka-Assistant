@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   test('first load is stable and never replays production', () {
     final coordinator = TodayOutputCoordinator();
+    expect(coordinator.cue.phase, TodayOutputPhase.idle);
     coordinator.reconcile(
       assetIds: const ['asset-1'],
       signalIds: const ['signal-1'],
@@ -37,6 +38,10 @@ void main() {
 
     expect(coordinator.producing?.id, 'signal-2');
     expect(coordinator.producing?.source, const Offset(210, 420));
+    expect(coordinator.cue.phase, TodayOutputPhase.charge);
+    expect(coordinator.cue.kind, TodayOutputKind.signal);
+    coordinator.updatePhase(TodayOutputPhase.emit);
+    expect(coordinator.cue.phase, TodayOutputPhase.emit);
     expect(coordinator.queuedIds, ['asset-2']);
     expect(coordinator.stableSignalIds(const ['signal-1', 'signal-2']), [
       'signal-1',
@@ -47,8 +52,11 @@ void main() {
 
     coordinator.completeCurrent();
     expect(coordinator.producing?.id, 'asset-2');
+    expect(coordinator.cue.phase, TodayOutputPhase.charge);
     coordinator.completeCurrent();
     expect(coordinator.producing, isNull);
+    expect(coordinator.cue.phase, TodayOutputPhase.idle);
+    expect(coordinator.lastCompletedSignalId, 'signal-2');
     expect(coordinator.stableAssetIds(const ['asset-1', 'asset-2']), [
       'asset-1',
       'asset-2',

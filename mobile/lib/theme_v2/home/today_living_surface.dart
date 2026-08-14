@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import '../../today/today_data.dart';
 import '../foundation/theme_v2_theme.dart';
 import 'theme_v2_asset_bubble_field.dart';
-import 'today_dither_material.dart';
 import 'today_next_capsule.dart';
 import 'today_output_coordinator.dart';
 import 'today_output_overlay.dart';
@@ -101,10 +100,11 @@ class _TodayLivingSurfaceState extends State<TodayLivingSurface>
       _coordinator.reconcile(
         assetIds: widget.data.pool.map((asset) => asset.id),
         signalIds: widget.data.rekaQueue.map((signal) => signal.id),
-        rekaCenter: widget.rekaCenter,
+        rekaCenter: Offset(widget.rekaCenter.dx - 18, widget.rekaCenter.dy),
         suppressProduction: widget.suppressProduction,
         capacityAvailable: widget.active,
         reduceMotion: MediaQuery.disableAnimationsOf(context),
+        viewportWidth: MediaQuery.sizeOf(context).width - 36,
       );
     } finally {
       _reconciling = false;
@@ -138,42 +138,26 @@ class _TodayLivingSurfaceState extends State<TodayLivingSurface>
     final stableSignals = widget.data.rekaQueue
         .where((signal) => stableSignalIds.contains(signal.id))
         .toList(growable: false);
+    final cue = _coordinator.cue;
+    final signalBirthState = switch ((cue.kind, cue.phase)) {
+      (TodayOutputKind.signal, TodayOutputPhase.emit) =>
+        TodaySignalBirthState.clearing,
+      (TodayOutputKind.signal, TodayOutputPhase.handoff) =>
+        TodaySignalBirthState.unfolding,
+      _ => TodaySignalBirthState.idle,
+    };
     return LayoutBuilder(
       builder: (context, constraints) {
-        final contentHeight = constraints.maxHeight - 74;
-        final assetChamberTop = 74 + contentHeight / 3;
-        final localRekaCenter = Offset(
-          widget.rekaCenter.dx - 18,
-          widget.rekaCenter.dy,
-        );
+        const seamHeight = 14.0;
+        final contentHeight = constraints.maxHeight - 74 - seamHeight;
+        final signalHeight = contentHeight / 3;
+        final assetChamberTop = 74 + signalHeight + seamHeight;
         return Padding(
           key: const ValueKey('today-living-surface'),
           padding: const EdgeInsets.symmetric(horizontal: 18),
           child: Stack(
             fit: StackFit.expand,
             children: [
-              AnimatedPositioned(
-                key: const ValueKey('today-local-dither-field-position'),
-                duration: _reduceMotion
-                    ? Duration.zero
-                    : const Duration(milliseconds: 140),
-                curve: Curves.easeOutCubic,
-                left: localRekaCenter.dx - 140,
-                top: localRekaCenter.dy - 140,
-                width: 280,
-                height: 280,
-                child: IgnorePointer(
-                  child: TodayDitherMaterial(
-                    key: const ValueKey('today-local-dither-field'),
-                    shape: TodayDitherShape.field,
-                    color: context.themeV2.foreground.withValues(alpha: .08),
-                    strength: .28,
-                    seed: 31,
-                    motion: _ambientMotion,
-                    flow: .34,
-                  ),
-                ),
-              ),
               Column(
                 children: [
                   SizedBox(
@@ -201,7 +185,15 @@ class _TodayLivingSurfaceState extends State<TodayLivingSurface>
                       items: stableSignals,
                       motion: _ambientMotion,
                       onOpenSignal: widget.onOpenSignal,
+                      birthState: signalBirthState,
+                      birthSignalId: cue.kind == TodayOutputKind.signal
+                          ? cue.id
+                          : _coordinator.lastCompletedSignalId,
                     ),
+                  ),
+                  const SizedBox(
+                    key: ValueKey('today-container-seam'),
+                    height: seamHeight,
                   ),
                   Expanded(
                     key: const ValueKey('today-asset-chamber'),
@@ -224,15 +216,18 @@ class _TodayLivingSurfaceState extends State<TodayLivingSurface>
                       'today-output-owner-${output.kind.name}-${output.id}',
                     ),
                     item: output,
-                    motion: _ambientMotion,
-                    onHandoff: output.kind == TodayOutputKind.asset
-                        ? (point) {
-                            _assetSpawnCenters[output.id] = Offset(
-                              point.dx - 18,
-                              point.dy - assetChamberTop,
-                            );
-                          }
-                        : null,
+                    signalBoundaryY: 74,
+                    assetFloorY: constraints.maxHeight,
+                    side: output.side,
+                    onPhaseChanged: _coordinator.updatePhase,
+                    onHandoff: (point) {
+                      if (output.kind == TodayOutputKind.asset) {
+                        _assetSpawnCenters[output.id] = Offset(
+                          point.dx,
+                          point.dy - assetChamberTop,
+                        );
+                      }
+                    },
                     onComplete: _coordinator.completeCurrent,
                   ),
                 ),
