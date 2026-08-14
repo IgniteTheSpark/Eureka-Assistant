@@ -198,47 +198,49 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
         children: [
           Positioned.fill(
             child: LayoutBuilder(
-              builder: (context, constraints) => RefreshIndicator.noSpinner(
-                onRefresh: _refresh,
-                child: SingleChildScrollView(
-                  key: TodayDotExperimentPage.scrollKey,
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  child: SizedBox(
-                    width: constraints.maxWidth,
-                    height: constraints.maxHeight,
-                    child: TodayRekaScene(
-                      config: widget.rekaConfig,
-                      topChromeInset: topChromeInset,
-                      bottomChromeInset: bottomChromeInset,
-                      refreshSignal: _refreshSignal,
-                      menuExpanded: _menuExpanded,
-                      now: widget.now,
-                      active: widget.active,
-                      controller: _sceneRekaController,
-                      rekaBuilder: widget.rekaBuilder,
-                      content: Padding(
+              builder: (context, constraints) => TodayRekaScene(
+                config: widget.rekaConfig,
+                topChromeInset: topChromeInset,
+                bottomChromeInset: bottomChromeInset,
+                refreshSignal: _refreshSignal,
+                menuExpanded: _menuExpanded,
+                now: widget.now,
+                active: widget.active,
+                controller: _sceneRekaController,
+                rekaBuilder: widget.rekaBuilder,
+                content: RefreshIndicator.noSpinner(
+                  onRefresh: _refresh,
+                  child: SingleChildScrollView(
+                    key: TodayDotExperimentPage.scrollKey,
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    child: SizedBox(
+                      width: constraints.maxWidth,
+                      height: constraints.maxHeight,
+                      child: Padding(
                         padding: EdgeInsets.only(
                           top: topChromeInset,
                           bottom: bottomChromeInset,
                         ),
-                        child: TodayLivingSurface(
-                          data: _data ?? TodayData.empty,
-                          now: widget.now ?? DateTime.now(),
-                          active: widget.active,
-                          rekaCenter:
-                              _sceneRekaController.rekaCenter -
-                              Offset(0, topChromeInset),
-                          suppressProduction: _suppressProduction,
-                          onOpenSignal: _openRekaSignal,
-                          onOpenAgenda: widget.onOpenAgenda,
-                          clock: widget.clock,
+                        child: AnimatedBuilder(
+                          animation: _sceneRekaController,
+                          builder: (context, _) => TodayLivingSurface(
+                            data: _data ?? TodayData.empty,
+                            now: widget.now ?? DateTime.now(),
+                            active: widget.active,
+                            rekaCenter:
+                                _sceneRekaController.rekaCenter -
+                                Offset(0, topChromeInset),
+                            suppressProduction: _suppressProduction,
+                            onOpenSignal: _openRekaSignal,
+                            onOpenAgenda: widget.onOpenAgenda,
+                            clock: widget.clock,
+                          ),
                         ),
                       ),
-                      onRekaTap: (anchor) =>
-                          unawaited(_openQuickActions(anchor)),
                     ),
                   ),
                 ),
+                onRekaTap: (anchor) => unawaited(_openQuickActions(anchor)),
               ),
             ),
           ),

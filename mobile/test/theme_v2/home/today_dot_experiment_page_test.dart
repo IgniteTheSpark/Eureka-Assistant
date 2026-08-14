@@ -5,6 +5,7 @@ import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/home/home_repository.dart';
 import 'package:eureka/theme_v2/home/today_dot_experiment_page.dart';
 import 'package:eureka/theme_v2/home/today_reka_quick_actions.dart';
+import 'package:eureka/theme_v2/home/today_reka_motion_controller.dart';
 import 'package:eureka/theme_v2/home/today_reka_scene.dart';
 import 'package:eureka/today/today_data.dart';
 import 'package:flutter/material.dart';
@@ -93,6 +94,48 @@ void main() {
     expect(find.text('今天暂无安排'), findsOneWidget);
     expect(find.text('今日'), findsNothing);
     expect(find.text('8月14日 · 周五'), findsOneWidget);
+  });
+
+  testWidgets('immersive Reka and its local field share one center', (
+    tester,
+  ) async {
+    final controller = TodayRekaMotionController();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      _Host(
+        child: TodayDotExperimentPage(
+          repository: _ImmediateRepository(TodayData.empty),
+          rekaController: controller,
+          extendUnderChrome: true,
+          rekaBuilder: (context, pose, active, reduceMotion, refreshSignal) =>
+              const ColoredBox(color: Colors.black),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getCenter(find.byKey(const ValueKey('today-local-dither-field'))),
+      tester.getCenter(find.byKey(TodayRekaScene.rekaRenderKey)),
+    );
+    expect(
+      find.ancestor(
+        of: find.byKey(TodayRekaScene.rekaRenderKey),
+        matching: find.byType(SingleChildScrollView),
+      ),
+      findsNothing,
+    );
+
+    await tester.drag(
+      find.byKey(TodayRekaScene.rekaTargetKey),
+      const Offset(96, 120),
+    );
+    await tester.pump();
+
+    expect(
+      tester.getCenter(find.byKey(const ValueKey('today-local-dither-field'))),
+      tester.getCenter(find.byKey(TodayRekaScene.rekaRenderKey)),
+    );
   });
 
   testWidgets('live data revision gives each new output one visual owner', (
