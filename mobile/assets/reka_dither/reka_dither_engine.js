@@ -57,7 +57,7 @@ window.RekaRendererFactory = function ReKaRendererFactory(
       vec3 color = toSrgb(sampleColor.rgb);
       float level = dot(color, vec3(0.299, 0.587, 0.114));
       bool lit = level >= bayerThreshold(fragCoord / uGridSize);
-      vec3 dithered = lit ? vec3(level) : vec3(0.0);
+      vec3 dithered = lit ? color : vec3(0.0);
       outColor = vec4(dithered * sampleColor.a, sampleColor.a);
     }
   `;
@@ -125,13 +125,12 @@ window.RekaRendererFactory = function ReKaRendererFactory(
       roughness: 0.22,
       metalness: 0.3,
     }));
-    const eyeMaterial = ownMaterial(new THREE.MeshBasicMaterial({
+    const eyeMaterial = ownMaterial(new THREE.MeshStandardMaterial({
       color: 0xff5a24,
-      toneMapped: false,
-      transparent: true,
-      opacity: 1,
-      depthTest: false,
-      depthWrite: false,
+      emissive: 0xff3f12,
+      emissiveIntensity: 2.4,
+      roughness: 0.3,
+      metalness: 0.04,
     }));
 
     const shellGeometry = ownGeometry(
@@ -178,8 +177,7 @@ window.RekaRendererFactory = function ReKaRendererFactory(
             0.015 + (1 - row) * pixelGap,
             0.732,
           );
-          pixel.layers.set(1);
-          pixel.renderOrder = 20;
+          pixel.layers.set(0);
           motionGroup.add(pixel);
         }
       }
@@ -328,12 +326,6 @@ window.RekaRendererFactory = function ReKaRendererFactory(
     renderer.clear(true, true, true);
     renderer.render(postScene, postCamera);
 
-    renderer.autoClear = false;
-    renderer.clearDepth();
-    camera.layers.set(1);
-    renderer.render(scene, camera);
-    camera.layers.set(0);
-    renderer.autoClear = true;
   }
 
   function startLoop() {

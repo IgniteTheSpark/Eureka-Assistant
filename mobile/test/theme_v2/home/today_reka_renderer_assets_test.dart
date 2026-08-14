@@ -29,6 +29,9 @@ void main() {
     expect(engine, contains('destroy'));
     expect(engine, contains('THRESHOLDS'));
     expect(engine, contains('WebGLRenderTarget'));
+    expect(engine, contains('emissiveIntensity'));
+    expect(engine, isNot(contains('layers.set(1)')));
+    expect(engine, isNot(contains('clearDepth()')));
     expect(engine, isNot(contains('fetch(')));
     expect(engine, isNot(contains('OrbitControls')));
     expect(engine, isNot(contains('GLTFLoader')));
