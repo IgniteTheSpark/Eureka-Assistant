@@ -359,15 +359,15 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
     );
   }
 
-  List<ThemeV2PageScaffold> _pages({required bool continuousToday}) {
+  List<ThemeV2PageScaffold> _pages({required bool immersiveToday}) {
     return widget.pages ??
         [
           ThemeV2PageScaffold(
-            extendBodyBehindChrome: continuousToday,
+            extendBodyBehindChrome: immersiveToday,
             body: widget.usesTodayDotExperiment
                 ? TodayDotExperimentPage(
                     active: _index == 0,
-                    extendUnderChrome: continuousToday,
+                    extendUnderChrome: immersiveToday,
                     repository: widget.homeRepository,
                     onCreateAsset: () => _createAsset(context),
                     onCreateReport: () => _createReport(context),
@@ -409,13 +409,13 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
       );
     }
 
-    final continuousToday =
+    final immersiveToday =
         widget.pages == null &&
         widget.usesTodayDotExperiment &&
         ambientTheme.brightness == Brightness.light;
-    final pages = _pages(continuousToday: continuousToday);
+    final pages = _pages(immersiveToday: immersiveToday);
     final activePage = pages[_index];
-    final todayFloatingDock = continuousToday && _index == 0;
+    final todayFloatingDock = immersiveToday && _index == 0;
     final standardTopNav = ThemeV2GlobalTopNav(
       transparentSurface: todayFloatingDock,
       floatingDock: todayFloatingDock,

@@ -220,10 +220,12 @@ class _TodayRekaSceneState extends State<TodayRekaScene>
         final renderRadius = renderExtent / 2;
         final targetExtent = widget.config.hitExtent;
         final targetRadius = targetExtent / 2;
-        final copyLeft = (_controller.rekaCenter.dx + targetRadius + 16).clamp(
-          18.0,
-          math.max(18.0, size.width - 110),
-        );
+        final copyRight = _controller.rekaCenter.dx + renderRadius + 16;
+        final copyLeft =
+            (copyRight + 92 <= size.width - 18
+                    ? copyRight
+                    : _controller.rekaCenter.dx - renderRadius - 16 - 92)
+                .clamp(18.0, math.max(18.0, size.width - 110));
         final copyTop = (_controller.rekaCenter.dy - 18).clamp(
           widget.topChromeInset + 80,
           math.max(widget.topChromeInset + 80, size.height - 90),

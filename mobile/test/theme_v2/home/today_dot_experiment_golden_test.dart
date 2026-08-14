@@ -2,10 +2,10 @@ import 'dart:io';
 
 import 'package:eureka/theme/theme_controller.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
+import 'package:eureka/theme_v2/home/today_dithered_reka.dart';
 import 'package:eureka/theme_v2/home/today_dot_experiment_page.dart';
-import 'package:eureka/theme_v2/home/today_dot_field_controller.dart';
-import 'package:eureka/theme_v2/home/today_dot_field_config.dart';
-import 'package:eureka/theme_v2/home/today_dot_field_simulation.dart';
+import 'package:eureka/theme_v2/home/today_reka_motion_controller.dart';
+import 'package:eureka/theme_v2/home/today_reka_scene.dart';
 import 'package:eureka/theme_v2/shell/device_status_summary.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_floating_dock.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_global_top_nav.dart';
@@ -15,9 +15,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  const surface = ValueKey<String>('today-dot-experiment-golden');
-  const size = Size(411, 960);
-  const config = TodayDotFieldConfig();
+  const surface = ValueKey<String>('today-reka-experiment-golden');
 
   setUpAll(() async {
     await (FontLoader(
@@ -42,121 +40,79 @@ void main() {
   setUp(() => themeModeNotifier.value = ThemeMode.light);
   tearDown(() => themeModeNotifier.value = ThemeMode.light);
 
-  for (final state in _GoldenState.values) {
-    testWidgets('Today dot experiment ${state.name} light 411', (tester) async {
-      final controller = TodayDotFieldController(config: config);
-      final simulation = TodayDotFieldSimulation(config: config);
+  for (final scenario in _GoldenScenario.values) {
+    testWidgets('Today Reka ${scenario.name} light', (tester) async {
+      final controller = TodayRekaMotionController();
       addTearDown(controller.dispose);
 
       await _pumpGolden(
         tester,
         surface: surface,
-        size: size,
+        scenario: scenario,
         controller: controller,
-        simulation: simulation,
-        config: config,
-        state: state,
       );
 
       expect(find.text('7月31日 · 周五'), findsOneWidget);
       expect(find.text('今天很安静，我在这里。'), findsOneWidget);
+      expect(find.byKey(ThemeV2GlobalTopNav.floatingDockKey), findsOneWidget);
       expect(find.byKey(ThemeV2FloatingDock.dockKey), findsOneWidget);
-      expect(
-        tester.getTopLeft(find.byType(TodayDotExperimentPage)).dy,
-        lessThan(tester.getBottomLeft(find.byType(ThemeV2GlobalTopNav)).dy),
-      );
+      expect(find.byKey(TodayRekaScene.backgroundKey), findsOneWidget);
+      expect(find.byKey(TodayDitheredReka.leftEyeKey), findsOneWidget);
+      expect(find.byKey(TodayDitheredReka.rightEyeKey), findsOneWidget);
+
       await expectLater(
         find.byKey(surface),
-        matchesGoldenFile('goldens/today-dot-${state.fileName}-411-light.png'),
+        matchesGoldenFile('goldens/today-reka-${scenario.fileName}.png'),
       );
     });
   }
-
-  testWidgets('Today dot experiment exhale tall light 411', (tester) async {
-    const tallSize = Size(411, 1080);
-    final controller = TodayDotFieldController(config: config);
-    final simulation = TodayDotFieldSimulation(config: config);
-    addTearDown(controller.dispose);
-
-    await _pumpGolden(
-      tester,
-      surface: surface,
-      size: tallSize,
-      controller: controller,
-      simulation: simulation,
-      config: config,
-      state: _GoldenState.exhale,
-    );
-
-    expect(
-      tester.getTopLeft(find.byType(TodayDotExperimentPage)).dy,
-      lessThan(tester.getBottomLeft(find.byType(ThemeV2GlobalTopNav)).dy),
-    );
-
-    await expectLater(
-      find.byKey(surface),
-      matchesGoldenFile('goldens/today-dot-idle-411-tall-light.png'),
-    );
-  });
 }
 
-class _GoldenHost extends StatelessWidget {
-  const _GoldenHost({
-    required this.child,
-    required this.size,
-    required this.disableAnimations,
-  });
+enum _GoldenScenario { idle, dragging, reduceMotion, tallIdle }
 
-  final Widget child;
-  final Size size;
-  final bool disableAnimations;
+extension on _GoldenScenario {
+  Size get size => this == _GoldenScenario.tallIdle
+      ? const Size(411, 1080)
+      : const Size(411, 960);
 
-  @override
-  Widget build(BuildContext context) {
-    return MediaQuery(
-      data: const MediaQueryData(
-        devicePixelRatio: 1,
-        padding: EdgeInsets.only(top: 44),
-        platformBrightness: Brightness.light,
-        textScaler: TextScaler.noScaling,
-      ).copyWith(size: size, disableAnimations: disableAnimations),
-      child: MaterialApp(
-        locale: const Locale('zh', 'CN'),
-        theme: buildThemeV2Theme(Brightness.light),
-        home: child,
-      ),
-    );
-  }
-}
+  bool get reduceMotion => this == _GoldenScenario.reduceMotion;
 
-enum _GoldenState { inhale, exhale, dragging, settling, reduceMotion }
-
-extension on _GoldenState {
   String get fileName => switch (this) {
-    _GoldenState.exhale => 'exhale-eyes',
-    _GoldenState.dragging => 'drag',
-    _GoldenState.reduceMotion => 'reduce-motion',
-    _ => name,
+    _GoldenScenario.idle => 'idle-411-light',
+    _GoldenScenario.dragging => 'dragging-411-light',
+    _GoldenScenario.reduceMotion => 'reduce-motion-411-light',
+    _GoldenScenario.tallIdle => 'idle-411-tall-light',
   };
 }
 
 Future<void> _pumpGolden(
   WidgetTester tester, {
   required Key surface,
-  required Size size,
-  required TodayDotFieldController controller,
-  required TodayDotFieldSimulation simulation,
-  required TodayDotFieldConfig config,
-  required _GoldenState state,
+  required _GoldenScenario scenario,
+  required TodayRekaMotionController controller,
 }) async {
   tester.view.devicePixelRatio = 1;
-  tester.view.physicalSize = size;
+  tester.view.physicalSize = scenario.size;
   addTearDown(tester.view.resetDevicePixelRatio);
   addTearDown(tester.view.resetPhysicalSize);
 
+  Widget rekaBuilder(
+    BuildContext context,
+    TodayRekaPose pose,
+    bool active,
+    bool reduceMotion,
+    int refreshSignal,
+  ) => TodayDitheredReka(
+    pose: pose,
+    active: active,
+    reduceMotion: reduceMotion,
+    refreshSignal: refreshSignal,
+    forceFallback: true,
+  );
+
   Widget build() => _GoldenHost(
-    size: size,
-    disableAnimations: state == _GoldenState.reduceMotion,
+    size: scenario.size,
+    disableAnimations: scenario.reduceMotion,
     child: RepaintBoundary(
       key: surface,
       child: ThemeV2PageScaffold(
@@ -173,12 +129,11 @@ Future<void> _pumpGolden(
           onDestinationSelected: _noopIndex,
         ),
         body: TodayDotExperimentPage(
-          config: config,
           extendUnderChrome: true,
           now: DateTime(2026, 7, 31),
-          active: false,
-          sceneController: controller,
-          sceneSimulation: simulation,
+          active: true,
+          rekaController: controller,
+          rekaBuilder: rekaBuilder,
         ),
       ),
     ),
@@ -186,81 +141,45 @@ Future<void> _pumpGolden(
 
   await tester.pumpWidget(build());
   await tester.pump();
-  _configureState(controller, simulation, state);
-  await tester.pumpWidget(build());
-  await tester.pump();
-}
-
-void _configureState(
-  TodayDotFieldController controller,
-  TodayDotFieldSimulation simulation,
-  _GoldenState state,
-) {
-  switch (state) {
-    case _GoldenState.inhale:
-      controller.debugSetBreathPhase(0);
-      controller.step(0, reduceMotion: false);
-      _settleDots(controller, simulation, frames: 8);
-      break;
-    case _GoldenState.exhale:
-      controller.debugSetBreathPhase(.76);
-      controller.step(0, reduceMotion: false);
-      _settleDots(controller, simulation, frames: 28);
-      break;
-    case _GoldenState.dragging:
-      final start = controller.rekaCenter;
-      controller.beginDrag(start);
-      controller.updateDrag(
-        start + const Offset(92, -36),
-        const Duration(milliseconds: 60),
-      );
-      _settleDots(controller, simulation, frames: 18);
-      break;
-    case _GoldenState.settling:
-      final start = controller.rekaCenter;
-      controller.beginDrag(start);
-      controller.updateDrag(
-        start + const Offset(92, -36),
-        const Duration(milliseconds: 60),
-      );
-      controller.endDrag();
-      _settleDots(controller, simulation, frames: 6, advanceController: true);
-      break;
-    case _GoldenState.reduceMotion:
-      controller.step(0, reduceMotion: true);
-      simulation.step(
-        0,
-        rekaCenter: controller.rekaCenter,
-        state: controller.state,
-        dragEngagement: controller.dragEngagement,
-        breathAmount: controller.breathAmount,
-        fieldPhase: controller.breathPhase,
-        reduceMotion: true,
-      );
-      break;
-  }
-}
-
-void _settleDots(
-  TodayDotFieldController controller,
-  TodayDotFieldSimulation simulation, {
-  required int frames,
-  bool advanceController = false,
-}) {
-  for (var frame = 0; frame < frames; frame++) {
-    if (advanceController) controller.step(1 / 60, reduceMotion: false);
-    simulation.step(
-      1 / 60,
-      rekaCenter: controller.rekaCenter,
-      state: controller.state,
-      dragEngagement: controller.dragEngagement,
-      breathAmount: controller.breathAmount,
-      fieldPhase: controller.breathPhase,
-      reduceMotion: false,
+  if (scenario == _GoldenScenario.dragging) {
+    final start = controller.rekaCenter;
+    controller.beginDrag(start);
+    controller.updateDrag(
+      start + const Offset(92, -36),
+      const Duration(milliseconds: 60),
     );
+    await tester.pumpWidget(build());
+    await tester.pump();
   }
+}
+
+class _GoldenHost extends StatelessWidget {
+  const _GoldenHost({
+    required this.child,
+    required this.size,
+    required this.disableAnimations,
+  });
+
+  final Widget child;
+  final Size size;
+  final bool disableAnimations;
+
+  @override
+  Widget build(BuildContext context) => MediaQuery(
+    data: const MediaQueryData(
+      devicePixelRatio: 1,
+      padding: EdgeInsets.only(top: 44),
+      platformBrightness: Brightness.light,
+      textScaler: TextScaler.noScaling,
+    ).copyWith(size: size, disableAnimations: disableAnimations),
+    child: MaterialApp(
+      locale: const Locale('zh', 'CN'),
+      theme: buildThemeV2Theme(Brightness.light),
+      home: child,
+    ),
+  );
 }
 
 void _noop() {}
-void _noopDeviceTarget(ThemeV2DeviceTarget _) {}
 void _noopIndex(int _) {}
+void _noopDeviceTarget(ThemeV2DeviceTarget _) {}

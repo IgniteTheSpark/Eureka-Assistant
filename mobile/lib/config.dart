@@ -12,7 +12,9 @@ class AppConfig {
   ///   flutter run --dart-define=THEME_V2=false
   static const themeV2 = bool.fromEnvironment('THEME_V2', defaultValue: true);
 
-  /// Enables the reversible Light Today dot-matrix evaluation surface.
+  /// Enables the reversible Light Today dithered-Reka evaluation surface.
+  ///
+  /// The environment name stays unchanged for build and rollout compatibility.
   static const todayDotExperiment = bool.fromEnvironment(
     'TODAY_DOT_EXPERIMENT',
     defaultValue: false,
