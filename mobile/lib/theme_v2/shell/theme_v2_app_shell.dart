@@ -372,7 +372,6 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
                     onManualRecord: () => _openManualRecord(context),
                     onCreateReport: () => _createReport(context),
                     onStartChat: () => _startBlankChat(context),
-                    onOpenAgenda: () => _selectDestination(1),
                     onOpenReka: () => _openRekaSignals(context),
                     onOpenAssetLibrary: () => _selectDestination(2),
                   )

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:eureka/data_revision.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/home/home_repository.dart';
+import 'package:eureka/theme_v2/home/home_agenda_panel.dart';
 import 'package:eureka/theme_v2/home/today_dot_experiment_page.dart';
 import 'package:eureka/theme_v2/home/today_living_surface.dart';
 import 'package:eureka/theme_v2/home/today_reka_quick_actions.dart';
@@ -96,6 +97,59 @@ void main() {
     expect(find.text('今日'), findsNothing);
     expect(find.text('8月14日 · 周五'), findsOneWidget);
   });
+
+  testWidgets(
+    'agenda opens locally, hides Reka, and reuses loaded Today data',
+    (tester) async {
+      final now = DateTime(2026, 8, 14, 9);
+      final repository = _ImmediateRepository(
+        TodayData(
+          chain: [
+            ChainItem(
+              kind: 'event',
+              id: 'event',
+              title: '周会',
+              at: DateTime(2026, 8, 14, 10, 30),
+              timed: true,
+            ),
+            ChainItem(
+              kind: 'todo',
+              id: 'todo',
+              title: '提交方案',
+              at: DateTime(2026, 8, 14, 10, 30),
+              timed: true,
+            ),
+          ],
+          noTimeTodos: const [],
+          pool: const [],
+          poolTrueCount: 0,
+          flashCount: 0,
+        ),
+      );
+      await tester.pumpWidget(
+        _Host(
+          child: TodayDotExperimentPage(repository: repository, now: now),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('today-next-schedule')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(HomeAgendaPanel), findsOneWidget);
+      expect(find.byType(TodayLivingSurface), findsNothing);
+      expect(find.byKey(TodayRekaScene.rekaRenderKey), findsNothing);
+      expect(find.text('周会'), findsOneWidget);
+      expect(find.text('提交方案'), findsOneWidget);
+      expect(repository.loadCount, 1);
+
+      await tester.tap(find.bySemanticsLabel('收起日程'));
+      await tester.pumpAndSettle();
+      expect(find.byType(TodayLivingSurface), findsOneWidget);
+      expect(find.byKey(TodayRekaScene.rekaRenderKey), findsOneWidget);
+      expect(repository.loadCount, 1);
+    },
+  );
 
   testWidgets('immersive Reka stays above content without a local field', (
     tester,

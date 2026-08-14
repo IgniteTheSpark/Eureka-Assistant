@@ -5,10 +5,12 @@ import 'package:flutter/material.dart';
 
 import '../../data_revision.dart';
 import '../../today/today_data.dart';
+import '../foundation/theme_v2_motion.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../shell/theme_v2_floating_dock.dart';
 import '../shell/theme_v2_global_top_nav.dart';
 import '../reka/reka_signal_actions.dart';
+import 'home_agenda_panel.dart';
 import 'home_repository.dart';
 import 'today_dithered_reka_config.dart';
 import 'today_output_coordinator.dart';
@@ -24,7 +26,6 @@ class TodayDotExperimentPage extends StatefulWidget {
     this.onManualRecord,
     this.onCreateReport,
     this.onStartChat,
-    this.onOpenAgenda,
     this.onOpenReka,
     this.onOpenAssetLibrary,
     this.clock,
@@ -42,7 +43,6 @@ class TodayDotExperimentPage extends StatefulWidget {
   final VoidCallback? onManualRecord;
   final VoidCallback? onCreateReport;
   final VoidCallback? onStartChat;
-  final VoidCallback? onOpenAgenda;
   final VoidCallback? onOpenReka;
   final VoidCallback? onOpenAssetLibrary;
   final ValueListenable<DateTime>? clock;
@@ -64,6 +64,7 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
   bool _refreshing = false;
   bool _refreshFailed = false;
   bool _menuExpanded = false;
+  bool _agendaOpen = false;
   int _refreshSignal = 0;
   int _requestSerial = 0;
   TodayData? _data;
@@ -192,6 +193,91 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
     }
   }
 
+  void _openAgenda() => setState(() => _agendaOpen = true);
+
+  void _closeAgenda() => setState(() => _agendaOpen = false);
+
+  Widget _livingPresentation({
+    required double topChromeInset,
+    required double bottomChromeInset,
+  }) {
+    return LayoutBuilder(
+      key: const ValueKey('today-living-presentation'),
+      builder: (context, constraints) => TodayRekaScene(
+        config: widget.rekaConfig,
+        topChromeInset: topChromeInset,
+        bottomChromeInset: bottomChromeInset,
+        refreshSignal: _refreshSignal,
+        menuExpanded: _menuExpanded,
+        now: widget.now,
+        active: widget.active,
+        cue: _outputCoordinator.cue,
+        controller: _sceneRekaController,
+        rekaBuilder: widget.rekaBuilder,
+        content: RefreshIndicator.noSpinner(
+          onRefresh: _refresh,
+          child: SingleChildScrollView(
+            key: TodayDotExperimentPage.scrollKey,
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: SizedBox(
+              width: constraints.maxWidth,
+              height: constraints.maxHeight,
+              child: Padding(
+                padding: EdgeInsets.only(
+                  top: topChromeInset,
+                  bottom: bottomChromeInset,
+                ),
+                child: AnimatedBuilder(
+                  animation: _sceneRekaController,
+                  builder: (context, _) => TodayLivingSurface(
+                    data: _data ?? TodayData.empty,
+                    now: widget.now ?? DateTime.now(),
+                    active: widget.active,
+                    rekaCenter:
+                        _sceneRekaController.rekaCenter -
+                        Offset(0, topChromeInset),
+                    suppressProduction: _suppressProduction,
+                    outputCoordinator: _outputCoordinator,
+                    onOpenSignal: _openRekaSignal,
+                    onOpenReka: widget.onOpenReka,
+                    onOpenAssetLibrary: widget.onOpenAssetLibrary,
+                    onOpenAgenda: _openAgenda,
+                    clock: widget.clock,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        onRekaTap: (anchor) => unawaited(_openQuickActions(anchor)),
+      ),
+    );
+  }
+
+  Widget _agendaPresentation({
+    required double topChromeInset,
+    required double bottomChromeInset,
+  }) {
+    return LayoutBuilder(
+      key: const ValueKey('today-agenda-presentation'),
+      builder: (context, constraints) => SingleChildScrollView(
+        padding: EdgeInsets.only(
+          top: topChromeInset,
+          bottom: bottomChromeInset,
+        ),
+        child: SizedBox(
+          width: constraints.maxWidth,
+          height: 720,
+          child: HomeAgendaPanel(
+            data: _data ?? TodayData.empty,
+            date: widget.now,
+            onCloseAgenda: _closeAgenda,
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _requestSerial++;
@@ -217,55 +303,32 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
       child: Stack(
         children: [
           Positioned.fill(
-            child: LayoutBuilder(
-              builder: (context, constraints) => TodayRekaScene(
-                config: widget.rekaConfig,
-                topChromeInset: topChromeInset,
-                bottomChromeInset: bottomChromeInset,
-                refreshSignal: _refreshSignal,
-                menuExpanded: _menuExpanded,
-                now: widget.now,
-                active: widget.active,
-                cue: _outputCoordinator.cue,
-                controller: _sceneRekaController,
-                rekaBuilder: widget.rekaBuilder,
-                content: RefreshIndicator.noSpinner(
-                  onRefresh: _refresh,
-                  child: SingleChildScrollView(
-                    key: TodayDotExperimentPage.scrollKey,
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    child: SizedBox(
-                      width: constraints.maxWidth,
-                      height: constraints.maxHeight,
-                      child: Padding(
-                        padding: EdgeInsets.only(
-                          top: topChromeInset,
-                          bottom: bottomChromeInset,
-                        ),
-                        child: AnimatedBuilder(
-                          animation: _sceneRekaController,
-                          builder: (context, _) => TodayLivingSurface(
-                            data: _data ?? TodayData.empty,
-                            now: widget.now ?? DateTime.now(),
-                            active: widget.active,
-                            rekaCenter:
-                                _sceneRekaController.rekaCenter -
-                                Offset(0, topChromeInset),
-                            suppressProduction: _suppressProduction,
-                            outputCoordinator: _outputCoordinator,
-                            onOpenSignal: _openRekaSignal,
-                            onOpenReka: widget.onOpenReka,
-                            onOpenAssetLibrary: widget.onOpenAssetLibrary,
-                            onOpenAgenda: widget.onOpenAgenda,
-                            clock: widget.clock,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                onRekaTap: (anchor) => unawaited(_openQuickActions(anchor)),
+            child: AnimatedSwitcher(
+              duration: ThemeV2Motion.duration(
+                context,
+                ThemeV2MotionToken.standard,
               ),
+              switchInCurve: ThemeV2Motion.easeFluid,
+              switchOutCurve: ThemeV2Motion.easeFluid,
+              transitionBuilder: (child, animation) {
+                final offset = Tween<Offset>(
+                  begin: const Offset(0, 0.018),
+                  end: Offset.zero,
+                ).animate(animation);
+                return FadeTransition(
+                  opacity: animation,
+                  child: SlideTransition(position: offset, child: child),
+                );
+              },
+              child: _agendaOpen
+                  ? _agendaPresentation(
+                      topChromeInset: topChromeInset,
+                      bottomChromeInset: bottomChromeInset,
+                    )
+                  : _livingPresentation(
+                      topChromeInset: topChromeInset,
+                      bottomChromeInset: bottomChromeInset,
+                    ),
             ),
           ),
           if (_refreshing)

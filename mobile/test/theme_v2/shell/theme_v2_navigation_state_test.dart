@@ -6,6 +6,7 @@ import 'package:eureka/theme_v2/calendar/calendar_controller.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_tokens.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_typography.dart';
 import 'package:eureka/theme_v2/home/theme_v2_home_page.dart';
+import 'package:eureka/theme_v2/home/home_agenda_panel.dart';
 import 'package:eureka/theme_v2/home/home_repository.dart';
 import 'package:eureka/theme_v2/home/today_dot_experiment_page.dart';
 import 'package:eureka/theme_v2/reka/reka_signal_repository.dart';
@@ -318,7 +319,7 @@ void main() {
     );
   });
 
-  testWidgets('Today Next capsule opens the Calendar agenda destination', (
+  testWidgets('Today Next capsule opens the local agenda and keeps Today', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -337,7 +338,13 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('today-next-schedule')));
     await tester.pumpAndSettle();
 
-    expect(find.byType(ThemeV2CalendarPage), findsOneWidget);
+    expect(find.byType(HomeAgendaPanel), findsOneWidget);
+    expect(
+      tester
+          .widget<ThemeV2FloatingDock>(find.byType(ThemeV2FloatingDock))
+          .selectedIndex,
+      0,
+    );
   });
 
   testWidgets('Today experiment keeps floating chrome in dark mode', (

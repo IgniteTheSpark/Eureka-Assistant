@@ -35,6 +35,19 @@ void main() {
     expect(group.map((item) => item.id), ['next-a', 'next-b']);
   });
 
+  test('next group filters unsupported kinds and sorts event before todo', () {
+    final now = DateTime(2026, 8, 14, 9);
+    final at = DateTime(2026, 8, 14, 10, 30);
+    final group = todayNextGroup([
+      _item('todo', '提交方案', at, kind: 'todo'),
+      _item('note', '会议笔记', at, kind: 'note'),
+      _item('event', '周会', at, kind: 'event'),
+    ], now);
+
+    expect(group.map((item) => item.id), ['event', 'todo']);
+    expect(todayNextSummary(group), '周会、提交方案');
+  });
+
   testWidgets('capsule advances at the exact minute and opens Agenda', (
     tester,
   ) async {
@@ -68,17 +81,18 @@ void main() {
     expect(opened, 1);
   });
 
-  testWidgets('same-minute group shows first title and plus count', (
+  testWidgets('same-minute banner is right aligned and summarizes two titles', (
     tester,
   ) async {
     final now = DateTime(2026, 8, 14, 10);
+    final at = DateTime(2026, 8, 14, 14);
     await tester.pumpWidget(
       _host(
         TodayNextCapsule(
           items: [
-            _item('a', '产品评审', DateTime(2026, 8, 14, 14)),
-            _item('b', '设计同步', DateTime(2026, 8, 14, 14, 0, 20)),
-            _item('c', '客户沟通', DateTime(2026, 8, 14, 14, 0, 50)),
+            _item('a-todo', '提交方案', at, kind: 'todo'),
+            _item('event', '周会', at, kind: 'event'),
+            _item('z-todo', '客户沟通', at, kind: 'todo'),
           ],
           now: now,
           onOpenAgenda: () {},
@@ -86,8 +100,10 @@ void main() {
       ),
     );
 
-    expect(find.text('产品评审'), findsOneWidget);
-    expect(find.text('+2'), findsOneWidget);
+    expect(find.text('14:00 · 3 项'), findsOneWidget);
+    expect(find.text('周会、提交方案 +1'), findsOneWidget);
+    final title = tester.widget<Text>(find.text('周会、提交方案 +1'));
+    expect(title.textAlign, TextAlign.right);
   });
 
   testWidgets('empty capsule keeps its target and opens Agenda', (
@@ -115,8 +131,13 @@ void main() {
   });
 }
 
-ChainItem _item(String id, String title, DateTime at, {bool timed = true}) =>
-    ChainItem(kind: 'event', id: id, title: title, at: at, timed: timed);
+ChainItem _item(
+  String id,
+  String title,
+  DateTime at, {
+  String kind = 'event',
+  bool timed = true,
+}) => ChainItem(kind: kind, id: id, title: title, at: at, timed: timed);
 
 Widget _host(Widget child) => MaterialApp(
   theme: buildThemeV2Theme(Brightness.light),

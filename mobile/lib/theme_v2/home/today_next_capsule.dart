@@ -9,28 +9,22 @@ import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
 
 List<ChainItem> todayNextGroup(List<ChainItem> items, DateTime now) {
-  final nowMinute = DateTime(
-    now.year,
-    now.month,
-    now.day,
-    now.hour,
-    now.minute,
-  );
+  final nowMinute = _minuteOf(now);
   final future =
       items
           .where((item) {
-            final at = item.at;
-            final itemMinute = DateTime(
-              at.year,
-              at.month,
-              at.day,
-              at.hour,
-              at.minute,
-            );
-            return item.timed && itemMinute.isAfter(nowMinute);
+            return item.timed &&
+                (item.kind == 'event' || item.kind == 'todo') &&
+                _minuteOf(item.at).isAfter(nowMinute);
           })
           .toList(growable: false)
-        ..sort((a, b) => a.at.compareTo(b.at));
+        ..sort((a, b) {
+          final byMinute = _minuteOf(a.at).compareTo(_minuteOf(b.at));
+          if (byMinute != 0) return byMinute;
+          final byKind = _kindRank(a.kind).compareTo(_kindRank(b.kind));
+          if (byKind != 0) return byKind;
+          return a.id.compareTo(b.id);
+        });
   if (future.isEmpty) return const [];
   final first = future.first.at;
   return future
@@ -43,6 +37,12 @@ List<ChainItem> todayNextGroup(List<ChainItem> items, DateTime now) {
             item.at.minute == first.minute,
       )
       .toList(growable: false);
+}
+
+String todayNextSummary(List<ChainItem> group) {
+  final visible = group.take(2).map((item) => item.title).join('、');
+  final remaining = group.length - 2;
+  return remaining > 0 ? '$visible +$remaining' : visible;
 }
 
 String todayCountdownLabel(DateTime target, DateTime now) {
@@ -124,7 +124,7 @@ class _TodayNextCapsuleState extends State<TodayNextCapsule> {
     final tokens = context.themeV2;
     final semanticsLabel = first == null
         ? '今天暂无安排，打开今日安排'
-        : '${_timeLabel(first.at)}，${first.title}，'
+        : '${_timeLabel(first.at)}，${todayNextSummary(group)}，'
               '${todayCountdownLabel(first.at, _now)}，打开今日安排';
     return SizedBox(
       width: 204,
@@ -150,7 +150,7 @@ class _TodayNextCapsuleState extends State<TodayNextCapsule> {
                 padding: const EdgeInsets.fromLTRB(10, 6, 9, 6),
                 child: first == null
                     ? Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisAlignment: MainAxisAlignment.end,
                         children: [
                           Text(
                             '今天暂无安排',
@@ -170,68 +170,63 @@ class _TodayNextCapsuleState extends State<TodayNextCapsule> {
                           ),
                         ],
                       )
-                    : Row(
+                    : Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
-                          SizedBox(
-                            width: 54,
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _timeLabel(first.at),
+                          Text(
+                            todayCountdownLabel(first.at, _now),
+                            maxLines: 1,
+                            overflow: TextOverflow.fade,
+                            softWrap: false,
+                            textAlign: TextAlign.right,
+                            style: TextStyle(
+                              color: tokens.muted,
+                              fontSize: 8,
+                              height: 1,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            '${_timeLabel(first.at)}'
+                            '${group.length > 1 ? ' · ${group.length} 项' : ''}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.right,
+                            style: TextStyle(
+                              color: tokens.foreground,
+                              fontSize: 13,
+                              height: 1,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: -.2,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  todayNextSummary(group),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.right,
                                   style: TextStyle(
                                     color: tokens.foreground,
-                                    fontSize: 14,
-                                    height: 1,
-                                    fontWeight: FontWeight.w800,
-                                    letterSpacing: -.2,
-                                  ),
-                                ),
-                                const SizedBox(height: 3),
-                                Text(
-                                  todayCountdownLabel(first.at, _now),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.fade,
-                                  softWrap: false,
-                                  style: TextStyle(
-                                    color: tokens.muted,
-                                    fontSize: 8,
+                                    fontSize: 10,
                                     height: 1,
                                     fontWeight: FontWeight.w700,
                                   ),
                                 ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            child: Text(
-                              first.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: tokens.foreground,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
                               ),
-                            ),
-                          ),
-                          if (group.length > 1) ...[
-                            const SizedBox(width: 4),
-                            Text(
-                              '+${group.length - 1}',
-                              style: TextStyle(
+                              const SizedBox(width: 2),
+                              Icon(
+                                Icons.chevron_right_rounded,
                                 color: tokens.muted,
-                                fontSize: 9,
-                                fontWeight: FontWeight.w800,
+                                size: 14,
                               ),
-                            ),
-                          ],
-                          Icon(
-                            Icons.chevron_right_rounded,
-                            color: tokens.muted,
-                            size: 15,
+                            ],
                           ),
                         ],
                       ),
@@ -247,3 +242,8 @@ class _TodayNextCapsuleState extends State<TodayNextCapsule> {
 String _timeLabel(DateTime value) =>
     '${value.hour.toString().padLeft(2, '0')}:'
     '${value.minute.toString().padLeft(2, '0')}';
+
+DateTime _minuteOf(DateTime value) =>
+    DateTime(value.year, value.month, value.day, value.hour, value.minute);
+
+int _kindRank(String kind) => kind == 'event' ? 0 : 1;
