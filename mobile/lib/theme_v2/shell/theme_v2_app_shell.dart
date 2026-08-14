@@ -7,12 +7,12 @@ import '../../config.dart';
 import '../../data_revision.dart';
 import '../../pages/calendar_page.dart' show calendarHome;
 import '../../pages/chat_page.dart';
-import '../../pages/create_asset.dart' show showCreateMenu;
 import '../../pages/device_pairing_page.dart';
 import '../../pages/notifications_page.dart';
 import '../../pet/reka_notifications.dart';
 import '../../theme/app_theme.dart';
 import '../calendar/calendar_controller.dart';
+import '../calendar/calendar_editor_router.dart';
 import '../calendar/theme_v2_calendar_page.dart';
 import '../capture/capture_activity_coordinator.dart';
 import '../capture/capture_activity_models.dart';
@@ -58,7 +58,7 @@ class ThemeV2AppShell extends StatefulWidget {
     this.captureActivityCoordinator,
     this.onCaptureActivitySelected,
     this.todayDotExperimentOverride,
-    this.onCreateAsset,
+    this.onManualRecord,
     this.onCreateReport,
     this.onStartChat,
     this.initialIndex = const int.fromEnvironment('START_TAB', defaultValue: 0),
@@ -87,7 +87,7 @@ class ThemeV2AppShell extends StatefulWidget {
   final CaptureActivityCoordinator? captureActivityCoordinator;
   final ValueChanged<CaptureActivityItem>? onCaptureActivitySelected;
   final bool? todayDotExperimentOverride;
-  final VoidCallback? onCreateAsset;
+  final VoidCallback? onManualRecord;
   final VoidCallback? onCreateReport;
   final VoidCallback? onStartChat;
   final int initialIndex;
@@ -294,13 +294,13 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
     );
   }
 
-  void _createAsset(BuildContext context) {
-    final callback = widget.onCreateAsset;
+  void _openManualRecord(BuildContext context) {
+    final callback = widget.onManualRecord;
     if (callback != null) {
       callback();
       return;
     }
-    showCreateMenu(context);
+    unawaited(openCalendarManualRecordFlow(context));
   }
 
   void _createReport(BuildContext context) {
@@ -369,7 +369,7 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
                     active: _index == 0,
                     extendUnderChrome: immersiveToday,
                     repository: widget.homeRepository,
-                    onCreateAsset: () => _createAsset(context),
+                    onManualRecord: () => _openManualRecord(context),
                     onCreateReport: () => _createReport(context),
                     onStartChat: () => _startBlankChat(context),
                     onOpenAgenda: () => _selectDestination(1),

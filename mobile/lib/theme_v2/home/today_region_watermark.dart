@@ -38,7 +38,7 @@ class TodayRegionWatermark extends StatelessWidget {
           style: TextStyle(
             color: tokens.accent.withValues(alpha: dark ? .14 : .07),
             fontFamily: 'Geist',
-            fontSize: 112,
+            fontSize: 88,
             fontWeight: FontWeight.w700,
             letterSpacing: -6,
             height: .9,

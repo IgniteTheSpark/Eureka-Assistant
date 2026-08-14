@@ -4,6 +4,7 @@ import 'package:eureka/api/api_client.dart';
 import 'package:eureka/pet/floating_mascot.dart'
     show mascotSuppressed, releaseMascotSuppress;
 import 'package:eureka/theme_v2/calendar/calendar_manual_record_picker.dart';
+import 'package:eureka/theme_v2/calendar/calendar_editor_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -229,6 +230,47 @@ void main() {
     await tester.pumpAndSettle();
     expect(await result, isNull);
     expect(mascotSuppressed.value, 0);
+  });
+
+  testWidgets('shared manual record flow reuses picker and editor route', (
+    tester,
+  ) async {
+    final effectiveDate = DateTime(2026, 8, 14, 21, 30);
+    CalendarSkillOption? openedOption;
+    DateTime? openedDate;
+    Future<void>? flow;
+    await tester.pumpWidget(
+      calendarTestHost(
+        Builder(
+          builder: (context) => TextButton(
+            onPressed: () {
+              flow = openCalendarManualRecordFlow(
+                context,
+                effectiveDate: effectiveDate,
+                loader: () async => const CalendarSkillCatalog(
+                  options: options,
+                  recentNames: ['coffee'],
+                ),
+                openEditor: (context, option, date) async {
+                  openedOption = option;
+                  openedDate = date;
+                },
+              );
+            },
+            child: const Text('打开共享手动记录'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('打开共享手动记录'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.bySemanticsLabel('手动记录：咖啡记录').last);
+    await tester.pumpAndSettle();
+    await flow;
+
+    expect(openedOption?.name, 'coffee');
+    expect(openedDate, effectiveDate);
   });
 
   test('parsing excludes disabled, deprecated, and non-record Skills', () {

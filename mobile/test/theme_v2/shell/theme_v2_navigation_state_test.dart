@@ -226,7 +226,7 @@ void main() {
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
-      var createAssetCount = 0;
+      var manualRecordCount = 0;
       var createReportCount = 0;
       var startChatCount = 0;
       await tester.pumpWidget(
@@ -236,7 +236,7 @@ void main() {
             deviceStatus: const DeviceStatusSummary.disconnected(),
             homeRepository: const _HomeRepository(),
             todayDotExperimentOverride: true,
-            onCreateAsset: () => createAssetCount++,
+            onManualRecord: () => manualRecordCount++,
             onCreateReport: () => createReportCount++,
             onStartChat: () => startChatCount++,
           ),
@@ -249,14 +249,14 @@ void main() {
       expect(find.byType(ThemeV2GlobalTopNav), findsOneWidget);
       expect(find.byKey(ThemeV2FloatingDock.dockKey), findsOneWidget);
 
-      for (final label in ['创建资产', '创建报告', '开始新聊天']) {
+      for (final label in ['手动记录', '创建报告', '开始新聊天']) {
         await tester.tap(find.bySemanticsLabel('Reka 快捷操作，可拖动'));
         await tester.pumpAndSettle();
         await tester.tap(find.text(label));
         await tester.pumpAndSettle();
       }
 
-      expect(createAssetCount, 1);
+      expect(manualRecordCount, 1);
       expect(createReportCount, 1);
       expect(startChatCount, 1);
       expect(tester.takeException(), isNull);

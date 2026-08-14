@@ -21,7 +21,7 @@ class TodayDotExperimentPage extends StatefulWidget {
   const TodayDotExperimentPage({
     super.key,
     this.repository,
-    this.onCreateAsset,
+    this.onManualRecord,
     this.onCreateReport,
     this.onStartChat,
     this.onOpenAgenda,
@@ -39,7 +39,7 @@ class TodayDotExperimentPage extends StatefulWidget {
   static const scrollKey = ValueKey<String>('today-dot-experiment-scroll');
 
   final ThemeV2HomeRepository? repository;
-  final VoidCallback? onCreateAsset;
+  final VoidCallback? onManualRecord;
   final VoidCallback? onCreateReport;
   final VoidCallback? onStartChat;
   final VoidCallback? onOpenAgenda;
@@ -183,7 +183,7 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
       await showTodayRekaQuickActions(
         context,
         anchor: anchor,
-        onCreateAsset: widget.onCreateAsset,
+        onManualRecord: widget.onManualRecord,
         onCreateReport: widget.onCreateReport,
         onStartChat: widget.onStartChat,
       );

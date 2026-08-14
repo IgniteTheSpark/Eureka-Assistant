@@ -220,8 +220,8 @@ void main() {
               onPressed: () => showTodayRekaQuickActions(
                 context,
                 anchor: const Rect.fromLTWH(32, 420, 200, 200),
-                onCreateAsset: () => counts[TodayRekaAction.createAsset] =
-                    counts[TodayRekaAction.createAsset]! + 1,
+                onManualRecord: () => counts[TodayRekaAction.manualRecord] =
+                    counts[TodayRekaAction.manualRecord]! + 1,
                 onCreateReport: () => counts[TodayRekaAction.createReport] =
                     counts[TodayRekaAction.createReport]! + 1,
                 onStartChat: () => counts[TodayRekaAction.startChat] =
@@ -235,7 +235,7 @@ void main() {
 
       await tester.tap(find.text('打开菜单'));
       await tester.pumpAndSettle();
-      expect(find.text('创建资产'), findsOneWidget);
+      expect(find.text('手动记录'), findsOneWidget);
       expect(find.text('创建报告'), findsOneWidget);
       expect(find.text('开始新聊天'), findsOneWidget);
 

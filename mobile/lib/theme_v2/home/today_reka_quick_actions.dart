@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 enum TodayRekaAction {
-  createAsset('创建资产'),
+  manualRecord('手动记录'),
   createReport('创建报告'),
   startChat('开始新聊天');
 
@@ -13,7 +13,7 @@ enum TodayRekaAction {
 Future<void> showTodayRekaQuickActions(
   BuildContext context, {
   required Rect anchor,
-  required VoidCallback? onCreateAsset,
+  required VoidCallback? onManualRecord,
   required VoidCallback? onCreateReport,
   required VoidCallback? onStartChat,
 }) async {
@@ -24,9 +24,9 @@ Future<void> showTodayRekaQuickActions(
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
     items: [
       _item(
-        TodayRekaAction.createAsset,
+        TodayRekaAction.manualRecord,
         Icons.add_circle_outline_rounded,
-        enabled: onCreateAsset != null,
+        enabled: onManualRecord != null,
       ),
       _item(
         TodayRekaAction.createReport,
@@ -42,8 +42,8 @@ Future<void> showTodayRekaQuickActions(
   );
 
   switch (selected) {
-    case TodayRekaAction.createAsset:
-      onCreateAsset?.call();
+    case TodayRekaAction.manualRecord:
+      onManualRecord?.call();
     case TodayRekaAction.createReport:
       onCreateReport?.call();
     case TodayRekaAction.startChat:
