@@ -46,6 +46,8 @@ class _TodaySignalBandState extends State<TodaySignalBand> {
   final Map<String, double> _lastX = {};
   final Map<String, double> _pausedX = {};
   final Set<String> _opening = {};
+  final List<int> _laneCapacity = List<int>.filled(3, 0);
+  double? _lastMotionPhase;
 
   @override
   void initState() {
@@ -56,6 +58,7 @@ class _TodaySignalBandState extends State<TodaySignalBand> {
   @override
   void didUpdateWidget(covariant TodaySignalBand oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.motion, widget.motion)) _lastMotionPhase = null;
     _reconcileLanes();
   }
 
@@ -84,6 +87,16 @@ class _TodaySignalBandState extends State<TodaySignalBand> {
     final birthSignalId = widget.birthSignalId;
     if (birthSignalId != null && active.contains(birthSignalId)) {
       _laneById[birthSignalId] = 0;
+    }
+    final reconciledLoads = List<int>.filled(3, 0);
+    for (final lane in _laneById.values) {
+      reconciledLoads[lane]++;
+    }
+    for (var lane = 0; lane < 3; lane++) {
+      _laneCapacity[lane] = math.max(
+        _laneCapacity[lane],
+        reconciledLoads[lane],
+      );
     }
   }
 
@@ -135,6 +148,13 @@ class _TodaySignalBandState extends State<TodaySignalBand> {
           builder: (context, constraints) => AnimatedBuilder(
             animation: motion,
             builder: (context, _) {
+              final phase = motion.value;
+              final previousPhase = _lastMotionPhase;
+              var phaseDelta = previousPhase == null
+                  ? 0.0
+                  : phase - previousPhase;
+              if (phaseDelta < 0) phaseDelta += 1;
+              _lastMotionPhase = phase;
               final laneHeight = constraints.maxHeight / 3;
               final placements = <_SignalPlacement>[
                 for (var lane = 0; lane < 3; lane++)
@@ -145,7 +165,8 @@ class _TodaySignalBandState extends State<TodaySignalBand> {
                       lane: lane,
                       laneHeight: laneHeight,
                       viewportWidth: constraints.maxWidth,
-                      phase: motion.value,
+                      phase: phase,
+                      phaseDelta: phaseDelta,
                       reduceMotion: reduceMotion,
                     ),
               ];
@@ -228,16 +249,23 @@ class _TodaySignalBandState extends State<TodaySignalBand> {
     required double laneHeight,
     required double viewportWidth,
     required double phase,
+    required double phaseDelta,
     required bool reduceMotion,
   }) {
     final gap = _laneGaps[lane];
-    final itemsOnLane = widget.items
-        .where((candidate) => _laneById[candidate.id] == lane)
-        .length;
+    final itemsOnLane = math.max(1, _laneCapacity[lane]);
     final cycle = viewportWidth + itemsOnLane * (_stripWidth + gap);
     final travel = phase * 120 * _laneSpeeds[lane];
     final slot = index * (_stripWidth + gap) + lane * viewportWidth * .18;
-    final movingX = -_stripWidth + ((travel + slot) % cycle);
+    final initialX = -_stripWidth + ((travel + slot) % cycle);
+    final previousX = _lastX[item.id];
+    final movingX = previousX == null
+        ? initialX
+        : -_stripWidth +
+              ((previousX +
+                      _stripWidth +
+                      phaseDelta * 120 * _laneSpeeds[lane]) %
+                  cycle);
     final staticX = math.max(0, (viewportWidth - _stripWidth) * .5).toDouble();
     final x = _pausedX[item.id] ?? (reduceMotion ? staticX : movingX);
     _lastX[item.id] = x;

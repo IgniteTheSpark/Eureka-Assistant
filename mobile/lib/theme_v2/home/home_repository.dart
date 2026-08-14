@@ -21,11 +21,12 @@ class ApiThemeV2HomeRepository implements ThemeV2HomeRepository {
 
   @override
   Future<TodayData> load() async {
-    await _api.getJson('/ready');
+    final readyFuture = _api.getJson('/ready');
     final todayFuture = loadToday(_api, coreRecordsOnly: true);
     final rekaFuture = _loadRekaQueue().catchError(
       (_) => const <TodayRekaItem>[],
     );
+    await readyFuture;
     final today = await todayFuture;
     final rekaQueue = await rekaFuture;
     return today.withRekaQueue(rekaQueue);

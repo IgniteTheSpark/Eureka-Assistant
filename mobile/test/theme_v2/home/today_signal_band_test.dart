@@ -89,7 +89,7 @@ void main() {
     },
   );
 
-  testWidgets('existing Signal keeps its lane after priority refresh', (
+  testWidgets('existing Signals keep their positions after list refresh', (
     tester,
   ) async {
     final motion = AnimationController(
@@ -98,7 +98,7 @@ void main() {
     )..value = .3;
     addTearDown(motion.dispose);
     late StateSetter update;
-    var items = [_signal(0), _signal(1), _signal(2)];
+    var items = List.generate(6, _signal);
     await tester.pumpWidget(
       _host(
         StatefulBuilder(
@@ -113,17 +113,23 @@ void main() {
         ),
       ),
     );
-    final before = tester.getCenter(
-      find.byKey(const ValueKey('today-signal-signal-1')),
-    );
+    final before = {
+      for (final item in items)
+        item.id: tester.getCenter(
+          find.byKey(ValueKey('today-signal-${item.id}')),
+        ),
+    };
 
-    update(() => items = [_signal(4), _signal(2), _signal(1), _signal(0)]);
+    update(() => items = List.generate(9, _signal));
     await tester.pump();
-    final after = tester.getCenter(
-      find.byKey(const ValueKey('today-signal-signal-1')),
-    );
 
-    expect(after.dy, before.dy);
+    for (final entry in before.entries) {
+      final after = tester.getCenter(
+        find.byKey(ValueKey('today-signal-${entry.key}')),
+      );
+      expect(after.dx, closeTo(entry.value.dx, .01), reason: entry.key);
+      expect(after.dy, entry.value.dy, reason: entry.key);
+    }
   });
 
   testWidgets('motion moves strips left to right while Reduce Motion freezes', (
