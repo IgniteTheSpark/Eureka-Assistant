@@ -229,8 +229,7 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
                               _sceneRekaController.rekaCenter -
                               Offset(0, topChromeInset),
                           suppressProduction: _suppressProduction,
-                          onOpenSignal: (item) =>
-                              unawaited(_openRekaSignal(item)),
+                          onOpenSignal: _openRekaSignal,
                           onOpenAgenda: widget.onOpenAgenda,
                           clock: widget.clock,
                         ),

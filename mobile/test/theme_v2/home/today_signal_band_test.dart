@@ -1,0 +1,172 @@
+import 'dart:async';
+
+import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
+import 'package:eureka/theme_v2/home/today_signal_band.dart';
+import 'package:eureka/today/today_data.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+void main() {
+  testWidgets('five Signals occupy three lanes without duplicating content', (
+    tester,
+  ) async {
+    final motion = AnimationController(
+      vsync: tester,
+      duration: const Duration(seconds: 120),
+    )..value = .2;
+    addTearDown(motion.dispose);
+    final items = List.generate(5, _signal);
+
+    await tester.pumpWidget(
+      _host(
+        TodaySignalBand(
+          items: items,
+          motion: motion,
+          onOpenSignal: (_) async {},
+        ),
+      ),
+    );
+
+    for (var lane = 0; lane < 3; lane++) {
+      expect(find.byKey(ValueKey('today-signal-lane-$lane')), findsOneWidget);
+    }
+    for (final item in items) {
+      expect(find.text(item.title), findsOneWidget);
+    }
+    expect(find.text('5'), findsOneWidget);
+    expect(find.text('Reka 发现'), findsOneWidget);
+    expect(find.byType(PageView), findsNothing);
+  });
+
+  testWidgets('existing Signal keeps its lane after priority refresh', (
+    tester,
+  ) async {
+    final motion = AnimationController(
+      vsync: tester,
+      duration: const Duration(seconds: 120),
+    )..value = .3;
+    addTearDown(motion.dispose);
+    late StateSetter update;
+    var items = [_signal(0), _signal(1), _signal(2)];
+    await tester.pumpWidget(
+      _host(
+        StatefulBuilder(
+          builder: (context, setState) {
+            update = setState;
+            return TodaySignalBand(
+              items: items,
+              motion: motion,
+              onOpenSignal: (_) async {},
+            );
+          },
+        ),
+      ),
+    );
+    final before = tester.getCenter(
+      find.byKey(const ValueKey('today-signal-signal-1')),
+    );
+
+    update(() => items = [_signal(4), _signal(2), _signal(1), _signal(0)]);
+    await tester.pump();
+    final after = tester.getCenter(
+      find.byKey(const ValueKey('today-signal-signal-1')),
+    );
+
+    expect(after.dy, before.dy);
+  });
+
+  testWidgets('motion moves strips left to right while Reduce Motion freezes', (
+    tester,
+  ) async {
+    final motion = AnimationController(
+      vsync: tester,
+      duration: const Duration(seconds: 120),
+    )..value = .1;
+    addTearDown(motion.dispose);
+    final item = _signal(0);
+    await tester.pumpWidget(
+      _host(
+        TodaySignalBand(
+          items: [item],
+          motion: motion,
+          onOpenSignal: (_) async {},
+        ),
+      ),
+    );
+    final before = tester.getCenter(find.text(item.title));
+    motion.value = .2;
+    await tester.pump();
+    final after = tester.getCenter(find.text(item.title));
+    expect(after.dx, isNot(before.dx));
+
+    await tester.pumpWidget(
+      _host(
+        TodaySignalBand(
+          items: [item],
+          motion: motion,
+          onOpenSignal: (_) async {},
+        ),
+        reduceMotion: true,
+      ),
+    );
+    final frozen = tester.getCenter(find.text(item.title));
+    motion.value = .4;
+    await tester.pump();
+    expect(tester.getCenter(find.text(item.title)), frozen);
+  });
+
+  testWidgets('opening a Signal pauses only that strip until detail closes', (
+    tester,
+  ) async {
+    final motion = AnimationController(
+      vsync: tester,
+      duration: const Duration(seconds: 120),
+    )..value = .05;
+    addTearDown(motion.dispose);
+    final detail = Completer<void>();
+    final item = _signal(0);
+    await tester.pumpWidget(
+      _host(
+        TodaySignalBand(
+          items: [item],
+          motion: motion,
+          onOpenSignal: (_) => detail.future,
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('today-signal-signal-0')));
+    await tester.pump();
+    final paused = tester.getCenter(find.text(item.title));
+    motion.value = .3;
+    await tester.pump();
+    expect(tester.getCenter(find.text(item.title)), paused);
+
+    detail.complete();
+    await tester.pump();
+    motion.value = .4;
+    await tester.pump();
+    expect(tester.getCenter(find.text(item.title)).dx, isNot(paused.dx));
+  });
+}
+
+TodayRekaItem _signal(int index) => TodayRekaItem(
+  id: 'signal-$index',
+  type: index.isEven ? 'rhythm_gap' : 'report',
+  title: '发现 $index',
+  body: '信号内容 $index',
+  link: '',
+  createdAt: DateTime(2026, 8, 14, 10, index),
+);
+
+Widget _host(Widget child, {bool reduceMotion = false}) => MaterialApp(
+  theme: buildThemeV2Theme(Brightness.light),
+  home: MediaQuery(
+    data: MediaQueryData(
+      size: const Size(411, 860),
+      devicePixelRatio: 1,
+      disableAnimations: reduceMotion,
+    ),
+    child: Scaffold(body: SizedBox(width: 375, height: 210, child: child)),
+  ),
+);

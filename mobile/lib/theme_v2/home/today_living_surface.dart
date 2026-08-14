@@ -27,7 +27,7 @@ class TodayLivingSurface extends StatefulWidget {
   final TodayData data;
   final DateTime now;
   final bool active;
-  final ValueChanged<TodayRekaItem>? onOpenSignal;
+  final TodaySignalOpenCallback? onOpenSignal;
   final VoidCallback? onOpenAgenda;
   final ValueListenable<DateTime>? clock;
   final Offset rekaCenter;
