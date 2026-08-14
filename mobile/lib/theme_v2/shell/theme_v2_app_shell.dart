@@ -385,11 +385,17 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
                   ),
           ),
           ThemeV2PageScaffold(
-            body: ThemeV2CalendarPage(controller: _calendarController),
+            body: ThemeV2CalendarPage(
+              active: _index == 1,
+              controller: _calendarController,
+            ),
             showDock: _calendarController.surface == CalendarSurface.overview,
           ),
           ThemeV2PageScaffold(
-            body: ThemeV2LibraryPage(navigation: _libraryNavigation),
+            body: ThemeV2LibraryPage(
+              active: _index == 2,
+              navigation: _libraryNavigation,
+            ),
             showTopNav: _libraryNavigation.chrome.topNav,
             showDock: _libraryNavigation.chrome.dock,
           ),

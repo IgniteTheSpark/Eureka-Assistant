@@ -862,6 +862,7 @@ void main() {
     await tester.pumpWidget(
       calendarTestHost(
         ThemeV2CalendarPage(
+          active: false,
           controller: CalendarController(),
           today: DateTime(2026, 7, 3),
           initialData: calendarFixtureData(),
@@ -913,6 +914,7 @@ void main() {
       await tester.pumpWidget(
         calendarTestHost(
           ThemeV2CalendarPage(
+            active: false,
             controller: CalendarController(),
             today: DateTime(2026, 7, 3),
             initialData: calendarFixtureData(),
@@ -964,6 +966,7 @@ void main() {
     await tester.pumpWidget(
       calendarTestHost(
         ThemeV2CalendarPage(
+          active: false,
           controller: CalendarController(),
           today: DateTime(2026, 7, 3),
           initialData: calendarFixtureData(),
@@ -1008,6 +1011,7 @@ void main() {
     await tester.pumpWidget(
       calendarTestHost(
         ThemeV2CalendarPage(
+          active: false,
           controller: CalendarController(),
           today: DateTime(2026, 7, 3),
           initialData: calendarFixtureData(),
@@ -1096,6 +1100,7 @@ void main() {
     await tester.pumpWidget(
       calendarTestHost(
         ThemeV2CalendarPage(
+          active: false,
           controller: CalendarController(),
           today: DateTime(2026, 7, 3),
           initialData: calendarFixtureData(),

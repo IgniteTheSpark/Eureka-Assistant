@@ -14,6 +14,7 @@ import 'package:eureka/theme_v2/reka/reka_signals_page.dart';
 import 'package:eureka/today/today_data.dart';
 import 'package:eureka/theme_v2/calendar/theme_v2_calendar_page.dart';
 import 'package:eureka/theme_v2/library/library_navigation.dart';
+import 'package:eureka/theme_v2/library/theme_v2_library_page.dart';
 import 'package:eureka/theme_v2/device/theme_v2_card_device_detail_page.dart';
 import 'package:eureka/theme_v2/device/theme_v2_ring_device_detail_page.dart';
 import 'package:eureka/theme_v2/shell/device_status_summary.dart';
@@ -27,6 +28,76 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   setUp(() => themeModeNotifier.value = ThemeMode.light);
   tearDown(() => themeModeNotifier.value = ThemeMode.light);
+
+  testWidgets('only the selected root page keeps its dither field active', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const _ThemeHost(
+        child: ThemeV2AppShell(
+          showStartupOverlays: false,
+          deviceStatus: DeviceStatusSummary.disconnected(),
+          homeRepository: _HomeRepository(),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      tester
+          .widget<ThemeV2CalendarPage>(
+            find.byType(ThemeV2CalendarPage, skipOffstage: false),
+          )
+          .active,
+      isFalse,
+    );
+    expect(
+      tester
+          .widget<ThemeV2LibraryPage>(
+            find.byType(ThemeV2LibraryPage, skipOffstage: false),
+          )
+          .active,
+      isFalse,
+    );
+
+    await tester.tap(find.bySemanticsLabel('日历'));
+    await tester.pump();
+    expect(
+      tester
+          .widget<ThemeV2CalendarPage>(
+            find.byType(ThemeV2CalendarPage, skipOffstage: false),
+          )
+          .active,
+      isTrue,
+    );
+    expect(
+      tester
+          .widget<ThemeV2LibraryPage>(
+            find.byType(ThemeV2LibraryPage, skipOffstage: false),
+          )
+          .active,
+      isFalse,
+    );
+
+    await tester.tap(find.bySemanticsLabel('资产'));
+    await tester.pump();
+    expect(
+      tester
+          .widget<ThemeV2CalendarPage>(
+            find.byType(ThemeV2CalendarPage, skipOffstage: false),
+          )
+          .active,
+      isFalse,
+    );
+    expect(
+      tester
+          .widget<ThemeV2LibraryPage>(
+            find.byType(ThemeV2LibraryPage, skipOffstage: false),
+          )
+          .active,
+      isTrue,
+    );
+  });
 
   testWidgets('tab and controller state survive tab and theme changes', (
     tester,
