@@ -758,6 +758,7 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
               label: 'Reka 生成',
               alignment: Alignment.topRight,
               padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
+              labelFirst: true,
               onPressed: widget.onOpenLibrary,
               semanticLabel: '打开资产库',
             ),

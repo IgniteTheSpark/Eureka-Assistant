@@ -205,7 +205,7 @@ class _TodaySignalBandState extends State<TodaySignalBand> {
                     count: widget.items.length,
                     label: 'Reka 发现',
                     alignment: Alignment.bottomLeft,
-                    padding: const EdgeInsets.fromLTRB(18, 12, 18, 4),
+                    padding: const EdgeInsets.fromLTRB(18, 12, 18, 8),
                     onPressed: widget.onOpenAll,
                     semanticLabel: '查看全部 Reka 发现',
                   ),

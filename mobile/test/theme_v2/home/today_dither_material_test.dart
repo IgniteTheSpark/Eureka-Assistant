@@ -100,6 +100,55 @@ void main() {
     expect(find.text('Reka 发现'), findsNothing);
   });
 
+  testWidgets('region watermark count and label share one entry', (
+    tester,
+  ) async {
+    var openCalls = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildThemeV2Theme(Brightness.light),
+        home: Scaffold(
+          body: TodayRegionWatermark(
+            count: 12,
+            label: 'Reka 生成',
+            alignment: Alignment.topRight,
+            onPressed: () => openCalls++,
+            semanticLabel: '打开资产库',
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('12'));
+    expect(openCalls, 1);
+
+    await tester.tap(find.text('Reka 生成'));
+    expect(openCalls, 2);
+  });
+
+  testWidgets('region watermark can keep its label before the count', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildThemeV2Theme(Brightness.light),
+        home: const Scaffold(
+          body: TodayRegionWatermark(
+            count: 12,
+            label: 'Reka 生成',
+            alignment: Alignment.topRight,
+            labelFirst: true,
+          ),
+        ),
+      ),
+    );
+
+    expect(
+      tester.getTopLeft(find.text('Reka 生成')).dy,
+      lessThan(tester.getTopLeft(find.text('12')).dy),
+    );
+  });
+
   testWidgets('dither material keeps its overlay crisp and semantic', (
     tester,
   ) async {

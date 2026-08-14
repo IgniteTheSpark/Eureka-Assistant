@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/home/today_dither_field.dart';
 import 'package:eureka/theme_v2/home/today_dither_material.dart';
+import 'package:eureka/theme_v2/home/today_region_watermark.dart';
 import 'package:eureka/theme_v2/home/today_signal_band.dart';
 import 'package:eureka/today/today_data.dart';
 import 'package:flutter/material.dart';
@@ -217,13 +218,15 @@ void main() {
     );
 
     expect(find.bySemanticsLabel('查看全部 Reka 发现'), findsOneWidget);
-    await tester.tap(find.bySemanticsLabel('查看全部 Reka 发现'));
-    expect(openAllCalls, 1);
+    await tester.tap(find.text('1'));
+    await tester.tap(find.text('Reka 发现'));
+    expect(openAllCalls, 2);
     expect(openSignalCalls, 0);
 
-    await tester.tap(find.byKey(const ValueKey('today-signal-signal-0')));
+    final strip = find.byKey(const ValueKey('today-signal-signal-0'));
+    await tester.tapAt(tester.getCenter(strip) + const Offset(90, 0));
     await tester.pump();
-    expect(openAllCalls, 1);
+    expect(openAllCalls, 2);
     expect(openSignalCalls, 1);
   });
 
@@ -243,11 +246,16 @@ void main() {
       );
       final count = tester.widget<Text>(find.text('1'));
       final label = tester.widget<Text>(find.text('Reka 发现'));
+      final watermark = tester.widget<TodayRegionWatermark>(
+        find.byType(TodayRegionWatermark),
+      );
       final dark = brightness == Brightness.dark;
 
       expect(field.config.opacity, dark ? .32 : .40);
       expect(count.style!.color!.a, closeTo(dark ? .14 : .07, .01));
       expect(label.style!.color!.a, closeTo(dark ? .68 : .44, .01));
+      expect(watermark.padding.bottom, 8);
+      expect(watermark.labelFirst, isFalse);
     }
   });
 }

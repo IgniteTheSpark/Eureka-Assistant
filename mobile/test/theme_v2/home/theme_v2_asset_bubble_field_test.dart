@@ -5,6 +5,7 @@ import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/home/theme_v2_asset_bubble_field.dart';
 import 'package:eureka/theme_v2/home/today_dither_field.dart';
 import 'package:eureka/theme_v2/home/today_dither_material.dart';
+import 'package:eureka/theme_v2/home/today_region_watermark.dart';
 import 'package:eureka/timeline/timeline.dart';
 import 'package:eureka/today/today_data.dart';
 import 'package:flutter/material.dart';
@@ -247,8 +248,9 @@ void main() {
     );
 
     expect(find.bySemanticsLabel('打开资产库'), findsOneWidget);
-    await tester.tap(find.bySemanticsLabel('打开资产库'));
-    expect(openLibraryCalls, 1);
+    await tester.tap(find.text('1'));
+    await tester.tap(find.text('Reka 生成'));
+    expect(openLibraryCalls, 2);
   });
 
   testWidgets('Asset dither and watermark use brightness-specific contrast', (
@@ -266,11 +268,16 @@ void main() {
       );
       final count = tester.widget<Text>(find.text('1'));
       final label = tester.widget<Text>(find.text('Reka 生成'));
+      final watermark = tester.widget<TodayRegionWatermark>(
+        find.byType(TodayRegionWatermark),
+      );
       final dark = brightness == Brightness.dark;
 
       expect(field.config.opacity, dark ? .30 : .38);
       expect(count.style!.color!.a, closeTo(dark ? .14 : .07, .01));
       expect(label.style!.color!.a, closeTo(dark ? .68 : .44, .01));
+      expect(watermark.padding.top, 8);
+      expect(watermark.labelFirst, isTrue);
     }
   });
 
@@ -572,6 +579,7 @@ void main() {
         tester,
         assets: [smallAsset],
         disableAnimations: false,
+        trueCount: 0,
         gravityStream: gravity.stream,
         onOpenAsset: (value) {
           opened = value;
@@ -1002,6 +1010,7 @@ Future<void> _pumpField(
   VoidCallback? onOpenLibrary,
   Animation<double>? motion,
   Brightness brightness = Brightness.light,
+  int? trueCount,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = size;
@@ -1018,7 +1027,7 @@ Future<void> _pumpField(
           height: size.height,
           child: ThemeV2AssetBubbleField(
             assets: assets,
-            trueCount: assets.length,
+            trueCount: trueCount ?? assets.length,
             skills: skills,
             active: active,
             gravityStream: gravityStream,
