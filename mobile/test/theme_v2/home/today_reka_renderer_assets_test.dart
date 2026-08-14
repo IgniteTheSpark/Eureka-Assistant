@@ -29,6 +29,7 @@ void main() {
     expect(engine, contains('setProduction'));
     expect(engine, contains('dragYawMultiplier'));
     expect(engine, contains("state === 'dragging'"));
+    expect(engine, contains('? 4'));
     expect(engine, contains('0x78ff74'));
     expect(engine, contains('eyeGroup'));
     expect(engine, contains('destroy'));

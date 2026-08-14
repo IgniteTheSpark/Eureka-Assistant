@@ -563,7 +563,7 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                     key: const ValueKey('today-asset-dither-field'),
                     config: TodayDitherFieldConfig.asset(
                       waveColor: context.themeV2.foreground,
-                      opacity: .22,
+                      opacity: .30,
                     ),
                     sources: [
                       for (final bubble in field?.bubbles ?? const <Bubble>[])
@@ -797,7 +797,7 @@ class _ThemeV2CompactAssetGrid extends StatelessWidget {
               key: const ValueKey('today-asset-dither-field'),
               config: TodayDitherFieldConfig.asset(
                 waveColor: context.themeV2.foreground,
-                opacity: .22,
+                opacity: .30,
               ),
               sources: [
                 for (var index = 0; index < assets.length; index++)

@@ -76,6 +76,20 @@ void main() {
       _expectInsideInclusive(controller.safeBounds, controller.rekaCenter);
     });
 
+    test('slow horizontal drag still produces a readable facing cue', () {
+      final controller = _laidOutController();
+      final start = controller.rekaCenter;
+
+      controller.beginDrag(start);
+      controller.updateDrag(
+        start + const Offset(48, 0),
+        const Duration(milliseconds: 400),
+      );
+
+      expect(controller.pose.tiltYDegrees, greaterThan(2));
+      expect(controller.pose.tiltYDegrees, lessThanOrEqualTo(8));
+    });
+
     test('release settles inside bounds and returns tilt to zero', () {
       final controller = _laidOutController();
       final start = controller.rekaCenter;

@@ -54,7 +54,7 @@ void main() {
       find.byKey(const ValueKey('today-signal-dither-field')),
     );
     expect(field.sources, hasLength(items.length));
-    expect(field.config.opacity, greaterThanOrEqualTo(.22));
+    expect(field.config.opacity, greaterThanOrEqualTo(.30));
   });
 
   testWidgets(

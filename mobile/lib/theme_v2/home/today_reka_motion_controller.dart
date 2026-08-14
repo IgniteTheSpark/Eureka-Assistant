@@ -55,14 +55,20 @@ class TodayRekaMotionController extends ChangeNotifier {
         tiltYDegrees: 0,
       );
     }
+    final horizontalRatio = (_dragVelocity.dx.abs() / maxDragSpeed)
+        .clamp(0.0, 1.0)
+        .toDouble();
+    final horizontalTilt = horizontalRatio == 0
+        ? 0.0
+        : _dragVelocity.dx.sign *
+              math.pow(horizontalRatio, .4).toDouble() *
+              config.maxTiltDegrees;
     return TodayRekaPose(
       state: _state,
       tiltXDegrees: (-_dragVelocity.dy / maxDragSpeed * config.maxTiltDegrees)
           .clamp(-config.maxTiltDegrees, config.maxTiltDegrees)
           .toDouble(),
-      tiltYDegrees: (_dragVelocity.dx / maxDragSpeed * config.maxTiltDegrees)
-          .clamp(-config.maxTiltDegrees, config.maxTiltDegrees)
-          .toDouble(),
+      tiltYDegrees: horizontalTilt,
     );
   }
 
