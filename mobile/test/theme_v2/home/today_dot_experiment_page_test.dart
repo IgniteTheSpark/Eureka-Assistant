@@ -1,187 +1,14 @@
 import 'dart:async';
 
+import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/home/home_repository.dart';
-import 'package:eureka/theme_v2/home/today_dot_field_controller.dart';
-import 'package:eureka/theme_v2/home/today_dot_field_config.dart';
 import 'package:eureka/theme_v2/home/today_dot_experiment_page.dart';
-import 'package:eureka/theme_v2/home/today_dot_matrix_scene.dart';
 import 'package:eureka/theme_v2/home/today_reka_quick_actions.dart';
 import 'package:eureka/today/today_data.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('scene exposes a quiet living Reka with a core-sized hotspot', (
-    tester,
-  ) async {
-    final semantics = tester.ensureSemantics();
-    await tester.pumpWidget(
-      _Host(child: TodayDotMatrixScene(refreshEmphasis: 0, onRekaTap: (_) {})),
-    );
-
-    final reka = find.bySemanticsLabel('Reka 快捷操作，可拖动');
-    expect(reka, findsOneWidget);
-    expect(tester.getSize(reka).width, greaterThanOrEqualTo(64));
-    expect(tester.getSize(reka).height, greaterThanOrEqualTo(64));
-    expect(find.text('今天很安静，我在这里。'), findsOneWidget);
-    expect(find.byType(CustomPaint), findsWidgets);
-
-    semantics.dispose();
-  });
-
-  testWidgets('Reka target covers the configured white core', (tester) async {
-    await tester.pumpWidget(
-      _Host(
-        child: TodayDotMatrixScene(
-          config: const TodayDotFieldConfig(cursorRadius: 60),
-          refreshEmphasis: 0,
-          onRekaTap: (_) {},
-        ),
-      ),
-    );
-    await tester.pump();
-
-    expect(
-      tester.getSize(find.byKey(TodayDotMatrixScene.rekaTargetKey)),
-      const Size.square(120),
-    );
-  });
-
-  testWidgets('scene accepts a deterministic date for visual verification', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      _Host(
-        child: TodayDotMatrixScene(
-          refreshEmphasis: 0,
-          now: DateTime(2026, 7, 31),
-          onRekaTap: (_) {},
-        ),
-      ),
-    );
-
-    expect(find.text('7月31日 · 周五'), findsOneWidget);
-  });
-
-  testWidgets('Reka breathes only while the Today scene is active', (
-    tester,
-  ) async {
-    final controller = TodayDotFieldController();
-    Widget scene({required bool active}) => _Host(
-      disableAnimations: false,
-      child: TodayDotMatrixScene(
-        active: active,
-        controller: controller,
-        refreshEmphasis: 0,
-        onRekaTap: (_) {},
-      ),
-    );
-
-    await tester.pumpWidget(scene(active: false));
-    await tester.pump(const Duration(seconds: 1));
-    expect(controller.breathPhase, 0);
-
-    await tester.pumpWidget(scene(active: true));
-    await tester.pump();
-    await tester.pump(const Duration(seconds: 1));
-    expect(controller.breathPhase, greaterThan(0));
-  });
-
-  testWidgets('empty background drag does not move Reka', (tester) async {
-    final controller = TodayDotFieldController();
-    await tester.pumpWidget(
-      _Host(
-        disableAnimations: false,
-        child: TodayDotMatrixScene(
-          controller: controller,
-          refreshEmphasis: 0,
-          onRekaTap: (_) {},
-        ),
-      ),
-    );
-    final before = controller.rekaCenter;
-
-    await tester.dragFrom(const Offset(330, 260), const Offset(-90, 80));
-    await tester.pump();
-
-    expect(controller.rekaCenter, before);
-  });
-
-  testWidgets('dragging Reka moves it without opening quick actions', (
-    tester,
-  ) async {
-    final controller = TodayDotFieldController();
-    var taps = 0;
-    await tester.pumpWidget(
-      _Host(
-        disableAnimations: false,
-        child: TodayDotMatrixScene(
-          controller: controller,
-          refreshEmphasis: 0,
-          onRekaTap: (_) => taps++,
-        ),
-      ),
-    );
-    final before = controller.rekaCenter;
-
-    await tester.drag(
-      find.byKey(TodayDotMatrixScene.rekaTargetKey),
-      const Offset(100, -30),
-    );
-    await tester.pump(const Duration(milliseconds: 32));
-
-    expect(controller.rekaCenter.dx, greaterThan(before.dx + 50));
-    expect(taps, 0);
-  });
-
-  testWidgets('tap reports the current global Reka anchor', (tester) async {
-    Rect? anchor;
-    await tester.pumpWidget(
-      _Host(
-        child: TodayDotMatrixScene(
-          refreshEmphasis: 0,
-          onRekaTap: (value) => anchor = value,
-        ),
-      ),
-    );
-    final target = find.byKey(TodayDotMatrixScene.rekaTargetKey);
-
-    await tester.tap(target);
-    await tester.pump();
-
-    expect(anchor, isNotNull);
-    expect(anchor!.center, tester.getCenter(target));
-    expect(anchor!.size, const Size.square(108));
-  });
-
-  testWidgets('inactive scene stops phase and cancels drag', (tester) async {
-    final controller = TodayDotFieldController();
-    Widget build(bool active) => _Host(
-      disableAnimations: false,
-      child: TodayDotMatrixScene(
-        active: active,
-        controller: controller,
-        refreshEmphasis: 0,
-        onRekaTap: (_) {},
-      ),
-    );
-    await tester.pumpWidget(build(true));
-    final gesture = await tester.startGesture(
-      tester.getCenter(find.byKey(TodayDotMatrixScene.rekaTargetKey)),
-    );
-    await gesture.moveBy(const Offset(40, 0));
-    await tester.pump();
-    expect(controller.state, TodayRekaMotionState.dragging);
-
-    await tester.pumpWidget(build(false));
-    final phase = controller.breathPhase;
-    await tester.pump(const Duration(seconds: 1));
-
-    expect(controller.state, TodayRekaMotionState.idle);
-    expect(controller.breathPhase, phase);
-    await gesture.cancel();
-  });
-
   testWidgets('quick actions invoke only the selected callback', (
     tester,
   ) async {
@@ -196,7 +23,7 @@ void main() {
             builder: (context) => TextButton(
               onPressed: () => showTodayRekaQuickActions(
                 context,
-                anchor: const Rect.fromLTWH(32, 420, 64, 64),
+                anchor: const Rect.fromLTWH(32, 420, 176, 176),
                 onCreateAsset: () => counts[TodayRekaAction.createAsset] =
                     counts[TodayRekaAction.createAsset]! + 1,
                 onCreateReport: () => counts[TodayRekaAction.createReport] =
@@ -226,14 +53,23 @@ void main() {
     }
   });
 
-  testWidgets('empty scene refreshes once and keeps the scene visible', (
+  testWidgets('empty scene refreshes once and emits one Reka pulse', (
     tester,
   ) async {
     final response = Completer<TodayData>();
     final repository = _QueueRepository([response]);
     final semantics = tester.ensureSemantics();
+    var latestRefreshSignal = 0;
     await tester.pumpWidget(
-      _Host(child: TodayDotExperimentPage(repository: repository)),
+      _Host(
+        child: TodayDotExperimentPage(
+          repository: repository,
+          rekaBuilder: (context, pose, active, reduceMotion, refreshSignal) {
+            latestRefreshSignal = refreshSignal;
+            return const SizedBox.expand();
+          },
+        ),
+      ),
     );
 
     final refreshIndicator = tester.state<RefreshIndicatorState>(
@@ -244,6 +80,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
 
     expect(repository.loadCount, 1);
+    expect(latestRefreshSignal, 1);
     expect(find.bySemanticsLabel('正在刷新今日'), findsOneWidget);
     expect(find.text('今天很安静，我在这里。'), findsOneWidget);
     expect(
@@ -259,6 +96,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
     expect(repository.loadCount, 1);
+    expect(latestRefreshSignal, 1);
 
     response.complete(TodayData.empty);
     await tester.pumpAndSettle();
@@ -274,8 +112,17 @@ void main() {
     final first = Completer<TodayData>();
     final retry = Completer<TodayData>();
     final repository = _QueueRepository([first, retry]);
+    var latestRefreshSignal = 0;
     await tester.pumpWidget(
-      _Host(child: TodayDotExperimentPage(repository: repository)),
+      _Host(
+        child: TodayDotExperimentPage(
+          repository: repository,
+          rekaBuilder: (context, pose, active, reduceMotion, refreshSignal) {
+            latestRefreshSignal = refreshSignal;
+            return const SizedBox.expand();
+          },
+        ),
+      ),
     );
 
     final refreshIndicator = tester.state<RefreshIndicatorState>(
@@ -287,6 +134,7 @@ void main() {
     first.completeError(StateError('offline'));
     await tester.pumpAndSettle();
 
+    expect(latestRefreshSignal, 1);
     expect(find.text('今天很安静，我在这里。'), findsOneWidget);
     expect(find.text('刷新失败，已保留当前场景'), findsOneWidget);
     expect(find.text('重试'), findsOneWidget);
@@ -294,6 +142,7 @@ void main() {
     await tester.tap(find.text('重试'));
     await tester.pump();
     expect(repository.loadCount, 2);
+    expect(latestRefreshSignal, 2);
 
     retry.complete(TodayData.empty);
     await tester.pumpAndSettle();
@@ -316,23 +165,21 @@ class _QueueRepository implements ThemeV2HomeRepository {
 }
 
 class _Host extends StatelessWidget {
-  const _Host({required this.child, this.disableAnimations = true});
+  const _Host({required this.child});
 
   final Widget child;
-  final bool disableAnimations;
 
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      home: MediaQuery(
-        data: MediaQueryData(
-          size: const Size(411, 860),
-          devicePixelRatio: 1,
-          disableAnimations: disableAnimations,
-          textScaler: TextScaler.noScaling,
-        ),
-        child: Scaffold(body: child),
+  Widget build(BuildContext context) => MaterialApp(
+    theme: buildThemeV2Theme(Brightness.light),
+    home: MediaQuery(
+      data: const MediaQueryData(
+        size: Size(411, 860),
+        devicePixelRatio: 1,
+        disableAnimations: true,
+        textScaler: TextScaler.noScaling,
       ),
-    );
-  }
+      child: Scaffold(body: child),
+    ),
+  );
 }

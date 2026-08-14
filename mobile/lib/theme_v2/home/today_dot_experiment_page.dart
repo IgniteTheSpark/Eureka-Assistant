@@ -2,13 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../foundation/theme_v2_theme.dart';
 import 'home_repository.dart';
-import 'today_dot_field_controller.dart';
-import 'today_dot_field_config.dart';
-import 'today_dot_field_simulation.dart';
-import 'today_dot_matrix_painter.dart';
-import 'today_dot_matrix_scene.dart';
+import 'today_dithered_reka_config.dart';
+import 'today_reka_motion_controller.dart';
 import 'today_reka_quick_actions.dart';
+import 'today_reka_scene.dart';
 import '../shell/theme_v2_floating_dock.dart';
 import '../shell/theme_v2_global_top_nav.dart';
 
@@ -21,9 +20,9 @@ class TodayDotExperimentPage extends StatefulWidget {
     this.onStartChat,
     this.now,
     this.active = true,
-    this.sceneController,
-    this.sceneSimulation,
-    this.config = const TodayDotFieldConfig(),
+    this.rekaController,
+    this.rekaConfig = const TodayDitheredRekaConfig(),
+    this.rekaBuilder,
     this.extendUnderChrome = false,
   });
 
@@ -35,27 +34,23 @@ class TodayDotExperimentPage extends StatefulWidget {
   final VoidCallback? onStartChat;
   final DateTime? now;
   final bool active;
-  final TodayDotFieldController? sceneController;
-  final TodayDotFieldSimulation? sceneSimulation;
-  final TodayDotFieldConfig config;
+  final TodayRekaMotionController? rekaController;
+  final TodayDitheredRekaConfig rekaConfig;
+  final TodayRekaBuilder? rekaBuilder;
   final bool extendUnderChrome;
 
   @override
   State<TodayDotExperimentPage> createState() => _TodayDotExperimentPageState();
 }
 
-class _TodayDotExperimentPageState extends State<TodayDotExperimentPage>
-    with SingleTickerProviderStateMixin {
+class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
   late ThemeV2HomeRepository _repository;
   late bool _ownsRepository;
-  late final AnimationController _refreshEmphasis = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 320),
-  );
   Future<void>? _inflightRefresh;
   bool _refreshing = false;
   bool _refreshFailed = false;
   bool _menuExpanded = false;
+  int _refreshSignal = 0;
   int _requestSerial = 0;
 
   @override
@@ -107,6 +102,7 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage>
       setState(() {
         _refreshing = true;
         _refreshFailed = false;
+        _refreshSignal++;
       });
     }
     try {
@@ -122,28 +118,6 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage>
         _refreshing = false;
         _refreshFailed = true;
       });
-    }
-  }
-
-  void _handleRefreshStatus(RefreshIndicatorStatus? status) {
-    switch (status) {
-      case RefreshIndicatorStatus.drag:
-      case RefreshIndicatorStatus.armed:
-      case RefreshIndicatorStatus.snap:
-      case RefreshIndicatorStatus.refresh:
-        _refreshEmphasis.animateTo(
-          1,
-          duration: const Duration(milliseconds: 100),
-          curve: Curves.easeOut,
-        );
-      case RefreshIndicatorStatus.done:
-      case RefreshIndicatorStatus.canceled:
-      case null:
-        _refreshEmphasis.animateBack(
-          0,
-          duration: const Duration(milliseconds: 320),
-          curve: Curves.easeOutCubic,
-        );
     }
   }
 
@@ -165,7 +139,6 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage>
   @override
   void dispose() {
     _requestSerial++;
-    _refreshEmphasis.dispose();
     _disposeOwnedRepository();
     super.dispose();
   }
@@ -180,35 +153,31 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage>
         ? ThemeV2FloatingDock.contentClearance + bottomPadding
         : 0.0;
     return ColoredBox(
-      color: TodayDotMatrixPalette.light.surface,
+      color: context.themeV2.background,
       child: Stack(
         children: [
           Positioned.fill(
             child: LayoutBuilder(
               builder: (context, constraints) => RefreshIndicator.noSpinner(
                 onRefresh: _refresh,
-                onStatusChange: _handleRefreshStatus,
                 child: SingleChildScrollView(
                   key: TodayDotExperimentPage.scrollKey,
                   physics: const AlwaysScrollableScrollPhysics(),
                   child: SizedBox(
                     width: constraints.maxWidth,
                     height: constraints.maxHeight,
-                    child: AnimatedBuilder(
-                      animation: _refreshEmphasis,
-                      builder: (context, _) => TodayDotMatrixScene(
-                        config: widget.config,
-                        topChromeInset: topChromeInset,
-                        bottomChromeInset: bottomChromeInset,
-                        refreshEmphasis: _refreshEmphasis.value,
-                        menuExpanded: _menuExpanded,
-                        now: widget.now,
-                        active: widget.active,
-                        controller: widget.sceneController,
-                        simulation: widget.sceneSimulation,
-                        onRekaTap: (anchor) =>
-                            unawaited(_openQuickActions(anchor)),
-                      ),
+                    child: TodayRekaScene(
+                      config: widget.rekaConfig,
+                      topChromeInset: topChromeInset,
+                      bottomChromeInset: bottomChromeInset,
+                      refreshSignal: _refreshSignal,
+                      menuExpanded: _menuExpanded,
+                      now: widget.now,
+                      active: widget.active,
+                      controller: widget.rekaController,
+                      rekaBuilder: widget.rekaBuilder,
+                      onRekaTap: (anchor) =>
+                          unawaited(_openQuickActions(anchor)),
                     ),
                   ),
                 ),
@@ -246,7 +215,7 @@ class _RefreshFailure extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: const Color(0xFFF2F5F2),
+      color: context.themeV2.surface,
       elevation: 2,
       borderRadius: BorderRadius.circular(14),
       child: Padding(
@@ -257,7 +226,7 @@ class _RefreshFailure extends StatelessWidget {
               child: Text(
                 '刷新失败，已保留当前场景',
                 style: TextStyle(
-                  color: TodayDotMatrixPalette.light.foreground,
+                  color: context.themeV2.foreground,
                   fontSize: 12,
                 ),
               ),
