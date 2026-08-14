@@ -34,7 +34,7 @@ class _TodayOutputOverlayState extends State<TodayOutputOverlay>
     vsync: this,
     duration: widget.item.reduceMotion
         ? const Duration(milliseconds: 140)
-        : const Duration(milliseconds: 720),
+        : const Duration(milliseconds: 1440),
   )..addStatusListener(_statusChanged);
   TodayOutputPhase? _reportedPhase;
   bool _handedOff = false;
@@ -65,7 +65,7 @@ class _TodayOutputOverlayState extends State<TodayOutputOverlay>
   void _progressChanged() {
     final value = _controller.value;
     if (widget.item.reduceMotion) return;
-    if (value >= .2 &&
+    if (value >= .21 &&
         (_reportedPhase?.index ?? 0) < TodayOutputPhase.emit.index) {
       _reportPhase(TodayOutputPhase.emit);
     }
@@ -74,7 +74,7 @@ class _TodayOutputOverlayState extends State<TodayOutputOverlay>
       _reportPhase(TodayOutputPhase.handoff);
       _handoff();
     }
-    if (value >= .9 &&
+    if (value >= .91 &&
         (_reportedPhase?.index ?? 0) < TodayOutputPhase.recover.index) {
       _reportPhase(TodayOutputPhase.recover);
     }
@@ -140,31 +140,38 @@ class _TodayOutputOverlayState extends State<TodayOutputOverlay>
             builder: (context, _) {
               final raw = _controller.value;
               final charge = Curves.easeOutBack.transform(
-                (raw / .2).clamp(0.0, 1.0),
+                (raw / .21).clamp(0.0, 1.0),
               );
               final travel = Curves.easeInOutCubic.transform(
-                ((raw - .2) / .52).clamp(0.0, 1.0),
+                ((raw - .21) / .51).clamp(0.0, 1.0),
               );
               final center = Offset(
                 detached.dx,
                 lerpDouble(detached.dy, _destination.dy, travel)!,
               );
-              final unfold = ((raw - .72) / .18).clamp(0.0, 1.0);
-              final recover = ((raw - .9) / .1).clamp(0.0, 1.0);
+              final unfold = ((raw - .72) / .19).clamp(0.0, 1.0);
+              final recover = ((raw - .91) / .09).clamp(0.0, 1.0);
               final signal = widget.item.kind == TodayOutputKind.signal;
-              final width = signal ? lerpDouble(14, 172, unfold)! : 14.0;
+              final width = signal ? lerpDouble(20, 172, unfold)! : 20.0;
               final opacity = (.35 + .65 * charge) * (1 - recover);
               return Stack(
                 fit: StackFit.expand,
                 children: [
+                  for (var index = 0; index < 3; index++)
+                    _buildTrail(
+                      index: index,
+                      raw: raw,
+                      detached: detached,
+                      recover: recover,
+                    ),
                   Positioned(
                     key: ValueKey(
                       'today-output-${widget.item.kind.name}-${widget.item.id}',
                     ),
                     left: center.dx - width / 2,
-                    top: center.dy - 7,
+                    top: center.dy - 10,
                     width: width,
-                    height: 14,
+                    height: 20,
                     child: Opacity(
                       opacity: opacity,
                       child: _TerminalSeed(
@@ -186,8 +193,37 @@ class _TodayOutputOverlayState extends State<TodayOutputOverlay>
     source.dx,
     widget.item.kind == TodayOutputKind.signal
         ? widget.signalBoundaryY
-        : widget.assetFloorY,
+        : widget.assetFloorY - (widget.item.reduceMotion ? 0 : 16),
   );
+
+  Widget _buildTrail({
+    required int index,
+    required double raw,
+    required Offset detached,
+    required double recover,
+  }) {
+    final lag = .035 * (index + 1);
+    final progress = Curves.easeInOutCubic.transform(
+      (((raw - .21) / .51) - lag).clamp(0.0, 1.0),
+    );
+    final center = Offset(
+      detached.dx,
+      lerpDouble(detached.dy, _destination.dy, progress)!,
+    );
+    final size = 12.0 - index * 2;
+    final travelVisibility = ((raw - .21) / .10).clamp(0.0, 1.0);
+    return Positioned(
+      key: ValueKey('today-output-trail-$index'),
+      left: center.dx - size / 2,
+      top: center.dy - size / 2,
+      width: size,
+      height: size,
+      child: Opacity(
+        opacity: travelVisibility * (1 - recover) * (.28 - index * .07),
+        child: const _TerminalSeed(stretched: false),
+      ),
+    );
+  }
 }
 
 class _TerminalSeed extends StatelessWidget {
@@ -209,7 +245,16 @@ class _TerminalSeed extends StatelessWidget {
               ],
             ),
           )
-        : const BoxDecoration(),
+        : BoxDecoration(
+            color: Theme.of(
+              context,
+            ).colorScheme.onSurface.withValues(alpha: .58),
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: Theme.of(context).colorScheme.onSurface,
+              width: 1.25,
+            ),
+          ),
     child: Center(
       child: Wrap(
         spacing: 2,

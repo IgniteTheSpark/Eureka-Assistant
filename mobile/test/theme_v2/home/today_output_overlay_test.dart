@@ -30,11 +30,15 @@ void main() {
     );
 
     expect(find.byKey(const ValueKey('today-output-seed')), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey('today-output-signal-trail')),
-      findsNothing,
-    );
-    await tester.pump(const Duration(milliseconds: 760));
+    for (var index = 0; index < 3; index++) {
+      expect(find.byKey(ValueKey('today-output-trail-$index')), findsOneWidget);
+    }
+    await tester.pump(const Duration(milliseconds: 1000));
+    expect(handoff, isNull);
+    expect(completed, 0);
+    await tester.pump(const Duration(milliseconds: 60));
+    expect(handoff?.dy, 74);
+    await tester.pump(const Duration(milliseconds: 420));
     await tester.pump();
     expect(completed, 1);
     expect(handoff?.dy, 74);
@@ -105,6 +109,32 @@ void main() {
       tester.getCenter(find.byKey(const ValueKey('today-output-seed'))).dx,
       lessThan(item.source.dx),
     );
+  });
+
+  testWidgets('animated Asset hands off visibly inside the chamber floor', (
+    tester,
+  ) async {
+    Offset? handoff;
+    const item = TodayOutputItem(
+      kind: TodayOutputKind.asset,
+      id: 'asset-visible-handoff',
+      source: Offset(180, 300),
+      reduceMotion: false,
+    );
+    await tester.pumpWidget(
+      _host(
+        TodayOutputOverlay(
+          item: item,
+          signalBoundaryY: 74,
+          assetFloorY: 760,
+          onHandoff: (value) => handoff = value,
+          onComplete: () {},
+        ),
+      ),
+    );
+
+    await tester.pump(const Duration(milliseconds: 1060));
+    expect(handoff?.dy, 744);
   });
 }
 
