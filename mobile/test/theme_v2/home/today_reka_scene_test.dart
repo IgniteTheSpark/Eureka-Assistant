@@ -136,6 +136,39 @@ void main() {
     await gesture.cancel();
   });
 
+  testWidgets(
+    'inactive scene keeps its last valid layout when chrome shrinks',
+    (tester) async {
+      final controller = TodayRekaMotionController();
+      Widget build({required bool active, required double height}) => _host(
+        Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: 800,
+            height: height,
+            child: TodayRekaScene(
+              active: active,
+              controller: controller,
+              topChromeInset: 76,
+              bottomChromeInset: 80,
+              refreshSignal: 0,
+              onRekaTap: (_) {},
+              rekaBuilder: _fakeReka,
+            ),
+          ),
+        ),
+      );
+
+      await tester.pumpWidget(build(active: true, height: 600));
+      final validBounds = controller.safeBounds;
+
+      await tester.pumpWidget(build(active: false, height: 464));
+
+      expect(tester.takeException(), isNull);
+      expect(controller.safeBounds, validBounds);
+    },
+  );
+
   testWidgets('idle animation does not run a Flutter scene ticker', (
     tester,
   ) async {

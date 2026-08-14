@@ -207,7 +207,8 @@ class _TodayRekaSceneState extends State<TodayRekaScene>
           18,
           widget.bottomChromeInset + 38,
         );
-        if ((size != _lastSize || reservedInsets != _lastReservedInsets) &&
+        if (widget.active &&
+            (size != _lastSize || reservedInsets != _lastReservedInsets) &&
             !size.isEmpty) {
           _lastSize = size;
           _lastReservedInsets = reservedInsets;
