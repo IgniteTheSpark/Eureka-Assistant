@@ -8,11 +8,13 @@ class TodayRegionWatermark extends StatelessWidget {
     required this.count,
     required this.label,
     required this.alignment,
+    this.padding = const EdgeInsets.fromLTRB(18, 12, 18, 12),
   });
 
   final int count;
   final String label;
   final Alignment alignment;
+  final EdgeInsets padding;
 
   @override
   Widget build(BuildContext context) {
@@ -24,7 +26,7 @@ class TodayRegionWatermark extends StatelessWidget {
         child: Align(
           alignment: alignment,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 12, 18, 12),
+            padding: padding,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: leftAligned

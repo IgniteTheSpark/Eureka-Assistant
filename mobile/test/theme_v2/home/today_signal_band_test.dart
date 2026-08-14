@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
+import 'package:eureka/theme_v2/home/today_dither_field.dart';
+import 'package:eureka/theme_v2/home/today_dither_material.dart';
 import 'package:eureka/theme_v2/home/today_signal_band.dart';
 import 'package:eureka/today/today_data.dart';
 import 'package:flutter/material.dart';
@@ -36,7 +38,54 @@ void main() {
     expect(find.text('5'), findsOneWidget);
     expect(find.text('Reka 发现'), findsOneWidget);
     expect(find.byType(PageView), findsNothing);
+    expect(
+      find.byKey(const ValueKey('today-signal-dither-field')),
+      findsOneWidget,
+    );
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is TodayDitherMaterial &&
+            widget.shape == TodayDitherShape.strip,
+      ),
+      findsNothing,
+    );
+    final field = tester.widget<TodayDitherField>(
+      find.byKey(const ValueKey('today-signal-dither-field')),
+    );
+    expect(field.sources, hasLength(items.length));
   });
+
+  testWidgets(
+    'birth clears only the first lane while other lanes keep moving',
+    (tester) async {
+      final motion = AnimationController(
+        vsync: tester,
+        duration: const Duration(seconds: 120),
+      )..value = .12;
+      addTearDown(motion.dispose);
+
+      await tester.pumpWidget(
+        _host(
+          TodaySignalBand(
+            items: List.generate(6, _signal),
+            motion: motion,
+            birthState: TodaySignalBirthState.clearing,
+            birthSignalId: 'signal-5',
+            onOpenSignal: (_) async {},
+          ),
+        ),
+      );
+
+      expect(
+        find.byKey(const ValueKey('today-signal-lane-0-cleared')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('today-signal-lane-1')), findsOneWidget);
+      expect(find.byKey(const ValueKey('today-signal-lane-2')), findsOneWidget);
+      expect(find.byKey(const ValueKey('today-signal-signal-5')), findsNothing);
+    },
+  );
 
   testWidgets('existing Signal keeps its lane after priority refresh', (
     tester,

@@ -6,10 +6,12 @@ import 'package:flutter/material.dart';
 import '../../today/today_data.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
-import 'today_dither_material.dart';
+import 'today_dither_field.dart';
 import 'today_region_watermark.dart';
 
 typedef TodaySignalOpenCallback = Future<void> Function(TodayRekaItem item);
+
+enum TodaySignalBirthState { idle, clearing, unfolding }
 
 class TodaySignalBand extends StatefulWidget {
   const TodaySignalBand({
@@ -17,11 +19,15 @@ class TodaySignalBand extends StatefulWidget {
     required this.items,
     this.motion,
     this.onOpenSignal,
+    this.birthState = TodaySignalBirthState.idle,
+    this.birthSignalId,
   });
 
   final List<TodayRekaItem> items;
   final Animation<double>? motion;
   final TodaySignalOpenCallback? onOpenSignal;
+  final TodaySignalBirthState birthState;
+  final String? birthSignalId;
 
   @override
   State<TodaySignalBand> createState() => _TodaySignalBandState();
@@ -72,6 +78,10 @@ class _TodaySignalBandState extends State<TodaySignalBand> {
       _laneById[item.id] = selected;
       loads[selected]++;
     }
+    final birthSignalId = widget.birthSignalId;
+    if (birthSignalId != null && active.contains(birthSignalId)) {
+      _laneById[birthSignalId] = 0;
+    }
   }
 
   void _pause(String id) {
@@ -105,24 +115,72 @@ class _TodaySignalBandState extends State<TodaySignalBand> {
     for (final item in widget.items) {
       lanes[_laneById[item.id] ?? 0].add(item);
     }
+    final birthSignalId = widget.birthSignalId;
+    if (birthSignalId != null) {
+      lanes[0].sort((a, b) {
+        if (a.id == birthSignalId) return -1;
+        if (b.id == birthSignalId) return 1;
+        return 0;
+      });
+    }
 
     return Stack(
       key: const ValueKey('today-signal-band'),
       fit: StackFit.expand,
       children: [
-        TodayRegionWatermark(
-          count: widget.items.length,
-          label: 'Reka 发现',
-          alignment: Alignment.bottomLeft,
-        ),
         LayoutBuilder(
           builder: (context, constraints) => AnimatedBuilder(
             animation: motion,
             builder: (context, _) {
               final laneHeight = constraints.maxHeight / 3;
+              final placements = <_SignalPlacement>[
+                for (var lane = 0; lane < 3; lane++)
+                  for (var index = 0; index < lanes[lane].length; index++)
+                    _placementFor(
+                      item: lanes[lane][index],
+                      index: index,
+                      lane: lane,
+                      laneHeight: laneHeight,
+                      viewportWidth: constraints.maxWidth,
+                      phase: motion.value,
+                      reduceMotion: reduceMotion,
+                    ),
+              ];
+              final visiblePlacements =
+                  widget.birthState == TodaySignalBirthState.idle
+                  ? placements
+                  : placements
+                        .where((placement) => placement.lane != 0)
+                        .toList(growable: false);
+              final tokens = context.themeV2;
               return Stack(
                 clipBehavior: Clip.hardEdge,
                 children: [
+                  Positioned.fill(
+                    child: TodayDitherField(
+                      key: const ValueKey('today-signal-dither-field'),
+                      config: TodayDitherFieldConfig.signal(
+                        waveColor: tokens.foreground,
+                        opacity: .15,
+                      ),
+                      sources: [
+                        for (final placement in visiblePlacements)
+                          TodayDitherSource.capsule(
+                            center: placement.center,
+                            size: const Size(_stripWidth, _stripHeight),
+                            energy: placement.isPaused ? .18 : 0,
+                          ),
+                      ],
+                      motion: motion,
+                      reduceMotion: reduceMotion,
+                    ),
+                  ),
+                  TodayRegionWatermark(
+                    count: widget.items.length,
+                    label: 'Reka 发现',
+                    alignment: Alignment.bottomLeft,
+                    padding: const EdgeInsets.fromLTRB(18, 12, 18, 4),
+                  ),
                   for (var lane = 0; lane < 3; lane++)
                     Positioned(
                       key: ValueKey('today-signal-lane-$lane'),
@@ -133,22 +191,16 @@ class _TodaySignalBandState extends State<TodaySignalBand> {
                       child: Stack(
                         clipBehavior: Clip.hardEdge,
                         children: [
-                          for (
-                            var index = 0;
-                            index < lanes[lane].length;
-                            index++
-                          )
-                            _positionedStrip(
-                              context,
-                              item: lanes[lane][index],
-                              index: index,
-                              lane: lane,
-                              laneHeight: laneHeight,
-                              viewportWidth: constraints.maxWidth,
-                              phase: motion.value,
-                              reduceMotion: reduceMotion,
-                              motion: motion,
-                            ),
+                          if (lane == 0 &&
+                              widget.birthState != TodaySignalBirthState.idle)
+                            const SizedBox.expand(
+                              key: ValueKey('today-signal-lane-0-cleared'),
+                            )
+                          else
+                            for (final placement in placements.where(
+                              (placement) => placement.lane == lane,
+                            ))
+                              _positionedStrip(placement: placement),
                         ],
                       ),
                     ),
@@ -161,8 +213,7 @@ class _TodaySignalBandState extends State<TodaySignalBand> {
     );
   }
 
-  Widget _positionedStrip(
-    BuildContext context, {
+  _SignalPlacement _placementFor({
     required TodayRekaItem item,
     required int index,
     required int lane,
@@ -170,7 +221,6 @@ class _TodaySignalBandState extends State<TodaySignalBand> {
     required double viewportWidth,
     required double phase,
     required bool reduceMotion,
-    required Animation<double> motion,
   }) {
     final gap = _laneGaps[lane];
     final itemsOnLane = widget.items
@@ -183,38 +233,69 @@ class _TodaySignalBandState extends State<TodaySignalBand> {
     final staticX = math.max(0, (viewportWidth - _stripWidth) * .5).toDouble();
     final x = _pausedX[item.id] ?? (reduceMotion ? staticX : movingX);
     _lastX[item.id] = x;
+    final localTop = math.max(0, (laneHeight - _stripHeight) / 2).toDouble();
+    return _SignalPlacement(
+      item: item,
+      lane: lane,
+      x: x,
+      localTop: localTop,
+      top: lane * laneHeight + localTop,
+      isPaused: _pausedX.containsKey(item.id),
+    );
+  }
+
+  Widget _positionedStrip({required _SignalPlacement placement}) {
     return Positioned(
-      key: ValueKey('today-signal-${item.id}'),
-      left: x,
-      top: math.max(0, (laneHeight - _stripHeight) / 2).toDouble(),
+      key: ValueKey('today-signal-${placement.item.id}'),
+      left: placement.x,
+      top: placement.localTop,
       width: _stripWidth,
       height: _stripHeight,
       child: _SignalStrip(
-        item: item,
-        motion: motion,
-        onTapDown: widget.onOpenSignal == null ? null : () => _pause(item.id),
+        item: placement.item,
+        onTapDown: widget.onOpenSignal == null
+            ? null
+            : () => _pause(placement.item.id),
         onTapCancel: widget.onOpenSignal == null
             ? null
-            : () => _resume(item.id),
+            : () => _resume(placement.item.id),
         onTap: widget.onOpenSignal == null
             ? null
-            : () => unawaited(_open(item)),
+            : () => unawaited(_open(placement.item)),
       ),
     );
   }
 }
 
+class _SignalPlacement {
+  const _SignalPlacement({
+    required this.item,
+    required this.lane,
+    required this.x,
+    required this.localTop,
+    required this.top,
+    required this.isPaused,
+  });
+
+  final TodayRekaItem item;
+  final int lane;
+  final double x;
+  final double localTop;
+  final double top;
+  final bool isPaused;
+
+  Offset get center => Offset(x + 126, top + 24);
+}
+
 class _SignalStrip extends StatelessWidget {
   const _SignalStrip({
     required this.item,
-    required this.motion,
     this.onTapDown,
     this.onTapCancel,
     this.onTap,
   });
 
   final TodayRekaItem item;
-  final Animation<double> motion;
   final VoidCallback? onTapDown;
   final VoidCallback? onTapCancel;
   final VoidCallback? onTap;
@@ -225,40 +306,32 @@ class _SignalStrip extends StatelessWidget {
     return Semantics(
       button: onTap != null,
       label: '${_kindLabel(item.type)}，${item.title}',
-      child: TodayDitherMaterial(
-        shape: TodayDitherShape.strip,
-        color: tokens.foreground.withValues(alpha: .14),
-        strength: .68,
-        seed: item.id.hashCode,
-        motion: motion,
-        flow: .48,
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(ThemeV2Radii.pill),
-            onTapDown: onTapDown == null ? null : (_) => onTapDown!(),
-            onTapCancel: onTapCancel,
-            onTap: onTap,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              child: Row(
-                children: [
-                  Icon(_kindIcon(item.type), color: tokens.muted, size: 15),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      item.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: tokens.foreground,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(ThemeV2Radii.pill),
+          onTapDown: onTapDown == null ? null : (_) => onTapDown!(),
+          onTapCancel: onTapCancel,
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: Row(
+              children: [
+                Icon(_kindIcon(item.type), color: tokens.muted, size: 15),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    item.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: tokens.foreground,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),
