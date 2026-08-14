@@ -77,6 +77,21 @@ class ApiClient {
     return _decode(res);
   }
 
+  /// POST returning the raw response body as text (for exports — md/csv,
+  /// not JSON). Auth/401 handling mirrors [getText].
+  Future<String> postText(String path, Map<String, dynamic> body) async {
+    final res = await _client.post(
+      _uri(path),
+      headers: _headers(json: true),
+      body: jsonEncode(body),
+    );
+    if (res.statusCode == 401 && AuthStore.token != null) {
+      AuthStore.onUnauthorized?.call();
+    }
+    if (res.statusCode >= 400) throw ApiException(res.statusCode, res.body);
+    return utf8.decode(res.bodyBytes);
+  }
+
   Future<dynamic> putJson(String path, Map<String, dynamic> body) async {
     final res = await _client.put(
       _uri(path),

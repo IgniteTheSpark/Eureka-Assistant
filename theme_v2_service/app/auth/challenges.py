@@ -197,10 +197,13 @@ async def verify_code(
         await session.flush()
         return True
 
+    # Persist the failure immediately with its own commit so a later rollback
+    # of the caller's transaction cannot erase the counter and bypass the
+    # lockout (§5.2: five invalid submissions lock verification for 15 minutes).
     challenge.failed_attempts += 1
     if challenge.failed_attempts >= settings.email_max_failed_attempts:
         challenge.locked_until = now + timedelta(seconds=settings.email_lockout_seconds)
-    await session.flush()
+    await session.commit()
     raise ChallengeInvalidError("验证码不正确")
 
 

@@ -10,6 +10,7 @@ from sqlalchemy import text
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
 from app.account.api import router as account_router
+from app.account.cleanup_worker import run_deletion_cleanup_worker
 from app.auth.api import router as auth_router
 from app.config import get_settings
 from app.db.session import AsyncSessionFactory
@@ -45,15 +46,21 @@ async def lifespan(application: FastAPI):
     dispatcher_task = asyncio.create_task(
         run_outbox_dispatcher(AsyncSessionFactory, registry)
     )
+    cleanup_task = asyncio.create_task(
+        run_deletion_cleanup_worker(AsyncSessionFactory)
+    )
     application.state.notification_subscribers = registry
     application.state.notification_dispatcher_task = dispatcher_task
+    application.state.deletion_cleanup_task = cleanup_task
     try:
         yield
     finally:
         await internal_mcp_runtime.close()
         dispatcher_task.cancel()
+        cleanup_task.cancel()
         try:
             await dispatcher_task
+            await cleanup_task
         except asyncio.CancelledError:
             pass
 

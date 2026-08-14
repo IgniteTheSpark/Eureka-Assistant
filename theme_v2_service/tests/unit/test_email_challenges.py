@@ -6,6 +6,7 @@ import pytest
 from app.auth.challenges import (
     ChallengeExpiredError,
     ChallengeInvalidError,
+    ChallengeLockedError,
     ChallengeRateLimitError,
     cleanup_expired,
     find_active_challenge,
@@ -121,3 +122,68 @@ async def test_rate_limit_after_max_sends(session):
         await issue_challenge(
             session, email="a@x.com", purpose=CHALLENGE_REGISTER, request_ip="1.2.3.4"
         )
+
+
+async def test_lockout_persists_across_transactions(session):
+    """§5.2: five invalid submissions lock verification for 15 minutes, and the
+    counter survives a rollback (review blocker #2)."""
+    settings = get_settings()
+    challenge, code = await issue_challenge(
+        session, email="a@x.com", purpose=CHALLENGE_REGISTER, request_ip="1.2.3.4"
+    )
+    await session.commit()
+
+    # Simulate the caller rolling back after each failure: the counter must
+    # persist because verify_code commits its own failure record.
+    for _ in range(settings.email_max_failed_attempts - 1):
+        async with AsyncSessionFactory() as fresh:
+            c = await fresh.get(type(challenge), challenge.id)
+            with pytest.raises(ChallengeInvalidError):
+                await verify_code(fresh, challenge=c, code="000000")
+            await fresh.rollback()
+
+    async with AsyncSessionFactory() as fresh:
+        c = await fresh.get(type(challenge), challenge.id)
+        assert c.failed_attempts == settings.email_max_failed_attempts - 1
+        with pytest.raises(ChallengeInvalidError):
+            await verify_code(fresh, challenge=c, code="000000")
+        await fresh.rollback()
+
+    # Locked: even the correct code is rejected now.
+    async with AsyncSessionFactory() as fresh:
+        c = await fresh.get(type(challenge), challenge.id)
+        assert c.locked_until is not None
+        with pytest.raises(ChallengeLockedError):
+            await verify_code(fresh, challenge=c, code=code)
+
+
+async def test_lockout_persists_across_transactions(session):
+    """§5.2: five invalid submissions lock verification for 15 minutes, and the
+    counter survives a rollback (review blocker #2)."""
+    from app.db.session import AsyncSessionFactory
+
+    settings = get_settings()
+    challenge, code = await issue_challenge(
+        session, email="a@x.com", purpose=CHALLENGE_REGISTER, request_ip="1.2.3.4"
+    )
+    await session.commit()
+
+    for _ in range(settings.email_max_failed_attempts - 1):
+        async with AsyncSessionFactory() as fresh:
+            c = await fresh.get(type(challenge), challenge.id)
+            with pytest.raises(ChallengeInvalidError):
+                await verify_code(fresh, challenge=c, code="000000")
+            await fresh.rollback()
+
+    async with AsyncSessionFactory() as fresh:
+        c = await fresh.get(type(challenge), challenge.id)
+        assert c.failed_attempts == settings.email_max_failed_attempts - 1
+        with pytest.raises(ChallengeInvalidError):
+            await verify_code(fresh, challenge=c, code="000000")
+        await fresh.rollback()
+
+    async with AsyncSessionFactory() as fresh:
+        c = await fresh.get(type(challenge), challenge.id)
+        assert c.locked_until is not None
+        with pytest.raises(ChallengeLockedError):
+            await verify_code(fresh, challenge=c, code=code)

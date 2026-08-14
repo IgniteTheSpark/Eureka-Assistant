@@ -27,13 +27,19 @@ class _OnboardingPageState extends State<OnboardingPage> {
   void initState() {
     super.initState();
     _controller = widget.controller ?? OnboardingController();
+    _controller.addListener(_onControllerChanged);
     _controller.loadCatalog();
     _idempotencyKey =
         'onb-conf-${DateTime.now().microsecondsSinceEpoch}';
   }
 
+  void _onControllerChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
+    _controller.removeListener(_onControllerChanged);
     _sourceText.dispose();
     if (widget.controller == null) _controller.dispose();
     super.dispose();

@@ -205,7 +205,11 @@ class AuthController extends ChangeNotifier {
       final m = (res as Map).cast<String, dynamic>();
       final token = m['token'] as String?;
       if (token == null) return '修改密码失败，请重试';
+      // Persist the replacement token so a restart keeps the new session
+      // instead of restoring the (now-revoked) old token.
       AuthStore.token = token;
+      final sp = await SharedPreferences.getInstance();
+      await sp.setString(_kToken, token);
       notifyListeners();
       return null;
     } on ApiException catch (e) {

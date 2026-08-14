@@ -14,6 +14,7 @@ from datetime import datetime
 
 from sqlalchemy import CHAR, String, UniqueConstraint, select
 from sqlalchemy.dialects import mysql
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -36,7 +37,11 @@ class SkillNotOwned(OnboardingError):
 class AssetResultMarker(Base):
     __tablename__ = "onboarding_asset_results"
     __table_args__ = (
-        UniqueConstraint("idempotency_key", name="uq_onboarding_asset_results_key"),
+        UniqueConstraint(
+            "user_id",
+            "idempotency_key",
+            name="uq_onboarding_asset_results_user_key",
+        ),
     )
 
     id: Mapped[str] = mapped_column(CHAR(36), primary_key=True, default=new_uuid)
@@ -148,11 +153,16 @@ class PreviewResult:
     manual_fields: list[dict]
 
 
-def _extract_by_type(source_text: str, field: dict) -> str | None:
+def _extract_by_type(source_text: str, field: dict):
+    """Extract a field value typed per the schema field type.
+
+    number/duration return int/float (matching the JSON-schema "number"),
+    time returns "HH:MM", text returns the raw string or None.
+    """
     field_type = str(field.get("type", "text"))
     if field_type == "number":
         match = _NUMBER_RE.search(source_text)
-        return match.group(1) if match else None
+        return float(match.group(1)) if match else None
     if field_type == "duration":
         match = _DURATION_RE.search(source_text)
         if match:
@@ -160,9 +170,9 @@ def _extract_by_type(source_text: str, field: dict) -> str | None:
             unit = match.group(2).lower()
             if unit in {"小时", "hour", "hours", "hrs"}:
                 value = value * 60
-            return str(int(value))
+            return float(value)
         fallback = _NUMBER_RE.search(source_text)
-        return fallback.group(1) if fallback else None
+        return float(fallback.group(1)) if fallback else None
     if field_type == "time":
         match = _TIME_RE.search(source_text)
         return f"{match.group(1)}:{match.group(2)}" if match else None
@@ -230,7 +240,8 @@ async def confirm_onboarding_asset(
 ) -> ConfirmationResult:
     existing = await session.scalar(
         select(AssetResultMarker).where(
-            AssetResultMarker.idempotency_key == idempotency_key
+            AssetResultMarker.user_id == user_id,
+            AssetResultMarker.idempotency_key == idempotency_key,
         )
     )
     if existing is not None:
@@ -256,7 +267,30 @@ async def confirm_onboarding_asset(
             idempotency_key=idempotency_key, asset_id=asset.id, user_id=user_id
         )
     )
-    await session.flush()
+    # §4.4: confirming the preview creates the first Asset and marks onboarding
+    # completed server-side, so a fresh login does not re-enter onboarding.
+    from app.auth.models import ONBOARDING_COMPLETED, UserAccount
+
+    user = await session.scalar(
+        select(UserAccount).where(UserAccount.id == user_id)
+    )
+    if user is not None and user.onboarding_status != ONBOARDING_COMPLETED:
+        user.onboarding_status = ONBOARDING_COMPLETED
+    try:
+        await session.flush()
+    except IntegrityError:
+        # Concurrent duplicate submission with the same (user, key): roll back
+        # and return the already-created Asset instead of failing.
+        await session.rollback()
+        existing = await session.scalar(
+            select(AssetResultMarker).where(
+                AssetResultMarker.user_id == user_id,
+                AssetResultMarker.idempotency_key == idempotency_key,
+            )
+        )
+        if existing is not None:
+            return ConfirmationResult(asset_id=existing.asset_id, created=False)
+        raise
     return ConfirmationResult(asset_id=asset.id, created=True)
 
 

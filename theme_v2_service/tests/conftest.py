@@ -23,8 +23,26 @@ async def _assert_test_database(connection) -> None:
 async def session():
     async with engine.begin() as connection:
         await _assert_test_database(connection)
+        # deletion_cleanup_items is migration-managed (no ORM model); drop it
+        # first so create_all below starts from a clean state each time.
+        await connection.execute(
+            text("DROP TABLE IF EXISTS deletion_cleanup_items")
+        )
         await connection.run_sync(Base.metadata.drop_all)
         await connection.run_sync(Base.metadata.create_all)
+        # Recreate deletion_cleanup_items so account-deletion tests can use it.
+        await connection.execute(text(
+            "CREATE TABLE IF NOT EXISTS deletion_cleanup_items ("
+            "id CHAR(36) PRIMARY KEY, "
+            "user_id CHAR(36) NOT NULL, "
+            "storage_key VARCHAR(1024) NOT NULL, "
+            "source VARCHAR(32) NOT NULL, "
+            "status VARCHAR(16) NOT NULL DEFAULT 'pending', "
+            "attempts INT NOT NULL DEFAULT 0, "
+            "created_at DATETIME(6) NOT NULL, "
+            "updated_at DATETIME(6) NULL, "
+            "INDEX ix_deletion_cleanup_items_status (status))"
+        ))
 
     try:
         async with AsyncSessionFactory() as database_session:

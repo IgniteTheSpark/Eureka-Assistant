@@ -120,8 +120,8 @@ async def test_preview_extracts_and_never_creates_asset(client):
     )
     assert response.status_code == 200
     body = response.json()
-    assert body["payload"]["distance_km"] == "5"
-    assert body["payload"]["duration_min"] == "32"
+    assert body["payload"]["distance_km"] == 5.0
+    assert body["payload"]["duration_min"] == 32.0
 
     async with AsyncSessionFactory() as database:
         from sqlalchemy import text
@@ -218,10 +218,9 @@ async def test_skip_marks_onboarding_skipped(client):
     assert user.onboarding_status == ONBOARDING_SKIPPED
 
 
-async def test_confirm_does_not_mark_onboarding_completed(client):
-    # §6.9: confirm creates the Asset; the durable onboarding->completed
-    # transition is driven by the front-end flow (E3). Confirm must not
-    # prematurely flip pending->completed by itself.
+async def test_confirm_marks_onboarding_completed(client):
+    # §4.4: confirming the first Asset marks onboarding completed server-side,
+    # so a fresh login does not re-enter onboarding (review blocker #4).
     token, _ = await _authed_user(client, "keep@example.com")
     skill_id = await _create_running_skill(client, token)
 
@@ -240,4 +239,4 @@ async def test_confirm_does_not_mark_onboarding_completed(client):
         user = await database.scalar(
             select(UserAccount).where(UserAccount.email == "keep@example.com")
         )
-    assert user.onboarding_status != ONBOARDING_COMPLETED
+    assert user.onboarding_status == ONBOARDING_COMPLETED

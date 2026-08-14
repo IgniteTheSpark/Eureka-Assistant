@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import '../../api/api_client.dart';
 
 /// Data access for account settings (§9 export / §10 deletion).
@@ -20,13 +18,10 @@ class AccountRepository {
     required List<String> types,
     required String format, // 'md' | 'csv'
   }) async {
-    final res = await _client.postJson('/api/account/export', {
+    return _client.postText('/api/account/export', {
       'types': types,
       'format': format,
     });
-    if (res is String) return res;
-    // Backend may return a map in error paths; surface defensively.
-    return jsonEncode(res);
   }
 
   /// Permanently deletes the account (password re-authentication).
