@@ -301,3 +301,75 @@ Device verification on the connected foldable must check:
 - predictive multi-lane scheduling;
 - changes to Signal detail sheets, reminder persistence, or Report/Rhythm domain logic;
 - changes to canonical Asset or Signal records.
+
+## 15. Device Calibration Addendum: Entrances, Drag Range, Global Top Dock, and Output Legibility
+
+**Status:** Approved follow-up calibration
+**Supersedes:** Sections 7, 8.3, 9.3, and 9.4 where their interaction or timing details conflict with this addendum.
+
+### 15.1 Symmetric watermark entrances
+
+The two region watermarks are no longer purely decorative. They are stable, semantic navigation controls while their corresponding region is present:
+
+- tapping `Reka 发现` or its count opens the complete `RekaSignalsPage`;
+- tapping `Reka 生成` or its count switches the app shell to the Asset Library root tab;
+- tapping an individual Signal still opens that Signal's canonical target;
+- tapping or dragging an individual Asset still opens or moves that Asset;
+- only the watermark's compact hit target is actionable; the remaining Signal/Asset region does not become a catch-all navigation target.
+
+The watermark control uses one minimum 44 x 44 logical-pixel semantic target around the count/label group, exposes a button label such as `查看全部 Reka 发现` or `打开资产库`, and remains visually borderless. A zero-count watermark may remain hidden; navigation is not required when the corresponding region has no content.
+
+### 15.2 Reka drag bounds and directional response
+
+Drag safety is based on the visible robot body, not the full 288 px transparent renderer surface.
+
+- Horizontally, Reka may cover the full Today content world while keeping the visible body on screen.
+- Vertically, only the floating Top Dock, Bottom Dock, safe areas, and a small breathing gap are reserved.
+- The date/Next row, Signal band, seam, and Asset chamber do not create additional drag barriers.
+- The WebView may extend beyond the content edge through its transparent padding as long as the visible robot remains legible and does not overlap either Dock.
+
+Directional motion uses nonlinear velocity response so slow drags remain readable:
+
+- left/right drag produces whole-object yaw with an upper target near 32 degrees;
+- up/down drag produces whole-object pitch with a lower upper target near 22-24 degrees;
+- pitch and yaw use the same dead-zone and eased response family;
+- release keeps a short reduced inertial orientation before returning to idle;
+- eyes remain embedded in the same 3D object and receive no independent drag layer.
+
+### 15.3 Floating Top Dock across root pages
+
+The current floating Top Dock presentation becomes the shared root-page chrome for all three primary destinations:
+
+- Today;
+- Calendar;
+- Asset Library.
+
+The app shell owns this choice once; individual root pages do not duplicate Dock markup. Non-root routes and detail/editor pages retain their own back/title headers. Capture activity may still replace the standard Top Dock with the existing capture activity bar while capture is active.
+
+### 15.4 Legible Signal rise and Asset fall
+
+The existing 720 ms, 14 px seed is too brief and low-contrast on device. Normal-motion production is recalibrated to approximately 1.35-1.50 seconds:
+
+1. `charge`, approximately 280-320 ms: a 20 px neutral seed forms beside Reka with a dark structural edge and terminal-green core;
+2. `travel`, approximately 650-750 ms: the seed moves vertically with two or three short fading afterimages opposite the direction of travel;
+3. `handoff`, approximately 250-300 ms: Signal unfolds in the cleared first lane or Asset condenses just inside the chamber floor;
+4. `recover`, approximately 120-180 ms: the overlay releases while Reka returns toward idle.
+
+The trail is decorative, non-interactive, and short enough to show direction without becoming a comet effect. Signal and Asset seeds remain iconless. Signal handoff stays at the Signal region's upper boundary. Asset handoff moves slightly inside the lower boundary so both the collision moment and the new physical ball are visible before gravity/collision continues.
+
+Under Reduce Motion, the direct handoff behavior remains unchanged.
+
+### 15.5 Verification additions
+
+Automated coverage must verify:
+
+- both watermark controls expose the correct semantics and dispatch the correct shell action;
+- Signal watermark navigation does not replace per-Signal target opening;
+- Asset watermark navigation selects the Asset Library root;
+- the shared Top Dock uses floating presentation on Today, Calendar, and Asset Library;
+- Reka safe bounds use visible-body horizontal/vertical extents and reserve only Docks/safe areas;
+- slow vertical drags produce readable positive/negative pitch while maximum pitch remains bounded;
+- production phase thresholds, handoff callbacks, larger seed, short trail, and inside-floor Asset destination;
+- existing Reduce Motion, lifecycle, Signal lane clearing, and Asset physics behavior remains green.
+
+Device verification must include slow and fast four-direction Reka drags plus one Signal and one Asset production sequence captured without developer overlays.
