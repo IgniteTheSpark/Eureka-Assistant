@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../asset/asset_card.dart';
 import '../asset/asset_card_display.dart';
+import '../foundation/theme_v2_dither_field.dart';
+import '../foundation/theme_v2_dither_surface.dart';
 import '../foundation/theme_v2_semantics.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
@@ -169,18 +171,22 @@ class _RecentAssets extends StatelessWidget {
             TimeOfDay.fromDateTime(asset.createdAt),
             alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(context),
           );
-          return SizedBox(
-            key: ValueKey('library-recent-${asset.id}'),
-            width: 55,
-            child: ThemeV2AssetCard(
-              variant: AssetCardVariant.iconTime,
-              data: AssetCardViewData(
-                mark: asset.mark,
-                skillLabel: asset.skillLabel,
-                primaryValue: asset.primaryValue,
-                timeLabel: time,
+          return ThemeV2DitherSourceReporter(
+            id: 'library-recent-${asset.id}',
+            shape: ThemeV2DitherSourceShape.circle,
+            child: SizedBox(
+              key: ValueKey('library-recent-${asset.id}'),
+              width: 55,
+              child: ThemeV2AssetCard(
+                variant: AssetCardVariant.iconTime,
+                data: AssetCardViewData(
+                  mark: asset.mark,
+                  skillLabel: asset.skillLabel,
+                  primaryValue: asset.primaryValue,
+                  timeLabel: time,
+                ),
+                onOpen: onOpen == null ? null : () => onOpen!(asset),
               ),
-              onOpen: onOpen == null ? null : () => onOpen!(asset),
             ),
           );
         },

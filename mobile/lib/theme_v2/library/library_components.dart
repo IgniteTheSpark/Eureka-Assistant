@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../foundation/theme_v2_dither_field.dart';
+import '../foundation/theme_v2_dither_surface.dart';
 import '../foundation/theme_v2_semantics.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
@@ -568,108 +570,116 @@ class _LibraryPinnedTileState extends State<_LibraryPinnedTile> {
     final reducedMotion = MediaQuery.disableAnimationsOf(context);
     final featuredSurface = dark ? tokens.accentSoft : tokens.foreground;
     final featuredForeground = dark ? tokens.foreground : tokens.background;
-    return Semantics(
-      label:
-          '${widget.container.label}，${widget.container.totalCount} 条'
-          '${widget.configure ? '，可拖动排序，也可使用移动和移除按钮' : ''}',
-      button: widget.onTap != null,
-      onTap: widget.onTap,
-      onLongPress: widget.onLongPress,
-      child: AnimatedScale(
-        key: ValueKey('library-pinned-press-transform-${widget.container.id}'),
-        scale: _pressed && !reducedMotion ? .98 : 1,
-        duration: reducedMotion
-            ? Duration.zero
-            : const Duration(milliseconds: 160),
-        child: Material(
-          color: featured ? featuredSurface : tokens.surface,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(
-              widget.index < 3 ? ThemeV2Radii.lg : ThemeV2Radii.md,
-            ),
-            side: BorderSide(
-              color: widget.configure ? tokens.accent : tokens.border,
-              width: widget.configure ? 1.5 : 1,
-            ),
+    return ThemeV2DitherSourceReporter(
+      id: 'library-pinned-${widget.container.id}',
+      shape: ThemeV2DitherSourceShape.capsule,
+      child: Semantics(
+        label:
+            '${widget.container.label}，${widget.container.totalCount} 条'
+            '${widget.configure ? '，可拖动排序，也可使用移动和移除按钮' : ''}',
+        button: widget.onTap != null,
+        onTap: widget.onTap,
+        onLongPress: widget.onLongPress,
+        child: AnimatedScale(
+          key: ValueKey(
+            'library-pinned-press-transform-${widget.container.id}',
           ),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            key: ValueKey('library-pinned-tile-${widget.container.id}'),
-            onTap: widget.onTap,
-            onLongPress: widget.onLongPress,
-            onTapDown: (_) => _setPressed(true),
-            onTapCancel: () => _setPressed(false),
-            onTapUp: (_) => _setPressed(false),
-            child: Stack(
-              children: [
-                Positioned(
-                  left: 14,
-                  top: compact ? 19 : 14,
-                  child: Text(
-                    (widget.index + 1).toString().padLeft(2, '0'),
-                    style: ThemeV2Typography.mono(
-                      fontSize: compact ? 8 : 9,
-                      color: featured ? tokens.accent : tokens.muted,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                if (!(widget.configure && compact))
+          scale: _pressed && !reducedMotion ? .98 : 1,
+          duration: reducedMotion
+              ? Duration.zero
+              : const Duration(milliseconds: 160),
+          child: Material(
+            color: featured ? featuredSurface : tokens.surface,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(
+                widget.index < 3 ? ThemeV2Radii.lg : ThemeV2Radii.md,
+              ),
+              side: BorderSide(
+                color: widget.configure ? tokens.accent : tokens.border,
+                width: widget.configure ? 1.5 : 1,
+              ),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              key: ValueKey('library-pinned-tile-${widget.container.id}'),
+              onTap: widget.onTap,
+              onLongPress: widget.onLongPress,
+              onTapDown: (_) => _setPressed(true),
+              onTapCancel: () => _setPressed(false),
+              onTapUp: (_) => _setPressed(false),
+              child: Stack(
+                children: [
                   Positioned(
-                    right: 14,
-                    top: compact ? 17 : 12,
+                    left: 14,
+                    top: compact ? 19 : 14,
                     child: Text(
-                      '${widget.container.totalCount}',
+                      (widget.index + 1).toString().padLeft(2, '0'),
                       style: ThemeV2Typography.mono(
-                        fontSize: compact ? 14 : 18,
-                        color: featured ? tokens.accent : tokens.foreground,
+                        fontSize: compact ? 8 : 9,
+                        color: featured ? tokens.accent : tokens.muted,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                   ),
-                Positioned(
-                  left: widget.configure && compact
-                      ? 32
-                      : compact
-                      ? 40
-                      : 14,
-                  right: widget.configure && compact ? 92 : 12,
-                  bottom: compact ? 17 : 14,
-                  child: Text(
-                    widget.container.label,
-                    maxLines: compact ? 1 : 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: featured ? featuredForeground : tokens.foreground,
-                      fontSize: widget.index == 0
-                          ? 23
-                          : widget.index < 3
-                          ? 18
-                          : 13,
-                      fontWeight: FontWeight.w600,
+                  if (!(widget.configure && compact))
+                    Positioned(
+                      right: 14,
+                      top: compact ? 17 : 12,
+                      child: Text(
+                        '${widget.container.totalCount}',
+                        style: ThemeV2Typography.mono(
+                          fontSize: compact ? 14 : 18,
+                          color: featured ? tokens.accent : tokens.foreground,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-                if (widget.configure)
                   Positioned(
-                    right: compact ? 0 : 4,
-                    bottom: compact ? 5 : 4,
-                    child: Row(
-                      children: [
-                        _MosaicControl(
-                          label: '向后移动 ${widget.container.label}',
-                          icon: Icons.arrow_forward,
-                          onPressed: widget.onMoveBackward,
-                        ),
-                        _MosaicControl(
-                          label: '移除 ${widget.container.label}',
-                          icon: Icons.close,
-                          onPressed: widget.onRemove,
-                        ),
-                      ],
+                    left: widget.configure && compact
+                        ? 32
+                        : compact
+                        ? 40
+                        : 14,
+                    right: widget.configure && compact ? 92 : 12,
+                    bottom: compact ? 17 : 14,
+                    child: Text(
+                      widget.container.label,
+                      maxLines: compact ? 1 : 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: featured
+                            ? featuredForeground
+                            : tokens.foreground,
+                        fontSize: widget.index == 0
+                            ? 23
+                            : widget.index < 3
+                            ? 18
+                            : 13,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
-              ],
+                  if (widget.configure)
+                    Positioned(
+                      right: compact ? 0 : 4,
+                      bottom: compact ? 5 : 4,
+                      child: Row(
+                        children: [
+                          _MosaicControl(
+                            label: '向后移动 ${widget.container.label}',
+                            icon: Icons.arrow_forward,
+                            onPressed: widget.onMoveBackward,
+                          ),
+                          _MosaicControl(
+                            label: '移除 ${widget.container.label}',
+                            icon: Icons.close,
+                            onPressed: widget.onRemove,
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         ),
@@ -779,75 +789,88 @@ class _ContainerRowBase extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
-    return Semantics(
-      label: '打开${container.label}，${container.totalCount} 条',
-      button: true,
-      onTap: onTap,
-      child: ExcludeSemantics(
-        child: Material(
-          color: surfaced ? tokens.surface : Colors.transparent,
-          shape: surfaced
-              ? RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(ThemeV2Radii.lg),
-                  side: BorderSide(color: tokens.border),
-                )
-              : Border(bottom: BorderSide(color: tokens.border)),
-          child: InkWell(
-            onTap: onTap,
-            borderRadius: surfaced
-                ? BorderRadius.circular(ThemeV2Radii.lg)
-                : null,
-            child: SizedBox(
-              height: height,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Row(
-                  children: [
-                    if (showMarkBox)
-                      Container(
-                        key: ValueKey('library-directory-mark-${container.id}'),
-                        width: 34,
-                        height: 34,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: tokens.accentSoft,
-                          borderRadius: BorderRadius.circular(ThemeV2Radii.md),
+    return ThemeV2DitherSourceReporter(
+      id: 'library-container-${container.id}',
+      shape: ThemeV2DitherSourceShape.capsule,
+      child: Semantics(
+        label: '打开${container.label}，${container.totalCount} 条',
+        button: true,
+        onTap: onTap,
+        child: ExcludeSemantics(
+          child: Material(
+            color: surfaced ? tokens.surface : Colors.transparent,
+            shape: surfaced
+                ? RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(ThemeV2Radii.lg),
+                    side: BorderSide(color: tokens.border),
+                  )
+                : Border(bottom: BorderSide(color: tokens.border)),
+            child: InkWell(
+              onTap: onTap,
+              borderRadius: surfaced
+                  ? BorderRadius.circular(ThemeV2Radii.lg)
+                  : null,
+              child: SizedBox(
+                height: height,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Row(
+                    children: [
+                      if (showMarkBox)
+                        Container(
+                          key: ValueKey(
+                            'library-directory-mark-${container.id}',
+                          ),
+                          width: 34,
+                          height: 34,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: tokens.accentSoft,
+                            borderRadius: BorderRadius.circular(
+                              ThemeV2Radii.md,
+                            ),
+                          ),
+                          child: Text(
+                            container.mark,
+                            style: TextStyle(
+                              color: tokens.accent,
+                              fontSize: 14,
+                            ),
+                          ),
+                        )
+                      else
+                        SizedBox(
+                          width: 28,
+                          child: Text(
+                            container.mark,
+                            style: TextStyle(
+                              color: tokens.accent,
+                              fontSize: 16,
+                            ),
+                          ),
                         ),
+                      const SizedBox(width: ThemeV2Spacing.md),
+                      Expanded(
                         child: Text(
-                          container.mark,
-                          style: TextStyle(color: tokens.accent, fontSize: 14),
-                        ),
-                      )
-                    else
-                      SizedBox(
-                        width: 28,
-                        child: Text(
-                          container.mark,
-                          style: TextStyle(color: tokens.accent, fontSize: 16),
+                          container.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(fontWeight: FontWeight.w600),
                         ),
                       ),
-                    const SizedBox(width: ThemeV2Spacing.md),
-                    Expanded(
-                      child: Text(
-                        container.label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
+                      Text(
+                        '${container.totalCount}',
+                        style: ThemeV2Typography.mono(
+                          fontSize: 12,
+                          color: tokens.foreground,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
-                    ),
-                    Text(
-                      '${container.totalCount}',
-                      style: ThemeV2Typography.mono(
-                        fontSize: 12,
-                        color: tokens.foreground,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(width: ThemeV2Spacing.sm),
-                    Icon(Icons.chevron_right, size: 18, color: tokens.muted),
-                  ],
+                      const SizedBox(width: ThemeV2Spacing.sm),
+                      Icon(Icons.chevron_right, size: 18, color: tokens.muted),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -878,47 +901,51 @@ class LibraryAvailableContainerTile extends StatelessWidget {
     final label = enabled
         ? '加入 ${container.label}'
         : disabledLabel ?? '无法加入${container.label}，常驻容器最多 6 个';
-    return Semantics(
-      label: label,
-      button: true,
-      enabled: enabled,
-      onTap: enabled ? onTap : null,
-      child: ExcludeSemantics(
-        child: Material(
-          color: tokens.surface,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(ThemeV2Radii.md),
-            side: BorderSide(color: tokens.border),
-          ),
-          child: InkWell(
-            onTap: enabled ? onTap : null,
-            borderRadius: BorderRadius.circular(ThemeV2Radii.md),
-            child: SizedBox(
-              height: 54,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Row(
-                  children: [
-                    Text(
-                      container.mark,
-                      style: TextStyle(
+    return ThemeV2DitherSourceReporter(
+      id: 'library-available-${container.id}',
+      shape: ThemeV2DitherSourceShape.capsule,
+      child: Semantics(
+        label: label,
+        button: true,
+        enabled: enabled,
+        onTap: enabled ? onTap : null,
+        child: ExcludeSemantics(
+          child: Material(
+            color: tokens.surface,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(ThemeV2Radii.md),
+              side: BorderSide(color: tokens.border),
+            ),
+            child: InkWell(
+              onTap: enabled ? onTap : null,
+              borderRadius: BorderRadius.circular(ThemeV2Radii.md),
+              child: SizedBox(
+                height: 54,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Row(
+                    children: [
+                      Text(
+                        container.mark,
+                        style: TextStyle(
+                          color: enabled ? tokens.accent : tokens.muted,
+                        ),
+                      ),
+                      const SizedBox(width: ThemeV2Spacing.sm),
+                      Expanded(
+                        child: Text(
+                          container.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      Icon(
+                        Icons.add,
+                        size: 18,
                         color: enabled ? tokens.accent : tokens.muted,
                       ),
-                    ),
-                    const SizedBox(width: ThemeV2Spacing.sm),
-                    Expanded(
-                      child: Text(
-                        container.label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    Icon(
-                      Icons.add,
-                      size: 18,
-                      color: enabled ? tokens.accent : tokens.muted,
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),

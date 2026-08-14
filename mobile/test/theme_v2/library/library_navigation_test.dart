@@ -8,6 +8,8 @@ import 'package:eureka/theme/app_theme.dart';
 import 'package:eureka/theme/eureka_colors.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_tokens.dart';
+import 'package:eureka/theme_v2/foundation/theme_v2_dither_field.dart';
+import 'package:eureka/theme_v2/foundation/theme_v2_dither_surface.dart';
 import 'package:eureka/theme_v2/asset/asset_card.dart';
 import 'package:eureka/theme_v2/library/asset/asset_list_page.dart';
 import 'package:eureka/theme_v2/library/container_index.dart';
@@ -34,6 +36,44 @@ import 'package:http/testing.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets('one Library dither field survives local surface navigation', (
+    tester,
+  ) async {
+    final controller = await _controller();
+    final navigation = LibraryNavigationController();
+    addTearDown(navigation.dispose);
+    await _pumpHost(
+      tester,
+      ThemeV2LibraryPage(
+        controller: controller,
+        navigation: navigation,
+        autoLoad: false,
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byType(ThemeV2DitherSurface), findsOneWidget);
+    final surface = tester.widget<ThemeV2DitherSurface>(
+      find.byType(ThemeV2DitherSurface),
+    );
+    expect(surface.config.flowDirection, const Offset(.1, 1));
+    final initialState = tester.state(find.byType(ThemeV2DitherField));
+    final sources = tester
+        .widget<ThemeV2DitherField>(find.byType(ThemeV2DitherField))
+        .sources;
+    expect(sources, isNotEmpty);
+    expect(sources.length, lessThanOrEqualTo(24));
+    expect(sources.every((source) => source.energy == 0), isTrue);
+
+    navigation.open(LibrarySurface.containerIndex);
+    await tester.pump();
+    expect(tester.state(find.byType(ThemeV2DitherField)), same(initialState));
+    navigation.open(LibrarySurface.pinnedConfiguration);
+    await tester.pump();
+    expect(tester.state(find.byType(ThemeV2DitherField)), same(initialState));
+    expect(find.byType(ThemeV2DitherField), findsOneWidget);
+  });
 
   test('surface stack preserves origin and exposes canonical chrome', () {
     final navigation = LibraryNavigationController();
@@ -1227,6 +1267,7 @@ void main() {
                 child: Scaffold(
                   body: SafeArea(
                     child: ThemeV2LibraryPage(
+                      active: false,
                       controller: controller,
                       autoLoad: false,
                       onOpenContainer: (_) {},

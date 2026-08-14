@@ -9,6 +9,8 @@ import '../../asset/asset_card.dart';
 import '../../asset_detail/asset_detail_repository.dart';
 import '../../asset_detail/asset_entity_ref.dart';
 import '../../asset_detail/open_asset_detail.dart';
+import '../../foundation/theme_v2_dither_field.dart';
+import '../../foundation/theme_v2_dither_surface.dart';
 import '../../foundation/theme_v2_semantics.dart';
 import '../../foundation/theme_v2_theme.dart';
 import '../../foundation/theme_v2_tokens.dart';
@@ -165,7 +167,7 @@ class _ThemeV2AssetListPageState extends State<ThemeV2AssetListPage> {
         final tokens = context.themeV2;
         final records = _controller.records;
         return ColoredBox(
-          color: tokens.background,
+          color: Colors.transparent,
           child: ListView(
             key: PageStorageKey<String>(
               'theme-v2-assets-${widget.skillName ?? widget.cardType}',
@@ -609,45 +611,52 @@ class _AssetRecordRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    late final Widget row;
     if (onToggleTodo == null) {
-      return ThemeV2AssetCard(
+      row = ThemeV2AssetCard(
         key: ValueKey('asset-record-${record.id}'),
         variant: AssetCardVariant.richCard,
         data: record.card,
         height: record.kind == AssetRecordKind.custom ? 98 : 86,
         onOpen: onOpen,
       );
-    }
-    final tokens = context.themeV2;
-    return Row(
-      children: [
-        Semantics(
-          label: record.completed ? '重新打开待办' : '完成待办',
-          button: true,
-          child: ThemeV2HitTarget(
-            child: IconButton(
-              key: ValueKey('todo-complete-${record.id}'),
-              onPressed: onToggleTodo,
-              icon: Icon(
-                record.completed
-                    ? Icons.check_circle
-                    : Icons.radio_button_unchecked,
-                color: record.completed ? tokens.accent : tokens.muted,
+    } else {
+      final tokens = context.themeV2;
+      row = Row(
+        children: [
+          Semantics(
+            label: record.completed ? '重新打开待办' : '完成待办',
+            button: true,
+            child: ThemeV2HitTarget(
+              child: IconButton(
+                key: ValueKey('todo-complete-${record.id}'),
+                onPressed: onToggleTodo,
+                icon: Icon(
+                  record.completed
+                      ? Icons.check_circle
+                      : Icons.radio_button_unchecked,
+                  color: record.completed ? tokens.accent : tokens.muted,
+                ),
               ),
             ),
           ),
-        ),
-        const SizedBox(width: ThemeV2Spacing.xs),
-        Expanded(
-          child: ThemeV2AssetCard(
-            key: ValueKey('asset-record-${record.id}'),
-            variant: AssetCardVariant.richCard,
-            data: record.card,
-            height: 66,
-            onOpen: onOpen,
+          const SizedBox(width: ThemeV2Spacing.xs),
+          Expanded(
+            child: ThemeV2AssetCard(
+              key: ValueKey('asset-record-${record.id}'),
+              variant: AssetCardVariant.richCard,
+              data: record.card,
+              height: 66,
+              onOpen: onOpen,
+            ),
           ),
-        ),
-      ],
+        ],
+      );
+    }
+    return ThemeV2DitherSourceReporter(
+      id: 'library-asset-${record.id}',
+      shape: ThemeV2DitherSourceShape.capsule,
+      child: row,
     );
   }
 }

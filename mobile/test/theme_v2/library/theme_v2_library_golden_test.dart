@@ -5,7 +5,8 @@ import 'package:eureka/theme/app_theme.dart';
 import 'package:eureka/theme/eureka_colors.dart';
 import 'package:eureka/theme/theme_controller.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
-import 'package:eureka/theme_v2/foundation/theme_v2_tokens.dart';
+import 'package:eureka/theme_v2/foundation/theme_v2_dither_field.dart';
+import 'package:eureka/theme_v2/foundation/theme_v2_dither_surface.dart';
 import 'package:eureka/theme_v2/library/container_index.dart';
 import 'package:eureka/theme_v2/library/library_controller.dart';
 import 'package:eureka/theme_v2/library/library_hub.dart';
@@ -97,8 +98,9 @@ void main() {
                   selectedIndex: 2,
                   onDestinationSelected: (_) {},
                 ),
-                body: ColoredBox(
-                  color: ThemeV2Tokens.forBrightness(brightness).background,
+                body: ThemeV2DitherSurface(
+                  active: false,
+                  config: const ThemeV2DitherFieldConfig.library(),
                   child: builder(controller),
                 ),
               ),
