@@ -149,6 +149,55 @@ void main() {
     );
   });
 
+  testWidgets('opposite watermark labels keep equal visual seam gaps', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildThemeV2Theme(Brightness.light),
+        home: const Scaffold(
+          body: SizedBox(
+            width: 360,
+            height: 300,
+            child: Stack(
+              children: [
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  top: 0,
+                  height: 150,
+                  child: TodayRegionWatermark(
+                    count: 1,
+                    label: 'Reka 发现',
+                    alignment: Alignment.bottomLeft,
+                    padding: EdgeInsets.only(bottom: 8),
+                  ),
+                ),
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  top: 150,
+                  height: 150,
+                  child: TodayRegionWatermark(
+                    count: 1,
+                    label: 'Reka 生成',
+                    alignment: Alignment.topRight,
+                    padding: EdgeInsets.only(top: 8),
+                    labelFirst: true,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final discoveryGap = 150 - tester.getBottomRight(find.text('Reka 发现')).dy;
+    final generationGap = tester.getTopLeft(find.text('Reka 生成')).dy - 150;
+    expect(discoveryGap, closeTo(generationGap, .1));
+  });
+
   testWidgets('dither material keeps its overlay crisp and semantic', (
     tester,
   ) async {

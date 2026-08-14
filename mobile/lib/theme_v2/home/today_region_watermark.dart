@@ -53,7 +53,7 @@ class TodayRegionWatermark extends StatelessWidget {
       child: ConstrainedBox(
         constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
         child: Align(
-          alignment: leftAligned ? Alignment.topLeft : Alignment.topRight,
+          alignment: Alignment(leftAligned ? -1 : 1, labelFirst ? -1 : 1),
           child: ExcludeSemantics(
             child: Text(
               label,
