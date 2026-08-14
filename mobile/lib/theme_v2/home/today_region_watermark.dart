@@ -24,6 +24,7 @@ class TodayRegionWatermark extends StatelessWidget {
   Widget build(BuildContext context) {
     if (count <= 0) return const SizedBox.shrink();
     final tokens = context.themeV2;
+    final dark = Theme.of(context).brightness == Brightness.dark;
     final leftAligned = alignment.x < 0;
     return Align(
       alignment: alignment,
@@ -40,7 +41,7 @@ class TodayRegionWatermark extends StatelessWidget {
                 child: Text(
                   '$count',
                   style: TextStyle(
-                    color: tokens.accent.withValues(alpha: .07),
+                    color: tokens.accent.withValues(alpha: dark ? .14 : .07),
                     fontFamily: 'Geist',
                     fontSize: 112,
                     fontWeight: FontWeight.w700,
@@ -71,7 +72,9 @@ class TodayRegionWatermark extends StatelessWidget {
                       child: Text(
                         label,
                         style: TextStyle(
-                          color: tokens.accent.withValues(alpha: .44),
+                          color: tokens.accent.withValues(
+                            alpha: dark ? .68 : .44,
+                          ),
                           fontFamily: 'Geist Mono',
                           fontSize: 12,
                           fontWeight: FontWeight.w700,

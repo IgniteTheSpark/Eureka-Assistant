@@ -226,6 +226,30 @@ void main() {
     expect(openAllCalls, 1);
     expect(openSignalCalls, 1);
   });
+
+  testWidgets('Signal dither and watermark use brightness-specific contrast', (
+    tester,
+  ) async {
+    for (final brightness in Brightness.values) {
+      await tester.pumpWidget(
+        _host(
+          TodaySignalBand(items: [_signal(0)]),
+          reduceMotion: true,
+          brightness: brightness,
+        ),
+      );
+      final field = tester.widget<TodayDitherField>(
+        find.byKey(const ValueKey('today-signal-dither-field')),
+      );
+      final count = tester.widget<Text>(find.text('1'));
+      final label = tester.widget<Text>(find.text('Reka 发现'));
+      final dark = brightness == Brightness.dark;
+
+      expect(field.config.opacity, dark ? .32 : .40);
+      expect(count.style!.color!.a, closeTo(dark ? .14 : .07, .01));
+      expect(label.style!.color!.a, closeTo(dark ? .68 : .44, .01));
+    }
+  });
 }
 
 TodayRekaItem _signal(int index) => TodayRekaItem(
@@ -237,8 +261,13 @@ TodayRekaItem _signal(int index) => TodayRekaItem(
   createdAt: DateTime(2026, 8, 14, 10, index),
 );
 
-Widget _host(Widget child, {bool reduceMotion = false}) => MaterialApp(
-  theme: buildThemeV2Theme(Brightness.light),
+Widget _host(
+  Widget child, {
+  bool reduceMotion = false,
+  Brightness brightness = Brightness.light,
+}) => MaterialApp(
+  theme: buildThemeV2Theme(brightness),
+  themeAnimationDuration: Duration.zero,
   home: MediaQuery(
     data: MediaQueryData(
       size: const Size(411, 860),

@@ -155,6 +155,7 @@ class _TodaySignalBandState extends State<TodaySignalBand> {
                         .where((placement) => placement.lane != 0)
                         .toList(growable: false);
               final tokens = context.themeV2;
+              final dark = Theme.of(context).brightness == Brightness.dark;
               return Stack(
                 clipBehavior: Clip.hardEdge,
                 children: [
@@ -163,7 +164,7 @@ class _TodaySignalBandState extends State<TodaySignalBand> {
                       key: const ValueKey('today-signal-dither-field'),
                       config: TodayDitherFieldConfig.signal(
                         waveColor: tokens.foreground,
-                        opacity: .32,
+                        opacity: dark ? .32 : .40,
                       ),
                       sources: [
                         for (final placement in visiblePlacements)

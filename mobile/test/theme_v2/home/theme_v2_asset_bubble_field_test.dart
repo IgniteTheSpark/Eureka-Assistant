@@ -251,6 +251,29 @@ void main() {
     expect(openLibraryCalls, 1);
   });
 
+  testWidgets('Asset dither and watermark use brightness-specific contrast', (
+    tester,
+  ) async {
+    for (final brightness in Brightness.values) {
+      await _pumpField(
+        tester,
+        assets: [asset],
+        disableAnimations: true,
+        brightness: brightness,
+      );
+      final field = tester.widget<TodayDitherField>(
+        find.byKey(const ValueKey('today-asset-dither-field')),
+      );
+      final count = tester.widget<Text>(find.text('1'));
+      final label = tester.widget<Text>(find.text('Reka 生成'));
+      final dark = brightness == Brightness.dark;
+
+      expect(field.config.opacity, dark ? .30 : .38);
+      expect(count.style!.color!.a, closeTo(dark ? .14 : .07, .01));
+      expect(label.style!.color!.a, closeTo(dark ? .68 : .44, .01));
+    }
+  });
+
   testWidgets('asset chamber uses one shared displaced dither field', (
     tester,
   ) async {
@@ -978,6 +1001,7 @@ Future<void> _pumpField(
   ValueChanged<PoolAsset>? onOpenAsset,
   VoidCallback? onOpenLibrary,
   Animation<double>? motion,
+  Brightness brightness = Brightness.light,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = size;
@@ -985,7 +1009,8 @@ Future<void> _pumpField(
   addTearDown(tester.view.resetPhysicalSize);
   await tester.pumpWidget(
     MaterialApp(
-      theme: buildThemeV2Theme(Brightness.light),
+      theme: buildThemeV2Theme(brightness),
+      themeAnimationDuration: Duration.zero,
       home: MediaQuery(
         data: MediaQueryData(disableAnimations: disableAnimations),
         child: SizedBox(
