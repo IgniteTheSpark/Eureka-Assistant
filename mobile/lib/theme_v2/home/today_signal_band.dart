@@ -161,7 +161,7 @@ class _TodaySignalBandState extends State<TodaySignalBand> {
                       key: const ValueKey('today-signal-dither-field'),
                       config: TodayDitherFieldConfig.signal(
                         waveColor: tokens.foreground,
-                        opacity: .15,
+                        opacity: .24,
                       ),
                       sources: [
                         for (final placement in visiblePlacements)

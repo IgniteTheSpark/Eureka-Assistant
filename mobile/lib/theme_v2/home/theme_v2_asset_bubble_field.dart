@@ -563,7 +563,7 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                     key: const ValueKey('today-asset-dither-field'),
                     config: TodayDitherFieldConfig.asset(
                       waveColor: context.themeV2.foreground,
-                      opacity: .14,
+                      opacity: .22,
                     ),
                     sources: [
                       for (final bubble in field?.bubbles ?? const <Bubble>[])
@@ -797,7 +797,7 @@ class _ThemeV2CompactAssetGrid extends StatelessWidget {
               key: const ValueKey('today-asset-dither-field'),
               config: TodayDitherFieldConfig.asset(
                 waveColor: context.themeV2.foreground,
-                opacity: .14,
+                opacity: .22,
               ),
               sources: [
                 for (var index = 0; index < assets.length; index++)
@@ -886,24 +886,36 @@ class _ThemeV2BubbleVisual extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
     final highlighted = index < 5;
-    return Material(
-      color: Colors.transparent,
-      shape: const CircleBorder(),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onTap,
-        child: LayoutBuilder(
-          builder: (context, constraints) => Center(
-            child: Text(
-              resolveMeta(asset.type, skills).icon,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: math.min(22, constraints.maxWidth * 0.31),
-                height: 1,
-                color: highlighted
-                    ? _bubbleDitherColor(context, index)
-                    : tokens.muted,
+    final bubbleColor = highlighted
+        ? _bubbleDitherColor(context, index)
+        : tokens.muted;
+    return DecoratedBox(
+      key: ValueKey('theme-v2-asset-bubble-outline-${asset.id}'),
+      decoration: BoxDecoration(
+        color: Colors.transparent,
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: bubbleColor.withValues(alpha: highlighted ? .58 : .36),
+          width: 1.35,
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        shape: const CircleBorder(),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: LayoutBuilder(
+            builder: (context, constraints) => Center(
+              child: Text(
+                resolveMeta(asset.type, skills).icon,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: math.min(22, constraints.maxWidth * 0.31),
+                  height: 1,
+                  color: bubbleColor,
+                ),
               ),
             ),
           ),

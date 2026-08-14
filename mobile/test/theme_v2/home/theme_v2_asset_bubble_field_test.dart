@@ -254,6 +254,13 @@ void main() {
     expect(field.sources, hasLength(1));
     expect(field.sources.single.shape, TodayDitherSourceShape.circle);
     expect(identical(field.motion, motion), isTrue);
+    expect(field.config.opacity, greaterThanOrEqualTo(.20));
+    final outline = tester.widget<DecoratedBox>(
+      find.byKey(const ValueKey('theme-v2-asset-bubble-outline-asset-1')),
+    );
+    final decoration = outline.decoration as BoxDecoration;
+    expect(decoration.color, Colors.transparent);
+    expect(decoration.border, isNotNull);
     expect(
       find.byWidgetPredicate(
         (widget) =>

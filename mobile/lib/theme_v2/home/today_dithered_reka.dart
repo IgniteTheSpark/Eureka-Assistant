@@ -261,7 +261,12 @@ class _TodayDitheredRekaState extends State<TodayDitheredReka>
 
   Widget _buildFallback() {
     final x = widget.pose.tiltXDegrees * math.pi / 180;
-    final y = widget.pose.tiltYDegrees * math.pi / 180;
+    final yawMultiplier = switch (widget.pose.state) {
+      TodayRekaMotionState.dragging => 2.1,
+      TodayRekaMotionState.settling => 1.45,
+      TodayRekaMotionState.idle => 1.0,
+    };
+    final y = widget.pose.tiltYDegrees * yawMultiplier * math.pi / 180;
     final transform = Matrix4.identity()
       ..setEntry(3, 2, .0015)
       ..rotateX(x)

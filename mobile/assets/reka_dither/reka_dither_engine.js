@@ -350,6 +350,11 @@ window.RekaRendererFactory = function ReKaRendererFactory(
 
     if (!reduceMotion) {
       const idleWeight = state === 'idle' ? 1 : 0.18;
+      const dragYawMultiplier = state === 'dragging'
+        ? 2.1
+        : state === 'settling'
+          ? 1.45
+          : 1;
       const shake = Math.sin(elapsed * 54) * productionImpulse * 0.028;
       motionGroup.position.y = 0.03 +
         Math.sin(elapsed * 1.15) * 0.055 * idleWeight +
@@ -357,7 +362,7 @@ window.RekaRendererFactory = function ReKaRendererFactory(
       motionGroup.rotation.x = currentTiltX +
         Math.cos(elapsed * 0.7) * 0.025 * idleWeight +
         productionPitch;
-      motionGroup.rotation.y = currentTiltY +
+      motionGroup.rotation.y = currentTiltY * dragYawMultiplier +
         Math.sin(elapsed * 0.62) * 0.04 * idleWeight +
         productionYaw;
       motionGroup.rotation.z =

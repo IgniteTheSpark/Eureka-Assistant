@@ -73,6 +73,9 @@ void main() {
 
     expect(find.text('Reka 发现'), findsOneWidget);
     expect(find.text('Reka 生成'), findsOneWidget);
+    final discoveryLabel = tester.widget<Text>(find.text('Reka 发现'));
+    expect(discoveryLabel.style?.fontSize, greaterThanOrEqualTo(12));
+    expect(discoveryLabel.style?.color?.a, greaterThanOrEqualTo(.40));
     final discoveryIgnores = tester
         .widgetList<IgnorePointer>(
           find.ancestor(
