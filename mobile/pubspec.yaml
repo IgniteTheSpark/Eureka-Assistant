@@ -121,6 +121,8 @@ flutter:
     - assets/js/
     # §9 球球 pet render template (inlines pixel.js + mascot.js + genome → WebView).
     - assets/pet_render.html
+    # Local Three.js r185 + procedural Bayer-dithered Today Reka renderer.
+    - assets/reka_dither/
     # Kenney pixel-balloon / pixel-flat emote sprites — per-type 小图 on the Reka
     # Offer card (the speech-balloon emote fits the "Reka 帮你 递给你" framing).
     - assets/emotes/pixel-balloon/

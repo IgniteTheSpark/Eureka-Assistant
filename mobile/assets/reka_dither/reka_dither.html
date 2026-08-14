@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <style>
+    html, body, canvas {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: transparent;
+      touch-action: none;
+    }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <canvas aria-hidden="true"></canvas>
+  <!-- Three.js 0.185.0 / r185. See THREE-LICENSE. -->
+  <script type="module">
+    const postHostMessage = (message) => {
+      if (window.RekaHost && typeof window.RekaHost.postMessage === 'function') {
+        window.RekaHost.postMessage(JSON.stringify(message));
+      }
+    };
+
+    try {
+      const threeSource = /*__THREE_SOURCE_JSON__*/;
+      const moduleUrl = URL.createObjectURL(
+        new Blob([threeSource], { type: 'text/javascript' }),
+      );
+      const THREE = await import(moduleUrl);
+      URL.revokeObjectURL(moduleUrl);
+
+      /*__ENGINE_SOURCE__*/
+
+      window.RekaRendererFactory(
+        THREE,
+        document.querySelector('canvas'),
+        postHostMessage,
+      );
+      window.RekaRenderer.init(/*__OPTIONS_JSON__*/);
+      postHostMessage({ type: 'ready' });
+    } catch (error) {
+      postHostMessage({
+        type: 'error',
+        code: error && error.name ? error.name : 'renderer_init',
+      });
+    }
+  </script>
+</body>
+</html>
