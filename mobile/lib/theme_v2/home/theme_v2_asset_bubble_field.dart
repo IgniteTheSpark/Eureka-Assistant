@@ -11,7 +11,7 @@ import '../../timeline/timeline.dart';
 import '../asset_detail/asset_entity_ref.dart';
 import '../asset_detail/open_asset_detail.dart';
 import '../foundation/theme_v2_theme.dart';
-import 'today_dither_material.dart';
+import 'today_dither_field.dart';
 import 'today_region_watermark.dart';
 
 Offset themeV2GravityForAcceleration(double x, double y) {
@@ -525,6 +525,13 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
     return best;
   }
 
+  double _ditherEnergy(Bubble bubble) {
+    if (_grabbedAssetId == bubble.id) return 1;
+    final velocity = bubble.body.linearVelocity;
+    final speed = math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
+    return (speed / 18).clamp(0, .72).toDouble();
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
@@ -548,11 +555,35 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
         return Stack(
           fit: StackFit.expand,
           children: [
-            TodayRegionWatermark(
-              count: widget.trueCount,
-              label: 'Reka 生成',
-              alignment: Alignment.bottomRight,
-            ),
+            if (field != null && !_usesCompactGrid)
+              Positioned.fill(
+                child: AnimatedBuilder(
+                  animation: _repaint,
+                  builder: (context, _) => TodayDitherField(
+                    key: const ValueKey('today-asset-dither-field'),
+                    config: TodayDitherFieldConfig.asset(
+                      waveColor: context.themeV2.foreground,
+                      opacity: .14,
+                    ),
+                    sources: [
+                      for (final bubble in field.bubbles)
+                        TodayDitherSource.circle(
+                          center: Offset(bubble.x, bubble.y),
+                          radius: bubble.r,
+                          energy: _ditherEnergy(bubble),
+                        ),
+                      for (final snapshot in _retiring)
+                        TodayDitherSource.circle(
+                          center: snapshot.center,
+                          radius: snapshot.radius,
+                          energy: .16,
+                        ),
+                    ],
+                    motion: widget.motion,
+                    reduceMotion: _reduceMotion,
+                  ),
+                ),
+              ),
             for (final snapshot in _retiring)
               Positioned(
                 key: ValueKey('theme-v2-retiring-bubble-${snapshot.asset.id}'),
@@ -718,6 +749,12 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                   ),
                 ),
               ),
+            TodayRegionWatermark(
+              count: widget.trueCount,
+              label: 'Reka 生成',
+              alignment: Alignment.topRight,
+              padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
+            ),
           ],
         );
       },
@@ -749,18 +786,48 @@ class _ThemeV2CompactAssetGrid extends StatelessWidget {
               .floor(),
         );
         final cellWidth = constraints.maxWidth / columns;
-        return Align(
-          alignment: Alignment.bottomLeft,
-          child: Wrap(
-            children: [
-              for (var index = 0; index < assets.length; index++)
-                SizedBox(
-                  width: cellWidth,
-                  height: _ThemeV2AssetBubbleFieldState._minimumTargetSize,
-                  child: _compactAssetTarget(assets[index], index),
-                ),
-            ],
-          ),
+        final rowCount = (assets.length / columns).ceil();
+        final contentHeight =
+            rowCount * _ThemeV2AssetBubbleFieldState._minimumTargetSize;
+        final top = math.max(0.0, constraints.maxHeight - contentHeight);
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            TodayDitherField(
+              key: const ValueKey('today-asset-dither-field'),
+              config: TodayDitherFieldConfig.asset(
+                waveColor: context.themeV2.foreground,
+                opacity: .14,
+              ),
+              sources: [
+                for (var index = 0; index < assets.length; index++)
+                  TodayDitherSource.circle(
+                    center: Offset(
+                      (index % columns + .5) * cellWidth,
+                      top +
+                          (index ~/ columns + .5) *
+                              _ThemeV2AssetBubbleFieldState._minimumTargetSize,
+                    ),
+                    radius: _ThemeV2AssetBubbleFieldState._compactDiameter / 2,
+                  ),
+              ],
+              motion: motion,
+              reduceMotion: true,
+            ),
+            Align(
+              alignment: Alignment.bottomLeft,
+              child: Wrap(
+                children: [
+                  for (var index = 0; index < assets.length; index++)
+                    SizedBox(
+                      width: cellWidth,
+                      height: _ThemeV2AssetBubbleFieldState._minimumTargetSize,
+                      child: _compactAssetTarget(assets[index], index),
+                    ),
+                ],
+              ),
+            ),
+          ],
         );
       },
     );
@@ -819,33 +886,24 @@ class _ThemeV2BubbleVisual extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
     final highlighted = index < 5;
-    return TodayDitherMaterial(
-      shape: TodayDitherShape.circle,
-      color: _bubbleDitherColor(
-        context,
-        index,
-      ).withValues(alpha: highlighted ? .92 : .55),
-      strength: highlighted ? .82 : .52,
-      seed: asset.id.hashCode,
-      motion: motion,
-      flow: .18,
-      child: Material(
-        color: Colors.transparent,
-        shape: const CircleBorder(),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: onTap,
-          child: LayoutBuilder(
-            builder: (context, constraints) => Center(
-              child: Text(
-                resolveMeta(asset.type, skills).icon,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: math.min(22, constraints.maxWidth * 0.31),
-                  height: 1,
-                  color: highlighted ? Colors.white : tokens.muted,
-                ),
+    return Material(
+      color: Colors.transparent,
+      shape: const CircleBorder(),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: LayoutBuilder(
+          builder: (context, constraints) => Center(
+            child: Text(
+              resolveMeta(asset.type, skills).icon,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: math.min(22, constraints.maxWidth * 0.31),
+                height: 1,
+                color: highlighted
+                    ? _bubbleDitherColor(context, index)
+                    : tokens.muted,
               ),
             ),
           ),

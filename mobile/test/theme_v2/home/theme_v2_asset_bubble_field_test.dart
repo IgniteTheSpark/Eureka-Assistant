@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:eureka/theme_v2/asset_detail/asset_entity_ref.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/home/theme_v2_asset_bubble_field.dart';
+import 'package:eureka/theme_v2/home/today_dither_field.dart';
 import 'package:eureka/theme_v2/home/today_dither_material.dart';
 import 'package:eureka/timeline/timeline.dart';
 import 'package:eureka/today/today_data.dart';
@@ -236,7 +237,7 @@ void main() {
     expect(find.text('今天生成的资产会落在这里'), findsNothing);
   });
 
-  testWidgets('bubble dither uses asset identity and shared motion', (
+  testWidgets('asset chamber uses one shared displaced dither field', (
     tester,
   ) async {
     const motion = AlwaysStoppedAnimation<double>(.35);
@@ -247,21 +248,43 @@ void main() {
       motion: motion,
     );
 
-    final paint = tester.widget<CustomPaint>(
-      find.descendant(
-        of: find.byKey(
-          const ValueKey('theme-v2-asset-bubble-rotation-asset-1'),
-        ),
-        matching: find.byWidgetPredicate(
-          (widget) =>
-              widget is CustomPaint && widget.painter is TodayDitherPainter,
-        ),
-      ),
+    final field = tester.widget<TodayDitherField>(
+      find.byKey(const ValueKey('today-asset-dither-field')),
     );
-    final painter = paint.painter! as TodayDitherPainter;
-    expect(painter.seed, asset.id.hashCode);
-    expect(identical(painter.motion, motion), isTrue);
-    expect(painter.flow, greaterThan(0));
+    expect(field.sources, hasLength(1));
+    expect(field.sources.single.shape, TodayDitherSourceShape.circle);
+    expect(identical(field.motion, motion), isTrue);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is TodayDitherMaterial &&
+            widget.shape == TodayDitherShape.circle,
+      ),
+      findsNothing,
+    );
+  });
+
+  testWidgets('dragging a bubble deepens its shared dither pressure', (
+    tester,
+  ) async {
+    await _pumpField(
+      tester,
+      assets: [asset],
+      disableAnimations: false,
+      gravityStream: const Stream<Offset>.empty(),
+      motion: const AlwaysStoppedAnimation<double>(.2),
+    );
+    TodayDitherField field() => tester.widget<TodayDitherField>(
+      find.byKey(const ValueKey('today-asset-dither-field')),
+    );
+    final restingEnergy = field().sources.single.energy;
+    final bubble = find.byKey(const ValueKey('theme-v2-asset-bubble-asset-1'));
+    final gesture = await tester.startGesture(tester.getCenter(bubble));
+    await gesture.moveBy(const Offset(24, -12));
+    await tester.pump(const Duration(milliseconds: 16));
+
+    expect(field().sources.single.energy, greaterThan(restingEnergy));
+    await gesture.up();
   });
 
   testWidgets('compact metadata refresh opens the updated same-id asset', (
