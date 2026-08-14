@@ -46,7 +46,7 @@ void main() {
     },
   );
 
-  testWidgets('region watermark is decorative and supports opposite anchors', (
+  testWidgets('region watermark supports opposite anchors without callbacks', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -76,24 +76,12 @@ void main() {
     final discoveryLabel = tester.widget<Text>(find.text('Reka 发现'));
     expect(discoveryLabel.style?.fontSize, greaterThanOrEqualTo(12));
     expect(discoveryLabel.style?.color?.a, greaterThanOrEqualTo(.40));
-    final discoveryIgnores = tester
-        .widgetList<IgnorePointer>(
-          find.ancestor(
-            of: find.text('Reka 发现'),
-            matching: find.byType(IgnorePointer),
-          ),
-        )
-        .where((widget) => widget.ignoring);
-    final generationIgnores = tester
-        .widgetList<IgnorePointer>(
-          find.ancestor(
-            of: find.text('Reka 生成'),
-            matching: find.byType(IgnorePointer),
-          ),
-        )
-        .where((widget) => widget.ignoring);
-    expect(discoveryIgnores, hasLength(1));
-    expect(generationIgnores, hasLength(1));
+    expect(
+      tester.getCenter(find.text('Reka 发现')).dx,
+      lessThan(tester.getCenter(find.text('Reka 生成')).dx),
+    );
+    expect(find.bySemanticsLabel('查看全部 Reka 发现'), findsNothing);
+    expect(find.bySemanticsLabel('打开资产库'), findsNothing);
   });
 
   testWidgets('zero-count region watermark collapses', (tester) async {
