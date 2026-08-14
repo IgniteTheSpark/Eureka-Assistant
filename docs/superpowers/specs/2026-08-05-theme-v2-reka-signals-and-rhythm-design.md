@@ -4,6 +4,8 @@
 **Status:** Approved design; Overdue/Rhythm backend implemented 2026-08-10; Report adapter and mobile consumption pending
 **Scope:** Theme V2 home Reka section, Rhythm learning, overdue/report signal lifecycles, and timed Todo behavior in Next/time surfaces
 
+> **Supersession note (2026-08-14):** The Report lifecycle in sections 2.3, 4, 5, 7, and 9 is superseded by `2026-08-14-theme-v2-reka-discovery-details-and-reminders-design.md`. Report is now a three-stage actionable chain (`opportunity`, `plan_ready`, `report_ready`), not a single generic availability signal. The Overdue and Rhythm semantics in this document remain authoritative except where the newer document explicitly extends their detail surfaces and reminder behavior.
+
 ## 1. Objective
 
 The Theme V2 home Reka section is a proactive-insight surface. It must not be a second notification feed or a list of workflow receipts. It answers one question: **what has Reka noticed that may be useful to the user now?**
