@@ -105,7 +105,7 @@ void main() {
     expect(find.text('分钟后'), findsOneWidget);
     expect(find.text('今日共 1 项'), findsOneWidget);
     expect(find.text('下一时刻'), findsNothing);
-    expect(find.text('今日生成'), findsOneWidget);
+    expect(find.text('Reka 生成'), findsOneWidget);
     expect(find.byType(ThemeV2AssetBubbleField), findsOneWidget);
     expect(
       find.byKey(const ValueKey('theme-v2-asset-bubble-asset-1')),
