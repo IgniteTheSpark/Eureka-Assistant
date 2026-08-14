@@ -109,8 +109,11 @@ void main() {
     await tester.pump();
 
     expect(anchor, isNotNull);
-    expect(anchor!.center, tester.getCenter(target));
-    expect(anchor!.size, const Size.square(220));
+    final targetCenter = tester.getCenter(target);
+    expect(anchor!.center.dx, closeTo(targetCenter.dx, .001));
+    expect(anchor!.center.dy, closeTo(targetCenter.dy, .001));
+    expect(anchor!.width, closeTo(220, .001));
+    expect(anchor!.height, closeTo(220, .001));
   });
 
   testWidgets('inactive scene cancels an active drag', (tester) async {

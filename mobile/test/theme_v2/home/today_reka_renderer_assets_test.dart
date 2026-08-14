@@ -28,6 +28,7 @@ void main() {
     expect(engine, contains('pulseRefresh'));
     expect(engine, contains('setProduction'));
     expect(engine, contains('dragYawMultiplier'));
+    expect(engine, contains('dragPitchMultiplier'));
     expect(engine, contains("state === 'dragging'"));
     expect(engine, contains('? 4'));
     expect(engine, contains('0x78ff74'));

@@ -14,6 +14,8 @@ void main() {
       expect(config.ditherGridSize, 4);
       expect(config.pixelSizeRatio, 1);
       expect(config.maxDevicePixelRatio, 2);
+      expect(config.visibleBodyWidth, 196);
+      expect(config.visibleBodyHeight, 132);
     });
 
     test('rejects invalid geometry and renderer values', () {
@@ -41,7 +43,7 @@ void main() {
   });
 
   group('TodayRekaMotionController', () {
-    test('starts inside bounds that reserve the full render surface', () {
+    test('starts inside bounds that reserve only the visible body', () {
       final controller = TodayRekaMotionController()
         ..layout(
           const Size(411, 860),
@@ -50,8 +52,8 @@ void main() {
 
       expect(controller.state, TodayRekaMotionState.idle);
       _expectInsideInclusive(controller.safeBounds, controller.rekaCenter);
-      expect(controller.safeBounds.left, 162);
-      expect(controller.safeBounds.right, 249);
+      expect(controller.safeBounds.left, 116);
+      expect(controller.safeBounds.right, 295);
       expect(controller.pose.eyeOpacity, 1);
       expect(controller.pose.tiltXDegrees, 0);
       expect(controller.pose.tiltYDegrees, 0);
@@ -88,6 +90,20 @@ void main() {
 
       expect(controller.pose.tiltYDegrees, greaterThan(2));
       expect(controller.pose.tiltYDegrees, lessThanOrEqualTo(8));
+    });
+
+    test('slow vertical drag produces a readable bounded pitch cue', () {
+      final controller = _laidOutController();
+      final start = controller.rekaCenter;
+
+      controller.beginDrag(start);
+      controller.updateDrag(
+        start - const Offset(0, 48),
+        const Duration(milliseconds: 400),
+      );
+
+      expect(controller.pose.tiltXDegrees, greaterThan(2));
+      expect(controller.pose.tiltXDegrees, lessThanOrEqualTo(8));
     });
 
     test('release settles inside bounds and returns tilt to zero', () {

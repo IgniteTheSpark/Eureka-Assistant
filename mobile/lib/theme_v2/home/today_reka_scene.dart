@@ -208,10 +208,10 @@ class _TodayRekaSceneState extends State<TodayRekaScene>
       builder: (context, constraints) {
         final size = constraints.biggest;
         final reservedInsets = EdgeInsets.fromLTRB(
-          18,
-          widget.topChromeInset + 88,
-          18,
-          widget.bottomChromeInset + 38,
+          4,
+          widget.topChromeInset + 4,
+          4,
+          widget.bottomChromeInset + 4,
         );
         if (widget.active &&
             (size != _lastSize || reservedInsets != _lastReservedInsets) &&

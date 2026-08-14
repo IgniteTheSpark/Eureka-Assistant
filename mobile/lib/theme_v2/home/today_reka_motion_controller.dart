@@ -55,31 +55,30 @@ class TodayRekaMotionController extends ChangeNotifier {
         tiltYDegrees: 0,
       );
     }
-    final horizontalRatio = (_dragVelocity.dx.abs() / maxDragSpeed)
-        .clamp(0.0, 1.0)
-        .toDouble();
-    final horizontalTilt = horizontalRatio == 0
-        ? 0.0
-        : _dragVelocity.dx.sign *
-              math.pow(horizontalRatio, .4).toDouble() *
-              config.maxTiltDegrees;
     return TodayRekaPose(
       state: _state,
-      tiltXDegrees: (-_dragVelocity.dy / maxDragSpeed * config.maxTiltDegrees)
-          .clamp(-config.maxTiltDegrees, config.maxTiltDegrees)
-          .toDouble(),
-      tiltYDegrees: horizontalTilt,
+      tiltXDegrees: _easedTilt(-_dragVelocity.dy),
+      tiltYDegrees: _easedTilt(_dragVelocity.dx),
     );
+  }
+
+  double _easedTilt(double velocity) {
+    final ratio = (velocity.abs() / maxDragSpeed).clamp(0.0, 1.0).toDouble();
+    if (ratio == 0) return 0;
+    return velocity.sign *
+        math.pow(ratio, .4).toDouble() *
+        config.maxTiltDegrees;
   }
 
   void layout(Size size, {required EdgeInsets reservedInsets}) {
     if (size.isEmpty) return;
-    final margin = config.renderExtent / 2;
+    final horizontalMargin = config.visibleBodyWidth / 2;
+    final verticalMargin = config.visibleBodyHeight / 2;
     final next = Rect.fromLTRB(
-      reservedInsets.left + margin,
-      reservedInsets.top + margin,
-      size.width - reservedInsets.right - margin,
-      size.height - reservedInsets.bottom - margin,
+      reservedInsets.left + horizontalMargin,
+      reservedInsets.top + verticalMargin,
+      size.width - reservedInsets.right - horizontalMargin,
+      size.height - reservedInsets.bottom - verticalMargin,
     );
     assert(next.width > 0 && next.height > 0);
     _safeBounds = next;

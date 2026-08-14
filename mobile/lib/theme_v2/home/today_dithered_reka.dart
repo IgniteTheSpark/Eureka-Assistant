@@ -260,7 +260,12 @@ class _TodayDitheredRekaState extends State<TodayDitheredReka>
   }
 
   Widget _buildFallback() {
-    final x = widget.pose.tiltXDegrees * math.pi / 180;
+    final pitchMultiplier = switch (widget.pose.state) {
+      TodayRekaMotionState.dragging => 3.0,
+      TodayRekaMotionState.settling => 1.8,
+      TodayRekaMotionState.idle => 1.0,
+    };
+    final x = widget.pose.tiltXDegrees * pitchMultiplier * math.pi / 180;
     final yawMultiplier = switch (widget.pose.state) {
       TodayRekaMotionState.dragging => 4.0,
       TodayRekaMotionState.settling => 2.4,

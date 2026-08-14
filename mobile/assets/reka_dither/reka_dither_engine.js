@@ -355,11 +355,16 @@ window.RekaRendererFactory = function ReKaRendererFactory(
         : state === 'settling'
           ? 2.4
           : 1;
+      const dragPitchMultiplier = state === 'dragging'
+        ? 3
+        : state === 'settling'
+          ? 1.8
+          : 1;
       const shake = Math.sin(elapsed * 54) * productionImpulse * 0.028;
       motionGroup.position.y = 0.03 +
         Math.sin(elapsed * 1.15) * 0.055 * idleWeight +
         productionRecoil;
-      motionGroup.rotation.x = currentTiltX +
+      motionGroup.rotation.x = currentTiltX * dragPitchMultiplier +
         Math.cos(elapsed * 0.7) * 0.025 * idleWeight +
         productionPitch;
       motionGroup.rotation.y = currentTiltY * dragYawMultiplier +

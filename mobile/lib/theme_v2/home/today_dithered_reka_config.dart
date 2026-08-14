@@ -9,12 +9,16 @@ class TodayDitheredRekaConfig {
     this.ditherGridSize = 4,
     this.pixelSizeRatio = 1,
     this.maxDevicePixelRatio = 2,
+    this.visibleBodyWidth = 196,
+    this.visibleBodyHeight = 132,
   }) : assert(renderExtent >= hitExtent),
        assert(hitExtent >= 64),
        assert(maxTiltDegrees > 0),
        assert(ditherGridSize > 0),
        assert(pixelSizeRatio >= 1),
-       assert(maxDevicePixelRatio >= 1);
+       assert(maxDevicePixelRatio >= 1),
+       assert(visibleBodyWidth > 0 && visibleBodyWidth <= renderExtent),
+       assert(visibleBodyHeight > 0 && visibleBodyHeight <= renderExtent);
 
   final double renderExtent;
   final double hitExtent;
@@ -22,6 +26,8 @@ class TodayDitheredRekaConfig {
   final double ditherGridSize;
   final double pixelSizeRatio;
   final double maxDevicePixelRatio;
+  final double visibleBodyWidth;
+  final double visibleBodyHeight;
 
   Map<String, Object?> rendererOptions({required bool reduceMotion}) => {
     'gridSize': ditherGridSize,
