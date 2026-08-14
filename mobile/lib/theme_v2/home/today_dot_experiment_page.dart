@@ -1,15 +1,20 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../data_revision.dart';
+import '../../today/today_data.dart';
 import '../foundation/theme_v2_theme.dart';
+import '../shell/theme_v2_floating_dock.dart';
+import '../shell/theme_v2_global_top_nav.dart';
+import '../reka/reka_signal_actions.dart';
 import 'home_repository.dart';
 import 'today_dithered_reka_config.dart';
 import 'today_reka_motion_controller.dart';
 import 'today_reka_quick_actions.dart';
 import 'today_reka_scene.dart';
-import '../shell/theme_v2_floating_dock.dart';
-import '../shell/theme_v2_global_top_nav.dart';
+import 'today_living_surface.dart';
 
 class TodayDotExperimentPage extends StatefulWidget {
   const TodayDotExperimentPage({
@@ -18,6 +23,8 @@ class TodayDotExperimentPage extends StatefulWidget {
     this.onCreateAsset,
     this.onCreateReport,
     this.onStartChat,
+    this.onOpenAgenda,
+    this.clock,
     this.now,
     this.active = true,
     this.rekaController,
@@ -32,6 +39,8 @@ class TodayDotExperimentPage extends StatefulWidget {
   final VoidCallback? onCreateAsset;
   final VoidCallback? onCreateReport;
   final VoidCallback? onStartChat;
+  final VoidCallback? onOpenAgenda;
+  final ValueListenable<DateTime>? clock;
   final DateTime? now;
   final bool active;
   final TodayRekaMotionController? rekaController;
@@ -52,11 +61,21 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
   bool _menuExpanded = false;
   int _refreshSignal = 0;
   int _requestSerial = 0;
+  TodayData? _data;
+  bool _suppressProduction = true;
+  late final TodayRekaMotionController _sceneRekaController =
+      widget.rekaController ??
+      TodayRekaMotionController(config: widget.rekaConfig);
+  late final bool _ownsSceneRekaController = widget.rekaController == null;
 
   @override
   void initState() {
     super.initState();
     _installRepository(widget.repository);
+    dataRevision.addListener(_onDataRevision);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_refresh());
+    });
   }
 
   @override
@@ -69,6 +88,10 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
       _inflightRefresh = null;
       _refreshing = false;
       _refreshFailed = false;
+      _data = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_refresh());
+      });
     }
   }
 
@@ -83,10 +106,12 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
     }
   }
 
-  Future<void> _refresh() {
+  void _onDataRevision() => unawaited(_refresh(suppressProduction: false));
+
+  Future<void> _refresh({bool suppressProduction = true}) {
     final inflight = _inflightRefresh;
     if (inflight != null) return inflight;
-    final future = _performRefresh();
+    final future = _performRefresh(suppressProduction: suppressProduction);
     _inflightRefresh = future;
     unawaited(
       future.whenComplete(() {
@@ -96,7 +121,7 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
     return future;
   }
 
-  Future<void> _performRefresh() async {
+  Future<void> _performRefresh({required bool suppressProduction}) async {
     final serial = ++_requestSerial;
     if (mounted) {
       setState(() {
@@ -106,9 +131,11 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
       });
     }
     try {
-      await _repository.load();
+      final loaded = await _repository.load();
       if (!mounted || serial != _requestSerial) return;
       setState(() {
+        _data = loaded;
+        _suppressProduction = suppressProduction;
         _refreshing = false;
         _refreshFailed = false;
       });
@@ -119,6 +146,17 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
         _refreshFailed = true;
       });
     }
+  }
+
+  Future<void> _openRekaSignal(TodayRekaItem item) async {
+    await openRekaSignalTarget(
+      context,
+      item,
+      repository: _repository is ApiThemeV2HomeRepository
+          ? (_repository as ApiThemeV2HomeRepository).rekaSignals
+          : null,
+    );
+    if (mounted) await _refresh();
   }
 
   Future<void> _openQuickActions(Rect anchor) async {
@@ -139,7 +177,9 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
   @override
   void dispose() {
     _requestSerial++;
+    dataRevision.removeListener(_onDataRevision);
     _disposeOwnedRepository();
+    if (_ownsSceneRekaController) _sceneRekaController.dispose();
     super.dispose();
   }
 
@@ -174,8 +214,27 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
                       menuExpanded: _menuExpanded,
                       now: widget.now,
                       active: widget.active,
-                      controller: widget.rekaController,
+                      controller: _sceneRekaController,
                       rekaBuilder: widget.rekaBuilder,
+                      content: Padding(
+                        padding: EdgeInsets.only(
+                          top: topChromeInset,
+                          bottom: bottomChromeInset,
+                        ),
+                        child: TodayLivingSurface(
+                          data: _data ?? TodayData.empty,
+                          now: widget.now ?? DateTime.now(),
+                          active: widget.active,
+                          rekaCenter:
+                              _sceneRekaController.rekaCenter -
+                              Offset(0, topChromeInset),
+                          suppressProduction: _suppressProduction,
+                          onOpenSignal: (item) =>
+                              unawaited(_openRekaSignal(item)),
+                          onOpenAgenda: widget.onOpenAgenda,
+                          clock: widget.clock,
+                        ),
+                      ),
                       onRekaTap: (anchor) =>
                           unawaited(_openQuickActions(anchor)),
                     ),

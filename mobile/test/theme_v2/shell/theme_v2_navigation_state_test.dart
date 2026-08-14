@@ -311,6 +311,28 @@ void main() {
     );
   });
 
+  testWidgets('Today Next capsule opens the Calendar agenda destination', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _ThemeHost(
+        child: ThemeV2AppShell(
+          showStartupOverlays: false,
+          todayDotExperimentOverride: true,
+          deviceStatus: const DeviceStatusSummary.disconnected(),
+          homeRepository: const _HomeRepository(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(TodayDotExperimentPage), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('today-next-schedule')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ThemeV2CalendarPage), findsOneWidget);
+  });
+
   testWidgets('Today experiment keeps the existing chrome in dark mode', (
     tester,
   ) async {
@@ -591,6 +613,9 @@ class _RekaRepository implements RekaSignalRepository {
 
   @override
   Future<void> dismiss(String signalId) async {}
+
+  @override
+  Future<void> snooze(String signalId, DateTime remindAgainAt) async {}
 
   @override
   Future<RekaSignalBatch> load({String timezoneName = 'Asia/Shanghai'}) async =>

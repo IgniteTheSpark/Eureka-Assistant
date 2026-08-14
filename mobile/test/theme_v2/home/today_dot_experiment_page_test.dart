@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:eureka/data_revision.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/home/home_repository.dart';
 import 'package:eureka/theme_v2/home/today_dot_experiment_page.dart';
@@ -10,6 +11,145 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('initial data composes header, signal band and asset chamber', (
+    tester,
+  ) async {
+    final now = DateTime(2026, 8, 14, 10);
+    final data = TodayData(
+      chain: [
+        ChainItem(
+          kind: 'event',
+          id: 'event-1',
+          title: '产品评审',
+          at: DateTime(2026, 8, 14, 14),
+          timed: true,
+        ),
+      ],
+      noTimeTodos: const [],
+      pool: [
+        PoolAsset(
+          id: 'asset-1',
+          type: 'notes',
+          domain: '',
+          title: '会议草稿',
+          payload: const {'title': '会议草稿'},
+          createdAt: now,
+        ),
+      ],
+      poolTrueCount: 1,
+      flashCount: 0,
+      rekaQueue: [
+        TodayRekaItem(
+          id: 'signal-1',
+          type: 'rhythm_gap',
+          title: '跑步还没有记录',
+          body: '可以现在补上一笔',
+          link: '',
+          createdAt: now,
+          targetType: 'skill',
+          targetId: 'running',
+        ),
+      ],
+    );
+    final repository = _ImmediateRepository(data);
+
+    await tester.pumpWidget(
+      _Host(
+        child: TodayDotExperimentPage(repository: repository, now: now),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(repository.loadCount, 1);
+    expect(find.text('产品评审'), findsOneWidget);
+    expect(find.text('跑步还没有记录'), findsOneWidget);
+    expect(find.byKey(const ValueKey('today-signal-band')), findsOneWidget);
+    expect(find.byKey(const ValueKey('today-asset-chamber')), findsOneWidget);
+    expect(find.byKey(const ValueKey('today-next-schedule')), findsOneWidget);
+    final signalHeight = tester
+        .getSize(find.byKey(const ValueKey('today-signal-band')))
+        .height;
+    final assetHeight = tester
+        .getSize(find.byKey(const ValueKey('today-asset-chamber')))
+        .height;
+    expect(assetHeight / signalHeight, closeTo(2, .2));
+    expect(find.byKey(TodayRekaScene.rekaRenderKey), findsOneWidget);
+  });
+
+  testWidgets('header keeps an empty next capsule when the day has none', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _Host(
+        child: TodayDotExperimentPage(
+          repository: _ImmediateRepository(TodayData.empty),
+          now: DateTime(2026, 8, 14),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('today-next-schedule')), findsOneWidget);
+    expect(find.text('今天暂无安排'), findsOneWidget);
+    expect(find.text('今日'), findsNothing);
+    expect(find.text('8月14日 · 周五'), findsOneWidget);
+  });
+
+  testWidgets('live data revision gives each new output one visual owner', (
+    tester,
+  ) async {
+    final initial = Completer<TodayData>();
+    final update = Completer<TodayData>();
+    final repository = _QueueRepository([initial, update]);
+    final now = DateTime(2026, 8, 14, 10);
+    await tester.pumpWidget(
+      _Host(
+        child: TodayDotExperimentPage(repository: repository, now: now),
+      ),
+    );
+    await tester.pump();
+    initial.complete(TodayData.empty);
+    await tester.pumpAndSettle();
+
+    bumpData();
+    await tester.pump();
+    expect(repository.loadCount, 2);
+    update.complete(
+      TodayData(
+        chain: const [],
+        noTimeTodos: const [],
+        pool: const [],
+        poolTrueCount: 0,
+        flashCount: 0,
+        rekaQueue: [
+          TodayRekaItem(
+            id: 'signal-new',
+            type: 'report',
+            title: '新报告发现',
+            body: '可以生成报告方案',
+            link: '',
+            createdAt: now,
+          ),
+        ],
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('today-output-signal-signal-new')),
+      findsOneWidget,
+    );
+    expect(find.text('新报告发现'), findsNothing);
+    await tester.pump(const Duration(milliseconds: 180));
+    await tester.pump();
+    expect(find.text('新报告发现'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('today-output-signal-signal-new')),
+      findsNothing,
+    );
+  });
+
   testWidgets('quick actions invoke only the selected callback', (
     tester,
   ) async {
@@ -162,6 +302,19 @@ class _QueueRepository implements ThemeV2HomeRepository {
     final response = responses[loadCount];
     loadCount++;
     return response.future;
+  }
+}
+
+class _ImmediateRepository implements ThemeV2HomeRepository {
+  _ImmediateRepository(this.data);
+
+  final TodayData data;
+  int loadCount = 0;
+
+  @override
+  Future<TodayData> load() async {
+    loadCount++;
+    return data;
   }
 }
 

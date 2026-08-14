@@ -372,6 +372,7 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
                     onCreateAsset: () => _createAsset(context),
                     onCreateReport: () => _createReport(context),
                     onStartChat: () => _startBlankChat(context),
+                    onOpenAgenda: () => _selectDestination(1),
                   )
                 : ThemeV2HomePage(
                     active: _index == 0,
