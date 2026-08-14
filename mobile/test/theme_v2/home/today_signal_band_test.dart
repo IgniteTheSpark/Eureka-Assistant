@@ -198,6 +198,34 @@ void main() {
     await tester.pump();
     expect(tester.getCenter(find.text(item.title)).dx, isNot(paused.dx));
   });
+
+  testWidgets('discovery watermark opens all without replacing item opening', (
+    tester,
+  ) async {
+    var openAllCalls = 0;
+    var openSignalCalls = 0;
+    final item = _signal(0);
+    await tester.pumpWidget(
+      _host(
+        TodaySignalBand(
+          items: [item],
+          onOpenAll: () => openAllCalls++,
+          onOpenSignal: (_) async => openSignalCalls++,
+        ),
+        reduceMotion: true,
+      ),
+    );
+
+    expect(find.bySemanticsLabel('查看全部 Reka 发现'), findsOneWidget);
+    await tester.tap(find.bySemanticsLabel('查看全部 Reka 发现'));
+    expect(openAllCalls, 1);
+    expect(openSignalCalls, 0);
+
+    await tester.tap(find.byKey(const ValueKey('today-signal-signal-0')));
+    await tester.pump();
+    expect(openAllCalls, 1);
+    expect(openSignalCalls, 1);
+  });
 }
 
 TodayRekaItem _signal(int index) => TodayRekaItem(

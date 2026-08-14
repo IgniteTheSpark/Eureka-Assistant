@@ -263,9 +263,7 @@ void main() {
     },
   );
 
-  testWidgets('Today experiment extends one body behind transparent chrome', (
-    tester,
-  ) async {
+  testWidgets('root pages share the floating Top Dock', (tester) async {
     await tester.pumpWidget(
       _ThemeHost(
         child: ThemeV2AppShell(
@@ -301,13 +299,22 @@ void main() {
       tester
           .widget<ThemeV2GlobalTopNav>(find.byType(ThemeV2GlobalTopNav))
           .transparentSurface,
-      isFalse,
+      isTrue,
     );
     expect(
       tester
           .widget<ThemeV2GlobalTopNav>(find.byType(ThemeV2GlobalTopNav))
           .floatingDock,
-      isFalse,
+      isTrue,
+    );
+
+    await tester.tap(find.bySemanticsLabel('资产'));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<ThemeV2GlobalTopNav>(find.byType(ThemeV2GlobalTopNav))
+          .floatingDock,
+      isTrue,
     );
   });
 
@@ -333,7 +340,7 @@ void main() {
     expect(find.byType(ThemeV2CalendarPage), findsOneWidget);
   });
 
-  testWidgets('Today experiment keeps the existing chrome in dark mode', (
+  testWidgets('Today experiment keeps floating chrome in dark mode', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -355,19 +362,19 @@ void main() {
       tester
           .widget<ThemeV2PageScaffold>(find.byType(ThemeV2PageScaffold))
           .extendBodyBehindChrome,
-      isFalse,
+      isTrue,
     );
     expect(
       tester
           .widget<ThemeV2GlobalTopNav>(find.byType(ThemeV2GlobalTopNav))
           .transparentSurface,
-      isFalse,
+      isTrue,
     );
     expect(
       tester
           .widget<ThemeV2GlobalTopNav>(find.byType(ThemeV2GlobalTopNav))
           .floatingDock,
-      isFalse,
+      isTrue,
     );
   });
 

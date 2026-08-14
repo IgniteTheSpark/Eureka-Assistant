@@ -237,6 +237,20 @@ void main() {
     expect(find.text('今天生成的资产会落在这里'), findsNothing);
   });
 
+  testWidgets('generated watermark opens the Asset Library', (tester) async {
+    var openLibraryCalls = 0;
+    await _pumpField(
+      tester,
+      assets: [asset],
+      disableAnimations: true,
+      onOpenLibrary: () => openLibraryCalls++,
+    );
+
+    expect(find.bySemanticsLabel('打开资产库'), findsOneWidget);
+    await tester.tap(find.bySemanticsLabel('打开资产库'));
+    expect(openLibraryCalls, 1);
+  });
+
   testWidgets('asset chamber uses one shared displaced dither field', (
     tester,
   ) async {
@@ -962,6 +976,7 @@ Future<void> _pumpField(
   Stream<Offset>? gravityStream,
   Map<String, SkillMeta> skills = const {},
   ValueChanged<PoolAsset>? onOpenAsset,
+  VoidCallback? onOpenLibrary,
   Animation<double>? motion,
 }) async {
   tester.view.devicePixelRatio = 1;
@@ -983,6 +998,7 @@ Future<void> _pumpField(
             active: active,
             gravityStream: gravityStream,
             onOpenAsset: onOpenAsset,
+            onOpenLibrary: onOpenLibrary,
             motion: motion,
           ),
         ),

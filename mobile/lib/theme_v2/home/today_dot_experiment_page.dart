@@ -25,6 +25,8 @@ class TodayDotExperimentPage extends StatefulWidget {
     this.onCreateReport,
     this.onStartChat,
     this.onOpenAgenda,
+    this.onOpenReka,
+    this.onOpenAssetLibrary,
     this.clock,
     this.now,
     this.active = true,
@@ -41,6 +43,8 @@ class TodayDotExperimentPage extends StatefulWidget {
   final VoidCallback? onCreateReport;
   final VoidCallback? onStartChat;
   final VoidCallback? onOpenAgenda;
+  final VoidCallback? onOpenReka;
+  final VoidCallback? onOpenAssetLibrary;
   final ValueListenable<DateTime>? clock;
   final DateTime? now;
   final bool active;
@@ -250,6 +254,8 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
                             suppressProduction: _suppressProduction,
                             outputCoordinator: _outputCoordinator,
                             onOpenSignal: _openRekaSignal,
+                            onOpenReka: widget.onOpenReka,
+                            onOpenAssetLibrary: widget.onOpenAssetLibrary,
                             onOpenAgenda: widget.onOpenAgenda,
                             clock: widget.clock,
                           ),

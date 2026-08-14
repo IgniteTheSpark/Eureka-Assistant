@@ -16,6 +16,8 @@ class TodayLivingSurface extends StatefulWidget {
     required this.now,
     required this.active,
     this.onOpenSignal,
+    this.onOpenReka,
+    this.onOpenAssetLibrary,
     this.onOpenAgenda,
     this.clock,
     this.rekaCenter = Offset.zero,
@@ -27,6 +29,8 @@ class TodayLivingSurface extends StatefulWidget {
   final DateTime now;
   final bool active;
   final TodaySignalOpenCallback? onOpenSignal;
+  final VoidCallback? onOpenReka;
+  final VoidCallback? onOpenAssetLibrary;
   final VoidCallback? onOpenAgenda;
   final ValueListenable<DateTime>? clock;
   final Offset rekaCenter;
@@ -185,6 +189,7 @@ class _TodayLivingSurfaceState extends State<TodayLivingSurface>
                       items: stableSignals,
                       motion: _ambientMotion,
                       onOpenSignal: widget.onOpenSignal,
+                      onOpenAll: widget.onOpenReka,
                       birthState: signalBirthState,
                       birthSignalId: cue.kind == TodayOutputKind.signal
                           ? cue.id
@@ -205,6 +210,7 @@ class _TodayLivingSurfaceState extends State<TodayLivingSurface>
                       active: widget.active,
                       spawnCenters: _assetSpawnCenters,
                       motion: _ambientMotion,
+                      onOpenLibrary: widget.onOpenAssetLibrary,
                     ),
                   ),
                 ],

@@ -19,6 +19,7 @@ class TodaySignalBand extends StatefulWidget {
     required this.items,
     this.motion,
     this.onOpenSignal,
+    this.onOpenAll,
     this.birthState = TodaySignalBirthState.idle,
     this.birthSignalId,
   });
@@ -26,6 +27,7 @@ class TodaySignalBand extends StatefulWidget {
   final List<TodayRekaItem> items;
   final Animation<double>? motion;
   final TodaySignalOpenCallback? onOpenSignal;
+  final VoidCallback? onOpenAll;
   final TodaySignalBirthState birthState;
   final String? birthSignalId;
 
@@ -180,6 +182,8 @@ class _TodaySignalBandState extends State<TodaySignalBand> {
                     label: 'Reka 发现',
                     alignment: Alignment.bottomLeft,
                     padding: const EdgeInsets.fromLTRB(18, 12, 18, 4),
+                    onPressed: widget.onOpenAll,
+                    semanticLabel: '查看全部 Reka 发现',
                   ),
                   for (var lane = 0; lane < 3; lane++)
                     Positioned(

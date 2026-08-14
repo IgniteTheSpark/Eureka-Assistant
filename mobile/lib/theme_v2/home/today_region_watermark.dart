@@ -9,31 +9,35 @@ class TodayRegionWatermark extends StatelessWidget {
     required this.label,
     required this.alignment,
     this.padding = const EdgeInsets.fromLTRB(18, 12, 18, 12),
+    this.onPressed,
+    this.semanticLabel,
   });
 
   final int count;
   final String label;
   final Alignment alignment;
   final EdgeInsets padding;
+  final VoidCallback? onPressed;
+  final String? semanticLabel;
 
   @override
   Widget build(BuildContext context) {
     if (count <= 0) return const SizedBox.shrink();
     final tokens = context.themeV2;
     final leftAligned = alignment.x < 0;
-    return IgnorePointer(
-      child: ExcludeSemantics(
-        child: Align(
-          alignment: alignment,
-          child: Padding(
-            padding: padding,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: leftAligned
-                  ? CrossAxisAlignment.start
-                  : CrossAxisAlignment.end,
-              children: [
-                Text(
+    return Align(
+      alignment: alignment,
+      child: Padding(
+        padding: padding,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: leftAligned
+              ? CrossAxisAlignment.start
+              : CrossAxisAlignment.end,
+          children: [
+            ExcludeSemantics(
+              child: IgnorePointer(
+                child: Text(
                   '$count',
                   style: TextStyle(
                     color: tokens.accent.withValues(alpha: .07),
@@ -44,21 +48,43 @@ class TodayRegionWatermark extends StatelessWidget {
                     height: .9,
                   ),
                 ),
-                const SizedBox(height: 7),
-                Text(
-                  label,
-                  style: TextStyle(
-                    color: tokens.accent.withValues(alpha: .44),
-                    fontFamily: 'Geist Mono',
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 1,
-                    height: 1.15,
+              ),
+            ),
+            const SizedBox(height: 7),
+            Semantics(
+              button: onPressed != null,
+              label: onPressed == null ? null : semanticLabel,
+              onTap: onPressed,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: onPressed,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    minWidth: 44,
+                    minHeight: 44,
+                  ),
+                  child: Align(
+                    alignment: leftAligned
+                        ? Alignment.topLeft
+                        : Alignment.topRight,
+                    child: ExcludeSemantics(
+                      child: Text(
+                        label,
+                        style: TextStyle(
+                          color: tokens.accent.withValues(alpha: .44),
+                          fontFamily: 'Geist Mono',
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1,
+                          height: 1.15,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
-              ],
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );

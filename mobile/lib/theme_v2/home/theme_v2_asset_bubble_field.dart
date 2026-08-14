@@ -57,6 +57,7 @@ class ThemeV2AssetBubbleField extends StatefulWidget {
     this.active = true,
     this.gravityStream,
     this.onOpenAsset,
+    this.onOpenLibrary,
     this.spawnCenters = const {},
     this.motion,
   });
@@ -67,6 +68,7 @@ class ThemeV2AssetBubbleField extends StatefulWidget {
   final bool active;
   final Stream<Offset>? gravityStream;
   final ValueChanged<PoolAsset>? onOpenAsset;
+  final VoidCallback? onOpenLibrary;
   final Map<String, Offset> spawnCenters;
   final Animation<double>? motion;
 
@@ -754,6 +756,8 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
               label: 'Reka 生成',
               alignment: Alignment.topRight,
               padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
+              onPressed: widget.onOpenLibrary,
+              semanticLabel: '打开资产库',
             ),
           ],
         );

@@ -373,6 +373,8 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
                     onCreateReport: () => _createReport(context),
                     onStartChat: () => _startBlankChat(context),
                     onOpenAgenda: () => _selectDestination(1),
+                    onOpenReka: () => _openRekaSignals(context),
+                    onOpenAssetLibrary: () => _selectDestination(2),
                   )
                 : ThemeV2HomePage(
                     active: _index == 0,
@@ -411,15 +413,13 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
     }
 
     final immersiveToday =
-        widget.pages == null &&
-        widget.usesTodayDotExperiment &&
-        ambientTheme.brightness == Brightness.light;
+        widget.pages == null && widget.usesTodayDotExperiment;
     final pages = _pages(immersiveToday: immersiveToday);
     final activePage = pages[_index];
-    final todayFloatingDock = immersiveToday && _index == 0;
+    final rootFloatingDock = widget.pages == null;
     final standardTopNav = ThemeV2GlobalTopNav(
-      transparentSurface: todayFloatingDock,
-      floatingDock: todayFloatingDock,
+      transparentSurface: rootFloatingDock,
+      floatingDock: rootFloatingDock,
       deviceStatus:
           widget.deviceStatus ??
           _deviceStatusAdapter?.value ??
