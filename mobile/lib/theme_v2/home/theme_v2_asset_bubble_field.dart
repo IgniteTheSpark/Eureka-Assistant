@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -554,215 +555,219 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
           });
         }
         final field = _field;
-        return Stack(
-          fit: StackFit.expand,
-          children: [
-            if (!_usesCompactGrid)
-              Positioned.fill(
-                child: AnimatedBuilder(
-                  animation: _repaint,
-                  builder: (context, _) => TodayDitherField(
-                    key: const ValueKey('today-asset-dither-field'),
-                    config: TodayDitherFieldConfig.asset(
-                      waveColor: context.themeV2.foreground,
-                      opacity: Theme.of(context).brightness == Brightness.dark
-                          ? .30
-                          : .38,
-                    ),
-                    sources: [
-                      for (final bubble in field?.bubbles ?? const <Bubble>[])
-                        TodayDitherSource.circle(
-                          center: Offset(bubble.x, bubble.y),
-                          radius: bubble.r,
-                          energy: _ditherEnergy(bubble),
-                        ),
-                      for (final snapshot in _retiring)
-                        TodayDitherSource.circle(
-                          center: snapshot.center,
-                          radius: snapshot.radius,
-                          energy: .16,
-                        ),
-                    ],
-                    motion: widget.motion,
-                    reduceMotion: _reduceMotion,
-                  ),
-                ),
-              ),
-            for (final snapshot in _retiring)
-              Positioned(
-                key: ValueKey('theme-v2-retiring-bubble-${snapshot.asset.id}'),
-                left: snapshot.center.dx - snapshot.radius,
-                top: snapshot.center.dy - snapshot.radius,
-                child: ExcludeSemantics(
-                  child: IgnorePointer(
-                    child: TweenAnimationBuilder<double>(
-                      tween: Tween(begin: 0, end: 1),
-                      duration: const Duration(milliseconds: 260),
-                      onEnd: () => _removeRetiring(snapshot.asset.id),
-                      builder: (context, progress, child) => Opacity(
-                        opacity: 1 - progress,
-                        child: Transform.translate(
-                          offset: Offset(0, 12 * progress),
-                          child: Transform.scale(
-                            scale: 1 - 0.28 * progress,
-                            child: child,
-                          ),
-                        ),
-                      ),
-                      child: Transform.rotate(
-                        angle: snapshot.angle,
-                        child: SizedBox.square(
-                          dimension: snapshot.radius * 2,
-                          child: _ThemeV2BubbleVisual(
-                            asset: snapshot.asset,
-                            skills: widget.skills,
-                            index: snapshot.index,
-                            motion: widget.motion,
-                            onTap: _noop,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            if (_usesCompactGrid)
-              Positioned.fill(
-                child: _ThemeV2CompactAssetGrid(
-                  assets: widget.assets,
-                  skills: widget.skills,
-                  motion: widget.motion,
-                  onOpenAsset: (asset) => widget._openAsset(context, asset),
-                ),
-              )
-            else if (field != null)
-              Positioned.fill(
-                child: GestureDetector(
-                  behavior: HitTestBehavior.translucent,
-                  onPanDown: (details) {
-                    final bubble = _hitBubbleAt(field, details.localPosition);
-                    if (bubble == null) return;
-                    _grabbedAssetId = bubble.id;
-                    field.grab(bubble);
-                    _syncLifecycle();
-                  },
-                  onTapUp: (details) {
-                    final bubble = _hitBubbleAt(field, details.localPosition);
-                    final asset = bubble == null
-                        ? null
-                        : _assetsById[bubble.id];
-                    _releaseGrab();
-                    if (asset != null) widget._openAsset(context, asset);
-                  },
-                  onPanStart: (details) {
-                    if (_grabbedAssetId != null) {
-                      _syncLifecycle();
-                      return;
-                    }
-                    final bubble = _hitBubbleAt(field, details.localPosition);
-                    if (bubble == null) {
-                      _releaseGrab();
-                      return;
-                    }
-                    _grabbedAssetId = bubble.id;
-                    field.grab(bubble);
-                    _syncLifecycle();
-                  },
-                  onPanUpdate: (details) {
-                    field.dragTo(details.localPosition);
-                    _syncLifecycle();
-                  },
-                  onPanEnd: (_) => _releaseGrab(),
-                  onPanCancel: _releaseGrab,
+        return BackdropGroup(
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (!_usesCompactGrid)
+                Positioned.fill(
                   child: AnimatedBuilder(
                     animation: _repaint,
-                    builder: (context, _) {
-                      final indexById = <String, int>{
-                        for (
-                          var index = 0;
-                          index < field.bubbles.length;
-                          index++
-                        )
-                          field.bubbles[index].id: index,
-                      };
-                      return Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          for (final bubble in field.bubbles.reversed)
-                            if (_assetsById[bubble.id] case final asset?)
-                              Builder(
-                                builder: (context) {
-                                  final index = indexById[bubble.id] ?? 0;
-                                  final target = _targetRect(bubble);
-                                  return Positioned(
-                                    key: ValueKey(
-                                      'theme-v2-asset-bubble-${asset.id}',
-                                    ),
-                                    left: target.left,
-                                    top: target.top,
-                                    width: target.width,
-                                    height: target.height,
-                                    child: Semantics(
-                                      label: '打开资产 ${asset.title}',
-                                      button: true,
-                                      onTap: () =>
-                                          widget._openAsset(context, asset),
-                                      child: ExcludeSemantics(
-                                        child: Stack(
-                                          clipBehavior: Clip.none,
-                                          children: [
-                                            Positioned(
-                                              left:
-                                                  bubble.x -
-                                                  target.left -
-                                                  bubble.r,
-                                              top:
-                                                  bubble.y -
-                                                  target.top -
-                                                  bubble.r,
-                                              width: bubble.r * 2,
-                                              height: bubble.r * 2,
-                                              child: Transform.rotate(
-                                                key: ValueKey(
-                                                  'theme-v2-asset-bubble-rotation-${asset.id}',
-                                                ),
-                                                angle: bubble.angle,
-                                                child: _ThemeV2BubbleVisual(
-                                                  asset: asset,
-                                                  skills: widget.skills,
-                                                  index: index,
-                                                  motion: widget.motion,
-                                                  onTap: () =>
-                                                      widget._openAsset(
-                                                        context,
-                                                        asset,
-                                                      ),
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  );
-                                },
-                              ),
-                        ],
-                      );
-                    },
+                    builder: (context, _) => TodayDitherField(
+                      key: const ValueKey('today-asset-dither-field'),
+                      config: TodayDitherFieldConfig.asset(
+                        waveColor: context.themeV2.foreground,
+                        opacity: Theme.of(context).brightness == Brightness.dark
+                            ? .30
+                            : .38,
+                      ),
+                      sources: [
+                        for (final bubble in field?.bubbles ?? const <Bubble>[])
+                          TodayDitherSource.circle(
+                            center: Offset(bubble.x, bubble.y),
+                            radius: bubble.r,
+                            energy: _ditherEnergy(bubble),
+                          ),
+                        for (final snapshot in _retiring)
+                          TodayDitherSource.circle(
+                            center: snapshot.center,
+                            radius: snapshot.radius,
+                            energy: .16,
+                          ),
+                      ],
+                      motion: widget.motion,
+                      reduceMotion: _reduceMotion,
+                    ),
                   ),
                 ),
+              for (final snapshot in _retiring)
+                Positioned(
+                  key: ValueKey(
+                    'theme-v2-retiring-bubble-${snapshot.asset.id}',
+                  ),
+                  left: snapshot.center.dx - snapshot.radius,
+                  top: snapshot.center.dy - snapshot.radius,
+                  child: ExcludeSemantics(
+                    child: IgnorePointer(
+                      child: TweenAnimationBuilder<double>(
+                        tween: Tween(begin: 0, end: 1),
+                        duration: const Duration(milliseconds: 260),
+                        onEnd: () => _removeRetiring(snapshot.asset.id),
+                        builder: (context, progress, child) => Opacity(
+                          opacity: 1 - progress,
+                          child: Transform.translate(
+                            offset: Offset(0, 12 * progress),
+                            child: Transform.scale(
+                              scale: 1 - 0.28 * progress,
+                              child: child,
+                            ),
+                          ),
+                        ),
+                        child: Transform.rotate(
+                          angle: snapshot.angle,
+                          child: SizedBox.square(
+                            dimension: snapshot.radius * 2,
+                            child: _ThemeV2BubbleVisual(
+                              asset: snapshot.asset,
+                              skills: widget.skills,
+                              index: snapshot.index,
+                              motion: widget.motion,
+                              onTap: _noop,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              if (_usesCompactGrid)
+                Positioned.fill(
+                  child: _ThemeV2CompactAssetGrid(
+                    assets: widget.assets,
+                    skills: widget.skills,
+                    motion: widget.motion,
+                    onOpenAsset: (asset) => widget._openAsset(context, asset),
+                  ),
+                )
+              else if (field != null)
+                Positioned.fill(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.translucent,
+                    onPanDown: (details) {
+                      final bubble = _hitBubbleAt(field, details.localPosition);
+                      if (bubble == null) return;
+                      _grabbedAssetId = bubble.id;
+                      field.grab(bubble);
+                      _syncLifecycle();
+                    },
+                    onTapUp: (details) {
+                      final bubble = _hitBubbleAt(field, details.localPosition);
+                      final asset = bubble == null
+                          ? null
+                          : _assetsById[bubble.id];
+                      _releaseGrab();
+                      if (asset != null) widget._openAsset(context, asset);
+                    },
+                    onPanStart: (details) {
+                      if (_grabbedAssetId != null) {
+                        _syncLifecycle();
+                        return;
+                      }
+                      final bubble = _hitBubbleAt(field, details.localPosition);
+                      if (bubble == null) {
+                        _releaseGrab();
+                        return;
+                      }
+                      _grabbedAssetId = bubble.id;
+                      field.grab(bubble);
+                      _syncLifecycle();
+                    },
+                    onPanUpdate: (details) {
+                      field.dragTo(details.localPosition);
+                      _syncLifecycle();
+                    },
+                    onPanEnd: (_) => _releaseGrab(),
+                    onPanCancel: _releaseGrab,
+                    child: AnimatedBuilder(
+                      animation: _repaint,
+                      builder: (context, _) {
+                        final indexById = <String, int>{
+                          for (
+                            var index = 0;
+                            index < field.bubbles.length;
+                            index++
+                          )
+                            field.bubbles[index].id: index,
+                        };
+                        return Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            for (final bubble in field.bubbles.reversed)
+                              if (_assetsById[bubble.id] case final asset?)
+                                Builder(
+                                  builder: (context) {
+                                    final index = indexById[bubble.id] ?? 0;
+                                    final target = _targetRect(bubble);
+                                    return Positioned(
+                                      key: ValueKey(
+                                        'theme-v2-asset-bubble-${asset.id}',
+                                      ),
+                                      left: target.left,
+                                      top: target.top,
+                                      width: target.width,
+                                      height: target.height,
+                                      child: Semantics(
+                                        label: '打开资产 ${asset.title}',
+                                        button: true,
+                                        onTap: () =>
+                                            widget._openAsset(context, asset),
+                                        child: ExcludeSemantics(
+                                          child: Stack(
+                                            clipBehavior: Clip.none,
+                                            children: [
+                                              Positioned(
+                                                left:
+                                                    bubble.x -
+                                                    target.left -
+                                                    bubble.r,
+                                                top:
+                                                    bubble.y -
+                                                    target.top -
+                                                    bubble.r,
+                                                width: bubble.r * 2,
+                                                height: bubble.r * 2,
+                                                child: Transform.rotate(
+                                                  key: ValueKey(
+                                                    'theme-v2-asset-bubble-rotation-${asset.id}',
+                                                  ),
+                                                  angle: bubble.angle,
+                                                  child: _ThemeV2BubbleVisual(
+                                                    asset: asset,
+                                                    skills: widget.skills,
+                                                    index: index,
+                                                    motion: widget.motion,
+                                                    onTap: () =>
+                                                        widget._openAsset(
+                                                          context,
+                                                          asset,
+                                                        ),
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              TodayRegionWatermark(
+                count: widget.trueCount,
+                label: 'Reka 生成',
+                alignment: Alignment.topRight,
+                padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
+                labelFirst: true,
+                onPressed: widget.onOpenLibrary,
+                semanticLabel: '打开资产库',
               ),
-            TodayRegionWatermark(
-              count: widget.trueCount,
-              label: 'Reka 生成',
-              alignment: Alignment.topRight,
-              padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
-              labelFirst: true,
-              onPressed: widget.onOpenLibrary,
-              semanticLabel: '打开资产库',
-            ),
-          ],
+            ],
+          ),
         );
       },
     );
@@ -900,6 +905,7 @@ class _ThemeV2BubbleVisual extends StatelessWidget {
         : tokens.muted;
     return DecoratedBox(
       key: ValueKey('theme-v2-asset-bubble-outline-${asset.id}'),
+      position: DecorationPosition.foreground,
       decoration: BoxDecoration(
         color: Colors.transparent,
         shape: BoxShape.circle,
@@ -908,22 +914,34 @@ class _ThemeV2BubbleVisual extends StatelessWidget {
           width: 1.35,
         ),
       ),
-      child: Material(
-        color: Colors.transparent,
-        shape: const CircleBorder(),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: onTap,
-          child: LayoutBuilder(
-            builder: (context, constraints) => Center(
-              child: Text(
-                resolveMeta(asset.type, skills).icon,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: math.min(22, constraints.maxWidth * 0.31),
-                  height: 1,
-                  color: bubbleColor,
+      child: ClipOval(
+        child: BackdropFilter.grouped(
+          filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
+          child: ColoredBox(
+            key: ValueKey('theme-v2-asset-bubble-glass-${asset.id}'),
+            color: bubbleColor.withValues(
+              alpha: Theme.of(context).brightness == Brightness.dark
+                  ? .09
+                  : .05,
+            ),
+            child: Material(
+              color: Colors.transparent,
+              shape: const CircleBorder(),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: onTap,
+                child: LayoutBuilder(
+                  builder: (context, constraints) => Center(
+                    child: Text(
+                      resolveMeta(asset.type, skills).icon,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: math.min(22, constraints.maxWidth * 0.31),
+                        height: 1,
+                        color: bubbleColor,
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),

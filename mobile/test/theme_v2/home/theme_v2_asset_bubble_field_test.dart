@@ -281,6 +281,33 @@ void main() {
     }
   });
 
+  testWidgets('asset bubble keeps its outline over a faint matching glass', (
+    tester,
+  ) async {
+    for (final brightness in Brightness.values) {
+      await _pumpField(
+        tester,
+        assets: [asset],
+        disableAnimations: true,
+        brightness: brightness,
+      );
+      final outline = tester.widget<DecoratedBox>(
+        find.byKey(const ValueKey('theme-v2-asset-bubble-outline-asset-1')),
+      );
+      final decoration = outline.decoration as BoxDecoration;
+      final borderColor = (decoration.border! as Border).top.color;
+      final glass = tester.widget<ColoredBox>(
+        find.byKey(const ValueKey('theme-v2-asset-bubble-glass-asset-1')),
+      );
+
+      expect(glass.color.r, closeTo(borderColor.r, .001));
+      expect(glass.color.g, closeTo(borderColor.g, .001));
+      expect(glass.color.b, closeTo(borderColor.b, .001));
+      expect(glass.color.a, brightness == Brightness.dark ? .09 : .05);
+      expect(borderColor.a, greaterThan(glass.color.a));
+    }
+  });
+
   testWidgets('asset chamber uses one shared displaced dither field', (
     tester,
   ) async {

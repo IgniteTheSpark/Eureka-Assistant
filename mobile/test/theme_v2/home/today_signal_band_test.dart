@@ -258,6 +258,36 @@ void main() {
       expect(watermark.labelFirst, isFalse);
     }
   });
+
+  testWidgets('Signal strips use faint type-colored glass', (tester) async {
+    const expectedBases = <String, Color>{
+      'overdue': Color(0xFFE46A5D),
+      'rhythm_gap': Color(0xFF28A9B8),
+      'report': Color(0xFF8B6CE8),
+      'other': Color(0xFF25B6D6),
+    };
+
+    for (final brightness in Brightness.values) {
+      for (final entry in expectedBases.entries) {
+        final item = _signalOfType(entry.key);
+        await tester.pumpWidget(
+          _host(
+            TodaySignalBand(items: [item]),
+            reduceMotion: true,
+            brightness: brightness,
+          ),
+        );
+
+        final glass = tester.widget<ColoredBox>(
+          find.byKey(ValueKey('today-signal-glass-${item.id}')),
+        );
+        expect(glass.color.r, closeTo(entry.value.r, .001));
+        expect(glass.color.g, closeTo(entry.value.g, .001));
+        expect(glass.color.b, closeTo(entry.value.b, .001));
+        expect(glass.color.a, brightness == Brightness.dark ? .10 : .055);
+      }
+    }
+  });
 }
 
 TodayRekaItem _signal(int index) => TodayRekaItem(
@@ -267,6 +297,15 @@ TodayRekaItem _signal(int index) => TodayRekaItem(
   body: '信号内容 $index',
   link: '',
   createdAt: DateTime(2026, 8, 14, 10, index),
+);
+
+TodayRekaItem _signalOfType(String type) => TodayRekaItem(
+  id: 'signal-$type',
+  type: type,
+  title: '发现 $type',
+  body: '信号内容 $type',
+  link: '',
+  createdAt: DateTime(2026, 8, 14, 10),
 );
 
 Widget _host(

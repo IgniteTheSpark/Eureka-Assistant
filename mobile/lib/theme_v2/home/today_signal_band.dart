@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
@@ -156,60 +157,62 @@ class _TodaySignalBandState extends State<TodaySignalBand> {
                         .toList(growable: false);
               final tokens = context.themeV2;
               final dark = Theme.of(context).brightness == Brightness.dark;
-              return Stack(
-                clipBehavior: Clip.hardEdge,
-                children: [
-                  Positioned.fill(
-                    child: TodayDitherField(
-                      key: const ValueKey('today-signal-dither-field'),
-                      config: TodayDitherFieldConfig.signal(
-                        waveColor: tokens.foreground,
-                        opacity: dark ? .32 : .40,
-                      ),
-                      sources: [
-                        for (final placement in visiblePlacements)
-                          TodayDitherSource.capsule(
-                            center: placement.center,
-                            size: const Size(_stripWidth, _stripHeight),
-                            energy: placement.isPaused ? .18 : 0,
-                          ),
-                      ],
-                      motion: motion,
-                      reduceMotion: reduceMotion,
-                    ),
-                  ),
-                  for (var lane = 0; lane < 3; lane++)
-                    Positioned(
-                      key: ValueKey('today-signal-lane-$lane'),
-                      left: 0,
-                      right: 0,
-                      top: lane * laneHeight,
-                      height: laneHeight,
-                      child: Stack(
-                        clipBehavior: Clip.hardEdge,
-                        children: [
-                          if (lane == 0 &&
-                              widget.birthState != TodaySignalBirthState.idle)
-                            const SizedBox.expand(
-                              key: ValueKey('today-signal-lane-0-cleared'),
-                            )
-                          else
-                            for (final placement in placements.where(
-                              (placement) => placement.lane == lane,
-                            ))
-                              _positionedStrip(placement: placement),
+              return BackdropGroup(
+                child: Stack(
+                  clipBehavior: Clip.hardEdge,
+                  children: [
+                    Positioned.fill(
+                      child: TodayDitherField(
+                        key: const ValueKey('today-signal-dither-field'),
+                        config: TodayDitherFieldConfig.signal(
+                          waveColor: tokens.foreground,
+                          opacity: dark ? .32 : .40,
+                        ),
+                        sources: [
+                          for (final placement in visiblePlacements)
+                            TodayDitherSource.capsule(
+                              center: placement.center,
+                              size: const Size(_stripWidth, _stripHeight),
+                              energy: placement.isPaused ? .18 : 0,
+                            ),
                         ],
+                        motion: motion,
+                        reduceMotion: reduceMotion,
                       ),
                     ),
-                  TodayRegionWatermark(
-                    count: widget.items.length,
-                    label: 'Reka 发现',
-                    alignment: Alignment.bottomLeft,
-                    padding: const EdgeInsets.fromLTRB(18, 12, 18, 8),
-                    onPressed: widget.onOpenAll,
-                    semanticLabel: '查看全部 Reka 发现',
-                  ),
-                ],
+                    for (var lane = 0; lane < 3; lane++)
+                      Positioned(
+                        key: ValueKey('today-signal-lane-$lane'),
+                        left: 0,
+                        right: 0,
+                        top: lane * laneHeight,
+                        height: laneHeight,
+                        child: Stack(
+                          clipBehavior: Clip.hardEdge,
+                          children: [
+                            if (lane == 0 &&
+                                widget.birthState != TodaySignalBirthState.idle)
+                              const SizedBox.expand(
+                                key: ValueKey('today-signal-lane-0-cleared'),
+                              )
+                            else
+                              for (final placement in placements.where(
+                                (placement) => placement.lane == lane,
+                              ))
+                                _positionedStrip(placement: placement),
+                          ],
+                        ),
+                      ),
+                    TodayRegionWatermark(
+                      count: widget.items.length,
+                      label: 'Reka 发现',
+                      alignment: Alignment.bottomLeft,
+                      padding: const EdgeInsets.fromLTRB(18, 12, 18, 8),
+                      onPressed: widget.onOpenAll,
+                      semanticLabel: '查看全部 Reka 发现',
+                    ),
+                  ],
+                ),
               );
             },
           ),
@@ -311,38 +314,59 @@ class _SignalStrip extends StatelessWidget {
     return Semantics(
       button: onTap != null,
       label: '${_kindLabel(item.type)}，${item.title}',
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(ThemeV2Radii.pill),
-          onTapDown: onTapDown == null ? null : (_) => onTapDown!(),
-          onTapCancel: onTapCancel,
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            child: Row(
-              children: [
-                Icon(_kindIcon(item.type), color: tokens.muted, size: 15),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    item.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: tokens.foreground,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                    ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(ThemeV2Radii.pill),
+        child: BackdropFilter.grouped(
+          filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
+          child: ColoredBox(
+            key: ValueKey('today-signal-glass-${item.id}'),
+            color: _signalGlassColor(context, item.type),
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(ThemeV2Radii.pill),
+                onTapDown: onTapDown == null ? null : (_) => onTapDown!(),
+                onTapCancel: onTapCancel,
+                onTap: onTap,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  child: Row(
+                    children: [
+                      Icon(_kindIcon(item.type), color: tokens.muted, size: 15),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          item.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: tokens.foreground,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ],
+              ),
             ),
           ),
         ),
       ),
     );
   }
+}
+
+Color _signalGlassColor(BuildContext context, String type) {
+  final base = switch (type) {
+    'overdue' => const Color(0xFFE46A5D),
+    'rhythm_gap' => const Color(0xFF28A9B8),
+    'report' => const Color(0xFF8B6CE8),
+    _ => const Color(0xFF25B6D6),
+  };
+  final dark = Theme.of(context).brightness == Brightness.dark;
+  return base.withValues(alpha: dark ? .10 : .055);
 }
 
 String _kindLabel(String type) => switch (type) {
