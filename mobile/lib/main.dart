@@ -25,6 +25,7 @@ import 'startup_capabilities.dart';
 import 'theme/app_theme.dart';
 import 'theme/eureka_colors.dart';
 import 'theme/theme_controller.dart';
+import 'theme_v2/onboarding/onboarding_page.dart';
 import 'theme_v2/theme_v2_rollout.dart';
 
 const _startupCapabilities = AppConfig.themeV2
@@ -151,6 +152,10 @@ class _AuthGate extends StatelessWidget {
           );
         }
         if (!auth.isAuthed) return const LoginPage();
+        // §7.1: authenticated + onboarding pending → onboarding.
+        if (auth.onboardingStatus == 'pending') {
+          return const OnboardingPage();
+        }
         // Authed: open the hardware/notifications SSE bridge (idempotent).
         AppEvents.instance.start(
           recoverLegacyNudges: _startupCapabilities.nudges,

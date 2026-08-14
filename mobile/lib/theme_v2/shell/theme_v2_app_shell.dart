@@ -31,6 +31,7 @@ import 'theme_v2_device_status_adapter.dart';
 import 'theme_v2_floating_dock.dart';
 import 'theme_v2_global_top_nav.dart';
 import 'theme_v2_page_scaffold.dart';
+import '../account/theme_v2_account_page.dart';
 
 /// Theme V2's real app-shell boundary.
 ///
@@ -271,6 +272,15 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
     );
   }
 
+  /// §8.1 — the top-left UReka logo opens the full-screen Account page.
+  void _openAccount(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const ThemeV2AccountPage(),
+      ),
+    );
+  }
+
   void _openReports(BuildContext context, {bool startCreate = false}) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -365,6 +375,7 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
           : RekaNotifications.instance.unread,
       onDeviceSelected: (target) => _openDevice(context, target),
       onNotificationsPressed: () => _openNotifications(context),
+      onAccountPressed: () => _openAccount(context),
     );
     final captureSnapshot = _captureActivityCoordinator.snapshot;
     final topNav = AnimatedSwitcher(

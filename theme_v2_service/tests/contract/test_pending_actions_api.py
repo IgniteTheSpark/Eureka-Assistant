@@ -13,6 +13,8 @@ from app.domains.sessions.models import (
 )
 from app.main import app
 
+from tests.fakes.auth_helpers import register_user
+
 
 @pytest_asyncio.fixture
 async def client(session):
@@ -24,11 +26,8 @@ async def client(session):
 
 
 async def _seed_pending(client):
-    registered = await client.post(
-        "/api/auth/register",
-        json={"email": "pending@example.com", "password": "secret1"},
-    )
-    token = registered.json()["token"]
+    registered = await register_user(client, "pending@example.com")
+    token = registered["token"]
     async with AsyncSessionFactory() as database:
         user_id = await database.scalar(
             select(UserAccount.id).where(UserAccount.email == "pending@example.com")

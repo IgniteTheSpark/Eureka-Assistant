@@ -24,6 +24,8 @@ from app.jobs.registry import JobHandlerRegistry
 from app.jobs.runner import run_worker_once
 from app.main import app
 
+from tests.fakes.auth_helpers import register_user
+
 
 @pytest_asyncio.fixture
 async def client(session):
@@ -35,12 +37,8 @@ async def client(session):
 
 
 async def _register(client: AsyncClient, email: str) -> str:
-    response = await client.post(
-        "/api/auth/register",
-        json={"email": email, "password": "secret1"},
-    )
-    assert response.status_code == 200
-    return response.json()["token"]
+    body = await register_user(client, email, password="secret123")
+    return body["token"]
 
 
 def _headers(token: str) -> dict[str, str]:
@@ -1128,14 +1126,11 @@ async def test_retry_without_transcript_selects_asr_job(client):
 
 
 async def test_listening_state_is_published_to_live_subscriber(client):
-    token = await _register(client, "listener@example.com")
+    registered = await register_user(client, "listener@example.com")
+    token = registered["token"]
+    user_id = registered["user"]["id"]
     registry = SubscriberRegistry()
     app.state.notification_subscribers = registry
-    registered = await client.post(
-        "/api/auth/login",
-        json={"email": "listener@example.com", "password": "secret1"},
-    )
-    user_id = registered.json()["user"]["id"]
     queue = registry.subscribe(user_id)
 
     response = await client.post(

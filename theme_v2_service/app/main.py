@@ -1,10 +1,16 @@
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Response
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+
+from app.account.api import router as account_router
+from app.account.cleanup_worker import run_deletion_cleanup_worker
 from app.auth.api import router as auth_router
 from app.config import get_settings
 from app.db.session import AsyncSessionFactory
@@ -15,6 +21,7 @@ from app.domains.devices.api import router as devices_router
 from app.domains.notifications.api import router as notification_router
 from app.domains.notifications.outbox import run_outbox_dispatcher
 from app.domains.notifications.subscribers import SubscriberRegistry
+from app.domains.onboarding.api import router as onboarding_router
 from app.domains.reka.api import router as reka_router
 from app.domains.reports.api_runs import router as report_runs_router
 from app.domains.reports.api_reports import router as reports_router
@@ -39,15 +46,21 @@ async def lifespan(application: FastAPI):
     dispatcher_task = asyncio.create_task(
         run_outbox_dispatcher(AsyncSessionFactory, registry)
     )
+    cleanup_task = asyncio.create_task(
+        run_deletion_cleanup_worker(AsyncSessionFactory)
+    )
     application.state.notification_subscribers = registry
     application.state.notification_dispatcher_task = dispatcher_task
+    application.state.deletion_cleanup_task = cleanup_task
     try:
         yield
     finally:
         await internal_mcp_runtime.close()
         dispatcher_task.cancel()
+        cleanup_task.cancel()
         try:
             await dispatcher_task
+            await cleanup_task
         except asyncio.CancelledError:
             pass
 
@@ -57,12 +70,20 @@ app = FastAPI(
     version="2.0.0",
     lifespan=lifespan,
 )
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.include_router(auth_router)
+app.include_router(account_router)
 app.include_router(assets_router)
 app.include_router(capture_router)
 app.include_router(contacts_router)
 app.include_router(devices_router)
 app.include_router(notification_router)
+app.include_router(onboarding_router)
 app.include_router(reka_router)
 app.include_router(trigger_router)
 app.include_router(report_runs_router)

@@ -13,12 +13,14 @@ class ThemeV2GlobalTopNav extends StatelessWidget {
     required this.deviceStatus,
     required this.onDeviceSelected,
     required this.onNotificationsPressed,
+    this.onAccountPressed,
     this.unreadNotificationCount = 0,
   });
 
   final DeviceStatusSummary deviceStatus;
   final ValueChanged<ThemeV2DeviceTarget> onDeviceSelected;
   final VoidCallback onNotificationsPressed;
+  final VoidCallback? onAccountPressed;
   final int unreadNotificationCount;
   static const double height = 56;
 
@@ -41,17 +43,28 @@ class ThemeV2GlobalTopNav extends StatelessWidget {
                 Semantics(
                   label: 'UReka logo',
                   image: true,
-                  child: ExcludeSemantics(
-                    child: SizedBox(
-                      width: narrow ? 68 : 84,
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: SvgPicture.asset(
-                          'assets/logo/eureka_wordmark.svg',
-                          height: 18,
-                          colorFilter: ColorFilter.mode(
-                            tokens.accent,
-                            BlendMode.srcIn,
+                  button: onAccountPressed != null,
+                  child: InkWell(
+                    onTap: onAccountPressed,
+                    customBorder: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(ThemeV2Radii.sm),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 4,
+                      ),
+                      child: SizedBox(
+                        width: narrow ? 68 : 84,
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: SvgPicture.asset(
+                            'assets/logo/eureka_wordmark.svg',
+                            height: 18,
+                            colorFilter: ColorFilter.mode(
+                              tokens.accent,
+                              BlendMode.srcIn,
+                            ),
                           ),
                         ),
                       ),

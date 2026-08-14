@@ -1,11 +1,13 @@
 import base64
 import json
+from datetime import datetime, timezone
 
 import pytest
 from fastapi import HTTPException
 from starlette.requests import Request
 
 from app.auth.dependencies import get_current_user_id
+from app.auth.models import UserAccount
 from app.auth.security import (
     create_token,
     decode_token,
@@ -60,15 +62,61 @@ def test_malformed_password_hash_is_rejected():
     assert not verify_password("password", "not-a-supported-hash")
 
 
-def test_current_user_dependency_accepts_bearer_token():
-    token = create_token("user-1")
+async def test_current_user_dependency_accepts_bearer_token(session):
+    user = UserAccount(
+        email="u@x.com",
+        password_hash=hash_password("password123"),
+        email_verified_at=datetime.now(timezone.utc),
+        onboarding_status="skipped",
+        auth_version=1,
+    )
+    session.add(user)
+    await session.flush()
+    token = create_token(user.id, auth_version=1)
 
-    assert get_current_user_id(_request(f"Bearer {token}")) == "user-1"
+    assert await get_current_user_id(_request(f"Bearer {token}"), session) == user.id
 
 
 @pytest.mark.parametrize("authorization", [None, "", "Basic abc", "Bearer invalid"])
-def test_current_user_dependency_rejects_missing_or_invalid_token(authorization):
+async def test_current_user_dependency_rejects_missing_or_invalid_token(authorization, session):
     with pytest.raises(HTTPException) as exc_info:
-        get_current_user_id(_request(authorization))
+        await get_current_user_id(_request(authorization), session)
+
+    assert exc_info.value.status_code == 401
+
+
+async def test_current_user_dependency_rejects_stale_auth_version(session):
+    user = UserAccount(
+        email="u@x.com",
+        password_hash=hash_password("password123"),
+        email_verified_at=datetime.now(timezone.utc),
+        onboarding_status="skipped",
+        auth_version=2,
+    )
+    session.add(user)
+    await session.flush()
+    stale_token = create_token(user.id, auth_version=1)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_current_user_id(_request(f"Bearer {stale_token}"), session)
+
+    assert exc_info.value.status_code == 401
+
+
+async def test_current_user_dependency_rejects_deleted_account(session):
+    user = UserAccount(
+        email="u@x.com",
+        password_hash=hash_password("password123"),
+        email_verified_at=datetime.now(timezone.utc),
+        onboarding_status="skipped",
+        auth_version=1,
+        deleted_at=datetime.now(timezone.utc),
+    )
+    session.add(user)
+    await session.flush()
+    token = create_token(user.id, auth_version=1)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_current_user_id(_request(f"Bearer {token}"), session)
 
     assert exc_info.value.status_code == 401

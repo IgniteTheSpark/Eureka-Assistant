@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from app.db.models import Asset, UserSkill
 from app.domains.reports.models import Report, ReportGenerationRun
 from app.main import app
+from tests.fakes.auth_helpers import register_user
 
 
 @pytest_asyncio.fixture
@@ -20,14 +21,10 @@ async def client(session):
 
 
 async def _register(client: AsyncClient, email: str) -> tuple[dict[str, str], str]:
-    response = await client.post(
-        "/api/auth/register",
-        json={"email": email, "password": "secret1"},
-    )
-    token = response.json()["token"]
+    body = await register_user(client, email, password="secret123")
     return (
-        {"Authorization": f"Bearer {token}"},
-        response.json()["user"]["id"],
+        {"Authorization": f"Bearer {body['token']}"},
+        body["user"]["id"],
     )
 
 

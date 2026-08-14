@@ -14,6 +14,8 @@ from app.domains.sessions.models import InputTurn, SessionMessage
 from app.domains.sessions import service as session_service
 from app.main import app
 
+from tests.fakes.auth_helpers import register_user
+
 
 class _Provider:
     def __init__(self):
@@ -47,11 +49,8 @@ async def client(session):
 
 
 async def _register(client: AsyncClient) -> str:
-    response = await client.post(
-        "/api/auth/register",
-        json={"email": "chat@example.com", "password": "secret1"},
-    )
-    return response.json()["token"]
+    body = await register_user(client, "chat@example.com", password="secret123")
+    return body["token"]
 
 
 def _headers(token: str) -> dict[str, str]:
