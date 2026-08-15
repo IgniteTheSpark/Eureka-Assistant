@@ -190,6 +190,14 @@ void main() {
       expect(find.byKey(TodayRekaScene.rekaRenderKey), findsNothing);
       expect(find.text('周会'), findsOneWidget);
       expect(find.text('提交方案'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('theme-v2-agenda-item-event-event')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('theme-v2-agenda-item-todo-todo')),
+        findsOneWidget,
+      );
       expect(repository.loadCount, 1);
 
       await tester.tap(find.bySemanticsLabel('收起日程'));

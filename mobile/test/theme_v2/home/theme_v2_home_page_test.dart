@@ -505,7 +505,7 @@ void main() {
     );
   });
 
-  testWidgets('Agenda follows the Pen fishbone composition at 411x960', (
+  testWidgets('Agenda uses a chronological grouped timeline at 411x960', (
     tester,
   ) async {
     _setReferenceView(tester);
@@ -525,22 +525,88 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final spine = find.byKey(const ValueKey('theme-v2-agenda-spine'));
-    final firstCard = find.byKey(const ValueKey('theme-v2-agenda-card-0'));
-    final secondCard = find.byKey(const ValueKey('theme-v2-agenda-card-1'));
-
-    final panelOrigin = tester.getTopLeft(find.byType(HomeAgendaPanel));
-    expect(tester.getTopLeft(spine), panelOrigin + const Offset(197, 96));
-    expect(tester.getSize(spine), const Size(1, 606));
-    expect(tester.getTopLeft(firstCard), panelOrigin + const Offset(18, 84));
-    expect(tester.getSize(firstCard), const Size(148, 78));
-    expect(tester.getTopLeft(secondCard), panelOrigin + const Offset(229, 168));
-    expect(tester.getSize(secondCard), const Size(148, 78));
+    expect(
+      find.byKey(const ValueKey('theme-v2-agenda-scroll')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('theme-v2-agenda-spine')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('theme-v2-agenda-group-0')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('theme-v2-agenda-group-1')),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .getTopLeft(find.byKey(const ValueKey('theme-v2-agenda-group-0')))
+          .dx,
+      greaterThan(
+        tester
+            .getTopLeft(find.byKey(const ValueKey('theme-v2-agenda-time-0')))
+            .dx,
+      ),
+    );
     expect(find.text('今日安排'), findsOneWidget);
     expect(find.text('7月31日 · 周五'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('theme-v2-agenda-generated-chamber')),
       findsNothing,
+    );
+  });
+
+  testWidgets('Agenda scrolls beyond five groups and keeps every item', (
+    tester,
+  ) async {
+    _setReferenceView(tester);
+    final controller = ThemeV2HomeController(
+      initialPresentation: HomePresentation.agenda,
+    );
+    addTearDown(controller.dispose);
+    final items = [
+      for (var index = 0; index < 7; index++)
+        ChainItem(
+          kind: index.isEven ? 'event' : 'todo',
+          id: 'item-$index',
+          title: '安排 $index',
+          at: DateTime(2026, 8, 4, 8 + index),
+          timed: true,
+        ),
+    ];
+
+    await tester.pumpWidget(
+      _HomeHost(
+        child: ThemeV2HomePage(
+          controller: controller,
+          repository: _FakeHomeRepository(
+            TodayData(
+              chain: items,
+              noTimeTodos: const [],
+              pool: const [],
+              poolTrueCount: 0,
+              flashCount: 0,
+            ),
+          ),
+          now: DateTime(2026, 8, 4, 7),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('theme-v2-agenda-group-6')),
+      240,
+      scrollable: find.descendant(
+        of: find.byKey(const ValueKey('theme-v2-agenda-scroll')),
+        matching: find.byType(Scrollable),
+      ),
+    );
+
+    expect(find.text('安排 6'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('theme-v2-agenda-item-event-item-6')),
+      findsOneWidget,
     );
   });
 
