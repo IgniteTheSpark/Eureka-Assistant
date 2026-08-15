@@ -3,6 +3,7 @@ import 'dart:ui' show lerpDouble;
 import 'package:flutter/material.dart';
 
 import 'today_output_coordinator.dart';
+import 'today_output_motion_plan.dart';
 
 class TodayOutputOverlay extends StatefulWidget {
   const TodayOutputOverlay({
@@ -30,12 +31,9 @@ class TodayOutputOverlay extends StatefulWidget {
 
 class _TodayOutputOverlayState extends State<TodayOutputOverlay>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: widget.item.reduceMotion
-        ? const Duration(milliseconds: 140)
-        : const Duration(milliseconds: 1440),
-  )..addStatusListener(_statusChanged);
+  late final AnimationController _controller;
+  TodayOutputMotionPlan? _plan;
+  bool _startScheduled = false;
   TodayOutputPhase? _reportedPhase;
   bool _handedOff = false;
   bool _completed = false;
@@ -45,12 +43,9 @@ class _TodayOutputOverlayState extends State<TodayOutputOverlay>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _controller = AnimationController(vsync: this)
+      ..addStatusListener(_statusChanged);
     _controller.addListener(_progressChanged);
-    _controller.forward();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _reportPhase(TodayOutputPhase.charge);
-    });
   }
 
   @override
@@ -65,16 +60,18 @@ class _TodayOutputOverlayState extends State<TodayOutputOverlay>
   void _progressChanged() {
     final value = _controller.value;
     if (widget.item.reduceMotion) return;
-    if (value >= .21 &&
+    final plan = _plan;
+    if (plan == null) return;
+    if (value >= plan.chargeEnd &&
         (_reportedPhase?.index ?? 0) < TodayOutputPhase.emit.index) {
       _reportPhase(TodayOutputPhase.emit);
     }
-    if (value >= .72 &&
+    if (value >= plan.travelEnd &&
         (_reportedPhase?.index ?? 0) < TodayOutputPhase.handoff.index) {
       _reportPhase(TodayOutputPhase.handoff);
       _handoff();
     }
-    if (value >= .91 &&
+    if (value >= plan.recoveryStart &&
         (_reportedPhase?.index ?? 0) < TodayOutputPhase.recover.index) {
       _reportPhase(TodayOutputPhase.recover);
     }
@@ -90,6 +87,25 @@ class _TodayOutputOverlayState extends State<TodayOutputOverlay>
     if (_handedOff) return;
     _handedOff = true;
     widget.onHandoff?.call(_destination);
+  }
+
+  void _installMotionPlan(Offset source, Offset destination) {
+    if (_plan != null) return;
+    final plan = todayOutputMotionPlan(
+      source: source,
+      destination: destination,
+      reduceMotion: widget.item.reduceMotion,
+    );
+    _plan = plan;
+    _controller.duration = plan.totalDuration;
+    if (_startScheduled) return;
+    _startScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _startScheduled = false;
+      if (!mounted || _completed || _controller.isAnimating) return;
+      _reportPhase(TodayOutputPhase.charge);
+      _controller.forward();
+    });
   }
 
   void _statusChanged(AnimationStatus status) {
@@ -116,10 +132,6 @@ class _TodayOutputOverlayState extends State<TodayOutputOverlay>
 
   @override
   Widget build(BuildContext context) {
-    if (widget.item.reduceMotion) {
-      _destination = _handoffPoint(widget.item.source);
-      return const SizedBox.expand();
-    }
     return IgnorePointer(
       child: LayoutBuilder(
         builder: (context, constraints) {
@@ -128,32 +140,46 @@ class _TodayOutputOverlayState extends State<TodayOutputOverlay>
             widget.item.source.dx.clamp(0, size.width),
             widget.item.source.dy.clamp(0, size.height),
           );
-          _destination = _handoffPoint(source);
           final side = widget.side ?? widget.item.side;
           final sideSign = side == TodayOutputSide.right ? 1.0 : -1.0;
           final detached = Offset(
             (source.dx + sideSign * 44).clamp(12, size.width - 12),
             source.dy,
           );
+          _destination = _handoffPoint(detached);
+          _installMotionPlan(detached, _destination);
+          if (widget.item.reduceMotion) return const SizedBox.expand();
           return AnimatedBuilder(
             animation: _controller,
             builder: (context, _) {
+              final plan = _plan!;
               final raw = _controller.value;
               final charge = Curves.easeOutBack.transform(
-                (raw / .21).clamp(0.0, 1.0),
+                (raw / plan.chargeEnd).clamp(0.0, 1.0),
               );
+              final travelSpan = plan.travelEnd - plan.chargeEnd;
               final travel = Curves.easeInOutCubic.transform(
-                ((raw - .21) / .51).clamp(0.0, 1.0),
+                ((raw - plan.chargeEnd) / travelSpan).clamp(0.0, 1.0),
               );
               final center = Offset(
                 detached.dx,
                 lerpDouble(detached.dy, _destination.dy, travel)!,
               );
-              final unfold = ((raw - .72) / .19).clamp(0.0, 1.0);
-              final recover = ((raw - .91) / .09).clamp(0.0, 1.0);
+              final unfold =
+                  ((raw - plan.travelEnd) /
+                          (plan.recoveryStart - plan.travelEnd))
+                      .clamp(0.0, 1.0);
+              final recover =
+                  ((raw - plan.recoveryStart) / (1 - plan.recoveryStart)).clamp(
+                    0.0,
+                    1.0,
+                  );
               final signal = widget.item.kind == TodayOutputKind.signal;
               final width = signal ? lerpDouble(20, 172, unfold)! : 20.0;
-              final opacity = (.35 + .65 * charge) * (1 - recover);
+              final opacity = ((.35 + .65 * charge) * (1 - recover)).clamp(
+                0.0,
+                1.0,
+              );
               return Stack(
                 fit: StackFit.expand,
                 children: [
@@ -163,6 +189,7 @@ class _TodayOutputOverlayState extends State<TodayOutputOverlay>
                       raw: raw,
                       detached: detached,
                       recover: recover,
+                      plan: plan,
                     ),
                   Positioned(
                     key: ValueKey(
@@ -201,17 +228,22 @@ class _TodayOutputOverlayState extends State<TodayOutputOverlay>
     required double raw,
     required Offset detached,
     required double recover,
+    required TodayOutputMotionPlan plan,
   }) {
     final lag = .035 * (index + 1);
+    final travelSpan = plan.travelEnd - plan.chargeEnd;
     final progress = Curves.easeInOutCubic.transform(
-      (((raw - .21) / .51) - lag).clamp(0.0, 1.0),
+      (((raw - plan.chargeEnd) / travelSpan) - lag).clamp(0.0, 1.0),
     );
     final center = Offset(
       detached.dx,
       lerpDouble(detached.dy, _destination.dy, progress)!,
     );
     final size = 12.0 - index * 2;
-    final travelVisibility = ((raw - .21) / .10).clamp(0.0, 1.0);
+    final travelVisibility = ((raw - plan.chargeEnd) / (travelSpan * .2)).clamp(
+      0.0,
+      1.0,
+    );
     return Positioned(
       key: ValueKey('today-output-trail-$index'),
       left: center.dx - size / 2,

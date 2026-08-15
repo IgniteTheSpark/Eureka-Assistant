@@ -33,12 +33,13 @@ void main() {
     for (var index = 0; index < 3; index++) {
       expect(find.byKey(ValueKey('today-output-trail-$index')), findsOneWidget);
     }
-    await tester.pump(const Duration(milliseconds: 1000));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1500));
     expect(handoff, isNull);
     expect(completed, 0);
-    await tester.pump(const Duration(milliseconds: 60));
+    await tester.pump(const Duration(milliseconds: 150));
     expect(handoff?.dy, 74);
-    await tester.pump(const Duration(milliseconds: 420));
+    await tester.pump(const Duration(milliseconds: 400));
     await tester.pump();
     expect(completed, 1);
     expect(handoff?.dy, 74);
@@ -77,6 +78,7 @@ void main() {
         ),
       ),
     );
+    await tester.pump();
     await tester.pump(const Duration(milliseconds: 180));
 
     expect(find.byKey(const ValueKey('today-output-seed')), findsNothing);
@@ -133,7 +135,10 @@ void main() {
       ),
     );
 
-    await tester.pump(const Duration(milliseconds: 1060));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1850));
+    expect(handoff, isNull);
+    await tester.pump(const Duration(milliseconds: 60));
     expect(handoff?.dy, 744);
   });
 }
