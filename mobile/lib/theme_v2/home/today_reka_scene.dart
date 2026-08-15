@@ -311,6 +311,7 @@ class _TodayRekaSceneState extends State<TodayRekaScene>
     reduceMotion: reduceMotion,
     refreshSignal: refreshSignal,
     cue: cue,
+    captureCue: captureCue,
     config: widget.config,
   );
 }

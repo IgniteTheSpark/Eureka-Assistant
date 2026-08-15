@@ -27,6 +27,9 @@ void main() {
     expect(engine, contains('setPaused'));
     expect(engine, contains('pulseRefresh'));
     expect(engine, contains('setProduction'));
+    expect(engine, contains('setCapture'));
+    expect(engine, contains('captureAction'));
+    expect(engine, contains('eyePixels'));
     expect(engine, contains('dragYawMultiplier'));
     expect(engine, contains('dragPitchMultiplier'));
     expect(engine, contains("state === 'dragging'"));

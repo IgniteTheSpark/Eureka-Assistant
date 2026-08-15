@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:eureka/theme_v2/home/today_dithered_reka.dart';
 import 'package:eureka/theme_v2/home/today_output_coordinator.dart';
+import 'package:eureka/theme_v2/home/today_reka_capture_cue.dart';
 import 'package:eureka/theme_v2/home/today_reka_motion_controller.dart';
 
 void main() {
@@ -26,6 +27,82 @@ void main() {
     expect(html, contains('window.RekaRenderer = {};'));
     expect(html, contains('"gridSize":4'));
     expect(html, isNot(contains('/*__')));
+  });
+
+  test('capture actions use distinct old-school terminal eye patterns', () {
+    final signatures = <String>{};
+    for (final action in TodayRekaCaptureAction.values) {
+      final left = todayRekaEyePattern(action, left: true).join(',');
+      final right = todayRekaEyePattern(action, left: false).join(',');
+      signatures.add('$left|$right');
+    }
+
+    expect(signatures, hasLength(TodayRekaCaptureAction.values.length));
+    expect(
+      todayRekaEyePattern(TodayRekaCaptureAction.failed, left: true),
+      isNot(todayRekaEyePattern(TodayRekaCaptureAction.failed, left: false)),
+    );
+  });
+
+  testWidgets('capture changes fallback eyes without taking drag transform', (
+    tester,
+  ) async {
+    const draggingPose = TodayRekaPose(
+      state: TodayRekaMotionState.dragging,
+      tiltXDegrees: -6,
+      tiltYDegrees: 8,
+    );
+    Widget reka(TodayRekaCaptureCue captureCue) => MaterialApp(
+      home: Center(
+        child: TodayDitheredReka(
+          pose: draggingPose,
+          active: true,
+          reduceMotion: false,
+          refreshSignal: 0,
+          captureCue: captureCue,
+          forceFallback: true,
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(reka(const TodayRekaCaptureCue.idle()));
+    final idleTransform = List<double>.of(
+      tester
+          .widget<Transform>(find.byKey(TodayDitheredReka.fallbackKey))
+          .transform
+          .storage,
+    );
+    final idlePixels = find
+        .descendant(
+          of: find.byKey(TodayDitheredReka.leftEyeKey),
+          matching: find.byType(ColoredBox),
+        )
+        .evaluate()
+        .length;
+
+    await tester.pumpWidget(
+      reka(
+        const TodayRekaCaptureCue(action: TodayRekaCaptureAction.understanding),
+      ),
+    );
+
+    expect(
+      tester
+          .widget<Transform>(find.byKey(TodayDitheredReka.fallbackKey))
+          .transform
+          .storage,
+      orderedEquals(idleTransform),
+    );
+    expect(
+      find
+          .descendant(
+            of: find.byKey(TodayDitheredReka.leftEyeKey),
+            matching: find.byType(ColoredBox),
+          )
+          .evaluate()
+          .length,
+      isNot(idlePixels),
+    );
   });
 
   testWidgets('forced fallback keeps the approved head and permanent eyes', (

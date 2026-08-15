@@ -71,6 +71,7 @@ window.RekaRendererFactory = function ReKaRendererFactory(
   let postMaterial = null;
   let motionGroup = null;
   let eyeGroup = null;
+  let eyePixels = [];
   let keyLight = null;
   let fillLight = null;
   let rimLight = null;
@@ -93,6 +94,8 @@ window.RekaRendererFactory = function ReKaRendererFactory(
   let productionRecoil = 0;
   let productionImpulse = 0;
   let production = { kind: null, phase: 'idle', side: 'right' };
+  let captureAction = 'idle';
+  let captureImpulse = 0;
   let options = {
     gridSize: 4,
     pixelSizeRatio: 1,
@@ -176,10 +179,10 @@ window.RekaRendererFactory = function ReKaRendererFactory(
     motionGroup.add(eyeGroup);
     const eyeCenters = [-0.46, 0.46];
     const pixelGap = 0.135;
-    for (const eyeCenter of eyeCenters) {
+    for (let eyeIndex = 0; eyeIndex < eyeCenters.length; eyeIndex += 1) {
+      const eyeCenter = eyeCenters[eyeIndex];
       for (let row = 0; row < 3; row += 1) {
         for (let column = 0; column < 3; column += 1) {
-          if (row === 1 && column === 1) continue;
           const pixel = new THREE.Mesh(pixelGeometry, eyeMaterial);
           pixel.position.set(
             eyeCenter + (column - 1) * pixelGap,
@@ -188,9 +191,15 @@ window.RekaRendererFactory = function ReKaRendererFactory(
           );
           pixel.layers.set(0);
           eyeGroup.add(pixel);
+          eyePixels.push({
+            mesh: pixel,
+            eyeIndex,
+            index: row * 3 + column,
+          });
         }
       }
     }
+    applyEyePattern();
 
     motionGroup.scale.setScalar(1.12);
     motionGroup.position.y = 0.03;
@@ -326,6 +335,66 @@ window.RekaRendererFactory = function ReKaRendererFactory(
     }
   }
 
+  function capturePattern(action, left) {
+    switch (action) {
+      case 'listening': return [0, 1, 2, 3, 4, 5, 6, 7, 8];
+      case 'receiving': return left ? [0, 3, 6] : [2, 5, 8];
+      case 'transcribing': return [0, 1, 2, 6, 7, 8];
+      case 'understanding': return [1, 3, 4, 5, 7];
+      case 'organizing': return [0, 4, 8];
+      case 'done': return [1, 3, 4, 5];
+      case 'empty': return [3, 5];
+      case 'failed': return left ? [0, 4, 8] : [2, 4, 6];
+      default: return [0, 1, 2, 3, 5, 6, 7, 8];
+    }
+  }
+
+  function applyEyePattern() {
+    const leftPattern = new Set(capturePattern(captureAction, true));
+    const rightPattern = new Set(capturePattern(captureAction, false));
+    for (const pixel of eyePixels) {
+      pixel.mesh.visible = (pixel.eyeIndex === 0 ? leftPattern : rightPattern)
+        .has(pixel.index);
+    }
+  }
+
+  function setCapture(nextCue) {
+    if (disposed) return;
+    const nextAction = nextCue?.action || 'idle';
+    if (nextAction !== captureAction) captureImpulse = 1;
+    captureAction = nextAction;
+    applyEyePattern();
+  }
+
+  function captureEyeMotion() {
+    if (reduceMotion) return { x: 0, y: 0, scaleX: 1, scaleY: 1 };
+    switch (captureAction) {
+      case 'listening':
+        return {
+          x: Math.sin(elapsed * 1.8) * 0.018,
+          y: Math.sin(elapsed * 2.4) * 0.025,
+          scaleX: 1.04 + Math.sin(elapsed * 2.4) * 0.04,
+          scaleY: 1.04 + Math.sin(elapsed * 2.4) * 0.04,
+        };
+      case 'receiving':
+        return { x: Math.sin(elapsed * 5.2) * 0.05, y: 0, scaleX: 1, scaleY: 1 };
+      case 'transcribing':
+        return { x: 0, y: Math.sin(elapsed * 8) * 0.026, scaleX: 1.05, scaleY: 0.82 };
+      case 'understanding':
+        return { x: 0, y: 0.012, scaleX: 0.88, scaleY: 0.78 };
+      case 'organizing':
+        return { x: Math.sin(elapsed * 3.6) * 0.025, y: 0, scaleX: 0.94, scaleY: 1.06 };
+      case 'done':
+        return { x: 0, y: 0.055, scaleX: 1 + captureImpulse * 0.14, scaleY: 1 + captureImpulse * 0.14 };
+      case 'empty':
+        return { x: 0, y: -0.045, scaleX: 0.92, scaleY: 0.72 };
+      case 'failed':
+        return { x: Math.sin(elapsed * 38) * captureImpulse * 0.045, y: 0, scaleX: 1, scaleY: 0.84 };
+      default:
+        return { x: 0, y: 0, scaleX: 1, scaleY: 1 };
+    }
+  }
+
   function pulseRefresh() {
     if (!disposed && !reduceMotion) refreshPulse = 1;
   }
@@ -347,6 +416,8 @@ window.RekaRendererFactory = function ReKaRendererFactory(
     productionEyeY += (productionTarget.eyeY - productionEyeY) * productionFollow;
     productionRecoil += (productionTarget.recoil - productionRecoil) * productionFollow;
     productionImpulse = Math.max(0, productionImpulse - delta / 0.24);
+    captureImpulse = Math.max(0, captureImpulse - delta / 0.42);
+    const captureMotion = captureEyeMotion();
 
     if (!reduceMotion) {
       const idleWeight = state === 'idle' ? 1 : 0.18;
@@ -372,9 +443,13 @@ window.RekaRendererFactory = function ReKaRendererFactory(
         productionYaw;
       motionGroup.rotation.z =
         Math.sin(elapsed * 0.48) * 0.018 * idleWeight + shake;
-      if (eyeGroup) eyeGroup.position.y = productionEyeY;
+      if (eyeGroup) {
+        eyeGroup.position.set(captureMotion.x, productionEyeY + captureMotion.y, 0);
+        eyeGroup.scale.set(captureMotion.scaleX, captureMotion.scaleY, 1);
+      }
     } else if (eyeGroup) {
-      eyeGroup.position.y = productionTarget.eyeY * 0.65;
+      eyeGroup.position.set(0, productionTarget.eyeY * 0.65, 0);
+      eyeGroup.scale.set(1, 1, 1);
     }
 
     const breath = reduceMotion ? 0 : (Math.sin(elapsed * 1.25) + 1) * 0.5;
@@ -478,6 +553,7 @@ window.RekaRendererFactory = function ReKaRendererFactory(
     postScene = null;
     motionGroup = null;
     eyeGroup = null;
+    eyePixels = [];
   }
 
   window.RekaRenderer = Object.freeze({
@@ -486,6 +562,7 @@ window.RekaRendererFactory = function ReKaRendererFactory(
     setReduceMotion,
     setPaused,
     setProduction,
+    setCapture,
     pulseRefresh,
     resize,
     destroy,

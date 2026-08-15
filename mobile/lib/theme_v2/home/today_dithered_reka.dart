@@ -8,6 +8,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 
 import 'today_dithered_reka_config.dart';
 import 'today_output_coordinator.dart';
+import 'today_reka_capture_cue.dart';
 import 'today_reka_fallback_painter.dart';
 import 'today_reka_motion_controller.dart';
 
@@ -32,6 +33,7 @@ class TodayDitheredReka extends StatefulWidget {
     required this.reduceMotion,
     required this.refreshSignal,
     this.cue = const TodayOutputCue.idle(),
+    this.captureCue = const TodayRekaCaptureCue.idle(),
     this.config = const TodayDitheredRekaConfig(),
     this.forceFallback = false,
   });
@@ -45,6 +47,7 @@ class TodayDitheredReka extends StatefulWidget {
   final bool reduceMotion;
   final int refreshSignal;
   final TodayOutputCue cue;
+  final TodayRekaCaptureCue captureCue;
   final TodayDitheredRekaConfig config;
   final bool forceFallback;
 
@@ -95,6 +98,7 @@ class _TodayDitheredRekaState extends State<TodayDitheredReka>
     }
     if (widget.refreshSignal != oldWidget.refreshSignal) _pulseRefresh();
     if (!_sameCue(widget.cue, oldWidget.cue)) _sendProduction();
+    if (widget.captureCue != oldWidget.captureCue) _sendCapture();
   }
 
   @override
@@ -173,6 +177,7 @@ class _TodayDitheredRekaState extends State<TodayDitheredReka>
           _sendReduceMotion();
           _sendPaused();
           _sendProduction();
+          _sendCapture();
           if (_pendingRefreshPulse) {
             _pendingRefreshPulse = false;
             _pulseRefresh();
@@ -207,6 +212,11 @@ class _TodayDitheredRekaState extends State<TodayDitheredReka>
   void _sendProduction() => _runJavaScript(
     'window.RekaRenderer && window.RekaRenderer.setProduction('
     '${jsonEncode(<String, Object?>{'kind': widget.cue.kind?.name, 'phase': widget.cue.phase.name, 'side': widget.cue.side.name})})',
+  );
+
+  void _sendCapture() => _runJavaScript(
+    'window.RekaRenderer && window.RekaRenderer.setCapture('
+    '${jsonEncode(widget.captureCue.toRendererPayload())})',
   );
 
   void _runJavaScript(String script) {
@@ -291,7 +301,11 @@ class _TodayDitheredRekaState extends State<TodayDitheredReka>
             top: 108 + eyeOffset.dy,
             child: Opacity(
               opacity: widget.pose.eyeOpacity,
-              child: const _PixelEye(key: TodayDitheredReka.leftEyeKey),
+              child: _PixelEye(
+                key: TodayDitheredReka.leftEyeKey,
+                action: widget.captureCue.action,
+                left: true,
+              ),
             ),
           ),
           Positioned(
@@ -299,7 +313,11 @@ class _TodayDitheredRekaState extends State<TodayDitheredReka>
             top: 108 + eyeOffset.dy,
             child: Opacity(
               opacity: widget.pose.eyeOpacity,
-              child: const _PixelEye(key: TodayDitheredReka.rightEyeKey),
+              child: _PixelEye(
+                key: TodayDitheredReka.rightEyeKey,
+                action: widget.captureCue.action,
+                left: false,
+              ),
             ),
           ),
         ],
@@ -338,27 +356,45 @@ class _TodayDitheredRekaState extends State<TodayDitheredReka>
 }
 
 class _PixelEye extends StatelessWidget {
-  const _PixelEye({super.key});
+  const _PixelEye({super.key, required this.action, required this.left});
 
   static const _terminalGreen = Color(0xFF78FF74);
+  final TodayRekaCaptureAction action;
+  final bool left;
 
   @override
   Widget build(BuildContext context) => SizedBox.square(
     dimension: 28,
-    child: GridView.builder(
-      physics: const NeverScrollableScrollPhysics(),
-      padding: EdgeInsets.zero,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        mainAxisSpacing: 3,
-        crossAxisSpacing: 3,
-      ),
-      itemCount: 9,
-      itemBuilder: (context, index) =>
-          ColoredBox(color: index == 4 ? Colors.transparent : _terminalGreen),
+    child: Stack(
+      children: [
+        for (final index in todayRekaEyePattern(action, left: left))
+          Positioned(
+            left: (index % 3) * 10,
+            top: (index ~/ 3) * 10,
+            width: 8,
+            height: 8,
+            child: const ColoredBox(color: _terminalGreen),
+          ),
+      ],
     ),
   );
 }
+
+@visibleForTesting
+List<int> todayRekaEyePattern(
+  TodayRekaCaptureAction action, {
+  required bool left,
+}) => switch (action) {
+  TodayRekaCaptureAction.idle => const [0, 1, 2, 3, 5, 6, 7, 8],
+  TodayRekaCaptureAction.listening => const [0, 1, 2, 3, 4, 5, 6, 7, 8],
+  TodayRekaCaptureAction.receiving => left ? const [0, 3, 6] : const [2, 5, 8],
+  TodayRekaCaptureAction.transcribing => const [0, 1, 2, 6, 7, 8],
+  TodayRekaCaptureAction.understanding => const [1, 3, 4, 5, 7],
+  TodayRekaCaptureAction.organizing => const [0, 4, 8],
+  TodayRekaCaptureAction.done => const [1, 3, 4, 5],
+  TodayRekaCaptureAction.empty => const [3, 5],
+  TodayRekaCaptureAction.failed => left ? const [0, 4, 8] : const [2, 4, 6],
+};
 
 class _RekaAssetSources {
   const _RekaAssetSources({
