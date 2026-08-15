@@ -40,9 +40,10 @@ List<ChainItem> todayNextGroup(List<ChainItem> items, DateTime now) {
 }
 
 String todayNextSummary(List<ChainItem> group) {
-  final visible = group.take(2).map((item) => item.title).join('、');
-  final remaining = group.length - 2;
-  return remaining > 0 ? '$visible +$remaining' : visible;
+  final first = group.firstOrNull;
+  if (first == null) return '';
+  final remaining = group.length - 1;
+  return remaining > 0 ? '${first.title} +$remaining' : first.title;
 }
 
 String todayCountdownLabel(DateTime target, DateTime now) {
@@ -170,63 +171,71 @@ class _TodayNextCapsuleState extends State<TodayNextCapsule> {
                           ),
                         ],
                       )
-                    : Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.end,
+                    : Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          Text(
-                            todayCountdownLabel(first.at, _now),
-                            maxLines: 1,
-                            overflow: TextOverflow.fade,
-                            softWrap: false,
-                            textAlign: TextAlign.right,
-                            style: TextStyle(
-                              color: tokens.muted,
-                              fontSize: 8,
-                              height: 1,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 3),
-                          Text(
-                            '${_timeLabel(first.at)}'
-                            '${group.length > 1 ? ' · ${group.length} 项' : ''}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.right,
-                            style: TextStyle(
-                              color: tokens.foreground,
-                              fontSize: 13,
-                              height: 1,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: -.2,
-                            ),
-                          ),
-                          const SizedBox(height: 3),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              Flexible(
-                                child: Text(
-                                  todayNextSummary(group),
+                          SizedBox(
+                            key: const ValueKey('today-next-meta-column'),
+                            width: 54,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _timeLabel(first.at),
                                   maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  textAlign: TextAlign.right,
                                   style: TextStyle(
                                     color: tokens.foreground,
-                                    fontSize: 10,
+                                    fontSize: 12,
+                                    height: 1,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: -.2,
+                                  ),
+                                ),
+                                const SizedBox(height: 5),
+                                Text(
+                                  todayCountdownLabel(first.at, _now),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.fade,
+                                  softWrap: false,
+                                  style: TextStyle(
+                                    color: tokens.muted,
+                                    fontSize: 7.5,
                                     height: 1,
                                     fontWeight: FontWeight.w700,
                                   ),
                                 ),
-                              ),
-                              const SizedBox(width: 2),
-                              Icon(
-                                Icons.chevron_right_rounded,
-                                color: tokens.muted,
-                                size: 14,
-                              ),
-                            ],
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Row(
+                              key: const ValueKey('today-next-title-column'),
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    todayNextSummary(group),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    textAlign: TextAlign.right,
+                                    style: TextStyle(
+                                      color: tokens.foreground,
+                                      fontSize: 10,
+                                      height: 1,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 2),
+                                Icon(
+                                  Icons.chevron_right_rounded,
+                                  color: tokens.muted,
+                                  size: 14,
+                                ),
+                              ],
+                            ),
                           ),
                         ],
                       ),

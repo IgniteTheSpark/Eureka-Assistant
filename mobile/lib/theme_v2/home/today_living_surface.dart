@@ -173,11 +173,14 @@ class _TodayLivingSurfaceState extends State<TodayLivingSurface>
                         const SizedBox(width: 12),
                         Flexible(
                           flex: 2,
-                          child: TodayNextCapsule(
-                            items: widget.data.chain,
-                            now: widget.now,
-                            clock: widget.clock,
-                            onOpenAgenda: widget.onOpenAgenda ?? _noop,
+                          child: Align(
+                            alignment: Alignment.centerRight,
+                            child: TodayNextCapsule(
+                              items: widget.data.chain,
+                              now: widget.now,
+                              clock: widget.clock,
+                              onOpenAgenda: widget.onOpenAgenda ?? _noop,
+                            ),
                           ),
                         ),
                       ],

@@ -63,6 +63,28 @@ void main() {
 
     expect(motion.value, paused);
   });
+
+  testWidgets('next schedule shares the dither containers right edge', (
+    tester,
+  ) async {
+    final clock = ValueNotifier(DateTime(2026, 8, 14, 10));
+    addTearDown(clock.dispose);
+
+    await tester.pumpWidget(
+      _host(
+        rekaCenter: const Offset(200, 420),
+        disableAnimations: true,
+        clock: clock,
+      ),
+    );
+
+    expect(
+      tester.getTopRight(find.byKey(const ValueKey('today-next-schedule'))).dx,
+      tester
+          .getTopRight(find.byKey(const ValueKey('today-signal-dither-field')))
+          .dx,
+    );
+  });
 }
 
 Widget _host({

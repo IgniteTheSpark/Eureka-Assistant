@@ -45,7 +45,7 @@ void main() {
     ], now);
 
     expect(group.map((item) => item.id), ['event', 'todo']);
-    expect(todayNextSummary(group), '周会、提交方案');
+    expect(todayNextSummary(group), '周会 +1');
   });
 
   testWidgets('capsule advances at the exact minute and opens Agenda', (
@@ -81,7 +81,7 @@ void main() {
     expect(opened, 1);
   });
 
-  testWidgets('same-minute banner is right aligned and summarizes two titles', (
+  testWidgets('same-minute banner separates time from first title and count', (
     tester,
   ) async {
     final now = DateTime(2026, 8, 14, 10);
@@ -100,10 +100,22 @@ void main() {
       ),
     );
 
-    expect(find.text('14:00 · 3 项'), findsOneWidget);
-    expect(find.text('周会、提交方案 +1'), findsOneWidget);
-    final title = tester.widget<Text>(find.text('周会、提交方案 +1'));
+    expect(find.text('14:00'), findsOneWidget);
+    expect(find.text('4 小时后'), findsOneWidget);
+    expect(find.text('周会 +2'), findsOneWidget);
+    final title = tester.widget<Text>(find.text('周会 +2'));
     expect(title.textAlign, TextAlign.right);
+    final meta = tester.getRect(
+      find.byKey(const ValueKey('today-next-meta-column')),
+    );
+    final content = tester.getRect(
+      find.byKey(const ValueKey('today-next-title-column')),
+    );
+    expect(meta.right, lessThan(content.left));
+    expect(
+      tester.getTopLeft(find.text('14:00')).dy,
+      lessThan(tester.getTopLeft(find.text('4 小时后')).dy),
+    );
   });
 
   testWidgets('empty capsule keeps its target and opens Agenda', (
