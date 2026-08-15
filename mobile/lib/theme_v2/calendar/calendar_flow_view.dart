@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 
 import '../../timeline/timeline.dart';
 import '../foundation/theme_v2_motion.dart';
+import '../foundation/theme_v2_dither_field.dart';
+import '../foundation/theme_v2_dither_surface.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
 import '../foundation/theme_v2_typography.dart';
@@ -607,39 +609,49 @@ class _FlowDay extends StatelessWidget {
               key: ValueKey('calendar-day-content-${calendarDayKey(day)}'),
               behavior: HitTestBehavior.opaque,
               onTap: onActivateDay,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: ThemeV2Spacing.md,
-                ),
-                decoration: BoxDecoration(
-                  border: Border(
-                    left: BorderSide(
-                      color: selected ? tokens.accent : tokens.border,
-                      width: selected ? 2 : 1,
-                    ),
-                  ),
-                ),
-                child: records.isEmpty
-                    ? showManualConfirmation
+              child: records.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: ThemeV2Spacing.md,
+                      ),
+                      child: showManualConfirmation
                           ? _ManualRecordConfirmation(
                               day: day,
                               onTap: onRequestManualRecord,
                             )
-                          : _EmptyDayHatch(day: day)
-                    : ListView(
-                        physics: const NeverScrollableScrollPhysics(),
-                        padding: EdgeInsets.zero,
-                        children: [
-                          for (final group in groups)
-                            _FlowBandSection(
-                              day: day,
-                              group: group,
-                              skills: skills,
-                              onOpenRecord: onOpenRecord,
-                            ),
-                        ],
+                          : _EmptyDayHatch(day: day),
+                    )
+                  : ThemeV2DitherSourceReporter(
+                      id: 'calendar-flow-day-${calendarDayKey(day)}',
+                      shape: ThemeV2DitherSourceShape.capsule,
+                      child: Container(
+                        key: ValueKey(
+                          'calendar-day-surface-${calendarDayKey(day)}',
+                        ),
+                        padding: const EdgeInsets.fromLTRB(
+                          ThemeV2Spacing.md,
+                          ThemeV2Spacing.sm,
+                          ThemeV2Spacing.md,
+                          0,
+                        ),
+                        decoration: BoxDecoration(
+                          color: tokens.surface,
+                          border: Border.all(color: tokens.border),
+                          borderRadius: BorderRadius.circular(ThemeV2Radii.md),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            for (final group in groups)
+                              _FlowBandSection(
+                                group: group,
+                                skills: skills,
+                                onOpenRecord: onOpenRecord,
+                              ),
+                          ],
+                        ),
                       ),
-              ),
+                    ),
             ),
           ),
         ],
@@ -705,13 +717,11 @@ _FlowBand _flowBandFor(CalendarRecord record) {
 
 class _FlowBandSection extends StatelessWidget {
   const _FlowBandSection({
-    required this.day,
     required this.group,
     required this.skills,
     required this.onOpenRecord,
   });
 
-  final DateTime day;
   final _FlowBandGroup group;
   final Map<String, SkillMeta> skills;
   final ValueChanged<CalendarRecord> onOpenRecord;
@@ -743,8 +753,7 @@ class _FlowBandSection extends StatelessWidget {
           const SizedBox(height: ThemeV2Spacing.xs),
           for (final record in group.timed)
             CalendarRecordRow(
-              ditherSourceId:
-                  'calendar-flow-${calendarDayKey(day)}-${record.id}',
+              ditherSourceId: null,
               record: record,
               skills: skills,
               onTap: () => onOpenRecord(record),
@@ -753,8 +762,7 @@ class _FlowBandSection extends StatelessWidget {
             CalendarUntimedDivider(recordId: group.untimed.first.id),
           for (final record in group.untimed)
             CalendarRecordRow(
-              ditherSourceId:
-                  'calendar-flow-${calendarDayKey(day)}-${record.id}',
+              ditherSourceId: null,
               record: record,
               skills: skills,
               muted: true,
@@ -780,8 +788,13 @@ class _EmptyDayHatch extends StatelessWidget {
     return Container(
       key: ValueKey('calendar-empty-hatch-${calendarDayKey(day)}'),
       decoration: BoxDecoration(
-        color: tokens.surface.withValues(alpha: 0.5),
-        border: Border.all(color: tokens.border),
+        color: tokens.surface,
+        border: Border.all(
+          color: tokens.muted.withValues(
+            alpha: brightness == Brightness.dark ? .55 : .45,
+          ),
+          width: 1.25,
+        ),
         borderRadius: BorderRadius.circular(ThemeV2Radii.md),
       ),
       clipBehavior: Clip.antiAlias,
@@ -789,7 +802,7 @@ class _EmptyDayHatch extends StatelessWidget {
         key: ValueKey('calendar-empty-hatch-paint-${calendarDayKey(day)}'),
         painter: _DiagonalHatchPainter(
           tokens.muted.withValues(
-            alpha: brightness == Brightness.dark ? 0.16 : 0.12,
+            alpha: brightness == Brightness.dark ? 0.30 : 0.24,
           ),
         ),
       ),

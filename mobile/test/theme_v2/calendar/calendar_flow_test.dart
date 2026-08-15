@@ -16,6 +16,8 @@ import 'package:eureka/theme_v2/calendar/calendar_schedule_grid.dart';
 import 'package:eureka/theme_v2/calendar/calendar_sticky_date_rail.dart';
 import 'package:eureka/theme_v2/calendar/calendar_year_view.dart';
 import 'package:eureka/theme_v2/calendar/theme_v2_calendar_page.dart';
+import 'package:eureka/theme_v2/foundation/theme_v2_dither_surface.dart';
+import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/timeline/timeline.dart' show SkillMeta;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -201,8 +203,61 @@ void main() {
         find.byKey(const ValueKey('calendar-empty-hatch-paint-2026-07-03')),
       );
       expect(hatch.painter, isNotNull);
+      final hatchContainer = tester.widget<Container>(
+        find.byKey(const ValueKey('calendar-empty-hatch-2026-07-03')),
+      );
+      final decoration = hatchContainer.decoration! as BoxDecoration;
+      final tokens = tester
+          .element(
+            find.byKey(const ValueKey('calendar-empty-hatch-2026-07-03')),
+          )
+          .themeV2;
+      expect(decoration.color, tokens.surface);
+      expect(decoration.border!.top.width, 1.25);
+      expect(
+        decoration.border!.top.color,
+        tokens.muted.withValues(
+          alpha: brightness == Brightness.dark ? .55 : .45,
+        ),
+      );
     });
   }
+
+  testWidgets('populated Flow date owns one opaque dither surface', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      calendarTestHost(
+        CalendarFlowView(
+          data: calendarFixtureData(),
+          controller: CalendarController(),
+          today: DateTime(2026, 7, 3),
+          onOpenDay: (_) {},
+          onRequestManualRecord: (_) {},
+          onOpenRecord: (_) {},
+          onOpenFlash: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final day = find.byKey(const ValueKey('calendar-day-content-2026-07-03'));
+    final reporters = find.descendant(
+      of: day,
+      matching: find.byType(ThemeV2DitherSourceReporter),
+    );
+    expect(reporters, findsOneWidget);
+    expect(
+      tester.widget<ThemeV2DitherSourceReporter>(reporters).id,
+      'calendar-flow-day-2026-07-03',
+    );
+    final surfaceFinder = find.byKey(
+      const ValueKey('calendar-day-surface-2026-07-03'),
+    );
+    final surface = tester.widget<Container>(surfaceFinder);
+    final decoration = surface.decoration! as BoxDecoration;
+    expect(decoration.color, tester.element(surfaceFinder).themeV2.surface);
+  });
 
   testWidgets('record tap uses the injected detail callback', (tester) async {
     String? openedId;
