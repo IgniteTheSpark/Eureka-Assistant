@@ -1,5 +1,6 @@
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/home/today_reka_motion_controller.dart';
+import 'package:eureka/theme_v2/home/today_reka_capture_cue.dart';
 import 'package:eureka/theme_v2/home/today_reka_scene.dart';
 import 'package:eureka/theme_v2/home/today_output_coordinator.dart';
 import 'package:flutter/material.dart';
@@ -184,6 +185,7 @@ void main() {
       bool reduceMotion,
       int refreshSignal,
       TodayOutputCue cue,
+      TodayRekaCaptureCue captureCue,
     ) {
       builds++;
       return const SizedBox.expand();
@@ -213,6 +215,7 @@ Widget _fakeReka(
   bool reduceMotion,
   int refreshSignal,
   TodayOutputCue cue,
+  TodayRekaCaptureCue captureCue,
 ) => const SizedBox.expand();
 
 Widget _host(Widget child, {bool disableAnimations = true}) => MaterialApp(

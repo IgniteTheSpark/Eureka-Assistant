@@ -6,6 +6,7 @@ import 'package:eureka/theme_v2/home/today_dithered_reka.dart';
 import 'package:eureka/theme_v2/home/today_output_coordinator.dart';
 import 'package:eureka/theme_v2/home/today_dot_experiment_page.dart';
 import 'package:eureka/theme_v2/home/today_reka_motion_controller.dart';
+import 'package:eureka/theme_v2/home/today_reka_capture_cue.dart';
 import 'package:eureka/theme_v2/home/today_reka_scene.dart';
 import 'package:eureka/theme_v2/shell/device_status_summary.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_floating_dock.dart';
@@ -104,6 +105,7 @@ Future<void> _pumpGolden(
     bool reduceMotion,
     int refreshSignal,
     TodayOutputCue cue,
+    TodayRekaCaptureCue captureCue,
   ) => TodayDitheredReka(
     pose: pose,
     active: active,

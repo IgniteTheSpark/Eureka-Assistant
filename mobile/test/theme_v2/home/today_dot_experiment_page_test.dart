@@ -1,6 +1,8 @@
 import 'dart:async';
 
+import 'package:eureka/capture_activity/capture_activity_event.dart';
 import 'package:eureka/data_revision.dart';
+import 'package:eureka/theme_v2/capture/capture_activity_coordinator.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/home/home_repository.dart';
 import 'package:eureka/theme_v2/home/home_agenda_panel.dart';
@@ -8,12 +10,59 @@ import 'package:eureka/theme_v2/home/today_dot_experiment_page.dart';
 import 'package:eureka/theme_v2/home/today_living_surface.dart';
 import 'package:eureka/theme_v2/home/today_reka_quick_actions.dart';
 import 'package:eureka/theme_v2/home/today_reka_motion_controller.dart';
+import 'package:eureka/theme_v2/home/today_reka_capture_cue.dart';
 import 'package:eureka/theme_v2/home/today_reka_scene.dart';
 import 'package:eureka/today/today_data.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('capture coordinator updates the mounted Reka cue in place', (
+    tester,
+  ) async {
+    final coordinator = CaptureActivityCoordinator();
+    addTearDown(coordinator.dispose);
+    var cue = const TodayRekaCaptureCue.idle();
+
+    await tester.pumpWidget(
+      _Host(
+        child: TodayDotExperimentPage(
+          repository: _ImmediateRepository(TodayData.empty),
+          captureActivityCoordinator: coordinator,
+          rekaBuilder:
+              (
+                context,
+                pose,
+                active,
+                reduceMotion,
+                refreshSignal,
+                outputCue,
+                captureCue,
+              ) {
+                cue = captureCue;
+                return const SizedBox.expand();
+              },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final sceneBefore = tester.element(find.byType(TodayRekaScene));
+
+    coordinator.apply(
+      CaptureActivityEvent(
+        aliases: const {'client:home-capture'},
+        source: CaptureActivitySource.ring,
+        phase: CaptureActivityPhase.understanding,
+        occurredAt: DateTime.utc(2026, 8, 15),
+        isRealtime: true,
+      ),
+    );
+    await tester.pump();
+
+    expect(cue.action, TodayRekaCaptureAction.understanding);
+    expect(tester.element(find.byType(TodayRekaScene)), same(sceneBefore));
+  });
+
   testWidgets('initial data composes header, signal band and asset chamber', (
     tester,
   ) async {
@@ -163,8 +212,15 @@ void main() {
           rekaController: controller,
           extendUnderChrome: true,
           rekaBuilder:
-              (context, pose, active, reduceMotion, refreshSignal, cue) =>
-                  const ColoredBox(color: Colors.black),
+              (
+                context,
+                pose,
+                active,
+                reduceMotion,
+                refreshSignal,
+                cue,
+                captureCue,
+              ) => const ColoredBox(color: Colors.black),
         ),
       ),
     );
@@ -315,7 +371,15 @@ void main() {
         child: TodayDotExperimentPage(
           repository: repository,
           rekaBuilder:
-              (context, pose, active, reduceMotion, refreshSignal, cue) {
+              (
+                context,
+                pose,
+                active,
+                reduceMotion,
+                refreshSignal,
+                cue,
+                captureCue,
+              ) {
                 latestRefreshSignal = refreshSignal;
                 return const SizedBox.expand();
               },
@@ -369,7 +433,15 @@ void main() {
         child: TodayDotExperimentPage(
           repository: repository,
           rekaBuilder:
-              (context, pose, active, reduceMotion, refreshSignal, cue) {
+              (
+                context,
+                pose,
+                active,
+                reduceMotion,
+                refreshSignal,
+                cue,
+                captureCue,
+              ) {
                 latestRefreshSignal = refreshSignal;
                 return const SizedBox.expand();
               },

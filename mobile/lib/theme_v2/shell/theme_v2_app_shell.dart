@@ -369,6 +369,7 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
                     active: _index == 0,
                     extendUnderChrome: immersiveToday,
                     repository: widget.homeRepository,
+                    captureActivityCoordinator: _captureActivityCoordinator,
                     onManualRecord: () => _openManualRecord(context),
                     onCreateReport: () => _createReport(context),
                     onStartChat: () => _startBlankChat(context),

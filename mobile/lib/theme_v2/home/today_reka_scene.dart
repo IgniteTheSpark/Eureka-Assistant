@@ -5,6 +5,7 @@ import '../foundation/theme_v2_theme.dart';
 import 'today_dithered_reka.dart';
 import 'today_dithered_reka_config.dart';
 import 'today_output_coordinator.dart';
+import 'today_reka_capture_cue.dart';
 import 'today_reka_motion_controller.dart';
 
 typedef TodayRekaBuilder =
@@ -15,6 +16,7 @@ typedef TodayRekaBuilder =
       bool reduceMotion,
       int refreshSignal,
       TodayOutputCue cue,
+      TodayRekaCaptureCue captureCue,
     );
 
 class TodayRekaScene extends StatefulWidget {
@@ -32,6 +34,7 @@ class TodayRekaScene extends StatefulWidget {
     this.rekaBuilder,
     this.content,
     this.cue = const TodayOutputCue.idle(),
+    this.captureCue = const TodayRekaCaptureCue.idle(),
   });
 
   static const backgroundKey = ValueKey<String>('today-reka-background');
@@ -50,6 +53,7 @@ class TodayRekaScene extends StatefulWidget {
   final TodayRekaBuilder? rekaBuilder;
   final Widget? content;
   final TodayOutputCue cue;
+  final TodayRekaCaptureCue captureCue;
 
   @override
   State<TodayRekaScene> createState() => _TodayRekaSceneState();
@@ -257,6 +261,7 @@ class _TodayRekaSceneState extends State<TodayRekaScene>
                     reduceMotion,
                     widget.refreshSignal,
                     widget.cue,
+                    widget.captureCue,
                   ),
                 ),
               ),
@@ -299,6 +304,7 @@ class _TodayRekaSceneState extends State<TodayRekaScene>
     bool reduceMotion,
     int refreshSignal,
     TodayOutputCue cue,
+    TodayRekaCaptureCue captureCue,
   ) => TodayDitheredReka(
     pose: pose,
     active: active,

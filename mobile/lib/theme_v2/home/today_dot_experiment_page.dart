@@ -7,6 +7,7 @@ import '../../data_revision.dart';
 import '../../today/today_data.dart';
 import '../foundation/theme_v2_motion.dart';
 import '../foundation/theme_v2_theme.dart';
+import '../capture/capture_activity_coordinator.dart';
 import '../shell/theme_v2_floating_dock.dart';
 import '../shell/theme_v2_global_top_nav.dart';
 import '../reka/reka_signal_actions.dart';
@@ -14,6 +15,7 @@ import 'home_agenda_panel.dart';
 import 'home_repository.dart';
 import 'today_dithered_reka_config.dart';
 import 'today_output_coordinator.dart';
+import 'today_reka_capture_cue.dart';
 import 'today_reka_motion_controller.dart';
 import 'today_reka_quick_actions.dart';
 import 'today_reka_scene.dart';
@@ -34,6 +36,7 @@ class TodayDotExperimentPage extends StatefulWidget {
     this.rekaController,
     this.rekaConfig = const TodayDitheredRekaConfig(),
     this.rekaBuilder,
+    this.captureActivityCoordinator,
     this.extendUnderChrome = false,
   });
 
@@ -51,6 +54,7 @@ class TodayDotExperimentPage extends StatefulWidget {
   final TodayRekaMotionController? rekaController;
   final TodayDitheredRekaConfig rekaConfig;
   final TodayRekaBuilder? rekaBuilder;
+  final CaptureActivityCoordinator? captureActivityCoordinator;
   final bool extendUnderChrome;
 
   @override
@@ -76,11 +80,16 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
   late final TodayOutputCoordinator _outputCoordinator =
       TodayOutputCoordinator();
   bool _outputRebuildScheduled = false;
+  late CaptureActivityCoordinator _captureActivityCoordinator;
+
+  TodayRekaCaptureCue get _captureCue =>
+      TodayRekaCaptureCue.fromSnapshot(_captureActivityCoordinator.snapshot);
 
   @override
   void initState() {
     super.initState();
     _installRepository(widget.repository);
+    _installCaptureActivityCoordinator(widget.captureActivityCoordinator);
     _outputCoordinator.addListener(_onOutputChanged);
     dataRevision.addListener(_onDataRevision);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -103,6 +112,25 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
         if (mounted) unawaited(_refresh());
       });
     }
+    if (!identical(
+      oldWidget.captureActivityCoordinator,
+      widget.captureActivityCoordinator,
+    )) {
+      _captureActivityCoordinator.removeListener(_onCaptureActivityChanged);
+      _installCaptureActivityCoordinator(widget.captureActivityCoordinator);
+    }
+  }
+
+  void _installCaptureActivityCoordinator(
+    CaptureActivityCoordinator? coordinator,
+  ) {
+    _captureActivityCoordinator =
+        coordinator ?? CaptureActivityCoordinator.instance;
+    _captureActivityCoordinator.addListener(_onCaptureActivityChanged);
+  }
+
+  void _onCaptureActivityChanged() {
+    if (mounted) setState(() {});
   }
 
   void _installRepository(ThemeV2HomeRepository? repository) {
@@ -212,6 +240,7 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
         now: widget.now,
         active: widget.active,
         cue: _outputCoordinator.cue,
+        captureCue: _captureCue,
         controller: _sceneRekaController,
         rekaBuilder: widget.rekaBuilder,
         content: RefreshIndicator.noSpinner(
@@ -282,6 +311,7 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
   void dispose() {
     _requestSerial++;
     dataRevision.removeListener(_onDataRevision);
+    _captureActivityCoordinator.removeListener(_onCaptureActivityChanged);
     _disposeOwnedRepository();
     if (_ownsSceneRekaController) _sceneRekaController.dispose();
     _outputCoordinator.removeListener(_onOutputChanged);
