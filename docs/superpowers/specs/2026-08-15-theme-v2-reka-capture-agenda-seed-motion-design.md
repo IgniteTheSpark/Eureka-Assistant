@@ -1,8 +1,8 @@
-# Theme V2 Reka Capture Feedback, Agenda, and Seed Motion Design
+# Theme V2 Reka Capture, Agenda, Calendar Flow, and Seed Motion Design
 
 **Date:** 2026-08-15  
 **Status:** Approved design, pending written-spec review  
-**Scope:** Theme V2 Today Reka capture feedback, Next schedule capsule, in-page Today Agenda, and Signal/Asset seed travel timing
+**Scope:** Theme V2 Today Reka capture feedback, Next schedule capsule, in-page Today Agenda, Calendar Flow content surfaces, and Signal/Asset seed travel timing
 
 ## 1. Authority and boundaries
 
@@ -12,6 +12,7 @@ designs. It is authoritative for:
 - how the existing capture phases affect Reka while Today is visible;
 - the layout and alignment of the compact Next schedule capsule;
 - the information shown for each minute group in the in-page Today Agenda;
+- stable content and empty-day surfaces in Calendar Flow;
 - distance-based timing for Signal and Asset production seeds.
 
 The intermittent red flash observed during Asset-seed descent is explicitly
@@ -139,7 +140,67 @@ Signal and Asset seeds instead use distance-based travel timing.
 Reduce Motion keeps the current short non-travel handoff and is not stretched
 to the full distance-based duration.
 
-## 6. Lifecycle and error behavior
+## 6. Calendar Flow content surfaces
+
+### 6.1 Confirmed presentation issue
+
+Calendar Flow records currently report each row as a dither pressure source but
+do not paint a durable row or day background. The nearest scrollable seen by a
+row reporter is the nested non-scrolling list inside a day, not the outer Flow
+scroll. The pressure registration therefore retains stale viewport coordinates
+while the day moves, which makes the apparent light background drift away and
+disappear.
+
+The approved solution is visual option A: one opaque content surface per date,
+not one floating card per Event or Asset row.
+
+### 6.2 Populated date surface
+
+Every populated date paints one `tokens.surface` background at full opacity
+behind all of that date's supported records.
+
+- The surface uses the standard medium radius, a stable one-pixel border, and
+  internal padding shared by all time bands.
+- Morning, afternoon, evening, and untimed labels remain inside the same date
+  surface.
+- Individual records remain lightweight rows with separators where needed;
+  they do not gain independent card borders or shadows.
+- The date rail remains outside the surface and retains selection, Flash, and
+  count behavior.
+- Tapping a record continues to open that record. Tapping unused surface space
+  continues to activate the date.
+- Dither remains visible around the opaque date surface and may deform at its
+  boundary, but it never substitutes for the content background.
+
+The nested `NeverScrollableScrollPhysics` list is replaced by non-scrollable
+content layout so the date surface's dither registration observes the real
+outer Flow scroll. Flow uses one pressure source for the date surface rather
+than one source for every record row. The painted surface and its pressure
+geometry therefore move together.
+
+### 6.3 Empty date surface
+
+An empty date keeps the same footprint and interaction but separates clearly
+from the dither field:
+
+- full-opacity `tokens.surface` background;
+- 1.25 logical-pixel border using `tokens.muted` at 45% opacity in light mode
+  and 55% in dark mode;
+- diagonal hatch using `tokens.muted` at 24% opacity in light mode and 30% in
+  dark mode;
+- the existing nine-pixel hatch spacing;
+- the same radius and bounds when it changes into the Manual Record
+  confirmation.
+
+The stronger hatch and border must remain subordinate to real record text but
+must be readable without relying on the dither pattern beneath it.
+
+### 6.4 Calendar scope
+
+This change applies to Calendar Flow only. Month, Year, Day Detail, and Schedule
+retain their existing content structures and shared dither background behavior.
+
+## 7. Lifecycle and error behavior
 
 - Reka capture animation pauses when Today is inactive, the app is backgrounded,
   or Reduce Motion disables continuous movement.
@@ -153,7 +214,7 @@ to the full distance-based duration.
   against the fallback Reka and must separately isolate seed travel from the
   Asset physics handoff before any fix is proposed.
 
-## 7. Verification
+## 8. Verification
 
 Automated coverage must prove:
 
@@ -168,21 +229,30 @@ Automated coverage must prove:
 - Agenda minute groups render Event and Todo icons and titles;
 - more than three same-minute items remain reachable;
 - multiple minute groups scroll in chronological order;
+- each populated Flow date paints one opaque surface that remains attached
+  during slow drag, fling, threshold crossing, and far scrolling;
+- Flow uses one moving dither pressure source per populated date rather than per
+  record row;
+- individual Flow records retain their independent tap targets without gaining
+  independent card chrome;
+- empty Flow dates use the approved light and dark border/hatch contrast;
+- empty placeholder and Manual Record confirmation retain identical geometry;
 - seed travel duration grows with distance and respects the duration clamps;
 - handoff and completion callbacks still fire exactly once;
 - Reduce Motion retains the short handoff.
 
 Device verification on the connected Android phone must cover all five active
 capture phases plus the three terminal phases, compact and grouped schedule
-states, a scrollable Agenda with mixed Event/Todo rows, and both upward and
-downward seed travel. The red flash is recorded as unresolved unless it is
-reproduced with diagnostic evidence during that verification.
+states, a scrollable Agenda with mixed Event/Todo rows, populated and empty
+Calendar Flow dates through a long scroll, and both upward and downward seed
+travel. The red flash is recorded as unresolved unless it is reproduced with
+diagnostic evidence during that verification.
 
-## 8. Non-goals
+## 9. Non-goals
 
 - no changes to capture, upload, ASR, Agent, retry, or persistence workflows;
 - no new global loading state outside `CaptureActivityCoordinator`;
 - no phase text, emoji, or icon displayed on Reka;
-- no redesign of Calendar's full schedule views;
+- no redesign of Calendar Month, Year, Day Detail, or Schedule views;
 - no claim that slower seed motion fixes the deferred red flash;
 - no changes to Signal or Asset data identity and reconciliation rules.
