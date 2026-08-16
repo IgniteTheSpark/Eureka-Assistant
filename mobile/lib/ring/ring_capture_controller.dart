@@ -13,6 +13,7 @@ class RingFrame {
 }
 
 typedef RecCmdFn = Future<void> Function();
+typedef CaptureActiveFn = Future<void> Function(bool active);
 typedef TranscribeFn =
     Future<String> Function(Uint8List pcm, int sampleRate, int channels);
 typedef CreateCardFn = Future<void> Function(String text, String clientTaskId);
@@ -73,6 +74,7 @@ class RingCaptureController {
     required Stream<RingFrame> audioFrames,
     required RecCmdFn startRecording,
     required RecCmdFn stopRecording,
+    this.setCaptureActive,
     TranscribeFn? transcribe,
     CreateCardFn? createCard,
     this.persistBegin,
@@ -100,6 +102,7 @@ class RingCaptureController {
   final Stream<RingFrame> _audioFrames;
   final RecCmdFn _startRecording;
   final RecCmdFn _stopRecording;
+  final CaptureActiveFn? setCaptureActive;
   final TranscribeFn? _transcribe;
   final CreateCardFn? _createCard;
   final CreateTaskIdFn _createTaskId;
@@ -129,6 +132,7 @@ class RingCaptureController {
   int _frameGapCount = 0;
   Future<void>? _lifecycleOperation;
   bool _disposed = false;
+  bool _captureActive = false;
   static int _taskSequence = 0;
 
   static String _defaultTaskId() =>
@@ -198,11 +202,14 @@ class RingCaptureController {
     try {
       await persistBegin?.call(_activeTaskId!, _startedAt!);
       persisted = true;
+      await setCaptureActive?.call(true);
+      _captureActive = setCaptureActive != null;
       _recording = true;
       await _startRecording();
       _emitPhase(RingCapturePhase.recording);
     } catch (error) {
       _recording = false;
+      await _deactivateCapture();
       if (persisted) {
         try {
           await onCaptureStartFailed?.call(_activeTaskId!, error);
@@ -230,6 +237,7 @@ class RingCaptureController {
         await Future<void>.delayed(stopDrain);
       }
       _recording = false;
+      await _deactivateCapture();
       final pcm = _buf.toBytes();
       final durableFinish = finishCapture;
       if (durableFinish != null) {
@@ -271,6 +279,7 @@ class RingCaptureController {
       _emitPhase(RingCapturePhase.error);
     } finally {
       _recording = false;
+      await _deactivateCapture();
       _finishing = false;
       _activeTaskId = null;
       _startedAt = null;
@@ -305,7 +314,18 @@ class RingCaptureController {
         }
       }
     }
+    await _deactivateCapture();
     _activeTaskId = null;
     _startedAt = null;
+  }
+
+  Future<void> _deactivateCapture() async {
+    if (!_captureActive) return;
+    try {
+      await setCaptureActive?.call(false);
+      _captureActive = false;
+    } on Object {
+      // Keep the flag set so the finally/dispose paths can retry native cleanup.
+    }
   }
 }

@@ -19,13 +19,22 @@ class RingPlatform {
   static final Stream<dynamic> _keyRaw = _key.receiveBroadcastStream();
   static final Stream<dynamic> _fileRaw = _file.receiveBroadcastStream();
 
-  Future<void> startScan() => _methods.invokeMethod('startScan');
+  Future<void> startScan({String? targetId}) =>
+      _methods.invokeMethod('startScan', {'targetId': targetId});
   Future<void> stopScan() => _methods.invokeMethod('stopScan');
   Future<void> connect(String id) =>
       _methods.invokeMethod('connect', {'id': id});
   Future<void> disconnect() => _methods.invokeMethod('disconnect');
   Future<void> startRecording() => _methods.invokeMethod('startRecording');
   Future<void> stopRecording() => _methods.invokeMethod('stopRecording');
+
+  // ---- Android background capture lifecycle ----
+  Future<void> startBackgroundSession() =>
+      _methods.invokeMethod('startBackgroundSession');
+  Future<void> stopBackgroundSession() =>
+      _methods.invokeMethod('stopBackgroundSession');
+  Future<void> setCaptureActive(bool active) =>
+      _methods.invokeMethod('setCaptureActive', {'active': active});
 
   Stream<RingAudioFrame> audioFrames() =>
       _audioRaw.map((e) => RingAudioFrame.fromMap(e as Map));

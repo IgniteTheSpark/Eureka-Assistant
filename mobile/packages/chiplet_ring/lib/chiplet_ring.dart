@@ -16,7 +16,8 @@ class ChipletRing {
   /// 3=triple, 4=up, 5=down, 6=left, 7=right.
   Stream<int> get keyEvents => _p.keyEvents();
 
-  Future<void> startScan() => _p.startScan();
+  Future<void> startScan({String? targetId}) =>
+      _p.startScan(targetId: targetId);
   Future<void> stopScan() => _p.stopScan();
   Future<void> connect(String deviceId) => _p.connect(deviceId);
   Future<void> disconnect() => _p.disconnect();
@@ -28,6 +29,14 @@ class ChipletRing {
   /// Start the ring streaming audio (CONTROL_AUDIO_ADPCM on). Frames arrive on [audioFrames].
   Future<void> startRecording() => _p.startRecording();
   Future<void> stopRecording() => _p.stopRecording();
+
+  /// Keep the Android process eligible to receive BLE callbacks while locked.
+  /// The service is intentionally separate from [setCaptureActive]: it remains
+  /// alive while a bound ring is monitored, while the wake lock is held only
+  /// for the short interval in which audio is actually being captured.
+  Future<void> startBackgroundSession() => _p.startBackgroundSession();
+  Future<void> stopBackgroundSession() => _p.stopBackgroundSession();
+  Future<void> setCaptureActive(bool active) => _p.setCaptureActive(active);
 
   // ---- On-device (local) recording + file management ----
   /// Tell the ring to record locally to its own storage (green-LED mode).

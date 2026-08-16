@@ -61,6 +61,7 @@ void main() {
       expect(gateway.disconnectCalls, 1);
       expect(gateway.connectCalls, ['AA:BB']);
       expect(gateway.startScanCalls, 1);
+      expect(gateway.scanTargets, ['AA:BB']);
     },
   );
 
@@ -85,6 +86,7 @@ void main() {
       expect(gateway.connectCalls, ['AA:BB']);
       expect(gateway.disconnectCalls, 0);
       expect(gateway.startScanCalls, 1);
+      expect(gateway.scanTargets, ['AA:BB']);
     },
   );
 
@@ -123,6 +125,61 @@ void main() {
       expect(connectedCount, 2);
     },
   );
+
+  test(
+    'forget stops a background session whose start completes late',
+    () async {
+      final gateway = _DeferredBackgroundGateway();
+      final reconnect = RingReconnect(
+        gateway: gateway,
+        bindingStore: const _ImmediateStore('AA:BB'),
+      );
+      addTearDown(reconnect.dispose);
+
+      final start = reconnect.start();
+      await gateway.backgroundStartStarted.future;
+      reconnect.forget();
+      gateway.completeBackgroundStart();
+      await start;
+      await Future<void>.delayed(Duration.zero);
+
+      expect(gateway.stopBackgroundSessionCalls, 1);
+      expect(gateway.startScanCalls, 0);
+    },
+  );
+
+  test(
+    'foreground-service start failure degrades to foreground reconnect',
+    () async {
+      final gateway = _FailingBackgroundStartGateway();
+      final reconnect = RingReconnect(
+        gateway: gateway,
+        bindingStore: const _ImmediateStore('AA:BB'),
+      );
+      addTearDown(reconnect.dispose);
+
+      await reconnect.start();
+
+      expect(gateway.startBackgroundSessionCalls, 1);
+      expect(gateway.startScanCalls, 1);
+      expect(gateway.scanTargets, ['AA:BB']);
+    },
+  );
+
+  test('failed background-service stop is retried during disposal', () async {
+    final gateway = _FailingBackgroundStopGateway();
+    final reconnect = RingReconnect(
+      gateway: gateway,
+      bindingStore: const _ImmediateStore('AA:BB'),
+    );
+
+    await reconnect.start();
+    reconnect.forget();
+    await Future<void>.delayed(Duration.zero);
+    await reconnect.dispose();
+
+    expect(gateway.stopBackgroundSessionCalls, 2);
+  });
 }
 
 RingState _scanningState(String mac) => RingState(
@@ -135,7 +192,10 @@ class _FakeGateway implements RingReconnectGateway {
   var startScanCalls = 0;
   var stopScanCalls = 0;
   var disconnectCalls = 0;
+  var startBackgroundSessionCalls = 0;
+  var stopBackgroundSessionCalls = 0;
   final List<String> connectCalls = [];
+  final List<String> scanTargets = [];
 
   void emit(RingState state) => stateController.add(state);
 
@@ -149,10 +209,23 @@ class _FakeGateway implements RingReconnectGateway {
   Future<void> disconnect() async => disconnectCalls += 1;
 
   @override
-  Future<void> startScan() async => startScanCalls += 1;
+  Future<void> startScan(String targetId) async {
+    startScanCalls += 1;
+    scanTargets.add(targetId);
+  }
 
   @override
   Future<void> stopScan() async => stopScanCalls += 1;
+
+  @override
+  Future<void> startBackgroundSession() async {
+    startBackgroundSessionCalls += 1;
+  }
+
+  @override
+  Future<void> stopBackgroundSession() async {
+    stopBackgroundSessionCalls += 1;
+  }
 }
 
 class _DeferredConnectGateway extends _FakeGateway {
@@ -173,6 +246,38 @@ class _DeferredConnectGateway extends _FakeGateway {
   Future<void> disconnect() async {
     await super.disconnect();
     disconnectCompleted.complete();
+  }
+}
+
+class _DeferredBackgroundGateway extends _FakeGateway {
+  final backgroundStartStarted = Completer<void>();
+  final _backgroundStart = Completer<void>();
+
+  void completeBackgroundStart() => _backgroundStart.complete();
+
+  @override
+  Future<void> startBackgroundSession() async {
+    await super.startBackgroundSession();
+    backgroundStartStarted.complete();
+    await _backgroundStart.future;
+  }
+}
+
+class _FailingBackgroundStartGateway extends _FakeGateway {
+  @override
+  Future<void> startBackgroundSession() async {
+    await super.startBackgroundSession();
+    throw StateError('foreground start denied');
+  }
+}
+
+class _FailingBackgroundStopGateway extends _FakeGateway {
+  @override
+  Future<void> stopBackgroundSession() async {
+    await super.stopBackgroundSession();
+    if (stopBackgroundSessionCalls == 1) {
+      throw StateError('channel unavailable');
+    }
   }
 }
 
