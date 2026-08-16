@@ -405,7 +405,10 @@ def build_pipeline_handlers(
         result = render_validated_charts(
             content.get("chart_directives", []),
             evidence=evidence,
-            include_default=context.execution_plan.base_family == "data_trend",
+            include_default=(
+                context.execution_plan.base_family == "data_trend"
+                or context.execution_plan.template_id == "general_period_review"
+            ),
             template_id=context.execution_plan.template_id,
         )
         return {"svgs": result.svgs, "warnings": result.warnings}

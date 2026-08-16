@@ -252,3 +252,54 @@ async def test_web_stage_uses_only_frozen_public_brief_not_private_evidence():
     assert "皇家马德里" in query_text
     assert "内部预算" not in query_text
     assert "800" not in query_text
+
+
+async def test_general_period_report_falls_back_to_a_chart_for_numeric_records():
+    handlers = build_pipeline_handlers(
+        job=type("Job", (), {"id": "job-1"})(),
+        generator=None,
+        web_search=None,
+        illustration=None,
+        registry=TemplateRegistry.load(TEMPLATES),
+        storage=None,
+    )
+    context = PipelineContext(
+        run_id="run-1",
+        job_id="job-1",
+        execution_plan={
+            "template_id": "general_period_review",
+            "template_version": "1.0.0",
+            "base_family": "theme_synthesis",
+            "report_goal": "总结本月消费",
+            "resolved_asset_ids": ["expense-1", "expense-2"],
+            "field_bindings": {"amount": "payload.amount"},
+            "time_range": None,
+            "web_policy": "none",
+            "illustration_policy": "none",
+            "render_policy": "report_html_v1",
+        },
+        handlers={},
+        checkpoints={
+            "content_generation": {"chart_directives": []},
+            "load_evidence": {
+                "derived_metrics": {
+                    "grouped_fields": {
+                        "effective_date": {
+                            "2026-08-01": {
+                                "numeric_fields": {"amount": {"sum": 28}}
+                            },
+                            "2026-08-02": {
+                                "numeric_fields": {"amount": {"sum": 42}}
+                            },
+                        }
+                    }
+                }
+            },
+        },
+        assert_current_callback=lambda: None,
+        save_checkpoint_callback=lambda stage, result: None,
+    )
+
+    result = await handlers["chart_validation"](context)
+
+    assert list(result["svgs"]) == ["effective_date-amount-trend"]
