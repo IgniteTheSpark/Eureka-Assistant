@@ -21,7 +21,10 @@ from app.domains.assets.schemas import (
 )
 from app.domains.assets.persistence import persist_asset
 from app.domains.assets.indexing import rebuild_asset_fields
-from app.domains.assets.todo_deadline import normalize_new_todo_payload
+from app.domains.assets.todo_deadline import (
+    normalize_new_todo_payload,
+    normalize_todo_reminder_preferences,
+)
 from app.domains.assets.validation import AssetWriteProfile, validate_asset_payload
 from app.domains.sessions.provenance import (
     ProvenanceNotOwned,
@@ -70,6 +73,11 @@ BASELINE_CAPTURE_SKILLS: tuple[dict, ...] = (
                 "period": {"type": "string", "title": "时段"},
                 "occurred_at": {"type": "string", "title": "发生时间"},
                 "status": {"type": "string", "title": "完成状态"},
+                "reminder_offsets_minutes": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "title": "提醒",
+                },
                 "domain": {"type": "string", "title": "领域"},
             },
             "required": ["title"],
@@ -553,12 +561,15 @@ async def update_asset(
         skill = await session.get(UserSkill, asset.user_skill_id)
         if skill is None:
             raise UserSkillNotFound()
+        payload = command.payload
+        if skill.machine_name == "todo":
+            payload = normalize_todo_reminder_preferences(payload)
         validate_asset_payload(
-            command.payload,
+            payload,
             skill.schema_json,
             profile=write_profile,
         )
-        asset.payload_json = command.payload
+        asset.payload_json = payload
         await rebuild_asset_fields(session, asset=asset, skill=skill)
     if "effective_at" in command.model_fields_set:
         asset.effective_at = _utc_naive(command.effective_at)
@@ -605,6 +616,7 @@ async def create_event(
         start_at=_utc_naive(command.start_at),
         end_at=_utc_naive(command.end_at),
         all_day=command.all_day,
+        reminder_offsets_json=command.reminder_offsets_minutes,
         status=command.status,
         recurrence_rule=command.recurrence_rule,
         source_input_turn_id=provenance.input_turn_id,
@@ -702,6 +714,11 @@ async def update_event(
     ):
         if field in command.model_fields_set:
             setattr(event, field, getattr(command, field))
+    if (
+        "reminder_offsets_minutes" in command.model_fields_set
+        and command.reminder_offsets_minutes is not None
+    ):
+        event.reminder_offsets_json = command.reminder_offsets_minutes
     if "start_at" in command.model_fields_set and command.start_at is not None:
         event.start_at = _utc_naive(command.start_at)
     if "end_at" in command.model_fields_set and command.end_at is not None:

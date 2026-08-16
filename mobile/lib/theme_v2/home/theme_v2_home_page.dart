@@ -229,7 +229,10 @@ class _ThemeV2HomePageState extends State<ThemeV2HomePage> {
         onOpenAgenda: _controller.openAgenda,
         onOpenReka: widget.onOpenReka,
         onRekaAction: _mutateReka,
-        onOpenRekaTarget: widget.onOpenRekaTarget,
+        onOpenRekaTarget:
+            widget.onOpenRekaTarget ??
+            (context, item) =>
+                openRekaSignalTarget(context, item, repository: _rekaSignals),
         onOpenReports: widget.onOpenReports,
         onCreateReport: widget.onCreateReport,
       ),

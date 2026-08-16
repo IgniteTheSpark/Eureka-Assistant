@@ -14,6 +14,7 @@ Future<void> openAssetDetail(
   AssetEntityRef ref, {
   AssetDetailRepository? repository,
   bool coreRecordsOnly = false,
+  RekaOverdueReminderContext? overdueReminder,
 }) async {
   ApiClient? ownedApi;
   final resolvedRepository =
@@ -46,7 +47,11 @@ Future<void> openAssetDetail(
               EurekaTheme(legacyColors),
             ],
           ),
-          child: ThemeV2AssetDetailSurface(controller, api: ownedApi),
+          child: ThemeV2AssetDetailSurface(
+            controller,
+            api: ownedApi,
+            overdueReminder: overdueReminder,
+          ),
         );
       },
     );

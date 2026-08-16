@@ -83,6 +83,11 @@ class TodayRekaItem {
     this.targetId = '',
     this.actions = const [],
     this.expiresAt,
+    this.reportPhase,
+    this.chainId,
+    this.evidence = const {},
+    this.reportRunId,
+    this.reportId,
   });
 
   final String id;
@@ -96,6 +101,11 @@ class TodayRekaItem {
   final String targetId;
   final List<String> actions;
   final DateTime? expiresAt;
+  final String? reportPhase;
+  final String? chainId;
+  final Map<String, dynamic> evidence;
+  final String? reportRunId;
+  final String? reportId;
 }
 
 ({List<PoolAsset> pool, int trueCount}) selectTodayPool(

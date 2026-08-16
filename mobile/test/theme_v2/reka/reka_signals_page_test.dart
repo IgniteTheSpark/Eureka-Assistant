@@ -239,6 +239,9 @@ class _FakeRepository implements RekaSignalRepository {
   }
 
   @override
+  Future<void> snooze(String signalId, DateTime remindAgainAt) async {}
+
+  @override
   Future<RekaSignalBatch> load({String timezoneName = 'Asia/Shanghai'}) async {
     loadCount++;
     final values = loadValues;

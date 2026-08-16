@@ -66,6 +66,7 @@ def test_foundation_migration_round_trip_and_physical_types():
         "agent_pending_actions",
         "nudges",
         "rhythm_profiles",
+        "reminder_deliveries",
     }.issubset(set(inspector.get_table_names()))
 
     asset_columns = {column["name"]: column for column in inspector.get_columns("assets")}
@@ -183,6 +184,18 @@ def test_foundation_migration_round_trip_and_physical_types():
     }
     assert nudge_columns["natural_key"]["type"].length == 255
     assert nudge_columns["dismissed_at"]["type"].fsp == 6
+    assert nudge_columns["remind_again_at"]["type"].fsp == 6
+
+    event_columns = {
+        column["name"]: column for column in inspector.get_columns("events")
+    }
+    assert isinstance(event_columns["reminder_offsets_json"]["type"], mysql.JSON)
+
+    reminder_columns = {
+        column["name"]: column
+        for column in inspector.get_columns("reminder_deliveries")
+    }
+    assert reminder_columns["natural_key"]["type"].length == 255
 
     rhythm_columns = {
         column["name"]: column
@@ -191,7 +204,7 @@ def test_foundation_migration_round_trip_and_physical_types():
     assert isinstance(rhythm_columns["patterns_json"]["type"], mysql.JSON)
     assert rhythm_columns["timezone_name"]["type"].length == 64
 
-    assert revision == "0023_report_async_illustration"
+    assert revision == "0024_reka_reminders"
     engine.dispose()
 
 
@@ -369,7 +382,7 @@ def test_internal_mcp_migration_backfills_existing_domain_data():
         revision = connection.execute(
             text("SELECT version_num FROM alembic_version")
         ).scalar_one()
-    assert revision == "0023_report_async_illustration"
+    assert revision == "0024_reka_reminders"
     engine.dispose()
 
 

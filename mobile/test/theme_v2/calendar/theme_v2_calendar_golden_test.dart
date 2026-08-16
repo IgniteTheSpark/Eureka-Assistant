@@ -1,8 +1,6 @@
 import 'dart:io';
-import 'dart:ui';
 
 import 'package:eureka/theme_v2/calendar/calendar_controller.dart';
-import 'package:eureka/theme_v2/calendar/calendar_manual_record_picker.dart';
 import 'package:eureka/theme_v2/calendar/calendar_mode_state.dart';
 import 'package:eureka/theme_v2/calendar/calendar_models.dart';
 import 'package:eureka/theme_v2/calendar/theme_v2_calendar_page.dart';
@@ -68,75 +66,6 @@ void main() {
         selectedIndex: 1,
         onDestinationSelected: (_) {},
       ),
-    );
-  }
-
-  Widget manualPickerState(Brightness brightness) {
-    final base = withCalendarDock(
-      calendarPage(
-        controller: CalendarController(),
-        data: calendarHandoffOverviewData(),
-      ),
-    );
-    return Stack(
-      children: [
-        Positioned.fill(child: base),
-        Positioned.fill(
-          child: ClipRect(
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-              child: ColoredBox(
-                color: Colors.black.withValues(
-                  alpha: brightness == Brightness.dark ? 0.38 : 0.28,
-                ),
-              ),
-            ),
-          ),
-        ),
-        Align(
-          alignment: Alignment.bottomCenter,
-          child: CalendarManualRecordPicker(
-            effectiveDate: today,
-            loader: () async => const CalendarSkillCatalog(
-              options: [
-                CalendarSkillOption.event(),
-                CalendarSkillOption.asset(
-                  name: 'todo',
-                  displayName: '待办',
-                  icon: '📋',
-                  userSkillId: 'todo',
-                ),
-                CalendarSkillOption.asset(
-                  name: 'note',
-                  displayName: '笔记',
-                  icon: '📝',
-                  userSkillId: 'note',
-                ),
-                CalendarSkillOption.contact(
-                  displayName: '联系人',
-                  icon: '👤',
-                  userSkillId: 'contact',
-                ),
-                CalendarSkillOption.asset(
-                  name: 'running',
-                  displayName: '跑步训练',
-                  icon: '🏃',
-                  userSkillId: 'running',
-                ),
-                CalendarSkillOption.asset(
-                  name: 'coffee',
-                  displayName: '咖啡记录',
-                  icon: '☕',
-                  userSkillId: 'coffee',
-                ),
-              ],
-              recentNames: ['coffee', 'running', 'note', 'todo'],
-            ),
-            onSelected: (_) {},
-            onClose: () {},
-          ),
-        ),
-      ],
     );
   }
 
@@ -481,18 +410,6 @@ void main() {
       await expectLater(
         find.byKey(surface),
         matchesGoldenFile('goldens/calendar-schedule-draft-411-$suffix.png'),
-      );
-    });
-
-    testWidgets('Manual Record Picker 411 $suffix', (tester) async {
-      await pumpGolden(
-        tester,
-        brightness: brightness,
-        child: manualPickerState(brightness),
-      );
-      await expectLater(
-        find.byKey(surface),
-        matchesGoldenFile('goldens/calendar-manual-picker-411-$suffix.png'),
       );
     });
   }

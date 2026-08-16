@@ -103,11 +103,15 @@ class _RekaSignalsPageState extends State<RekaSignalsPage> {
     }
   }
 
-  Future<void> _openTarget(BuildContext context, TodayRekaItem item) {
+  Future<void> _openTarget(BuildContext context, TodayRekaItem item) async {
     final callback = widget.onOpenTarget;
-    return callback == null
-        ? openRekaSignalTarget(context, item)
-        : callback(context, item);
+    try {
+      await (callback == null
+          ? openRekaSignalTarget(context, item, repository: _repository)
+          : callback(context, item));
+    } finally {
+      if (mounted) await _load();
+    }
   }
 
   @override

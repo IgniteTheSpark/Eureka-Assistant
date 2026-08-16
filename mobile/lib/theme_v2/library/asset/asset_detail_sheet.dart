@@ -12,16 +12,38 @@ import '../../foundation/theme_v2_theme.dart';
 import '../../foundation/theme_v2_tokens.dart';
 import '../../foundation/theme_v2_typography.dart';
 import '../../report/report_notification_target.dart';
+import '../../reminders/reminder_configuration_sheet.dart';
+import '../../reminders/reminder_preferences.dart';
 import '../../session/theme_v2_session_page.dart';
 import 'asset_detail_content.dart';
 import 'asset_detail_presentation.dart';
 import 'asset_editors.dart';
 
+class RekaOverdueReminderContext {
+  const RekaOverdueReminderContext({
+    required this.onSnooze,
+    required this.onDismiss,
+    this.now,
+  });
+
+  final Future<void> Function(DateTime remindAgainAt) onSnooze;
+  final Future<void> Function() onDismiss;
+  final DateTime Function()? now;
+
+  DateTime currentTime() => now?.call() ?? DateTime.now();
+}
+
 class ThemeV2AssetDetailSurface extends StatefulWidget {
-  const ThemeV2AssetDetailSurface(this.controller, {super.key, this.api});
+  const ThemeV2AssetDetailSurface(
+    this.controller, {
+    super.key,
+    this.api,
+    this.overdueReminder,
+  });
 
   final AssetDetailController controller;
   final ApiClient? api;
+  final RekaOverdueReminderContext? overdueReminder;
 
   @override
   State<ThemeV2AssetDetailSurface> createState() =>
@@ -74,6 +96,7 @@ class _ThemeV2AssetDetailSurfaceState extends State<ThemeV2AssetDetailSurface> {
                 : _DetailBody(
                     controller: controller,
                     api: widget.api,
+                    overdueReminder: widget.overdueReminder,
                     onEdit: _beginEditing,
                     onDelete: _confirmDelete,
                   ),
@@ -292,12 +315,14 @@ class _DetailBody extends StatelessWidget {
   const _DetailBody({
     required this.controller,
     required this.api,
+    required this.overdueReminder,
     required this.onEdit,
     required this.onDelete,
   });
 
   final AssetDetailController controller;
   final ApiClient? api;
+  final RekaOverdueReminderContext? overdueReminder;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
@@ -315,6 +340,10 @@ class _DetailBody extends StatelessWidget {
                 ? () => _openSource(context)
                 : null,
           ),
+        _ReminderControls(
+          controller: controller,
+          overdueReminder: overdueReminder,
+        ),
         _DetailActions(
           controller: controller,
           onEdit: onEdit,
@@ -374,6 +403,230 @@ class _DetailBody extends StatelessWidget {
     } finally {
       ownedClient?.close();
     }
+  }
+}
+
+class _ReminderControls extends StatefulWidget {
+  const _ReminderControls({
+    required this.controller,
+    required this.overdueReminder,
+  });
+
+  final AssetDetailController controller;
+  final RekaOverdueReminderContext? overdueReminder;
+
+  @override
+  State<_ReminderControls> createState() => _ReminderControlsState();
+}
+
+class _ReminderControlsState extends State<_ReminderControls> {
+  bool _busy = false;
+
+  bool get _isTodo => widget.controller.cardType == 'todo';
+  bool get _supportsPreDueReminder =>
+      _isTodo || widget.controller.cardType == 'event';
+
+  Future<void> _editPreDueReminders() async {
+    final selected = await showReminderConfigurationSheet(
+      context,
+      initialOffsets: normalizeReminderOffsets(
+        widget.controller.payload['reminder_offsets_minutes'],
+      ),
+    );
+    if (selected == null || !mounted) return;
+    try {
+      await widget.controller.saveDraft({'reminder_offsets_minutes': selected});
+    } catch (_) {
+      if (!mounted) return;
+      _showError('提醒设置保存失败，请稍后重试');
+    }
+  }
+
+  Future<void> _snooze(Duration duration) async {
+    final overdue = widget.overdueReminder;
+    if (overdue == null) return;
+    await _runOverdueAction(
+      () => overdue.onSnooze(overdue.currentTime().add(duration)),
+    );
+  }
+
+  Future<void> _snoozeTomorrow() async {
+    final overdue = widget.overdueReminder;
+    if (overdue == null) return;
+    final now = overdue.currentTime();
+    await _runOverdueAction(
+      () => overdue.onSnooze(DateTime(now.year, now.month, now.day + 1, 9)),
+    );
+  }
+
+  Future<void> _pickCustomSnooze() async {
+    final overdue = widget.overdueReminder;
+    if (overdue == null) return;
+    final now = overdue.currentTime();
+    final initial = now.add(const Duration(hours: 1));
+    final date = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(now.year, now.month, now.day),
+      lastDate: DateTime(now.year + 2),
+    );
+    if (date == null || !mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initial),
+    );
+    if (time == null || !mounted) return;
+    final value = DateTime(
+      date.year,
+      date.month,
+      date.day,
+      time.hour,
+      time.minute,
+    );
+    if (!value.isAfter(now)) {
+      _showError('请选择一个未来时间');
+      return;
+    }
+    await _runOverdueAction(() => overdue.onSnooze(value));
+  }
+
+  Future<void> _dismiss() async {
+    final overdue = widget.overdueReminder;
+    if (overdue == null) return;
+    await _runOverdueAction(overdue.onDismiss);
+  }
+
+  Future<void> _runOverdueAction(Future<void> Function() action) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await action();
+      if (mounted) await Navigator.of(context).maybePop();
+    } catch (_) {
+      if (mounted) _showError('操作失败，请稍后重试');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _showError(String message) {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    messenger?.hideCurrentSnackBar();
+    messenger?.showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.controller.loadState != AssetDetailLoadState.ready) {
+      return const SizedBox.shrink();
+    }
+    if (_isTodo && widget.controller.isDone) return const SizedBox.shrink();
+    if (_isTodo && widget.overdueReminder != null) {
+      return _buildOverdue(context);
+    }
+    if (!_supportsPreDueReminder) return const SizedBox.shrink();
+    final tokens = context.themeV2;
+    final offsets = normalizeReminderOffsets(
+      widget.controller.payload['reminder_offsets_minutes'],
+    );
+    return Material(
+      color: tokens.surface,
+      child: ListTile(
+        key: const ValueKey('asset-detail-reminders'),
+        minTileHeight: ThemeV2Sizes.minTouchTarget,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: ThemeV2Spacing.xl,
+        ),
+        leading: const Icon(Icons.notifications_none_rounded),
+        title: const Text('提醒'),
+        subtitle: Text(formatReminderSummary(offsets)),
+        trailing: const Icon(Icons.chevron_right_rounded),
+        onTap: widget.controller.busy ? null : _editPreDueReminders,
+      ),
+    );
+  }
+
+  Widget _buildOverdue(BuildContext context) {
+    final tokens = context.themeV2;
+    Widget option(String label, Key key, VoidCallback onPressed) =>
+        OutlinedButton(
+          key: key,
+          onPressed: _busy ? null : onPressed,
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size(0, ThemeV2Sizes.minTouchTarget),
+          ),
+          child: Text(label),
+        );
+    return Material(
+      key: const ValueKey('asset-detail-overdue-reminder'),
+      color: tokens.surface,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(
+          ThemeV2Spacing.xl,
+          ThemeV2Spacing.sm,
+          ThemeV2Spacing.xl,
+          ThemeV2Spacing.md,
+        ),
+        decoration: BoxDecoration(
+          border: Border(top: BorderSide(color: tokens.border)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '稍后提醒',
+              style: TextStyle(
+                color: tokens.foreground,
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: ThemeV2Spacing.xs),
+            Wrap(
+              spacing: ThemeV2Spacing.sm,
+              runSpacing: ThemeV2Spacing.xs,
+              children: [
+                option(
+                  '15 分钟',
+                  const ValueKey('overdue-snooze-15'),
+                  () => _snooze(const Duration(minutes: 15)),
+                ),
+                option(
+                  '1 小时',
+                  const ValueKey('overdue-snooze-60'),
+                  () => _snooze(const Duration(hours: 1)),
+                ),
+                option(
+                  '3 小时',
+                  const ValueKey('overdue-snooze-180'),
+                  () => _snooze(const Duration(hours: 3)),
+                ),
+                option(
+                  '明天 09:00',
+                  const ValueKey('overdue-snooze-tomorrow'),
+                  _snoozeTomorrow,
+                ),
+                option(
+                  '自定义',
+                  const ValueKey('overdue-snooze-custom'),
+                  _pickCustomSnooze,
+                ),
+                TextButton(
+                  key: const ValueKey('overdue-dismiss'),
+                  onPressed: _busy ? null : _dismiss,
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(0, ThemeV2Sizes.minTouchTarget),
+                  ),
+                  child: const Text('不再提醒'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

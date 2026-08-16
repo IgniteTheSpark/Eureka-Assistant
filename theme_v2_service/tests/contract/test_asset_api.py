@@ -334,6 +334,7 @@ async def test_todo_create_defaults_deadline_and_edit_preserves_status(
         "content": "完成最后校对",
         "due_date": "2026-08-09T18:00:00+08:00",
         "status": "pending",
+        "reminder_offsets_minutes": [15],
     }
 
     edited = await client.patch(
@@ -350,6 +351,23 @@ async def test_todo_create_defaults_deadline_and_edit_preserves_status(
     assert edited.status_code == 200
     assert edited.json()["payload"]["status"] == "pending"
     assert edited.json()["payload"]["due_date"] == "2026-08-07T18:00:00+08:00"
+
+    reminders_updated = await client.patch(
+        f"/api/assets/{created.json()['id']}",
+        headers=_headers(owner),
+        json={
+            "payload": {
+                **edited.json()["payload"],
+                "reminder_offsets_minutes": [60, 15, 60, 0],
+            }
+        },
+    )
+    assert reminders_updated.status_code == 200
+    assert reminders_updated.json()["payload"]["reminder_offsets_minutes"] == [
+        0,
+        15,
+        60,
+    ]
 
 
 async def test_asset_create_and_update_reject_fields_outside_closed_schema(client):
@@ -495,6 +513,51 @@ async def test_event_can_be_rescheduled_cancelled_and_physically_deleted(client)
     )
     assert deleted.json() == {"ok": True}
     assert missing.status_code == 404
+
+
+async def test_event_reminder_offsets_default_and_round_trip(client):
+    owner = await _register(client, "event-reminders@example.com")
+
+    legacy_default = await client.post(
+        "/api/events",
+        headers=_headers(owner),
+        json={
+            "title": "Default reminder",
+            "start_at": "2026-08-01T10:00:00+08:00",
+            "end_at": "2026-08-01T11:00:00+08:00",
+        },
+    )
+    assert legacy_default.status_code == 200
+    assert legacy_default.json()["reminder_offsets_minutes"] == [15]
+
+    configured = await client.post(
+        "/api/events",
+        headers=_headers(owner),
+        json={
+            "title": "Multiple reminders",
+            "start_at": "2026-08-02T10:00:00+08:00",
+            "end_at": "2026-08-02T11:00:00+08:00",
+            "reminder_offsets_minutes": [60, 15, 60, 0],
+        },
+    )
+    assert configured.status_code == 200
+    event = configured.json()
+    assert event["reminder_offsets_minutes"] == [0, 15, 60]
+
+    disabled = await client.patch(
+        f"/api/events/{event['id']}",
+        headers=_headers(owner),
+        json={"reminder_offsets_minutes": []},
+    )
+    assert disabled.status_code == 200
+    assert disabled.json()["reminder_offsets_minutes"] == []
+
+    invalid = await client.patch(
+        f"/api/events/{event['id']}",
+        headers=_headers(owner),
+        json={"reminder_offsets_minutes": [-5]},
+    )
+    assert invalid.status_code == 422
 
 
 async def test_legacy_event_participant_phrase_is_presented_as_unresolved_attendee(client):

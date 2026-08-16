@@ -80,6 +80,64 @@ void main() {
     expect(find.text('选择联系人'), findsOneWidget);
     expect(find.text('可选择多个联系人'), findsOneWidget);
   });
+
+  testWidgets('core event editor persists multiple reminder offsets', (
+    tester,
+  ) async {
+    Map<String, dynamic>? savedBody;
+    final api = ApiClient(
+      baseUrl: 'http://theme-v2.test',
+      enableLogging: false,
+      client: MockClient((request) async {
+        if (request.method == 'PATCH' &&
+            request.url.path == '/api/events/event-1') {
+          savedBody = (jsonDecode(request.body) as Map).cast<String, dynamic>();
+          return _json({..._event, ...savedBody!});
+        }
+        return http.Response('{"detail":"unexpected"}', 500);
+      }),
+    );
+    addTearDown(api.close);
+
+    await tester.pumpWidget(
+      calendarTestHost(
+        EventForm(
+          api: api,
+          coreRecordsOnly: true,
+          eventId: 'event-1',
+          existing: {
+            ..._event,
+            'reminder_offsets_minutes': <int>[15],
+          },
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('theme-v2-event-reminders')),
+      240,
+      scrollable: find
+          .descendant(
+            of: find.byKey(const ValueKey('theme-v2-event-editor-scroll')),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await tester.tap(find.byKey(const ValueKey('theme-v2-event-reminders')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('reminder-option-15')));
+    await tester.tap(find.byKey(const ValueKey('reminder-option-30')));
+    await tester.tap(find.byKey(const ValueKey('reminder-save')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('提前 30 分钟'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('theme-v2-event-save')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(savedBody?['reminder_offsets_minutes'], <int>[30]);
+  });
 }
 
 const _event = <String, dynamic>{

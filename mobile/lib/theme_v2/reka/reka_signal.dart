@@ -2,9 +2,11 @@ import 'package:flutter/foundation.dart';
 
 enum RekaSignalKind { overdue, rhythmGap, report }
 
-enum RekaSignalTargetType { asset, skill, triggerExecution }
+enum RekaSignalTargetType { asset, skill, triggerExecution, reportRun, report }
 
-enum RekaSignalAction { open, complete, reschedule, dismiss }
+enum RekaSignalAction { open, complete, reschedule, snooze, dismiss }
+
+enum RekaReportPhase { opportunity, planReady, reportReady }
 
 @immutable
 class RekaSignalTarget {
@@ -26,6 +28,11 @@ class RekaSignal {
     required this.actions,
     required this.deliveredAt,
     this.expiresAt,
+    this.reportPhase,
+    this.chainId,
+    this.evidence = const {},
+    this.reportRunId,
+    this.reportId,
   });
 
   final String id;
@@ -37,6 +44,11 @@ class RekaSignal {
   final List<RekaSignalAction> actions;
   final DateTime deliveredAt;
   final DateTime? expiresAt;
+  final RekaReportPhase? reportPhase;
+  final String? chainId;
+  final Map<String, dynamic> evidence;
+  final String? reportRunId;
+  final String? reportId;
 
   static RekaSignal? tryParse(Map<String, dynamic> json) {
     final id = _text(json['id']);
@@ -73,11 +85,24 @@ class RekaSignal {
       actions: List<RekaSignalAction>.unmodifiable(actions),
       deliveredAt: deliveredAt,
       expiresAt: DateTime.tryParse(_text(json['expires_at'])),
+      reportPhase: _reportPhase(json['phase']),
+      chainId: _nullableText(json['chain_id']),
+      evidence: json['evidence'] is Map
+          ? Map<String, dynamic>.unmodifiable(
+              (json['evidence'] as Map).cast<String, dynamic>(),
+            )
+          : const {},
+      reportRunId: _nullableText(json['report_run_id']),
+      reportId: _nullableText(json['report_id']),
     );
   }
 }
 
 String _text(Object? value) => value is String ? value.trim() : '';
+String? _nullableText(Object? value) {
+  final text = _text(value);
+  return text.isEmpty ? null : text;
+}
 
 RekaSignalKind? _kind(Object? value) => switch (_text(value)) {
   'overdue' => RekaSignalKind.overdue,
@@ -90,6 +115,8 @@ RekaSignalTargetType? _targetType(Object? value) => switch (_text(value)) {
   'asset' => RekaSignalTargetType.asset,
   'skill' => RekaSignalTargetType.skill,
   'trigger_execution' => RekaSignalTargetType.triggerExecution,
+  'report_run' => RekaSignalTargetType.reportRun,
+  'report' => RekaSignalTargetType.report,
   _ => null,
 };
 
@@ -97,6 +124,14 @@ RekaSignalAction? _action(Object? value) => switch (_text(value)) {
   'open' => RekaSignalAction.open,
   'complete' => RekaSignalAction.complete,
   'reschedule' => RekaSignalAction.reschedule,
+  'snooze' => RekaSignalAction.snooze,
   'dismiss' => RekaSignalAction.dismiss,
+  _ => null,
+};
+
+RekaReportPhase? _reportPhase(Object? value) => switch (_text(value)) {
+  'opportunity' => RekaReportPhase.opportunity,
+  'plan_ready' => RekaReportPhase.planReady,
+  'report_ready' => RekaReportPhase.reportReady,
   _ => null,
 };

@@ -1,7 +1,16 @@
 from datetime import datetime, timezone
 from typing import Literal
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_serializer
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_serializer,
+    field_validator,
+)
+
+from app.domains.reminders.preferences import normalize_reminder_offsets
 
 
 def _as_utc_z(value: datetime | None) -> str | None:
@@ -95,10 +104,16 @@ class EventCreate(BaseModel):
     start_at: datetime
     end_at: datetime
     all_day: bool = False
+    reminder_offsets_minutes: list[int] = Field(default_factory=lambda: [15])
     status: Literal["scheduled", "cancelled", "done"] = "scheduled"
     attendees: list[EventAttendeeCreate] = Field(default_factory=list)
     recurrence_rule: str | None = Field(default=None, max_length=500)
     source_input_turn_id: str | None = None
+
+    @field_validator("reminder_offsets_minutes", mode="before")
+    @classmethod
+    def normalize_reminders(cls, value):
+        return normalize_reminder_offsets(value, missing_uses_default=True)
 
 
 class EventUpdate(BaseModel):
@@ -108,9 +123,15 @@ class EventUpdate(BaseModel):
     start_at: datetime | None = None
     end_at: datetime | None = None
     all_day: bool | None = None
+    reminder_offsets_minutes: list[int] | None = None
     status: Literal["scheduled", "cancelled", "done"] | None = None
     attendees: list[EventAttendeeCreate] | None = None
     recurrence_rule: str | None = Field(default=None, max_length=500)
+
+    @field_validator("reminder_offsets_minutes", mode="before")
+    @classmethod
+    def normalize_reminders(cls, value):
+        return normalize_reminder_offsets(value, missing_uses_default=True)
 
 
 class UserSkillRead(BaseModel):
@@ -180,6 +201,10 @@ class EventRead(BaseModel):
     start_at: datetime
     end_at: datetime
     all_day: bool
+    reminder_offsets_minutes: list[int] = Field(
+        default_factory=lambda: [15],
+        validation_alias="reminder_offsets_json",
+    )
     status: str
     created_at: datetime
     updated_at: datetime
@@ -190,6 +215,11 @@ class EventRead(BaseModel):
     source_recording_id: str | None = None
     source_input_turn_id: str | None = None
     recurrence_rule: str | None = None
+
+    @field_validator("reminder_offsets_minutes", mode="before")
+    @classmethod
+    def normalize_reminders(cls, value):
+        return normalize_reminder_offsets(value, missing_uses_default=True)
 
     @field_serializer("start_at", "end_at", "created_at", "updated_at")
     def serialize_timestamp(self, value: datetime) -> str:

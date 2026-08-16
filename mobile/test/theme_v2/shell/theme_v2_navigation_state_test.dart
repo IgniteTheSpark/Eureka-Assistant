@@ -459,19 +459,35 @@ void main() {
   testWidgets('Home Reka entry opens signals instead of notifications', (
     tester,
   ) async {
+    tester.view.physicalSize = const Size(411, 960);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(
       _ThemeHost(
         child: ThemeV2AppShell(
           showStartupOverlays: false,
+          todayDotExperimentOverride: true,
           deviceStatus: const DeviceStatusSummary.disconnected(),
-          homeRepository: const _HomeRepository(),
+          homeRepository: _HomeRepository(
+            TodayData.empty.withRekaQueue([
+              TodayRekaItem(
+                id: 'signal-1',
+                type: 'rhythm_gap',
+                title: '跑步还没有记录',
+                body: '可以现在补上一笔',
+                link: '',
+                createdAt: DateTime(2026, 8, 16),
+              ),
+            ]),
+          ),
           rekaSignalRepository: _RekaRepository(),
         ),
       ),
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('查看全部'));
+    await tester.tap(find.text('1'));
     await tester.pumpAndSettle();
 
     expect(find.byType(RekaSignalsPage), findsOneWidget);
@@ -686,10 +702,12 @@ class _ThemeProbe extends StatelessWidget {
 }
 
 class _HomeRepository implements ThemeV2HomeRepository {
-  const _HomeRepository();
+  const _HomeRepository([this.data = TodayData.empty]);
+
+  final TodayData data;
 
   @override
-  Future<TodayData> load() async => TodayData.empty;
+  Future<TodayData> load() async => data;
 }
 
 class _RekaRepository implements RekaSignalRepository {

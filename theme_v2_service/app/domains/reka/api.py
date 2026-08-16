@@ -7,8 +7,20 @@ from app.auth.dependencies import get_current_user_id
 from app.config import get_settings
 from app.db.base import utc_now
 from app.db.session import get_session
-from app.domains.reka.schemas import RekaDismissResponse, RekaSignalsResponse
-from app.domains.reka.service import SignalNotFound, dismiss_signal, list_signals
+from app.domains.reka.schemas import (
+    RekaDismissResponse,
+    RekaSignalsResponse,
+    RekaSnoozeRequest,
+    RekaSnoozeResponse,
+)
+from app.domains.reka.service import (
+    InvalidSnoozeTime,
+    SignalCannotSnooze,
+    SignalNotFound,
+    dismiss_signal,
+    list_signals,
+    snooze_signal,
+)
 
 
 router = APIRouter(prefix="/api/reka/signals", tags=["reka"])
@@ -53,3 +65,31 @@ async def dismiss_reka_signal(
     except SignalNotFound as exc:
         raise HTTPException(status_code=404, detail="not found") from exc
     return {"ok": True, "status": nudge.status}
+
+
+@router.post("/{signal_id}/snooze", response_model=RekaSnoozeResponse)
+async def snooze_reka_signal(
+    signal_id: str,
+    command: RekaSnoozeRequest,
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+):
+    try:
+        nudge = await snooze_signal(
+            session,
+            user_id=user_id,
+            signal_id=signal_id,
+            remind_again_at=command.remind_again_at,
+            now=utc_now(),
+        )
+    except SignalNotFound as exc:
+        raise HTTPException(status_code=404, detail="not found") from exc
+    except SignalCannotSnooze as exc:
+        raise HTTPException(status_code=409, detail="signal cannot be snoozed") from exc
+    except InvalidSnoozeTime as exc:
+        raise HTTPException(status_code=422, detail="remind_again_at must be future") from exc
+    return {
+        "ok": True,
+        "status": nudge.status,
+        "remind_again_at": nudge.remind_again_at,
+    }

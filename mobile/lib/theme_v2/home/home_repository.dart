@@ -64,6 +64,8 @@ List<TodayRekaItem> mapTodayRekaSignals(Iterable<RekaSignal> signals) {
           RekaSignalTargetType.asset => 'asset',
           RekaSignalTargetType.skill => 'skill',
           RekaSignalTargetType.triggerExecution => 'trigger_execution',
+          RekaSignalTargetType.reportRun => 'report_run',
+          RekaSignalTargetType.report => 'report',
         },
         targetId: signal.target.id,
         actions: List<String>.unmodifiable(
@@ -72,11 +74,22 @@ List<TodayRekaItem> mapTodayRekaSignals(Iterable<RekaSignal> signals) {
               RekaSignalAction.open => 'open',
               RekaSignalAction.complete => 'complete',
               RekaSignalAction.reschedule => 'reschedule',
+              RekaSignalAction.snooze => 'snooze',
               RekaSignalAction.dismiss => 'dismiss',
             },
           ),
         ),
         expiresAt: signal.expiresAt?.toLocal(),
+        reportPhase: switch (signal.reportPhase) {
+          RekaReportPhase.opportunity => 'opportunity',
+          RekaReportPhase.planReady => 'plan_ready',
+          RekaReportPhase.reportReady => 'report_ready',
+          null => null,
+        },
+        chainId: signal.chainId,
+        evidence: signal.evidence,
+        reportRunId: signal.reportRunId,
+        reportId: signal.reportId,
       ),
     );
   }

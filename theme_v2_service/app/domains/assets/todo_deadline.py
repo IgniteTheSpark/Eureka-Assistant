@@ -7,6 +7,8 @@ from datetime import date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from app.domains.reminders.preferences import normalize_reminder_offsets
+
 
 logger = logging.getLogger(__name__)
 
@@ -150,4 +152,17 @@ def normalize_new_todo_payload(
     )
     result["due_date"] = deadline.isoformat()
     result["status"] = "completed" if deadline < reference else "pending"
+    result["reminder_offsets_minutes"] = normalize_reminder_offsets(
+        result.get("reminder_offsets_minutes"),
+        missing_uses_default=True,
+    )
+    return result
+
+
+def normalize_todo_reminder_preferences(payload: Mapping[str, Any]) -> dict[str, Any]:
+    result = dict(payload)
+    result["reminder_offsets_minutes"] = normalize_reminder_offsets(
+        result.get("reminder_offsets_minutes"),
+        missing_uses_default=True,
+    )
     return result

@@ -1,6 +1,14 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, CHAR, Index, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    CHAR,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -63,3 +71,31 @@ class OutboxEvent(Base):
     attempt: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     published_at: Mapped[datetime | None] = mapped_column(mysql.DATETIME(fsp=6))
     last_error: Mapped[str | None] = mapped_column(Text)
+
+
+class ReminderDelivery(Base):
+    __tablename__ = "reminder_deliveries"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "natural_key",
+            name="uq_reminder_deliveries_user_natural_key",
+        ),
+        Index("ix_reminder_deliveries_user_delivered", "user_id", "delivered_at"),
+    )
+
+    id: Mapped[str] = mapped_column(CHAR(36), primary_key=True, default=new_uuid)
+    user_id: Mapped[str] = mapped_column(CHAR(36), nullable=False)
+    natural_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    record_kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    record_id: Mapped[str] = mapped_column(CHAR(36), nullable=False)
+    anchor_at: Mapped[datetime] = mapped_column(mysql.DATETIME(fsp=6), nullable=False)
+    offset_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
+    notification_id: Mapped[str | None] = mapped_column(
+        CHAR(36),
+    )
+    delivered_at: Mapped[datetime] = mapped_column(
+        mysql.DATETIME(fsp=6),
+        default=utc_now,
+        nullable=False,
+    )

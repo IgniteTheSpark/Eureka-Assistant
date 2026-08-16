@@ -153,6 +153,7 @@ async def test_report_action_is_owner_scoped_idempotent_and_has_provenance(
         "due_date": "2026-08-10T09:00:00+08:00",
         "domain": "productivity",
         "status": "completed",
+        "reminder_offsets_minutes": [15],
     }
     assert payload["source_report_id"] == report.id
     assert payload["source_report_action_id"] == "action-grounded"

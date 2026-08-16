@@ -14,7 +14,7 @@ class _UtcModel(BaseModel):
 
 
 class RekaSignalTarget(BaseModel):
-    type: Literal["asset", "skill", "trigger_execution"]
+    type: Literal["asset", "skill", "trigger_execution", "report_run", "report"]
     id: str
 
 
@@ -28,6 +28,11 @@ class RekaSignalPayload(_UtcModel):
     actions: list[str]
     delivered_at: datetime
     expires_at: datetime | None = None
+    phase: Literal["opportunity", "plan_ready", "report_ready"] | None = None
+    chain_id: str | None = None
+    evidence: dict | None = None
+    report_run_id: str | None = None
+    report_id: str | None = None
 
 
 class RekaSignalsResponse(_UtcModel):
@@ -40,3 +45,13 @@ class RekaSignalsResponse(_UtcModel):
 class RekaDismissResponse(BaseModel):
     ok: bool = True
     status: str
+
+
+class RekaSnoozeRequest(BaseModel):
+    remind_again_at: datetime
+
+
+class RekaSnoozeResponse(_UtcModel):
+    ok: bool = True
+    status: str
+    remind_again_at: datetime

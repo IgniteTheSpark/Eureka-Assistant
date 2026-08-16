@@ -263,6 +263,7 @@ class Event(Base):
     start_at: Mapped[datetime] = mapped_column(mysql.DATETIME(fsp=6), nullable=False)
     end_at: Mapped[datetime] = mapped_column(mysql.DATETIME(fsp=6), nullable=False)
     all_day: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    reminder_offsets_json: Mapped[list | None] = mapped_column(mysql.JSON)
     status: Mapped[str] = mapped_column(
         String(32),
         default="scheduled",

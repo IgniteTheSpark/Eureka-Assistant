@@ -17,7 +17,7 @@ void main() {
         'title': '参加面试 已到截止时间',
         'body': '这项待办仍未完成，可以现在处理或调整时间。',
         'target': {'type': 'asset', 'id': 'todo-1'},
-        'actions': ['open', 'complete', 'reschedule', 'dismiss', 'unknown'],
+        'actions': ['open', 'snooze', 'dismiss', 'unknown'],
         'delivered_at': '2026-08-10T03:57:32Z',
         'expires_at': '2026-08-10T22:00:00Z',
       });
@@ -28,8 +28,7 @@ void main() {
       expect(signal.target.id, 'todo-1');
       expect(signal.actions, [
         RekaSignalAction.open,
-        RekaSignalAction.complete,
-        RekaSignalAction.reschedule,
+        RekaSignalAction.snooze,
         RekaSignalAction.dismiss,
       ]);
       expect(signal.expiresAt, DateTime.parse('2026-08-10T22:00:00Z'));
@@ -63,19 +62,80 @@ void main() {
     test('parses a report offer backed by a trigger execution', () {
       final signal = RekaSignal.tryParse({
         'id': 'report-offer',
-        'natural_key': 'report:execution-1',
+        'natural_key': 'report:execution-1:opportunity',
         'kind': 'report',
         'title': '为球队建设会议准备会前调研',
         'body': '会议即将开始，可以先确认调研范围。',
         'target': {'type': 'trigger_execution', 'id': 'execution-1'},
         'actions': ['open', 'dismiss'],
         'delivered_at': '2026-08-10T03:57:32Z',
+        'phase': 'opportunity',
+        'chain_id': 'execution-1',
+        'evidence': {'event_title': '球队建设会议'},
       });
 
       expect(signal, isNotNull);
       expect(signal!.kind, RekaSignalKind.report);
       expect(signal.target.type, RekaSignalTargetType.triggerExecution);
       expect(signal.target.id, 'execution-1');
+      expect(signal.reportPhase, RekaReportPhase.opportunity);
+      expect(signal.chainId, 'execution-1');
+      expect(signal.evidence, {'event_title': '球队建设会议'});
+    });
+
+    test('parses plan-ready and report-ready targets', () {
+      final plan = RekaSignal.tryParse({
+        'id': 'plan-ready',
+        'natural_key': 'report:execution-1:plan_ready',
+        'kind': 'report',
+        'title': '报告方案已准备好',
+        'body': '可以查看方案。',
+        'target': {'type': 'report_run', 'id': 'run-1'},
+        'actions': ['open', 'dismiss'],
+        'delivered_at': '2026-08-10T03:57:32Z',
+        'phase': 'plan_ready',
+        'chain_id': 'execution-1',
+        'report_run_id': 'run-1',
+      });
+      final ready = RekaSignal.tryParse({
+        'id': 'report-ready',
+        'natural_key': 'report:execution-1:report_ready',
+        'kind': 'report',
+        'title': '报告已生成',
+        'body': '产品路线研究',
+        'target': {'type': 'report', 'id': 'report-1'},
+        'actions': ['open', 'dismiss'],
+        'delivered_at': '2026-08-10T03:57:32Z',
+        'phase': 'report_ready',
+        'chain_id': 'execution-1',
+        'report_run_id': 'run-1',
+        'report_id': 'report-1',
+      });
+
+      expect(plan!.reportPhase, RekaReportPhase.planReady);
+      expect(plan.target.type, RekaSignalTargetType.reportRun);
+      expect(plan.reportRunId, 'run-1');
+      expect(ready!.reportPhase, RekaReportPhase.reportReady);
+      expect(ready.target.type, RekaSignalTargetType.report);
+      expect(ready.reportId, 'report-1');
+    });
+
+    test('keeps a valid signal when a future phase or action is unknown', () {
+      final signal = RekaSignal.tryParse({
+        'id': 'future-report-phase',
+        'natural_key': 'report:execution-1:future',
+        'kind': 'report',
+        'title': '新的报告阶段',
+        'body': '',
+        'target': {'type': 'report_run', 'id': 'run-1'},
+        'actions': ['open', 'future_action'],
+        'delivered_at': '2026-08-10T03:57:32Z',
+        'phase': 'future_phase',
+      });
+
+      expect(signal, isNotNull);
+      expect(signal!.reportPhase, isNull);
+      expect(signal.actions, [RekaSignalAction.open]);
     });
   });
 
@@ -138,6 +198,29 @@ void main() {
         expect(jsonDecode(requested.body), isEmpty);
       },
     );
+
+    test('snoozes one overdue signal until a concrete UTC timestamp', () async {
+      late http.Request requested;
+      final api = _api((request) async {
+        requested = request;
+        return _json({
+          'ok': true,
+          'status': 'delivered',
+          'remind_again_at': '2026-08-10T10:15:00Z',
+        });
+      });
+      addTearDown(api.close);
+
+      await ApiRekaSignalRepository(
+        api,
+      ).snooze('signal-1', DateTime.parse('2026-08-10T18:15:00+08:00'));
+
+      expect(requested.method, 'POST');
+      expect(requested.url.path, '/api/reka/signals/signal-1/snooze');
+      expect(jsonDecode(requested.body), {
+        'remind_again_at': '2026-08-10T10:15:00Z',
+      });
+    });
 
     test(
       'completes an overdue target through the canonical asset endpoint',

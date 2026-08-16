@@ -16,6 +16,7 @@ class RekaSignalBatch {
 abstract interface class RekaSignalRepository {
   Future<RekaSignalBatch> load({String timezoneName = 'Asia/Shanghai'});
   Future<void> dismiss(String signalId);
+  Future<void> snooze(String signalId, DateTime remindAgainAt);
   Future<void> completeTodo(String assetId);
 }
 
@@ -65,6 +66,14 @@ class ApiRekaSignalRepository implements RekaSignalRepository {
   }
 
   @override
+  Future<void> snooze(String signalId, DateTime remindAgainAt) async {
+    await _api.postJson(
+      '/api/reka/signals/${Uri.encodeComponent(signalId)}/snooze',
+      <String, dynamic>{'remind_again_at': _utcZ(remindAgainAt)},
+    );
+  }
+
+  @override
   Future<void> completeTodo(String assetId) async {
     await _api.putJson('/api/assets/${Uri.encodeComponent(assetId)}', {
       'payload_patch': {'status': 'done'},
@@ -75,3 +84,6 @@ class ApiRekaSignalRepository implements RekaSignalRepository {
     if (_ownsApi) _api.close();
   }
 }
+
+String _utcZ(DateTime value) =>
+    value.toUtc().toIso8601String().replaceFirst(RegExp(r'\.000Z$'), 'Z');

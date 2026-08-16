@@ -15,6 +15,8 @@ import '../theme_v2/foundation/canonical_entity_identity.dart';
 import '../theme_v2/foundation/theme_v2_theme.dart';
 import '../theme_v2/foundation/theme_v2_tokens.dart';
 import '../theme_v2/foundation/theme_v2_typography.dart';
+import '../theme_v2/reminders/reminder_configuration_sheet.dart';
+import '../theme_v2/reminders/reminder_preferences.dart';
 import 'event_attendees.dart';
 
 /// Build the field-rendering RenderSpec for a skill from its payload_schema
@@ -99,6 +101,27 @@ void showCreateMenu(BuildContext context, {DateTime? presetDate}) {
       borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
     ),
     builder: (_) => _CreateMenu(presetDate: presetDate),
+  );
+}
+
+Future<void> openThemeV2SkillCapture(
+  BuildContext context, {
+  required String skillName,
+  required String displayName,
+}) async {
+  await Navigator.of(context).push<dynamic>(
+    MaterialPageRoute<dynamic>(
+      builder: (_) => ThemeV2AssetEditPage(
+        reference: AssetEntityRef(
+          kind: AssetEntityKind.asset,
+          id: 'new:$skillName',
+        ),
+        initialValues: const {},
+        mode: AssetEditMode.create,
+        skillName: skillName,
+        displayName: displayName,
+      ),
+    ),
   );
 }
 
@@ -354,6 +377,7 @@ class _EventFormState extends State<EventForm> {
   // An event needs a time span: either an end_at after start, or all_day=1.
   late DateTime _end;
   bool _allDay = false;
+  late List<int> _reminderOffsets;
   bool _busy = false;
   bool _attendeeSyncBlocked = false;
   String? _error;
@@ -368,6 +392,7 @@ class _EventFormState extends State<EventForm> {
     final e = widget.existing;
     _originalAttendees = eventAttendeeDraftsFromExisting(e?['attendees']);
     _attendees = List<EventAttendeeDraft>.of(_originalAttendees);
+    _reminderOffsets = normalizeReminderOffsets(e?['reminder_offsets_minutes']);
     if (e != null) {
       _title.text = '${e['title'] ?? ''}';
       _location.text = '${e['location'] ?? ''}';
@@ -515,6 +540,15 @@ class _EventFormState extends State<EventForm> {
     });
   }
 
+  Future<void> _pickReminders() async {
+    final selected = await showReminderConfigurationSheet(
+      context,
+      initialOffsets: _reminderOffsets,
+    );
+    if (selected == null || !mounted) return;
+    setState(() => _reminderOffsets = selected);
+  }
+
   Future<void> _save() async {
     if (_busy || _attendeeSyncBlocked) return;
     if (_title.text.trim().isEmpty) {
@@ -540,6 +574,8 @@ class _EventFormState extends State<EventForm> {
         'all_day': widget.coreRecordsOnly ? _allDay : (_allDay ? 1 : 0),
         'location': _location.text.trim(),
         'description': _desc.text.trim(),
+        if (widget.coreRecordsOnly)
+          'reminder_offsets_minutes': _reminderOffsets,
         if (widget.coreRecordsOnly)
           'attendees': [
             for (final attendee in _attendees)
@@ -1030,6 +1066,24 @@ class _EventFormState extends State<EventForm> {
                         onTap: () => _pick(isStart: false),
                       ),
                     ],
+                    const SizedBox(height: ThemeV2Spacing.lg),
+                    Material(
+                      color: tokens.surface,
+                      shape: RoundedRectangleBorder(
+                        side: BorderSide(color: tokens.border),
+                        borderRadius: BorderRadius.circular(ThemeV2Radii.md),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: ListTile(
+                        key: const ValueKey('theme-v2-event-reminders'),
+                        minTileHeight: ThemeV2Sizes.minTouchTarget,
+                        leading: const Icon(Icons.notifications_none_rounded),
+                        title: const Text('提醒'),
+                        subtitle: Text(formatReminderSummary(_reminderOffsets)),
+                        trailing: const Icon(Icons.chevron_right_rounded),
+                        onTap: _pickReminders,
+                      ),
+                    ),
                     const SizedBox(height: ThemeV2Spacing.lg),
                     TextField(
                       key: const ValueKey('theme-v2-event-location'),

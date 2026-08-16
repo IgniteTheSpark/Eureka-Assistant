@@ -22,6 +22,7 @@ class Nudge(Base):
         Index("ix_nudges_user_status", "user_id", "status"),
         Index("ix_nudges_user_kind_ref", "user_id", "kind", "ref"),
         Index("ix_nudges_expiry", "expires_at"),
+        Index("ix_nudges_remind_again", "remind_again_at"),
     )
 
     id: Mapped[str] = mapped_column(CHAR(36), primary_key=True, default=new_uuid)
@@ -38,6 +39,7 @@ class Nudge(Base):
     acted_at: Mapped[datetime | None] = mapped_column(mysql.DATETIME(fsp=6))
     dismissed_at: Mapped[datetime | None] = mapped_column(mysql.DATETIME(fsp=6))
     expires_at: Mapped[datetime | None] = mapped_column(mysql.DATETIME(fsp=6))
+    remind_again_at: Mapped[datetime | None] = mapped_column(mysql.DATETIME(fsp=6))
     created_at: Mapped[datetime] = mapped_column(
         mysql.DATETIME(fsp=6),
         default=utc_now,

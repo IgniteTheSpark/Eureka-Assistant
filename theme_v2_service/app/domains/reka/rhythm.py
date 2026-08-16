@@ -40,8 +40,11 @@ class RhythmCandidate:
     skill: str
     display_name: str
     pattern_key: str
+    cadence: str
     period: str | None
+    weekdays: tuple[int, ...]
     confidence: float
+    sample_n: int
     cycle_key: str
     natural_key: str
     ref: str
@@ -462,8 +465,11 @@ async def collect_rhythm_candidates(
                     skill=profile.skill,
                     display_name=display_names.get(profile.skill, profile.skill),
                     pattern_key=pattern.pattern_key,
+                    cadence=pattern.cadence,
                     period=pattern.period,
+                    weekdays=pattern.weekdays,
                     confidence=pattern.confidence,
+                    sample_n=pattern.sample_n,
                     cycle_key=gap.cycle_key,
                     natural_key=(
                         f"rhythm:{profile.skill}:{pattern.pattern_key}:{gap.cycle_key}"

@@ -382,6 +382,109 @@ void main() {
     expect(find.text('2026-08-01T17:07:00Z'), findsNothing);
     expect(find.text('false'), findsNothing);
   });
+
+  testWidgets('todo detail edits its pre-due reminder offsets', (tester) async {
+    final model = AssetDetailModel.fromJson(_todoEnvelope());
+    final repository = _RecordingRepository(model);
+    final controller = AssetDetailController(
+      repository: repository,
+      ref: model.ref,
+    );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(_host(ThemeV2AssetDetailSurface(controller)));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('asset-detail-reminders')),
+      findsOneWidget,
+    );
+    expect(find.text('提前 15 分钟'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('asset-detail-reminders')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('reminder-option-15')));
+    await tester.tap(find.byKey(const ValueKey('reminder-option-60')));
+    await tester.tap(find.byKey(const ValueKey('reminder-save')));
+    await tester.pumpAndSettle();
+
+    expect(repository.savedPatch, {
+      'reminder_offsets_minutes': <int>[60],
+    });
+  });
+
+  testWidgets('overdue todo replaces pre-due reminders with snooze actions', (
+    tester,
+  ) async {
+    final now = DateTime(2026, 8, 14, 10, 30);
+    DateTime? snoozedUntil;
+    var dismissed = false;
+    final model = AssetDetailModel.fromJson(_todoEnvelope());
+    final controller = AssetDetailController(
+      repository: _FakeRepository(model),
+      ref: model.ref,
+    );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      _host(
+        ThemeV2AssetDetailSurface(
+          controller,
+          overdueReminder: RekaOverdueReminderContext(
+            now: () => now,
+            onSnooze: (value) async => snoozedUntil = value,
+            onDismiss: () async => dismissed = true,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('asset-detail-reminders')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('asset-detail-overdue-reminder')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey('overdue-snooze-60')));
+    await tester.pump();
+    expect(snoozedUntil, now.add(const Duration(hours: 1)));
+
+    await tester.tap(find.byKey(const ValueKey('overdue-dismiss')));
+    await tester.pump();
+    expect(dismissed, isTrue);
+  });
+
+  testWidgets('completed todo hides reminder and overdue snooze controls', (
+    tester,
+  ) async {
+    final json = _todoEnvelope();
+    (json['values'] as Map<String, dynamic>)['status'] = 'done';
+    final model = AssetDetailModel.fromJson(json);
+    final controller = AssetDetailController(
+      repository: _FakeRepository(model),
+      ref: model.ref,
+    );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      _host(
+        ThemeV2AssetDetailSurface(
+          controller,
+          overdueReminder: RekaOverdueReminderContext(
+            now: () => DateTime(2026, 8, 14, 10, 30),
+            onSnooze: (_) async {},
+            onDismiss: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('asset-detail-reminders')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('asset-detail-overdue-reminder')),
+      findsNothing,
+    );
+  });
 }
 
 class _FakeRepository implements AssetDetailRepository {
@@ -397,6 +500,28 @@ class _FakeRepository implements AssetDetailRepository {
     AssetDetailModel current,
     Map<String, dynamic> valuesPatch,
   ) async => current;
+
+  @override
+  Future<void> delete(AssetEntityRef ref) async {}
+}
+
+class _RecordingRepository implements AssetDetailRepository {
+  _RecordingRepository(this.model);
+
+  final AssetDetailModel model;
+  Map<String, dynamic>? savedPatch;
+
+  @override
+  Future<AssetDetailModel> load(AssetEntityRef ref) async => model;
+
+  @override
+  Future<AssetDetailModel> save(
+    AssetDetailModel current,
+    Map<String, dynamic> valuesPatch,
+  ) async {
+    savedPatch = Map<String, dynamic>.from(valuesPatch);
+    return current;
+  }
 
   @override
   Future<void> delete(AssetEntityRef ref) async {}
@@ -452,6 +577,37 @@ Map<String, dynamic> _eventEnvelope({required String title}) => {
   'fields': [_field('title', '标题', order: 0, required: true)],
   'values': {'title': title},
   'display': {'primary_field_id': 'title', 'secondary_field_ids': <String>[]},
+  'source': {
+    'kind': 'manual',
+    'label': '手动创建',
+    'session_id': null,
+    'input_turn_id': null,
+  },
+  'capabilities': {'editable': true, 'deletable': true},
+};
+
+Map<String, dynamic> _todoEnvelope() => {
+  'entity': {'kind': 'asset', 'id': 'todo-1', 'version': 'version-1'},
+  'skill': {
+    'id': 'skill-todo',
+    'machine_name': 'todo',
+    'display_name': '待办',
+    'icon': '☑',
+  },
+  'fields': [
+    _field('title', '标题', order: 0, required: true),
+    _field('due_date', '截止时间', order: 1),
+  ],
+  'values': {
+    'title': '提交方案',
+    'due_date': '2026-08-14T09:00:00+08:00',
+    'status': 'pending',
+    'reminder_offsets_minutes': <int>[15],
+  },
+  'display': {
+    'primary_field_id': 'title',
+    'secondary_field_ids': ['due_date'],
+  },
   'source': {
     'kind': 'manual',
     'label': '手动创建',
