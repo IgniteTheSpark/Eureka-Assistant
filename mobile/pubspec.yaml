@@ -52,6 +52,8 @@ dependencies:
   # On-device speech-to-text for 闪念 voice capture (web: Web Speech API,
   # iOS: native SFSpeechRecognizer) — partial results stream in live.
   speech_to_text: ^7.0.0
+  # Local microphone recording (WAV/PCM output) for 本地录音 → 后端 ASR.
+  record: ^7.1.1
   # Persist the auth token across launches (login session).
   shared_preferences: ^2.3.0
   # Render the brand logo (vector SVG) crisply at any size.
