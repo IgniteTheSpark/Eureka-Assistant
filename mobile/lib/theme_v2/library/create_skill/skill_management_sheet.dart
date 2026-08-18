@@ -45,8 +45,10 @@ class _ThemeV2SkillManagementSheetState
             children: [
               _header(),
               Expanded(child: _body()),
-              if (widget.controller.state == SkillManagementState.ready ||
-                  widget.controller.state == SkillManagementState.saving)
+              if (widget.controller.skill != null &&
+                  (widget.controller.state == SkillManagementState.ready ||
+                      widget.controller.state == SkillManagementState.saving ||
+                      widget.controller.state == SkillManagementState.error))
                 _footer(),
             ],
           ),

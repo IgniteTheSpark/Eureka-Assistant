@@ -36,6 +36,47 @@ void main() {
     expect(find.byKey(const ValueKey('custom-skill-delete')), findsOneWidget);
   });
 
+  testWidgets('failed management save keeps the draft available for retry', (
+    tester,
+  ) async {
+    final repository = _FakeRepository(_multiFieldSkill())..failSave = true;
+    final controller = SkillManagementController(
+      repository: repository,
+      userSkillId: 'tennis-id',
+    );
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildThemeV2Theme(Brightness.light),
+        home: ThemeV2SkillManagementSheet(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(ValueKey('skill-name-${controller.skill!.updatedAt}')),
+      '室内网球',
+    );
+    controller.cardSelection!.selectPrimary('surface');
+
+    await tester.tap(find.text('保存修改'));
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byType(ListView), const Offset(0, -1200));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('保存失败'), findsOneWidget);
+    expect(find.text('保存修改'), findsOneWidget);
+    expect(controller.displayName, '室内网球');
+    expect(controller.cardSelection!.config.primaryFieldId, 'surface');
+
+    repository.failSave = false;
+    await tester.tap(find.text('保存修改'));
+    await tester.pumpAndSettle();
+
+    expect(repository.saved!.displayName, '室内网球');
+    expect(repository.saved!.renderSpec['primary_field'], 'surface');
+  });
+
   test(
     'existing keys and types stay locked while new fields stay optional',
     () async {
