@@ -45,16 +45,10 @@ bool _isConfirmedPersistedMutationToolResult(
   if (!_persistedMutationToolNames.contains(name)) return false;
   final payloads = _toolResultPayloads(response);
   if (name == 'bulk_import') {
-    // Chat's bulk path is synthesized only from cards the backend already
-    // persisted, so its grouped card arrays are its success receipt.
-    return payloads.any(
-      (payload) => const {
-        'assets',
-        'events',
-        'contacts',
-        'tasks',
-      }.any((key) => payload[key] is List && (payload[key] as List).isNotEmpty),
-    );
+    // Live bulk results use the same explicit backend receipt as durable
+    // reconciliation. Old card-only payloads are deliberately legacy-only:
+    // a pending or failed pipeline can render provisional cards.
+    return payloads.any((payload) => payload['confirmed_mutation'] == true);
   }
   return payloads.any((payload) => payload['ok'] == true);
 }

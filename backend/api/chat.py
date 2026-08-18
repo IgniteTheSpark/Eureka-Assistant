@@ -187,7 +187,7 @@ def build_durable_tool_result(
     additive, explicit statement that one allowlisted write acknowledged
     persistence; clients must not infer it from render cards (deletes have no
     card). `bulk_mutation` is supplied only by the Flash pipeline's explicit
-    non-empty `derived_assets` contract.
+    successful non-empty `derived_assets` or `derived_events` contract.
     """
     results = [
         {
@@ -474,9 +474,15 @@ async def _run_chat_turn(
             )
             agent_text_parts = [agent_text]
             chat_turns.publish(turn_id, ("token", {"text": agent_text}))
-            if persist_cards:   # one synthetic tool_result → live viewer renders ALL cards
+            # Send an explicit mutation receipt even for event-only imports,
+            # which have no render card. Failed/pending card groups carry false.
+            if persist_cards or bulk_mutation:
+                live_bulk_response = {
+                    **_group_cards(persist_cards),
+                    "confirmed_mutation": bulk_mutation,
+                }
                 chat_turns.publish(turn_id, ("tool_result", {
-                    "name": "bulk_import", "response": _group_cards(persist_cards),
+                    "name": "bulk_import", "response": live_bulk_response,
                 }))
         else:
             async for evt_type, payload in _stream_assistant(

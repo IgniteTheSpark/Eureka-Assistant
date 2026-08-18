@@ -58,6 +58,7 @@ async def test_event_only_bulk_turn_persists_and_serializes_receipt() -> None:
     original_bulk_check = chat_api._looks_like_bulk
     original_publish = chat_api.chat_turns.publish
     original_close = chat_api.chat_turns.close
+    published = []
 
     async def fake_pipeline(**_kwargs):
         return {
@@ -90,7 +91,7 @@ async def test_event_only_bulk_turn_persists_and_serializes_receipt() -> None:
 
         chat_api.run_flash_pipeline = fake_pipeline
         chat_api._looks_like_bulk = lambda _text: True
-        chat_api.chat_turns.publish = lambda *_args, **_kwargs: None
+        chat_api.chat_turns.publish = lambda *_args, **_kwargs: published.append(_args)
         chat_api.chat_turns.close = fake_close
         await chat_api._run_chat_turn(
             turn_id=str(message_id),
@@ -122,6 +123,8 @@ async def test_event_only_bulk_turn_persists_and_serializes_receipt() -> None:
         )
         assert message["cards"] == []
         assert message["tool_result"]["confirmed_mutation"] is True
+        live_bulk = next(event for event in published if event[1][0] == "tool_result")
+        assert live_bulk[1][1]["response"]["confirmed_mutation"] is True
     finally:
         chat_api.run_flash_pipeline = original_pipeline
         chat_api._looks_like_bulk = original_bulk_check

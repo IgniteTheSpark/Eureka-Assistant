@@ -69,7 +69,7 @@ void main() {
     expect(dataMutationRevision.value, mutationBefore);
   });
 
-  test('persisted bulk-import cards publish a mutation', () async {
+  test('confirmed bulk asset import publishes a mutation', () async {
     restoreRevisions();
     final dataBefore = dataRevision.value;
     final mutationBefore = dataMutationRevision.value;
@@ -78,6 +78,7 @@ void main() {
         SseEvent('tool_result', {
           'name': 'bulk_import',
           'response': {
+            'confirmed_mutation': true,
             'assets': [
               {'asset_id': 'asset-1', 'payload': <String, dynamic>{}},
             ],
@@ -92,6 +93,107 @@ void main() {
 
     expect(dataRevision.value, dataBefore + 1);
     expect(dataMutationRevision.value, mutationBefore + 1);
+  });
+
+  test('confirmed event-only bulk import publishes a mutation', () async {
+    restoreRevisions();
+    final dataBefore = dataRevision.value;
+    final mutationBefore = dataMutationRevision.value;
+    final controller = ChatController(
+      turnStream: (_, _) => Stream<SseEvent>.fromIterable([
+        SseEvent('tool_result', {
+          'name': 'bulk_import',
+          'response': {
+            'confirmed_mutation': true,
+            'events': [
+              {'event_id': 'event-1', 'title': '日程'},
+            ],
+          },
+        }),
+        SseEvent('done', const {}),
+      ]),
+    );
+    addTearDown(controller.dispose);
+
+    await controller.send('批量导入日程');
+
+    expect(dataRevision.value, dataBefore + 1);
+    expect(dataMutationRevision.value, mutationBefore + 1);
+  });
+
+  test('confirmation-only bulk import publishes a mutation', () async {
+    restoreRevisions();
+    final dataBefore = dataRevision.value;
+    final mutationBefore = dataMutationRevision.value;
+    final controller = ChatController(
+      turnStream: (_, _) => Stream<SseEvent>.fromIterable([
+        SseEvent('tool_result', {
+          'name': 'bulk_import',
+          'response': {'confirmed_mutation': true},
+        }),
+        SseEvent('done', const {}),
+      ]),
+    );
+    addTearDown(controller.dispose);
+
+    await controller.send('批量导入已确认记录');
+
+    expect(dataRevision.value, dataBefore + 1);
+    expect(dataMutationRevision.value, mutationBefore + 1);
+  });
+
+  test(
+    'failed bulk cards with a false receipt only request a legacy refresh',
+    () async {
+      restoreRevisions();
+      final dataBefore = dataRevision.value;
+      final mutationBefore = dataMutationRevision.value;
+      final controller = ChatController(
+        turnStream: (_, _) => Stream<SseEvent>.fromIterable([
+          SseEvent('tool_result', {
+            'name': 'bulk_import',
+            'response': {
+              'confirmed_mutation': false,
+              'assets': [
+                {'asset_id': 'pending-asset', 'payload': <String, dynamic>{}},
+              ],
+            },
+          }),
+          SseEvent('done', const {}),
+        ]),
+      );
+      addTearDown(controller.dispose);
+
+      await controller.send('批量导入仍在处理中');
+
+      expect(dataRevision.value, dataBefore + 1);
+      expect(dataMutationRevision.value, mutationBefore);
+    },
+  );
+
+  test('legacy card-only bulk payload does not assert a mutation', () async {
+    restoreRevisions();
+    final dataBefore = dataRevision.value;
+    final mutationBefore = dataMutationRevision.value;
+    final controller = ChatController(
+      turnStream: (_, _) => Stream<SseEvent>.fromIterable([
+        SseEvent('tool_result', {
+          'name': 'bulk_import',
+          'response': {
+            'assets': [
+              {'asset_id': 'legacy-asset', 'payload': <String, dynamic>{}},
+            ],
+          },
+        }),
+        SseEvent('done', const {}),
+      ]),
+    );
+    addTearDown(controller.dispose);
+
+    await controller.send('旧版批量卡片');
+
+    expect(dataRevision.value, dataBefore + 1);
+    expect(dataMutationRevision.value, mutationBefore);
   });
 
   test('failed chat turn requests only a legacy refresh', () async {
