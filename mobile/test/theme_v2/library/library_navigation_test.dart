@@ -1300,6 +1300,7 @@ void main() {
   ) async {
     final dataBefore = dataRevision.value;
     final mutationBefore = dataMutationRevision.value;
+    final catchUpBefore = dataLibraryCatchUpRevision.value;
     final repository = _CountingRepository((await _controller()).overview!);
     final controller = LibraryController(
       repository: repository,
@@ -1313,14 +1314,22 @@ void main() {
     await tester.pump();
     expect(repository.loadCount, 1);
 
-    bumpData();
+    requestLibraryCatchUp();
+    requestLibraryCatchUp();
+    requestLibraryCatchUp();
     await tester.pump();
     expect(repository.loadCount, 2);
+    expect(dataLibraryCatchUpRevision.value, catchUpBefore + 1);
+
+    bumpData();
+    await tester.pump();
+    expect(repository.loadCount, 3);
     expect(find.byType(LibraryHub), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
     dataRevision.value = dataBefore;
     dataMutationRevision.value = mutationBefore;
+    dataLibraryCatchUpRevision.value = catchUpBefore;
   });
 
   testWidgets('zero-container state still exposes the independent AI action', (

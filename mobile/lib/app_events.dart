@@ -83,6 +83,7 @@ class AppEvents {
         await for (final ev in getSse(
           '/api/notifications/stream',
           client: client,
+          onSubscribed: requestLibraryCatchUp,
         )) {
           if (!_started || runId != _runId) break;
           _handle(ev);

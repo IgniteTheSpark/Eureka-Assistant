@@ -12,39 +12,70 @@ void main() {
   test('navigation refresh does not publish a mutation revision', () {
     final dataBefore = dataRevision.value;
     final mutationBefore = dataMutationRevision.value;
+    final catchUpBefore = dataLibraryCatchUpRevision.value;
     addTearDown(() {
       dataRevision.value = dataBefore;
       dataMutationRevision.value = mutationBefore;
+      dataLibraryCatchUpRevision.value = catchUpBefore;
     });
 
     requestDataRefresh();
 
     expect(dataRevision.value, dataBefore + 1);
     expect(dataMutationRevision.value, mutationBefore);
+    expect(dataLibraryCatchUpRevision.value, catchUpBefore);
   });
 
   test('confirmed mutation publishes both revisions', () {
     final dataBefore = dataRevision.value;
     final mutationBefore = dataMutationRevision.value;
+    final catchUpBefore = dataLibraryCatchUpRevision.value;
     addTearDown(() {
       dataRevision.value = dataBefore;
       dataMutationRevision.value = mutationBefore;
+      dataLibraryCatchUpRevision.value = catchUpBefore;
     });
 
     bumpData();
 
     expect(dataRevision.value, dataBefore + 1);
     expect(dataMutationRevision.value, mutationBefore + 1);
+    expect(dataLibraryCatchUpRevision.value, catchUpBefore);
   });
+
+  test(
+    'library catch-up coalesces without claiming a direct mutation',
+    () async {
+      final dataBefore = dataRevision.value;
+      final mutationBefore = dataMutationRevision.value;
+      final catchUpBefore = dataLibraryCatchUpRevision.value;
+      addTearDown(() {
+        dataRevision.value = dataBefore;
+        dataMutationRevision.value = mutationBefore;
+        dataLibraryCatchUpRevision.value = catchUpBefore;
+      });
+
+      requestLibraryCatchUp();
+      requestLibraryCatchUp();
+      requestLibraryCatchUp();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(dataRevision.value, dataBefore);
+      expect(dataMutationRevision.value, mutationBefore);
+      expect(dataLibraryCatchUpRevision.value, catchUpBefore + 1);
+    },
+  );
 
   testWidgets('DataRefreshObserver route pop requests only a legacy refresh', (
     tester,
   ) async {
     final dataBefore = dataRevision.value;
     final mutationBefore = dataMutationRevision.value;
+    final catchUpBefore = dataLibraryCatchUpRevision.value;
     addTearDown(() {
       dataRevision.value = dataBefore;
       dataMutationRevision.value = mutationBefore;
+      dataLibraryCatchUpRevision.value = catchUpBefore;
     });
     final observer = DataRefreshObserver();
 
@@ -76,39 +107,47 @@ void main() {
 
     expect(dataRevision.value, dataBefore + 1);
     expect(dataMutationRevision.value, mutationBefore);
+    expect(dataLibraryCatchUpRevision.value, catchUpBefore);
   });
 
-  testWidgets('legacy shell resume requests only a legacy refresh', (
+  testWidgets(
+    'legacy shell resume requests broad refresh and Library catch-up',
+    (tester) async {
+      final dataBefore = dataRevision.value;
+      final mutationBefore = dataMutationRevision.value;
+      final catchUpBefore = dataLibraryCatchUpRevision.value;
+      addTearDown(() {
+        dataRevision.value = dataBefore;
+        dataMutationRevision.value = mutationBefore;
+        dataLibraryCatchUpRevision.value = catchUpBefore;
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildEurekaTheme(EurekaColors.light),
+          home: const AppShell(),
+        ),
+      );
+      await tester.pump();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+
+      expect(dataRevision.value, dataBefore + 1);
+      expect(dataMutationRevision.value, mutationBefore);
+      expect(dataLibraryCatchUpRevision.value, catchUpBefore + 1);
+    },
+  );
+
+  testWidgets('Theme V2 shell resume catches up Library without mutation', (
     tester,
   ) async {
     final dataBefore = dataRevision.value;
     final mutationBefore = dataMutationRevision.value;
+    final catchUpBefore = dataLibraryCatchUpRevision.value;
     addTearDown(() {
       dataRevision.value = dataBefore;
       dataMutationRevision.value = mutationBefore;
-    });
-
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildEurekaTheme(EurekaColors.light),
-        home: const AppShell(),
-      ),
-    );
-    await tester.pump();
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-
-    expect(dataRevision.value, dataBefore + 1);
-    expect(dataMutationRevision.value, mutationBefore);
-  });
-
-  testWidgets('Theme V2 shell resume requests only a legacy refresh', (
-    tester,
-  ) async {
-    final dataBefore = dataRevision.value;
-    final mutationBefore = dataMutationRevision.value;
-    addTearDown(() {
-      dataRevision.value = dataBefore;
-      dataMutationRevision.value = mutationBefore;
+      dataLibraryCatchUpRevision.value = catchUpBefore;
     });
 
     await tester.pumpWidget(
@@ -126,8 +165,10 @@ void main() {
     );
     await tester.pump();
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
 
     expect(dataRevision.value, dataBefore + 1);
     expect(dataMutationRevision.value, mutationBefore);
+    expect(dataLibraryCatchUpRevision.value, catchUpBefore + 1);
   });
 }

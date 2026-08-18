@@ -79,6 +79,7 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
     _navigation = widget.navigation ?? LibraryNavigationController();
     if (widget.autoLoad) {
       dataMutationRevision.addListener(_refresh);
+      dataLibraryCatchUpRevision.addListener(_refresh);
       if (_controller.status == LibraryStatus.idle) {
         _controller.load();
       }
@@ -87,7 +88,10 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
 
   @override
   void dispose() {
-    if (widget.autoLoad) dataMutationRevision.removeListener(_refresh);
+    if (widget.autoLoad) {
+      dataMutationRevision.removeListener(_refresh);
+      dataLibraryCatchUpRevision.removeListener(_refresh);
+    }
     if (_ownsController) {
       _controller.dispose();
       _ownedApi?.close();

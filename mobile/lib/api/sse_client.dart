@@ -29,7 +29,10 @@ Stream<SseEvent> postSse(
   String? baseUrl,
   http.Client? client,
 }) {
-  final req = http.Request('POST', Uri.parse('${baseUrl ?? AppConfig.apiBase}$path'));
+  final req = http.Request(
+    'POST',
+    Uri.parse('${baseUrl ?? AppConfig.apiBase}$path'),
+  );
   req.headers['Content-Type'] = 'application/json';
   req.body = jsonEncode(body);
   return _sse(req, client);
@@ -37,12 +40,24 @@ Stream<SseEvent> postSse(
 
 /// Stream SSE frames from a GET endpoint (e.g. /api/notifications/stream — the
 /// live hardware bridge channel: `listening` / `capture` / `notification`).
-Stream<SseEvent> getSse(String path, {String? baseUrl, http.Client? client}) {
-  final req = http.Request('GET', Uri.parse('${baseUrl ?? AppConfig.apiBase}$path'));
-  return _sse(req, client);
+Stream<SseEvent> getSse(
+  String path, {
+  String? baseUrl,
+  http.Client? client,
+  void Function()? onSubscribed,
+}) {
+  final req = http.Request(
+    'GET',
+    Uri.parse('${baseUrl ?? AppConfig.apiBase}$path'),
+  );
+  return _sse(req, client, onSubscribed: onSubscribed);
 }
 
-Stream<SseEvent> _sse(http.Request req, http.Client? client) async* {
+Stream<SseEvent> _sse(
+  http.Request req,
+  http.Client? client, {
+  void Function()? onSubscribed,
+}) async* {
   final c = client ?? http.Client();
   try {
     req.headers['Accept'] = 'text/event-stream';
@@ -60,6 +75,7 @@ Stream<SseEvent> _sse(http.Request req, http.Client? client) async* {
       }
       throw ApiException(res.statusCode, await res.stream.bytesToString());
     }
+    onSubscribed?.call();
 
     var eventType = 'message';
     final dataLines = <String>[];

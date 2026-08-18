@@ -113,13 +113,17 @@ class _ThemeV2AssetListPageState extends State<ThemeV2AssetListPage> {
     )..addListener(_rememberScrollOffset);
     if (widget.autoLoad) {
       dataMutationRevision.addListener(_refresh);
+      dataLibraryCatchUpRevision.addListener(_refresh);
       _controller.load();
     }
   }
 
   @override
   void dispose() {
-    if (widget.autoLoad) dataMutationRevision.removeListener(_refresh);
+    if (widget.autoLoad) {
+      dataMutationRevision.removeListener(_refresh);
+      dataLibraryCatchUpRevision.removeListener(_refresh);
+    }
     _scrollController
       ..removeListener(_rememberScrollOffset)
       ..dispose();

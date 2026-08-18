@@ -220,7 +220,10 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) requestDataRefresh();
+    if (state == AppLifecycleState.resumed) {
+      requestDataRefresh();
+      requestLibraryCatchUp();
+    }
   }
 
   void _selectDestination(int index) {

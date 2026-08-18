@@ -20,6 +20,7 @@ void main() {
     (tester) async {
       final dataBefore = dataRevision.value;
       final mutationBefore = dataMutationRevision.value;
+      final catchUpBefore = dataLibraryCatchUpRevision.value;
       var assetRequestCount = 0;
       final api = ApiClient(
         baseUrl: 'http://localhost',
@@ -66,14 +67,21 @@ void main() {
       await tester.pump();
       expect(assetRequestCount, beforeMutation);
 
-      bumpData();
+      requestLibraryCatchUp();
+      requestLibraryCatchUp();
+      requestLibraryCatchUp();
       await tester.pump();
       expect(assetRequestCount, beforeMutation + 1);
+
+      bumpData();
+      await tester.pump();
+      expect(assetRequestCount, beforeMutation + 2);
       expect(find.text('已有资产'), findsOneWidget);
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump();
       dataRevision.value = dataBefore;
       dataMutationRevision.value = mutationBefore;
+      dataLibraryCatchUpRevision.value = catchUpBefore;
     },
   );
 

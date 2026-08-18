@@ -8,6 +8,7 @@ void main() {
   setUp(() {
     dataRevision.value = 0;
     dataMutationRevision.value = 0;
+    dataLibraryCatchUpRevision.value = 0;
   });
 
   test('explicit mutation evidence advances the mutation revision', () {
@@ -18,6 +19,7 @@ void main() {
 
     expect(dataRevision.value, 1);
     expect(dataMutationRevision.value, 1);
+    expect(dataLibraryCatchUpRevision.value, 0);
   });
 
   test(
