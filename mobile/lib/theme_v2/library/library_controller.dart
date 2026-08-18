@@ -127,15 +127,11 @@ class LibraryController extends ChangeNotifier {
 
   Future<void> _runLoadQueue() async {
     try {
-      _loadQueued = false;
-      await _loadOnce();
-      if (_loadQueued && !_disposed) {
+      do {
         _loadQueued = false;
         await _loadOnce();
-      }
+      } while (_loadQueued && !_disposed);
     } finally {
-      // Requests received during the one allowed rerun share that work. They
-      // must not create an unbounded chain of background refreshes.
       _loadQueued = false;
     }
   }

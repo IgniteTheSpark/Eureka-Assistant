@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:eureka/app_events.dart';
 import 'package:eureka/data_revision.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,10 +11,10 @@ void main() {
   });
 
   test('explicit mutation evidence advances the mutation revision', () {
-    publishRefreshForAppEvent('notification', const {
-      'type': 'flash_done',
-      'confirmed_mutation': true,
-    });
+    final notification =
+        jsonDecode('{"type":"flash_done","confirmed_mutation":true}')
+            as Map<String, dynamic>;
+    publishRefreshForAppEvent('notification', notification);
 
     expect(dataRevision.value, 1);
     expect(dataMutationRevision.value, 1);
@@ -32,20 +34,26 @@ void main() {
     },
   );
 
-  test(
-    'capture and session lifecycle events are refresh-only without evidence',
-    () {
-      publishRefreshForAppEvent('capture', const {'session_id': 'session-1'});
-      publishRefreshForAppEvent('session_changed', const {
-        'session_id': 'session-1',
-        'reason': 'title_changed',
-      });
-      publishRefreshForAppEvent('notification', const {'type': 'flash_done'});
+  test('capture status Q&A and no-record completion stay refresh-only', () {
+    publishRefreshForAppEvent('capture', const {'session_id': 'session-1'});
+    publishRefreshForAppEvent('flash_file_status', const {
+      'status': 'done',
+      'result_count': 0,
+    });
+    publishRefreshForAppEvent('session_changed', const {
+      'session_id': 'session-1',
+      'reason': 'title_changed',
+    });
+    for (final payload in const [
+      {'type': 'flash_done', 'body': '长白山位于吉林省。'},
+      {'type': 'flash_done', 'body': '没有生成记录'},
+    ]) {
+      publishRefreshForAppEvent('notification', payload);
+    }
 
-      expect(dataRevision.value, 3);
-      expect(dataMutationRevision.value, 0);
-    },
-  );
+    expect(dataRevision.value, 5);
+    expect(dataMutationRevision.value, 0);
+  });
 
   test(
     'early status and ordinary notifications only request a legacy refresh',

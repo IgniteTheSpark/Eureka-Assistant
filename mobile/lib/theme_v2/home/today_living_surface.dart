@@ -9,6 +9,15 @@ import 'today_output_coordinator.dart';
 import 'today_output_overlay.dart';
 import 'today_signal_band.dart';
 
+@visibleForTesting
+void pruneTodayAssetSpawnStates(
+  Map<String, TodayAssetHandoff> states,
+  Iterable<String> assetIds,
+) {
+  final currentIds = assetIds.toSet();
+  states.removeWhere((assetId, _) => !currentIds.contains(assetId));
+}
+
 class TodayLivingSurface extends StatefulWidget {
   const TodayLivingSurface({
     super.key,
@@ -101,6 +110,10 @@ class _TodayLivingSurfaceState extends State<TodayLivingSurface>
   void _reconcile() {
     _reconciling = true;
     try {
+      pruneTodayAssetSpawnStates(
+        _assetSpawnStates,
+        widget.data.pool.map((asset) => asset.id),
+      );
       _coordinator.reconcile(
         assetIds: widget.data.pool.map((asset) => asset.id),
         signalIds: widget.data.rekaQueue.map((signal) => signal.id),

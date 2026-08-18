@@ -142,16 +142,35 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
           onPopInvokedWithResult: _handlePop,
           child: PageStorage(
             bucket: _pageStorageBucket,
-            child: Stack(
+            child: Column(
               children: [
-                Positioned.fill(child: _activeSurface()),
-                if (status == LibraryStatus.loading)
-                  const Positioned(
-                    top: ThemeV2Spacing.sm,
-                    left: ThemeV2Spacing.xl,
-                    right: ThemeV2Spacing.xl,
-                    child: _LibraryRefreshIndicator(),
+                if (_controller.statusMessage case final message?)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      ThemeV2Spacing.xl,
+                      ThemeV2Spacing.sm,
+                      ThemeV2Spacing.xl,
+                      0,
+                    ),
+                    child: LibraryPartialBanner(
+                      message: message,
+                      onRetry: _controller.retry,
+                    ),
                   ),
+                Expanded(
+                  child: Stack(
+                    children: [
+                      Positioned.fill(child: _activeSurface()),
+                      if (status == LibraryStatus.loading)
+                        const Positioned(
+                          top: ThemeV2Spacing.sm,
+                          left: ThemeV2Spacing.xl,
+                          right: ThemeV2Spacing.xl,
+                          child: _LibraryRefreshIndicator(),
+                        ),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),

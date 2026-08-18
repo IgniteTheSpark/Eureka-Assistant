@@ -1,12 +1,53 @@
 import 'package:flutter/foundation.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_dither_field.dart';
+import 'package:eureka/theme_v2/home/theme_v2_asset_bubble_field.dart';
 import 'package:eureka/theme_v2/home/today_living_surface.dart';
+import 'package:eureka/theme_v2/home/today_output_overlay.dart';
 import 'package:eureka/today/today_data.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('parent prunes stale spawn state before an asset is re-added', (
+    tester,
+  ) async {
+    const oldHandoff = TodayAssetHandoff(
+      center: Offset(10, 20),
+      velocity: Offset.zero,
+    );
+    final clock = ValueNotifier(DateTime(2026, 8, 14, 10));
+    var data = _data([_asset]);
+    late StateSetter update;
+    addTearDown(clock.dispose);
+    await tester.pumpWidget(
+      StatefulBuilder(
+        builder: (context, setState) {
+          update = setState;
+          return _host(
+            data: data,
+            rekaCenter: const Offset(112, 330),
+            disableAnimations: true,
+            clock: clock,
+          );
+        },
+      ),
+    );
+    await tester.pump();
+    final parentStates = tester
+        .widget<ThemeV2AssetBubbleField>(find.byType(ThemeV2AssetBubbleField))
+        .spawnStates;
+    parentStates[_asset.id] = oldHandoff;
+
+    update(() => data = _data(const []));
+    await tester.pump();
+    expect(parentStates, isEmpty);
+
+    update(() => data = _data([_asset]));
+    await tester.pump();
+    expect(parentStates[_asset.id], isNot(same(oldHandoff)));
+  });
+
   testWidgets('scene has two container fields and no local Reka dither', (
     tester,
   ) async {
@@ -101,6 +142,7 @@ void main() {
 }
 
 Widget _host({
+  TodayData data = TodayData.empty,
   required Offset rekaCenter,
   required bool disableAnimations,
   required ValueListenable<DateTime> clock,
@@ -119,7 +161,7 @@ Widget _host({
         width: 411,
         height: 800,
         child: TodayLivingSurface(
-          data: TodayData.empty,
+          data: data,
           now: clock.value,
           active: true,
           clock: clock,
@@ -130,4 +172,21 @@ Widget _host({
       ),
     ),
   ),
+);
+
+final _asset = PoolAsset(
+  id: 'asset-1',
+  type: 'notes',
+  domain: 'work',
+  title: '记录',
+  payload: const {'content': '记录'},
+  createdAt: DateTime(2026, 8, 14, 9),
+);
+
+TodayData _data(List<PoolAsset> pool) => TodayData(
+  chain: const [],
+  noTimeTodos: const [],
+  pool: pool,
+  poolTrueCount: pool.length,
+  flashCount: 0,
 );

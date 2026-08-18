@@ -1226,6 +1226,42 @@ void main() {
     expect(find.byKey(const ValueKey('library-create-skill')), findsOneWidget);
   });
 
+  testWidgets('cached refresh failure exposes retry on a non-hub surface', (
+    tester,
+  ) async {
+    final repository = _SequenceRepository([
+      (await _controller()).overview!,
+      const LibraryLoadFailure('刷新超时'),
+    ]);
+    final controller = LibraryController(
+      repository: repository,
+      pinnedStore: _Store(),
+    );
+    await controller.load();
+    final navigation = LibraryNavigationController()
+      ..open(LibrarySurface.containerIndex);
+    addTearDown(navigation.dispose);
+    await _pumpHost(
+      tester,
+      ThemeV2LibraryPage(
+        controller: controller,
+        navigation: navigation,
+        autoLoad: false,
+      ),
+    );
+
+    await controller.retry();
+    await tester.pump();
+
+    expect(find.byType(ContainerIndex), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('library-partial-banner')),
+      findsOneWidget,
+    );
+    expect(find.text('刷新失败，正在显示上次加载的内容'), findsOneWidget);
+    expect(find.text('重试'), findsOneWidget);
+  });
+
   testWidgets('refresh keeps the populated hub interactive', (tester) async {
     final pending = Completer<LibraryOverview>();
     final repository = _RefreshRepository(

@@ -297,7 +297,7 @@ void main() {
     });
 
     test(
-      'refresh requested during the queued rerun does not start a third load',
+      'refresh requested during a queued rerun is handled by one latest rerun',
       () async {
         final repository = _OverlappingRepository();
         final controller = LibraryController(
@@ -311,11 +311,16 @@ void main() {
         await Future<void>.delayed(Duration.zero);
         expect(repository.loadCount, 2);
 
-        controller.load();
+        final latest = controller.load();
+        controller.retry();
         repository.second.complete(_overview());
-        await first;
+        await Future<void>.delayed(Duration.zero);
+        expect(repository.loadCount, 3);
+        repository.third.complete(_emptyOverview());
+        await Future.wait([first, latest]);
 
-        expect(repository.loadCount, 2);
+        expect(repository.loadCount, 3);
+        expect(controller.status, LibraryStatus.empty);
       },
     );
 
@@ -370,12 +375,18 @@ class _SequenceRepository implements LibraryRepository {
 class _OverlappingRepository implements LibraryRepository {
   final first = Completer<LibraryOverview>();
   final second = Completer<LibraryOverview>();
+  final third = Completer<LibraryOverview>();
   var loadCount = 0;
 
   @override
   Future<LibraryOverview> loadOverview() {
     loadCount++;
-    return loadCount == 1 ? first.future : second.future;
+    return switch (loadCount) {
+      1 => first.future,
+      2 => second.future,
+      3 => third.future,
+      _ => throw StateError('unexpected load $loadCount'),
+    };
   }
 }
 
