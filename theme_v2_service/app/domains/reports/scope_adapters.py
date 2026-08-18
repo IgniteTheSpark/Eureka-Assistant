@@ -135,6 +135,16 @@ def _term_matches_text(term: str, value: str | None) -> bool:
     return bool(_term_match_spans(term, value))
 
 
+def _identity_value_supports_alias(alias: str, value: str | None) -> bool:
+    spans = _term_match_spans(alias, value)
+    if not spans:
+        return False
+    if alias.isascii() and alias.isalnum():
+        return True
+    normalized = _normalize_term(value)
+    return any(end == len(normalized) or normalized[end] != "者" for _, end in spans)
+
+
 def _skill_match_terms(
     skill: UserSkill,
 ) -> tuple[list[str], list[str], list[ScopeMatchTerm]]:
@@ -160,7 +170,11 @@ def _skill_match_terms(
     broad_aliases: set[str] = set()
     for aliases in _SKILL_ALIASES.values():
         normalized_aliases = {_normalize_term(alias) for alias in aliases}
-        if normalized_aliases.intersection(identity_literals):
+        if any(
+            _identity_value_supports_alias(alias, value)
+            for alias in normalized_aliases
+            for value in identity_values
+        ):
             identity_aliases.update(normalized_aliases)
         if any(
             _term_matches_text(alias, value)
