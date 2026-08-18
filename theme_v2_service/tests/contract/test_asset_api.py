@@ -65,6 +65,8 @@ async def test_user_skill_and_asset_crud_are_owner_scoped(client):
         "journal",
     }
     assert skills_by_name["journal"]["id"] == skill["id"]
+    assert skills_by_name["expense"]["is_system"] is True
+    assert skills_by_name["journal"]["is_system"] is False
 
     asset_response = await client.post(
         "/api/assets",
@@ -221,6 +223,89 @@ async def test_theme_v2_skill_builder_routes_draft_create_and_configure(client, 
     )
     assert configured.status_code == 200
     assert configured.json()["render_spec"]["icon"] == "⚡"
+
+
+async def test_custom_skill_create_rejects_invalid_complete_schema(client):
+    owner = await _register(client, "invalid-skill-schema@example.com")
+
+    response = await client.post(
+        "/api/user-skills",
+        headers=_headers(owner),
+        json={
+            "machine_name": "bad_schema",
+            "display_name": "坏结构",
+            "schema": {
+                "type": "object",
+                "properties": {"Bad-Key": {"type": "binary"}},
+                "required": ["Bad-Key"],
+            },
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "invalid_skill_schema"
+
+
+async def test_skill_delete_requires_fresh_impact_token(client):
+    owner = await _register(client, "delete-token@example.com")
+    created = await client.post(
+        "/api/user-skills",
+        headers=_headers(owner),
+        json={
+            "machine_name": "tennis_delete",
+            "display_name": "网球删除测试",
+            "schema": {"note": {"type": "string"}},
+        },
+    )
+    skill_id = created.json()["id"]
+    first = await client.post(
+        "/api/assets",
+        headers=_headers(owner),
+        json={"user_skill_id": skill_id, "payload": {"note": "first"}},
+    )
+    assert first.status_code == 200
+    impact = await client.get(
+        f"/api/user-skills/{skill_id}/deletion-impact",
+        headers=_headers(owner),
+    )
+    assert impact.status_code == 200
+    assert impact.json()["asset_count"] == 1
+    token = impact.json()["confirmation_token"]
+    assert impact.json()["revision"] == token
+
+    missing = await client.delete(
+        f"/api/user-skills/{skill_id}",
+        headers=_headers(owner),
+    )
+    assert missing.status_code == 422
+
+    second = await client.post(
+        "/api/assets",
+        headers=_headers(owner),
+        json={"user_skill_id": skill_id, "payload": {"note": "second"}},
+    )
+    assert second.status_code == 200
+    stale = await client.delete(
+        f"/api/user-skills/{skill_id}",
+        headers=_headers(owner),
+        params={"confirmation_token": token},
+    )
+    assert stale.status_code == 409
+    assert stale.json()["detail"]["code"] == "stale_delete_confirmation"
+
+    refreshed = await client.get(
+        f"/api/user-skills/{skill_id}/deletion-impact",
+        headers=_headers(owner),
+    )
+    deleted = await client.delete(
+        f"/api/user-skills/{skill_id}",
+        headers=_headers(owner),
+        params={
+            "confirmation_token": refreshed.json()["confirmation_token"]
+        },
+    )
+    assert deleted.status_code == 200
+    assert deleted.json()["deleted_asset_count"] == 2
 
 
 async def test_asset_list_validates_limit(client):

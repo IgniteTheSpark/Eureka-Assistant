@@ -6,6 +6,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    computed_field,
     field_serializer,
     field_validator,
 )
@@ -139,6 +140,7 @@ class UserSkillRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
+    global_skill_id: int | None = Field(default=None, exclude=True)
     machine_name: str
     display_name: str
     description: str | None
@@ -158,6 +160,15 @@ class UserSkillRead(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    @computed_field
+    @property
+    def is_system(self) -> bool:
+        from app.domains.assets.skill_schema import PROTECTED_SYSTEM_SKILL_NAMES
+
+        return self.global_skill_id is not None or (
+            self.machine_name.strip().lower() in PROTECTED_SYSTEM_SKILL_NAMES
+        )
+
     @field_serializer("created_at", "updated_at")
     def serialize_timestamp(self, value: datetime) -> str:
         return _as_utc_z(value)
@@ -166,6 +177,10 @@ class UserSkillRead(BaseModel):
 class SkillDeletionImpact(BaseModel):
     skill_id: str
     asset_count: int = Field(ge=0)
+    confirmation_token: str
+    # Alias retained as an explicit revision for clients that adopted the
+    # review-era contract before confirmation_token was named.
+    revision: str
 
 
 class SkillDeletionResult(BaseModel):

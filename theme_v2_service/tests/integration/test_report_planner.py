@@ -12,6 +12,7 @@ from app.domains.reports.models import ReportGenerationRun
 from app.domains.reports.providers import RetryableProviderError
 from app.domains.reports.planner import (
     InvalidPlannerResult,
+    PresentationSelectionBlocked,
     PlannerLimits,
     PlannerResult,
     build_planner_request,
@@ -315,6 +316,176 @@ async def test_planner_tools_are_owner_scoped_and_bounded(session):
         "get_event_files",
         "get_related_sessions",
     }
+
+
+async def test_planner_receives_only_confirmed_assets_without_per_skill_cap_loss(
+    session,
+):
+    primary = _skill(user_id="user-1", name="Running")
+    manually_added_owner = _skill(user_id="user-1", name="Reading")
+    foreign = _skill(user_id="user-2", name="Foreign")
+    session.add_all([primary, manually_added_owner, foreign])
+    await session.flush()
+    primary_assets = [
+        _asset(user_id="user-1", skill=primary, index=index)
+        for index in range(22)
+    ]
+    manual_asset = _asset(
+        user_id="user-1",
+        skill=manually_added_owner,
+        index=100,
+    )
+    unchecked = _asset(user_id="user-1", skill=primary, index=999)
+    foreign_asset = _asset(user_id="user-2", skill=foreign, index=200)
+    session.add_all([*primary_assets, manual_asset, unchecked, foreign_asset])
+    await session.flush()
+    confirmed = [*primary_assets, manual_asset]
+    run = ReportGenerationRun(
+        user_id="user-1",
+        origin="user_initiated",
+        state="planning",
+        active_stage="intake",
+        launch_context={},
+        intent="总结确认过的记录",
+        answers={},
+        evidence_scope={
+            "skill_ids": [primary.id],
+            "references": [
+                {"kind": "asset", "id": asset.id} for asset in confirmed
+            ],
+        },
+        plan_options=[],
+        resolved_asset_ids=[],
+        generation_context={},
+        usage_json={},
+    )
+    session.add(run)
+    await session.flush()
+
+    request = await build_planner_request(
+        run=run,
+        tools=PlannerTools(session, user_id="user-1"),
+        registry=TemplateRegistry.load(TEMPLATES),
+    )
+
+    assert [summary.id for summary in request.asset_summaries] == [
+        asset.id for asset in confirmed
+    ]
+    assert unchecked.id not in {item.id for item in request.asset_summaries}
+    assert foreign_asset.id not in {item.id for item in request.asset_summaries}
+    assert manually_added_owner.id in {
+        skill.id for skill in request.related_skills
+    }
+
+
+async def test_planner_rejects_asset_not_in_confirmed_scope(session):
+    skill = _skill(user_id="user-1", name="Running")
+    session.add(skill)
+    await session.flush()
+    confirmed = _asset(user_id="user-1", skill=skill, index=1)
+    unchecked = _asset(user_id="user-1", skill=skill, index=2)
+    session.add_all([confirmed, unchecked])
+    await session.flush()
+    run = _run(user_id="user-1", skill=skill, asset=confirmed)
+    session.add(run)
+    await session.flush()
+    request = await build_planner_request(
+        run=run,
+        tools=PlannerTools(session, user_id="user-1"),
+        registry=TemplateRegistry.load(TEMPLATES),
+    )
+
+    with pytest.raises(InvalidPlannerResult, match="unavailable Asset"):
+        validate_planner_result(
+            request=request,
+            result=PlannerResult(
+                options=[
+                    _option(
+                        skill_ids=[skill.id],
+                        asset_ids=[unchecked.id],
+                    )
+                ]
+            ),
+            registry=TemplateRegistry.load(TEMPLATES),
+        )
+
+
+async def test_planner_blocks_capability_incompatible_presentation_family(session):
+    skill = _skill(
+        user_id="user-1",
+        name="Daily Notes",
+        capabilities=["time_series_measurement"],
+    )
+    skill.schema_json["properties"] = {"measurement": {"type": "number"}}
+    session.add(skill)
+    await session.flush()
+    asset = _asset(user_id="user-1", skill=skill, index=1)
+    session.add(asset)
+    await session.flush()
+    run = _run(user_id="user-1", skill=skill, asset=asset)
+    run.scope_draft = {
+        "adapter_kind": "period_summary",
+        "skill_ids": [skill.id],
+        "supporting_references": [{"kind": "asset", "id": asset.id}],
+        "presentation_preference": {"family": "briefing_research"},
+    }
+    session.add(run)
+    await session.flush()
+
+    with pytest.raises(PresentationSelectionBlocked) as error:
+        await build_planner_request(
+            run=run,
+            tools=PlannerTools(session, user_id="user-1"),
+            registry=TemplateRegistry.load(TEMPLATES),
+        )
+
+    assert error.value.code == "presentation_incompatible"
+
+
+async def test_custom_presentation_text_maps_deterministically_or_blocks(session):
+    skill = _skill(
+        user_id="user-1",
+        name="Running",
+        capabilities=["time_series_measurement"],
+    )
+    session.add(skill)
+    await session.flush()
+    asset = _asset(user_id="user-1", skill=skill, index=1)
+    session.add(asset)
+    await session.flush()
+    run = _run(user_id="user-1", skill=skill, asset=asset)
+    run.scope_draft = {
+        "adapter_kind": "period_summary",
+        "skill_ids": [skill.id],
+        "supporting_references": [{"kind": "asset", "id": asset.id}],
+        "presentation_preference": {
+            "family": "custom",
+            "custom_text": "请做成趋势图表",
+        },
+    }
+    session.add(run)
+    await session.flush()
+
+    request = await build_planner_request(
+        run=run,
+        tools=PlannerTools(session, user_id="user-1"),
+        registry=TemplateRegistry.load(TEMPLATES),
+    )
+    assert {template.base_family for template in request.templates} == {
+        "data_trend"
+    }
+
+    run.scope_draft["presentation_preference"] = {
+        "family": "custom",
+        "custom_text": "像夏夜微风一样",
+    }
+    with pytest.raises(PresentationSelectionBlocked) as error:
+        await build_planner_request(
+            run=run,
+            tools=PlannerTools(session, user_id="user-1"),
+            registry=TemplateRegistry.load(TEMPLATES),
+        )
+    assert error.value.code == "custom_presentation_unresolved"
 
 
 async def test_planner_uses_custom_skill_schema_and_persists_primary_option(session):

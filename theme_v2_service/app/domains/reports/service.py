@@ -28,6 +28,7 @@ from app.domains.reports.schemas import (
     TriggerRunCreate,
     UserRunCreate,
     ShareCardSpec,
+    TimeRange,
 )
 from app.domains.reports.scope_adapters import (
     ReportScopeCandidateResponse,
@@ -65,6 +66,13 @@ class RunNotFound(Exception):
 
 class RunConflict(Exception):
     pass
+
+
+class RunBlocked(RunConflict):
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+        self.message = message
 
 
 class PersistRejected(Exception):
@@ -361,6 +369,7 @@ async def get_scope_candidates(
     user_id: str,
     run_id: str,
     now: datetime | None = None,
+    time_range: TimeRange | None = None,
 ) -> ReportScopeCandidateResponse:
     run = await get_owned_run(session, user_id=user_id, run_id=run_id)
     if run.scope_adapter is None:
@@ -372,6 +381,7 @@ async def get_scope_candidates(
         intent=run.intent or "",
         now=now or utc_now(),
         timezone_name=get_settings().default_user_timezone,
+        time_range=time_range,
     )
 
 
@@ -432,12 +442,21 @@ async def update_scope_draft(
         raise RunConflict("scope adapter cannot be changed")
     if draft.adapter_kind == "pre_event_briefing" and draft.primary_reference is None:
         raise RunConflict("pre-event report requires a primary Event")
+    submitted_reference_keys = {
+        (reference.kind, reference.id)
+        for reference in draft.supporting_references
+    }
     if draft.adapter_kind == "period_summary":
         draft = await _resolve_period_summary_selection(
             session,
             user_id=user_id,
             draft=draft,
         )
+    resolved_reference_keys = {
+        (reference.kind, reference.id)
+        for reference in draft.supporting_references
+    }
+    requires_reconfirmation = submitted_reference_keys != resolved_reference_keys
     scope = await _validate_owned_scope(
         session,
         user_id=user_id,
@@ -456,6 +475,7 @@ async def update_scope_draft(
     run.pending_decision = PendingDecision(
         type="scope_confirmation",
         adapter_kind=draft.adapter_kind,
+        requires_reconfirmation=(True if requires_reconfirmation else None),
     ).model_dump(mode="json", exclude_none=True)
     run.active_stage = "scope_confirmation"
     run.plan_options = []
@@ -537,6 +557,16 @@ async def prepare_scope_plan(
     draft = ReportScopeDraft.model_validate(run.scope_draft)
     if draft.adapter_kind == "pre_event_briefing" and draft.primary_reference is None:
         raise RunConflict("pre-event report requires a primary Event")
+    if draft.missing_dimensions:
+        raise RunBlocked(
+            "scope_dimensions_unresolved",
+            "report scope has unresolved required dimensions",
+        )
+    if (run.pending_decision or {}).get("requires_reconfirmation") is True:
+        raise RunBlocked(
+            "scope_reconfirmation_required",
+            "final resolved evidence requires confirmation",
+        )
     scope = await _validate_owned_scope(
         session,
         user_id=user_id,
@@ -553,6 +583,26 @@ async def prepare_scope_plan(
     current_hash = scope_digest(draft, primary_version=primary_version)
     run.scope_hash = current_hash
     run.evidence_scope = scope.model_dump(mode="json", by_alias=True)
+    # Fail before enqueueing when the user's selected presentation cannot be
+    # served by any template compatible with the confirmed evidence.
+    from app.domains.reports.planner import (
+        InvalidPlannerResult,
+        PresentationSelectionBlocked,
+        build_planner_request,
+    )
+    from app.domains.reports.planner_tools import PlannerTools
+    from app.domains.reports.templates import get_template_registry
+
+    try:
+        await build_planner_request(
+            run=run,
+            tools=PlannerTools(session, user_id=user_id),
+            registry=get_template_registry(),
+        )
+    except PresentationSelectionBlocked as exc:
+        raise RunBlocked(exc.code, exc.message) from exc
+    except InvalidPlannerResult as exc:
+        raise RunConflict(str(exc)) from exc
     run.pending_decision = None
     run.plan_options = []
     run.plan_draft = None

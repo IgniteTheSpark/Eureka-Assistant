@@ -12,6 +12,21 @@ class TimeRange(StrictModel):
     from_at: datetime | None = Field(default=None, alias="from")
     to_at: datetime | None = Field(default=None, alias="to")
 
+    @model_validator(mode="after")
+    def require_explicit_offsets(self) -> "TimeRange":
+        for value in (self.from_at, self.to_at):
+            if value is not None and (
+                value.tzinfo is None or value.utcoffset() is None
+            ):
+                raise ValueError("report time boundary requires a timezone offset")
+        if (
+            self.from_at is not None
+            and self.to_at is not None
+            and self.from_at >= self.to_at
+        ):
+            raise ValueError("report time range must end after it starts")
+        return self
+
 
 EvidenceKind = Literal["asset", "event", "contact"]
 ScopeAdapterKind = Literal["pre_event_briefing", "period_summary", "generic"]
@@ -230,6 +245,7 @@ class PendingDecision(StrictModel):
     questions: list[ClarificationQuestion] = Field(default_factory=list)
     recommended_option_id: str | None = None
     adapter_kind: ScopeAdapterKind | None = None
+    requires_reconfirmation: bool | None = None
 
     @model_validator(mode="after")
     def validate_shape(self) -> "PendingDecision":

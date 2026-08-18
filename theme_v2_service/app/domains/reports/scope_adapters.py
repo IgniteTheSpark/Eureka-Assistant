@@ -617,12 +617,22 @@ async def list_scope_candidates(
     intent: str,
     now: datetime,
     timezone_name: str,
+    time_range: TimeRange | None = None,
 ) -> ReportScopeCandidateResponse:
     draft = initial_scope(
         intent,
         now=now,
         timezone_name=timezone_name,
-    ).model_copy(update={"adapter_kind": adapter_kind})
+    ).model_copy(
+        update={
+            "adapter_kind": adapter_kind,
+            **(
+                {"time_range": time_range, "missing_dimensions": []}
+                if time_range is not None
+                else {}
+            ),
+        }
+    )
     events: list[ScopeEventCandidate] = []
     record_groups: list[ScopeRecordGroup] = []
     options: list[TimeRangeOption] = []

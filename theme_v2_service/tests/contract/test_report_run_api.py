@@ -226,6 +226,124 @@ async def test_pre_event_scope_lists_three_future_meetings_and_only_plans_after_
     assert run.plan_scope_hash is None
 
 
+async def test_scope_candidates_refetch_for_explicit_custom_range(
+    client,
+    session,
+    monkeypatch,
+):
+    token, user_id = await _register(client, "custom-range@example.com")
+    monkeypatch.setattr("app.domains.reports.service.utc_now", lambda: NOW)
+    skill = UserSkill(
+        user_id=user_id,
+        machine_name="running_custom_range",
+        display_name="跑步记录",
+        schema_json={
+            "type": "object",
+            "properties": {"distance": {"type": "number"}},
+        },
+    )
+    session.add(skill)
+    await session.flush()
+    older = Asset(
+        user_id=user_id,
+        user_skill_id=skill.id,
+        payload_json={"distance": 12},
+        effective_at=NOW - timedelta(days=45),
+    )
+    recent = Asset(
+        user_id=user_id,
+        user_skill_id=skill.id,
+        payload_json={"distance": 5},
+        effective_at=NOW - timedelta(days=5),
+    )
+    session.add_all([older, recent])
+    await session.commit()
+    created = await client.post(
+        "/api/report-generation-runs",
+        headers=_headers(token),
+        json={"origin": "user_initiated", "intent": "总结过去 30 天的跑步记录"},
+    )
+
+    response = await client.get(
+        f"/api/report-generation-runs/{created.json()['id']}/scope-candidates",
+        headers=_headers(token),
+        params={
+            "from": "2026-06-01T00:00:00+08:00",
+            "to": "2026-08-01T00:00:00+08:00",
+        },
+    )
+
+    assert response.status_code == 200
+    ids = [
+        record["reference"]["id"]
+        for group in response.json()["record_groups"]
+        for record in group["records"]
+    ]
+    assert ids == [older.id, recent.id]
+    assert response.json()["default_scope"]["time_range"] == {
+        "from": "2026-06-01T00:00:00+08:00",
+        "to": "2026-08-01T00:00:00+08:00",
+    }
+
+
+async def test_prepare_returns_stable_incompatible_presentation_blocker(
+    client,
+    session,
+):
+    token, user_id = await _register(client, "presentation-blocker@example.com")
+    skill = UserSkill(
+        user_id=user_id,
+        machine_name="measurements",
+        display_name="数据记录",
+        schema_json={
+            "type": "object",
+            "x-data-capabilities": ["time_series_measurement"],
+            "properties": {"value": {"type": "number"}},
+        },
+    )
+    session.add(skill)
+    await session.flush()
+    asset = Asset(
+        user_id=user_id,
+        user_skill_id=skill.id,
+        payload_json={"value": 1},
+    )
+    session.add(asset)
+    await session.commit()
+    created = await client.post(
+        "/api/report-generation-runs",
+        headers=_headers(token),
+        json={
+            "origin": "user_initiated",
+            "intent": "总结数据",
+            "skill_ids": [skill.id],
+            "asset_ids": [asset.id],
+        },
+    )
+    run_id = created.json()["id"]
+    updated = await client.put(
+        f"/api/report-generation-runs/{run_id}/scope-draft",
+        headers=_headers(token),
+        json={
+            "expected_revision": 0,
+            "draft": {
+                **created.json()["scope_draft"],
+                "presentation_preference": {"family": "briefing_research"},
+            },
+        },
+    )
+    assert updated.status_code == 200
+
+    response = await client.post(
+        f"/api/report-generation-runs/{run_id}/prepare-plan",
+        headers=_headers(token),
+        json={"expected_revision": 1},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "presentation_incompatible"
+
+
 async def test_scope_update_rejects_stale_revision_and_cross_user_reference(
     client,
     session,

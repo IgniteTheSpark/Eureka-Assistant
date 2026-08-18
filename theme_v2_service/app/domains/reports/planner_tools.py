@@ -58,6 +58,10 @@ class PlannerEvent(PlannerToolModel):
     attendees: list[PlannerEventAttendee] = Field(default_factory=list)
 
 
+class PlannerEvidenceUnavailable(ValueError):
+    pass
+
+
 @dataclass(frozen=True)
 class PlannerLimits:
     max_candidate_skills: int = 20
@@ -174,14 +178,33 @@ class PlannerTools:
                 )
             )
         order_by.extend((UserSkill.created_at.desc(), UserSkill.id.desc()))
-        rows = list(
+        preferred_rows = (
+            list(
+                await self._session.scalars(
+                    select(UserSkill)
+                    .where(
+                        UserSkill.user_id == self.user_id,
+                        UserSkill.id.in_(preferred),
+                    )
+                    .order_by(*order_by)
+                )
+            )
+            if preferred
+            else []
+        )
+        remaining = max(0, self.limits.max_candidate_skills - len(preferred_rows))
+        additional_rows = list(
             await self._session.scalars(
                 select(UserSkill)
-                .where(UserSkill.user_id == self.user_id)
-                .order_by(*order_by)
-                .limit(self.limits.max_candidate_skills)
+                .where(
+                    UserSkill.user_id == self.user_id,
+                    UserSkill.id.not_in(preferred) if preferred else True,
+                )
+                .order_by(UserSkill.created_at.desc(), UserSkill.id.desc())
+                .limit(remaining)
             )
         )
+        rows = [*preferred_rows, *additional_rows]
         return [
             PlannerSkill(
                 id=row.id,
@@ -283,6 +306,38 @@ class PlannerTools:
             )
             self._context_bytes_used += len(encoded)
         return accepted
+
+    async def get_asset_summaries_by_ids(
+        self,
+        asset_ids: list[str],
+    ) -> list[PlannerAssetSummary]:
+        """Load the exact confirmed owner-scoped Assets without candidate caps."""
+        requested = list(dict.fromkeys(asset_ids))
+        if not requested:
+            return []
+        rows = list(
+            await self._session.scalars(
+                select(Asset).where(
+                    Asset.user_id == self.user_id,
+                    Asset.id.in_(requested),
+                )
+            )
+        )
+        by_id = {row.id: row for row in rows}
+        if set(by_id) != set(requested):
+            raise PlannerEvidenceUnavailable(
+                "confirmed evidence contains unavailable Assets"
+            )
+        return [
+            PlannerAssetSummary(
+                id=row.id,
+                user_skill_id=row.user_skill_id,
+                effective_at=row.effective_at or row.created_at,
+                fields=_summarize(row.payload_json),
+            )
+            for asset_id in requested
+            for row in [by_id[asset_id]]
+        ]
 
     async def get_event(self, event_id: str) -> PlannerEvent | None:
         row = await self._session.scalar(

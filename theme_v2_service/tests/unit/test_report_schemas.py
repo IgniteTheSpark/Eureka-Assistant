@@ -7,6 +7,7 @@ from app.domains.reports.schemas import (
     PendingDecision,
     ReportPlanDraft,
     ReportScopeDraft,
+    TimeRange,
     RunGenerateRequest,
 )
 from app.domains.reports.scope_adapters import (
@@ -168,6 +169,30 @@ def test_period_summary_scope_accepts_multiple_skills_and_records():
         "water-1",
         "run-1",
     ]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"from": "2026-08-10T00:00:00", "to": "2026-08-11T00:00:00Z"},
+        {"from": "2026-08-10T00:00:00+08:00", "to": "2026-08-11T00:00:00"},
+    ],
+)
+def test_report_time_range_rejects_naive_boundaries(payload):
+    with pytest.raises(ValidationError, match="timezone offset"):
+        TimeRange.model_validate(payload)
+
+
+def test_report_time_range_accepts_non_utc_midnight_boundaries():
+    value = TimeRange.model_validate(
+        {
+            "from": "2026-08-10T00:00:00+08:00",
+            "to": "2026-08-11T00:00:00+08:00",
+        }
+    )
+
+    assert value.from_at.utcoffset().total_seconds() == 8 * 60 * 60
+    assert value.to_at.utcoffset().total_seconds() == 8 * 60 * 60
 
 
 def test_scope_confirmation_is_a_first_class_pending_decision():

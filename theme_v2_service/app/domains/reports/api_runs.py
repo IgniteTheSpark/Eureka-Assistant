@@ -1,7 +1,9 @@
+from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import ValidationError
 
 from app.auth.dependencies import get_current_user_id
 from app.config import get_settings
@@ -16,6 +18,7 @@ from app.domains.reports.schemas import (
     RunDecisionRequest,
     RunGenerateRequest,
     TriggerRunCreate,
+    TimeRange,
 )
 from app.domains.triggers.service import ExecutionExpired, ExecutionNotFound
 
@@ -33,6 +36,11 @@ def _translate_error(exc: Exception) -> HTTPException:
         return HTTPException(status_code=404, detail="not found")
     if isinstance(exc, ExecutionExpired):
         return HTTPException(status_code=410, detail="execution expired")
+    if isinstance(exc, service.RunBlocked):
+        return HTTPException(
+            status_code=409,
+            detail={"code": exc.code, "message": exc.message},
+        )
     return HTTPException(status_code=409, detail=str(exc))
 
 
@@ -63,14 +71,30 @@ async def create_report_run(
 @router.get("/{run_id}/scope-candidates")
 async def get_report_scope_candidates(
     run_id: str,
+    range_from: datetime | None = Query(default=None, alias="from"),
+    range_to: datetime | None = Query(default=None, alias="to"),
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
+    if (range_from is None) != (range_to is None):
+        raise HTTPException(
+            status_code=422,
+            detail="custom range requires both from and to",
+        )
+    try:
+        time_range = (
+            TimeRange.model_validate({"from": range_from, "to": range_to})
+            if range_from is not None
+            else None
+        )
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail="invalid custom range") from exc
     try:
         candidates = await service.get_scope_candidates(
             session,
             user_id=user_id,
             run_id=run_id,
+            time_range=time_range,
         )
     except (service.RunNotFound, service.RunConflict) as exc:
         raise _translate_error(exc) from exc
