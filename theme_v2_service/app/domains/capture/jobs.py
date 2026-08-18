@@ -596,8 +596,11 @@ async def _has_durable_capture_mutation(
     session: AsyncSession,
     *,
     user_id: str,
+    input_turn_id: str | None,
     references: list[dict],
 ) -> bool:
+    if input_turn_id is None:
+        return False
     asset_ids = {
         str(card.get("entity_id") or "")
         for card in references
@@ -611,6 +614,7 @@ async def _has_durable_capture_mutation(
     if asset_ids and await session.scalar(
         select(Asset.id).where(
             Asset.user_id == user_id,
+            Asset.source_input_turn_id == input_turn_id,
             Asset.id.in_(asset_ids),
         ).limit(1)
     ):
@@ -620,6 +624,7 @@ async def _has_durable_capture_mutation(
         and await session.scalar(
             select(Event.id).where(
                 Event.user_id == user_id,
+                Event.source_input_turn_id == input_turn_id,
                 Event.id.in_(event_ids),
             ).limit(1)
         )
@@ -833,6 +838,7 @@ async def _persist_flash_execution(
         confirmed_mutation = await _has_durable_capture_mutation(
             session,
             user_id=recording.user_id,
+            input_turn_id=recording.input_turn_id,
             references=references,
         )
         await create_notification(

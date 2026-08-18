@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 
 from app.db.models import Asset, Contact, Event, EventAttendee, UserSkill, WorkflowJob
 from app.db.session import AsyncSessionFactory
+from app.domains.assets.service import ensure_capture_skills
 from app.domains.capture.asr import (
     AsrPollResult,
     AsrTask,
@@ -403,6 +404,31 @@ class _PhantomAssetProvider:
                     status="success",
                     result={
                         "asset_id": "phantom-asset",
+                        "user_skill_name": "expense",
+                        "payload": {"amount": 28, "currency": "CNY"},
+                    },
+                ),
+            ),
+        )
+
+
+class _ExistingAssetProvider:
+    def __init__(self, asset_id: str):
+        self.asset_id = asset_id
+
+    async def execute(self, *, context, tool_runtime=None):
+        return FlashExecutionResult(
+            summary="引用了一条既有记录。",
+            items=(
+                FlashExecutionItem(
+                    intent=FlashIntent(
+                        type="expense",
+                        source_text="咖啡二十八元",
+                        domain="生活",
+                    ),
+                    status="success",
+                    result={
+                        "asset_id": self.asset_id,
                         "user_skill_name": "expense",
                         "payload": {"amount": 28, "currency": "CNY"},
                     },
@@ -1073,6 +1099,48 @@ async def test_capture_does_not_confirm_a_phantom_asset_snapshot(session):
 
     assert recording.result_records_json[0]["entity_id"] == "phantom-asset"
     assert asset_count == 0
+    assert notification_outbox.payload_json == {
+        "notification_id": notification.id,
+    }
+
+
+async def test_capture_does_not_confirm_a_preexisting_asset_reference(session):
+    recording_id, _ = await _seed_transcribed_capture("咖啡二十八元")
+    async with AsyncSessionFactory() as database_session:
+        await ensure_capture_skills(database_session, "user-1")
+        expense = await database_session.scalar(
+            select(UserSkill).where(
+                UserSkill.user_id == "user-1",
+                UserSkill.machine_name == "expense",
+            )
+        )
+        existing = Asset(
+            user_id="user-1",
+            user_skill_id=expense.id,
+            payload_json={"amount": 28, "currency": "CNY"},
+        )
+        database_session.add(existing)
+        await database_session.commit()
+        existing_id = existing.id
+
+    await run_worker_once(
+        _process_registry(_ExistingAssetProvider(existing_id)),
+        owner="worker-a",
+        lease_seconds=60,
+        now=NOW,
+    )
+
+    async with AsyncSessionFactory() as database_session:
+        notification = await database_session.scalar(
+            select(Notification).where(Notification.type == "flash_done")
+        )
+        notification_outbox = await database_session.scalar(
+            select(OutboxEvent).where(
+                OutboxEvent.aggregate_type == "notification",
+                OutboxEvent.aggregate_id == notification.id,
+            )
+        )
+
     assert notification_outbox.payload_json == {
         "notification_id": notification.id,
     }
