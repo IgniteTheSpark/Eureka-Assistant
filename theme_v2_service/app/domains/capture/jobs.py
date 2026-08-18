@@ -9,7 +9,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.db.base import utc_now
-from app.db.models import AgentToolExecution, Asset, Event, UserSkill, WorkflowJob
+from app.db.models import (
+    AgentToolExecution,
+    Asset,
+    Contact,
+    Event,
+    UserSkill,
+    WorkflowJob,
+)
 from app.db.session import session_scope
 from app.domains.assets.service import (
     ensure_capture_skills,
@@ -611,6 +618,11 @@ async def _has_durable_capture_mutation(
         for card in references
         if card.get("entity_kind") == "event"
     } - {""}
+    contact_ids = {
+        str(card.get("entity_id") or "")
+        for card in references
+        if card.get("entity_kind") == "contact"
+    } - {""}
     executions = list(
         await session.scalars(
             select(AgentToolExecution).where(
@@ -627,6 +639,9 @@ async def _has_durable_capture_mutation(
                         "tool_create_event",
                         "tool_update_event",
                         "tool_delete_event",
+                        "tool_create_contact",
+                        "tool_update_contact",
+                        "tool_delete_contact",
                     }
                 ),
             )
@@ -636,6 +651,8 @@ async def _has_durable_capture_mutation(
     executed_event_ids: set[str] = set()
     deleted_asset_ids: set[str] = set()
     deleted_event_ids: set[str] = set()
+    executed_contact_ids: set[str] = set()
+    deleted_contact_ids: set[str] = set()
     for execution in executions:
         result = execution.result_json or {}
         if result.get("ok") is not True:
@@ -644,6 +661,13 @@ async def _has_durable_capture_mutation(
             deleted_asset_ids.add(str(result.get("asset_id") or ""))
         elif execution.tool_name == "tool_delete_event":
             deleted_event_ids.add(str(result.get("event_id") or ""))
+        elif execution.tool_name == "tool_delete_contact":
+            deleted_contact_ids.add(str(result.get("contact_id") or ""))
+        elif execution.tool_name in {
+            "tool_create_contact",
+            "tool_update_contact",
+        }:
+            executed_contact_ids.add(str(result.get("contact_id") or ""))
         elif execution.tool_name in {
             "tool_create_asset",
             "tool_create_todo",
@@ -657,6 +681,8 @@ async def _has_durable_capture_mutation(
     persisted_event_ids = event_ids & (executed_event_ids - {""})
     deleted_asset_ids = asset_ids & (deleted_asset_ids - {""})
     deleted_event_ids = event_ids & (deleted_event_ids - {""})
+    persisted_contact_ids = contact_ids & (executed_contact_ids - {""})
+    deleted_contact_ids = contact_ids & (deleted_contact_ids - {""})
     if persisted_asset_ids and await session.scalar(
         select(Asset.id).where(
             Asset.user_id == user_id,
@@ -668,6 +694,13 @@ async def _has_durable_capture_mutation(
         select(Event.id).where(
             Event.user_id == user_id,
             Event.id.in_(persisted_event_ids),
+        ).limit(1)
+    ):
+        return True
+    if persisted_contact_ids and await session.scalar(
+        select(Contact.id).where(
+            Contact.user_id == user_id,
+            Contact.id.in_(persisted_contact_ids),
         ).limit(1)
     ):
         return True
@@ -688,6 +721,14 @@ async def _has_durable_capture_mutation(
             )
         )
         if deleted_event_ids - remaining_event_ids:
+            return True
+    if deleted_contact_ids:
+        remaining_contact_ids = set(
+            await session.scalars(
+                select(Contact.id).where(Contact.id.in_(deleted_contact_ids))
+            )
+        )
+        if deleted_contact_ids - remaining_contact_ids:
             return True
     return False
 

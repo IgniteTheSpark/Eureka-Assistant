@@ -3,7 +3,7 @@ import asyncio
 import pytest
 
 from app.domains.notifications.sse import sse_comment, sse_event, with_heartbeats
-from app.domains.notifications.subscribers import SubscriberRegistry
+from app.domains.notifications.subscribers import SubscriberFrame, SubscriberRegistry
 
 
 async def test_registry_is_user_scoped_and_fans_out():
@@ -37,6 +37,67 @@ def test_full_queue_drops_frame_without_raising():
 
     assert registry.publish("user-1", {"id": "n2"}) == 1
     assert queue.get_nowait() == {"id": "n1"}
+
+
+def test_full_status_queue_preserves_incoming_confirmed_mutation_signal():
+    registry = SubscriberRegistry(queue_size=2)
+    queue = registry.subscribe("user-1")
+    registry.publish(
+        "user-1",
+        SubscriberFrame(event="flash_file_status", payload={"status": "running"}),
+    )
+    registry.publish(
+        "user-1",
+        SubscriberFrame(event="session_changed", payload={"revision": 1}),
+    )
+
+    dropped = registry.publish(
+        "user-1",
+        SubscriberFrame(
+            event="notification",
+            payload={"id": "n1", "confirmed_mutation": True},
+        ),
+    )
+
+    frames = [queue.get_nowait(), queue.get_nowait()]
+    assert dropped == 1
+    assert any(frame.payload.get("confirmed_mutation") is True for frame in frames)
+
+
+def test_full_queue_coalesces_confirmed_mutation_without_losing_signal():
+    registry = SubscriberRegistry(queue_size=1)
+    queue = registry.subscribe("user-1")
+    registry.publish(
+        "user-1",
+        SubscriberFrame(
+            event="notification",
+            payload={"id": "n1", "confirmed_mutation": True},
+        ),
+    )
+
+    dropped = registry.publish(
+        "user-1",
+        SubscriberFrame(
+            event="notification",
+            payload={"id": "n2", "confirmed_mutation": True},
+        ),
+    )
+
+    assert dropped == 1
+    assert queue.get_nowait().payload["confirmed_mutation"] is True
+
+
+def test_confirmed_mutation_with_no_subscriber_is_not_buffered_globally():
+    registry = SubscriberRegistry(queue_size=1)
+
+    assert registry.publish(
+        "user-1",
+        SubscriberFrame(
+            event="notification",
+            payload={"id": "n1", "confirmed_mutation": True},
+        ),
+    ) == 0
+    assert registry.subscribe("user-1").empty()
 
 
 def test_sse_helpers_encode_utf8_json_and_safe_comments():
