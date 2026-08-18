@@ -623,8 +623,10 @@ async def _has_durable_capture_mutation(
                         "tool_create_todo",
                         "tool_create_note",
                         "tool_update_asset",
+                        "tool_delete_asset",
                         "tool_create_event",
                         "tool_update_event",
+                        "tool_delete_event",
                     }
                 ),
             )
@@ -632,11 +634,17 @@ async def _has_durable_capture_mutation(
     )
     executed_asset_ids: set[str] = set()
     executed_event_ids: set[str] = set()
+    deleted_asset_ids: set[str] = set()
+    deleted_event_ids: set[str] = set()
     for execution in executions:
         result = execution.result_json or {}
         if result.get("ok") is not True:
             continue
-        if execution.tool_name in {
+        if execution.tool_name == "tool_delete_asset":
+            deleted_asset_ids.add(str(result.get("asset_id") or ""))
+        elif execution.tool_name == "tool_delete_event":
+            deleted_event_ids.add(str(result.get("event_id") or ""))
+        elif execution.tool_name in {
             "tool_create_asset",
             "tool_create_todo",
             "tool_create_note",
@@ -645,24 +653,43 @@ async def _has_durable_capture_mutation(
             executed_asset_ids.add(str(result.get("asset_id") or ""))
         else:
             executed_event_ids.add(str(result.get("event_id") or ""))
-    asset_ids &= executed_asset_ids - {""}
-    event_ids &= executed_event_ids - {""}
-    if asset_ids and await session.scalar(
+    persisted_asset_ids = asset_ids & (executed_asset_ids - {""})
+    persisted_event_ids = event_ids & (executed_event_ids - {""})
+    deleted_asset_ids = asset_ids & (deleted_asset_ids - {""})
+    deleted_event_ids = event_ids & (deleted_event_ids - {""})
+    if persisted_asset_ids and await session.scalar(
         select(Asset.id).where(
             Asset.user_id == user_id,
-            Asset.id.in_(asset_ids),
+            Asset.id.in_(persisted_asset_ids),
         ).limit(1)
     ):
         return True
-    return bool(
-        event_ids
-        and await session.scalar(
-            select(Event.id).where(
-                Event.user_id == user_id,
-                Event.id.in_(event_ids),
-            ).limit(1)
+    if persisted_event_ids and await session.scalar(
+        select(Event.id).where(
+            Event.user_id == user_id,
+            Event.id.in_(persisted_event_ids),
+        ).limit(1)
+    ):
+        return True
+    if deleted_asset_ids:
+        remaining_asset_ids = set(
+            await session.scalars(
+                select(Asset.id).where(Asset.id.in_(deleted_asset_ids))
+            )
         )
-    )
+        if deleted_asset_ids - remaining_asset_ids:
+            return True
+    if deleted_event_ids:
+        remaining_event_ids = set(
+            await session.scalars(
+                select(Event.id).where(
+                    Event.id.in_(deleted_event_ids),
+                )
+            )
+        )
+        if deleted_event_ids - remaining_event_ids:
+            return True
+    return False
 
 
 async def _persist_flash_execution(

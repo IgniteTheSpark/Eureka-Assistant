@@ -1286,6 +1286,106 @@ async def test_capture_confirms_a_durable_event_update_for_the_current_turn(sess
     }
 
 
+async def test_capture_confirms_a_durable_asset_delete_for_the_current_turn(session):
+    recording_id, _ = await _seed_transcribed_capture("删除咖啡记录")
+    async with AsyncSessionFactory() as database_session:
+        await ensure_capture_skills(database_session, "user-1")
+        expense = await database_session.scalar(
+            select(UserSkill).where(
+                UserSkill.user_id == "user-1",
+                UserSkill.machine_name == "expense",
+            )
+        )
+        existing = Asset(
+            user_id="user-1",
+            user_skill_id=expense.id,
+            payload_json={"amount": 28, "currency": "CNY"},
+        )
+        database_session.add(existing)
+        await database_session.commit()
+        existing_id = existing.id
+
+    await run_worker_once(
+        _process_registry(
+            _ExecutedMutationProvider(
+                tool_name="tool_delete_asset",
+                arguments={"asset_id": existing_id},
+                intent_type="expense",
+            ),
+            tool_runtime=_InProcessToolRuntime(),
+        ),
+        owner="worker-a",
+        lease_seconds=60,
+        now=NOW,
+    )
+
+    async with AsyncSessionFactory() as database_session:
+        deleted = await database_session.get(Asset, existing_id)
+        notification = await database_session.scalar(
+            select(Notification).where(Notification.type == "flash_done")
+        )
+        notification_outbox = await database_session.scalar(
+            select(OutboxEvent).where(
+                OutboxEvent.aggregate_type == "notification",
+                OutboxEvent.aggregate_id == notification.id,
+            )
+        )
+
+    assert deleted is None
+    assert notification_outbox.payload_json == {
+        "notification_id": notification.id,
+        "confirmed_mutation": True,
+    }
+
+
+async def test_capture_confirms_a_durable_event_delete_for_the_current_turn(session):
+    recording_id, _ = await _seed_transcribed_capture("删除项目会")
+    async with AsyncSessionFactory() as database_session:
+        existing = Event(
+            user_id="user-1",
+            title="项目会",
+            start_at=datetime(2026, 8, 3, 7),
+            end_at=datetime(2026, 8, 3, 8),
+            all_day=False,
+            status="scheduled",
+        )
+        database_session.add(existing)
+        await database_session.commit()
+        existing_id = existing.id
+
+    await run_worker_once(
+        _process_registry(
+            _ExecutedMutationProvider(
+                tool_name="tool_delete_event",
+                arguments={"event_id": existing_id},
+                intent_type="event",
+            ),
+            tool_runtime=_InProcessToolRuntime(),
+        ),
+        owner="worker-a",
+        lease_seconds=60,
+        now=NOW,
+    )
+
+    async with AsyncSessionFactory() as database_session:
+        deleted = await database_session.get(Event, existing_id)
+        notification = await database_session.scalar(
+            select(Notification).where(Notification.type == "flash_done")
+        )
+        notification_outbox = await database_session.scalar(
+            select(OutboxEvent).where(
+                OutboxEvent.aggregate_type == "notification",
+                OutboxEvent.aggregate_id == notification.id,
+            )
+        )
+
+    assert deleted is None
+    assert notification_outbox.payload_json == {
+        "notification_id": notification.id,
+        "confirmed_mutation": True,
+    }
+
+
 async def test_completed_capture_process_job_is_idempotent(session):
     provider = FakeCaptureAgentProvider(_event_and_expense_result())
     recording_id, _ = await _seed_transcribed_capture()
