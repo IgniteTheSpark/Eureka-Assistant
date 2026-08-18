@@ -165,6 +165,40 @@ void main() {
     expect(find.text('calendar state 1 controller 1'), findsOneWidget);
   });
 
+  testWidgets('root page states survive immersive and standard Tab switches', (
+    tester,
+  ) async {
+    final keys = List.generate(3, (_) => GlobalKey<_MountedProbeState>());
+    await tester.pumpWidget(
+      _ThemeHost(
+        child: ThemeV2AppShell(
+          showStartupOverlays: false,
+          deviceStatus: const DeviceStatusSummary.disconnected(),
+          pages: [
+            ThemeV2PageScaffold(
+              extendBodyBehindChrome: true,
+              body: _MountedProbe(key: keys[0]),
+            ),
+            ThemeV2PageScaffold(body: _MountedProbe(key: keys[1])),
+            ThemeV2PageScaffold(body: _MountedProbe(key: keys[2])),
+          ],
+        ),
+      ),
+    );
+    final states = keys.map((key) => key.currentState).toList();
+
+    await tester.tap(find.bySemanticsLabel('日历'));
+    await tester.pump();
+    await tester.tap(find.bySemanticsLabel('资产'));
+    await tester.pump();
+    await tester.tap(find.bySemanticsLabel('今日'));
+    await tester.pump();
+
+    expect(keys.map((key) => key.currentState), orderedEquals(states));
+    expect(states.map((state) => state!.disposeCount), everyElement(0));
+    expect(states.map((state) => state!.deactivateCount), everyElement(0));
+  });
+
   testWidgets('page scaffold declares nav dock and keyboard inset policy', (
     tester,
   ) async {
@@ -687,6 +721,33 @@ class _StateProbeState extends State<_StateProbe> {
       ),
     );
   }
+}
+
+class _MountedProbe extends StatefulWidget {
+  const _MountedProbe({super.key});
+
+  @override
+  State<_MountedProbe> createState() => _MountedProbeState();
+}
+
+class _MountedProbeState extends State<_MountedProbe> {
+  var disposeCount = 0;
+  var deactivateCount = 0;
+
+  @override
+  void deactivate() {
+    deactivateCount++;
+    super.deactivate();
+  }
+
+  @override
+  void dispose() {
+    disposeCount++;
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.expand();
 }
 
 class _ThemeProbe extends StatelessWidget {

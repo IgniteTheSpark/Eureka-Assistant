@@ -364,6 +364,7 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
         [
           ThemeV2PageScaffold(
             extendBodyBehindChrome: immersiveToday,
+            topNavExtent: ThemeV2GlobalTopNav.floatingExtent,
             body: widget.usesTodayDotExperiment
                 ? TodayDotExperimentPage(
                     active: _index == 0,
@@ -386,6 +387,7 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
                   ),
           ),
           ThemeV2PageScaffold(
+            topNavExtent: ThemeV2GlobalTopNav.floatingExtent,
             body: ThemeV2CalendarPage(
               active: _index == 1,
               controller: _calendarController,
@@ -393,6 +395,7 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
             showDock: _calendarController.surface == CalendarSurface.overview,
           ),
           ThemeV2PageScaffold(
+            topNavExtent: ThemeV2GlobalTopNav.floatingExtent,
             body: ThemeV2LibraryPage(
               active: _index == 2,
               navigation: _libraryNavigation,
