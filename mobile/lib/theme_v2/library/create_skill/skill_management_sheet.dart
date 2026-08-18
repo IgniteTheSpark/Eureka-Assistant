@@ -28,6 +28,8 @@ class ThemeV2SkillManagementSheet extends StatefulWidget {
 
 class _ThemeV2SkillManagementSheetState
     extends State<ThemeV2SkillManagementSheet> {
+  var _deleteFlowInFlight = false;
+
   @override
   void initState() {
     super.initState();
@@ -161,7 +163,9 @@ class _ThemeV2SkillManagementSheetState
         const SizedBox(height: 8),
         OutlinedButton.icon(
           key: const ValueKey('custom-skill-delete'),
-          onPressed: controller.busy ? null : _confirmDelete,
+          onPressed: controller.busy || _deleteFlowInFlight
+              ? null
+              : _confirmDelete,
           style: OutlinedButton.styleFrom(
             foregroundColor: context.themeV2.critical,
           ),
@@ -307,32 +311,38 @@ class _ThemeV2SkillManagementSheetState
   }
 
   Future<void> _confirmDelete() async {
-    final count = await widget.controller.loadDeletionImpact();
-    if (count == null || !mounted) return;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('永久删除这个 Skill？'),
-        content: Text('将同时永久删除 $count 条记录，此操作无法撤销。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            key: const ValueKey('custom-skill-delete-confirm'),
-            style: FilledButton.styleFrom(
-              backgroundColor: context.themeV2.critical,
+    if (_deleteFlowInFlight) return;
+    setState(() => _deleteFlowInFlight = true);
+    try {
+      final count = await widget.controller.loadDeletionImpact();
+      if (count == null || !mounted) return;
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('永久删除这个 Skill？'),
+          content: Text('将同时永久删除 $count 条记录，此操作无法撤销。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('取消'),
             ),
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('确认删除'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    if (await widget.controller.deleteSkill() != null && mounted) {
-      widget.onDeleted?.call();
+            FilledButton(
+              key: const ValueKey('custom-skill-delete-confirm'),
+              style: FilledButton.styleFrom(
+                backgroundColor: context.themeV2.critical,
+              ),
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('确认删除'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+      if (await widget.controller.deleteSkill() != null && mounted) {
+        widget.onDeleted?.call();
+      }
+    } finally {
+      if (mounted) setState(() => _deleteFlowInFlight = false);
     }
   }
 }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:eureka/theme_v2/asset/card_field_selection.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -75,6 +77,52 @@ void main() {
 
     expect(repository.saved!.displayName, '室内网球');
     expect(repository.saved!.renderSpec['primary_field'], 'surface');
+  });
+
+  testWidgets('rapid delete taps run one confirmation and deletion flow', (
+    tester,
+  ) async {
+    final impact = Completer<int>();
+    final repository = _FakeRepository(_multiFieldSkill())
+      ..deletionImpactPending = impact;
+    var sheetVisible = true;
+    final controller = SkillManagementController(
+      repository: repository,
+      userSkillId: 'tennis-id',
+    );
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildThemeV2Theme(Brightness.light),
+        home: StatefulBuilder(
+          builder: (context, setState) => sheetVisible
+              ? ThemeV2SkillManagementSheet(
+                  controller: controller,
+                  onDeleted: () => setState(() => sheetVisible = false),
+                )
+              : const SizedBox.shrink(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView), const Offset(0, -1600));
+    await tester.pumpAndSettle();
+
+    final delete = find.byKey(const ValueKey('custom-skill-delete'));
+    await tester.tap(delete);
+    await tester.tap(delete);
+    await tester.pump();
+
+    expect(repository.deletionImpactRequests, 1);
+    impact.complete(4);
+    await tester.pumpAndSettle();
+    expect(find.text('永久删除这个 Skill？'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('custom-skill-delete-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(repository.deleteRequests, 1);
+    expect(find.byType(ThemeV2SkillManagementSheet), findsNothing);
   });
 
   test(
@@ -264,6 +312,9 @@ class _FakeRepository implements SkillManagementRepository {
   SkillManagementDraft? saved;
   bool failSave = false;
   bool deleted = false;
+  Completer<int>? deletionImpactPending;
+  int deletionImpactRequests = 0;
+  int deleteRequests = 0;
 
   @override
   Future<ConfigurableSkill> load(String userSkillId) async => skill;
@@ -280,10 +331,14 @@ class _FakeRepository implements SkillManagementRepository {
   }
 
   @override
-  Future<int> deletionImpact(String userSkillId) async => assetCount;
+  Future<int> deletionImpact(String userSkillId) {
+    deletionImpactRequests++;
+    return deletionImpactPending?.future ?? Future.value(assetCount);
+  }
 
   @override
   Future<void> delete(String userSkillId) async {
+    deleteRequests++;
     deleted = true;
   }
 }
