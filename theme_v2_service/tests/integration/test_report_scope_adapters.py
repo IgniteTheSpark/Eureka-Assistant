@@ -526,6 +526,30 @@ async def test_cjk_compound_identity_matches_without_an_english_alias_clue(sessi
     ]
 
 
+async def test_cjk_runner_identity_inherits_running_aliases(session):
+    await _seed_compound_running_and_unrelated(
+        session,
+        machine_name="distance_metric",
+        display_name="跑步者里程",
+    )
+
+    response = await list_scope_candidates(
+        session,
+        user_id="user-1",
+        adapter_kind="period_summary",
+        intent="总结过去 30 天的跑步",
+        now=NOW,
+        timezone_name="Asia/Shanghai",
+    )
+
+    assert [group.skill_id for group in response.record_groups] == [
+        "skill-running-compound"
+    ]
+    assert [
+        reference.id for reference in response.default_scope.supporting_references
+    ] == ["compound-0"]
+
+
 async def test_english_inflected_compound_identity_inherits_run_alias(session):
     await _seed_compound_running_and_unrelated(
         session,
@@ -959,6 +983,78 @@ async def test_description_derived_alias_matches_without_identity_metadata(sessi
     assert [
         reference.id for reference in response.default_scope.supporting_references
     ] == ["metric-1"]
+
+
+async def test_cjk_runner_description_inherits_running_aliases(session):
+    skills = [
+        UserSkill(
+            id="skill-runner-metric",
+            user_id="user-1",
+            machine_name="distance_metric",
+            display_name="训练指标",
+            description="记录跑步者里程",
+            domain="运动",
+            schema_json={
+                "type": "object",
+                "properties": {"distance_km": {"type": "number"}},
+            },
+        ),
+        UserSkill(
+            id="skill-expense",
+            user_id="user-1",
+            machine_name="expense",
+            display_name="消费",
+            description="记录支出金额",
+            domain="财务",
+            schema_json={
+                "type": "object",
+                "properties": {"amount": {"type": "number"}},
+            },
+        ),
+        UserSkill(
+            id="skill-water",
+            user_id="user-1",
+            machine_name="water_log",
+            display_name="喝水记录",
+            description="记录饮水量",
+            domain="健康",
+            schema_json={
+                "type": "object",
+                "properties": {"value": {"type": "number"}},
+            },
+        ),
+    ]
+    session.add_all(skills)
+    await session.flush()
+    session.add_all(
+        [
+            Asset(
+                id=f"runner-description-{index}",
+                user_id="user-1",
+                user_skill_id=skill.id,
+                payload_json={"value": index + 1},
+                effective_at=datetime(2026, 8, 10, index + 1, 0),
+            )
+            for index, skill in enumerate(skills)
+        ]
+    )
+    await session.commit()
+
+    response = await list_scope_candidates(
+        session,
+        user_id="user-1",
+        adapter_kind="period_summary",
+        intent="总结过去 30 天的跑步",
+        now=NOW,
+        timezone_name="Asia/Shanghai",
+    )
+
+    assert [group.skill_id for group in response.record_groups] == [
+        "skill-runner-metric"
+    ]
+    assert [
+        reference.id for reference in response.default_scope.supporting_references
+    ] == ["runner-description-0"]
 
 
 async def test_additive_domain_and_identity_terms_union_matching_groups(session):
