@@ -9,7 +9,11 @@ from app.domains.reports.schemas import (
     ReportScopeDraft,
     RunGenerateRequest,
 )
-from app.domains.reports.scope_adapters import ScopeRecordGroup, initial_scope
+from app.domains.reports.scope_adapters import (
+    ScopeMatchTerm,
+    ScopeRecordGroup,
+    initial_scope,
+)
 from app.domains.reports.planner import (
     InvalidPlannerResult,
     PlannerRequest,
@@ -246,6 +250,13 @@ def test_record_group_matching_metadata_stays_internal():
         machine_name="running_log",
         match_terms=["running", "跑步"],
         identity_match_terms=["running", "跑步"],
+        match_specs=[
+            ScopeMatchTerm(
+                value="跑步",
+                provenance="identity",
+                is_alias=True,
+            )
+        ],
         label="跑步记录",
         count=0,
     )
