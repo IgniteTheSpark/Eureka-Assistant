@@ -14,6 +14,7 @@ class ThemeV2GlobalTopNav extends StatelessWidget {
     required this.deviceStatus,
     required this.onDeviceSelected,
     required this.onNotificationsPressed,
+    this.onProfilePressed,
     this.unreadNotificationCount = 0,
     this.transparentSurface = false,
     this.floatingDock = false,
@@ -22,6 +23,7 @@ class ThemeV2GlobalTopNav extends StatelessWidget {
   final DeviceStatusSummary deviceStatus;
   final ValueChanged<ThemeV2DeviceTarget> onDeviceSelected;
   final VoidCallback onNotificationsPressed;
+  final VoidCallback? onProfilePressed;
   final int unreadNotificationCount;
   final bool transparentSurface;
   final bool floatingDock;
@@ -39,6 +41,7 @@ class ThemeV2GlobalTopNav extends StatelessWidget {
       deviceStatus: deviceStatus,
       onDeviceSelected: onDeviceSelected,
       onNotificationsPressed: onNotificationsPressed,
+      onProfilePressed: onProfilePressed,
       unreadNotificationCount: unreadNotificationCount,
     );
     if (floatingDock) {
@@ -85,11 +88,13 @@ class _TopNavContent extends StatelessWidget {
     required this.onDeviceSelected,
     required this.onNotificationsPressed,
     required this.unreadNotificationCount,
+    this.onProfilePressed,
   });
 
   final DeviceStatusSummary deviceStatus;
   final ValueChanged<ThemeV2DeviceTarget> onDeviceSelected;
   final VoidCallback onNotificationsPressed;
+  final VoidCallback? onProfilePressed;
   final int unreadNotificationCount;
 
   @override
@@ -182,6 +187,15 @@ class _TopNavContent extends StatelessWidget {
                     ),
                 ],
               ),
+              if (onProfilePressed != null) ...[
+                const SizedBox(width: ThemeV2Spacing.xs),
+                ThemeV2IconButton(
+                  semanticLabel: '个人中心',
+                  icon: Icons.person_outline,
+                  color: tokens.muted,
+                  onPressed: onProfilePressed!,
+                ),
+              ],
             ],
           );
         },

@@ -102,6 +102,52 @@ void main() {
     },
   );
 
+  testWidgets('profile button appears and fires callback when onProfilePressed set', (
+    tester,
+  ) async {
+    var profileTaps = 0;
+    final semantics = tester.ensureSemantics();
+
+    await tester.pumpWidget(
+      _TestHost(
+        child: ThemeV2GlobalTopNav(
+          deviceStatus: const DeviceStatusSummary.disconnected(),
+          onDeviceSelected: _noopDeviceTarget,
+          onNotificationsPressed: _noop,
+          onProfilePressed: () => profileTaps++,
+        ),
+      ),
+    );
+
+    expect(find.bySemanticsLabel('个人中心'), findsOneWidget);
+    final size = tester.getSize(find.bySemanticsLabel('个人中心'));
+    expect(size.width, greaterThanOrEqualTo(44), reason: 'profile hit target');
+    expect(size.height, greaterThanOrEqualTo(44), reason: 'profile hit target');
+
+    await tester.tap(find.bySemanticsLabel('个人中心'));
+    expect(profileTaps, 1);
+    expect(tester.takeException(), isNull);
+
+    semantics.dispose();
+  });
+
+  testWidgets('profile button hidden when onProfilePressed omitted', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _TestHost(
+        child: ThemeV2GlobalTopNav(
+          deviceStatus: const DeviceStatusSummary.disconnected(),
+          onDeviceSelected: _noopDeviceTarget,
+          onNotificationsPressed: _noop,
+        ),
+      ),
+    );
+
+    expect(find.bySemanticsLabel('个人中心'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('floating top dock matches bottom dock surface and fits 360px', (
     tester,
   ) async {
