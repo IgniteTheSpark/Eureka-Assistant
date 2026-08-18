@@ -8,8 +8,11 @@ void main() {
     dataMutationRevision.value = 0;
   });
 
-  test('flash_done publishes a mutation after the derived-assets contract', () {
-    publishRefreshForAppEvent('notification', const {'type': 'flash_done'});
+  test('explicit mutation evidence advances the mutation revision', () {
+    publishRefreshForAppEvent('notification', const {
+      'type': 'flash_done',
+      'confirmed_mutation': true,
+    });
 
     expect(dataRevision.value, 1);
     expect(dataMutationRevision.value, 1);
@@ -19,10 +22,28 @@ void main() {
     'task completion notifications publish their persisted asset updates',
     () {
       publishRefreshForAppEvent('notification', const {'type': 'task_done'});
-      expect(dataMutationRevision.value, 1);
+      expect(dataMutationRevision.value, 0);
 
-      publishRefreshForAppEvent('notification', const {'type': 'task_failed'});
-      expect(dataMutationRevision.value, 2);
+      publishRefreshForAppEvent('notification', const {
+        'type': 'task_failed',
+        'mutation_receipt': {'confirmed_mutation': true},
+      });
+      expect(dataMutationRevision.value, 1);
+    },
+  );
+
+  test(
+    'capture and session lifecycle events are refresh-only without evidence',
+    () {
+      publishRefreshForAppEvent('capture', const {'session_id': 'session-1'});
+      publishRefreshForAppEvent('session_changed', const {
+        'session_id': 'session-1',
+        'reason': 'title_changed',
+      });
+      publishRefreshForAppEvent('notification', const {'type': 'flash_done'});
+
+      expect(dataRevision.value, 3);
+      expect(dataMutationRevision.value, 0);
     },
   );
 

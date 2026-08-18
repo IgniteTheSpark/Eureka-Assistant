@@ -497,9 +497,11 @@ class _ReportRunPageState extends State<ReportRunPage> {
                                   ),
                             )
                       : _sameTimeRange(scope.timeRange, option.timeRange),
-                  onSelected: (_) => option.id == 'custom'
-                      ? _pickCustomTimeRange()
-                      : _controller.selectScopeTimeRange(option),
+                  onSelected: (_) => unawaited(
+                    option.id == 'custom'
+                        ? _pickCustomTimeRange()
+                        : _controller.selectScopeTimeRange(option),
+                  ),
                 ),
             ],
           ),
@@ -771,13 +773,13 @@ class _ReportRunPageState extends State<ReportRunPage> {
       selected.end.month,
       selected.end.day + 1,
     );
-    _controller.selectScopeTimeRange(
+    await _controller.selectScopeTimeRange(
       ReportTimeRangeOptionView(
         id: 'custom_selected',
         label: '自定义',
         timeRange: {
-          'from': start.toIso8601String(),
-          'to': endExclusive.toIso8601String(),
+          'from': reportTimeBoundaryIso(start),
+          'to': reportTimeBoundaryIso(endExclusive),
         },
       ),
     );

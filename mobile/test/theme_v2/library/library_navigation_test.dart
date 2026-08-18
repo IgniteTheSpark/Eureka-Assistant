@@ -402,6 +402,30 @@ void main() {
     expect(find.bySemanticsLabel('Card Display Settings'), findsNothing);
   });
 
+  testWidgets(
+    'authoritative system provenance overrides custom container type',
+    (tester) async {
+      final controller = await _controller();
+      await _pumpHost(
+        tester,
+        ThemeV2LibraryPage(
+          controller: controller,
+          autoLoad: false,
+          onCreateSkill: () {},
+        ),
+      );
+
+      await tester.tap(find.bySemanticsLabel('打开消费账本，2 条'));
+      await tester.pumpAndSettle();
+
+      final page = tester.widget<ThemeV2AssetListPage>(
+        find.byType(ThemeV2AssetListPage),
+      );
+      expect(page.onConfigureCard, isNotNull);
+      expect(page.onManageSkill, isNull);
+    },
+  );
+
   testWidgets('Theme V2 contact container reads first-class contacts', (
     tester,
   ) async {
@@ -1435,7 +1459,7 @@ Future<LibraryController> _controller({
             mark: '¥',
             type: LibraryContainerType.custom,
             totalCount: 2,
-            isSystem: false,
+            isSystem: true,
             userSkillId: 's-expense',
           ),
           LibraryContainerSummary(

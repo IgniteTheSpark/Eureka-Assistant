@@ -5,6 +5,7 @@ import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/home/theme_v2_asset_bubble_field.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_dither_field.dart';
 import 'package:eureka/theme_v2/home/today_dither_material.dart';
+import 'package:eureka/theme_v2/home/today_output_overlay.dart';
 import 'package:eureka/theme_v2/home/today_region_watermark.dart';
 import 'package:eureka/timeline/timeline.dart';
 import 'package:eureka/today/today_data.dart';
@@ -370,6 +371,65 @@ void main() {
     expect(opened?.id, nearerAsset.id);
     expect(activationCount, 1);
   });
+
+  testWidgets(
+    'removed asset IDs can consume a new spawn handoff when re-added',
+    (tester) async {
+      var assets = [asset];
+      var spawnStates = const {
+        'asset-1': TodayAssetHandoff(
+          center: Offset(100, 180),
+          velocity: Offset.zero,
+        ),
+      };
+      late StateSetter update;
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(395, 790);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildThemeV2Theme(Brightness.light),
+          home: StatefulBuilder(
+            builder: (context, setState) {
+              update = setState;
+              return MediaQuery(
+                data: const MediaQueryData(disableAnimations: false),
+                child: ThemeV2AssetBubbleField(
+                  assets: assets,
+                  trueCount: assets.length,
+                  gravityStream: const Stream<Offset>.empty(),
+                  spawnStates: spawnStates,
+                ),
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      update(() => assets = []);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      update(() {
+        spawnStates = const {
+          'asset-1': TodayAssetHandoff(
+            center: Offset(300, 320),
+            velocity: Offset.zero,
+          ),
+        };
+        assets = [asset];
+      });
+      await tester.pump();
+
+      final center = tester.getCenter(
+        find.byKey(const ValueKey('theme-v2-asset-bubble-asset-1')),
+      );
+      expect(center.dx, closeTo(300, 2));
+      expect(center.dy, closeTo(320, 2));
+    },
+  );
 
   testWidgets('Asset dither and watermark use brightness-specific contrast', (
     tester,
@@ -1182,6 +1242,7 @@ Future<void> _pumpField(
   Brightness brightness = Brightness.light,
   int? trueCount,
   Map<String, Offset> spawnCenters = const {},
+  Map<String, TodayAssetHandoff> spawnStates = const {},
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = size;
@@ -1203,6 +1264,7 @@ Future<void> _pumpField(
             active: active,
             gravityStream: gravityStream,
             spawnCenters: spawnCenters,
+            spawnStates: spawnStates,
             onOpenAsset: onOpenAsset,
             onOpenLibrary: onOpenLibrary,
             motion: motion,

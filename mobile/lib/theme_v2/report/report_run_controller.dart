@@ -77,6 +77,8 @@ class ReportRunController extends ChangeNotifier {
       pendingDecision['type']?.toString() == 'clarification';
   bool get needsScopeConfirmation =>
       pendingDecision['type']?.toString() == 'scope_confirmation';
+  bool get scopeRequiresReconfirmation =>
+      pendingDecision['requires_reconfirmation'] == true;
   ReportScopeCandidateResponseView? get scopeCandidates => _scopeCandidates;
   ReportScopeDraftView? get scopeDraft {
     if (_scopeDraftOverride != null) return _scopeDraftOverride;
@@ -207,15 +209,19 @@ class ReportRunController extends ChangeNotifier {
     _notify();
   }
 
-  Future<void> loadScopeCandidates() async {
+  Future<void> loadScopeCandidates({Map<String, dynamic>? timeRange}) async {
     final id = runId;
     if (_disposed || id.isEmpty || busy) return;
     busy = true;
     error = null;
+    final previousDraft = scopeDraft;
     _notify();
     try {
       final response = await _api.getJson(
         '/api/report-generation-runs/$id/scope-candidates',
+        query: timeRange == null
+            ? null
+            : {'from': timeRange['from'], 'to': timeRange['to']},
       );
       if (response is! Map) {
         throw const FormatException('报告范围候选项返回格式不正确');
@@ -224,8 +230,13 @@ class ReportRunController extends ChangeNotifier {
         response.cast<String, dynamic>(),
       );
       _scopeCandidates = candidates;
-      final current = scopeDraft;
-      if (current == null || _scopeIsEmpty(current)) {
+      if (timeRange != null && previousDraft != null) {
+        _scopeDraftOverride = _mergeRefetchedCandidates(
+          previousDraft,
+          candidates,
+          timeRange,
+        );
+      } else if (previousDraft == null || _scopeIsEmpty(previousDraft)) {
         _scopeDraftOverride = candidates.defaultScope;
       }
     } catch (exception) {
@@ -251,34 +262,34 @@ class ReportRunController extends ChangeNotifier {
     _notify();
   }
 
-  void selectScopeTimeRange(ReportTimeRangeOptionView option) {
+  Future<void> selectScopeTimeRange(ReportTimeRangeOptionView option) async {
     final current = scopeDraft;
-    final candidates = scopeCandidates;
-    if (current == null || candidates == null || option.timeRange == null) {
+    if (current == null || option.timeRange == null) {
       return;
     }
-    final from = DateTime.tryParse(option.timeRange!['from']?.toString() ?? '');
-    final to = DateTime.tryParse(option.timeRange!['to']?.toString() ?? '');
+    await loadScopeCandidates(timeRange: option.timeRange);
+  }
+
+  ReportScopeDraftView _mergeRefetchedCandidates(
+    ReportScopeDraftView current,
+    ReportScopeCandidateResponseView candidates,
+    Map<String, dynamic> timeRange,
+  ) {
     final selectedSkillIds = current.skillIds.isEmpty
         ? candidates.recordGroups.map((group) => group.skillId).toSet()
         : current.skillIds.toSet();
     final auto = candidates.recordGroups
         .where((group) => selectedSkillIds.contains(group.skillId))
         .expand((group) => group.records)
-        .where((record) {
-          final value = record.effectiveAt;
-          if (value == null) return false;
-          return (from == null || !value.isBefore(from)) &&
-              (to == null || value.isBefore(to));
-        })
         .map((record) => record.reference)
         .toList(growable: false);
     final selection = ReportAssetSelectionView(
       autoReferences: auto,
       manualReferences: current.selection.manualReferences,
+      excludedReferenceIds: current.selection.excludedReferenceIds,
     );
-    _scopeDraftOverride = current.copyWith(
-      timeRange: option.timeRange,
+    return current.copyWith(
+      timeRange: timeRange,
       skillIds: selectedSkillIds.toList(growable: false),
       missingDimensions: current.missingDimensions
           .where((item) => item != 'time_range')
@@ -286,8 +297,6 @@ class ReportRunController extends ChangeNotifier {
       selection: selection,
       supportingReferences: selection.resolvedReferences,
     );
-    error = null;
-    _notify();
   }
 
   void setScopePresentationFamily(String? family) {
@@ -329,13 +338,19 @@ class ReportRunController extends ChangeNotifier {
     final auto = current.selection.autoReferences;
     final selected = references.toSet();
     final autoSet = auto.toSet();
+    final excluded = current.selection.excludedReferenceIds.toSet();
+    excluded.removeAll(selected.map((reference) => reference.id));
+    for (final reference in auto) {
+      if (selected.contains(reference)) {
+        excluded.remove(reference.id);
+      } else {
+        excluded.add(reference.id);
+      }
+    }
     final selection = ReportAssetSelectionView(
       autoReferences: auto,
       manualReferences: selected.difference(autoSet).toList(growable: false),
-      excludedReferenceIds: auto
-          .where((item) => !selected.contains(item))
-          .map((item) => item.id)
-          .toList(growable: false),
+      excludedReferenceIds: excluded.toList(growable: false),
     );
     _scopeDraftOverride = current.copyWith(
       supportingReferences: selection.resolvedReferences,
@@ -354,27 +369,30 @@ class ReportRunController extends ChangeNotifier {
         .firstOrNull;
     if (group == null) return;
     final skillIds = current.skillIds.toSet();
-    final references = current.supportingReferences.toSet();
+    final groupReferences = group.records.map((item) => item.reference).toSet();
+    final exclusions = current.selection.excludedReferenceIds.toSet();
     if (selected) {
       skillIds.add(skillId);
-      references.addAll(group.records.map((item) => item.reference));
+      exclusions.removeAll(groupReferences.map((item) => item.id));
     } else {
       skillIds.remove(skillId);
-      references.removeAll(group.records.map((item) => item.reference));
+      exclusions.addAll(groupReferences.map((item) => item.id));
     }
     final candidateReferences = candidates.recordGroups
         .expand((item) => item.records)
         .map((item) => item.reference)
         .toSet();
-    final auto = references.intersection(candidateReferences);
-    final manual = references.difference(candidateReferences);
+    final auto = current.selection.autoReferences.isEmpty
+        ? candidateReferences
+        : current.selection.autoReferences.toSet();
     final selection = ReportAssetSelectionView(
       autoReferences: auto.toList(growable: false),
-      manualReferences: manual.toList(growable: false),
+      manualReferences: current.selection.manualReferences,
+      excludedReferenceIds: exclusions.toList(growable: false),
     );
     _scopeDraftOverride = current.copyWith(
       skillIds: skillIds.toList(growable: false),
-      supportingReferences: references.toList(growable: false),
+      supportingReferences: selection.resolvedReferences,
       selection: selection,
     );
     error = null;
@@ -468,6 +486,11 @@ class ReportRunController extends ChangeNotifier {
   Future<void> confirmScope(ReportScopeDraftView draft) async {
     await saveScopeDraft(draft);
     if (_disposed || error != null) return;
+    if (scopeRequiresReconfirmation) {
+      error = '数据范围已按服务器结果更新，请查看最终记录后再次确认';
+      _notify();
+      return;
+    }
     await preparePlan();
   }
 

@@ -235,7 +235,7 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
 
   VoidCallback? _managementFor(LibraryContainerSummary container) {
     final userSkillId = container.userSkillId;
-    if (container.type != LibraryContainerType.custom || userSkillId == null) {
+    if (container.isSystem || userSkillId == null) {
       return null;
     }
     return () => showThemeV2SkillManagementLaunch(
@@ -253,7 +253,7 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
     if (container == null) {
       return const SizedBox.shrink();
     }
-    final custom = container.type == LibraryContainerType.custom;
+    final custom = !container.isSystem;
     final configureCard = custom ? null : _displayConfigurationFor(container);
     final manageSkill = custom ? _managementFor(container) : null;
     switch (container.type) {

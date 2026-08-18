@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:eureka/api/api_client.dart';
 import 'package:eureka/theme_v2/asset/card_field_selection.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -82,7 +83,7 @@ void main() {
   testWidgets('rapid delete taps run one confirmation and deletion flow', (
     tester,
   ) async {
-    final impact = Completer<int>();
+    final impact = Completer<SkillDeletionImpactView>();
     final repository = _FakeRepository(_multiFieldSkill())
       ..deletionImpactPending = impact;
     var sheetVisible = true;
@@ -114,7 +115,9 @@ void main() {
     await tester.pump();
 
     expect(repository.deletionImpactRequests, 1);
-    impact.complete(4);
+    impact.complete(
+      const SkillDeletionImpactView(assetCount: 4, confirmationToken: 'v1'),
+    );
     await tester.pumpAndSettle();
     expect(find.text('永久删除这个 Skill？'), findsOneWidget);
 
@@ -128,7 +131,7 @@ void main() {
   testWidgets('delete in progress prevents a stale save callback', (
     tester,
   ) async {
-    final impact = Completer<int>();
+    final impact = Completer<SkillDeletionImpactView>();
     final repository = _FakeRepository(_multiFieldSkill())
       ..deletionImpactPending = impact;
     final controller = SkillManagementController(
@@ -153,7 +156,9 @@ void main() {
     expect(repository.deletionImpactRequests, 1);
     expect(repository.saveRequests, 0);
 
-    impact.complete(4);
+    impact.complete(
+      const SkillDeletionImpactView(assetCount: 4, confirmationToken: 'v1'),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('custom-skill-delete-confirm')));
     await tester.pumpAndSettle();
@@ -225,6 +230,33 @@ void main() {
       expect(properties['location']['type'], 'string');
     },
   );
+
+  test('new field IDs and types mirror the server schema contract', () async {
+    final repository = _FakeRepository(_tennisSkill());
+    final controller = SkillManagementController(
+      repository: repository,
+      userSkillId: 'tennis-id',
+    );
+    await controller.load();
+
+    expect(
+      controller.addField(key: 'Bad-Key', label: '坏字段', type: 'string'),
+      isFalse,
+    );
+    expect(controller.errorMessage, contains('snake_case'));
+    expect(
+      controller.addField(key: 'binary_blob', label: '二进制', type: 'binary'),
+      isFalse,
+    );
+    expect(controller.errorMessage, contains('类型'));
+    expect(
+      controller.addField(key: 'tags', label: '标签', type: 'array'),
+      isTrue,
+    );
+    expect(await controller.save(), isTrue);
+    final properties = repository.savedSchema!['properties'] as Map;
+    expect(properties['tags']['items'], {'type': 'string'});
+  });
 
   test(
     'preselects the saved card fields and saves them with field edits',
@@ -332,18 +364,47 @@ void main() {
     expect(() => selection.selectPrimary('surface'), throwsFlutterError);
   });
 
-  test('loads deletion impact and deletes with the reported count', () async {
-    final repository = _FakeRepository(_tennisSkill(), assetCount: 4);
-    final controller = SkillManagementController(
-      repository: repository,
-      userSkillId: 'tennis-id',
-    );
+  test(
+    'deletes with the confirmed token and returns the actual count',
+    () async {
+      final repository = _FakeRepository(
+        _tennisSkill(),
+        assetCount: 4,
+        deletedAssetCount: 5,
+      );
+      final controller = SkillManagementController(
+        repository: repository,
+        userSkillId: 'tennis-id',
+      );
 
-    await controller.load();
-    expect(await controller.loadDeletionImpact(), 4);
-    expect(await controller.deleteSkill(), 4);
-    expect(repository.deleted, isTrue);
-  });
+      await controller.load();
+      expect(await controller.loadDeletionImpact(), 4);
+      expect(await controller.deleteSkill(), 5);
+      expect(repository.deletedWithToken, 'token-4');
+      expect(repository.deleted, isTrue);
+    },
+  );
+
+  test(
+    'stale deletion confirmation requires a fresh user confirmation',
+    () async {
+      final repository = _FakeRepository(_tennisSkill(), assetCount: 4)
+        ..failDeleteAsStale = true;
+      final controller = SkillManagementController(
+        repository: repository,
+        userSkillId: 'tennis-id',
+      );
+      await controller.load();
+      expect(await controller.loadDeletionImpact(), 4);
+
+      expect(await controller.deleteSkill(), isNull);
+      expect(controller.deletionAssetCount, isNull);
+      expect(controller.errorMessage, contains('重新确认'));
+      repository.failDeleteAsStale = false;
+      expect(await controller.loadDeletionImpact(), 4);
+      expect(repository.deletionImpactRequests, 2);
+    },
+  );
 }
 
 ConfigurableSkill _tennisSkill() => ConfigurableSkill.fromJson({
@@ -381,19 +442,23 @@ ConfigurableSkill _multiFieldSkill() => ConfigurableSkill.fromJson({
 });
 
 class _FakeRepository implements SkillManagementRepository {
-  _FakeRepository(this.skill, {this.assetCount = 0});
+  _FakeRepository(this.skill, {this.assetCount = 0, int? deletedAssetCount})
+    : deletedAssetCount = deletedAssetCount ?? assetCount;
 
   final ConfigurableSkill skill;
   final int assetCount;
+  final int deletedAssetCount;
   Map<String, dynamic>? savedSchema;
   SkillManagementDraft? saved;
   bool failSave = false;
   bool deleted = false;
   Completer<ConfigurableSkill>? savePending;
-  Completer<int>? deletionImpactPending;
+  Completer<SkillDeletionImpactView>? deletionImpactPending;
   int saveRequests = 0;
   int deletionImpactRequests = 0;
   int deleteRequests = 0;
+  String? deletedWithToken;
+  bool failDeleteAsStale = false;
 
   @override
   Future<ConfigurableSkill> load(String userSkillId) async => skill;
@@ -413,14 +478,31 @@ class _FakeRepository implements SkillManagementRepository {
   }
 
   @override
-  Future<int> deletionImpact(String userSkillId) {
+  Future<SkillDeletionImpactView> deletionImpact(String userSkillId) {
     deletionImpactRequests++;
-    return deletionImpactPending?.future ?? Future.value(assetCount);
+    return deletionImpactPending?.future ??
+        Future.value(
+          SkillDeletionImpactView(
+            assetCount: assetCount,
+            confirmationToken: 'token-$assetCount',
+          ),
+        );
   }
 
   @override
-  Future<void> delete(String userSkillId) async {
+  Future<SkillDeletionResultView> delete(
+    String userSkillId,
+    String confirmationToken,
+  ) async {
     deleteRequests++;
+    deletedWithToken = confirmationToken;
+    if (failDeleteAsStale) {
+      throw ApiException(
+        409,
+        '{"detail":{"code":"stale_delete_confirmation"}}',
+      );
+    }
     deleted = true;
+    return SkillDeletionResultView(deletedAssetCount: deletedAssetCount);
   }
 }

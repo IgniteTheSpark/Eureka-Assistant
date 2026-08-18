@@ -62,6 +62,8 @@ class LibraryController extends ChangeNotifier {
   int _pendingPinSaves = 0;
   int _pinSaveRevision = 0;
   int _loadRevision = 0;
+  Future<void>? _loadFuture;
+  bool _loadQueued = false;
   bool _disposed = false;
 
   LibraryStatus get status => _status;
@@ -74,8 +76,11 @@ class LibraryController extends ChangeNotifier {
   bool get isSavingPins => _pendingPinSaves > 0;
   bool get canPinMore => _pinnedIds.length < 6;
 
-  String? get statusMessage =>
-      _status == LibraryStatus.partial ? '部分内容加载失败，可重试刷新' : null;
+  String? get statusMessage => _errorMessage != null && _overview != null
+      ? '刷新失败，正在显示上次加载的内容'
+      : _status == LibraryStatus.partial
+      ? '部分内容加载失败，可重试刷新'
+      : null;
 
   List<LibraryContainerSummary> get containers =>
       _overview?.containers ?? const [];
@@ -105,7 +110,37 @@ class LibraryController extends ChangeNotifier {
     ];
   }
 
-  Future<void> load() async {
+  Future<void> load() {
+    if (_disposed) return Future<void>.value();
+    final active = _loadFuture;
+    if (active != null) {
+      _loadQueued = true;
+      return active;
+    }
+    final operation = _runLoadQueue();
+    _loadFuture = operation;
+    operation.whenComplete(() {
+      if (identical(_loadFuture, operation)) _loadFuture = null;
+    });
+    return operation;
+  }
+
+  Future<void> _runLoadQueue() async {
+    try {
+      _loadQueued = false;
+      await _loadOnce();
+      if (_loadQueued && !_disposed) {
+        _loadQueued = false;
+        await _loadOnce();
+      }
+    } finally {
+      // Requests received during the one allowed rerun share that work. They
+      // must not create an unbounded chain of background refreshes.
+      _loadQueued = false;
+    }
+  }
+
+  Future<void> _loadOnce() async {
     if (_disposed) return;
     final revision = ++_loadRevision;
     _status = LibraryStatus.loading;
@@ -136,14 +171,26 @@ class LibraryController extends ChangeNotifier {
           : LibraryStatus.ready;
     } on LibraryLoadFailure catch (error) {
       if (!_isCurrentLoad(revision)) return;
-      _overview = null;
       _errorMessage = error.message;
-      _status = error.isOffline ? LibraryStatus.offline : LibraryStatus.error;
+      if (_overview == null) {
+        _status = error.isOffline ? LibraryStatus.offline : LibraryStatus.error;
+      } else {
+        _status = _overview!.failedSources.isNotEmpty
+            ? LibraryStatus.partial
+            : _isEmpty(_overview!)
+            ? LibraryStatus.empty
+            : LibraryStatus.ready;
+      }
     } catch (error) {
       if (!_isCurrentLoad(revision)) return;
-      _overview = null;
       _errorMessage = error.toString();
-      _status = LibraryStatus.error;
+      _status = _overview == null
+          ? LibraryStatus.error
+          : _overview!.failedSources.isNotEmpty
+          ? LibraryStatus.partial
+          : _isEmpty(_overview!)
+          ? LibraryStatus.empty
+          : LibraryStatus.ready;
     }
     _notify();
   }

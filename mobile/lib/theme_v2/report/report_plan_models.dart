@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+String reportTimeBoundaryIso(DateTime value) => value.toUtc().toIso8601String();
+
 @immutable
 class EvidenceReferenceView {
   const EvidenceReferenceView({required this.kind, required this.id});

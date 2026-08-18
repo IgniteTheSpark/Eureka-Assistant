@@ -279,6 +279,8 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
   void didUpdateWidget(covariant ThemeV2AssetBubbleField oldWidget) {
     super.didUpdateWidget(oldWidget);
     final nextIds = widget.assets.map((asset) => asset.id).toSet();
+    _consumedSpawnStates.retainWhere(nextIds.contains);
+    _diametersById.removeWhere((assetId, _) => !nextIds.contains(assetId));
     final grabbedAssetId = _grabbedAssetId;
     final deferReplacement =
         grabbedAssetId != null &&

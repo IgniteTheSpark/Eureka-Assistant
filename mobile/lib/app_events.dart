@@ -28,28 +28,13 @@ final listeningNotifier = ValueNotifier<bool>(false);
 /// Root navigator — lets [AppEvents] push routes + insert the toast overlay.
 final navigatorKey = GlobalKey<NavigatorState>();
 
-/// Backend completion contracts whose notifications arrive only after a
-/// persisted Library record changed. `flash_done` is emitted by
-/// `process_flash_text` only when its `derived_assets` list is non-empty;
-/// `task_*` is emitted only after the task placeholder asset is saved as done
-/// or failed. Other notification types are presentation-only signals.
-const _notificationMutationTypes = <String>{
-  'flash_done',
-  'task_done',
-  'task_failed',
-};
-
 /// Publishes the appropriate refresh signal for an app SSE event. Kept outside
 /// [AppEvents] so the notification persistence contract is directly testable.
 void publishRefreshForAppEvent(String eventType, Map<String, dynamic> payload) {
-  final notificationType = payload['type'] as String? ?? '';
-  final confirmsMutation = switch (eventType) {
-    // The API has persisted these rows before it publishes their SSE event.
-    'capture' || 'session_changed' => true,
-    'notification' => _notificationMutationTypes.contains(notificationType),
-    // Flash-file status is progress/UI state, even for a terminal status.
-    _ => false,
-  };
+  final receipt = payload['mutation_receipt'];
+  final confirmsMutation =
+      payload['confirmed_mutation'] == true ||
+      (receipt is Map && receipt['confirmed_mutation'] == true);
   if (confirmsMutation) {
     bumpData();
   } else {

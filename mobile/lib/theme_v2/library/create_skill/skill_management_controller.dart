@@ -73,8 +73,29 @@ abstract interface class SkillManagementRepository {
     String userSkillId,
     SkillManagementDraft draft,
   );
-  Future<int> deletionImpact(String userSkillId);
-  Future<void> delete(String userSkillId);
+  Future<SkillDeletionImpactView> deletionImpact(String userSkillId);
+  Future<SkillDeletionResultView> delete(
+    String userSkillId,
+    String confirmationToken,
+  );
+}
+
+@immutable
+class SkillDeletionImpactView {
+  const SkillDeletionImpactView({
+    required this.assetCount,
+    required this.confirmationToken,
+  });
+
+  final int assetCount;
+  final String confirmationToken;
+}
+
+@immutable
+class SkillDeletionResultView {
+  const SkillDeletionResultView({required this.deletedAssetCount});
+
+  final int deletedAssetCount;
 }
 
 class ApiSkillManagementRepository implements SkillManagementRepository {
@@ -108,17 +129,37 @@ class ApiSkillManagementRepository implements SkillManagementRepository {
   }
 
   @override
-  Future<int> deletionImpact(String userSkillId) async {
+  Future<SkillDeletionImpactView> deletionImpact(String userSkillId) async {
     final response = await _api.getJson(
       '/api/user-skills/$userSkillId/deletion-impact',
     );
-    return int.tryParse((response as Map)['asset_count']?.toString() ?? '') ??
-        0;
+    final row = (response as Map).cast<String, dynamic>();
+    final token =
+        row['confirmation_token']?.toString() ??
+        row['revision']?.toString() ??
+        '';
+    if (token.isEmpty) throw const FormatException('删除影响缺少确认令牌');
+    return SkillDeletionImpactView(
+      assetCount: int.tryParse(row['asset_count']?.toString() ?? '') ?? 0,
+      confirmationToken: token,
+    );
   }
 
   @override
-  Future<void> delete(String userSkillId) =>
-      _api.deleteJson('/api/user-skills/$userSkillId');
+  Future<SkillDeletionResultView> delete(
+    String userSkillId,
+    String confirmationToken,
+  ) async {
+    final response = await _api.deleteJson(
+      '/api/user-skills/$userSkillId',
+      query: {'confirmation_token': confirmationToken},
+    );
+    final row = (response as Map).cast<String, dynamic>();
+    return SkillDeletionResultView(
+      deletedAssetCount:
+          int.tryParse(row['deleted_asset_count']?.toString() ?? '') ?? 0,
+    );
+  }
 
   void dispose() {
     if (_ownsApi) _api.close();
@@ -146,6 +187,7 @@ class SkillManagementController extends ChangeNotifier {
   CardFieldSelectionController? _cardSelection;
   String? _errorMessage;
   int? _deletionAssetCount;
+  String? _deletionConfirmationToken;
   bool _disposed = false;
 
   SkillManagementState get state => _state;
@@ -243,17 +285,30 @@ class SkillManagementController extends ChangeNotifier {
     return _replaceField(key, (field) => field.copyWith(hidden: hidden));
   }
 
-  void addField({
+  bool addField({
     required String key,
     required String label,
     required String type,
     String meaning = '',
   }) {
     final normalizedKey = key.trim();
-    if (normalizedKey.isEmpty ||
-        _fields.any((field) => field.key == normalizedKey)) {
-      return;
+    if (!RegExp(r'^[a-z][a-z0-9_]*$').hasMatch(normalizedKey)) {
+      _errorMessage = '字段 ID 必须使用 snake_case';
+      _notify();
+      return false;
     }
+    const supportedTypes = {'string', 'number', 'integer', 'boolean', 'array'};
+    if (!supportedTypes.contains(type)) {
+      _errorMessage = '暂不支持该字段类型';
+      _notify();
+      return false;
+    }
+    if (_fields.any((field) => field.key == normalizedKey)) {
+      _errorMessage = '字段 ID 已存在';
+      _notify();
+      return false;
+    }
+    _errorMessage = null;
     _fields = [
       ..._fields,
       SkillManagementField(
@@ -262,10 +317,16 @@ class SkillManagementController extends ChangeNotifier {
         type: type,
         original: false,
         meaning: meaning.trim(),
+        metadata: type == 'array'
+            ? const {
+                'items': {'type': 'string'},
+              }
+            : const <String, dynamic>{},
       ),
     ];
     _replaceCardSelection(_skill!);
     _notify();
+    return true;
   }
 
   void reorderField(int oldIndex, int newIndex) {
@@ -308,7 +369,13 @@ class SkillManagementController extends ChangeNotifier {
 
   Future<int?> loadDeletionImpact() async {
     try {
-      _deletionAssetCount = await repository.deletionImpact(userSkillId);
+      final impact = await repository.deletionImpact(userSkillId);
+      _deletionAssetCount = impact.assetCount;
+      _deletionConfirmationToken = impact.confirmationToken;
+      _errorMessage = null;
+      if (_state == SkillManagementState.error) {
+        _state = SkillManagementState.ready;
+      }
       _notify();
       return _deletionAssetCount;
     } catch (error) {
@@ -321,11 +388,21 @@ class SkillManagementController extends ChangeNotifier {
     if (busy) return null;
     final count = _deletionAssetCount ?? await loadDeletionImpact();
     if (count == null) return null;
+    final token = _deletionConfirmationToken;
+    if (token == null || token.isEmpty) return null;
     _setState(SkillManagementState.deleting);
     try {
-      await repository.delete(userSkillId);
-      return count;
+      final result = await repository.delete(userSkillId, token);
+      return result.deletedAssetCount;
     } catch (error) {
+      if (error is ApiException &&
+          error.statusCode == 409 &&
+          error.body.contains('stale_delete_confirmation')) {
+        _deletionAssetCount = null;
+        _deletionConfirmationToken = null;
+        _fail('删除影响已变化，请重新确认');
+        return null;
+      }
       _fail('删除失败：$error');
       return null;
     }

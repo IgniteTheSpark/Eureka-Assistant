@@ -95,9 +95,9 @@ class ApiClient {
     return _decode(res);
   }
 
-  Future<void> deleteJson(String path) async {
-    final res = await _client.delete(_uri(path), headers: _headers());
-    if (res.statusCode >= 400) throw ApiException(res.statusCode, res.body);
+  Future<dynamic> deleteJson(String path, {Map<String, dynamic>? query}) async {
+    final res = await _client.delete(_uri(path, query), headers: _headers());
+    return _decode(res);
   }
 
   dynamic _decode(http.Response res) {
