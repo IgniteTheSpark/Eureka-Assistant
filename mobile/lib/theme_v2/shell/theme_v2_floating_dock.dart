@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../foundation/theme_v2_semantics.dart';
 import '../foundation/theme_v2_theme.dart';
+import 'theme_v2_glass_chrome.dart';
 
 class ThemeV2FloatingDock extends StatelessWidget {
   const ThemeV2FloatingDock({
@@ -46,7 +47,6 @@ class ThemeV2FloatingDock extends StatelessWidget {
   Widget build(BuildContext context) {
     final bottom = MediaQuery.paddingOf(context).bottom;
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final tokens = context.themeV2;
     return Align(
       alignment: Alignment.bottomCenter,
       child: Padding(
@@ -56,20 +56,13 @@ class ThemeV2FloatingDock extends StatelessWidget {
         ),
         child: SizedBox(
           width: 169,
-          child: Material(
-            key: dockKey,
+          child: ThemeV2GlassChrome(
+            materialKey: dockKey,
             elevation: elevation,
             shadowColor: dark
                 ? Colors.black.withValues(alpha: 0.22)
                 : lightShadowColor,
-            color: dark ? const Color(0xE8191E29) : tokens.surface,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(dark ? 20 : lightRadius),
-              side: dark
-                  ? const BorderSide(color: Color(0xFF343B4A))
-                  : BorderSide(color: tokens.border),
-            ),
-            clipBehavior: Clip.antiAlias,
+            borderRadius: BorderRadius.circular(dark ? 20 : lightRadius),
             child: SizedBox(
               height: 60,
               child: Row(

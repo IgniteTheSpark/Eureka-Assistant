@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../foundation/theme_v2_theme.dart';
+import '../foundation/theme_v2_dither_field.dart';
+import '../foundation/theme_v2_dither_surface.dart';
 import 'theme_v2_floating_dock.dart';
 
 /// The only per-page shell declaration.
@@ -17,6 +19,7 @@ class ThemeV2PageScaffold extends StatelessWidget {
     this.extendBodyBehindChrome = false,
     this.topNav,
     this.dock,
+    this.ditherActive = true,
   });
 
   final Widget body;
@@ -26,6 +29,7 @@ class ThemeV2PageScaffold extends StatelessWidget {
   final bool extendBodyBehindChrome;
   final Widget? topNav;
   final Widget? dock;
+  final bool ditherActive;
 
   ThemeV2PageScaffold withShellChrome({
     required Widget body,
@@ -40,6 +44,7 @@ class ThemeV2PageScaffold extends StatelessWidget {
       extendBodyBehindChrome: extendBodyBehindChrome,
       topNav: topNav,
       dock: dock,
+      ditherActive: ditherActive,
     );
   }
 
@@ -59,43 +64,44 @@ class ThemeV2PageScaffold extends StatelessWidget {
       ),
     );
 
+    final composition = extendBodyBehindChrome
+        ? extendedBody
+        : SafeArea(
+            bottom: false,
+            child: Column(
+              children: [
+                if (showTopNav && topNav != null) topNav!,
+                Expanded(
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: Padding(
+                          padding: EdgeInsets.only(
+                            bottom: showDock
+                                ? ThemeV2FloatingDock.contentClearance +
+                                      MediaQuery.paddingOf(context).bottom
+                                : 0,
+                          ),
+                          child: body,
+                        ),
+                      ),
+                      if (showDock && dock != null)
+                        Positioned(left: 0, right: 0, bottom: 0, child: dock!),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+
     return Scaffold(
       resizeToAvoidBottomInset: resizeToAvoidBottomInset,
       backgroundColor: context.themeV2.background,
-      body: extendBodyBehindChrome
-          ? extendedBody
-          : SafeArea(
-              bottom: false,
-              child: Column(
-                children: [
-                  if (showTopNav && topNav != null) topNav!,
-                  Expanded(
-                    child: Stack(
-                      children: [
-                        Positioned.fill(
-                          child: Padding(
-                            padding: EdgeInsets.only(
-                              bottom: showDock
-                                  ? ThemeV2FloatingDock.contentClearance +
-                                        MediaQuery.paddingOf(context).bottom
-                                  : 0,
-                            ),
-                            child: body,
-                          ),
-                        ),
-                        if (showDock && dock != null)
-                          Positioned(
-                            left: 0,
-                            right: 0,
-                            bottom: 0,
-                            child: dock!,
-                          ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
+      body: ThemeV2DitherSurface(
+        active: ditherActive,
+        config: const ThemeV2DitherFieldConfig.global(),
+        child: composition,
+      ),
     );
   }
 }

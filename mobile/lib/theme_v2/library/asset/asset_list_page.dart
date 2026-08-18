@@ -11,6 +11,7 @@ import '../../asset_detail/asset_entity_ref.dart';
 import '../../asset_detail/open_asset_detail.dart';
 import '../../foundation/theme_v2_dither_field.dart';
 import '../../foundation/theme_v2_dither_surface.dart';
+import '../../foundation/theme_v2_content_surface.dart';
 import '../../foundation/theme_v2_semantics.dart';
 import '../../foundation/theme_v2_theme.dart';
 import '../../foundation/theme_v2_tokens.dart';
@@ -660,7 +661,14 @@ class _AssetRecordRow extends StatelessWidget {
     return ThemeV2DitherSourceReporter(
       id: 'library-asset-${record.id}',
       shape: ThemeV2DitherSourceShape.capsule,
-      child: row,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(ThemeV2Radii.md),
+        child: ThemeV2ContentSurface(
+          key: ValueKey('asset-list-content-surface-${record.id}'),
+          opacity: ThemeV2ContentOpacity.card,
+          child: row,
+        ),
+      ),
     );
   }
 }

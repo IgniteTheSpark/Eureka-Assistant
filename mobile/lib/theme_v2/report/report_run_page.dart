@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../api/api_client.dart';
 import '../../pages/report_viewer_page.dart';
 import '../foundation/theme_v2_theme.dart';
+import '../foundation/theme_v2_content_surface.dart';
 import '../foundation/theme_v2_tokens.dart';
 import 'report_evidence_picker_page.dart';
 import 'report_plan_models.dart';
@@ -146,6 +147,49 @@ class _ReportRunPageState extends State<ReportRunPage> {
   Widget build(BuildContext context) {
     final state = _controller.state;
     final cancellationError = _controller.cancellationError;
+    final content = cancellationError != null
+        ? _message(
+            cancellationError,
+            actionLabel: '重试取消',
+            actionKey: const ValueKey('report-run-cancel-retry'),
+            onAction: _cancel,
+          )
+        : switch (state) {
+            'awaiting_selection' =>
+              _controller.needsClarification
+                  ? _clarification()
+                  : _planSelection(),
+            'failed' => _message(
+              _controller.error ?? _controller.failureMessage ?? '报告生成没有完成',
+              actionLabel: '重试',
+              actionKey: const ValueKey('report-run-retry'),
+              onAction: _controller.retry,
+            ),
+            'cancelled' => _message('报告任务已取消'),
+            'completed' =>
+              _openReportError == null
+                  ? _message('报告已完成，正在打开…')
+                  : _message(
+                      _openReportError!,
+                      actionLabel: '重试打开',
+                      actionKey: const ValueKey('report-run-open-retry'),
+                      onAction: _openCompletedReport,
+                    ),
+            'illustration_pending' => _message('报告正文已完成，正在打开…'),
+            'generating' => _progress('正在生成报告…'),
+            _ when _controller.error != null => _message(
+              _controller.error!,
+              actionLabel: '重试',
+              actionKey: const ValueKey('report-run-retry'),
+              onAction: widget.runId != null
+                  ? () => _controller.loadRun(widget.runId!)
+                  : widget.triggerExecutionId != null
+                  ? () =>
+                        _controller.startFromTrigger(widget.triggerExecutionId!)
+                  : () => _controller.startUserInitiated(widget.intent!),
+            ),
+            _ => _progress('正在准备报告方案…'),
+          };
     return Scaffold(
       backgroundColor: context.themeV2.background,
       appBar: AppBar(
@@ -167,52 +211,17 @@ class _ReportRunPageState extends State<ReportRunPage> {
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(ThemeV2Spacing.xl),
-          child: cancellationError != null
-              ? _message(
-                  cancellationError,
-                  actionLabel: '重试取消',
-                  actionKey: const ValueKey('report-run-cancel-retry'),
-                  onAction: _cancel,
-                )
-              : switch (state) {
-                  'awaiting_selection' =>
-                    _controller.needsClarification
-                        ? _clarification()
-                        : _planSelection(),
-                  'failed' => _message(
-                    _controller.error ??
-                        _controller.failureMessage ??
-                        '报告生成没有完成',
-                    actionLabel: '重试',
-                    actionKey: const ValueKey('report-run-retry'),
-                    onAction: _controller.retry,
-                  ),
-                  'cancelled' => _message('报告任务已取消'),
-                  'completed' =>
-                    _openReportError == null
-                        ? _message('报告已完成，正在打开…')
-                        : _message(
-                            _openReportError!,
-                            actionLabel: '重试打开',
-                            actionKey: const ValueKey('report-run-open-retry'),
-                            onAction: _openCompletedReport,
-                          ),
-                  'illustration_pending' => _message('报告正文已完成，正在打开…'),
-                  'generating' => _progress('正在生成报告…'),
-                  _ when _controller.error != null => _message(
-                    _controller.error!,
-                    actionLabel: '重试',
-                    actionKey: const ValueKey('report-run-retry'),
-                    onAction: widget.runId != null
-                        ? () => _controller.loadRun(widget.runId!)
-                        : widget.triggerExecutionId != null
-                        ? () => _controller.startFromTrigger(
-                            widget.triggerExecutionId!,
-                          )
-                        : () => _controller.startUserInitiated(widget.intent!),
-                  ),
-                  _ => _progress('正在准备报告方案…'),
-                },
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(ThemeV2Radii.lg),
+            child: ThemeV2ContentSurface(
+              key: const ValueKey('report-run-content-surface'),
+              opacity: ThemeV2ContentOpacity.dense,
+              child: Padding(
+                padding: const EdgeInsets.all(ThemeV2Spacing.md),
+                child: content,
+              ),
+            ),
+          ),
         ),
       ),
     );

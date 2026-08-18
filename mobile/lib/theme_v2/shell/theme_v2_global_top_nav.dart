@@ -7,6 +7,7 @@ import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
 import 'device_status_summary.dart';
 import 'theme_v2_floating_dock.dart';
+import 'theme_v2_glass_chrome.dart';
 
 class ThemeV2GlobalTopNav extends StatelessWidget {
   const ThemeV2GlobalTopNav({
@@ -49,18 +50,13 @@ class ThemeV2GlobalTopNav extends StatelessWidget {
             horizontal: floatingHorizontalInset,
             vertical: floatingVerticalInset,
           ),
-          child: Material(
-            key: floatingDockKey,
+          child: ThemeV2GlassChrome(
+            materialKey: floatingDockKey,
             elevation: ThemeV2FloatingDock.elevation,
             shadowColor: ThemeV2FloatingDock.lightShadowColor,
-            color: tokens.surface,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(
-                ThemeV2FloatingDock.lightRadius,
-              ),
-              side: BorderSide(color: tokens.border),
+            borderRadius: BorderRadius.circular(
+              ThemeV2FloatingDock.lightRadius,
             ),
-            clipBehavior: Clip.antiAlias,
             child: SizedBox(height: floatingContentHeight, child: content),
           ),
         ),

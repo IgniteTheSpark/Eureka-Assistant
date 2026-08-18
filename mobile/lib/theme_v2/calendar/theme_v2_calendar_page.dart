@@ -8,8 +8,6 @@ import '../../pages/calendar_page.dart';
 import '../../render/render_spec.dart';
 import '../../timeline/timeline.dart';
 import '../capture/capture_session_page.dart';
-import '../foundation/theme_v2_dither_field.dart';
-import '../foundation/theme_v2_dither_surface.dart';
 import '../foundation/theme_v2_motion.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
@@ -428,62 +426,57 @@ class _ThemeV2CalendarPageState extends State<ThemeV2CalendarPage> {
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop && _controller.back()) setState(() {});
       },
-      child: ThemeV2DitherSurface(
-        key: const ValueKey('calendar-dither-surface'),
-        active: widget.active,
-        config: const ThemeV2DitherFieldConfig.calendar(),
-        child: widget.initialData != null
-            ? _dataBody(widget.initialData!)
-            : ValueListenableBuilder<int>(
-                valueListenable: dataRevision,
-                builder: (context, revision, _) {
-                  return FutureBuilder<CalendarData>(
-                    future: _futureFor(revision),
-                    builder: (context, snapshot) {
-                      if (snapshot.hasData) _lastData = snapshot.data;
-                      final data =
-                          snapshot.data ??
-                          _lastData ??
-                          CalendarData(const [], const {});
-                      final content = _dataBody(data);
-                      if (snapshot.hasError) {
-                        return Stack(
-                          children: [
-                            Positioned.fill(child: content),
-                            Positioned.fill(
+      child: widget.initialData != null
+          ? _dataBody(widget.initialData!)
+          : ValueListenableBuilder<int>(
+              valueListenable: dataRevision,
+              builder: (context, revision, _) {
+                return FutureBuilder<CalendarData>(
+                  future: _futureFor(revision),
+                  builder: (context, snapshot) {
+                    if (snapshot.hasData) _lastData = snapshot.data;
+                    final data =
+                        snapshot.data ??
+                        _lastData ??
+                        CalendarData(const [], const {});
+                    final content = _dataBody(data);
+                    if (snapshot.hasError) {
+                      return Stack(
+                        children: [
+                          Positioned.fill(child: content),
+                          Positioned.fill(
+                            child: _structuralState(
+                              ThemeV2AsyncState.error(
+                                title: '日历加载失败',
+                                message: '${snapshot.error}',
+                                onRetry: () => setState(() => _retry++),
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    }
+                    if (!snapshot.hasData && _lastData == null) {
+                      return Stack(
+                        children: [
+                          Positioned.fill(child: content),
+                          Positioned.fill(
+                            child: IgnorePointer(
                               child: _structuralState(
-                                ThemeV2AsyncState.error(
-                                  title: '日历加载失败',
-                                  message: '${snapshot.error}',
-                                  onRetry: () => setState(() => _retry++),
+                                const ThemeV2AsyncState.loading(
+                                  label: '正在加载日历',
                                 ),
                               ),
                             ),
-                          ],
-                        );
-                      }
-                      if (!snapshot.hasData && _lastData == null) {
-                        return Stack(
-                          children: [
-                            Positioned.fill(child: content),
-                            Positioned.fill(
-                              child: IgnorePointer(
-                                child: _structuralState(
-                                  const ThemeV2AsyncState.loading(
-                                    label: '正在加载日历',
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        );
-                      }
-                      return content;
-                    },
-                  );
-                },
-              ),
-      ),
+                          ),
+                        ],
+                      );
+                    }
+                    return content;
+                  },
+                );
+              },
+            ),
     );
   }
 

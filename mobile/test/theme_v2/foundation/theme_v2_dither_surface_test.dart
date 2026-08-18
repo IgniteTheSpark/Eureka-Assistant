@@ -122,7 +122,7 @@ void main() {
     expect(running.value, phase);
   });
 
-  testWidgets('Reduce Motion freezes phase and dark mode uses .26 opacity', (
+  testWidgets('Reduce Motion freezes phase and preserves configured opacity', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -143,7 +143,7 @@ void main() {
       find.byType(ThemeV2DitherField),
     );
     expect(field.reduceMotion, isTrue);
-    expect(field.config.opacity, .26);
+    expect(field.config.opacity, .28);
     expect((field.motion! as AnimationController).isAnimating, isFalse);
   });
 }

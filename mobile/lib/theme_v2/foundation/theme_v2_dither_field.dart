@@ -57,6 +57,18 @@ double themeV2DitherPressureAt(Offset point, ThemeV2DitherSource source) {
 
 @immutable
 class ThemeV2DitherFieldConfig {
+  const ThemeV2DitherFieldConfig.global({
+    this.waveColor = const Color(0xFF69717B),
+    this.colorNum = 4,
+    this.pixelSize = 4,
+    this.waveAmplitude = .24,
+    this.waveFrequency = 2.7,
+    this.waveSpeed = .032,
+    this.flowDirection = const Offset(.72, .34),
+    this.opacity = .28,
+    this.displacementStrength = .84,
+  });
+
   const ThemeV2DitherFieldConfig.signal({
     this.waveColor = const Color(0xFF6D7480),
     this.colorNum = 4,
