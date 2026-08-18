@@ -142,6 +142,39 @@ void main() {
     });
   });
 
+  group('Calendar Flow slices', () {
+    test('midnight end belongs only to the starting day', () {
+      final data = CalendarData([
+        item(
+          id: 'event-midnight',
+          at: DateTime(2026, 8, 18, 23),
+          endAt: DateTime(2026, 8, 19),
+        ),
+      ], const {});
+
+      expect(data.flowByDay[DateTime(2026, 8, 18)], hasLength(1));
+      expect(data.flowByDay[DateTime(2026, 8, 19)], isNull);
+    });
+
+    test('cross-midnight event creates two slices with one identity', () {
+      final data = CalendarData([
+        item(
+          id: 'event-cross-day',
+          at: DateTime(2026, 8, 18, 23),
+          endAt: DateTime(2026, 8, 19, 2),
+        ),
+      ], const {});
+
+      final first = data.flowByDay[DateTime(2026, 8, 18)]!.single;
+      final second = data.flowByDay[DateTime(2026, 8, 19)]!.single;
+      expect(first.record.id, second.record.id);
+      expect(first.continuesIntoNextDay, isTrue);
+      expect(second.continuesFromPreviousDay, isTrue);
+      expect(second.visibleStart, DateTime(2026, 8, 19));
+      expect(second.visibleEnd, DateTime(2026, 8, 19, 2));
+    });
+  });
+
   group('calendarDistanceLabel', () {
     final today = DateTime(2026, 7, 30);
 

@@ -51,6 +51,28 @@ class CalendarRecord {
   bool get isEvent => item.kind == 'event';
 }
 
+/// A Flow-only projection of one canonical record onto one calendar day.
+///
+/// Cross-day events can produce multiple slices, but every slice retains the
+/// same [record] identity and therefore opens the same detail object.
+class CalendarFlowSlice {
+  const CalendarFlowSlice({
+    required this.record,
+    required this.day,
+    required this.visibleStart,
+    required this.visibleEnd,
+    required this.continuesFromPreviousDay,
+    required this.continuesIntoNextDay,
+  });
+
+  final CalendarRecord record;
+  final DateTime day;
+  final DateTime visibleStart;
+  final DateTime visibleEnd;
+  final bool continuesFromPreviousDay;
+  final bool continuesIntoNextDay;
+}
+
 int compareCalendarItems(TimelineItem a, TimelineItem b) {
   return compareTimelineItems(a, b);
 }
@@ -110,6 +132,77 @@ Map<DateTime, List<TimelineItem>> bucketCalendarItems(
   );
 }
 
+/// Project canonical records into immutable half-open day slices for Flow.
+Map<DateTime, List<CalendarFlowSlice>> bucketCalendarFlowRecords(
+  Iterable<CalendarRecord> records,
+) {
+  final buckets = <DateTime, List<CalendarFlowSlice>>{};
+
+  void addSlice(CalendarFlowSlice slice) {
+    buckets.putIfAbsent(slice.day, () => <CalendarFlowSlice>[]).add(slice);
+  }
+
+  for (final record in records) {
+    if (record.item.kind == 'input_turn') continue;
+    final start = record.effectiveAt;
+    final end = record.endAt;
+    final startDay = calendarDayOf(start);
+    if (!record.isEvent ||
+        record.item.allDay ||
+        end == null ||
+        !end.isAfter(start)) {
+      addSlice(
+        CalendarFlowSlice(
+          record: record,
+          day: startDay,
+          visibleStart: start,
+          visibleEnd: end ?? start,
+          continuesFromPreviousDay: false,
+          continuesIntoNextDay: false,
+        ),
+      );
+      continue;
+    }
+
+    var day = startDay;
+    while (day.isBefore(end)) {
+      final nextDay = day.add(const Duration(days: 1));
+      final visibleStart = start.isAfter(day) ? start : day;
+      final visibleEnd = end.isBefore(nextDay) ? end : nextDay;
+      if (visibleStart.isBefore(visibleEnd)) {
+        addSlice(
+          CalendarFlowSlice(
+            record: record,
+            day: day,
+            visibleStart: visibleStart,
+            visibleEnd: visibleEnd,
+            continuesFromPreviousDay: start.isBefore(day),
+            continuesIntoNextDay: end.isAfter(nextDay),
+          ),
+        );
+      }
+      day = nextDay;
+    }
+  }
+
+  final orderedDays = buckets.keys.toList()..sort();
+  return UnmodifiableMapView(
+    LinkedHashMap.fromEntries([
+      for (final day in orderedDays)
+        MapEntry(
+          day,
+          List<CalendarFlowSlice>.unmodifiable(
+            buckets[day]!..sort((a, b) {
+              final byStart = a.visibleStart.compareTo(b.visibleStart);
+              if (byStart != 0) return byStart;
+              return compareCalendarItems(a.record.item, b.record.item);
+            }),
+          ),
+        ),
+    ]),
+  );
+}
+
 class CalendarDayData {
   const CalendarDayData({
     required this.day,
@@ -131,19 +224,22 @@ class CalendarData {
   final Map<String, SkillMeta> skills;
   final Map<DateTime, List<TimelineItem>> byDay;
   final List<CalendarRecord> records;
+  final Map<DateTime, List<CalendarFlowSlice>> flowByDay;
 
   factory CalendarData(
     Iterable<TimelineItem> items,
     Map<String, SkillMeta> skills,
   ) {
     final snapshot = List<TimelineItem>.unmodifiable(items);
+    final records = List<CalendarRecord>.unmodifiable(
+      snapshot.map(CalendarRecord.fromTimeline),
+    );
     return CalendarData._(
       items: snapshot,
       skills: Map<String, SkillMeta>.unmodifiable(skills),
       byDay: bucketCalendarItems(snapshot),
-      records: List<CalendarRecord>.unmodifiable(
-        snapshot.map(CalendarRecord.fromTimeline),
-      ),
+      records: records,
+      flowByDay: bucketCalendarFlowRecords(records),
     );
   }
 
@@ -152,6 +248,7 @@ class CalendarData {
     required this.skills,
     required this.byDay,
     required this.records,
+    required this.flowByDay,
   });
 
   CalendarDayData day(DateTime date) {
