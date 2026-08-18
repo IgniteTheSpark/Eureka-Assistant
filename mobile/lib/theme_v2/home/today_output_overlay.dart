@@ -5,6 +5,14 @@ import 'package:flutter/material.dart';
 import 'today_output_coordinator.dart';
 import 'today_output_motion_plan.dart';
 
+@immutable
+class TodayAssetHandoff {
+  const TodayAssetHandoff({required this.center, required this.velocity});
+
+  final Offset center;
+  final Offset velocity;
+}
+
 class TodayOutputOverlay extends StatefulWidget {
   const TodayOutputOverlay({
     super.key,
@@ -15,6 +23,9 @@ class TodayOutputOverlay extends StatefulWidget {
     this.side,
     this.onPhaseChanged,
     this.onHandoff,
+    this.onAssetHandoff,
+    this.assetVisual,
+    this.assetDiameter = 70,
   });
 
   final TodayOutputItem item;
@@ -23,6 +34,9 @@ class TodayOutputOverlay extends StatefulWidget {
   final TodayOutputSide? side;
   final ValueChanged<TodayOutputPhase>? onPhaseChanged;
   final ValueChanged<Offset>? onHandoff;
+  final ValueChanged<TodayAssetHandoff>? onAssetHandoff;
+  final Widget? assetVisual;
+  final double assetDiameter;
   final VoidCallback onComplete;
 
   @override
@@ -87,6 +101,21 @@ class _TodayOutputOverlayState extends State<TodayOutputOverlay>
     if (_handedOff) return;
     _handedOff = true;
     widget.onHandoff?.call(_destination);
+    if (widget.item.kind == TodayOutputKind.asset) {
+      widget.onAssetHandoff?.call(
+        TodayAssetHandoff(center: _destination, velocity: _assetVelocity()),
+      );
+    }
+  }
+
+  Offset _assetVelocity() {
+    final plan = _plan;
+    if (plan == null || plan.travelDuration == Duration.zero) {
+      return const Offset(0, 80);
+    }
+    final seconds = plan.travelDuration.inMicroseconds / 1000000;
+    final displacement = _destination.dy - widget.item.source.dy;
+    return Offset(0, 2 * displacement / seconds);
   }
 
   void _installMotionPlan(Offset source, Offset destination) {
@@ -95,6 +124,7 @@ class _TodayOutputOverlayState extends State<TodayOutputOverlay>
       source: source,
       destination: destination,
       reduceMotion: widget.item.reduceMotion,
+      kind: widget.item.kind,
     );
     _plan = plan;
     _controller.duration = plan.totalDuration;
@@ -148,7 +178,31 @@ class _TodayOutputOverlayState extends State<TodayOutputOverlay>
           );
           _destination = _handoffPoint(detached);
           _installMotionPlan(detached, _destination);
-          if (widget.item.reduceMotion) return const SizedBox.expand();
+          if (widget.item.reduceMotion) {
+            final visual = widget.assetVisual;
+            if (widget.item.kind != TodayOutputKind.asset || visual == null) {
+              return const SizedBox.expand();
+            }
+            return AnimatedBuilder(
+              animation: _controller,
+              builder: (context, _) => Stack(
+                fit: StackFit.expand,
+                children: [
+                  Positioned(
+                    key: ValueKey('today-output-asset-ball-${widget.item.id}'),
+                    left: _destination.dx - widget.assetDiameter / 2,
+                    top: _destination.dy - widget.assetDiameter / 2,
+                    width: widget.assetDiameter,
+                    height: widget.assetDiameter,
+                    child: Opacity(
+                      opacity: 1 - _controller.value,
+                      child: visual,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
           return AnimatedBuilder(
             animation: _controller,
             builder: (context, _) {
@@ -175,6 +229,36 @@ class _TodayOutputOverlayState extends State<TodayOutputOverlay>
                     1.0,
                   );
               final signal = widget.item.kind == TodayOutputKind.signal;
+              if (!signal) {
+                final visual = widget.assetVisual;
+                if (visual == null) return const SizedBox.expand();
+                final gravity = ((raw - plan.chargeEnd) / travelSpan).clamp(
+                  0.0,
+                  1.0,
+                );
+                final assetCenter = Offset(
+                  detached.dx,
+                  lerpDouble(detached.dy, _destination.dy, gravity * gravity)!,
+                );
+                return Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Positioned(
+                      key: ValueKey(
+                        'today-output-asset-ball-${widget.item.id}',
+                      ),
+                      left: assetCenter.dx - widget.assetDiameter / 2,
+                      top: assetCenter.dy - widget.assetDiameter / 2,
+                      width: widget.assetDiameter,
+                      height: widget.assetDiameter,
+                      child: Opacity(
+                        opacity: (1 - recover).clamp(0.0, 1.0),
+                        child: visual,
+                      ),
+                    ),
+                  ],
+                );
+              }
               final width = signal ? lerpDouble(20, 172, unfold)! : 20.0;
               final opacity = ((.35 + .65 * charge) * (1 - recover)).clamp(
                 0.0,

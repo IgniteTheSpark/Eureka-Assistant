@@ -1,4 +1,5 @@
 import 'package:eureka/theme_v2/home/today_output_motion_plan.dart';
+import 'package:eureka/theme_v2/home/today_output_coordinator.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -40,5 +41,23 @@ void main() {
     expect(plan.reduceMotion, isTrue);
     expect(plan.travelDuration, Duration.zero);
     expect(plan.totalDuration, const Duration(milliseconds: 140));
+  });
+
+  test('asset travel is perceptible and remains faster than the old seed', () {
+    final plan = todayOutputMotionPlan(
+      kind: TodayOutputKind.asset,
+      source: const Offset(200, 320),
+      destination: const Offset(200, 720),
+      reduceMotion: false,
+    );
+
+    expect(
+      plan.travelDuration,
+      greaterThanOrEqualTo(const Duration(milliseconds: 900)),
+    );
+    expect(
+      plan.travelDuration,
+      lessThanOrEqualTo(const Duration(milliseconds: 1800)),
+    );
   });
 }

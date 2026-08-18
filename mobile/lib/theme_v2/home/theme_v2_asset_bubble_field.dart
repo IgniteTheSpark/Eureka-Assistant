@@ -14,6 +14,7 @@ import '../asset_detail/open_asset_detail.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_dither_field.dart';
 import 'today_region_watermark.dart';
+import 'today_output_overlay.dart';
 
 Offset themeV2GravityForAcceleration(double x, double y) {
   const magnitude = 20.0;
@@ -32,6 +33,34 @@ AssetEntityRef assetEntityRefForPoolAsset(PoolAsset asset) => AssetEntityRef(
 );
 
 void _noop() {}
+
+const _themeV2AssetBubbleDiameters = <double>[
+  70,
+  48,
+  72,
+  58,
+  80,
+  52,
+  64,
+  52,
+  44,
+  50,
+  38,
+  46,
+  38,
+  38,
+  54,
+  42,
+  56,
+  46,
+  34,
+  30,
+  34,
+  32,
+];
+
+double themeV2AssetBubbleDiameter(int index) =>
+    _themeV2AssetBubbleDiameters[index % _themeV2AssetBubbleDiameters.length];
 
 class _RetiringBubbleSnapshot {
   const _RetiringBubbleSnapshot({
@@ -60,6 +89,7 @@ class ThemeV2AssetBubbleField extends StatefulWidget {
     this.onOpenAsset,
     this.onOpenLibrary,
     this.spawnCenters = const {},
+    this.spawnStates = const {},
     this.motion,
   });
 
@@ -71,6 +101,7 @@ class ThemeV2AssetBubbleField extends StatefulWidget {
   final ValueChanged<PoolAsset>? onOpenAsset;
   final VoidCallback? onOpenLibrary;
   final Map<String, Offset> spawnCenters;
+  final Map<String, TodayAssetHandoff> spawnStates;
   final Animation<double>? motion;
 
   void _openAsset(BuildContext context, PoolAsset asset) {
@@ -99,6 +130,7 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
   final ValueNotifier<int> _repaint = ValueNotifier(0);
   final Map<String, PoolAsset> _assetsById = {};
   final Map<String, double> _diametersById = {};
+  final Set<String> _consumedSpawnStates = {};
   final List<_RetiringBubbleSnapshot> _retiring = [];
   BubbleField? _field;
   String? _grabbedAssetId;
@@ -119,30 +151,6 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
       _foreground &&
       widget.assets.isNotEmpty;
 
-  static const _diameters = <double>[
-    70,
-    48,
-    72,
-    58,
-    80,
-    52,
-    64,
-    52,
-    44,
-    50,
-    38,
-    46,
-    38,
-    38,
-    54,
-    42,
-    56,
-    46,
-    34,
-    30,
-    34,
-    32,
-  ];
   static const _settledSlotCount = 22;
   static const _compactDiameter = 36.0;
   static const _minimumTargetSize = 44.0;
@@ -156,7 +164,7 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
   double _diameter(PoolAsset asset, int index) {
     return _diametersById.putIfAbsent(
       asset.id,
-      () => _diameters[index % _diameters.length],
+      () => themeV2AssetBubbleDiameter(index),
     );
   }
 
@@ -234,13 +242,22 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
   }
 
   Offset _spawnCenter(PoolAsset asset, double radius, Offset fallback) {
-    final configured = widget.spawnCenters[asset.id];
-    if (configured == null) return fallback;
+    final configured = !_consumedSpawnStates.contains(asset.id)
+        ? widget.spawnStates[asset.id]?.center
+        : null;
+    final legacy = widget.spawnCenters[asset.id];
+    final center = configured ?? legacy;
+    if (center == null) return fallback;
     return Offset(
-      configured.dx.clamp(radius, math.max(radius, _box.width - radius)),
-      configured.dy.clamp(radius, math.max(radius, _box.height - radius)),
+      center.dx.clamp(radius, math.max(radius, _box.width - radius)),
+      center.dy.clamp(radius, math.max(radius, _box.height - radius)),
     );
   }
+
+  Offset _spawnVelocity(PoolAsset asset) =>
+      _consumedSpawnStates.contains(asset.id)
+      ? Offset.zero
+      : widget.spawnStates[asset.id]?.velocity ?? Offset.zero;
 
   @override
   void didChangeDependencies() {
@@ -402,7 +419,11 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
             ? _settledCenter(index, radius)
             : _spawnCenter(asset, radius, spawnCenters[index]),
         radius,
+        velocityPxPerSecond: _spawnVelocity(asset),
       );
+      if (widget.spawnStates.containsKey(asset.id)) {
+        _consumedSpawnStates.add(asset.id);
+      }
     }
     _field = field;
     _repaint.value++;
@@ -471,7 +492,11 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                 spawnCenters[additionIndex],
               ),
         addition.radius,
+        velocityPxPerSecond: _spawnVelocity(addition.asset),
       );
+      if (widget.spawnStates.containsKey(addition.asset.id)) {
+        _consumedSpawnStates.add(addition.asset.id);
+      }
     }
     _repaint.value++;
     _syncLifecycle();
@@ -617,7 +642,7 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                           angle: snapshot.angle,
                           child: SizedBox.square(
                             dimension: snapshot.radius * 2,
-                            child: _ThemeV2BubbleVisual(
+                            child: ThemeV2AssetBubbleVisual(
                               asset: snapshot.asset,
                               skills: widget.skills,
                               index: snapshot.index,
@@ -731,17 +756,18 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                                                     'theme-v2-asset-bubble-rotation-${asset.id}',
                                                   ),
                                                   angle: bubble.angle,
-                                                  child: _ThemeV2BubbleVisual(
-                                                    asset: asset,
-                                                    skills: widget.skills,
-                                                    index: index,
-                                                    motion: widget.motion,
-                                                    onTap: () =>
-                                                        widget._openAsset(
-                                                          context,
-                                                          asset,
-                                                        ),
-                                                  ),
+                                                  child:
+                                                      ThemeV2AssetBubbleVisual(
+                                                        asset: asset,
+                                                        skills: widget.skills,
+                                                        index: index,
+                                                        motion: widget.motion,
+                                                        onTap: () =>
+                                                            widget._openAsset(
+                                                              context,
+                                                              asset,
+                                                            ),
+                                                      ),
                                                 ),
                                               ),
                                             ],
@@ -864,7 +890,7 @@ class _ThemeV2CompactAssetGrid extends StatelessWidget {
                 angle: 0,
                 child: SizedBox.square(
                   dimension: _ThemeV2AssetBubbleFieldState._compactDiameter,
-                  child: _ThemeV2BubbleVisual(
+                  child: ThemeV2AssetBubbleVisual(
                     asset: asset,
                     skills: skills,
                     index: index,
@@ -881,20 +907,21 @@ class _ThemeV2CompactAssetGrid extends StatelessWidget {
   }
 }
 
-class _ThemeV2BubbleVisual extends StatelessWidget {
-  const _ThemeV2BubbleVisual({
+class ThemeV2AssetBubbleVisual extends StatelessWidget {
+  const ThemeV2AssetBubbleVisual({
+    super.key,
     required this.asset,
     required this.skills,
     required this.index,
     required this.motion,
-    required this.onTap,
+    this.onTap,
   });
 
   final PoolAsset asset;
   final Map<String, SkillMeta> skills;
   final int index;
   final Animation<double>? motion;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {

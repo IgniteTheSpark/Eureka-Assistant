@@ -4,6 +4,20 @@ import 'package:eureka/today/bubble_physics.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('spawn velocity is preserved in world units', () {
+    final field = BubbleField(box: const Size(200, 300), gravity: Offset.zero)
+      ..addBubble(
+        'emitted',
+        const Offset(100, 80),
+        20,
+        velocityPxPerSecond: const Offset(40, 200),
+      );
+
+    final velocity = field.bubbles.single.body.linearVelocity;
+    expect(velocity.x, closeTo(1, 0.001));
+    expect(velocity.y, closeTo(5, 0.001));
+  });
+
   test('field without a dock applies gravity and keeps bubbles in bounds', () {
     BubbleField? field;
     Object? constructorError;

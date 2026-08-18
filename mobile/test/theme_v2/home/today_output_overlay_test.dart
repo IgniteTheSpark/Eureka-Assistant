@@ -86,37 +86,41 @@ void main() {
     expect(completed, 1);
   });
 
-  testWidgets('seed chooses the left side when Reka is near the right edge', (
-    tester,
-  ) async {
-    const item = TodayOutputItem(
-      kind: TodayOutputKind.asset,
-      id: 'asset-motion',
-      source: Offset(350, 300),
-      reduceMotion: false,
-    );
-    await tester.pumpWidget(
-      _host(
-        TodayOutputOverlay(
-          item: item,
-          side: TodayOutputSide.left,
-          signalBoundaryY: 74,
-          assetFloorY: 760,
-          onComplete: () {},
+  testWidgets(
+    'asset ball chooses the left side when Reka is near the right edge',
+    (tester) async {
+      const item = TodayOutputItem(
+        kind: TodayOutputKind.asset,
+        id: 'asset-motion',
+        source: Offset(350, 300),
+        reduceMotion: false,
+      );
+      await tester.pumpWidget(
+        _host(
+          TodayOutputOverlay(
+            item: item,
+            side: TodayOutputSide.left,
+            signalBoundaryY: 74,
+            assetFloorY: 760,
+            assetVisual: const SizedBox(key: ValueKey('final-asset-ball')),
+            onComplete: () {},
+          ),
         ),
-      ),
-    );
+      );
 
-    expect(
-      tester.getCenter(find.byKey(const ValueKey('today-output-seed'))).dx,
-      lessThan(item.source.dx),
-    );
-  });
+      expect(
+        tester.getCenter(find.byKey(const ValueKey('final-asset-ball'))).dx,
+        lessThan(item.source.dx),
+      );
+      expect(find.byKey(const ValueKey('today-output-seed')), findsNothing);
+      expect(find.byKey(const ValueKey('today-output-trail-0')), findsNothing);
+    },
+  );
 
   testWidgets('animated Asset hands off visibly inside the chamber floor', (
     tester,
   ) async {
-    Offset? handoff;
+    TodayAssetHandoff? handoff;
     const item = TodayOutputItem(
       kind: TodayOutputKind.asset,
       id: 'asset-visible-handoff',
@@ -129,17 +133,47 @@ void main() {
           item: item,
           signalBoundaryY: 74,
           assetFloorY: 760,
-          onHandoff: (value) => handoff = value,
+          assetVisual: const SizedBox(key: ValueKey('final-asset-ball')),
+          onAssetHandoff: (value) => handoff = value,
           onComplete: () {},
         ),
       ),
     );
 
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 1850));
+    await tester.pump(const Duration(milliseconds: 1450));
     expect(handoff, isNull);
-    await tester.pump(const Duration(milliseconds: 60));
-    expect(handoff?.dy, 744);
+    await tester.pump(const Duration(milliseconds: 120));
+    expect(handoff?.center.dy, 744);
+    expect(handoff?.velocity.dy, greaterThan(0));
+  });
+
+  testWidgets('asset paints a final bubble without terminal seed or trail', (
+    tester,
+  ) async {
+    const item = TodayOutputItem(
+      kind: TodayOutputKind.asset,
+      id: 'asset-final-ball',
+      source: Offset(180, 300),
+      reduceMotion: false,
+    );
+    await tester.pumpWidget(
+      _host(
+        TodayOutputOverlay(
+          item: item,
+          signalBoundaryY: 74,
+          assetFloorY: 760,
+          assetVisual: const SizedBox(key: ValueKey('final-asset-ball')),
+          onComplete: () {},
+        ),
+      ),
+    );
+
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byKey(const ValueKey('final-asset-ball')), findsOneWidget);
+    expect(find.byKey(const ValueKey('today-output-seed')), findsNothing);
+    expect(find.byKey(const ValueKey('today-output-trail-0')), findsNothing);
   });
 }
 
