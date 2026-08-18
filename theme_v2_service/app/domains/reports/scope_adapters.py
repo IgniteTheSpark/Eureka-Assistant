@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -12,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import Asset, Event, UserSkill
 from app.domains.reports.schemas import (
     EvidenceReference,
+    ReportAssetSelection,
     ReportScopeDraft,
     ScopeAdapterKind,
     StrictModel,
@@ -39,16 +41,24 @@ class ScopeRecordCandidate(StrictModel):
 
 class ScopeRecordGroup(StrictModel):
     skill_id: str
+    machine_name: str = Field(default="", exclude=True)
     label: str
     count: int
     default_selected: bool = True
     records: list[ScopeRecordCandidate] = Field(default_factory=list)
 
 
+class TimeRangeOption(StrictModel):
+    id: str
+    label: str
+    time_range: TimeRange | None = None
+
+
 class ReportScopeCandidateResponse(StrictModel):
     adapter_kind: ScopeAdapterKind
     events: list[ScopeEventCandidate] = Field(default_factory=list)
     record_groups: list[ScopeRecordGroup] = Field(default_factory=list)
+    time_range_options: list[TimeRangeOption] = Field(default_factory=list)
     default_scope: ReportScopeDraft
 
 
@@ -95,7 +105,7 @@ def resolve_report_period(
     *,
     now: datetime,
     timezone_name: str,
-) -> TimeRange:
+) -> TimeRange | None:
     zone = ZoneInfo(timezone_name)
     local_now = _aware_utc(now).astimezone(zone)
     normalized = intent.casefold()
@@ -105,17 +115,67 @@ def resolve_report_period(
             time.min,
             tzinfo=zone,
         )
-        if start.month == 12:
-            end = start.replace(year=start.year + 1, month=1)
-        else:
-            end = start.replace(month=start.month + 1)
-        return TimeRange(from_at=start, to_at=end)
+        return TimeRange(from_at=start, to_at=local_now)
     if any(marker in normalized for marker in ("这周", "本周", "这个星期")):
         monday = local_now.date() - timedelta(days=local_now.weekday())
         start = datetime.combine(monday, time.min, tzinfo=zone)
         return TimeRange(from_at=start, to_at=start + timedelta(days=7))
-    end = local_now
-    return TimeRange(from_at=end - timedelta(days=7), to_at=end)
+    day_match = re.search(r"(?:最近|近|过去)\s*(7|30)\s*天", normalized)
+    if day_match is not None:
+        days = int(day_match.group(1))
+        return TimeRange(from_at=local_now - timedelta(days=days), to_at=local_now)
+    return None
+
+
+def time_range_options(
+    *,
+    now: datetime,
+    timezone_name: str,
+) -> list[TimeRangeOption]:
+    zone = ZoneInfo(timezone_name)
+    local_now = _aware_utc(now).astimezone(zone)
+    month_start = datetime.combine(
+        local_now.date().replace(day=1),
+        time.min,
+        tzinfo=zone,
+    )
+    week_start = datetime.combine(
+        local_now.date() - timedelta(days=local_now.weekday()),
+        time.min,
+        tzinfo=zone,
+    )
+    return [
+        TimeRangeOption(
+            id="last_7_days",
+            label="过去 7 天",
+            time_range=TimeRange(
+                from_at=local_now - timedelta(days=7),
+                to_at=local_now,
+            ),
+        ),
+        TimeRangeOption(
+            id="last_30_days",
+            label="过去 30 天",
+            time_range=TimeRange(
+                from_at=local_now - timedelta(days=30),
+                to_at=local_now,
+            ),
+        ),
+        TimeRangeOption(
+            id="current_month",
+            label="本月",
+            time_range=TimeRange(from_at=month_start, to_at=local_now),
+        ),
+        TimeRangeOption(
+            id="current_week",
+            label="本周",
+            time_range=TimeRange(
+                from_at=week_start,
+                to_at=week_start + timedelta(days=7),
+            ),
+        ),
+        TimeRangeOption(id="custom", label="自定义"),
+    ]
 
 
 def initial_scope(
@@ -130,6 +190,11 @@ def initial_scope(
         if trigger_event_id is not None
         else infer_scope_adapter(intent)
     )
+    period = (
+        resolve_report_period(intent, now=now, timezone_name=timezone_name)
+        if adapter_kind == "period_summary"
+        else None
+    )
     return ReportScopeDraft(
         adapter_kind=adapter_kind,
         primary_reference=(
@@ -137,10 +202,11 @@ def initial_scope(
             if trigger_event_id is not None
             else None
         ),
-        time_range=(
-            resolve_report_period(intent, now=now, timezone_name=timezone_name)
-            if adapter_kind == "period_summary"
-            else None
+        time_range=period,
+        missing_dimensions=(
+            ["time_range"]
+            if adapter_kind == "period_summary" and period is None
+            else []
         ),
     )
 
@@ -258,6 +324,7 @@ async def _period_records(
         if group is None:
             group = ScopeRecordGroup(
                 skill_id=skill.id,
+                machine_name=skill.machine_name,
                 label=skill.display_name,
                 count=0,
                 records=[],
@@ -276,6 +343,24 @@ async def _period_records(
     return list(grouped.values())
 
 
+def _filter_record_groups_for_intent(
+    groups: list[ScopeRecordGroup],
+    intent: str,
+) -> list[ScopeRecordGroup]:
+    normalized = intent.casefold()
+    aliases = {
+        "expense": ("消费", "支出", "花费", "账单", "expense", "spend"),
+    }
+    requested = {
+        machine_name
+        for machine_name, markers in aliases.items()
+        if any(marker in normalized for marker in markers)
+    }
+    if not requested:
+        return groups
+    return [group for group in groups if group.machine_name in requested]
+
+
 async def list_scope_candidates(
     session: AsyncSession,
     *,
@@ -292,6 +377,7 @@ async def list_scope_candidates(
     ).model_copy(update={"adapter_kind": adapter_kind})
     events: list[ScopeEventCandidate] = []
     record_groups: list[ScopeRecordGroup] = []
+    options: list[TimeRangeOption] = []
     if adapter_kind == "pre_event_briefing":
         events = await _future_events(
             session,
@@ -300,30 +386,41 @@ async def list_scope_candidates(
             timezone_name=timezone_name,
         )
     elif adapter_kind == "period_summary":
-        period = draft.time_range or resolve_report_period(
-            intent,
+        options = time_range_options(
             now=now,
             timezone_name=timezone_name,
         )
+        period = draft.time_range or options[1].time_range
+        assert period is not None
         record_groups = await _period_records(
             session,
             user_id=user_id,
             period=period,
             timezone_name=timezone_name,
         )
+        record_groups = _filter_record_groups_for_intent(record_groups, intent)
+        auto_references = (
+            [
+                record.reference
+                for group in record_groups
+                for record in group.records
+            ]
+            if draft.time_range is not None
+            else []
+        )
         draft = draft.model_copy(
             update={
                 "skill_ids": [group.skill_id for group in record_groups],
-                "supporting_references": [
-                    record.reference
-                    for group in record_groups
-                    for record in group.records
-                ],
+                "supporting_references": auto_references,
+                "selection": ReportAssetSelection(
+                    auto_references=auto_references,
+                ),
             }
         )
     return ReportScopeCandidateResponse(
         adapter_kind=adapter_kind,
         events=events,
         record_groups=record_groups,
+        time_range_options=options,
         default_scope=draft,
     )

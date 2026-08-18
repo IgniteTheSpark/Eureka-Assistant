@@ -15,6 +15,13 @@ class TimeRange(StrictModel):
 
 EvidenceKind = Literal["asset", "event", "contact"]
 ScopeAdapterKind = Literal["pre_event_briefing", "period_summary", "generic"]
+PresentationFamily = Literal[
+    "data_trend",
+    "theme_synthesis",
+    "professional_evaluation",
+    "briefing_research",
+    "custom",
+]
 IllustrationStatus = Literal["not_required", "pending", "ready", "failed"]
 ReportRunState = Literal[
     "planning",
@@ -31,6 +38,53 @@ ReportRunState = Literal[
 class EvidenceReference(StrictModel):
     kind: EvidenceKind
     id: str = Field(min_length=1)
+
+
+class PresentationPreference(StrictModel):
+    family: PresentationFamily | None = None
+    custom_text: str = Field(default="", max_length=240)
+
+    @model_validator(mode="after")
+    def validate_custom_text(self) -> "PresentationPreference":
+        self.custom_text = self.custom_text.strip()
+        if self.family != "custom":
+            self.custom_text = ""
+        return self
+
+
+class ReportAssetSelection(StrictModel):
+    auto_references: list[EvidenceReference] = Field(default_factory=list)
+    manual_references: list[EvidenceReference] = Field(default_factory=list)
+    excluded_reference_ids: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def normalize(self) -> "ReportAssetSelection":
+        self.auto_references = self._unique(self.auto_references)
+        self.manual_references = self._unique(self.manual_references)
+        self.excluded_reference_ids = list(dict.fromkeys(self.excluded_reference_ids))
+        return self
+
+    @staticmethod
+    def _unique(references: list[EvidenceReference]) -> list[EvidenceReference]:
+        unique: list[EvidenceReference] = []
+        seen: set[tuple[str, str]] = set()
+        for reference in references:
+            key = (reference.kind, reference.id)
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(reference)
+        return unique
+
+    def resolved_references(self) -> list[EvidenceReference]:
+        excluded = set(self.excluded_reference_ids)
+        return self._unique(
+            [
+                reference
+                for reference in [*self.auto_references, *self.manual_references]
+                if reference.id not in excluded
+            ]
+        )
 
 
 class EvidenceScope(StrictModel):
@@ -71,6 +125,13 @@ class ReportScopeDraft(StrictModel):
     time_range: TimeRange | None = None
     attention_focus: list[str] = Field(default_factory=list, max_length=8)
     additional_focus: str = Field(default="", max_length=500)
+    presentation_preference: PresentationPreference = Field(
+        default_factory=PresentationPreference
+    )
+    missing_dimensions: list[Literal["time_range", "asset_type"]] = Field(
+        default_factory=list
+    )
+    selection: ReportAssetSelection = Field(default_factory=ReportAssetSelection)
 
     @model_validator(mode="after")
     def normalize_and_validate(self) -> "ReportScopeDraft":
@@ -87,6 +148,7 @@ class ReportScopeDraft(StrictModel):
             seen.add(key)
             normalized.append(reference)
         self.supporting_references = normalized
+        self.missing_dimensions = list(dict.fromkeys(self.missing_dimensions))
         if (
             self.adapter_kind == "pre_event_briefing"
             and self.primary_reference is not None

@@ -36,6 +36,7 @@ class _ReportRunPageState extends State<ReportRunPage> {
   var _openingReport = false;
   String? _openReportError;
   final _focusController = TextEditingController();
+  final _presentationController = TextEditingController();
   ReportPlanDraftView? _draft;
   int _planStep = 0;
   bool _generateAfterScopeResolution = false;
@@ -67,6 +68,11 @@ class _ReportRunPageState extends State<ReportRunPage> {
     final scopeFocus = _controller.scopeDraft?.additionalFocus ?? '';
     if (_planStep == 0 && _focusController.text != scopeFocus) {
       _focusController.text = scopeFocus;
+    }
+    final presentationText =
+        _controller.scopeDraft?.presentationPreference.customText ?? '';
+    if (_planStep == 0 && _presentationController.text != presentationText) {
+      _presentationController.text = presentationText;
     }
     if (!_controller.needsScopeConfirmation &&
         serverDraft != null &&
@@ -137,6 +143,7 @@ class _ReportRunPageState extends State<ReportRunPage> {
   @override
   void dispose() {
     _focusController.dispose();
+    _presentationController.dispose();
     _controller
       ..removeListener(_changed)
       ..dispose();
@@ -330,6 +337,13 @@ class _ReportRunPageState extends State<ReportRunPage> {
         ),
         const SizedBox(height: ThemeV2Spacing.sm),
         const Text('Reka 已根据当前内容准备好推荐方案，你也可以选择其他方向。'),
+        if (_draftNeedsEvidence(draft)) ...[
+          const SizedBox(height: ThemeV2Spacing.sm),
+          Text(
+            '当前方案还没有参考资产，请先选择后再生成。',
+            style: TextStyle(color: context.themeV2.critical),
+          ),
+        ],
         const SizedBox(height: ThemeV2Spacing.xl),
         for (final option in options) ...[
           _planOptionCard(
@@ -355,11 +369,6 @@ class _ReportRunPageState extends State<ReportRunPage> {
           ),
           const SizedBox(height: ThemeV2Spacing.md),
         ],
-        if (_draftNeedsEvidence(draft))
-          Text(
-            '当前方案还没有参考资产，请先选择后再生成。',
-            style: TextStyle(color: context.themeV2.critical),
-          ),
       ],
     );
   }
@@ -448,16 +457,64 @@ class _ReportRunPageState extends State<ReportRunPage> {
       key: const ValueKey('report-step-scope'),
       children: [
         const Text(
-          '这份报告要看什么',
+          '确认报告输入',
           style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: ThemeV2Spacing.sm),
-        Text(switch (adapter) {
-          'pre_event_briefing' => '先选择要准备的会议，再补充你最关心的问题。',
-          'period_summary' => '默认纳入这段时间里的全部相关记录，你可以按类型或单条调整。',
-          _ => '选择需要参考的日程、联系人或记录；也可以只补充你的关注点。',
-        }),
+        const Text('先确认使用哪些资产；呈现方式和补充说明都可以留给 Reka 推荐。'),
         const SizedBox(height: ThemeV2Spacing.xl),
+        const Text(
+          '资产范围',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: ThemeV2Spacing.xs),
+        Text('已选择 ${scope.references.length} 项资产'),
+        if (adapter == 'generic' && scope.references.length == 1) ...[
+          const SizedBox(height: ThemeV2Spacing.xs),
+          const Text('已定位到这项资产；如果需要，可以继续关联其他资产。'),
+        ],
+        if (adapter == 'period_summary' &&
+            candidates.timeRangeOptions.isNotEmpty) ...[
+          const SizedBox(height: ThemeV2Spacing.md),
+          const Text('时间范围'),
+          const SizedBox(height: ThemeV2Spacing.sm),
+          Wrap(
+            spacing: ThemeV2Spacing.sm,
+            runSpacing: ThemeV2Spacing.sm,
+            children: [
+              for (final option in candidates.timeRangeOptions)
+                ChoiceChip(
+                  key: ValueKey('report-time-range-${option.id}'),
+                  label: Text(option.label),
+                  selected: option.id == 'custom'
+                      ? scope.timeRange != null &&
+                            !candidates.timeRangeOptions.any(
+                              (candidate) =>
+                                  candidate.id != 'custom' &&
+                                  _sameTimeRange(
+                                    scope.timeRange,
+                                    candidate.timeRange,
+                                  ),
+                            )
+                      : _sameTimeRange(scope.timeRange, option.timeRange),
+                  onSelected: (_) => option.id == 'custom'
+                      ? _pickCustomTimeRange()
+                      : _controller.selectScopeTimeRange(option),
+                ),
+            ],
+          ),
+        ],
+        const SizedBox(height: ThemeV2Spacing.lg),
+        OutlinedButton.icon(
+          key: const ValueKey('report-open-evidence-picker'),
+          onPressed: _openEvidencePicker,
+          icon: const Icon(Icons.add_rounded),
+          label: const Text('手动添加资产'),
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size.fromHeight(ThemeV2Sizes.minTouchTarget),
+          ),
+        ),
+        const SizedBox(height: ThemeV2Spacing.lg),
         if (adapter == 'pre_event_briefing') ...[
           const Text(
             '选择会议',
@@ -476,40 +533,59 @@ class _ReportRunPageState extends State<ReportRunPage> {
               const SizedBox(height: ThemeV2Spacing.sm),
             ],
         ] else if (adapter == 'period_summary') ...[
-          const Text(
-            '选择记录',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: ThemeV2Spacing.sm),
-          if (candidates.recordGroups.isEmpty)
+          if (scope.timeRange == null)
+            _emptyScopeCard('选择时间后，Reka 会筛出对应资产')
+          else if (candidates.recordGroups.isEmpty)
             _emptyScopeCard('这段时间内还没有可汇总的记录')
           else
             for (final group in candidates.recordGroups)
               _recordScopeGroup(group, scope),
         ],
-        if (adapter != 'period_summary') ...[
-          if (adapter == 'pre_event_briefing')
-            const SizedBox(height: ThemeV2Spacing.md),
-          const Text(
-            '补充参考资料',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: ThemeV2Spacing.xs),
-          Text('已选择 ${scope.supportingReferences.length} 项，可随时取消。'),
+        const SizedBox(height: ThemeV2Spacing.xl),
+        const Text(
+          '呈现方式（选填）',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: ThemeV2Spacing.xs),
+        const Text('不选择时，Reka 会根据资产内容推荐。'),
+        const SizedBox(height: ThemeV2Spacing.sm),
+        Wrap(
+          spacing: ThemeV2Spacing.sm,
+          runSpacing: ThemeV2Spacing.sm,
+          children: [
+            for (final entry in const {
+              'data_trend': '数据复盘',
+              'theme_synthesis': '主题综合',
+              'professional_evaluation': '专业评估',
+              'briefing_research': '调研简报',
+              'custom': '其他',
+            }.entries)
+              ChoiceChip(
+                key: ValueKey('report-presentation-${entry.key}'),
+                label: Text(entry.value),
+                selected: scope.presentationPreference.family == entry.key,
+                onSelected: (_) =>
+                    _controller.setScopePresentationFamily(entry.key),
+              ),
+          ],
+        ),
+        if (scope.presentationPreference.family == 'custom') ...[
           const SizedBox(height: ThemeV2Spacing.sm),
-          OutlinedButton.icon(
-            key: const ValueKey('report-open-evidence-picker'),
-            onPressed: _openEvidencePicker,
-            icon: const Icon(Icons.add_rounded),
-            label: const Text('选择日程、联系人或记录'),
-            style: OutlinedButton.styleFrom(
-              minimumSize: const Size.fromHeight(ThemeV2Sizes.minTouchTarget),
+          TextField(
+            key: const ValueKey('report-custom-presentation'),
+            controller: _presentationController,
+            maxLength: 240,
+            onChanged: _controller.updateScopeCustomPresentation,
+            decoration: InputDecoration(
+              labelText: '描述你希望的呈现方式',
+              hintText: '例如：做成适合分享的一页卡片',
+              counterText: '',
             ),
           ),
         ],
         const SizedBox(height: ThemeV2Spacing.xl),
         const Text(
-          '关注的问题',
+          '补充信息（选填）',
           style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: ThemeV2Spacing.sm),
@@ -531,8 +607,8 @@ class _ReportRunPageState extends State<ReportRunPage> {
           maxLines: 3,
           onChanged: _controller.updateScopeAdditionalFocus,
           decoration: const InputDecoration(
-            labelText: '还想重点了解什么？（选填）',
-            hintText: '例如：补充 Kevin 的公开职业背景，重点比较青训体系',
+            labelText: '背景、重点或需要排除的内容',
+            hintText: '例如：重点解释周末支出，忽略报销项目',
           ),
         ),
       ],
@@ -662,6 +738,49 @@ class _ReportRunPageState extends State<ReportRunPage> {
     final local = value.toLocal();
     String two(int number) => number.toString().padLeft(2, '0');
     return '${local.month}月${local.day}日 ${two(local.hour)}:${two(local.minute)}';
+  }
+
+  bool _sameTimeRange(
+    Map<String, dynamic>? current,
+    Map<String, dynamic>? candidate,
+  ) {
+    if (current == null || candidate == null) return false;
+    return current['from']?.toString() == candidate['from']?.toString() &&
+        current['to']?.toString() == candidate['to']?.toString();
+  }
+
+  Future<void> _pickCustomTimeRange() async {
+    final now = DateTime.now();
+    final selected = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(now.year - 5),
+      lastDate: DateTime(now.year + 1),
+      initialDateRange: DateTimeRange(
+        start: now.subtract(const Duration(days: 7)),
+        end: now,
+      ),
+    );
+    if (!mounted || selected == null) return;
+    final start = DateTime(
+      selected.start.year,
+      selected.start.month,
+      selected.start.day,
+    );
+    final endExclusive = DateTime(
+      selected.end.year,
+      selected.end.month,
+      selected.end.day + 1,
+    );
+    _controller.selectScopeTimeRange(
+      ReportTimeRangeOptionView(
+        id: 'custom_selected',
+        label: '自定义',
+        timeRange: {
+          'from': start.toIso8601String(),
+          'to': endExclusive.toIso8601String(),
+        },
+      ),
+    );
   }
 
   Widget _confirmationStepBody(
@@ -808,7 +927,7 @@ class _ReportRunPageState extends State<ReportRunPage> {
       style: FilledButton.styleFrom(
         minimumSize: const Size.fromHeight(ThemeV2Sizes.minTouchTarget),
       ),
-      child: Text(_controller.busy ? '确认中…' : '确认范围，生成方案'),
+      child: Text(_controller.busy ? '确认中…' : '确认输入，生成方案'),
     ),
     1 => Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,

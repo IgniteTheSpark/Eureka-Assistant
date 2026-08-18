@@ -284,6 +284,12 @@ void main() {
     expect(find.text('方案'), findsOneWidget);
     expect(find.text('生成'), findsOneWidget);
     expect(find.byKey(const ValueKey('report-step-scope')), findsOneWidget);
+    expect(find.text('确认报告输入'), findsOneWidget);
+    expect(find.text('资产范围'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('report-open-evidence-picker')),
+      findsOneWidget,
+    );
     expect(
       find.byKey(const ValueKey('report-scope-event-event-1')),
       findsOneWidget,

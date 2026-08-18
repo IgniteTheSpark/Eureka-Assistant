@@ -195,6 +195,11 @@ async def build_planner_request(
     registry: TemplateRegistry,
 ) -> PlannerRequest:
     scope = EvidenceScope.model_validate(run.evidence_scope or {})
+    scope_draft = (
+        ReportScopeDraft.model_validate(run.scope_draft)
+        if run.scope_draft is not None
+        else None
+    )
     primary_ids = list(scope.skill_ids)
     launch_primary = run.launch_context.get("primary_skill_id")
     if launch_primary and launch_primary not in primary_ids:
@@ -239,17 +244,29 @@ async def build_planner_request(
         if event.location:
             capabilities.add("location")
     candidates = registry.candidates_for(capabilities)
+    requested_family = (
+        scope_draft.presentation_preference.family
+        if scope_draft is not None
+        else None
+    )
+    if requested_family not in {None, "custom"}:
+        matching_family = [
+            package
+            for package in candidates
+            if package.manifest.base_family == requested_family
+        ]
+        candidates = matching_family or [
+            package
+            for package in registry.packages
+            if package.manifest.base_family == requested_family
+        ]
     request = PlannerRequest(
         run_id=run.id,
         origin=run.origin,
         intent=run.intent,
         launch_context=run.launch_context,
         answers=run.answers,
-        scope_draft=(
-            ReportScopeDraft.model_validate(run.scope_draft)
-            if run.scope_draft is not None
-            else None
-        ),
+        scope_draft=scope_draft,
         evidence_scope=scope,
         primary_skills=primary,
         related_skills=related,
@@ -294,6 +311,17 @@ def validate_planner_result_against_request(
         template = available_templates[key]
         if option.base_family != template.base_family:
             raise InvalidPlannerResult("option base family conflicts with template")
+        requested_family = (
+            request.scope_draft.presentation_preference.family
+            if request.scope_draft is not None
+            else None
+        )
+        if requested_family not in {None, "custom"} and (
+            option.base_family != requested_family
+        ):
+            raise InvalidPlannerResult(
+                "option base family conflicts with presentation preference"
+            )
         if option.web_search.policy != template.web_policy:
             raise InvalidPlannerResult("option web policy conflicts with template")
         if option.illustration.policy != template.illustration_policy:

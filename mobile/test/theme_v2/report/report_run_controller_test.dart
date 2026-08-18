@@ -146,6 +146,82 @@ void main() {
   });
 
   test(
+    'report input keeps time, presentation, and supplemental text separate',
+    () async {
+      final api = _api((request) async {
+        if (request.url.path.endsWith('/scope-candidates')) {
+          return _json({
+            'adapter_kind': 'period_summary',
+            'events': [],
+            'time_range_options': [
+              {
+                'id': 'last_30_days',
+                'label': '过去 30 天',
+                'time_range': {
+                  'from': '2026-07-20T00:00:00+08:00',
+                  'to': '2026-08-19T00:00:00+08:00',
+                },
+              },
+            ],
+            'record_groups': [
+              {
+                'skill_id': 'expense',
+                'label': '消费',
+                'count': 1,
+                'records': [
+                  {
+                    'reference': {'kind': 'asset', 'id': 'expense-1'},
+                    'title': '午餐',
+                    'effective_at': '2026-08-18T12:00:00+08:00',
+                  },
+                ],
+              },
+            ],
+            'default_scope': {
+              'adapter_kind': 'period_summary',
+              'skill_ids': ['expense'],
+              'missing_dimensions': ['time_range'],
+            },
+          });
+        }
+        return _json({
+          'id': 'run-input',
+          'state': 'awaiting_selection',
+          'scope_revision': 0,
+          'pending_decision': {
+            'type': 'scope_confirmation',
+            'adapter_kind': 'period_summary',
+          },
+          'scope_draft': {'adapter_kind': 'period_summary'},
+        });
+      });
+      final controller = ReportRunController(api: api, autoPoll: false);
+      addTearDown(() {
+        controller.dispose();
+        api.close();
+      });
+
+      await controller.loadRun('run-input');
+      await controller.loadScopeCandidates();
+      controller.selectScopeTimeRange(
+        controller.scopeCandidates!.timeRangeOptions.single,
+      );
+      controller.setScopePresentationFamily('data_trend');
+      controller.updateScopeAdditionalFocus('忽略报销项目');
+
+      final draft = controller.scopeDraft!;
+      expect(draft.supportingReferences.single.id, 'expense-1');
+      expect(draft.missingDimensions, isEmpty);
+      expect(draft.presentationPreference.family, 'data_trend');
+      expect(draft.additionalFocus, '忽略报销项目');
+      expect(draft.toJson()['presentation_preference'], {
+        'family': 'data_trend',
+        'custom_text': '',
+      });
+    },
+  );
+
+  test(
     'confirming scope saves its revision before preparing the plan',
     () async {
       final requested = <String>[];

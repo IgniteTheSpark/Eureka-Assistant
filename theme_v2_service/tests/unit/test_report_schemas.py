@@ -9,6 +9,20 @@ from app.domains.reports.schemas import (
     ReportScopeDraft,
     RunGenerateRequest,
 )
+from app.domains.reports.scope_adapters import initial_scope
+from app.domains.reports.planner import (
+    InvalidPlannerResult,
+    PlannerRequest,
+    PlannerResult,
+    PlannerTemplate,
+    validate_planner_result_against_request,
+)
+from app.domains.reports.schemas import (
+    CapabilityPolicy,
+    IllustrationPolicy,
+    ReportPlanOption,
+)
+from datetime import datetime, timezone
 
 
 def test_plan_draft_accepts_typed_event_contact_and_asset_references():
@@ -163,3 +177,119 @@ def test_scope_confirmation_is_a_first_class_pending_decision():
         "questions": [],
         "adapter_kind": "pre_event_briefing",
     }
+
+
+def test_report_scope_keeps_presentation_and_supplemental_text_separate():
+    draft = ReportScopeDraft.model_validate(
+        {
+            "adapter_kind": "period_summary",
+            "presentation_preference": {
+                "family": "data_trend",
+                "custom_text": "",
+            },
+            "additional_focus": "重点解释周末支出增加的原因",
+        }
+    )
+
+    assert draft.presentation_preference.family == "data_trend"
+    assert draft.presentation_preference.custom_text == ""
+    assert draft.additional_focus == "重点解释周末支出增加的原因"
+
+
+def test_custom_presentation_does_not_overwrite_supplemental_text():
+    draft = ReportScopeDraft.model_validate(
+        {
+            "adapter_kind": "period_summary",
+            "presentation_preference": {
+                "family": "custom",
+                "custom_text": "做成适合分享给家人的一页卡片",
+            },
+            "additional_focus": "忽略报销项目",
+        }
+    )
+
+    assert draft.presentation_preference.custom_text == "做成适合分享给家人的一页卡片"
+    assert draft.additional_focus == "忽略报销项目"
+
+
+def test_vague_recent_period_remains_unresolved_until_user_confirms_time():
+    draft = initial_scope(
+        "我想总结一下最近的消费",
+        now=datetime(2026, 8, 18, 4, 0, tzinfo=timezone.utc),
+        timezone_name="Asia/Shanghai",
+    )
+
+    assert draft.adapter_kind == "period_summary"
+    assert draft.time_range is None
+    assert draft.missing_dimensions == ["time_range"]
+
+
+def test_explicit_30_day_period_is_resolved_and_not_missing():
+    draft = initial_scope(
+        "总结过去30天的消费",
+        now=datetime(2026, 8, 18, 4, 0, tzinfo=timezone.utc),
+        timezone_name="Asia/Shanghai",
+    )
+
+    assert draft.time_range is not None
+    assert draft.time_range.from_at is not None
+    assert draft.time_range.to_at is not None
+    assert draft.time_range.to_at - draft.time_range.from_at == __import__(
+        "datetime"
+    ).timedelta(days=30)
+    assert draft.missing_dimensions == []
+
+
+def test_standard_presentation_family_is_a_hard_planner_constraint():
+    request = PlannerRequest(
+        run_id="run-1",
+        origin="user_initiated",
+        intent="总结消费",
+        launch_context={},
+        answers={},
+        scope_draft=ReportScopeDraft.model_validate(
+            {
+                "adapter_kind": "period_summary",
+                "presentation_preference": {"family": "data_trend"},
+            }
+        ),
+        evidence_scope=EvidenceScope(),
+        primary_skills=[],
+        related_skills=[],
+        asset_summaries=[],
+        templates=[
+            PlannerTemplate(
+                id="general_period_review",
+                version="1.0.0",
+                base_family="theme_synthesis",
+                planner_description="通用复盘",
+                data_fit=["free_text"],
+                analysis_method="period_summary",
+                web_policy="none",
+                illustration_policy="none",
+                render_policy="report_html_v1",
+                skill_markdown="Use evidence only.",
+            )
+        ],
+    )
+    result = PlannerResult(
+        options=[
+            ReportPlanOption(
+                id="option-1",
+                recommended=True,
+                title="主题综合",
+                summary="总结消费",
+                report_goal="总结消费",
+                template_id="general_period_review",
+                template_version="1.0.0",
+                base_family="theme_synthesis",
+                evidence_scope=EvidenceScope(),
+                web_search=CapabilityPolicy(policy="none"),
+                illustration=IllustrationPolicy(policy="none"),
+                render_policy="report_html_v1",
+            )
+        ]
+    )
+
+    with pytest.raises(InvalidPlannerResult, match="presentation preference"):
+        validate_planner_result_against_request(request=request, result=result)

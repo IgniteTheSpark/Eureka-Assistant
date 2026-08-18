@@ -1,7 +1,7 @@
 from copy import deepcopy
 from datetime import datetime, timezone
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -13,6 +13,7 @@ from app.domains.notifications.schemas import NotificationCreate
 from app.domains.notifications.service import create_notification
 from app.domains.reports.models import Report, ReportGenerationRun
 from app.domains.reports.schemas import (
+    EvidenceReference,
     EvidenceScope,
     IllustrationStatus,
     PendingDecision,
@@ -51,6 +52,11 @@ from app.observability import metrics
 
 
 ACTIVE_STATES = {"planning", "awaiting_selection", "generating", "failed"}
+
+
+def _utc_naive(value: datetime) -> datetime:
+    aware = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    return aware.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 class RunNotFound(Exception):
@@ -426,6 +432,12 @@ async def update_scope_draft(
         raise RunConflict("scope adapter cannot be changed")
     if draft.adapter_kind == "pre_event_briefing" and draft.primary_reference is None:
         raise RunConflict("pre-event report requires a primary Event")
+    if draft.adapter_kind == "period_summary":
+        draft = await _resolve_period_summary_selection(
+            session,
+            user_id=user_id,
+            draft=draft,
+        )
     scope = await _validate_owned_scope(
         session,
         user_id=user_id,
@@ -455,6 +467,52 @@ async def update_scope_draft(
     _apply_primary_event_context(run, event)
     await session.flush()
     return run
+
+
+async def _resolve_period_summary_selection(
+    session: AsyncSession,
+    *,
+    user_id: str,
+    draft: ReportScopeDraft,
+) -> ReportScopeDraft:
+    """Make the persisted evidence set authoritative at the save boundary."""
+    auto_references: list[EvidenceReference] = []
+    if draft.time_range is not None and draft.skill_ids:
+        observed_at = func.coalesce(Asset.effective_at, Asset.created_at)
+        query = (
+            select(Asset.id)
+            .join(UserSkill, UserSkill.id == Asset.user_skill_id)
+            .where(
+                Asset.user_id == user_id,
+                Asset.user_skill_id.in_(draft.skill_ids),
+                UserSkill.user_id == user_id,
+                UserSkill.enabled.is_(True),
+            )
+            .order_by(observed_at.asc(), Asset.id.asc())
+        )
+        if draft.time_range.from_at is not None:
+            query = query.where(
+                observed_at >= _utc_naive(draft.time_range.from_at)
+            )
+        if draft.time_range.to_at is not None:
+            query = query.where(observed_at < _utc_naive(draft.time_range.to_at))
+        auto_references = [
+            EvidenceReference(kind="asset", id=asset_id)
+            for asset_id in await session.scalars(query)
+        ]
+
+    selection = draft.selection.model_copy(
+        update={"auto_references": auto_references}
+    )
+    return draft.model_copy(
+        update={
+            "selection": selection,
+            "supporting_references": selection.resolved_references(),
+            "missing_dimensions": (
+                ["time_range"] if draft.time_range is None else []
+            ),
+        }
+    )
 
 
 async def prepare_scope_plan(

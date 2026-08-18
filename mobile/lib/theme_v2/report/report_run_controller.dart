@@ -251,12 +251,96 @@ class ReportRunController extends ChangeNotifier {
     _notify();
   }
 
+  void selectScopeTimeRange(ReportTimeRangeOptionView option) {
+    final current = scopeDraft;
+    final candidates = scopeCandidates;
+    if (current == null || candidates == null || option.timeRange == null) {
+      return;
+    }
+    final from = DateTime.tryParse(option.timeRange!['from']?.toString() ?? '');
+    final to = DateTime.tryParse(option.timeRange!['to']?.toString() ?? '');
+    final selectedSkillIds = current.skillIds.isEmpty
+        ? candidates.recordGroups.map((group) => group.skillId).toSet()
+        : current.skillIds.toSet();
+    final auto = candidates.recordGroups
+        .where((group) => selectedSkillIds.contains(group.skillId))
+        .expand((group) => group.records)
+        .where((record) {
+          final value = record.effectiveAt;
+          if (value == null) return false;
+          return (from == null || !value.isBefore(from)) &&
+              (to == null || value.isBefore(to));
+        })
+        .map((record) => record.reference)
+        .toList(growable: false);
+    final selection = ReportAssetSelectionView(
+      autoReferences: auto,
+      manualReferences: current.selection.manualReferences,
+    );
+    _scopeDraftOverride = current.copyWith(
+      timeRange: option.timeRange,
+      skillIds: selectedSkillIds.toList(growable: false),
+      missingDimensions: current.missingDimensions
+          .where((item) => item != 'time_range')
+          .toList(growable: false),
+      selection: selection,
+      supportingReferences: selection.resolvedReferences,
+    );
+    error = null;
+    _notify();
+  }
+
+  void setScopePresentationFamily(String? family) {
+    final current = scopeDraft;
+    if (current == null) return;
+    final selected = current.presentationPreference.family == family
+        ? null
+        : family;
+    _scopeDraftOverride = current.copyWith(
+      presentationPreference: ReportPresentationPreferenceView(
+        family: selected,
+        customText: selected == 'custom'
+            ? current.presentationPreference.customText
+            : '',
+      ),
+    );
+    error = null;
+    _notify();
+  }
+
+  void updateScopeCustomPresentation(String value) {
+    final current = scopeDraft;
+    if (current == null) return;
+    _scopeDraftOverride = current.copyWith(
+      presentationPreference: ReportPresentationPreferenceView(
+        family: 'custom',
+        customText: value,
+      ),
+    );
+    error = null;
+    _notify();
+  }
+
   void replaceScopeSupportingReferences(
     List<EvidenceReferenceView> references,
   ) {
     final current = scopeDraft;
     if (current == null) return;
-    _scopeDraftOverride = current.copyWith(supportingReferences: references);
+    final auto = current.selection.autoReferences;
+    final selected = references.toSet();
+    final autoSet = auto.toSet();
+    final selection = ReportAssetSelectionView(
+      autoReferences: auto,
+      manualReferences: selected.difference(autoSet).toList(growable: false),
+      excludedReferenceIds: auto
+          .where((item) => !selected.contains(item))
+          .map((item) => item.id)
+          .toList(growable: false),
+    );
+    _scopeDraftOverride = current.copyWith(
+      supportingReferences: selection.resolvedReferences,
+      selection: selection,
+    );
     error = null;
     _notify();
   }
@@ -278,9 +362,20 @@ class ReportRunController extends ChangeNotifier {
       skillIds.remove(skillId);
       references.removeAll(group.records.map((item) => item.reference));
     }
+    final candidateReferences = candidates.recordGroups
+        .expand((item) => item.records)
+        .map((item) => item.reference)
+        .toSet();
+    final auto = references.intersection(candidateReferences);
+    final manual = references.difference(candidateReferences);
+    final selection = ReportAssetSelectionView(
+      autoReferences: auto.toList(growable: false),
+      manualReferences: manual.toList(growable: false),
+    );
     _scopeDraftOverride = current.copyWith(
       skillIds: skillIds.toList(growable: false),
       supportingReferences: references.toList(growable: false),
+      selection: selection,
     );
     error = null;
     _notify();
@@ -304,9 +399,29 @@ class ReportRunController extends ChangeNotifier {
         skillIds.add(group.skillId);
       }
     }
+    final allCandidateReferences = candidates.recordGroups
+        .expand((item) => item.records)
+        .map((item) => item.reference)
+        .toSet();
+    final auto = current.selection.autoReferences.isEmpty
+        ? allCandidateReferences
+        : current.selection.autoReferences.toSet();
+    final manual = references.difference(allCandidateReferences);
+    final excluded = current.selection.excludedReferenceIds.toSet();
+    if (selected) {
+      excluded.remove(reference.id);
+    } else if (auto.contains(reference)) {
+      excluded.add(reference.id);
+    }
+    final selection = ReportAssetSelectionView(
+      autoReferences: auto.toList(growable: false),
+      manualReferences: manual.toList(growable: false),
+      excludedReferenceIds: excluded.toList(growable: false),
+    );
     _scopeDraftOverride = current.copyWith(
       skillIds: skillIds,
-      supportingReferences: references.toList(growable: false),
+      supportingReferences: selection.resolvedReferences,
+      selection: selection,
     );
     error = null;
     _notify();
