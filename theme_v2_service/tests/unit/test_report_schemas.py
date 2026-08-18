@@ -245,6 +245,7 @@ def test_record_group_matching_metadata_stays_internal():
         skill_id="skill-running",
         machine_name="running_log",
         match_terms=["running", "跑步"],
+        identity_match_terms=["running", "跑步"],
         label="跑步记录",
         count=0,
     )

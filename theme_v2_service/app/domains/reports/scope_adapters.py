@@ -43,6 +43,7 @@ class ScopeRecordGroup(StrictModel):
     skill_id: str
     machine_name: str = Field(default="", exclude=True)
     match_terms: list[str] = Field(default_factory=list, exclude=True)
+    identity_match_terms: list[str] = Field(default_factory=list, exclude=True)
     label: str
     count: int
     default_selected: bool = True
@@ -84,10 +85,105 @@ _SKILL_ALIASES = {
     "water": {"喝水", "饮水", "water", "hydration"},
     "dance": {"跳舞", "舞蹈", "dance"},
 }
+_CJK_LEFT_BOUNDARIES = (
+    "的",
+    "和",
+    "与",
+    "及",
+    "、",
+    "为",
+    "按",
+    "看",
+    "查",
+    "对",
+    "从",
+    "在",
+    "天",
+    "周",
+    "月",
+    "年",
+    "总结",
+    "汇总",
+    "统计",
+    "复盘",
+    "分析",
+    "查看",
+    "看看",
+    "关于",
+    "针对",
+    "聚焦",
+    "生成",
+    "制作",
+    "整理",
+    "回顾",
+    "最近",
+    "近期",
+    "一下",
+    "我的",
+)
+_CJK_RIGHT_BOUNDARIES = (
+    "的",
+    "和",
+    "与",
+    "及",
+    "、",
+    "情况",
+    "记录",
+    "日志",
+    "数据",
+    "趋势",
+    "总结",
+    "统计",
+    "分析",
+    "复盘",
+    "报告",
+    "明细",
+    "表现",
+    "变化",
+    "领域",
+    "方面",
+    "相关",
+    "内容",
+    "信息",
+    "习惯",
+    "距离",
+    "时长",
+    "次数",
+    "金额",
+    "容量",
+    "量",
+)
 
 
 def _normalize_term(value: str | None) -> str:
     return re.sub(r"[\s_\-/]+", "", (value or "").casefold())
+
+
+def _is_cjk_character(value: str) -> bool:
+    return "\u3400" <= value <= "\u9fff"
+
+
+def _cjk_term_matches_text(term: str, value: str | None) -> bool:
+    normalized = _normalize_term(value)
+    start = normalized.find(term)
+    while start >= 0:
+        end = start + len(term)
+        left = normalized[:start]
+        right = normalized[end:]
+        left_boundary = (
+            not left
+            or not _is_cjk_character(left[-1])
+            or left.endswith(_CJK_LEFT_BOUNDARIES)
+        )
+        right_boundary = (
+            not right
+            or not _is_cjk_character(right[0])
+            or right.startswith(_CJK_RIGHT_BOUNDARIES)
+        )
+        if left_boundary and right_boundary:
+            return True
+        start = normalized.find(term, start + 1)
+    return False
 
 
 def _term_matches_text(term: str, value: str | None) -> bool:
@@ -102,40 +198,53 @@ def _term_matches_text(term: str, value: str | None) -> bool:
                 if len(phrase) >= len(term):
                     break
         return False
-    return term in _normalize_term(value)
+    return _cjk_term_matches_text(term, value)
 
 
-def _skill_match_terms(skill: UserSkill) -> list[str]:
-    source_values = [
-        skill.machine_name,
-        skill.display_name,
-        skill.description,
-        skill.domain,
-    ]
+def _skill_match_terms(skill: UserSkill) -> tuple[list[str], list[str]]:
+    identity_values = [skill.machine_name, skill.display_name]
+    broad_values = [skill.description, skill.domain]
     display = _normalize_term(skill.display_name)
-    terms = {
+    identity_terms = {
         _normalize_term(skill.machine_name),
         display,
+    }
+    broad_terms = {
         _normalize_term(skill.description),
         _normalize_term(skill.domain),
     }
     for suffix in ("记录", "日志", "数据", "训练"):
         if display.endswith(suffix) and len(display) > len(suffix):
-            terms.add(display[: -len(suffix)])
-    for value in (skill.machine_name, skill.display_name):
+            identity_terms.add(display[: -len(suffix)])
+    for value in identity_values:
         words = re.findall(r"[a-z0-9]+", (value or "").casefold())
         if len(words) > 1 and words[-1] in _GENERIC_SKILL_TERMS:
-            terms.add("".join(words[:-1]))
+            identity_terms.add("".join(words[:-1]))
     for aliases in _SKILL_ALIASES.values():
         normalized_aliases = {_normalize_term(alias) for alias in aliases}
         if any(
             _term_matches_text(alias, value)
             for alias in normalized_aliases
-            for value in source_values
+            for value in identity_values
         ):
-            terms.update(normalized_aliases)
-    return sorted(
-        term for term in terms if term and term not in _GENERIC_SKILL_TERMS
+            identity_terms.update(normalized_aliases)
+        if any(
+            _term_matches_text(alias, value)
+            for alias in normalized_aliases
+            for value in broad_values
+        ):
+            broad_terms.update(normalized_aliases)
+    identity = {
+        term
+        for term in identity_terms
+        if term and term not in _GENERIC_SKILL_TERMS
+    }
+    broad = {
+        term for term in broad_terms if term and term not in _GENERIC_SKILL_TERMS
+    }
+    return (
+        sorted(identity | broad),
+        sorted(identity),
     )
 
 
@@ -399,10 +508,12 @@ async def _period_records(
             continue
         group = grouped.get(skill.id)
         if group is None:
+            match_terms, identity_match_terms = _skill_match_terms(skill)
             group = ScopeRecordGroup(
                 skill_id=skill.id,
                 machine_name=skill.machine_name,
-                match_terms=_skill_match_terms(skill),
+                match_terms=match_terms,
+                identity_match_terms=identity_match_terms,
                 label=skill.display_name,
                 count=0,
                 records=[],
@@ -425,6 +536,17 @@ def _filter_record_groups_for_intent(
     groups: list[ScopeRecordGroup],
     intent: str,
 ) -> list[ScopeRecordGroup]:
+    identity_matches = [
+        group
+        for group in groups
+        if any(
+            term not in _GENERIC_SKILL_TERMS
+            and _term_matches_text(term, intent)
+            for term in group.identity_match_terms
+        )
+    ]
+    if identity_matches:
+        return identity_matches
     matches = [
         group
         for group in groups

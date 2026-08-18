@@ -379,6 +379,83 @@ async def test_explicit_domain_term_matches_only_groups_in_that_domain(session):
     ]
 
 
+async def test_explicit_skill_identity_takes_precedence_over_shared_domain(session):
+    await _seed_report_record_types(session)
+
+    response = await list_scope_candidates(
+        session,
+        user_id="user-1",
+        adapter_kind="period_summary",
+        intent="总结过去 30 天健康领域的跑步情况",
+        now=NOW,
+        timezone_name="Asia/Shanghai",
+    )
+
+    assert [group.skill_id for group in response.record_groups] == [
+        "skill-running"
+    ]
+
+
+async def test_cjk_alias_does_not_match_inside_a_custom_skill_name(session):
+    await _seed_report_record_types(session)
+    research = UserSkill(
+        id="skill-consumer-research",
+        user_id="user-1",
+        machine_name="consumer_research",
+        display_name="消费者研究",
+        description="记录消费者访谈结论",
+        domain="研究",
+        schema_json={
+            "type": "object",
+            "properties": {"interview_count": {"type": "number"}},
+        },
+    )
+    session.add(research)
+    await session.flush()
+    session.add(
+        Asset(
+            id="consumer-research-1",
+            user_id="user-1",
+            user_skill_id=research.id,
+            payload_json={"interview_count": 6},
+            effective_at=datetime(2026, 8, 10, 6, 0),
+        )
+    )
+    await session.commit()
+
+    response = await list_scope_candidates(
+        session,
+        user_id="user-1",
+        adapter_kind="period_summary",
+        intent="总结过去 30 天的消费者研究",
+        now=NOW,
+        timezone_name="Asia/Shanghai",
+    )
+
+    assert [group.skill_id for group in response.record_groups] == [
+        "skill-consumer-research"
+    ]
+
+
+async def test_cjk_alias_still_matches_a_natural_expense_request(session):
+    await _seed_report_record_types(session)
+
+    response = await list_scope_candidates(
+        session,
+        user_id="user-1",
+        adapter_kind="period_summary",
+        intent="总结最近的消费情况",
+        now=NOW,
+        timezone_name="Asia/Shanghai",
+    )
+
+    assert [group.skill_id for group in response.record_groups] == [
+        "skill-expense"
+    ]
+    assert response.default_scope.time_range is None
+    assert response.default_scope.supporting_references == []
+
+
 async def test_unmatched_or_generic_terms_retain_all_groups_for_confirmation(session):
     await _seed_report_record_types(session)
 
