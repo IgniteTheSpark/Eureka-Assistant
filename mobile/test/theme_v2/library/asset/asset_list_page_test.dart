@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:eureka/api/api_client.dart';
 import 'package:eureka/assets/assets.dart';
+import 'package:eureka/data_revision.dart';
 import 'package:eureka/render/render_spec.dart';
 import 'package:eureka/theme_v2/asset/asset_card.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
@@ -14,6 +15,68 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 void main() {
+  testWidgets(
+    'navigation-only refresh does not reload a populated asset list',
+    (tester) async {
+      final dataBefore = dataRevision.value;
+      final mutationBefore = dataMutationRevision.value;
+      var assetRequestCount = 0;
+      final api = ApiClient(
+        baseUrl: 'http://localhost',
+        enableLogging: false,
+        client: MockClient((request) async {
+          if (request.url.path == '/api/assets') assetRequestCount += 1;
+          return _jsonResponse([
+            {
+              'id': 'asset-1',
+              'user_skill_id': 'core-notes',
+              'payload': {'content': '已有资产'},
+              'effective_at': '2026-08-02T05:00:00Z',
+              'created_at': '2026-08-02T05:00:00Z',
+            },
+          ]);
+        }),
+      );
+      addTearDown(api.close);
+
+      await tester.pumpWidget(
+        _host(
+          ThemeV2AssetListPage.assets(
+            meta: const SkillMeta('•', '随记', 'gray', 'core-notes'),
+            skillName: 'notes',
+            initialAssets: const [],
+            specs: const {
+              'notes': RenderSpec(
+                cardLayout: 'horizontal',
+                icon: '•',
+                accentColor: 'gray',
+                primaryField: 'content',
+                schemaFields: ['content'],
+              ),
+            },
+            api: api,
+            coreRecordsOnly: true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final beforeMutation = assetRequestCount;
+      requestDataRefresh();
+      await tester.pump();
+      expect(assetRequestCount, beforeMutation);
+
+      bumpData();
+      await tester.pump();
+      expect(assetRequestCount, beforeMutation + 1);
+      expect(find.text('已有资产'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      dataRevision.value = dataBefore;
+      dataMutationRevision.value = mutationBefore;
+    },
+  );
+
   testWidgets('todo filter pills meet the minimum tap target', (tester) async {
     await tester.pumpWidget(
       _host(

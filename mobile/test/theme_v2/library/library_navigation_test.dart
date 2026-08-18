@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:eureka/api/api_client.dart';
+import 'package:eureka/data_revision.dart';
 import 'package:eureka/pages/category_detail_page.dart';
 import 'package:eureka/pages/library_page.dart';
 import 'package:eureka/render/skill_card.dart';
@@ -1220,6 +1221,34 @@ void main() {
     expect(find.bySemanticsLabel('正在刷新资产库'), findsNothing);
   });
 
+  testWidgets('navigation-only refresh does not reload a populated library', (
+    tester,
+  ) async {
+    final dataBefore = dataRevision.value;
+    final mutationBefore = dataMutationRevision.value;
+    final repository = _CountingRepository((await _controller()).overview!);
+    final controller = LibraryController(
+      repository: repository,
+      pinnedStore: _Store(),
+    );
+    await _pumpHost(tester, ThemeV2LibraryPage(controller: controller));
+    await tester.pumpAndSettle();
+    expect(repository.loadCount, 1);
+
+    requestDataRefresh();
+    await tester.pump();
+    expect(repository.loadCount, 1);
+
+    bumpData();
+    await tester.pump();
+    expect(repository.loadCount, 2);
+    expect(find.byType(LibraryHub), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    dataRevision.value = dataBefore;
+    dataMutationRevision.value = mutationBefore;
+  });
+
   testWidgets('zero-container state still exposes the independent AI action', (
     tester,
   ) async {
@@ -1502,6 +1531,19 @@ class _Repository implements LibraryRepository {
 
   @override
   Future<LibraryOverview> loadOverview() async => overview;
+}
+
+class _CountingRepository implements LibraryRepository {
+  _CountingRepository(this.overview);
+
+  final LibraryOverview overview;
+  var loadCount = 0;
+
+  @override
+  Future<LibraryOverview> loadOverview() async {
+    loadCount += 1;
+    return overview;
+  }
 }
 
 class _PendingRepository implements LibraryRepository {
