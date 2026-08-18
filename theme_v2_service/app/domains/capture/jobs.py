@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.db.base import utc_now
-from app.db.models import Asset, Event, UserSkill, WorkflowJob
+from app.db.models import AgentToolExecution, Asset, Event, UserSkill, WorkflowJob
 from app.db.session import session_scope
 from app.domains.assets.service import (
     ensure_capture_skills,
@@ -611,10 +611,45 @@ async def _has_durable_capture_mutation(
         for card in references
         if card.get("entity_kind") == "event"
     } - {""}
+    executions = list(
+        await session.scalars(
+            select(AgentToolExecution).where(
+                AgentToolExecution.user_id == user_id,
+                AgentToolExecution.input_turn_id == input_turn_id,
+                AgentToolExecution.status == "done",
+                AgentToolExecution.tool_name.in_(
+                    {
+                        "tool_create_asset",
+                        "tool_create_todo",
+                        "tool_create_note",
+                        "tool_update_asset",
+                        "tool_create_event",
+                        "tool_update_event",
+                    }
+                ),
+            )
+        )
+    )
+    executed_asset_ids: set[str] = set()
+    executed_event_ids: set[str] = set()
+    for execution in executions:
+        result = execution.result_json or {}
+        if result.get("ok") is not True:
+            continue
+        if execution.tool_name in {
+            "tool_create_asset",
+            "tool_create_todo",
+            "tool_create_note",
+            "tool_update_asset",
+        }:
+            executed_asset_ids.add(str(result.get("asset_id") or ""))
+        else:
+            executed_event_ids.add(str(result.get("event_id") or ""))
+    asset_ids &= executed_asset_ids - {""}
+    event_ids &= executed_event_ids - {""}
     if asset_ids and await session.scalar(
         select(Asset.id).where(
             Asset.user_id == user_id,
-            Asset.source_input_turn_id == input_turn_id,
             Asset.id.in_(asset_ids),
         ).limit(1)
     ):
@@ -624,7 +659,6 @@ async def _has_durable_capture_mutation(
         and await session.scalar(
             select(Event.id).where(
                 Event.user_id == user_id,
-                Event.source_input_turn_id == input_turn_id,
                 Event.id.in_(event_ids),
             ).limit(1)
         )
