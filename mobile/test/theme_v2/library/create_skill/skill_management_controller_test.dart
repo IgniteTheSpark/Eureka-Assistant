@@ -44,6 +44,12 @@ void main() {
       expect(controller.preview!.primaryValue, '时长');
       controller.addField(key: 'location', label: '地点', type: 'string');
       controller.cardSelection!.selectPrimary('location');
+      expect(controller.preview!.primaryValue, '地点');
+      controller.updateFieldLabel('surface', '室内场地');
+      controller.cardSelection!.selectPrimary('surface');
+      expect(controller.preview!.primaryValue, '室内场地');
+      controller.cardSelection!.selectPrimary('location');
+      expect(controller.cardSelection!.toggleSecondary('surface'), isTrue);
       expect(controller.cardSelection!.toggleSecondary('status'), isTrue);
 
       expect(await controller.save(), isTrue);
@@ -72,13 +78,22 @@ void main() {
 
       await controller.load();
       final replacedSelection = controller.cardSelection!;
-      expect(controller.setFieldHidden('surface', true), isTrue);
       controller.reorderField(2, 0);
 
       expect(controller.cardSelection!.fields.map((field) => field.id), [
         'status',
         'duration',
+        'surface',
       ]);
+      expect(controller.cardSelection!.config.primaryFieldId, 'duration');
+      expect(controller.cardSelection!.config.secondaryFieldIds, ['surface']);
+      expect(controller.setFieldHidden('duration', true), isTrue);
+      expect(controller.cardSelection!.fields.map((field) => field.id), [
+        'status',
+        'surface',
+      ]);
+      expect(controller.cardSelection!.config.primaryFieldId, 'status');
+      expect(controller.cardSelection!.config.secondaryFieldIds, ['surface']);
       final notificationsBeforeStaleChange = notifications;
       expect(
         () => replacedSelection.selectPrimary('status'),

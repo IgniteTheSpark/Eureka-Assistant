@@ -172,11 +172,29 @@ class SkillManagementController extends ChangeNotifier {
       selection.config.applyToRenderSpec(current.renderSpec),
     ).withSchema(schema);
     return AssetCardViewData.fromPayload(
-      payload: current.samplePayload,
+      payload: _draftSamplePayload(current),
       display: selection.config,
       spec: spec,
       skillLabel: _displayName,
     );
+  }
+
+  Map<String, dynamic> _draftSamplePayload(ConfigurableSkill skill) => {
+    for (final field in _fields) field.key: _draftSampleValue(skill, field),
+  };
+
+  dynamic _draftSampleValue(
+    ConfigurableSkill skill,
+    SkillManagementField field,
+  ) {
+    final originalLabel =
+        skill.payloadSchema[field.key]?['label']?.toString().trim() ??
+        field.key;
+    final sample = skill.samplePayload[field.key];
+    if (field.original && field.label == originalLabel && sample != null) {
+      return sample;
+    }
+    return field.label;
   }
 
   String? get errorMessage => _errorMessage;
