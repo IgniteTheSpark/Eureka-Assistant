@@ -1,6 +1,9 @@
 import 'package:flutter/foundation.dart';
 
 import '../../../api/api_client.dart';
+import '../../asset/asset_card_display.dart';
+import '../../asset/card_field_selection.dart';
+import '../../../render/render_spec.dart';
 import 'skill_configuration_repository.dart';
 
 @immutable
@@ -140,6 +143,7 @@ class SkillManagementController extends ChangeNotifier {
   String _displayName = '';
   String _description = '';
   List<SkillManagementField> _fields = const [];
+  CardFieldSelectionController? _cardSelection;
   String? _errorMessage;
   int? _deletionAssetCount;
   bool _disposed = false;
@@ -149,6 +153,32 @@ class SkillManagementController extends ChangeNotifier {
   String get displayName => _displayName;
   String get description => _description;
   List<SkillManagementField> get fields => List.unmodifiable(_fields);
+  CardFieldSelectionController? get cardSelection => _cardSelection;
+  AssetCardViewData? get preview {
+    final current = _skill;
+    final selection = _cardSelection;
+    if (current == null || selection == null) return null;
+    final schema = {
+      for (final field in _fields)
+        field.key: {
+          ...field.metadata,
+          'type': field.type,
+          'label': field.label,
+          if (field.meaning.isNotEmpty) 'description': field.meaning,
+          if (field.hidden) 'x-hidden': true,
+        },
+    };
+    final spec = RenderSpec.fromJson(
+      selection.config.applyToRenderSpec(current.renderSpec),
+    ).withSchema(schema);
+    return AssetCardViewData.fromPayload(
+      payload: current.samplePayload,
+      display: selection.config,
+      spec: spec,
+      skillLabel: _displayName,
+    );
+  }
+
   String? get errorMessage => _errorMessage;
   int? get deletionAssetCount => _deletionAssetCount;
   bool get busy =>
@@ -216,6 +246,7 @@ class SkillManagementController extends ChangeNotifier {
         meaning: meaning.trim(),
       ),
     ];
+    _replaceCardSelection(_skill!);
     _notify();
   }
 
@@ -226,6 +257,7 @@ class SkillManagementController extends ChangeNotifier {
     final item = next.removeAt(oldIndex);
     next.insert(newIndex.clamp(0, next.length), item);
     _fields = next;
+    _replaceCardSelection(_skill!);
     _notify();
   }
 
@@ -240,7 +272,9 @@ class SkillManagementController extends ChangeNotifier {
           displayName: _displayName.trim(),
           description: _description.trim(),
           schema: _serializeSchema(current.rootSchema),
-          renderSpec: current.renderSpec,
+          renderSpec:
+              _cardSelection?.config.applyToRenderSpec(current.renderSpec) ??
+              current.renderSpec,
           expectedUpdatedAt: current.updatedAt,
         ),
       );
@@ -288,6 +322,7 @@ class SkillManagementController extends ChangeNotifier {
     final next = [..._fields];
     next[index] = transform(next[index]);
     _fields = next;
+    _replaceCardSelection(_skill!);
     _notify();
     return true;
   }
@@ -338,7 +373,43 @@ class SkillManagementController extends ChangeNotifier {
                 const <String, dynamic>{},
           ),
     ];
+    _replaceCardSelection(skill);
   }
+
+  void _replaceCardSelection(ConfigurableSkill skill) {
+    final fields = [
+      for (final field in _fields)
+        if (!field.hidden && field.type != 'uuid')
+          CardSelectableField(
+            id: field.key,
+            label: field.label,
+            type: field.type,
+          ),
+    ];
+    final previous = _cardSelection?.config;
+    final oldSelection = _cardSelection;
+    if (oldSelection != null) {
+      oldSelection.removeListener(_selectionChanged);
+      oldSelection.dispose();
+    }
+    if (fields.isEmpty) {
+      _cardSelection = null;
+      return;
+    }
+    CardDisplayConfig initialConfig;
+    try {
+      initialConfig =
+          previous ?? CardDisplayConfig.fromRenderSpec(skill.renderSpec);
+    } on FormatException {
+      initialConfig = CardDisplayConfig(primaryFieldId: fields.first.id);
+    }
+    _cardSelection = CardFieldSelectionController(
+      fields: fields,
+      config: initialConfig,
+    )..addListener(_selectionChanged);
+  }
+
+  void _selectionChanged() => _notify();
 
   void _setState(SkillManagementState value) {
     _state = value;
@@ -360,6 +431,8 @@ class SkillManagementController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _cardSelection?.removeListener(_selectionChanged);
+    _cardSelection?.dispose();
     if (disposeRepository && repository is ApiSkillManagementRepository) {
       (repository as ApiSkillManagementRepository).dispose();
     }
