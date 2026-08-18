@@ -33,7 +33,10 @@ from agents.skill_factory import (
     make_dispatcher_agent, make_skill_agent, make_custom_skill_agent,
     SKILL_FOLDER_MAP,
 )
-from agents.intent_normalizer import normalize_intents
+from agents.intent_normalizer import (
+    event_failure_should_fallback_to_todo,
+    normalize_intents,
+)
 from agents.flash_reply import generate_flash_summary
 from core.agent_runner import run_agent
 from core.event_mapper import event_tool_call, event_tool_result
@@ -607,7 +610,11 @@ async def _run_intent(
     # 单时点的「约/会」没拿到真实 event_id 就转 todo —— 不只匹配 "should be todo"
     # 字符串:event agent 偶发幻觉式 ok=true 却没真建 event,旧条件(需 ok=false)会漏,
     # 导致既无 todo 又渲染幽灵日程卡。改判 event_id 缺失,可靠落成 todo。
-    if itype == "event" and not result.get("event_id"):
+    if (
+        itype == "event"
+        and not result.get("event_id")
+        and event_failure_should_fallback_to_todo(source)
+    ):
         fallback_intent = {"type": "todo", "source_text": source}
         return await _run_intent(
             fallback_intent, user_text, session_id, source_input_turn_id,
@@ -1004,6 +1011,20 @@ def _build_summary(asset_results: list, has_reply: bool) -> str:
     return _fallback_flash_summary(asset_results, [], has_reply)
 
 
+def _actionable_failure_summary(asset_results: list) -> str:
+    """Keep a concrete execution error visible instead of paraphrasing it."""
+    for result in asset_results:
+        if result.get("ok") is not False:
+            continue
+        message = str(result.get("message") or result.get("error") or "").strip()
+        if message:
+            return message
+        if result.get("skill") == "event-skill":
+            return "这条日程没有创建成功，请检查开始与结束时间后重试。"
+        return "这条内容没有保存成功，请检查后重试。"
+    return ""
+
+
 async def _load_user_render_specs(user_id: str) -> dict:
     """
     Fetch every UserSkill row for `user_id` and return a dict keyed by the
@@ -1057,16 +1078,19 @@ async def _aggregate(
          if r.get("ok") and r.get("suggest_skill")),
         None,
     )
-    summary = await generate_flash_summary(
-        source_text=source_text,
-        cards=cards,
-        derived_assets=derived_assets,
-        pending=pending,
-        suggest_skill=suggest,
-        user_id=user_id,
-    )
-    if not summary:
-        summary = _fallback_flash_summary(asset_results, cards, has_reply=bool(reply))
+    failure_summary = _actionable_failure_summary(asset_results)
+    summary = failure_summary
+    if not failure_summary:
+        summary = await generate_flash_summary(
+            source_text=source_text,
+            cards=cards,
+            derived_assets=derived_assets,
+            pending=pending,
+            suggest_skill=suggest,
+            user_id=user_id,
+        )
+        if not summary:
+            summary = _fallback_flash_summary(asset_results, cards, has_reply=bool(reply))
     return {
         "ok":              True,
         "session_id":      session_id,

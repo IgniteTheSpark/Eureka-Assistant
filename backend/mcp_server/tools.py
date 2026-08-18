@@ -848,7 +848,7 @@ async def create_event(
         )
     except ValueError:
         return _err(
-            "event end_at must be after start_at; choose a later end time"
+            "结束时间必须晚于开始时间，请调整结束时间后重试。"
         )
 
     # ── Hard validation: time span required ──

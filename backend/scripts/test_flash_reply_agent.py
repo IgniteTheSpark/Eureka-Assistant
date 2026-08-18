@@ -45,6 +45,21 @@ def _load_reply_helpers() -> dict:
     return ns
 
 
+def _load_pipeline_helpers() -> dict:
+    src = (ROOT / "agents/flash_pipeline.py").read_text()
+    mod = ast.parse(src)
+    body = [
+        node
+        for node in mod.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_actionable_failure_summary"
+    ]
+    assert body, "pipeline must expose an actionable failure summary helper"
+    ns: dict = {}
+    exec(compile(ast.Module(body=body, type_ignores=[]), "pipeline_subset", "exec"), ns)
+    return ns
+
+
 def _assert_reply_cleaning_and_slimming() -> None:
     ns = _load_reply_helpers()
     clean = ns["_clean_reply"]
@@ -106,7 +121,25 @@ def _assert_pipeline_uses_reply_agent_and_fallback() -> None:
     assert all("已记录" not in c for c in constants)
 
 
+def _assert_pipeline_surfaces_failures_without_rewriting_them() -> None:
+    ns = _load_pipeline_helpers()
+    failure_summary = ns["_actionable_failure_summary"]
+    assert failure_summary([
+        {
+            "ok": False,
+            "skill": "event-skill",
+            "error": "结束时间必须晚于开始时间，请调整结束时间后重试。",
+        }
+    ]) == "结束时间必须晚于开始时间，请调整结束时间后重试。"
+    assert failure_summary([{"ok": True, "event_id": "event-1"}]) == ""
+
+    pipeline_src = (ROOT / "agents/flash_pipeline.py").read_text()
+    assert "event_failure_should_fallback_to_todo(source)" in pipeline_src
+    assert "if not failure_summary:" in pipeline_src
+
+
 if __name__ == "__main__":
     _assert_reply_cleaning_and_slimming()
     _assert_reply_agent_boundaries()
     _assert_pipeline_uses_reply_agent_and_fallback()
+    _assert_pipeline_surfaces_failures_without_rewriting_them()

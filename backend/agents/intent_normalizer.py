@@ -20,13 +20,27 @@ _TIME_WORD_RE = re.compile(
     r"(今天|明天|后天|早上|上午|中午|下午|晚上|今晚|周[一二三四五六日天]|"
     r"\d{1,2}\s*(?:点|时|[:：]))"
 )
+_CLOCK_TIME_RE = (
+    r"(?:凌晨|早上|上午|中午|下午|晚上|今晚)?\s*"
+    r"\d{1,2}\s*(?:(?:点|时)(?:半|\d{1,2}\s*分?)?|[:：]\s*\d{1,2})?"
+)
 _RANGE_RE = re.compile(
-    r"(\d{1,2}\s*(?:点|时|[:：])?\s*(?:到|~|-|—|－)\s*\d{1,2}\s*(?:点|时|[:：])?)|"
-    r"(\d+(?:\.\d+)?\s*(?:小时|个小时|分钟))|全天|一整天"
+    rf"({_CLOCK_TIME_RE}\s*(?:到|~|-|—|－)\s*{_CLOCK_TIME_RE})|"
+    r"((?:\d+(?:\.\d+)?|半|一|两|俩)\s*(?:小时|个小时|分钟))|全天|一整天"
 )
 _DONE_RECORD_WORD_RE = re.compile(
     r"(赢|输了?|比分|成绩|得分|打了|跑了|练了|完成|感觉|复盘|记录一下)"
 )
+
+
+def has_complete_time_range(source_text: str) -> bool:
+    """Whether the source describes a renderable event span."""
+    return bool(_RANGE_RE.search(source_text or ""))
+
+
+def event_failure_should_fallback_to_todo(source_text: str) -> bool:
+    """Only point-in-time event failures may safely degrade to a todo."""
+    return not has_complete_time_range(source_text)
 
 
 def _match_custom_skill(itype: str, custom_map: dict[str, dict]) -> str | None:
@@ -77,7 +91,7 @@ def _normalize_scheduled_custom_intent(
     if not scheduled:
         return intent
     cloned = dict(intent)
-    cloned["type"] = "event" if _RANGE_RE.search(source) else "todo"
+    cloned["type"] = "event" if has_complete_time_range(source) else "todo"
     return cloned
 
 
