@@ -34,16 +34,19 @@ void main() {
       ),
     );
     await tester.pump();
+    expect(find.byType(ThemeV2DitherSurface), findsNothing);
     expect(find.byType(ThemeV2DitherField), findsNothing);
 
     controller.openDay(day);
     rebuild(() {});
     await tester.pump();
+    expect(find.byType(ThemeV2DitherSurface), findsNothing);
     expect(find.byType(ThemeV2DitherField), findsNothing);
 
     controller.openSchedule();
     rebuild(() {});
     await tester.pump();
+    expect(find.byType(ThemeV2DitherSurface), findsNothing);
     expect(find.byType(ThemeV2DitherField), findsNothing);
   });
 
