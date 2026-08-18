@@ -1,7 +1,7 @@
 # Custom Skill Management, Global Dither Readability, Reka Asset Output, and Report Input Design
 
-**Date:** 2026-08-18  
-**Status:** Approved for implementation planning  
+**Date:** 2026-08-18
+**Status:** Approved for implementation planning
 **Branch:** `codex/skill-dither-report-revamp`
 
 ## Context
