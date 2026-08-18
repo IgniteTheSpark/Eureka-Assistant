@@ -661,6 +661,107 @@ void main() {
     expect(turnAttempts, 0);
   });
 
+  test('durable reconciliation honors a persisted mutation receipt', () async {
+    restoreRevisions();
+    final dataBefore = dataRevision.value;
+    final mutationBefore = dataMutationRevision.value;
+    var messageLoads = 0;
+    final api = ApiClient(
+      client: MockClient((request) async {
+        if (request.url.path.endsWith('/messages')) {
+          messageLoads++;
+          return http.Response.bytes(
+            utf8.encode(
+              jsonEncode({
+                'messages': [
+                  {
+                    'id': 'a1',
+                    'role': 'agent',
+                    'status': messageLoads == 1 ? 'running' : 'done',
+                    'tool_result': messageLoads == 1
+                        ? null
+                        : {'confirmed_mutation': true, 'results': const []},
+                  },
+                ],
+              }),
+            ),
+            200,
+          );
+        }
+        return http.Response(jsonEncode({'session': {}}), 200);
+      }),
+      baseUrl: 'http://test',
+      enableLogging: false,
+    );
+    final controller = ChatController(
+      api: api,
+      reconcileInterval: const Duration(milliseconds: 1),
+      reconcileTimeout: const Duration(milliseconds: 100),
+    );
+    addTearDown(() {
+      controller.dispose();
+      api.close();
+    });
+
+    await controller.loadSession('durable-mutation');
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+
+    expect(dataRevision.value, dataBefore + 1);
+    expect(dataMutationRevision.value, mutationBefore + 1);
+  });
+
+  test(
+    'durable reconciliation without a mutation receipt is legacy-only',
+    () async {
+      restoreRevisions();
+      final dataBefore = dataRevision.value;
+      final mutationBefore = dataMutationRevision.value;
+      var messageLoads = 0;
+      final api = ApiClient(
+        client: MockClient((request) async {
+          if (request.url.path.endsWith('/messages')) {
+            messageLoads++;
+            return http.Response.bytes(
+              utf8.encode(
+                jsonEncode({
+                  'messages': [
+                    {
+                      'id': 'a1',
+                      'role': 'agent',
+                      'status': messageLoads == 1 ? 'running' : 'failed',
+                      'tool_result': messageLoads == 1
+                          ? null
+                          : {'confirmed_mutation': false, 'results': const []},
+                    },
+                  ],
+                }),
+              ),
+              200,
+            );
+          }
+          return http.Response(jsonEncode({'session': {}}), 200);
+        }),
+        baseUrl: 'http://test',
+        enableLogging: false,
+      );
+      final controller = ChatController(
+        api: api,
+        reconcileInterval: const Duration(milliseconds: 1),
+        reconcileTimeout: const Duration(milliseconds: 100),
+      );
+      addTearDown(() {
+        controller.dispose();
+        api.close();
+      });
+
+      await controller.loadSession('durable-failure');
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(dataRevision.value, dataBefore + 1);
+      expect(dataMutationRevision.value, mutationBefore);
+    },
+  );
+
   test('failed durable reconciliation unlocks with a reload retry', () async {
     var messageLoads = 0;
     final api = ApiClient(

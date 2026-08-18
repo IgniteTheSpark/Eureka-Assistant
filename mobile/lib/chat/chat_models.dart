@@ -61,11 +61,16 @@ class ChatMessage {
   int? elapsedMs;
   int? tokens;
 
+  /// Explicit backend receipt for a durable turn whose completed tool result
+  /// changed a persisted Library record. Absent on historical messages.
+  bool confirmedMutation;
+
   ChatMessage.user(this.id, this.text, {this.inputTurnId})
     : isUser = true,
       parts = const [],
       streaming = false,
-      workPhase = AgentWorkPhase.understanding;
+      workPhase = AgentWorkPhase.understanding,
+      confirmedMutation = false;
 
   ChatMessage.agent(
     this.id, {
@@ -74,7 +79,8 @@ class ChatMessage {
   }) : isUser = false,
        text = '',
        parts = <ChatPart>[],
-       streaming = true;
+       streaming = true,
+       confirmedMutation = false;
 
   void advanceWorkPhase(AgentWorkPhase next) {
     if (_workPhaseRank(next) >= _workPhaseRank(workPhase)) workPhase = next;

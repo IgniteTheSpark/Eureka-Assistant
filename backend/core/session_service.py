@@ -595,6 +595,7 @@ async def finalize_agent_message(
     message_id: str,
     agent_text: str,
     cards: Optional[list] = None,
+    tool_result: Optional[dict] = None,
     elapsed_ms: Optional[int] = None,
     status: str = "done",
 ) -> None:
@@ -608,6 +609,7 @@ async def finalize_agent_message(
         return
     row.text = agent_text or ""
     row.cards = cards or []
+    row.tool_result = tool_result
     if elapsed_ms is not None:
         row.elapsed_ms = elapsed_ms
     row.status = status

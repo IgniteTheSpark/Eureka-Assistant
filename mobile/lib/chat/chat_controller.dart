@@ -441,6 +441,7 @@ class ChatController extends ChangeNotifier {
 
   void _appendStoredToolResults(ChatMessage message, dynamic raw) {
     if (raw is! Map) return;
+    message.confirmedMutation = raw['confirmed_mutation'] == true;
     final results = raw['results'] is List ? raw['results'] as List : [raw];
     for (final result in results.whereType<Map>()) {
       message.parts.add(
@@ -518,7 +519,7 @@ class ChatController extends ChangeNotifier {
           _publishTurnRefresh(
             messages
                 .where((message) => pendingAgentIds.contains(message.id))
-                .any(_messageHasConfirmedMutation),
+                .any((message) => message.confirmedMutation),
           );
           break;
         }
