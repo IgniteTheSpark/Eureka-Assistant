@@ -347,7 +347,7 @@ void main() {
     },
   );
 
-  testWidgets('all four persistent asset containers expose display settings', (
+  testWidgets('built-in persistent containers expose only display settings', (
     tester,
   ) async {
     final controller = await _controller();
@@ -373,7 +373,33 @@ void main() {
         find.byType(ThemeV2AssetListPage),
       );
       expect(page.onConfigureCard, isNotNull, reason: id);
+      expect(page.onManageSkill, isNull, reason: id);
     }
+  });
+
+  testWidgets('custom containers expose only unified skill management', (
+    tester,
+  ) async {
+    final controller = await _controller();
+    await _pumpHost(
+      tester,
+      ThemeV2LibraryPage(
+        controller: controller,
+        autoLoad: false,
+        onCreateSkill: () {},
+      ),
+    );
+
+    await tester.tap(find.bySemanticsLabel('打开网球记录，3 条'));
+    await tester.pumpAndSettle();
+
+    final page = tester.widget<ThemeV2AssetListPage>(
+      find.byType(ThemeV2AssetListPage),
+    );
+    expect(page.onConfigureCard, isNull);
+    expect(page.onManageSkill, isNotNull);
+    expect(find.byKey(const ValueKey('custom-skill-edit')), findsOneWidget);
+    expect(find.bySemanticsLabel('Card Display Settings'), findsNothing);
   });
 
   testWidgets('Theme V2 contact container reads first-class contacts', (

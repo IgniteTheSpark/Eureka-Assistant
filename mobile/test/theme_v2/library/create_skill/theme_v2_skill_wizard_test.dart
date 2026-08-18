@@ -184,6 +184,9 @@ void main() {
     expect(find.byKey(const ValueKey('skill-card-step')), findsOneWidget);
     expect(find.byKey(const ValueKey('skill-fields-step')), findsNothing);
     expect(find.byKey(const ValueKey('skill-card-save')), findsOneWidget);
+    expect(find.text('Describe'), findsNothing);
+    expect(find.text('Fields'), findsNothing);
+    expect(find.text('Card'), findsNothing);
 
     await tester.tap(find.byKey(const ValueKey('skill-card-save')));
     await tester.pumpAndSettle();

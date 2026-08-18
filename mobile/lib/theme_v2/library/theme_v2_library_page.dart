@@ -253,6 +253,9 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
     if (container == null) {
       return const SizedBox.shrink();
     }
+    final custom = container.type == LibraryContainerType.custom;
+    final configureCard = custom ? null : _displayConfigurationFor(container);
+    final manageSkill = custom ? _managementFor(container) : null;
     switch (container.type) {
       case LibraryContainerType.event:
         return ThemeV2AssetListPage.entities(
@@ -261,7 +264,8 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
           initialEntities: const [],
           api: _detailApi,
           coreRecordsOnly: true,
-          onConfigureCard: _displayConfigurationFor(container),
+          onConfigureCard: configureCard,
+          onManageSkill: manageSkill,
           onBack: _navigation.back,
           contentBottomPadding: ThemeV2Spacing.lg,
         );
@@ -272,7 +276,8 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
           initialEntities: const [],
           api: _detailApi,
           coreRecordsOnly: true,
-          onConfigureCard: _displayConfigurationFor(container),
+          onConfigureCard: configureCard,
+          onManageSkill: manageSkill,
           onBack: _navigation.back,
           contentBottomPadding: ThemeV2Spacing.lg,
         );
@@ -296,8 +301,8 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
           coreRecordsOnly: true,
           onBack: _navigation.back,
           contentBottomPadding: ThemeV2Spacing.lg,
-          onConfigureCard: _displayConfigurationFor(container),
-          onManageSkill: _managementFor(container),
+          onConfigureCard: configureCard,
+          onManageSkill: manageSkill,
         );
     }
   }

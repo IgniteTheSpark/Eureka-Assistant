@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../asset/asset_card.dart';
+import '../../asset/card_field_selection.dart';
 import '../../foundation/theme_v2_theme.dart';
 import 'skill_management_controller.dart';
 
@@ -92,9 +94,14 @@ class _ThemeV2SkillManagementSheetState
         ),
       );
     }
+    final sectionTitleStyle = Theme.of(
+      context,
+    ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700);
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
       children: [
+        Text('基本信息', style: sectionTitleStyle),
+        const SizedBox(height: 12),
         TextFormField(
           key: ValueKey('skill-name-${controller.skill!.updatedAt}'),
           initialValue: controller.displayName,
@@ -111,12 +118,7 @@ class _ThemeV2SkillManagementSheetState
           decoration: const InputDecoration(labelText: '说明'),
         ),
         const SizedBox(height: 24),
-        Text(
-          '记录字段',
-          style: Theme.of(
-            context,
-          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-        ),
+        Text('记录字段', style: sectionTitleStyle),
         const SizedBox(height: 4),
         Text(
           '已有字段的键和类型保持不变；不想继续使用时可以隐藏。新字段默认选填。',
@@ -131,6 +133,19 @@ class _ThemeV2SkillManagementSheetState
           icon: const Icon(Icons.add),
           label: const Text('添加选填字段'),
         ),
+        if (controller.cardSelection case final selection?) ...[
+          const SizedBox(height: 24),
+          Text('卡片展示', style: sectionTitleStyle),
+          const SizedBox(height: 8),
+          ThemeV2AssetCard(
+            key: const ValueKey('skill-management-card-preview'),
+            variant: AssetCardVariant.richCard,
+            data: controller.preview!,
+            height: 98,
+          ),
+          const SizedBox(height: 16),
+          CardFieldSelector(controller: selection),
+        ],
         const SizedBox(height: 32),
         Divider(color: context.themeV2.border),
         const SizedBox(height: 12),

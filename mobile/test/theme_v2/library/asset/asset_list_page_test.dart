@@ -338,10 +338,11 @@ void main() {
     expect(requests, ['GET /api/asset-details/event/e1']);
   });
 
-  testWidgets('custom asset list exposes Card Display configuration', (
+  testWidgets('custom container exposes one unified management entry', (
     tester,
   ) async {
     var configured = false;
+    var managed = false;
     await tester.pumpWidget(
       _host(
         ThemeV2AssetListPage.assets(
@@ -351,10 +352,37 @@ void main() {
           specs: const {},
           autoLoad: false,
           onConfigureCard: () => configured = true,
+          onManageSkill: () => managed = true,
         ),
       ),
     );
 
+    expect(find.byKey(const ValueKey('custom-skill-edit')), findsOneWidget);
+    expect(find.bySemanticsLabel('Card Display Settings'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('custom-skill-edit')));
+    expect(managed, isTrue);
+    expect(configured, isFalse);
+  });
+
+  testWidgets('built-in container keeps only card display settings', (
+    tester,
+  ) async {
+    var configured = false;
+    await tester.pumpWidget(
+      _host(
+        ThemeV2AssetListPage.assets(
+          meta: const SkillMeta('•', '随记', 'gray', 'core-notes'),
+          skillName: 'notes',
+          initialAssets: const [],
+          specs: const {},
+          autoLoad: false,
+          onConfigureCard: () => configured = true,
+        ),
+      ),
+    );
+
+    expect(find.bySemanticsLabel('Card Display Settings'), findsOneWidget);
+    expect(find.byKey(const ValueKey('custom-skill-edit')), findsNothing);
     await tester.tap(find.bySemanticsLabel('Card Display Settings'));
     expect(configured, isTrue);
   });

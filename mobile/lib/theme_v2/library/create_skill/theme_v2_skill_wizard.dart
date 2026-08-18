@@ -126,8 +126,10 @@ class _ThemeV2SkillWizardSheetState extends State<ThemeV2SkillWizardSheet> {
                       onBack: widget.controller?.goBack,
                       onClose: _close,
                     ),
-                    _WizardProgress(stage: stage),
-                    const SizedBox(height: ThemeV2Spacing.md),
+                    if (!widget.isConfiguration) ...[
+                      _WizardProgress(stage: stage),
+                      const SizedBox(height: ThemeV2Spacing.md),
+                    ],
                     Expanded(child: _buildBody(stage)),
                     _buildFooter(stage),
                   ],

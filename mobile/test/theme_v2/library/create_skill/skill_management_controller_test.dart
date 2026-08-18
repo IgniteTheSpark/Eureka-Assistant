@@ -1,8 +1,41 @@
+import 'package:eureka/theme_v2/asset/card_field_selection.dart';
+import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/material.dart';
 import 'package:eureka/theme_v2/library/create_skill/skill_configuration_repository.dart';
 import 'package:eureka/theme_v2/library/create_skill/skill_management_controller.dart';
+import 'package:eureka/theme_v2/library/create_skill/skill_management_sheet.dart';
 
 void main() {
+  testWidgets('custom management contains fields card display and deletion', (
+    tester,
+  ) async {
+    final controller = SkillManagementController(
+      repository: _FakeRepository(_multiFieldSkill()),
+      userSkillId: 'tennis-id',
+    );
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildThemeV2Theme(Brightness.light),
+        home: ThemeV2SkillManagementSheet(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('基本信息'), findsOneWidget);
+    expect(find.text('记录字段'), findsOneWidget);
+    await tester.drag(find.byType(ListView), const Offset(0, -600));
+    await tester.pumpAndSettle();
+    expect(find.text('卡片展示'), findsOneWidget);
+    await tester.drag(find.byType(ListView), const Offset(0, -300));
+    await tester.pumpAndSettle();
+    expect(find.byType(CardFieldSelector), findsOneWidget);
+    await tester.drag(find.byType(ListView), const Offset(0, -600));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('custom-skill-delete')), findsOneWidget);
+  });
+
   test(
     'existing keys and types stay locked while new fields stay optional',
     () async {
