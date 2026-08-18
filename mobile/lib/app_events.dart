@@ -28,6 +28,35 @@ final listeningNotifier = ValueNotifier<bool>(false);
 /// Root navigator — lets [AppEvents] push routes + insert the toast overlay.
 final navigatorKey = GlobalKey<NavigatorState>();
 
+/// Backend completion contracts whose notifications arrive only after a
+/// persisted Library record changed. `flash_done` is emitted by
+/// `process_flash_text` only when its `derived_assets` list is non-empty;
+/// `task_*` is emitted only after the task placeholder asset is saved as done
+/// or failed. Other notification types are presentation-only signals.
+const _notificationMutationTypes = <String>{
+  'flash_done',
+  'task_done',
+  'task_failed',
+};
+
+/// Publishes the appropriate refresh signal for an app SSE event. Kept outside
+/// [AppEvents] so the notification persistence contract is directly testable.
+void publishRefreshForAppEvent(String eventType, Map<String, dynamic> payload) {
+  final notificationType = payload['type'] as String? ?? '';
+  final confirmsMutation = switch (eventType) {
+    // The API has persisted these rows before it publishes their SSE event.
+    'capture' || 'session_changed' => true,
+    'notification' => _notificationMutationTypes.contains(notificationType),
+    // Flash-file status is progress/UI state, even for a terminal status.
+    _ => false,
+  };
+  if (confirmsMutation) {
+    bumpData();
+  } else {
+    requestDataRefresh();
+  }
+}
+
 /// App-level SSE bridge to /api/notifications/stream. Drives the listening
 /// overlay (`listening`), live session refresh (`capture`), and the top toast +
 /// refresh (`notification`). Auto-reconnects; one connection for the whole app.
@@ -96,14 +125,14 @@ class AppEvents {
         // Input turn persisted → refresh so the flash session shows it +「正在整理」.
         _flashLog('capture event session=${ev.json['session_id']}');
         FlashProcessingStatus.instance.applyCapture(ev.json);
-        bumpData();
+        publishRefreshForAppEvent(ev.type, ev.json);
       case 'session_changed':
         _flashLog(
           'session_changed session=${ev.json['session_id']} '
           'revision=${ev.json['revision']} reason=${ev.json['reason']}',
         );
         SessionInvalidations.instance.apply(ev.json);
-        bumpData();
+        publishRefreshForAppEvent(ev.type, ev.json);
       case 'flash_file_status':
         _flashLog(
           'flash_file_status recording=${ev.json['recording_id']} '
@@ -115,10 +144,10 @@ class AppEvents {
         FlashFileWorkflow.instance.applyServerStatus(ev.json);
         final activity = CaptureActivityEvent.fromServerPayload(ev.json);
         if (activity != null) CaptureActivityBus.instance.publish(activity);
-        requestDataRefresh();
+        publishRefreshForAppEvent(ev.type, ev.json);
       case 'notification':
-        requestDataRefresh();
         final j = ev.json;
+        publishRefreshForAppEvent(ev.type, j);
         final type = j['type'] as String? ?? '';
         // §14.7 nudge = 拍肩, not an alert: it surfaces as a REKA peek bubble
         // (light bob) handled by the FloatingMascot — NOT the standard toast.
