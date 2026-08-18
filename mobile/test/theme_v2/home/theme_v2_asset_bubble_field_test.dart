@@ -288,8 +288,44 @@ void main() {
       expect(openLibraryCalls, 3);
       expect(openAssetCalls, 0);
 
-      await tester.tap(find.bySemanticsLabel('打开资产 Kevin'));
+      await tester.tapAt(
+        tester.getCenter(
+          find.byKey(const ValueKey('theme-v2-asset-bubble-asset-1')),
+        ),
+      );
       expect(openAssetCalls, 1);
+    },
+  );
+
+  testWidgets(
+    'physical bubble press shows feedback for the selected target once',
+    (tester) async {
+      var activationCount = 0;
+      await _pumpField(
+        tester,
+        assets: [asset],
+        disableAnimations: false,
+        gravityStream: const Stream<Offset>.empty(),
+        onOpenAsset: (_) => activationCount++,
+      );
+
+      final target = find.byKey(
+        const ValueKey('theme-v2-asset-bubble-asset-1'),
+      );
+      final pressed = find.byKey(
+        const ValueKey('theme-v2-asset-bubble-pressed-asset-1'),
+      );
+      expect(pressed, findsNothing);
+
+      final gesture = await tester.startGesture(tester.getCenter(target));
+      await tester.pump();
+      expect(pressed, findsOneWidget);
+      expect(activationCount, 0);
+
+      await gesture.up();
+      await tester.pump();
+      expect(pressed, findsNothing);
+      expect(activationCount, 1);
     },
   );
 
@@ -617,7 +653,11 @@ void main() {
     expect(target, findsOneWidget);
     expect(tester.getSize(target).width, greaterThanOrEqualTo(44));
     expect(tester.getSize(target).height, greaterThanOrEqualTo(44));
-    await tester.tap(target);
+    await tester.tapAt(
+      tester.getCenter(
+        find.byKey(const ValueKey('theme-v2-asset-bubble-asset-1')),
+      ),
+    );
 
     expect(opened?.id, 'asset-1');
     expect(activationCount, 1);
@@ -1006,7 +1046,11 @@ void main() {
       expect(find.bySemanticsLabel('打开资产 Kevin'), findsNothing);
       final updatedTarget = find.bySemanticsLabel('打开资产 更新后的 Kevin');
       expect(updatedTarget, findsOneWidget);
-      await tester.tap(updatedTarget);
+      await tester.tapAt(
+        tester.getCenter(
+          find.byKey(const ValueKey('theme-v2-asset-bubble-asset-1')),
+        ),
+      );
       expect(identical(opened, updated), isTrue);
       expect(opened?.type, 'expense');
       expect(opened?.payload['amount'], 88);

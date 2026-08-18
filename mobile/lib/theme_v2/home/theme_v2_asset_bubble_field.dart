@@ -134,6 +134,7 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
   final List<_RetiringBubbleSnapshot> _retiring = [];
   BubbleField? _field;
   String? _grabbedAssetId;
+  String? _pressedAssetId;
   List<PoolAsset>? _pendingAssets;
   StreamSubscription<Offset>? _gravitySubscription;
   Size _box = Size.zero;
@@ -511,6 +512,21 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
     setState(() => _syncAssetsTo(pending));
   }
 
+  void _setPressedAsset(String assetId) {
+    if (_pressedAssetId == assetId) return;
+    setState(() => _pressedAssetId = assetId);
+  }
+
+  void _clearPressedAsset() {
+    if (_pressedAssetId == null) return;
+    setState(() => _pressedAssetId = null);
+  }
+
+  void _endAssetInteraction() {
+    _clearPressedAsset();
+    _releaseGrab();
+  }
+
   void _removeRetiring(String assetId) {
     if (!mounted) return;
     setState(() {
@@ -689,6 +705,7 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                       final bubble = _hitBubbleAt(field, details.localPosition);
                       if (bubble == null) return;
                       _grabbedAssetId = bubble.id;
+                      _setPressedAsset(bubble.id);
                       field.grab(bubble);
                       _syncLifecycle();
                     },
@@ -697,7 +714,7 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                       final asset = bubble == null
                           ? null
                           : _assetsById[bubble.id];
-                      _releaseGrab();
+                      _endAssetInteraction();
                       if (asset != null) widget._openAsset(context, asset);
                     },
                     onPanStart: (details) {
@@ -710,14 +727,15 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                         _grabbedAssetId = bubble.id;
                         field.grab(bubble);
                       }
+                      _clearPressedAsset();
                       _syncLifecycle();
                     },
                     onPanUpdate: (details) {
                       field.dragTo(details.localPosition);
                       _syncLifecycle();
                     },
-                    onPanEnd: (_) => _releaseGrab(),
-                    onPanCancel: _releaseGrab,
+                    onPanEnd: (_) => _endAssetInteraction(),
+                    onPanCancel: _endAssetInteraction,
                     child: AnimatedBuilder(
                       animation: _repaint,
                       builder: (context, _) {
@@ -777,6 +795,9 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                                                         skills: widget.skills,
                                                         index: index,
                                                         motion: widget.motion,
+                                                        pressed:
+                                                            _pressedAssetId ==
+                                                            asset.id,
                                                         onTap: () =>
                                                             widget._openAsset(
                                                               context,
@@ -953,6 +974,7 @@ class ThemeV2AssetBubbleVisual extends StatelessWidget {
     required this.skills,
     required this.index,
     required this.motion,
+    this.pressed = false,
     this.onTap,
   });
 
@@ -960,6 +982,7 @@ class ThemeV2AssetBubbleVisual extends StatelessWidget {
   final Map<String, SkillMeta> skills;
   final int index;
   final Animation<double>? motion;
+  final bool pressed;
   final VoidCallback? onTap;
 
   @override
@@ -981,37 +1004,49 @@ class ThemeV2AssetBubbleVisual extends StatelessWidget {
         ),
       ),
       child: ClipOval(
-        child: BackdropFilter.grouped(
-          filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
-          child: ColoredBox(
-            key: ValueKey('theme-v2-asset-bubble-glass-${asset.id}'),
-            color: bubbleColor.withValues(
-              alpha: Theme.of(context).brightness == Brightness.dark
-                  ? .09
-                  : .05,
-            ),
-            child: Material(
-              color: Colors.transparent,
-              shape: const CircleBorder(),
-              child: InkWell(
-                customBorder: const CircleBorder(),
-                onTap: onTap,
-                child: LayoutBuilder(
-                  builder: (context, constraints) => Center(
-                    child: Text(
-                      resolveMeta(asset.type, skills).icon,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: math.min(22, constraints.maxWidth * 0.31),
-                        height: 1,
-                        color: bubbleColor,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            BackdropFilter.grouped(
+              filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
+              child: ColoredBox(
+                key: ValueKey('theme-v2-asset-bubble-glass-${asset.id}'),
+                color: bubbleColor.withValues(
+                  alpha: Theme.of(context).brightness == Brightness.dark
+                      ? .09
+                      : .05,
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: onTap,
+                    child: LayoutBuilder(
+                      builder: (context, constraints) => Center(
+                        child: Text(
+                          resolveMeta(asset.type, skills).icon,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: math.min(22, constraints.maxWidth * 0.31),
+                            height: 1,
+                            color: bubbleColor,
+                          ),
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
             ),
-          ),
+            if (pressed)
+              IgnorePointer(
+                child: ColoredBox(
+                  key: ValueKey('theme-v2-asset-bubble-pressed-${asset.id}'),
+                  color: bubbleColor.withValues(alpha: .16),
+                ),
+              ),
+          ],
         ),
       ),
     );
