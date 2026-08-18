@@ -46,7 +46,7 @@ async def create_user_skill(
         return await service.create_user_skill(session, user_id, command)
     except service.SkillUpdateConflict as exc:
         raise HTTPException(
-            status_code=422,
+            status_code=409 if exc.code == "system_skill_protected" else 422,
             detail={"code": exc.code, "message": exc.message},
         ) from exc
     except IntegrityError as exc:

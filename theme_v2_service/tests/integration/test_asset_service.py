@@ -2,6 +2,7 @@ import asyncio
 
 import pytest
 
+from app.db.models import UserSkill
 from app.db.session import AsyncSessionFactory
 from app.domains.assets.schemas import AssetCreate, UserSkillCreate, UserSkillUpdate
 from app.domains.assets.service import (
@@ -19,7 +20,7 @@ async def test_asset_is_scoped_to_owner(session):
         session,
         "user-1",
         UserSkillCreate(
-            machine_name="notes",
+            machine_name="journal_entries",
             display_name="笔记",
             schema={
                 "type": "object",
@@ -48,7 +49,7 @@ async def test_create_asset_does_not_commit(session):
         session,
         "user-1",
         UserSkillCreate(
-            machine_name="notes",
+            machine_name="journal_entries",
             display_name="笔记",
             schema={
                 "type": "object",
@@ -75,19 +76,20 @@ async def test_create_asset_does_not_commit(session):
 async def test_migrated_contact_assets_are_archived_from_interactive_asset_reads(
     session,
 ):
-    skill = await create_user_skill(
-        session,
-        "user-1",
-        UserSkillCreate(
-            machine_name="contact",
-            display_name="联系人",
-            schema={
-                "type": "object",
-                "properties": {"name": {"type": "string"}},
-                "required": ["name"],
-            },
-        ),
+    # This row represents data created before protected-name validation was
+    # introduced. New custom Skill requests must not be able to recreate it.
+    skill = UserSkill(
+        user_id="user-1",
+        machine_name="contact",
+        display_name="联系人",
+        schema_json={
+            "type": "object",
+            "properties": {"name": {"type": "string"}},
+            "required": ["name"],
+        },
     )
+    session.add(skill)
+    await session.flush()
     asset = await create_asset(
         session,
         "user-1",

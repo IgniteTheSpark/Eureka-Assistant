@@ -587,6 +587,7 @@ async def prepare_scope_plan(
     # served by any template compatible with the confirmed evidence.
     from app.domains.reports.planner import (
         InvalidPlannerResult,
+        PlannerContextTooLarge,
         PresentationSelectionBlocked,
         build_planner_request,
     )
@@ -601,6 +602,11 @@ async def prepare_scope_plan(
         )
     except PresentationSelectionBlocked as exc:
         raise RunBlocked(exc.code, exc.message) from exc
+    except PlannerContextTooLarge as exc:
+        raise RunBlocked(
+            "scope_context_too_large",
+            "报告数据范围过大，请缩小时间范围或减少记录后重试",
+        ) from exc
     except InvalidPlannerResult as exc:
         raise RunConflict(str(exc)) from exc
     run.pending_decision = None

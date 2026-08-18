@@ -344,6 +344,71 @@ async def test_prepare_returns_stable_incompatible_presentation_blocker(
     assert response.json()["detail"]["code"] == "presentation_incompatible"
 
 
+async def test_prepare_returns_stable_context_too_large_blocker(
+    client,
+    session,
+    monkeypatch,
+):
+    from app.domains.reports import planner_tools
+
+    token, user_id = await _register(client, "context-too-large@example.com")
+    skill = UserSkill(
+        user_id=user_id,
+        machine_name="measurements_large",
+        display_name="数据记录",
+        schema_json={
+            "type": "object",
+            "properties": {"value": {"type": "number"}},
+        },
+    )
+    session.add(skill)
+    await session.flush()
+    asset = Asset(
+        user_id=user_id,
+        user_skill_id=skill.id,
+        payload_json={"value": 1},
+    )
+    session.add(asset)
+    await session.commit()
+    created = await client.post(
+        "/api/report-generation-runs",
+        headers=_headers(token),
+        json={
+            "origin": "user_initiated",
+            "intent": "总结数据",
+            "skill_ids": [skill.id],
+            "asset_ids": [asset.id],
+        },
+    )
+    real_tools = planner_tools.PlannerTools
+
+    def tiny_context_tools(database_session, *, user_id):
+        return real_tools(
+            database_session,
+            user_id=user_id,
+            limits=planner_tools.PlannerLimits(max_serialized_context_bytes=1),
+        )
+
+    monkeypatch.setattr(planner_tools, "PlannerTools", tiny_context_tools)
+
+    response = await client.post(
+        f"/api/report-generation-runs/{created.json()['id']}/prepare-plan",
+        headers=_headers(token),
+        json={"expected_revision": 0},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == {
+        "code": "scope_context_too_large",
+        "message": "报告数据范围过大，请缩小时间范围或减少记录后重试",
+    }
+    assert await session.scalar(
+        select(func.count())
+        .select_from(WorkflowJob)
+        .where(WorkflowJob.job_type == "report_planner")
+    ) == 0
+
+
 async def test_scope_update_rejects_stale_revision_and_cross_user_reference(
     client,
     session,

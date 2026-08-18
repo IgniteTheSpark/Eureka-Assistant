@@ -130,6 +130,29 @@ async def test_user_skill_and_asset_crud_are_owner_scoped(client):
     assert missing.status_code == 404
 
 
+async def test_protected_skill_name_is_rejected_before_baseline_list(client):
+    owner = await _register(client, "reserved-skill-name@example.com")
+
+    response = await client.post(
+        "/api/user-skills",
+        headers=_headers(owner),
+        json={
+            "machine_name": "Expense",
+            "display_name": "自定义消费",
+            "schema": {
+                "type": "object",
+                "properties": {"amount": {"type": "number"}},
+            },
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == {
+        "code": "system_skill_protected",
+        "message": "系统 Skill 名称不可用于自定义 Skill",
+    }
+
+
 async def test_theme_v2_skill_builder_routes_draft_create_and_configure(client, monkeypatch):
     owner = await _register(client, "skill-builder@example.com")
 

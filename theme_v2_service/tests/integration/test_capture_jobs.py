@@ -389,6 +389,28 @@ class _ExecutedFlashProvider:
         )
 
 
+class _PhantomAssetProvider:
+    async def execute(self, *, context, tool_runtime=None):
+        return FlashExecutionResult(
+            summary="声称记录但没有落库。",
+            items=(
+                FlashExecutionItem(
+                    intent=FlashIntent(
+                        type="expense",
+                        source_text="咖啡二十八元",
+                        domain="生活",
+                    ),
+                    status="success",
+                    result={
+                        "asset_id": "phantom-asset",
+                        "user_skill_name": "expense",
+                        "payload": {"amount": 28, "currency": "CNY"},
+                    },
+                ),
+            ),
+        )
+
+
 def _event_and_expense_result() -> CaptureAgentResult:
     return CaptureAgentResult(
         summary="已记录项目会和 28 元咖啡消费。",
@@ -615,6 +637,12 @@ async def test_capture_job_creates_multiple_records_and_notification(session):
                 select(Notification).where(Notification.type == "flash_done")
             )
         )
+        notification_outbox = await database_session.scalar(
+            select(OutboxEvent).where(
+                OutboxEvent.aggregate_type == "notification",
+                OutboxEvent.aggregate_id == notifications[0].id,
+            )
+        )
         skills = list(
             await database_session.scalars(
                 select(UserSkill).order_by(UserSkill.created_at, UserSkill.id)
@@ -649,6 +677,10 @@ async def test_capture_job_creates_multiple_records_and_notification(session):
     ]
     assert len(notifications) == 1
     assert notifications[0].body == recording.result_summary
+    assert notification_outbox.payload_json == {
+        "notification_id": notifications[0].id,
+        "confirmed_mutation": True,
+    }
     assert job.status == "succeeded"
     assert [skill.machine_name for skill in provider.calls[0]["skills"]] == [
         "todo",
@@ -995,16 +1027,55 @@ async def test_capture_qa_result_completes_without_records(session):
         event_count = await database_session.scalar(
             select(func.count()).select_from(Event)
         )
-        notification_count = await database_session.scalar(
-            select(func.count())
-            .select_from(Notification)
-            .where(Notification.type == "flash_done")
+        notification = await database_session.scalar(
+            select(Notification).where(Notification.type == "flash_done")
+        )
+        notification_outbox = await database_session.scalar(
+            select(OutboxEvent).where(
+                OutboxEvent.aggregate_type == "notification",
+                OutboxEvent.aggregate_id == notification.id,
+            )
         )
     assert recording.process_status == "done"
     assert recording.result_records_json == []
     assert asset_count == 0
     assert event_count == 0
-    assert notification_count == 1
+    assert notification is not None
+    assert notification_outbox.payload_json == {
+        "notification_id": notification.id,
+    }
+
+
+async def test_capture_does_not_confirm_a_phantom_asset_snapshot(session):
+    recording_id, _ = await _seed_transcribed_capture("咖啡二十八元")
+
+    await run_worker_once(
+        _process_registry(_PhantomAssetProvider()),
+        owner="worker-a",
+        lease_seconds=60,
+        now=NOW,
+    )
+
+    async with AsyncSessionFactory() as database_session:
+        recording = await database_session.get(CaptureRecording, recording_id)
+        notification = await database_session.scalar(
+            select(Notification).where(Notification.type == "flash_done")
+        )
+        notification_outbox = await database_session.scalar(
+            select(OutboxEvent).where(
+                OutboxEvent.aggregate_type == "notification",
+                OutboxEvent.aggregate_id == notification.id,
+            )
+        )
+        asset_count = await database_session.scalar(
+            select(func.count()).select_from(Asset)
+        )
+
+    assert recording.result_records_json[0]["entity_id"] == "phantom-asset"
+    assert asset_count == 0
+    assert notification_outbox.payload_json == {
+        "notification_id": notification.id,
+    }
 
 
 async def test_completed_capture_process_job_is_idempotent(session):

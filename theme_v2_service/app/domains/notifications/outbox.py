@@ -38,9 +38,14 @@ async def dispatch_one(
             if event.aggregate_type == "notification":
                 notification = await session.get(Notification, event.aggregate_id)
                 if notification is not None:
-                    payload = NotificationPayload.model_validate(
+                    payload_model = NotificationPayload.model_validate(
                         notification
-                    ).model_dump(mode="json")
+                    )
+                    if event.payload_json.get("confirmed_mutation") is True:
+                        payload_model = payload_model.model_copy(
+                            update={"confirmed_mutation": True}
+                        )
+                    payload = payload_model.model_dump(mode="json")
                     registry.publish(
                         notification.user_id,
                         SubscriberFrame(event="notification", payload=payload),

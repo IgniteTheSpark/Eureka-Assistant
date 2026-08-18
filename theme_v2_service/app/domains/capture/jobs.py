@@ -5,10 +5,11 @@ from time import monotonic
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.db.base import utc_now
-from app.db.models import UserSkill, WorkflowJob
+from app.db.models import Asset, Event, UserSkill, WorkflowJob
 from app.db.session import session_scope
 from app.domains.assets.service import (
     ensure_capture_skills,
@@ -591,6 +592,40 @@ def _capture_entity_card(
         return None
 
 
+async def _has_durable_capture_mutation(
+    session: AsyncSession,
+    *,
+    user_id: str,
+    references: list[dict],
+) -> bool:
+    asset_ids = {
+        str(card.get("entity_id") or "")
+        for card in references
+        if card.get("entity_kind") == "asset"
+    } - {""}
+    event_ids = {
+        str(card.get("entity_id") or "")
+        for card in references
+        if card.get("entity_kind") == "event"
+    } - {""}
+    if asset_ids and await session.scalar(
+        select(Asset.id).where(
+            Asset.user_id == user_id,
+            Asset.id.in_(asset_ids),
+        ).limit(1)
+    ):
+        return True
+    return bool(
+        event_ids
+        and await session.scalar(
+            select(Event.id).where(
+                Event.user_id == user_id,
+                Event.id.in_(event_ids),
+            ).limit(1)
+        )
+    )
+
+
 async def _persist_flash_execution(
     *,
     recording_id: str,
@@ -795,6 +830,11 @@ async def _persist_flash_execution(
                     daily_session,
                     reason="capture_agent_done",
                 )
+        confirmed_mutation = await _has_durable_capture_mutation(
+            session,
+            user_id=recording.user_id,
+            references=references,
+        )
         await create_notification(
             session,
             NotificationCreate(
@@ -803,6 +843,7 @@ async def _persist_flash_execution(
                 title="闪念已整理",
                 body=recording.result_summary,
                 link=f"/library?recording_id={recording.id}",
+                confirmed_mutation=confirmed_mutation,
             ),
         )
         await publish_capture_status(

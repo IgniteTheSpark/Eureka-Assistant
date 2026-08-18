@@ -23,7 +23,7 @@ async def _skill(session) -> UserSkill:
         session,
         "user-1",
         UserSkillCreate(
-            machine_name="notes",
+            machine_name="journal_entries",
             display_name="Notes",
             schema={
                 "type": "object",

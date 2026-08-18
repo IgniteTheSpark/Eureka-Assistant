@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from typing import Literal
 
 from pydantic import (
     BaseModel,
@@ -15,6 +16,7 @@ class NotificationCreate(BaseModel):
     title: str = Field(min_length=1)
     body: str = ""
     link: str | None = Field(default=None, max_length=255)
+    confirmed_mutation: bool = Field(default=False, exclude=True)
 
 
 class NotificationPayload(BaseModel):
@@ -27,6 +29,10 @@ class NotificationPayload(BaseModel):
     link: str | None
     read: bool
     created_at: datetime
+    confirmed_mutation: Literal[True] | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
 
     @field_validator("body", mode="before")
     @classmethod

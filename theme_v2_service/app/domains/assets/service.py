@@ -22,6 +22,7 @@ from app.domains.assets.schemas import (
     UserSkillUpdate,
 )
 from app.domains.assets.skill_schema import (
+    PROTECTED_SYSTEM_SKILL_NAMES,
     SkillUpdateConflict,
     is_system_skill,
     normalized_custom_skill_schema,
@@ -329,6 +330,11 @@ async def create_user_skill(
     user_id: str,
     command: UserSkillCreate,
 ) -> UserSkill:
+    if command.machine_name.strip().lower() in PROTECTED_SYSTEM_SKILL_NAMES:
+        raise SkillUpdateConflict(
+            "system_skill_protected",
+            "系统 Skill 名称不可用于自定义 Skill",
+        )
     validate_custom_skill_create_schema(command.schema_definition)
     global_skill = await session.scalar(
         select(GlobalSkill).where(
