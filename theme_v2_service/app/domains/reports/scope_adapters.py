@@ -131,11 +131,7 @@ def _term_match_spans(term: str, value: str | None) -> list[tuple[int, int]]:
     return spans
 
 
-def _term_matches_text(term: str, value: str | None) -> bool:
-    return bool(_term_match_spans(term, value))
-
-
-def _identity_value_supports_alias(alias: str, value: str | None) -> bool:
+def _metadata_value_supports_alias(alias: str, value: str | None) -> bool:
     spans = _term_match_spans(alias, value)
     if not spans:
         return False
@@ -171,13 +167,13 @@ def _skill_match_terms(
     for aliases in _SKILL_ALIASES.values():
         normalized_aliases = {_normalize_term(alias) for alias in aliases}
         if any(
-            _identity_value_supports_alias(alias, value)
+            _metadata_value_supports_alias(alias, value)
             for alias in normalized_aliases
             for value in identity_values
         ):
             identity_aliases.update(normalized_aliases)
         if any(
-            _term_matches_text(alias, value)
+            _metadata_value_supports_alias(alias, value)
             for alias in normalized_aliases
             for value in broad_values
         ):
