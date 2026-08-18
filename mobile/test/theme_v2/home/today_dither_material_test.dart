@@ -74,8 +74,9 @@ void main() {
     expect(find.text('Reka 发现'), findsOneWidget);
     expect(find.text('Reka 生成'), findsOneWidget);
     final discoveryLabel = tester.widget<Text>(find.text('Reka 发现'));
-    expect(discoveryLabel.style?.fontSize, greaterThanOrEqualTo(12));
-    expect(discoveryLabel.style?.color?.a, greaterThanOrEqualTo(.40));
+    expect(discoveryLabel.style?.fontSize, greaterThanOrEqualTo(14));
+    expect(discoveryLabel.style?.fontWeight, FontWeight.w700);
+    expect(discoveryLabel.style?.color?.a, greaterThanOrEqualTo(.56));
     expect(
       tester.getCenter(find.text('Reka 发现')).dx,
       lessThan(tester.getCenter(find.text('Reka 生成')).dx),
@@ -84,20 +85,53 @@ void main() {
     expect(find.bySemanticsLabel('打开资产库'), findsNothing);
   });
 
-  testWidgets('zero-count region watermark collapses', (tester) async {
+  testWidgets('zero-count region watermark remains visible and clickable', (
+    tester,
+  ) async {
+    var taps = 0;
     await tester.pumpWidget(
       MaterialApp(
         theme: buildThemeV2Theme(Brightness.light),
-        home: const TodayRegionWatermark(
+        home: TodayRegionWatermark(
           count: 0,
           label: 'Reka 发现',
           alignment: Alignment.bottomLeft,
+          onPressed: () => taps++,
+          semanticLabel: '查看全部 Reka 发现',
         ),
       ),
     );
 
-    expect(find.text('0'), findsNothing);
-    expect(find.text('Reka 发现'), findsNothing);
+    expect(find.text('0'), findsOneWidget);
+    expect(find.text('Reka 发现'), findsOneWidget);
+    expect(find.bySemanticsLabel('查看全部 Reka 发现'), findsOneWidget);
+    final target = find.ancestor(
+      of: find.text('Reka 发现'),
+      matching: find.byType(GestureDetector),
+    );
+    expect(target, findsOneWidget);
+    expect(tester.getSize(target).width, greaterThanOrEqualTo(44));
+    expect(tester.getSize(target).width, lessThan(160));
+    await tester.tap(find.text('Reka 发现'));
+    expect(taps, 1);
+  });
+
+  testWidgets('region watermark keeps contrast in dark mode', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildThemeV2Theme(Brightness.dark),
+        home: const TodayRegionWatermark(
+          count: 0,
+          label: 'Reka 生成',
+          alignment: Alignment.bottomRight,
+        ),
+      ),
+    );
+
+    final label = tester.widget<Text>(find.text('Reka 生成'));
+    expect(label.style?.fontSize, greaterThanOrEqualTo(14));
+    expect(label.style?.fontWeight, FontWeight.w700);
+    expect(label.style?.color?.a, greaterThanOrEqualTo(.72));
   });
 
   testWidgets('region watermark count and label share one entry', (
@@ -124,7 +158,44 @@ void main() {
 
     await tester.tap(find.text('Reka 生成'));
     expect(openCalls, 2);
+
+    await tester.tapAt(
+      tester.getCenter(
+        find.byWidgetPredicate(
+          (widget) => widget is SizedBox && widget.height == 7,
+        ),
+      ),
+    );
+    expect(openCalls, 3);
   });
+
+  testWidgets(
+    'region watermark preserves positive counts and normalizes only negatives',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildThemeV2Theme(Brightness.light),
+          home: const Column(
+            children: [
+              TodayRegionWatermark(
+                count: -4,
+                label: 'Reka 发现',
+                alignment: Alignment.topLeft,
+              ),
+              TodayRegionWatermark(
+                count: 1000,
+                label: 'Reka 生成',
+                alignment: Alignment.topRight,
+              ),
+            ],
+          ),
+        ),
+      );
+
+      expect(find.text('0'), findsOneWidget);
+      expect(find.text('1000'), findsOneWidget);
+    },
+  );
 
   testWidgets('region watermark can keep its label before the count', (
     tester,

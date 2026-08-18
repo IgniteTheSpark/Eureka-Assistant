@@ -228,15 +228,25 @@ void main() {
     },
   );
 
-  testWidgets('empty chamber omits its watermark and empty copy', (
-    tester,
-  ) async {
-    await _pumpField(tester, assets: const [], disableAnimations: true);
+  testWidgets(
+    'empty chamber keeps its watermark actionable without empty copy',
+    (tester) async {
+      var openLibraryCalls = 0;
+      await _pumpField(
+        tester,
+        assets: const [],
+        disableAnimations: true,
+        onOpenLibrary: () => openLibraryCalls++,
+      );
 
-    expect(find.text('0'), findsNothing);
-    expect(find.text('Reka 生成'), findsNothing);
-    expect(find.text('今天生成的资产会落在这里'), findsNothing);
-  });
+      expect(find.text('0'), findsOneWidget);
+      expect(find.text('Reka 生成'), findsOneWidget);
+      expect(find.bySemanticsLabel('打开资产库'), findsOneWidget);
+      expect(find.text('今天生成的资产会落在这里'), findsNothing);
+      await tester.tap(find.text('Reka 生成'));
+      expect(openLibraryCalls, 1);
+    },
+  );
 
   testWidgets('generated watermark opens the Asset Library', (tester) async {
     var openLibraryCalls = 0;
@@ -248,9 +258,9 @@ void main() {
     );
 
     expect(find.bySemanticsLabel('打开资产库'), findsOneWidget);
-    await tester.tap(find.text('1'));
-    await tester.tap(find.text('Reka 生成'));
-    expect(openLibraryCalls, 2);
+    tester.semantics.tap(find.semantics.byLabel('打开资产库'));
+    await tester.pump();
+    expect(openLibraryCalls, 1);
   });
 
   testWidgets('Asset dither and watermark use brightness-specific contrast', (
@@ -274,8 +284,10 @@ void main() {
       final dark = brightness == Brightness.dark;
 
       expect(field.config.opacity, dark ? .30 : .38);
-      expect(count.style!.color!.a, closeTo(dark ? .14 : .07, .01));
-      expect(label.style!.color!.a, closeTo(dark ? .68 : .44, .01));
+      expect(count.style!.color!.a, closeTo(dark ? .18 : .10, .01));
+      expect(label.style!.fontSize, greaterThanOrEqualTo(14));
+      expect(label.style!.fontWeight, FontWeight.w700);
+      expect(label.style!.color!.a, greaterThanOrEqualTo(dark ? .72 : .56));
       expect(watermark.padding.top, 8);
       expect(watermark.labelFirst, isTrue);
     }
@@ -326,6 +338,21 @@ void main() {
     expect(field.sources.single.shape, ThemeV2DitherSourceShape.circle);
     expect(identical(field.motion, motion), isTrue);
     expect(field.config.opacity, greaterThanOrEqualTo(.28));
+    final stack = tester.widget<Stack>(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is Stack &&
+            widget.children.any((child) => child is TodayRegionWatermark),
+      ),
+    );
+    final watermarkIndex = stack.children.indexWhere(
+      (child) => child is TodayRegionWatermark,
+    );
+    final bubbleLayerIndex = stack.children.indexWhere(
+      (child) => child is Positioned && child.child is GestureDetector,
+    );
+    expect(watermarkIndex, greaterThan(0));
+    expect(watermarkIndex, lessThan(bubbleLayerIndex));
     final outline = tester.widget<DecoratedBox>(
       find.byKey(const ValueKey('theme-v2-asset-bubble-outline-asset-1')),
     );

@@ -11,6 +11,8 @@ void main() {
     tester,
   ) async {
     final clock = ValueNotifier(DateTime(2026, 8, 14, 10));
+    var openRekaCalls = 0;
+    var openLibraryCalls = 0;
     addTearDown(clock.dispose);
 
     await tester.pumpWidget(
@@ -18,6 +20,8 @@ void main() {
         rekaCenter: const Offset(112, 330),
         disableAnimations: true,
         clock: clock,
+        onOpenReka: () => openRekaCalls++,
+        onOpenAssetLibrary: () => openLibraryCalls++,
       ),
     );
     await tester.pump();
@@ -27,6 +31,15 @@ void main() {
     );
     expect(find.byType(ThemeV2DitherField), findsNWidgets(2));
     expect(find.byKey(const ValueKey('today-container-seam')), findsOneWidget);
+    expect(find.text('0'), findsNWidgets(2));
+    expect(find.text('Reka 发现'), findsOneWidget);
+    expect(find.text('Reka 生成'), findsOneWidget);
+    expect(find.bySemanticsLabel('查看全部 Reka 发现'), findsOneWidget);
+    expect(find.bySemanticsLabel('打开资产库'), findsOneWidget);
+    await tester.tap(find.text('Reka 发现'));
+    await tester.tap(find.text('Reka 生成'));
+    expect(openRekaCalls, 1);
+    expect(openLibraryCalls, 1);
   });
 
   testWidgets('shared dither motion pauses with the app lifecycle', (
@@ -91,6 +104,8 @@ Widget _host({
   required Offset rekaCenter,
   required bool disableAnimations,
   required ValueListenable<DateTime> clock,
+  VoidCallback? onOpenReka,
+  VoidCallback? onOpenAssetLibrary,
 }) => MaterialApp(
   theme: buildThemeV2Theme(Brightness.light),
   home: MediaQuery(
@@ -109,6 +124,8 @@ Widget _host({
           active: true,
           clock: clock,
           rekaCenter: rekaCenter,
+          onOpenReka: onOpenReka,
+          onOpenAssetLibrary: onOpenAssetLibrary,
         ),
       ),
     ),

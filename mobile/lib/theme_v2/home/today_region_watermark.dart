@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show OverflowBoxFit;
 
 import '../foundation/theme_v2_theme.dart';
 
@@ -24,47 +25,36 @@ class TodayRegionWatermark extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (count <= 0) return const SizedBox.shrink();
     final tokens = context.themeV2;
     final dark = Theme.of(context).brightness == Brightness.dark;
     final leftAligned = alignment.x < 0;
-    final countChild = GestureDetector(
-      behavior: HitTestBehavior.deferToChild,
-      excludeFromSemantics: true,
-      onTap: onPressed,
-      child: ExcludeSemantics(
-        child: Text(
-          '$count',
-          style: TextStyle(
-            color: tokens.accent.withValues(alpha: dark ? .14 : .07),
-            fontFamily: 'Geist',
-            fontSize: 88,
-            fontWeight: FontWeight.w700,
-            letterSpacing: -6,
-            height: .9,
-          ),
+    final countChild = ExcludeSemantics(
+      child: Text(
+        '${count < 0 ? 0 : count}',
+        style: TextStyle(
+          color: tokens.accent.withValues(alpha: dark ? .18 : .10),
+          fontFamily: 'Geist',
+          fontSize: 96,
+          fontWeight: FontWeight.w700,
+          letterSpacing: -6,
+          height: .9,
         ),
       ),
     );
-    final labelChild = GestureDetector(
-      behavior: HitTestBehavior.deferToChild,
-      excludeFromSemantics: true,
-      onTap: onPressed,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
-        child: Align(
-          alignment: Alignment(leftAligned ? -1 : 1, labelFirst ? -1 : 1),
-          child: ExcludeSemantics(
-            child: Text(
-              label,
-              style: TextStyle(
-                color: tokens.accent.withValues(alpha: dark ? .68 : .44),
-                fontFamily: 'Geist Mono',
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 1,
-                height: 1.15,
-              ),
+    final labelChild = ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+      child: Align(
+        alignment: Alignment(leftAligned ? -1 : 1, labelFirst ? -1 : 1),
+        child: ExcludeSemantics(
+          child: Text(
+            label,
+            style: TextStyle(
+              color: tokens.accent.withValues(alpha: dark ? .76 : .60),
+              fontFamily: 'Geist Mono',
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              letterSpacing: .8,
+              height: 1.15,
             ),
           ),
         ),
@@ -73,20 +63,43 @@ class TodayRegionWatermark extends StatelessWidget {
     final visualChildren = labelFirst
         ? <Widget>[labelChild, const SizedBox(height: 7), countChild]
         : <Widget>[countChild, const SizedBox(height: 7), labelChild];
+    final watermark = Semantics(
+      button: onPressed != null,
+      label: onPressed == null ? null : semanticLabel,
+      onTap: onPressed,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: leftAligned
+            ? CrossAxisAlignment.start
+            : CrossAxisAlignment.end,
+        children: visualChildren,
+      ),
+    );
     return Align(
       alignment: alignment,
-      child: Padding(
-        padding: padding,
-        child: Semantics(
-          button: onPressed != null,
-          label: onPressed == null ? null : semanticLabel,
+      child: IgnorePointer(
+        ignoring: onPressed == null,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          excludeFromSemantics: true,
           onTap: onPressed,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: leftAligned
-                ? CrossAxisAlignment.start
-                : CrossAxisAlignment.end,
-            children: visualChildren,
+          child: Padding(
+            padding: padding,
+            child: LayoutBuilder(
+              builder: (context, constraints) => constraints.hasBoundedHeight
+                  ? OverflowBox(
+                      alignment: alignment,
+                      minWidth: 0,
+                      maxWidth: constraints.hasBoundedWidth
+                          ? double.infinity
+                          : null,
+                      minHeight: 0,
+                      maxHeight: double.infinity,
+                      fit: OverflowBoxFit.deferToChild,
+                      child: watermark,
+                    )
+                  : watermark,
+            ),
           ),
         ),
       ),

@@ -615,6 +615,16 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                     ),
                   ),
                 ),
+              if (!_usesCompactGrid)
+                TodayRegionWatermark(
+                  count: widget.trueCount,
+                  label: 'Reka 生成',
+                  alignment: Alignment.topRight,
+                  padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
+                  labelFirst: true,
+                  onPressed: widget.onOpenLibrary,
+                  semanticLabel: '打开资产库',
+                ),
               for (final snapshot in _retiring)
                 Positioned(
                   key: ValueKey(
@@ -662,6 +672,8 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                     skills: widget.skills,
                     motion: widget.motion,
                     onOpenAsset: (asset) => widget._openAsset(context, asset),
+                    trueCount: widget.trueCount,
+                    onOpenLibrary: widget.onOpenLibrary,
                   ),
                 )
               else if (field != null)
@@ -783,15 +795,6 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                     ),
                   ),
                 ),
-              TodayRegionWatermark(
-                count: widget.trueCount,
-                label: 'Reka 生成',
-                alignment: Alignment.topRight,
-                padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
-                labelFirst: true,
-                onPressed: widget.onOpenLibrary,
-                semanticLabel: '打开资产库',
-              ),
             ],
           ),
         );
@@ -806,12 +809,16 @@ class _ThemeV2CompactAssetGrid extends StatelessWidget {
     required this.skills,
     required this.motion,
     required this.onOpenAsset,
+    required this.trueCount,
+    required this.onOpenLibrary,
   });
 
   final List<PoolAsset> assets;
   final Map<String, SkillMeta> skills;
   final Animation<double>? motion;
   final ValueChanged<PoolAsset> onOpenAsset;
+  final int trueCount;
+  final VoidCallback? onOpenLibrary;
 
   @override
   Widget build(BuildContext context) {
@@ -853,6 +860,15 @@ class _ThemeV2CompactAssetGrid extends StatelessWidget {
               ],
               motion: motion,
               reduceMotion: true,
+            ),
+            TodayRegionWatermark(
+              count: trueCount,
+              label: 'Reka 生成',
+              alignment: Alignment.topRight,
+              padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
+              labelFirst: true,
+              onPressed: onOpenLibrary,
+              semanticLabel: '打开资产库',
             ),
             Align(
               alignment: Alignment.bottomLeft,
