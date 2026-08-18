@@ -263,6 +263,36 @@ void main() {
     expect(openLibraryCalls, 1);
   });
 
+  testWidgets(
+    'noncompact chamber keeps physical watermark routing outside bubble targets',
+    (tester) async {
+      var openLibraryCalls = 0;
+      var openAssetCalls = 0;
+      await _pumpField(
+        tester,
+        assets: [asset],
+        disableAnimations: true,
+        onOpenLibrary: () => openLibraryCalls++,
+        onOpenAsset: (_) => openAssetCalls++,
+      );
+
+      await tester.tap(find.text('1'));
+      await tester.tap(find.text('Reka 生成'));
+      await tester.tapAt(
+        tester.getCenter(
+          find.byWidgetPredicate(
+            (widget) => widget is SizedBox && widget.height == 7,
+          ),
+        ),
+      );
+      expect(openLibraryCalls, 3);
+      expect(openAssetCalls, 0);
+
+      await tester.tap(find.bySemanticsLabel('打开资产 Kevin'));
+      expect(openAssetCalls, 1);
+    },
+  );
+
   testWidgets('Asset dither and watermark use brightness-specific contrast', (
     tester,
   ) async {
@@ -348,8 +378,8 @@ void main() {
     final watermarkIndex = stack.children.indexWhere(
       (child) => child is TodayRegionWatermark,
     );
-    final bubbleLayerIndex = stack.children.indexWhere(
-      (child) => child is Positioned && child.child is GestureDetector,
+    final bubbleLayerIndex = stack.children.lastIndexWhere(
+      (child) => child is Positioned && child.child is AnimatedBuilder,
     );
     expect(watermarkIndex, greaterThan(0));
     expect(watermarkIndex, lessThan(bubbleLayerIndex));

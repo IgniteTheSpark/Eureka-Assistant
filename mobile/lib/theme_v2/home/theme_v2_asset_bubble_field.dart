@@ -539,20 +539,6 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
     );
   }
 
-  Bubble? _hitBubbleAt(BubbleField field, Offset position) {
-    Bubble? best;
-    var bestDistance = double.infinity;
-    for (final bubble in field.bubbles) {
-      if (!_targetRect(bubble).contains(position)) continue;
-      final distance = (Offset(bubble.x, bubble.y) - position).distanceSquared;
-      if (distance < bestDistance) {
-        best = bubble;
-        bestDistance = distance;
-      }
-    }
-    return best;
-  }
-
   double _ditherEnergy(Bubble bubble) {
     if (_grabbedAssetId == bubble.id) return 1;
     final velocity = bubble.body.linearVelocity;
@@ -678,71 +664,61 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                 )
               else if (field != null)
                 Positioned.fill(
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.translucent,
-                    onPanDown: (details) {
-                      final bubble = _hitBubbleAt(field, details.localPosition);
-                      if (bubble == null) return;
-                      _grabbedAssetId = bubble.id;
-                      field.grab(bubble);
-                      _syncLifecycle();
-                    },
-                    onTapUp: (details) {
-                      final bubble = _hitBubbleAt(field, details.localPosition);
-                      final asset = bubble == null
-                          ? null
-                          : _assetsById[bubble.id];
-                      _releaseGrab();
-                      if (asset != null) widget._openAsset(context, asset);
-                    },
-                    onPanStart: (details) {
-                      if (_grabbedAssetId != null) {
-                        _syncLifecycle();
-                        return;
-                      }
-                      final bubble = _hitBubbleAt(field, details.localPosition);
-                      if (bubble == null) {
-                        _releaseGrab();
-                        return;
-                      }
-                      _grabbedAssetId = bubble.id;
-                      field.grab(bubble);
-                      _syncLifecycle();
-                    },
-                    onPanUpdate: (details) {
-                      field.dragTo(details.localPosition);
-                      _syncLifecycle();
-                    },
-                    onPanEnd: (_) => _releaseGrab(),
-                    onPanCancel: _releaseGrab,
-                    child: AnimatedBuilder(
-                      animation: _repaint,
-                      builder: (context, _) {
-                        final indexById = <String, int>{
-                          for (
-                            var index = 0;
-                            index < field.bubbles.length;
-                            index++
-                          )
-                            field.bubbles[index].id: index,
-                        };
-                        return Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            for (final bubble in field.bubbles.reversed)
-                              if (_assetsById[bubble.id] case final asset?)
-                                Builder(
-                                  builder: (context) {
-                                    final index = indexById[bubble.id] ?? 0;
-                                    final target = _targetRect(bubble);
-                                    return Positioned(
-                                      key: ValueKey(
-                                        'theme-v2-asset-bubble-${asset.id}',
-                                      ),
-                                      left: target.left,
-                                      top: target.top,
-                                      width: target.width,
-                                      height: target.height,
+                  child: AnimatedBuilder(
+                    animation: _repaint,
+                    builder: (context, _) {
+                      final indexById = <String, int>{
+                        for (
+                          var index = 0;
+                          index < field.bubbles.length;
+                          index++
+                        )
+                          field.bubbles[index].id: index,
+                      };
+                      return Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          for (final bubble in field.bubbles.reversed)
+                            if (_assetsById[bubble.id] case final asset?)
+                              Builder(
+                                builder: (context) {
+                                  final index = indexById[bubble.id] ?? 0;
+                                  final target = _targetRect(bubble);
+                                  return Positioned(
+                                    key: ValueKey(
+                                      'theme-v2-asset-bubble-${asset.id}',
+                                    ),
+                                    left: target.left,
+                                    top: target.top,
+                                    width: target.width,
+                                    height: target.height,
+                                    child: GestureDetector(
+                                      behavior: HitTestBehavior.opaque,
+                                      onPanDown: (_) {
+                                        _grabbedAssetId = bubble.id;
+                                        field.grab(bubble);
+                                        _syncLifecycle();
+                                      },
+                                      onTapUp: (_) {
+                                        _releaseGrab();
+                                        widget._openAsset(context, asset);
+                                      },
+                                      onPanStart: (_) {
+                                        if (_grabbedAssetId == null) {
+                                          _grabbedAssetId = bubble.id;
+                                          field.grab(bubble);
+                                        }
+                                        _syncLifecycle();
+                                      },
+                                      onPanUpdate: (details) {
+                                        field.dragTo(
+                                          details.localPosition +
+                                              target.topLeft,
+                                        );
+                                        _syncLifecycle();
+                                      },
+                                      onPanEnd: (_) => _releaseGrab(),
+                                      onPanCancel: _releaseGrab,
                                       child: Semantics(
                                         label: '打开资产 ${asset.title}',
                                         button: true,
@@ -786,13 +762,13 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                                           ),
                                         ),
                                       ),
-                                    );
-                                  },
-                                ),
-                          ],
-                        );
-                      },
-                    ),
+                                    ),
+                                  );
+                                },
+                              ),
+                        ],
+                      );
+                    },
                   ),
                 ),
             ],
