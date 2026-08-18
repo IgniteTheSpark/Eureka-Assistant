@@ -241,6 +241,21 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
         showThemeV2SkillConfigurationLaunch(context, userSkillId: userSkillId);
   }
 
+  VoidCallback? _managementFor(LibraryContainerSummary container) {
+    final userSkillId = container.userSkillId;
+    if (container.type != LibraryContainerType.custom || userSkillId == null) {
+      return null;
+    }
+    return () => showThemeV2SkillManagementLaunch(
+      context,
+      userSkillId: userSkillId,
+      onDeleted: () {
+        _selectedContainer = null;
+        _navigation.back();
+      },
+    );
+  }
+
   Widget _assetContainerSurface() {
     final container = _selectedContainer;
     if (container == null) {
@@ -290,6 +305,7 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
           onBack: _navigation.back,
           contentBottomPadding: ThemeV2Spacing.lg,
           onConfigureCard: _displayConfigurationFor(container),
+          onManageSkill: _managementFor(container),
         );
     }
   }

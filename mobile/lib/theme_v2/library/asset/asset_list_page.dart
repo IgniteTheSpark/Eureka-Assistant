@@ -32,6 +32,7 @@ class ThemeV2AssetListPage extends StatefulWidget {
     this.autoLoad = true,
     this.today,
     this.onConfigureCard,
+    this.onManageSkill,
     this.onBack,
     this.contentBottomPadding = 112,
   }) : source = AssetListSource.assets,
@@ -49,6 +50,7 @@ class ThemeV2AssetListPage extends StatefulWidget {
     this.autoLoad = true,
     this.today,
     this.onConfigureCard,
+    this.onManageSkill,
     this.onBack,
     this.contentBottomPadding = 112,
   }) : source = AssetListSource.entities,
@@ -70,6 +72,7 @@ class ThemeV2AssetListPage extends StatefulWidget {
   final bool autoLoad;
   final DateTime Function()? today;
   final VoidCallback? onConfigureCard;
+  final VoidCallback? onManageSkill;
   final VoidCallback? onBack;
   final double contentBottomPadding;
 
@@ -187,6 +190,7 @@ class _ThemeV2AssetListPageState extends State<ThemeV2AssetListPage> {
                     ? _controller.countFor(TodoAssetFilter.all)
                     : records.length,
                 onConfigureCard: widget.onConfigureCard,
+                onManageSkill: widget.onManageSkill,
                 onBack: widget.onBack,
               ),
               if (_controller.isTodo) ...[
@@ -667,6 +671,7 @@ class _ListHeader extends StatelessWidget {
     required this.title,
     required this.count,
     this.onConfigureCard,
+    this.onManageSkill,
     this.onBack,
   });
 
@@ -674,6 +679,7 @@ class _ListHeader extends StatelessWidget {
   final String title;
   final int count;
   final VoidCallback? onConfigureCard;
+  final VoidCallback? onManageSkill;
   final VoidCallback? onBack;
 
   @override
@@ -714,6 +720,13 @@ class _ListHeader extends StatelessWidget {
                 semanticLabel: 'Card Display Settings',
                 icon: Icons.tune,
                 onPressed: onConfigureCard,
+              ),
+            if (onManageSkill != null)
+              ThemeV2IconButton(
+                key: const ValueKey('custom-skill-edit'),
+                semanticLabel: '编辑或删除 Skill',
+                icon: Icons.more_vert,
+                onPressed: onManageSkill,
               ),
           ],
         ),

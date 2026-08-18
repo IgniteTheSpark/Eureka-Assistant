@@ -48,6 +48,7 @@ class UserSkillUpdate(BaseModel):
     queryable_fields: list[str] | None = Field(default=None, max_length=100)
     position: int | None = Field(default=None, ge=0)
     enabled: bool | None = None
+    expected_updated_at: datetime | None = None
 
 
 class SkillDraftAnswer(BaseModel):
@@ -160,6 +161,16 @@ class UserSkillRead(BaseModel):
     @field_serializer("created_at", "updated_at")
     def serialize_timestamp(self, value: datetime) -> str:
         return _as_utc_z(value)
+
+
+class SkillDeletionImpact(BaseModel):
+    skill_id: str
+    asset_count: int = Field(ge=0)
+
+
+class SkillDeletionResult(BaseModel):
+    skill_id: str
+    deleted_asset_count: int = Field(ge=0)
 
 
 class AssetRead(BaseModel):

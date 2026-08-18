@@ -13,6 +13,9 @@ class ConfigurableSkill {
     required this.payloadSchema,
     required this.renderSpec,
     required this.samplePayload,
+    this.description = '',
+    this.rootSchema = const <String, dynamic>{},
+    this.updatedAt,
   });
 
   factory ConfigurableSkill.fromJson(Map<String, dynamic> json) {
@@ -33,6 +36,12 @@ class ConfigurableSkill {
             const <String, dynamic>{},
       ),
       samplePayload: Map.unmodifiable(_samplePayload(schema)),
+      description: json['description']?.toString() ?? '',
+      rootSchema: Map.unmodifiable(
+        (json['schema'] as Map?)?.cast<String, dynamic>() ??
+            const <String, dynamic>{},
+      ),
+      updatedAt: DateTime.tryParse(json['updated_at']?.toString() ?? ''),
     );
   }
 
@@ -42,6 +51,9 @@ class ConfigurableSkill {
   final Map<String, dynamic> payloadSchema;
   final Map<String, dynamic> renderSpec;
   final Map<String, dynamic> samplePayload;
+  final String description;
+  final Map<String, dynamic> rootSchema;
+  final DateTime? updatedAt;
 
   static Map<String, dynamic> _samplePayload(Map<String, dynamic> schema) {
     return {
