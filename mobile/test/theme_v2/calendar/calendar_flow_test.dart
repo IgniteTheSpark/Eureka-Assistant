@@ -280,6 +280,51 @@ void main() {
     expect(openedId, 'event-a');
   });
 
+  testWidgets('cross-day slices render on both days and open one event', (
+    tester,
+  ) async {
+    final day = DateTime(2026, 8, 18);
+    final data = CalendarData([
+      calendarFixtureItem(
+        id: 'event-cross-day',
+        title: '线上会议',
+        at: DateTime(2026, 8, 18, 23),
+        endAt: DateTime(2026, 8, 19, 2),
+      ),
+    ], const {});
+    final opened = <String>[];
+
+    await tester.pumpWidget(
+      calendarTestHost(
+        CalendarFlowView(
+          data: data,
+          controller: CalendarController(),
+          today: day,
+          onOpenDay: (_) {},
+          onRequestManualRecord: (_) {},
+          onOpenRecord: (record) => opened.add(record.id),
+          onOpenFlash: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('跨至明日'), findsOneWidget);
+    await tester.tap(
+      find.byKey(
+        const ValueKey('calendar-flow-record-event-cross-day-2026-08-18'),
+      ),
+    );
+    final continuation = find.byKey(
+      const ValueKey('calendar-flow-record-event-cross-day-2026-08-19'),
+    );
+    await tester.ensureVisible(continuation);
+    await tester.pumpAndSettle();
+    expect(find.text('承接昨日'), findsOneWidget);
+    await tester.tap(continuation);
+    expect(opened, ['event-cross-day', 'event-cross-day']);
+  });
+
   testWidgets('Flow rows use canonical Skill emoji for every Asset kind', (
     tester,
   ) async {

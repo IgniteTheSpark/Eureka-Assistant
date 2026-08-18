@@ -86,18 +86,16 @@ class _CalendarFlowViewState extends State<CalendarFlowView> {
   double _dayExtent(int index) => _dayExtents[index];
 
   double _dayExtentFor(CalendarData data, int index) {
-    final items =
-        data.byDay[calendarDayOf(_dayAt(index))] ?? const <TimelineItem>[];
-    var assetCount = 0;
+    final slices =
+        data.flowByDay[calendarDayOf(_dayAt(index))] ??
+        const <CalendarFlowSlice>[];
     var untimedCount = 0;
     final bands = <_FlowBand>{};
-    for (final item in items) {
-      if (item.kind == 'input_turn') continue;
-      final record = CalendarRecord.fromTimeline(item);
-      assetCount++;
-      if (!record.isTimed) untimedCount++;
-      bands.add(_flowBandFor(record));
+    for (final slice in slices) {
+      if (!slice.record.isTimed) untimedCount++;
+      bands.add(_flowBandFor(slice));
     }
+    final assetCount = slices.length;
     if (assetCount == 0) return _emptyDayExtent;
     return math.max(
       _minimumDayExtent,
@@ -256,8 +254,9 @@ class _CalendarFlowViewState extends State<CalendarFlowView> {
 
   void _activateDay(DateTime day) {
     final dayData = widget.data.day(day);
+    final flowCount = widget.data.flowByDay[calendarDayOf(day)]?.length ?? 0;
     widget.controller.changeDate(day);
-    if (dayData.assetCount + dayData.flashCount > 0) {
+    if (flowCount + dayData.flashCount > 0) {
       _manualConfirmationDay = null;
       widget.onOpenDay(day);
       return;
@@ -329,6 +328,9 @@ class _CalendarFlowViewState extends State<CalendarFlowView> {
                   final items =
                       widget.data.byDay[calendarDayOf(day)] ??
                       const <TimelineItem>[];
+                  final slices =
+                      widget.data.flowByDay[calendarDayOf(day)] ??
+                      const <CalendarFlowSlice>[];
                   final confirmation =
                       _manualConfirmationDay != null &&
                       calendarDayKey(_manualConfirmationDay!) ==
@@ -341,6 +343,7 @@ class _CalendarFlowViewState extends State<CalendarFlowView> {
                       day: day,
                       today: widget.today,
                       items: items,
+                      slices: slices,
                       skills: widget.data.skills,
                       selected:
                           widget.controller.selectedDate != null &&
@@ -401,10 +404,11 @@ class _CalendarFlowViewState extends State<CalendarFlowView> {
               final items =
                   widget.data.byDay[calendarDayOf(visibleDay)] ??
                   const <TimelineItem>[];
-              final assetCount = items
-                  .where((item) => item.kind != 'input_turn')
+              final assetCount =
+                  widget.data.flowByDay[calendarDayOf(visibleDay)]?.length ?? 0;
+              final flashCount = items
+                  .where((item) => item.kind == 'input_turn')
                   .length;
-              final flashCount = items.length - assetCount;
               return CalendarStickyDateRail(
                 day: visibleDay,
                 today: widget.today,
@@ -551,6 +555,7 @@ class _FlowDay extends StatelessWidget {
     required this.day,
     required this.today,
     required this.items,
+    required this.slices,
     required this.skills,
     required this.selected,
     required this.showManualConfirmation,
@@ -565,6 +570,7 @@ class _FlowDay extends StatelessWidget {
   final DateTime day;
   final DateTime today;
   final List<TimelineItem> items;
+  final List<CalendarFlowSlice> slices;
   final Map<String, SkillMeta> skills;
   final bool selected;
   final bool showManualConfirmation;
@@ -576,11 +582,7 @@ class _FlowDay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
-    final records = items
-        .where((item) => item.kind != 'input_turn')
-        .map(CalendarRecord.fromTimeline)
-        .toList();
-    final groups = _flowBandGroups(records);
+    final groups = _flowBandGroups(slices);
     return RepaintBoundary(
       child: Stack(
         children: [
@@ -591,7 +593,7 @@ class _FlowDay extends StatelessWidget {
               day: day,
               today: today,
               selected: selected,
-              itemCount: records.length,
+              itemCount: slices.length,
               flashCount: items
                   .where((item) => item.kind == 'input_turn')
                   .length,
@@ -603,13 +605,13 @@ class _FlowDay extends StatelessWidget {
             left: 84,
             right: ThemeV2Spacing.lg,
             top: 76,
-            bottom: records.isEmpty ? null : ThemeV2Spacing.lg,
-            height: records.isEmpty ? _flowEmptyContentHeight : null,
+            bottom: slices.isEmpty ? null : ThemeV2Spacing.lg,
+            height: slices.isEmpty ? _flowEmptyContentHeight : null,
             child: GestureDetector(
               key: ValueKey('calendar-day-content-${calendarDayKey(day)}'),
               behavior: HitTestBehavior.opaque,
               onTap: onActivateDay,
-              child: records.isEmpty
+              child: slices.isEmpty
                   ? Padding(
                       padding: const EdgeInsets.symmetric(
                         horizontal: ThemeV2Spacing.md,
@@ -670,20 +672,20 @@ class _FlowBandGroup {
   });
 
   final _FlowBand band;
-  final List<CalendarRecord> timed;
-  final List<CalendarRecord> untimed;
+  final List<CalendarFlowSlice> timed;
+  final List<CalendarFlowSlice> untimed;
 
   int get count => timed.length + untimed.length;
 }
 
-List<_FlowBandGroup> _flowBandGroups(Iterable<CalendarRecord> records) {
-  final timed = <_FlowBand, List<CalendarRecord>>{};
-  final untimed = <_FlowBand, List<CalendarRecord>>{};
-  for (final record in records) {
-    final band = _flowBandFor(record);
-    (record.isTimed ? timed : untimed)
-        .putIfAbsent(band, () => <CalendarRecord>[])
-        .add(record);
+List<_FlowBandGroup> _flowBandGroups(Iterable<CalendarFlowSlice> slices) {
+  final timed = <_FlowBand, List<CalendarFlowSlice>>{};
+  final untimed = <_FlowBand, List<CalendarFlowSlice>>{};
+  for (final slice in slices) {
+    final band = _flowBandFor(slice);
+    (slice.record.isTimed ? timed : untimed)
+        .putIfAbsent(band, () => <CalendarFlowSlice>[])
+        .add(slice);
   }
 
   return [
@@ -692,13 +694,14 @@ List<_FlowBandGroup> _flowBandGroups(Iterable<CalendarRecord> records) {
           (untimed[band]?.isNotEmpty ?? false))
         _FlowBandGroup(
           band: band,
-          timed: timed[band] ?? const <CalendarRecord>[],
-          untimed: untimed[band] ?? const <CalendarRecord>[],
+          timed: timed[band] ?? const <CalendarFlowSlice>[],
+          untimed: untimed[band] ?? const <CalendarFlowSlice>[],
         ),
   ];
 }
 
-_FlowBand _flowBandFor(CalendarRecord record) {
+_FlowBand _flowBandFor(CalendarFlowSlice slice) {
+  final record = slice.record;
   switch (record.period) {
     case '凌晨':
     case '上午':
@@ -710,8 +713,8 @@ _FlowBand _flowBandFor(CalendarRecord record) {
       return _FlowBand.evening;
   }
   if (!record.isTimed) return _FlowBand.untimed;
-  if (record.displayAt.hour < 12) return _FlowBand.morning;
-  if (record.displayAt.hour < 18) return _FlowBand.afternoon;
+  if (slice.visibleStart.hour < 12) return _FlowBand.morning;
+  if (slice.visibleStart.hour < 18) return _FlowBand.afternoon;
   return _FlowBand.evening;
 }
 
@@ -751,27 +754,45 @@ class _FlowBandSection extends StatelessWidget {
             ),
           ),
           const SizedBox(height: ThemeV2Spacing.xs),
-          for (final record in group.timed)
+          for (final slice in group.timed)
             CalendarRecordRow(
               ditherSourceId: null,
-              record: record,
+              rowKey: _flowRowKey(slice),
+              record: slice.record,
+              displayAtOverride: slice.visibleStart,
+              continuationLabel: slice.continuesFromPreviousDay
+                  ? '承接昨日'
+                  : slice.continuesIntoNextDay
+                  ? '跨至明日'
+                  : null,
               skills: skills,
-              onTap: () => onOpenRecord(record),
+              onTap: () => onOpenRecord(slice.record),
             ),
           if (group.untimed.isNotEmpty && group.timed.isNotEmpty)
-            CalendarUntimedDivider(recordId: group.untimed.first.id),
-          for (final record in group.untimed)
+            CalendarUntimedDivider(recordId: group.untimed.first.record.id),
+          for (final slice in group.untimed)
             CalendarRecordRow(
               ditherSourceId: null,
-              record: record,
+              rowKey: _flowRowKey(slice),
+              record: slice.record,
+              displayAtOverride: slice.visibleStart,
               skills: skills,
               muted: true,
-              onTap: () => onOpenRecord(record),
+              onTap: () => onOpenRecord(slice.record),
             ),
         ],
       ),
     );
   }
+}
+
+Key? _flowRowKey(CalendarFlowSlice slice) {
+  if (!slice.continuesFromPreviousDay && !slice.continuesIntoNextDay) {
+    return null;
+  }
+  return ValueKey(
+    'calendar-flow-record-${slice.record.id}-${calendarDayKey(slice.day)}',
+  );
 }
 
 const _flowEmptyContentHeight = 58.0;
