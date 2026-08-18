@@ -115,9 +115,9 @@ class AppEvents {
         FlashFileWorkflow.instance.applyServerStatus(ev.json);
         final activity = CaptureActivityEvent.fromServerPayload(ev.json);
         if (activity != null) CaptureActivityBus.instance.publish(activity);
-        bumpData();
+        requestDataRefresh();
       case 'notification':
-        bumpData();
+        requestDataRefresh();
         final j = ev.json;
         final type = j['type'] as String? ?? '';
         // §14.7 nudge = 拍肩, not an alert: it surfaces as a REKA peek bubble

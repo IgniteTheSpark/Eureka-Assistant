@@ -214,7 +214,7 @@ class _CalendarPageState extends State<CalendarPage> {
     );
   }
 
-  void _refresh() => bumpData(); // global bump → revision changes → re-fetch
+  void _refresh() => requestDataRefresh();
 
   @override
   void initState() {
@@ -2438,8 +2438,8 @@ class _DayDetailPageState extends State<DayDetailPage> {
       await _api.putJson('/api/assets/${it.id}', {
         'payload_patch': {'status': next ? 'done' : 'pending'},
       });
+      bumpData();
     } catch (_) {}
-    bumpData();
   }
 
   void _anchorGrid(List<TimelineItem> timed) {

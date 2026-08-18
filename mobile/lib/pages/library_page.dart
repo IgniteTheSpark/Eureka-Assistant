@@ -138,7 +138,7 @@ class _LibraryPageState extends State<LibraryPage> {
     };
   }
 
-  void _refresh() => bumpData(); // global bump → revision changes → re-fetch
+  void _refresh() => requestDataRefresh();
 
   @override
   void dispose() {

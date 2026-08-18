@@ -420,7 +420,7 @@ class ChatController extends ChangeNotifier {
           _reconcileRetrySessionId = null;
           settled = true;
           _notify();
-          bumpData(); // a turn may have created assets → refresh other surfaces
+          requestDataRefresh(); // a turn may have created assets → refresh surfaces
           break;
         }
       }
@@ -645,7 +645,7 @@ class ChatController extends ChangeNotifier {
         _failedAgent = agent;
       }
       _notify();
-      bumpData();
+      requestDataRefresh();
       if (!completer.isCompleted) completer.complete();
     }
 
