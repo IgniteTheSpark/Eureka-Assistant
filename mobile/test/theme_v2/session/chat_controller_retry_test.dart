@@ -762,6 +762,67 @@ void main() {
     },
   );
 
+  test(
+    'durable reconciliation ignores receipts outside its pending turn IDs',
+    () async {
+      restoreRevisions();
+      final dataBefore = dataRevision.value;
+      final mutationBefore = dataMutationRevision.value;
+      var messageLoads = 0;
+      final api = ApiClient(
+        client: MockClient((request) async {
+          if (request.url.path.endsWith('/messages')) {
+            messageLoads++;
+            return http.Response.bytes(
+              utf8.encode(
+                jsonEncode({
+                  'messages': [
+                    {
+                      'id': 'old-write',
+                      'role': 'agent',
+                      'status': 'done',
+                      'tool_result': {
+                        'confirmed_mutation': true,
+                        'results': const [],
+                      },
+                    },
+                    {
+                      'id': 'pending-read',
+                      'role': 'agent',
+                      'status': messageLoads == 1 ? 'running' : 'done',
+                      'tool_result': messageLoads == 1
+                          ? null
+                          : {'confirmed_mutation': false, 'results': const []},
+                    },
+                  ],
+                }),
+              ),
+              200,
+            );
+          }
+          return http.Response(jsonEncode({'session': {}}), 200);
+        }),
+        baseUrl: 'http://test',
+        enableLogging: false,
+      );
+      final controller = ChatController(
+        api: api,
+        reconcileInterval: const Duration(milliseconds: 1),
+        reconcileTimeout: const Duration(milliseconds: 100),
+      );
+      addTearDown(() {
+        controller.dispose();
+        api.close();
+      });
+
+      await controller.loadSession('durable-multiple');
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(dataRevision.value, dataBefore + 1);
+      expect(dataMutationRevision.value, mutationBefore);
+    },
+  );
+
   test('failed durable reconciliation unlocks with a reload retry', () async {
     var messageLoads = 0;
     final api = ApiClient(

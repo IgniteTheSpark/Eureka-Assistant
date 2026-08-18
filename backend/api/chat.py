@@ -463,7 +463,8 @@ async def _run_chat_turn(
             )
             persist_cards = result.get("cards", []) or []
             bulk_mutation = bool(
-                result.get("ok", True) and result.get("derived_assets")
+                result.get("ok", True)
+                and (result.get("derived_assets") or result.get("derived_events"))
             )
             n = len(persist_cards)
             summary = (result.get("summary") or result.get("reply") or "").strip()
