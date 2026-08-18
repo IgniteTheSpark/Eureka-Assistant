@@ -13,9 +13,7 @@ import 'package:http/testing.dart';
 import 'calendar_test_fixtures.dart';
 
 void main() {
-  testWidgets('one dither field survives Calendar surface changes', (
-    tester,
-  ) async {
+  testWidgets('Calendar surface changes remain free of Dither', (tester) async {
     final controller = CalendarController();
     addTearDown(controller.dispose);
     late StateSetter rebuild;
@@ -36,23 +34,20 @@ void main() {
       ),
     );
     await tester.pump();
-    final initialState = tester.state(find.byType(ThemeV2DitherField));
+    expect(find.byType(ThemeV2DitherField), findsNothing);
 
     controller.openDay(day);
     rebuild(() {});
     await tester.pump();
-    expect(tester.state(find.byType(ThemeV2DitherField)), same(initialState));
+    expect(find.byType(ThemeV2DitherField), findsNothing);
 
     controller.openSchedule();
     rebuild(() {});
     await tester.pump();
-    expect(find.byType(ThemeV2DitherField), findsOneWidget);
-    expect(tester.state(find.byType(ThemeV2DitherField)), same(initialState));
+    expect(find.byType(ThemeV2DitherField), findsNothing);
   });
 
-  testWidgets('production Calendar consumes the authoritative Timeline feed', (
-    tester,
-  ) async {
+  testWidgets('production Timeline feed stays Dither-free', (tester) async {
     final calls = <String>[];
     final api = ApiClient(
       baseUrl: 'http://theme-v2.test',
@@ -134,18 +129,8 @@ void main() {
     expect(calls, isNot(contains('/api/flash/recordings')));
     expect(find.text('喝水记录 · 200'), findsOneWidget);
     expect(find.text('✦ 3'), findsOneWidget);
-    expect(find.byType(ThemeV2DitherSurface), findsOneWidget);
-    final surface = tester.widget<ThemeV2DitherSurface>(
-      find.byType(ThemeV2DitherSurface),
-    );
-    expect(surface.config.flowDirection, const Offset(1, .08));
-    await tester.pump();
-    final field = tester.widget<ThemeV2DitherField>(
-      find.byType(ThemeV2DitherField),
-    );
-    expect(field.sources, isNotEmpty);
-    expect(field.sources.length, lessThanOrEqualTo(24));
-    expect(field.sources.every((source) => source.energy == 0), isTrue);
+    expect(find.byType(ThemeV2DitherSurface), findsNothing);
+    expect(find.byType(ThemeV2DitherField), findsNothing);
   });
 }
 
