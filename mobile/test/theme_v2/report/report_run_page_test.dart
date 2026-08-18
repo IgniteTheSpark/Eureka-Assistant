@@ -238,6 +238,107 @@ void main() {
     );
   });
 
+  testWidgets('vague running scope requires time before selecting records', (
+    tester,
+  ) async {
+    final api = ApiClient(
+      baseUrl: 'https://reports.test',
+      enableLogging: false,
+      client: MockClient((request) async {
+        if (request.url.path.endsWith('/scope-candidates')) {
+          return _json(_vagueRunningCandidates());
+        }
+        return _json(_vagueRunningScopeRun());
+      }),
+    );
+    addTearDown(api.close);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildThemeV2Theme(Brightness.light),
+        home: ReportRunPage(runId: 'run-running', api: api),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('report-time-range-last_7_days')),
+      findsOneWidget,
+    );
+    expect(find.text('选择时间后，Reka 会筛出对应资产'), findsOneWidget);
+    expect(find.text('手动添加资产'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey('report-time-range-last_7_days')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('跑步记录'), findsOneWidget);
+    expect(find.text('消费'), findsNothing);
+    expect(find.text('喝水记录'), findsNothing);
+    expect(find.text('跳舞记录'), findsNothing);
+    await tester.scrollUntilVisible(
+      find.text('补充信息（选填）'),
+      240,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(find.text('呈现方式（选填）'), findsOneWidget);
+    expect(find.text('数据复盘'), findsOneWidget);
+    expect(find.text('补充信息（选填）'), findsOneWidget);
+  });
+
+  testWidgets('exact single asset remains visible with manual add available', (
+    tester,
+  ) async {
+    final api = ApiClient(
+      baseUrl: 'https://reports.test',
+      enableLogging: false,
+      client: MockClient((request) async {
+        if (request.url.path.endsWith('/scope-candidates')) {
+          return _json({
+            'adapter_kind': 'generic',
+            'events': [],
+            'record_groups': [],
+            'default_scope': {
+              'adapter_kind': 'generic',
+              'supporting_references': [
+                {'kind': 'asset', 'id': 'asset-exact'},
+              ],
+            },
+          });
+        }
+        return _json({
+          'id': 'run-exact',
+          'state': 'awaiting_selection',
+          'scope_revision': 0,
+          'pending_decision': {
+            'type': 'scope_confirmation',
+            'adapter_kind': 'generic',
+          },
+          'scope_draft': {
+            'adapter_kind': 'generic',
+            'supporting_references': [
+              {'kind': 'asset', 'id': 'asset-exact'},
+            ],
+          },
+        });
+      }),
+    );
+    addTearDown(api.close);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildThemeV2Theme(Brightness.light),
+        home: ReportRunPage(runId: 'run-exact', api: api),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('已选择 1 项资产'), findsOneWidget);
+    expect(find.text('已定位到这项资产；如果需要，可以继续关联其他资产。'), findsOneWidget);
+    expect(find.text('手动添加资产'), findsOneWidget);
+  });
+
   testWidgets('report adjustment uses three distinct stepper screens', (
     tester,
   ) async {
@@ -498,6 +599,59 @@ Map<String, dynamic> _preEventCandidates() => {
   'default_scope': {
     'adapter_kind': 'pre_event_briefing',
     'supporting_references': [],
+  },
+};
+
+Map<String, dynamic> _vagueRunningScopeRun() => {
+  'id': 'run-running',
+  'state': 'awaiting_selection',
+  'scope_revision': 0,
+  'pending_decision': {
+    'type': 'scope_confirmation',
+    'adapter_kind': 'period_summary',
+  },
+  'scope_draft': {
+    'adapter_kind': 'period_summary',
+    'skill_ids': ['skill-running'],
+    'supporting_references': [],
+    'missing_dimensions': ['time_range'],
+  },
+};
+
+Map<String, dynamic> _vagueRunningCandidates() => {
+  'adapter_kind': 'period_summary',
+  'events': [],
+  'record_groups': [
+    {
+      'skill_id': 'skill-running',
+      'label': '跑步记录',
+      'count': 1,
+      'default_selected': true,
+      'records': [
+        {
+          'reference': {'kind': 'asset', 'id': 'run-1'},
+          'title': '跑步记录',
+          'effective_at': '2026-08-10T09:00:00+08:00',
+        },
+      ],
+    },
+  ],
+  'time_range_options': [
+    {
+      'id': 'last_7_days',
+      'label': '过去 7 天',
+      'time_range': {
+        'from': '2026-08-05T20:00:00+08:00',
+        'to': '2026-08-12T20:00:00+08:00',
+      },
+    },
+  ],
+  'default_scope': {
+    'adapter_kind': 'period_summary',
+    'skill_ids': ['skill-running'],
+    'supporting_references': [],
+    'missing_dimensions': ['time_range'],
+    'selection': {'auto_references': []},
   },
 };
 

@@ -42,6 +42,7 @@ class ScopeRecordCandidate(StrictModel):
 class ScopeRecordGroup(StrictModel):
     skill_id: str
     machine_name: str = Field(default="", exclude=True)
+    match_terms: list[str] = Field(default_factory=list, exclude=True)
     label: str
     count: int
     default_selected: bool = True
@@ -60,6 +61,82 @@ class ReportScopeCandidateResponse(StrictModel):
     record_groups: list[ScopeRecordGroup] = Field(default_factory=list)
     time_range_options: list[TimeRangeOption] = Field(default_factory=list)
     default_scope: ReportScopeDraft
+
+
+_GENERIC_SKILL_TERMS = {
+    "记录",
+    "日志",
+    "数据",
+    "情况",
+    "总结",
+    "统计",
+    "log",
+    "record",
+    "records",
+    "data",
+    "tracker",
+    "tracking",
+    "training",
+}
+_SKILL_ALIASES = {
+    "expense": {"消费", "支出", "花费", "账单", "expense", "spend"},
+    "running": {"跑步", "晨跑", "夜跑", "running", "run"},
+    "water": {"喝水", "饮水", "water", "hydration"},
+    "dance": {"跳舞", "舞蹈", "dance"},
+}
+
+
+def _normalize_term(value: str | None) -> str:
+    return re.sub(r"[\s_\-/]+", "", (value or "").casefold())
+
+
+def _term_matches_text(term: str, value: str | None) -> bool:
+    if term.isascii() and term.isalnum():
+        words = re.findall(r"[a-z0-9]+", (value or "").casefold())
+        for start in range(len(words)):
+            phrase = ""
+            for word in words[start:]:
+                phrase += word
+                if phrase == term:
+                    return True
+                if len(phrase) >= len(term):
+                    break
+        return False
+    return term in _normalize_term(value)
+
+
+def _skill_match_terms(skill: UserSkill) -> list[str]:
+    source_values = [
+        skill.machine_name,
+        skill.display_name,
+        skill.description,
+        skill.domain,
+    ]
+    display = _normalize_term(skill.display_name)
+    terms = {
+        _normalize_term(skill.machine_name),
+        display,
+        _normalize_term(skill.description),
+        _normalize_term(skill.domain),
+    }
+    for suffix in ("记录", "日志", "数据", "训练"):
+        if display.endswith(suffix) and len(display) > len(suffix):
+            terms.add(display[: -len(suffix)])
+    for value in (skill.machine_name, skill.display_name):
+        words = re.findall(r"[a-z0-9]+", (value or "").casefold())
+        if len(words) > 1 and words[-1] in _GENERIC_SKILL_TERMS:
+            terms.add("".join(words[:-1]))
+    for aliases in _SKILL_ALIASES.values():
+        normalized_aliases = {_normalize_term(alias) for alias in aliases}
+        if any(
+            _term_matches_text(alias, value)
+            for alias in normalized_aliases
+            for value in source_values
+        ):
+            terms.update(normalized_aliases)
+    return sorted(
+        term for term in terms if term and term not in _GENERIC_SKILL_TERMS
+    )
 
 
 def _aware_utc(value: datetime) -> datetime:
@@ -325,6 +402,7 @@ async def _period_records(
             group = ScopeRecordGroup(
                 skill_id=skill.id,
                 machine_name=skill.machine_name,
+                match_terms=_skill_match_terms(skill),
                 label=skill.display_name,
                 count=0,
                 records=[],
@@ -347,18 +425,16 @@ def _filter_record_groups_for_intent(
     groups: list[ScopeRecordGroup],
     intent: str,
 ) -> list[ScopeRecordGroup]:
-    normalized = intent.casefold()
-    aliases = {
-        "expense": ("消费", "支出", "花费", "账单", "expense", "spend"),
-    }
-    requested = {
-        machine_name
-        for machine_name, markers in aliases.items()
-        if any(marker in normalized for marker in markers)
-    }
-    if not requested:
-        return groups
-    return [group for group in groups if group.machine_name in requested]
+    matches = [
+        group
+        for group in groups
+        if any(
+            term not in _GENERIC_SKILL_TERMS
+            and _term_matches_text(term, intent)
+            for term in group.match_terms
+        )
+    ]
+    return matches or groups
 
 
 async def list_scope_candidates(

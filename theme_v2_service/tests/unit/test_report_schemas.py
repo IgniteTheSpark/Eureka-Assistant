@@ -9,7 +9,7 @@ from app.domains.reports.schemas import (
     ReportScopeDraft,
     RunGenerateRequest,
 )
-from app.domains.reports.scope_adapters import initial_scope
+from app.domains.reports.scope_adapters import ScopeRecordGroup, initial_scope
 from app.domains.reports.planner import (
     InvalidPlannerResult,
     PlannerRequest,
@@ -238,6 +238,24 @@ def test_explicit_30_day_period_is_resolved_and_not_missing():
         "datetime"
     ).timedelta(days=30)
     assert draft.missing_dimensions == []
+
+
+def test_record_group_matching_metadata_stays_internal():
+    group = ScopeRecordGroup(
+        skill_id="skill-running",
+        machine_name="running_log",
+        match_terms=["running", "跑步"],
+        label="跑步记录",
+        count=0,
+    )
+
+    assert group.model_dump() == {
+        "skill_id": "skill-running",
+        "label": "跑步记录",
+        "count": 0,
+        "default_selected": True,
+        "records": [],
+    }
 
 
 def test_standard_presentation_family_is_a_hard_planner_constraint():
