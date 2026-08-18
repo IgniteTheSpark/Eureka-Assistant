@@ -125,6 +125,83 @@ void main() {
     expect(find.byType(ThemeV2SkillManagementSheet), findsNothing);
   });
 
+  testWidgets('delete in progress prevents a stale save callback', (
+    tester,
+  ) async {
+    final impact = Completer<int>();
+    final repository = _FakeRepository(_multiFieldSkill())
+      ..deletionImpactPending = impact;
+    final controller = SkillManagementController(
+      repository: repository,
+      userSkillId: 'tennis-id',
+    );
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildThemeV2Theme(Brightness.light),
+        home: ThemeV2SkillManagementSheet(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView), const Offset(0, -1600));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('custom-skill-delete')));
+    await tester.tap(find.text('保存修改'));
+    await tester.pump();
+
+    expect(repository.deletionImpactRequests, 1);
+    expect(repository.saveRequests, 0);
+
+    impact.complete(4);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('custom-skill-delete-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(repository.deleteRequests, 1);
+  });
+
+  testWidgets('save in progress prevents a stale delete callback', (
+    tester,
+  ) async {
+    final save = Completer<ConfigurableSkill>();
+    final repository = _FakeRepository(_multiFieldSkill())..savePending = save;
+    final controller = SkillManagementController(
+      repository: repository,
+      userSkillId: 'tennis-id',
+    );
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildThemeV2Theme(Brightness.light),
+        home: ThemeV2SkillManagementSheet(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView), const Offset(0, -1600));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('保存修改'));
+    await tester.tap(find.byKey(const ValueKey('custom-skill-delete')));
+    await tester.pump();
+
+    expect(repository.saveRequests, 1);
+    expect(repository.deletionImpactRequests, 0);
+    expect(find.text('永久删除这个 Skill？'), findsNothing);
+
+    save.complete(repository.skill);
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .widget<OutlinedButton>(
+            find.byKey(const ValueKey('custom-skill-delete')),
+          )
+          .onPressed,
+      isNotNull,
+    );
+  });
+
   test(
     'existing keys and types stay locked while new fields stay optional',
     () async {
@@ -312,7 +389,9 @@ class _FakeRepository implements SkillManagementRepository {
   SkillManagementDraft? saved;
   bool failSave = false;
   bool deleted = false;
+  Completer<ConfigurableSkill>? savePending;
   Completer<int>? deletionImpactPending;
+  int saveRequests = 0;
   int deletionImpactRequests = 0;
   int deleteRequests = 0;
 
@@ -324,7 +403,10 @@ class _FakeRepository implements SkillManagementRepository {
     String userSkillId,
     SkillManagementDraft draft,
   ) async {
+    saveRequests++;
     if (failSave) throw StateError('offline');
+    final pending = savePending;
+    if (pending != null) return pending.future;
     saved = draft;
     savedSchema = draft.schema;
     return skill;

@@ -245,16 +245,23 @@ class _ThemeV2SkillManagementSheetState
       border: Border(top: BorderSide(color: context.themeV2.border)),
     ),
     child: FilledButton(
-      onPressed: widget.controller.busy
-          ? null
-          : () async {
-              if (await widget.controller.save() && mounted) {
-                widget.onSaved?.call();
-              }
-            },
-      child: Text(widget.controller.busy ? '保存中…' : '保存修改'),
+      onPressed: widget.controller.busy || _deleteFlowInFlight ? null : _save,
+      child: Text(
+        widget.controller.state == SkillManagementState.saving
+            ? '保存中…'
+            : _deleteFlowInFlight
+            ? '删除处理中…'
+            : '保存修改',
+      ),
     ),
   );
+
+  Future<void> _save() async {
+    if (_deleteFlowInFlight || widget.controller.busy) return;
+    if (await widget.controller.save() && mounted) {
+      widget.onSaved?.call();
+    }
+  }
 
   Future<void> _addField() async {
     final key = TextEditingController();
@@ -311,7 +318,7 @@ class _ThemeV2SkillManagementSheetState
   }
 
   Future<void> _confirmDelete() async {
-    if (_deleteFlowInFlight) return;
+    if (_deleteFlowInFlight || widget.controller.busy) return;
     setState(() => _deleteFlowInFlight = true);
     try {
       final count = await widget.controller.loadDeletionImpact();
