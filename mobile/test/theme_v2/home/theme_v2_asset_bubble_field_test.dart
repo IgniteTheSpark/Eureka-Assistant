@@ -293,6 +293,48 @@ void main() {
     },
   );
 
+  testWidgets('overlapping bubble targets open the nearest bubble once', (
+    tester,
+  ) async {
+    final assets = _assets(11);
+    final firstAsset = assets[8];
+    final nearerAsset = assets[10];
+    PoolAsset? opened;
+    var activationCount = 0;
+    await _pumpField(
+      tester,
+      assets: assets,
+      disableAnimations: false,
+      gravityStream: const Stream<Offset>.empty(),
+      spawnCenters: const {
+        'asset-8': Offset(130, 180),
+        'asset-10': Offset(160, 180),
+      },
+      onOpenAsset: (value) {
+        opened = value;
+        activationCount++;
+      },
+    );
+
+    final firstTarget = find.byKey(
+      ValueKey('theme-v2-asset-bubble-${firstAsset.id}'),
+    );
+    final nearerTarget = find.byKey(
+      ValueKey('theme-v2-asset-bubble-${nearerAsset.id}'),
+    );
+    expect(tester.getSize(firstTarget), const Size.square(44));
+    expect(tester.getSize(nearerTarget), const Size.square(44));
+    final overlap = tester
+        .getRect(firstTarget)
+        .intersect(tester.getRect(nearerTarget));
+    expect(overlap, isNot(Rect.zero));
+    // This point lies inside both 44px targets but is nearer asset-2.
+    await tester.tapAt(Offset(overlap.right - 1, overlap.center.dy));
+
+    expect(opened?.id, nearerAsset.id);
+    expect(activationCount, 1);
+  });
+
   testWidgets('Asset dither and watermark use brightness-specific contrast', (
     tester,
   ) async {
@@ -379,7 +421,7 @@ void main() {
       (child) => child is TodayRegionWatermark,
     );
     final bubbleLayerIndex = stack.children.lastIndexWhere(
-      (child) => child is Positioned && child.child is AnimatedBuilder,
+      (child) => child is Positioned && child.child is GestureDetector,
     );
     expect(watermarkIndex, greaterThan(0));
     expect(watermarkIndex, lessThan(bubbleLayerIndex));
@@ -1095,6 +1137,7 @@ Future<void> _pumpField(
   Animation<double>? motion,
   Brightness brightness = Brightness.light,
   int? trueCount,
+  Map<String, Offset> spawnCenters = const {},
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = size;
@@ -1115,6 +1158,7 @@ Future<void> _pumpField(
             skills: skills,
             active: active,
             gravityStream: gravityStream,
+            spawnCenters: spawnCenters,
             onOpenAsset: onOpenAsset,
             onOpenLibrary: onOpenLibrary,
             motion: motion,

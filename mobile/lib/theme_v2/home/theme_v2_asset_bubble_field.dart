@@ -539,6 +539,23 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
     );
   }
 
+  Bubble? _hitBubbleAt(BubbleField field, Offset position) {
+    Bubble? nearest;
+    var nearestDistanceSquared = double.infinity;
+    for (final bubble in field.bubbles) {
+      final target = _targetRect(bubble);
+      if (!target.contains(position)) continue;
+      final dx = bubble.x - position.dx;
+      final dy = bubble.y - position.dy;
+      final distanceSquared = dx * dx + dy * dy;
+      if (distanceSquared < nearestDistanceSquared) {
+        nearest = bubble;
+        nearestDistanceSquared = distanceSquared;
+      }
+    }
+    return nearest;
+  }
+
   double _ditherEnergy(Bubble bubble) {
     if (_grabbedAssetId == bubble.id) return 1;
     final velocity = bubble.body.linearVelocity;
@@ -664,61 +681,71 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                 )
               else if (field != null)
                 Positioned.fill(
-                  child: AnimatedBuilder(
-                    animation: _repaint,
-                    builder: (context, _) {
-                      final indexById = <String, int>{
-                        for (
-                          var index = 0;
-                          index < field.bubbles.length;
-                          index++
-                        )
-                          field.bubbles[index].id: index,
-                      };
-                      return Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          for (final bubble in field.bubbles.reversed)
-                            if (_assetsById[bubble.id] case final asset?)
-                              Builder(
-                                builder: (context) {
-                                  final index = indexById[bubble.id] ?? 0;
-                                  final target = _targetRect(bubble);
-                                  return Positioned(
-                                    key: ValueKey(
-                                      'theme-v2-asset-bubble-${asset.id}',
-                                    ),
-                                    left: target.left,
-                                    top: target.top,
-                                    width: target.width,
-                                    height: target.height,
-                                    child: GestureDetector(
-                                      behavior: HitTestBehavior.opaque,
-                                      onPanDown: (_) {
-                                        _grabbedAssetId = bubble.id;
-                                        field.grab(bubble);
-                                        _syncLifecycle();
-                                      },
-                                      onTapUp: (_) {
-                                        _releaseGrab();
-                                        widget._openAsset(context, asset);
-                                      },
-                                      onPanStart: (_) {
-                                        if (_grabbedAssetId == null) {
-                                          _grabbedAssetId = bubble.id;
-                                          field.grab(bubble);
-                                        }
-                                        _syncLifecycle();
-                                      },
-                                      onPanUpdate: (details) {
-                                        field.dragTo(
-                                          details.localPosition +
-                                              target.topLeft,
-                                        );
-                                        _syncLifecycle();
-                                      },
-                                      onPanEnd: (_) => _releaseGrab(),
-                                      onPanCancel: _releaseGrab,
+                  child: GestureDetector(
+                    // Target-only Listeners below make this recognizer join
+                    // hit testing only inside a bubble's accessible target.
+                    behavior: HitTestBehavior.deferToChild,
+                    onPanDown: (details) {
+                      final bubble = _hitBubbleAt(field, details.localPosition);
+                      if (bubble == null) return;
+                      _grabbedAssetId = bubble.id;
+                      field.grab(bubble);
+                      _syncLifecycle();
+                    },
+                    onTapUp: (details) {
+                      final bubble = _hitBubbleAt(field, details.localPosition);
+                      final asset = bubble == null
+                          ? null
+                          : _assetsById[bubble.id];
+                      _releaseGrab();
+                      if (asset != null) widget._openAsset(context, asset);
+                    },
+                    onPanStart: (details) {
+                      if (_grabbedAssetId == null) {
+                        final bubble = _hitBubbleAt(
+                          field,
+                          details.localPosition,
+                        );
+                        if (bubble == null) return;
+                        _grabbedAssetId = bubble.id;
+                        field.grab(bubble);
+                      }
+                      _syncLifecycle();
+                    },
+                    onPanUpdate: (details) {
+                      field.dragTo(details.localPosition);
+                      _syncLifecycle();
+                    },
+                    onPanEnd: (_) => _releaseGrab(),
+                    onPanCancel: _releaseGrab,
+                    child: AnimatedBuilder(
+                      animation: _repaint,
+                      builder: (context, _) {
+                        final indexById = <String, int>{
+                          for (
+                            var index = 0;
+                            index < field.bubbles.length;
+                            index++
+                          )
+                            field.bubbles[index].id: index,
+                        };
+                        return Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            for (final bubble in field.bubbles.reversed)
+                              if (_assetsById[bubble.id] case final asset?)
+                                Builder(
+                                  builder: (context) {
+                                    final index = indexById[bubble.id] ?? 0;
+                                    final target = _targetRect(bubble);
+                                    return Positioned(
+                                      key: ValueKey(
+                                        'theme-v2-asset-bubble-${asset.id}',
+                                      ),
+                                      left: target.left,
+                                      top: target.top,
+                                      width: target.width,
+                                      height: target.height,
                                       child: Semantics(
                                         label: '打开资产 ${asset.title}',
                                         button: true,
@@ -762,13 +789,33 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                                           ),
                                         ),
                                       ),
-                                    ),
-                                  );
-                                },
-                              ),
-                        ],
-                      );
-                    },
+                                    );
+                                  },
+                                ),
+                            // These opaque regions establish the real hit-test
+                            // area. The shared recognizer above then selects the
+                            // closest bubble when targets overlap.
+                            for (final bubble in field.bubbles)
+                              if (_assetsById.containsKey(bubble.id))
+                                Builder(
+                                  builder: (context) {
+                                    final target = _targetRect(bubble);
+                                    return Positioned(
+                                      left: target.left,
+                                      top: target.top,
+                                      width: target.width,
+                                      height: target.height,
+                                      child: const Listener(
+                                        behavior: HitTestBehavior.opaque,
+                                        child: SizedBox.expand(),
+                                      ),
+                                    );
+                                  },
+                                ),
+                          ],
+                        );
+                      },
+                    ),
                   ),
                 ),
             ],
