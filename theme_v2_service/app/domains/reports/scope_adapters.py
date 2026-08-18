@@ -160,11 +160,7 @@ def _skill_match_terms(
     broad_aliases: set[str] = set()
     for aliases in _SKILL_ALIASES.values():
         normalized_aliases = {_normalize_term(alias) for alias in aliases}
-        if any(
-            _term_matches_text(alias, value)
-            for alias in normalized_aliases
-            for value in identity_values
-        ):
+        if normalized_aliases.intersection(identity_literals):
             identity_aliases.update(normalized_aliases)
         if any(
             _term_matches_text(alias, value)
@@ -518,7 +514,7 @@ def _group_term_matches(
         )
         for group in groups
         for spec in group.match_specs
-        for start, end in _term_match_spans(spec.value, normalized_intent)
+        for start, end in _term_match_spans(spec.value, intent)
     ]
     explicit_identity_spans = [
         match
@@ -541,7 +537,12 @@ def _additively_related(
     first: _GroupTermMatch,
     second: _GroupTermMatch,
     normalized_intent: str,
+    span_positions: dict[tuple[int, int], int],
 ) -> bool:
+    first_position = span_positions[(first.start, first.end)]
+    second_position = span_positions[(second.start, second.end)]
+    if abs(first_position - second_position) != 1:
+        return False
     if first.end <= second.start:
         between = normalized_intent[first.end : second.start]
     elif second.end <= first.start:
@@ -561,12 +562,23 @@ def _filter_record_groups_for_intent(
     ]
     broad_matches = [match for match in matches if match.provenance == "broad"]
     if identity_matches:
+        span_positions = {
+            span: index
+            for index, span in enumerate(
+                sorted({(match.start, match.end) for match in matches})
+            )
+        }
         selected_ids = {match.skill_id for match in identity_matches}
         selected_ids.update(
             broad.skill_id
             for broad in broad_matches
             if any(
-                _additively_related(broad, identity, normalized_intent)
+                _additively_related(
+                    broad,
+                    identity,
+                    normalized_intent,
+                    span_positions,
+                )
                 for identity in identity_matches
             )
         )

@@ -394,6 +394,19 @@ async def test_english_alias_matches_a_separator_delimited_skill_name(session):
         "skill-running"
     ]
 
+    phrase_response = await list_scope_candidates(
+        session,
+        user_id="user-1",
+        adapter_kind="period_summary",
+        intent="总结过去 30 天的 run log",
+        now=NOW,
+        timezone_name="Asia/Shanghai",
+    )
+
+    assert [group.skill_id for group in phrase_response.record_groups] == [
+        "skill-running"
+    ]
+
 
 async def test_multiple_explicit_skill_terms_keep_each_matching_group(session):
     await _seed_report_record_types(session)
@@ -490,6 +503,52 @@ async def test_cjk_alias_does_not_match_inside_a_custom_skill_name(session):
     assert [group.skill_id for group in response.record_groups] == [
         "skill-consumer-research"
     ]
+
+
+async def test_custom_identity_does_not_inherit_an_embedded_expense_alias(session):
+    await _seed_report_record_types(session)
+    research = UserSkill(
+        id="skill-consumer-research",
+        user_id="user-1",
+        machine_name="consumer_research",
+        display_name="消费者研究",
+        description="记录消费者访谈结论",
+        domain="研究",
+        schema_json={
+            "type": "object",
+            "properties": {"interview_count": {"type": "number"}},
+        },
+    )
+    session.add(research)
+    await session.flush()
+    session.add(
+        Asset(
+            id="consumer-research-1",
+            user_id="user-1",
+            user_skill_id=research.id,
+            payload_json={"interview_count": 6},
+            effective_at=datetime(2026, 8, 10, 6, 0),
+        )
+    )
+    await session.commit()
+
+    for intent in ("总结过去 30 天的消费情况", "总结过去 30 天的消费额"):
+        response = await list_scope_candidates(
+            session,
+            user_id="user-1",
+            adapter_kind="period_summary",
+            intent=intent,
+            now=NOW,
+            timezone_name="Asia/Shanghai",
+        )
+
+        assert [group.skill_id for group in response.record_groups] == [
+            "skill-expense"
+        ]
+        assert [
+            reference.id
+            for reference in response.default_scope.supporting_references
+        ] == ["asset-1"]
 
 
 async def test_cjk_alias_still_matches_a_natural_expense_request(session):
@@ -662,6 +721,24 @@ async def test_additive_identity_and_domain_terms_union_matching_groups(session)
         user_id="user-1",
         adapter_kind="period_summary",
         intent="总结过去 30 天跑步和财务情况",
+        now=NOW,
+        timezone_name="Asia/Shanghai",
+    )
+
+    assert [group.skill_id for group in response.record_groups] == [
+        "skill-expense",
+        "skill-running",
+    ]
+
+
+async def test_additive_relation_only_applies_to_adjacent_semantic_spans(session):
+    await _seed_report_record_types(session)
+
+    response = await list_scope_candidates(
+        session,
+        user_id="user-1",
+        adapter_kind="period_summary",
+        intent="总结过去 30 天健康领域的跑步和消费情况",
         now=NOW,
         timezone_name="Asia/Shanghai",
     )
