@@ -842,6 +842,128 @@ async def test_consumer_word_in_description_does_not_join_an_additive_expense_ma
     } == {"asset-0", "asset-1"}
 
 
+async def test_consumer_goods_identity_does_not_inherit_expense_aliases(session):
+    await _seed_report_record_types(session)
+    research = UserSkill(
+        id="skill-consumer-goods-research",
+        user_id="user-1",
+        machine_name="consumer_goods_research",
+        display_name="消费品研究",
+        description="记录商品研究结论",
+        domain="研究",
+        schema_json={
+            "type": "object",
+            "properties": {"sample_count": {"type": "number"}},
+        },
+    )
+    session.add(research)
+    await session.flush()
+    session.add(
+        Asset(
+            id="consumer-goods-1",
+            user_id="user-1",
+            user_skill_id=research.id,
+            payload_json={"sample_count": 6},
+            effective_at=datetime(2026, 8, 10, 6, 0),
+        )
+    )
+    await session.commit()
+
+    response = await list_scope_candidates(
+        session,
+        user_id="user-1",
+        adapter_kind="period_summary",
+        intent="总结过去 30 天的消费情况",
+        now=NOW,
+        timezone_name="Asia/Shanghai",
+    )
+
+    assert [group.skill_id for group in response.record_groups] == [
+        "skill-expense"
+    ]
+    assert [
+        reference.id for reference in response.default_scope.supporting_references
+    ] == ["asset-1"]
+
+
+async def test_consumer_goods_description_does_not_create_an_expense_match(session):
+    skills = [
+        UserSkill(
+            id="skill-consumer-goods-research",
+            user_id="user-1",
+            machine_name="goods_research",
+            display_name="商品研究",
+            description="记录消费品研究结论",
+            domain="研究",
+            schema_json={
+                "type": "object",
+                "properties": {"sample_count": {"type": "number"}},
+            },
+        ),
+        UserSkill(
+            id="skill-water",
+            user_id="user-1",
+            machine_name="water_log",
+            display_name="喝水记录",
+            description="记录饮水量",
+            domain="健康",
+            schema_json={
+                "type": "object",
+                "properties": {"value": {"type": "number"}},
+            },
+        ),
+        UserSkill(
+            id="skill-dance",
+            user_id="user-1",
+            machine_name="dance_log",
+            display_name="跳舞记录",
+            description="记录舞蹈时长",
+            domain="运动",
+            schema_json={
+                "type": "object",
+                "properties": {"value": {"type": "number"}},
+            },
+        ),
+    ]
+    session.add_all(skills)
+    await session.flush()
+    session.add_all(
+        [
+            Asset(
+                id=f"consumer-goods-description-{index}",
+                user_id="user-1",
+                user_skill_id=skill.id,
+                payload_json={"value": index + 1},
+                effective_at=datetime(2026, 8, 10, index + 1, 0),
+            )
+            for index, skill in enumerate(skills)
+        ]
+    )
+    await session.commit()
+
+    response = await list_scope_candidates(
+        session,
+        user_id="user-1",
+        adapter_kind="period_summary",
+        intent="总结过去 30 天的消费情况",
+        now=NOW,
+        timezone_name="Asia/Shanghai",
+    )
+
+    assert [group.skill_id for group in response.record_groups] == [
+        "skill-consumer-goods-research",
+        "skill-dance",
+        "skill-water",
+    ]
+    assert {
+        reference.id for reference in response.default_scope.supporting_references
+    } == {
+        "consumer-goods-description-0",
+        "consumer-goods-description-1",
+        "consumer-goods-description-2",
+    }
+
+
 async def test_cjk_alias_still_matches_a_natural_expense_request(session):
     await _seed_report_record_types(session)
 

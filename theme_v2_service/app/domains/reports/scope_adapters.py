@@ -94,8 +94,8 @@ _SKILL_ALIASES = {
     "water": {"喝水", "饮水", "water", "hydration"},
     "dance": {"跳舞", "舞蹈", "dance"},
 }
-_ALIAS_LEXICAL_EXTENSION_EXCLUSIONS = {
-    "消费": {"者"},
+_ALIAS_LEXICALIZED_TERMS = {
+    "消费": {"消费者", "消费品"},
 }
 _ADDITIVE_RELATION = re.compile(r"(?:以及|还有|和|与|及|跟|、)")
 
@@ -140,16 +140,16 @@ def _metadata_value_supports_alias(alias: str, value: str | None) -> bool:
         return False
     if alias.isascii() and alias.isalnum():
         return True
-    excluded_extensions = _ALIAS_LEXICAL_EXTENSION_EXCLUSIONS.get(alias, set())
-    if not excluded_extensions:
+    lexicalized_terms = _ALIAS_LEXICALIZED_TERMS.get(alias, set())
+    if not lexicalized_terms:
         return True
     normalized = _normalize_term(value)
     return any(
         not any(
-            normalized.startswith(extension, end)
-            for extension in excluded_extensions
+            normalized.startswith(lexicalized_term, start)
+            for lexicalized_term in lexicalized_terms
         )
-        for _, end in spans
+        for start, _ in spans
     )
 
 
