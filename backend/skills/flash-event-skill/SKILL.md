@@ -75,7 +75,9 @@ For `create` / `update`:
 - 基准是消息里的「现在是 <ISO 时刻>(周X)」—— 含当前日期、时刻、星期
 - 「今天/明天/后天/下周X」转绝对日期(以上面的当前日期为基准)
 - 「刚刚/现在/几分钟前」→ 用**当前时刻**(含时分),**不要** 00:00
-- 「X 点到 Y 点」 → start_at + end_at 同日
+- 「X 点到 Y 点」 → 沿时间轴理解：`end_at` 必须是 `start_at` 之后最近、且符合语境的那个时刻，不保证同日
+- 结束时间没有明确日期且初次换算后 `end_at <= start_at` 时，调用工具传 `roll_forward_end=1`；明确说了日期时不要传，由工具校验非法区间
+- 例：「晚上 11 点到 2 点」→ 当天 23:00 至次日 02:00；「晚上 11 点到 12 点」默认至次日 00:00，除非上下文明确指次日中午
 - 「X 点开会一小时」 → start_at + end_at = start_at + 1h
 - 只说「X 点」 → 只填 start_at
 - 默认时区 +08:00
@@ -91,6 +93,7 @@ For `create` / `update`:
 Call `tool_create_event`:
 - `title`, `start_at` (required)
 - `end_at`, `location`, `description`, `all_day` (optional)
+- `roll_forward_end`: 仅当结束钟点没有明确日期、需要取开始之后最近时刻时传 `1`
 - `source_input_turn_id`: pass through from input
 
 记下返回的 `event_id`,Step 3b 要用。

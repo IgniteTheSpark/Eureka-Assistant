@@ -312,6 +312,7 @@ async def tool_create_event(
     recurrence_rule: str = "",
     source_input_turn_id: str = "",
     user_id: str = "default",
+    roll_forward_end: int = 0,
 ) -> str:
     """
     Create a calendar event (scheduled time block — distinct from todo's deadline).
@@ -321,11 +322,13 @@ async def tool_create_event(
     end_at:   ISO8601 (optional)
     location: free-form (e.g. "会议室B", "Zoom")
     all_day:  0 or 1
+    roll_forward_end: set to 1 only when an end clock time without an explicit
+        date must advance to the nearest valid instant after start_at
     source_input_turn_id: when this event was extracted from a voice flash, pass the turn id
     """
     return _jsonify(await create_event(
         title, start_at, end_at, location, description, all_day,
-        recurrence_rule, source_input_turn_id, user_id,
+        recurrence_rule, source_input_turn_id, user_id, roll_forward_end,
     ))
 
 
