@@ -102,9 +102,7 @@ void main() {
     },
   );
 
-  testWidgets('profile button appears and fires callback when onProfilePressed set', (
-    tester,
-  ) async {
+  testWidgets('logo fires callback when onLogoPressed set', (tester) async {
     var profileTaps = 0;
     final semantics = tester.ensureSemantics();
 
@@ -114,24 +112,24 @@ void main() {
           deviceStatus: const DeviceStatusSummary.disconnected(),
           onDeviceSelected: _noopDeviceTarget,
           onNotificationsPressed: _noop,
-          onProfilePressed: () => profileTaps++,
+          onLogoPressed: () => profileTaps++,
         ),
       ),
     );
 
-    expect(find.bySemanticsLabel('个人中心'), findsOneWidget);
-    final size = tester.getSize(find.bySemanticsLabel('个人中心'));
+    expect(find.bySemanticsLabel('UReka logo'), findsOneWidget);
+    final size = tester.getSize(find.bySemanticsLabel('UReka logo'));
     expect(size.width, greaterThanOrEqualTo(44), reason: 'profile hit target');
     expect(size.height, greaterThanOrEqualTo(44), reason: 'profile hit target');
 
-    await tester.tap(find.bySemanticsLabel('个人中心'));
+    await tester.tap(find.bySemanticsLabel('UReka logo'));
     expect(profileTaps, 1);
     expect(tester.takeException(), isNull);
 
     semantics.dispose();
   });
 
-  testWidgets('profile button hidden when onProfilePressed omitted', (
+  testWidgets('logo remains visible when no logo callback is provided', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -144,7 +142,7 @@ void main() {
       ),
     );
 
-    expect(find.bySemanticsLabel('个人中心'), findsNothing);
+    expect(find.bySemanticsLabel('UReka logo'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

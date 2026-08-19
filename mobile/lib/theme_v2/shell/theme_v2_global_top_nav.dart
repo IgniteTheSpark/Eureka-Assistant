@@ -14,7 +14,7 @@ class ThemeV2GlobalTopNav extends StatelessWidget {
     required this.deviceStatus,
     required this.onDeviceSelected,
     required this.onNotificationsPressed,
-    this.onProfilePressed,
+    this.onLogoPressed,
     this.unreadNotificationCount = 0,
     this.transparentSurface = false,
     this.floatingDock = false,
@@ -23,7 +23,7 @@ class ThemeV2GlobalTopNav extends StatelessWidget {
   final DeviceStatusSummary deviceStatus;
   final ValueChanged<ThemeV2DeviceTarget> onDeviceSelected;
   final VoidCallback onNotificationsPressed;
-  final VoidCallback? onProfilePressed;
+  final VoidCallback? onLogoPressed;
   final int unreadNotificationCount;
   final bool transparentSurface;
   final bool floatingDock;
@@ -41,7 +41,7 @@ class ThemeV2GlobalTopNav extends StatelessWidget {
       deviceStatus: deviceStatus,
       onDeviceSelected: onDeviceSelected,
       onNotificationsPressed: onNotificationsPressed,
-      onProfilePressed: onProfilePressed,
+      onLogoPressed: onLogoPressed,
       unreadNotificationCount: unreadNotificationCount,
     );
     if (floatingDock) {
@@ -88,13 +88,13 @@ class _TopNavContent extends StatelessWidget {
     required this.onDeviceSelected,
     required this.onNotificationsPressed,
     required this.unreadNotificationCount,
-    this.onProfilePressed,
+    this.onLogoPressed,
   });
 
   final DeviceStatusSummary deviceStatus;
   final ValueChanged<ThemeV2DeviceTarget> onDeviceSelected;
   final VoidCallback onNotificationsPressed;
-  final VoidCallback? onProfilePressed;
+  final VoidCallback? onLogoPressed;
   final int unreadNotificationCount;
 
   @override
@@ -108,19 +108,24 @@ class _TopNavContent extends StatelessWidget {
           return Row(
             children: [
               Semantics(
+                button: onLogoPressed != null,
                 label: 'UReka logo',
-                image: true,
-                child: ExcludeSemantics(
-                  child: SizedBox(
-                    width: narrow ? 68 : 84,
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: SvgPicture.asset(
-                        'assets/logo/eureka_wordmark.svg',
-                        height: 18,
-                        colorFilter: ColorFilter.mode(
-                          tokens.accent,
-                          BlendMode.srcIn,
+                image: onLogoPressed == null,
+                child: InkWell(
+                  onTap: onLogoPressed,
+                  borderRadius: BorderRadius.circular(ThemeV2Radii.sm),
+                  child: ExcludeSemantics(
+                    child: SizedBox(
+                      width: narrow ? 68 : 84,
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: SvgPicture.asset(
+                          'assets/logo/eureka_wordmark.svg',
+                          height: 18,
+                          colorFilter: ColorFilter.mode(
+                            tokens.accent,
+                            BlendMode.srcIn,
+                          ),
                         ),
                       ),
                     ),
@@ -187,15 +192,6 @@ class _TopNavContent extends StatelessWidget {
                     ),
                 ],
               ),
-              if (onProfilePressed != null) ...[
-                const SizedBox(width: ThemeV2Spacing.xs),
-                ThemeV2IconButton(
-                  semanticLabel: '个人中心',
-                  icon: Icons.person_outline,
-                  color: tokens.muted,
-                  onPressed: onProfilePressed!,
-                ),
-              ],
             ],
           );
         },

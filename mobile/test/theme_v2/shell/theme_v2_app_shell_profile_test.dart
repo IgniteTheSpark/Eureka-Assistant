@@ -17,9 +17,7 @@ void main() {
     AuthStore.userId = null;
   });
 
-  testWidgets('profile button opens account sheet with logout entry', (
-    tester,
-  ) async {
+  testWidgets('logo opens the full account page', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildEurekaTheme(EurekaColors.light),
@@ -35,28 +33,26 @@ void main() {
       ),
     );
 
-    // Top nav exposes the profile action.
-    expect(find.bySemanticsLabel('个人中心'), findsOneWidget);
+    // The wordmark is the account entry point; no separate profile button exists.
+    expect(find.bySemanticsLabel('UReka logo'), findsOneWidget);
+    expect(find.bySemanticsLabel('个人中心'), findsNothing);
 
-    await tester.tap(find.bySemanticsLabel('个人中心'));
+    await tester.tap(find.bySemanticsLabel('UReka logo'));
     await tester.pumpAndSettle();
 
-    // Account sheet shows the account label + logout entry.
-    expect(find.text('Eureka 账号'), findsOneWidget);
+    expect(find.text('账户'), findsNWidgets(2));
+    expect(find.text('修改密码'), findsOneWidget);
+    expect(find.text('导出数据'), findsOneWidget);
+    expect(find.text('停用账户'), findsOneWidget);
     expect(find.text('退出登录'), findsOneWidget);
-
-    // Dismiss the sheet without triggering the platform-heavy logout path.
-    await tester.tapAt(const Offset(20, 20));
-    await tester.pumpAndSettle();
-    expect(find.text('退出登录'), findsNothing);
   });
 
-  testWidgets('tapping 退出登录 dismisses the account sheet', (tester) async {
-    // Seed a logged-in session so the sheet shows the real account email.
+  testWidgets('account page shows the persisted account email', (tester) async {
     SharedPreferences.setMockInitialValues({
       'eureka_token': 'test-token',
       'eureka_email': 'm6ui@test.com',
       'eureka_user_id': 'user-1',
+      'eureka_onboarding_status': 'skipped',
     });
     AuthStore.token = 'test-token';
     AuthStore.userId = 'user-1';
@@ -78,19 +74,8 @@ void main() {
       ),
     );
 
-    await tester.tap(find.bySemanticsLabel('个人中心'));
+    await tester.tap(find.bySemanticsLabel('UReka logo'));
     await tester.pumpAndSettle();
     expect(find.text('m6ui@test.com'), findsOneWidget);
-
-    // The onTap pops the sheet synchronously, then fires the platform-heavy
-    // logout() cleanup chain (BLE teardown etc.). That chain needs real device
-    // platform channels + the google_fonts HTTP fetch, neither available in a
-    // widget test, so the widget contract under test is limited to: tapping
-    // 退出登录 dismisses the account sheet. (Session clearing itself is
-    // AuthController's own responsibility, covered by real-device QA.)
-    await tester.tap(find.text('退出登录'));
-    await tester.pumpAndSettle();
-    expect(find.text('退出登录'), findsNothing);
-    expect(find.text('m6ui@test.com'), findsNothing);
   });
 }

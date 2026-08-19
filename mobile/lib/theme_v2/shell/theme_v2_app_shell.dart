@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../app_shell.dart' show scheduleShellStartupSurface;
-import '../../auth/auth_controller.dart';
 import '../../config.dart';
 import '../../data_revision.dart';
 import '../../pages/calendar_page.dart' show calendarHome;
@@ -19,6 +18,7 @@ import '../capture/capture_activity_coordinator.dart';
 import '../capture/capture_activity_models.dart';
 import '../capture/capture_activity_top_bar.dart';
 import '../capture/capture_session_page.dart';
+import '../account/theme_v2_account_page.dart';
 import '../device/theme_v2_device_route.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../home/home_repository.dart';
@@ -288,108 +288,9 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
   }
 
   void _openProfile(BuildContext context) {
-    final tokens = context.themeV2;
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: tokens.surface,
-      showDragHandle: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-      ),
-      builder: (sheetCtx) => SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: tokens.accentSoft,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: tokens.accent.withValues(alpha: 0.28),
-                      ),
-                    ),
-                    child: Icon(
-                      Icons.person_outline,
-                      color: tokens.accent,
-                      size: 22,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          AuthController.instance.email ?? '已登录',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: tokens.foreground,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Eureka 账号',
-                          style: TextStyle(color: tokens.muted, fontSize: 12),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 18),
-              GestureDetector(
-                onTap: () {
-                  Navigator.of(sheetCtx).pop();
-                  AuthController.instance.logout(); // gate rebuilds to login
-                },
-                behavior: HitTestBehavior.opaque,
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 14,
-                  ),
-                  decoration: BoxDecoration(
-                    color: tokens.background,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: tokens.border),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.logout, size: 19, color: tokens.critical),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          '退出登录',
-                          style: TextStyle(
-                            color: tokens.critical,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      Icon(Icons.chevron_right, size: 18, color: tokens.muted),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const ThemeV2AccountPage()));
   }
 
   void _openReports(BuildContext context, {bool startCreate = false}) {
@@ -541,7 +442,7 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
           : RekaNotifications.instance.unread,
       onDeviceSelected: (target) => _openDevice(context, target),
       onNotificationsPressed: () => _openNotifications(context),
-      onProfilePressed: () => _openProfile(context),
+      onLogoPressed: () => _openProfile(context),
     );
     final captureSnapshot = _captureActivityCoordinator.snapshot;
     final topNav = AnimatedSwitcher(
