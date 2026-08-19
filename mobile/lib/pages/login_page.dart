@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../auth/auth_controller.dart';
 import '../config.dart';
@@ -17,62 +20,164 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  static const bool _showBaizhiLogin = bool.fromEnvironment(
-    'SHOW_BAIZHI_LOGIN',
-    defaultValue: false,
+  static final _uppercasePattern = RegExp(r'[A-Z]');
+  static final _lowercasePattern = RegExp(r'[a-z]');
+  static final _digitPattern = RegExp(r'[0-9]');
+  static final _safeSymbolPattern = RegExp(r'[!@#$%^&*._+=?-]');
+  static final _allowedPasswordPattern = RegExp(
+    r'^[A-Za-z0-9!@#$%^&*._+=?-]*$',
   );
 
   final _email = TextEditingController();
   final _password = TextEditingController();
+  final _passwordConfirmation = TextEditingController();
+  final _verificationCode = TextEditingController();
   bool _register = false; // false = login, true = register
   bool _busy = false;
-  bool _busyBaizhi = false; // §13.1 百智 OAuth in flight
+  bool _codeBusy = false;
+  int _codeCooldown = 0;
   String? _error;
+  String? _notice;
+  String _termsUrl = '';
+  String _privacyUrl = '';
+  String _termsVersion = '';
+  bool _termsAccepted = false;
+  Timer? _codeTimer;
+
+  String get _passwordValue => _password.text;
+  bool get _passwordLengthValid =>
+      _passwordValue.length >= 8 && _passwordValue.length <= 128;
+  bool get _passwordHasUppercase => _uppercasePattern.hasMatch(_passwordValue);
+  bool get _passwordHasLowercase => _lowercasePattern.hasMatch(_passwordValue);
+  bool get _passwordHasDigit => _digitPattern.hasMatch(_passwordValue);
+  bool get _passwordHasSafeSymbol =>
+      _safeSymbolPattern.hasMatch(_passwordValue);
+  bool get _passwordCharactersValid =>
+      _allowedPasswordPattern.hasMatch(_passwordValue);
+  bool get _passwordPolicyValid =>
+      _passwordLengthValid &&
+      _passwordHasUppercase &&
+      _passwordHasLowercase &&
+      _passwordHasDigit &&
+      _passwordHasSafeSymbol &&
+      _passwordCharactersValid;
 
   @override
   void dispose() {
     _email.dispose();
     _password.dispose();
+    _passwordConfirmation.dispose();
+    _verificationCode.dispose();
+    _codeTimer?.cancel();
     super.dispose();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAuthConfig();
+  }
+
+  Future<void> _loadAuthConfig() async {
+    final config = await AuthController.instance.loadAuthConfig();
+    if (!mounted) return;
+    setState(() {
+      _termsUrl = config['terms_url'] ?? '';
+      _privacyUrl = config['privacy_url'] ?? '';
+      _termsVersion = config['terms_version'] ?? '';
+    });
+  }
+
+  Future<void> _openLegalUrl(String value) async {
+    final uri = Uri.tryParse(value);
+    if (uri == null || uri.scheme != 'https') return;
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  Future<void> _requestVerificationCode() async {
+    if (_codeBusy || _codeCooldown > 0) return;
+    final email = _email.text.trim();
+    if (email.isEmpty) {
+      setState(() => _error = '请先输入邮箱');
+      return;
+    }
+    setState(() {
+      _codeBusy = true;
+      _error = null;
+      _notice = null;
+    });
+    final error = await AuthController.instance.requestVerificationCode(
+      email,
+      'register',
+    );
+    if (!mounted) return;
+    setState(() {
+      _codeBusy = false;
+      _error = error;
+      _notice = error == null ? '验证码已发送，请查看后台日志' : null;
+    });
+    if (error == null) _startCodeCooldown();
+  }
+
+  void _startCodeCooldown() {
+    _codeTimer?.cancel();
+    setState(() => _codeCooldown = 60);
+    _codeTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_codeCooldown <= 1) {
+        timer.cancel();
+        setState(() => _codeCooldown = 0);
+        return;
+      }
+      setState(() => _codeCooldown--);
+    });
   }
 
   Future<void> _submit() async {
     if (_busy) return;
     final email = _email.text.trim();
     final pw = _password.text;
-    if (email.isEmpty || pw.isEmpty) {
-      setState(() => _error = '请输入邮箱和密码');
+    final code = _verificationCode.text.trim();
+    if (email.isEmpty || pw.isEmpty || (_register && code.isEmpty)) {
+      setState(() {
+        _error = _register ? '请输入邮箱、验证码和密码' : '请输入邮箱和密码';
+      });
+      return;
+    }
+    if (_register && !_passwordPolicyValid) {
+      setState(() => _error = '密码未满足下方全部要求');
+      return;
+    }
+    if (_register && pw != _passwordConfirmation.text) {
+      setState(() => _error = '两次输入的密码不一致');
+      return;
+    }
+    if (_register && (!_termsAccepted || _termsVersion.isEmpty)) {
+      setState(() => _error = '请先阅读并同意服务条款和隐私政策');
       return;
     }
     setState(() {
       _busy = true;
       _error = null;
+      _notice = null;
     });
     final auth = AuthController.instance;
     final err = _register
-        ? await auth.register(email, pw)
+        ? await auth.register(
+            email,
+            code,
+            pw,
+            termsVersion: _termsVersion,
+            termsAccepted: _termsAccepted,
+          )
         : await auth.login(email, pw);
     if (!mounted) return;
     setState(() {
       _busy = false;
       _error = err; // null = success → gate rebuilds away from here
-    });
-  }
-
-  /// §13.1 — 用百智登录 (OAuth). Backend mediates; we only get the Eureka JWT back.
-  Future<void> _submitBaizhi() async {
-    if (_busy || _busyBaizhi) return;
-    setState(() {
-      _busyBaizhi = true;
-      _error = null;
-    });
-    final err = await AuthController.instance.loginWithBaizhi();
-    if (!mounted) return;
-    setState(() {
-      _busyBaizhi = false;
-      // null = success (gate rebuilds away); '' = user cancelled (stay silent);
-      // else show the message.
-      if (err != null && err.isNotEmpty) _error = err;
     });
   }
 
@@ -105,6 +210,42 @@ class _LoginPageState extends State<LoginPage> {
                 ),
                 const SizedBox(height: 28),
                 _field(eu, _email, '邮箱', TextInputType.emailAddress, false),
+                if (_register) ...[
+                  const SizedBox(height: 12),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: _field(
+                          eu,
+                          _verificationCode,
+                          '验证码',
+                          TextInputType.number,
+                          false,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      TextButton(
+                        onPressed: (_busy || _codeBusy || _codeCooldown > 0)
+                            ? null
+                            : _requestVerificationCode,
+                        child: _codeBusy
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : Text(
+                                _codeCooldown > 0
+                                    ? '${_codeCooldown.toString()}秒后重试'
+                                    : '获取验证码',
+                              ),
+                      ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 12),
                 _field(
                   eu,
@@ -112,13 +253,145 @@ class _LoginPageState extends State<LoginPage> {
                   '密码',
                   TextInputType.visiblePassword,
                   true,
+                  onChanged: (_) => setState(() {}),
                   onSubmit: (_) => _submit(),
                 ),
+                if (_register) ...[
+                  const SizedBox(height: 12),
+                  _field(
+                    eu,
+                    _passwordConfirmation,
+                    '确认密码',
+                    TextInputType.visiblePassword,
+                    true,
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  const SizedBox(height: 6),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '密码要求',
+                          style: TextStyle(color: eu.textLo, fontSize: 12),
+                        ),
+                        const SizedBox(height: 4),
+                        _passwordRule(eu, '8–128 位', _passwordLengthValid),
+                        _passwordRule(eu, '包含大写字母 A–Z', _passwordHasUppercase),
+                        _passwordRule(eu, '包含小写字母 a–z', _passwordHasLowercase),
+                        _passwordRule(eu, '包含数字 0–9', _passwordHasDigit),
+                        _passwordRule(
+                          eu,
+                          '包含安全符号 ! @ # \$ % ^ & * . _ + = ? -',
+                          _passwordHasSafeSymbol,
+                        ),
+                        _passwordRule(
+                          eu,
+                          '只允许 ASCII 字母、数字和上述安全符号',
+                          _passwordCharactersValid,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          _passwordPolicyValid ? '密码强度：符合要求' : '密码强度：未完成',
+                          style: TextStyle(
+                            color: _passwordPolicyValid ? eu.brand : eu.textLo,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: 28,
+                        height: 32,
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Transform.scale(
+                            scale: 0.86,
+                            child: Checkbox(
+                              visualDensity: VisualDensity.compact,
+                              materialTapTargetSize:
+                                  MaterialTapTargetSize.shrinkWrap,
+                              value: _termsAccepted,
+                              onChanged: _busy
+                                  ? null
+                                  : (value) => setState(
+                                      () => _termsAccepted = value ?? false,
+                                    ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 2),
+                      Expanded(
+                        child: Wrap(
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          runSpacing: -4,
+                          children: [
+                            const Text(
+                              '我已阅读并同意',
+                              style: TextStyle(fontSize: 12, height: 1.1),
+                            ),
+                            TextButton(
+                              style: TextButton.styleFrom(
+                                padding: EdgeInsets.zero,
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                visualDensity: VisualDensity.compact,
+                                textStyle: const TextStyle(
+                                  fontSize: 12,
+                                  height: 1.1,
+                                ),
+                              ),
+                              onPressed: _termsUrl.isEmpty
+                                  ? null
+                                  : () => _openLegalUrl(_termsUrl),
+                              child: const Text('服务条款'),
+                            ),
+                            const Text(
+                              '和',
+                              style: TextStyle(fontSize: 12, height: 1.1),
+                            ),
+                            TextButton(
+                              style: TextButton.styleFrom(
+                                padding: EdgeInsets.zero,
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                visualDensity: VisualDensity.compact,
+                                textStyle: const TextStyle(
+                                  fontSize: 12,
+                                  height: 1.1,
+                                ),
+                              ),
+                              onPressed: _privacyUrl.isEmpty
+                                  ? null
+                                  : () => _openLegalUrl(_privacyUrl),
+                              child: const Text('隐私政策'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
                 if (_error != null) ...[
                   const SizedBox(height: 12),
                   Text(
                     _error!,
                     style: TextStyle(color: eu.accentRed, fontSize: 13),
+                  ),
+                ],
+                if (_notice != null) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    _notice!,
+                    style: TextStyle(color: eu.brand, fontSize: 13),
                   ),
                 ],
                 const SizedBox(height: 20),
@@ -162,66 +435,6 @@ class _LoginPageState extends State<LoginPage> {
                           ),
                   ),
                 ),
-                if (_showBaizhiLogin) ...[
-                  const SizedBox(height: 18),
-                  // 「或」divider.
-                  Row(
-                    children: [
-                      Expanded(child: Divider(color: eu.border, height: 1)),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        child: Text(
-                          '或',
-                          style: TextStyle(color: eu.textLo, fontSize: 12),
-                        ),
-                      ),
-                      Expanded(child: Divider(color: eu.border, height: 1)),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                  // §13.1 用百智登录 (OAuth) — 持卡用户已有百智账号。
-                  GestureDetector(
-                    onTap: (_busy || _busyBaizhi) ? null : _submitBaizhi,
-                    behavior: HitTestBehavior.opaque,
-                    child: Container(
-                      height: 50,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: eu.surfaceRaised,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: eu.border),
-                      ),
-                      child: _busyBaizhi
-                          ? SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: eu.brand,
-                              ),
-                            )
-                          : Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.badge_outlined,
-                                  size: 18,
-                                  color: eu.textHi,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  '用百智登录',
-                                  style: TextStyle(
-                                    color: eu.textHi,
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                    ),
-                  ),
-                ],
                 const SizedBox(height: 16),
                 GestureDetector(
                   onTap: _busy
@@ -275,12 +488,14 @@ class _LoginPageState extends State<LoginPage> {
     String hint,
     TextInputType type,
     bool obscure, {
+    ValueChanged<String>? onChanged,
     ValueChanged<String>? onSubmit,
   }) {
     return TextField(
       controller: c,
       keyboardType: type,
       obscureText: obscure,
+      onChanged: onChanged,
       autocorrect: false,
       enableSuggestions: false,
       textInputAction: obscure ? TextInputAction.go : TextInputAction.next,
@@ -307,6 +522,31 @@ class _LoginPageState extends State<LoginPage> {
           borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide(color: eu.brand),
         ),
+      ),
+    );
+  }
+
+  Widget _passwordRule(EurekaColors eu, String label, bool valid) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Row(
+        children: [
+          Icon(
+            valid ? Icons.check_circle : Icons.radio_button_unchecked,
+            size: 15,
+            color: valid ? eu.brand : eu.textLo,
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: valid ? eu.brand : eu.textLo,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
