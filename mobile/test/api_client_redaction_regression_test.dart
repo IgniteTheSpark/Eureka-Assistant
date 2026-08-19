@@ -8,6 +8,33 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 void main() {
+  test('binary API requests retain bearer auth and response MIME', () async {
+    AuthStore.token = 'binary-token';
+    try {
+      final api = ApiClient(
+        baseUrl: 'http://theme-v2.test',
+        enableLogging: false,
+        client: MockClient((request) async {
+          expect(request.url.path, '/api/files/file-1');
+          expect(request.headers['Authorization'], 'Bearer binary-token');
+          return http.Response.bytes(
+            const [0xff, 0xd8, 0xff],
+            200,
+            headers: const {'content-type': 'image/jpeg'},
+          );
+        }),
+      );
+      addTearDown(api.close);
+
+      final result = await api.getBytes('/api/files/file-1');
+
+      expect(result.bytes, const [0xff, 0xd8, 0xff]);
+      expect(result.contentType, 'image/jpeg');
+    } finally {
+      AuthStore.token = null;
+    }
+  });
+
   test('debug API logs redact the Authorization header', () async {
     const secret = 'qa-secret-bearer-token';
     final messages = <String>[];

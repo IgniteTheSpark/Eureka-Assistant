@@ -23,6 +23,35 @@ final _trustedReadyIllustrationSlot = RegExp(
   r'data-illustration-status="ready"><img src="/api/files/[A-Za-z0-9_-]+" '
   r'alt="报告插图" loading="lazy"></figure>',
 );
+final _privateReportImagePath = RegExp(r'/api/files/[A-Za-z0-9_-]+');
+
+Future<String> inlinePrivateReportImages(
+  String html,
+  Future<ApiBinaryResponse> Function(String path) load,
+) async {
+  var prepared = html;
+  final paths = _privateReportImagePath
+      .allMatches(html)
+      .map((match) => match.group(0)!)
+      .toSet();
+  for (final path in paths) {
+    try {
+      final response = await load(path);
+      final contentType = response.contentType;
+      if (response.bytes.isEmpty ||
+          contentType == null ||
+          !contentType.startsWith('image/')) {
+        continue;
+      }
+      final dataUri =
+          'data:$contentType;base64,${base64Encode(response.bytes)}';
+      prepared = prepared.replaceAll('src="$path"', 'src="$dataUri"');
+    } catch (_) {
+      // Keep the report readable if a private image is temporarily unavailable.
+    }
+  }
+  return prepared;
+}
 
 String? extractTrustedReportIllustrationSlot(String html) {
   final matches = _trustedReadyIllustrationSlot.allMatches(html).toList();
@@ -222,6 +251,7 @@ class _ReportViewerPageState extends State<ReportViewerPage>
 
   Future<void> _bootstrap() async {
     if (!widget.enableLegacyEnhancements) {
+      _html = await inlinePrivateReportImages(_html, _api.getBytes);
       await _controller.loadHtmlString(_html);
       _scheduleIllustrationPoll();
       return;
@@ -245,6 +275,7 @@ class _ReportViewerPageState extends State<ReportViewerPage>
     } catch (_) {
       _pixel = _mascot = null; // missing → signature band shows wordmark only
     }
+    _html = await inlinePrivateReportImages(_html, _api.getBytes);
     await _controller.loadHtmlString(_withEngines(_html));
     _scheduleIllustrationPoll();
   }
@@ -296,8 +327,12 @@ class _ReportViewerPageState extends State<ReportViewerPage>
       if (nextHtml.isEmpty) return;
       if (nextStatus == 'ready' || nextStatus == 'failed') {
         final patched = await _patchIllustrationSlot(nextHtml, nextStatus);
-        if (!patched) await _reloadPreservingScroll(nextHtml);
-        _html = nextHtml;
+        final preparedHtml = await inlinePrivateReportImages(
+          nextHtml,
+          _api.getBytes,
+        );
+        if (!patched) await _reloadPreservingScroll(preparedHtml);
+        _html = preparedHtml;
         _revision = nextRevision;
         _illustrationStatus = nextStatus;
       }
@@ -310,9 +345,10 @@ class _ReportViewerPageState extends State<ReportViewerPage>
   }
 
   Future<bool> _patchIllustrationSlot(String html, String status) async {
-    final slot = extractTrustedReportIllustrationSlot(html);
+    var slot = extractTrustedReportIllustrationSlot(html);
     final String? script;
     if (status == 'ready' && slot != null) {
+      slot = await inlinePrivateReportImages(slot, _api.getBytes);
       script =
           '''(() => {
           const current = document.getElementById('reka-report-illustration');

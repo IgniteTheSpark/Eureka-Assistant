@@ -17,6 +17,13 @@ class ApiException implements Exception {
   String toString() => 'ApiException($statusCode): $body';
 }
 
+class ApiBinaryResponse {
+  const ApiBinaryResponse({required this.bytes, required this.contentType});
+
+  final List<int> bytes;
+  final String? contentType;
+}
+
 /// Thin JSON client over the FastAPI backend. Auth is deferred for v0
 /// (single user), so there are no auth headers yet — the seam to add a
 /// `Authorization: Bearer` lives in [_headers].
@@ -66,6 +73,21 @@ class ApiClient {
     }
     if (res.statusCode >= 400) throw ApiException(res.statusCode, res.body);
     return utf8.decode(res.bodyBytes);
+  }
+
+  Future<ApiBinaryResponse> getBytes(
+    String path, {
+    Map<String, dynamic>? query,
+  }) async {
+    final res = await _client.get(_uri(path, query), headers: _headers());
+    if (res.statusCode == 401 && AuthStore.token != null) {
+      AuthStore.onUnauthorized?.call();
+    }
+    if (res.statusCode >= 400) throw ApiException(res.statusCode, res.body);
+    return ApiBinaryResponse(
+      bytes: res.bodyBytes,
+      contentType: res.headers['content-type']?.split(';').first.trim(),
+    );
   }
 
   Future<dynamic> postJson(String path, Map<String, dynamic> body) async {
