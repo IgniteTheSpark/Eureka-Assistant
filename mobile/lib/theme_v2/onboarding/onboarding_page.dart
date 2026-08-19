@@ -29,8 +29,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
     _controller = widget.controller ?? OnboardingController();
     _controller.addListener(_onControllerChanged);
     _controller.loadCatalog();
-    _idempotencyKey =
-        'onb-conf-${DateTime.now().microsecondsSinceEpoch}';
+    _idempotencyKey = 'onb-conf-${DateTime.now().microsecondsSinceEpoch}';
   }
 
   void _onControllerChanged() {
@@ -118,10 +117,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
             child: const Text('开始'),
           ),
           const SizedBox(height: 8),
-          TextButton(
-            onPressed: _handleSkip,
-            child: const Text('跳过'),
-          ),
+          TextButton(onPressed: _handleSkip, child: const Text('跳过')),
         ],
       ),
     );
@@ -175,9 +171,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
               : context.themeV2.surface,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: selected
-                ? context.themeV2.accent
-                : context.themeV2.border,
+            color: selected ? context.themeV2.accent : context.themeV2.border,
           ),
         ),
         padding: const EdgeInsets.all(16),
@@ -213,16 +207,11 @@ class _OnboardingPageState extends State<OnboardingPage> {
         children: [
           Text('选择要记录的字段', style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 8),
-          Text(
-            '可多选,后续可自行增删',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
+          Text('可多选,后续可自行增删', style: Theme.of(context).textTheme.bodySmall),
           const SizedBox(height: 16),
           Expanded(
             child: ListView(
-              children: [
-                for (final field in fields) _fieldTile(field),
-              ],
+              children: [for (final field in fields) _fieldTile(field)],
             ),
           ),
           if (_controller.error != null) ...[
@@ -233,14 +222,8 @@ class _OnboardingPageState extends State<OnboardingPage> {
             ),
           ],
           const SizedBox(height: 12),
-          FilledButton(
-            onPressed: _createSkill,
-            child: const Text('创建记录类型'),
-          ),
-          TextButton(
-            onPressed: _handleSkip,
-            child: const Text('跳过'),
-          ),
+          FilledButton(onPressed: _createSkill, child: const Text('创建记录类型')),
+          TextButton(onPressed: _handleSkip, child: const Text('跳过')),
         ],
       ),
     );
@@ -248,8 +231,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
 
   Widget _fieldTile(Map<String, dynamic> field) {
     final key = field['key'];
-    final selected =
-        _controller.selectedFields.any((f) => f['key'] == key);
+    final selected = _controller.selectedFields.any((f) => f['key'] == key);
     return CheckboxListTile(
       value: selected,
       onChanged: (_) => _controller.toggleField(field),
@@ -283,15 +265,17 @@ class _OnboardingPageState extends State<OnboardingPage> {
               ),
             ),
           ),
+          if (_controller.error != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              _controller.error!,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ],
           const SizedBox(height: 12),
-          FilledButton(
-            onPressed: _runPreview,
-            child: const Text('识别并整理'),
-          ),
-          TextButton(
-            onPressed: _handleSkip,
-            child: const Text('跳过'),
-          ),
+          FilledButton(onPressed: _runPreview, child: const Text('识别并整理')),
+          TextButton(onPressed: _handleSkip, child: const Text('跳过')),
         ],
       ),
     );
@@ -339,25 +323,21 @@ class _OnboardingPageState extends State<OnboardingPage> {
                   const SizedBox(height: 8),
                   Text(
                     _controller.error!,
-                    style: TextStyle(color: Theme.of(context).colorScheme.error),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
                   ),
                 ],
               ],
             ),
           ),
           const SizedBox(height: 12),
-          FilledButton(
-            onPressed: _confirm,
-            child: const Text('保存到首页'),
-          ),
+          FilledButton(onPressed: _confirm, child: const Text('保存到首页')),
           TextButton(
             onPressed: () => _go(_Step.input),
             child: const Text('重新输入'),
           ),
-          TextButton(
-            onPressed: _handleSkip,
-            child: const Text('跳过'),
-          ),
+          TextButton(onPressed: _handleSkip, child: const Text('跳过')),
         ],
       ),
     );

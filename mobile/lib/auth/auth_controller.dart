@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app_events.dart';
@@ -29,9 +28,6 @@ class AuthController extends ChangeNotifier {
   static const _kEmail = 'eureka_email';
   static const _kUserId = 'eureka_user_id';
   static const _kOnboardingStatus = 'eureka_onboarding_status';
-  // Deep-link scheme the backend redirects to after 百智 OAuth (matches
-  // EUREKA_APP_SCHEME server-side). The web-auth session intercepts it.
-  static const _kBaizhiScheme = 'eureka';
 
   String? _email;
   String? _userId;
@@ -138,7 +134,8 @@ class AuthController extends ChangeNotifier {
     String email,
     String verificationCode,
     String password, {
-    String termsVersion = '2026-08-v1',
+    required String termsVersion,
+    required bool termsAccepted,
   }) async {
     final api = ApiClient();
     try {
@@ -147,7 +144,7 @@ class AuthController extends ChangeNotifier {
         'verification_code': verificationCode,
         'password': password,
         'terms_version': termsVersion,
-        'terms_accepted': true,
+        'terms_accepted': termsAccepted,
       });
       final m = (res as Map).cast<String, dynamic>();
       final token = m['token'] as String?;
@@ -165,6 +162,23 @@ class AuthController extends ChangeNotifier {
       return _errMsg(e);
     } catch (_) {
       return '网络错误，请检查连接';
+    } finally {
+      api.close();
+    }
+  }
+
+  Future<Map<String, String>> loadAuthConfig() async {
+    final api = ApiClient();
+    try {
+      final response = await api.getJson('/api/auth/config');
+      final data = (response as Map).cast<String, dynamic>();
+      return {
+        'terms_url': data['terms_url'] as String? ?? '',
+        'privacy_url': data['privacy_url'] as String? ?? '',
+        'terms_version': data['terms_version'] as String? ?? '',
+      };
+    } catch (_) {
+      return const {};
     } finally {
       api.close();
     }
@@ -193,64 +207,24 @@ class AuthController extends ChangeNotifier {
     }
   }
 
-  /// Change the authenticated user's password (§8.3). Returns the replacement
-  /// token on success (old sessions are revoked).
-  Future<String?> changePassword(String currentPassword, String newPassword) async {
+  /// Change the authenticated user's password (§8.3), then require a fresh
+  /// login because the backend revokes the current session.
+  Future<String?> changePassword(
+    String currentPassword,
+    String newPassword,
+  ) async {
     final api = ApiClient();
     try {
-      final res = await api.patchJson('/api/account/password', {
+      await api.patchJson('/api/account/password', {
         'current_password': currentPassword,
         'new_password': newPassword,
       });
-      final m = (res as Map).cast<String, dynamic>();
-      final token = m['token'] as String?;
-      if (token == null) return '修改密码失败，请重试';
-      // Persist the replacement token so a restart keeps the new session
-      // instead of restoring the (now-revoked) old token.
-      AuthStore.token = token;
-      final sp = await SharedPreferences.getInstance();
-      await sp.setString(_kToken, token);
-      notifyListeners();
+      await logout();
       return null;
     } on ApiException catch (e) {
       return _errMsg(e);
     } catch (_) {
       return '网络错误，请检查连接';
-    } finally {
-      api.close();
-    }
-  }
-
-  /// §13.1 / B1 — log in with 百智 (100wiser) OAuth. Fetches the oauth-bridge URL
-  /// from the backend, opens it in a web-auth session, and captures the backend's
-  /// `eureka://auth?token=<EurekaJWT>` deep-link callback. The client only ever
-  /// handles the **Eureka JWT** — 百智's real token stays server-side.
-  /// Returns null on success, '' on user-cancel (silent), or an error message.
-  Future<String?> loginWithBaizhi() async {
-    final api = ApiClient();
-    try {
-      final res = await api.getJson('/api/auth/baizhi/authorize');
-      final authorizeUrl = ((res as Map)['authorize_url']) as String?;
-      if (authorizeUrl == null || authorizeUrl.isEmpty) return '百智登录暂不可用';
-
-      final callback = await FlutterWebAuth2.authenticate(
-        url: authorizeUrl,
-        callbackUrlScheme: _kBaizhiScheme,
-      );
-      final params = Uri.parse(callback).queryParameters;
-      final err = params['error'];
-      if (err != null && err.isNotEmpty) return '百智登录失败，请重试';
-      final token = params['token'];
-      if (token == null || token.isEmpty) return '百智登录失败，请重试';
-      final ok = await _finishLogin(token, userId: null, email: null);
-      if (!ok) return '百智登录失败，请重试';
-      return null;
-    } on ApiException catch (e) {
-      return _errMsg(e);
-    } catch (e) {
-      // flutter_web_auth_2 throws on user-cancel — treat as a silent no-op.
-      if (e.toString().toLowerCase().contains('cancel')) return '';
-      return '百智登录失败，请重试';
     } finally {
       api.close();
     }
@@ -395,7 +369,8 @@ class AuthController extends ChangeNotifier {
     }
     _userId = id;
     _email = me?['email'] as String? ?? _email;
-    _onboardingStatus = me?['onboarding_status'] as String? ?? _onboardingStatus;
+    _onboardingStatus =
+        me?['onboarding_status'] as String? ?? _onboardingStatus;
     AuthStore.userId = id;
     final sp = await SharedPreferences.getInstance();
     await sp.setString(_kUserId, id);

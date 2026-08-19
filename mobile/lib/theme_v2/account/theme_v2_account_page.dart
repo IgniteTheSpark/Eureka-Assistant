@@ -37,35 +37,78 @@ class _ThemeV2AccountPageState extends State<ThemeV2AccountPage> {
 
   Future<void> _exportData() async {
     if (_busy) return;
-    final format = await showDialog<String>(
+    final options = await _repository.fetchExportOptions();
+    if (!mounted) return;
+    if (options.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('暂无可导出的数据')));
+      return;
+    }
+    final selection = await showDialog<(List<String>, String)?>(
       context: context,
-      builder: (dialogContext) => SimpleDialog(
-        title: const Text('导出数据'),
-        children: [
-          SimpleDialogOption(
-            onPressed: () => Navigator.of(dialogContext).pop('md'),
-            child: const ListTile(
-              leading: Icon(Icons.description_outlined),
-              title: Text('Markdown'),
-              subtitle: Text('分组、可读的归档格式'),
+      builder: (dialogContext) {
+        final selected = <String>{};
+        var format = 'md';
+        return StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: const Text('选择导出内容'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final option in options)
+                    CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      value: selected.contains(option['type']),
+                      title: Text('${option['name']} (${option['count']})'),
+                      onChanged: (value) => setDialogState(() {
+                        if (value == true) {
+                          selected.add(option['type'] as String);
+                        } else {
+                          selected.remove(option['type']);
+                        }
+                      }),
+                    ),
+                  const Divider(),
+                  DropdownButtonFormField<String>(
+                    initialValue: format,
+                    decoration: const InputDecoration(labelText: '格式'),
+                    items: const [
+                      DropdownMenuItem(value: 'md', child: Text('Markdown')),
+                      DropdownMenuItem(value: 'csv', child: Text('CSV')),
+                    ],
+                    onChanged: (value) => setDialogState(() {
+                      if (value != null) format = value;
+                    }),
+                  ),
+                ],
+              ),
             ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: selected.isEmpty
+                    ? null
+                    : () => Navigator.of(
+                        dialogContext,
+                      ).pop((selected.toList(), format)),
+                child: const Text('导出'),
+              ),
+            ],
           ),
-          SimpleDialogOption(
-            onPressed: () => Navigator.of(dialogContext).pop('csv'),
-            child: const ListTile(
-              leading: Icon(Icons.table_chart_outlined),
-              title: Text('CSV'),
-              subtitle: Text('表格格式,可用电子表格打开'),
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
-    if (format == null || !mounted) return;
+    if (selection == null || !mounted) return;
+    final (types, format) = selection;
     setState(() => _busy = true);
     try {
       final content = await _repository.exportData(
-        types: const [],
+        types: types,
         format: format,
       );
       if (!mounted) return;
@@ -74,9 +117,9 @@ class _ThemeV2AccountPageState extends State<ThemeV2AccountPage> {
       await Share.shareXFiles([XFile(file.path)]);
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('导出失败,请稍后重试')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('导出失败,请稍后重试')));
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -95,10 +138,8 @@ class _ThemeV2AccountPageState extends State<ThemeV2AccountPage> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('删除账户'),
-        content: const Text(
-          '此操作将永久删除你的所有数据,且无法恢复。确定要继续吗?',
-        ),
+        title: const Text('停用账户'),
+        content: const Text('账户将被停用，登录权限会立即撤销，业务数据会保留。当前不提供自助恢复。确定继续吗?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
@@ -120,7 +161,7 @@ class _ThemeV2AccountPageState extends State<ThemeV2AccountPage> {
     final password = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('确认删除'),
+        title: const Text('确认停用账户'),
         content: TextField(
           controller: passwordController,
           obscureText: true,
@@ -140,7 +181,7 @@ class _ThemeV2AccountPageState extends State<ThemeV2AccountPage> {
             ),
             onPressed: () =>
                 Navigator.of(dialogContext).pop(passwordController.text),
-            child: const Text('永久删除'),
+            child: const Text('停用账户'),
           ),
         ],
       ),
@@ -151,15 +192,15 @@ class _ThemeV2AccountPageState extends State<ThemeV2AccountPage> {
     try {
       await _repository.deleteAccount(password: password);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('账户已删除')),
-      );
       await AuthController.instance.logout();
+      if (mounted) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('删除失败,请检查密码')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('停用失败,请检查密码')));
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -219,29 +260,35 @@ class _ThemeV2AccountPageState extends State<ThemeV2AccountPage> {
               final confirm = confirmController.text;
               if (next.length < 8) {
                 if (dialogContext.mounted) {
-                  ScaffoldMessenger.of(dialogContext).showSnackBar(
-                    const SnackBar(content: Text('密码至少 8 位')),
-                  );
+                  ScaffoldMessenger.of(
+                    dialogContext,
+                  ).showSnackBar(const SnackBar(content: Text('密码至少 8 位')));
                 }
                 return;
               }
               if (next != confirm) {
                 if (dialogContext.mounted) {
-                  ScaffoldMessenger.of(dialogContext).showSnackBar(
-                    const SnackBar(content: Text('两次输入的密码不一致')),
-                  );
+                  ScaffoldMessenger.of(
+                    dialogContext,
+                  ).showSnackBar(const SnackBar(content: Text('两次输入的密码不一致')));
                 }
                 return;
               }
-              final err = await AuthController.instance
-                  .changePassword(current, next);
+              final err = await AuthController.instance.changePassword(
+                current,
+                next,
+              );
               if (dialogContext.mounted) {
                 Navigator.of(dialogContext).pop();
-                ScaffoldMessenger.of(dialogContext).showSnackBar(
-                  SnackBar(
-                    content: Text(err ?? '密码已修改'),
-                  ),
-                );
+                if (err != null) {
+                  ScaffoldMessenger.of(
+                    dialogContext,
+                  ).showSnackBar(SnackBar(content: Text(err)));
+                } else {
+                  Navigator.of(dialogContext).popUntil(
+                    (route) => route.isFirst,
+                  );
+                }
               }
             },
             child: const Text('确认修改'),
@@ -284,7 +331,7 @@ class _ThemeV2AccountPageState extends State<ThemeV2AccountPage> {
           ),
           ListTile(
             leading: Icon(Icons.delete_outline, color: tokens.critical),
-            title: Text('删除账户', style: TextStyle(color: tokens.critical)),
+            title: Text('停用账户', style: TextStyle(color: tokens.critical)),
             onTap: _busy ? null : _deleteAccount,
           ),
           const _SectionHeader('会话'),
@@ -310,10 +357,9 @@ class _SectionHeader extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
       child: Text(
         label,
-        style: Theme.of(context)
-            .textTheme
-            .labelMedium
-            ?.copyWith(color: context.themeV2.muted),
+        style: Theme.of(
+          context,
+        ).textTheme.labelMedium?.copyWith(color: context.themeV2.muted),
       ),
     );
   }

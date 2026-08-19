@@ -5,8 +5,7 @@ import '../../api/api_client.dart';
 /// Talks to the dedicated onboarding endpoints; the catalog endpoint is
 /// public, everything else requires an authenticated session.
 class OnboardingRepository {
-  OnboardingRepository({ApiClient? client})
-      : _client = client ?? ApiClient();
+  OnboardingRepository({ApiClient? client}) : _client = client ?? ApiClient();
 
   final ApiClient _client;
 
@@ -55,9 +54,9 @@ class OnboardingRepository {
   }
 
   /// Marks onboarding as skipped (idempotent).
-  Future<Map<String, dynamic>> skip() async {
+  Future<Map<String, dynamic>> skip({required String idempotencyKey}) async {
     final res = await _client.postJson('/api/onboarding/skip', {
-      'idempotency_key': 'onb-skip-${DateTime.now().microsecondsSinceEpoch}',
+      'idempotency_key': idempotencyKey,
     });
     return (res as Map).cast<String, dynamic>();
   }

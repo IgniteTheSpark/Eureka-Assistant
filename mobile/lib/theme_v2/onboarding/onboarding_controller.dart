@@ -2,12 +2,35 @@ import 'package:flutter/foundation.dart';
 
 import 'onboarding_repository.dart';
 
+const _fallbackCategories = <Map<String, dynamic>>[
+  {
+    'id': 'running',
+    'label': '跑步',
+    'description': '记录距离、时长与地点',
+    'fields': [
+      {'key': 'distance_km', 'label': '距离(公里)', 'type': 'number'},
+      {'key': 'duration_min', 'label': '时长(分钟)', 'type': 'duration'},
+      {'key': 'location', 'label': '地点', 'type': 'text'},
+    ],
+  },
+  {
+    'id': 'custom',
+    'label': '自定义记录',
+    'description': '用自己的字段记录一件重要的事',
+    'fields': [
+      {'key': 'distance_km', 'label': '距离(公里)', 'type': 'number'},
+      {'key': 'duration_min', 'label': '时长(分钟)', 'type': 'duration'},
+      {'key': 'location', 'label': '地点', 'type': 'text'},
+    ],
+  },
+];
+
 /// In-memory onboarding state machine (§6.1). Durable server state is only
 /// `pending | skipped | completed` on UserAccount; everything here is discarded
 /// when the page is destroyed.
 class OnboardingController extends ChangeNotifier {
   OnboardingController({OnboardingRepository? repository})
-      : repository = repository ?? OnboardingRepository();
+    : repository = repository ?? OnboardingRepository();
 
   final OnboardingRepository repository;
 
@@ -21,6 +44,8 @@ class OnboardingController extends ChangeNotifier {
   List<String> _fieldWarnings = const [];
   List<Map<String, dynamic>> _manualFields = const [];
   String? _createdAssetId;
+  final String _skipIdempotencyKey =
+      'onb-skip-${DateTime.now().microsecondsSinceEpoch}';
 
   bool get loadingCatalog => _loadingCatalog;
   String? get error => _error;
@@ -41,10 +66,12 @@ class OnboardingController extends ChangeNotifier {
     notifyListeners();
     try {
       final data = await repository.fetchCatalog();
-      final categories = (data['categories'] as List?)?.cast<Map<String, dynamic>>();
+      final categories = (data['categories'] as List?)
+          ?.cast<Map<String, dynamic>>();
       _categories = categories ?? const [];
     } catch (e) {
-      _error = '分类目录加载失败，请稍后重试';
+      _categories = _fallbackCategories;
+      _error = '分类目录暂不可用，已切换到本地分类';
     } finally {
       _loadingCatalog = false;
       notifyListeners();
@@ -61,7 +88,8 @@ class OnboardingController extends ChangeNotifier {
   List<Map<String, dynamic>> categoryFields(String categoryId) {
     for (final category in _categories) {
       if (category['id'] == categoryId) {
-        final fields = (category['fields'] as List?)?.cast<Map<String, dynamic>>();
+        final fields = (category['fields'] as List?)
+            ?.cast<Map<String, dynamic>>();
         return fields ?? const [];
       }
     }
@@ -157,7 +185,7 @@ class OnboardingController extends ChangeNotifier {
 
   Future<bool> skip() async {
     try {
-      await repository.skip();
+      await repository.skip(idempotencyKey: _skipIdempotencyKey);
       return true;
     } catch (_) {
       _error = '跳过失败，请重试';
