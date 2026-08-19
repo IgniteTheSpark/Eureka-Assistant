@@ -14,6 +14,11 @@ Base: `0af9485a07b4effaff79d8dfe8e9f50e584e9b3e`
 - `c9fd7ff` — `fix: audit capture mutation executions`
 - `906b4dc` — `fix: confirm durable capture deletions`
 - `8139092` — `test: assert calendar surface stays dither-free`
+- `dc71253` — `fix: preserve contact mutation delivery`
+- `31a9a5e` — `fix: reconcile library after delivery gaps`
+- `2e41a0e` — `fix: serialize asset list reconciliation`
+- `4edbb3d` — `fix: invalidate stale asset pagination`
+- `2ea2f3a` — `fix: notify restored asset pagination`
 
 ## Finding-by-finding evidence
 
@@ -47,6 +52,13 @@ Base: `0af9485a07b4effaff79d8dfe8e9f50e584e9b3e`
 | 6 | Custom Skill creation rejects normalized protected machine names at the service boundary before schema/global baseline provisioning, and the API maps that specific conflict to HTTP 409. Direct pre-baseline POST is covered; legacy protected rows are still readable and tested by explicit historical-data seeding. | RED: POST-before-list reached persistence instead of a stable protected-name conflict. GREEN: the exact 409 detail contract passes, and adjusted service/proactive integration coverage passes without weakening the service guard. | `20b4f83` |
 | 7 | The Today parent prunes `_assetSpawnStates` against the current pool at the start of reconciliation, complementing the child cache pruning from finding 14. | RED: removing an Asset left the parent's handoff entry available for re-add. GREEN: the widget test removes the Asset, observes an empty parent map, re-adds it, and proves the old handoff is not reused. | `74b114c` |
 
+## Final delivery re-review evidence
+
+| # | Implementation and compatibility | Focused RED/GREEN evidence | Commit |
+|---|---|---|---|
+| 1 | Capture mutation evidence now covers owner-scoped Contact create/update/delete executions as well as Asset/Event. It requires a successful, committed `AgentToolExecution` for the same owner and current input turn, intersects the returned Contact ID with the emitted contact card, then verifies owner-scoped durable presence for create/update or global durable absence for delete. | RED: real Contact create/update/delete completed without `confirmed_mutation`; phantom, unexecuted pre-existing, and forged wrong-owner guards already stayed refresh-only. GREEN: all six Contact cases pass, and the 13-case Contact plus Asset/Event regression slice passes. | `dc71253` |
+| 2 | A dedicated, additive `dataLibraryCatchUpRevision` reconciles cached Library overview and Asset-list surfaces after app resume and each successful SSE subscription/reconnect without labeling lifecycle/network events as direct writes. Same-turn requests coalesce, while `dataMutationRevision` remains the immediate exact-mutation fast path. `AssetContainerController` serializes initial loads and refreshes and drains one coalesced rerun for every latest pending request, preventing either an in-flight catch-up from dropping an exact mutation or an older initial snapshot from overwriting reconciliation. A replacement revision also invalidates older in-flight pagination responses and blocks pagination from starting during replacement, so stale/deleted rows and cursors cannot be merged back after reconciliation; clearing the replacement future emits a final notification so a returned `nextCursor` makes pagination visible again. Backend subscriber queues preserve an incoming confirmed-mutation frame when full of ordinary status frames, coalesce it behind an already queued mutation signal, retain the dropped-frame count, and do not globally buffer when no subscriber exists. | RED: a full status queue discarded the mutation frame, and mobile tests did not compile before the independent catch-up signal, successful-subscription hook, and Library listeners existed. Final review then reproduced a lost refresh during an active refresh, concurrent initial-load/refresh ordering, stale pagination merging after a newer refresh, and missing `canLoadMore` notification after replacement. GREEN: subscriber/outbox/capture focused suite 50 passed; mobile resume/reconnect/populated-Library/coalescing/direct-mutation slice 64 passed; all three adversarial Asset-container interleavings, pagination-notifier contract, and its widget suite pass (19 tests). | `dc71253`, `31a9a5e`, `2e41a0e`, `4edbb3d`, `2ea2f3a` |
+
 ## API migration and compatibility notes
 
 - `GET /api/user-skills` adds `is_system: bool`; existing fields are unchanged. Mobile falls back to the protected-name catalog only when an older server omits this field.
@@ -56,7 +68,8 @@ Base: `0af9485a07b4effaff79d8dfe8e9f50e584e9b3e`
 - `GET /api/report-generation-runs/{id}/scope-candidates` accepts optional paired `from`/`to` values with explicit offsets. Omitting both keeps the old behavior.
 - Scope confirmation responses may add `pending_decision.requires_reconfirmation`. Old clients can ignore the additive field, while prepare still fails safely with HTTP 409.
 - Stable prepare blockers use HTTP 409 and `{ "detail": { "code", "message" } }`: `scope_dimensions_unresolved`, `scope_reconfirmation_required`, `presentation_incompatible`, and `custom_presentation_unresolved`.
-- Live notification payloads may add `confirmed_mutation: true` after a committed capture durably creates, updates, or deletes an Asset/Event. The field is omitted for older notifications and all refresh-only events, so old clients and exact legacy payload shapes remain compatible.
+- Live notification payloads may add `confirmed_mutation: true` after a committed capture durably creates, updates, or deletes an Asset, Event, or Contact. The field is omitted for older notifications and all refresh-only events, so old clients and exact legacy payload shapes remain compatible.
+- Library reconciliation uses a mobile-only additive revision distinct from broad refresh and direct mutation. Resume and successful SSE subscription/reconnect coalesce catch-up requests within one event-loop turn; exact confirmed mutation frames still take the existing immediate `dataMutationRevision` path.
 - Protected custom Skill names now return HTTP 409 with `detail.code == "system_skill_protected"`, including before the first catalog/list request provisions baseline Skills.
 - Oversized confirmed report scope now returns HTTP 409 with `detail.code == "scope_context_too_large"` and an actionable message.
 
@@ -73,6 +86,7 @@ Fresh final re-review commands after the last production-code change:
 - Real update evidence RED/GREEN: both Asset and Event update cases failed as expected, then the six durable create/update and refresh-only cases → **6 passed, 1 warning in 5.51s**.
 - Real delete evidence RED/GREEN: both Asset and Event delete cases failed as expected, then the eight durable create/update/delete and refresh-only cases → **8 passed, 1 warning in 7.31s**.
 - Final full backend after all execution-audit evidence: `docker compose -f docker-compose.theme-v2.yml run --rm test python -m pytest -q --disable-warnings` → **879 passed, 2 warnings in 349.53s**.
+- Final full backend after Contact evidence and subscriber queue hardening: `docker compose -f docker-compose.theme-v2.yml --profile test run --rm test python -m pytest -q --disable-warnings` → **888 passed, 2 warnings in 326.81s**.
 - Notification/report/protected-name focused backend slice: **63 passed, 23 warnings in 44.79s**.
 - Strengthened Today/Library/Calendar Timeline widget slice: **47 passed**; the wider affected mobile slice was **64 passed**.
 - Calendar suite: `flutter test test/theme_v2/calendar` → **152 passed**.
@@ -81,6 +95,14 @@ Fresh final re-review commands after the last production-code change:
 - Final full mobile after the assertion-only strengthening: `flutter test` → **1078 passed (58s)**.
 - Final changed mobile sources/tests: `flutter analyze` with all 9 changed Dart paths → **No issues found (13.0s)**.
 - `git diff --check` → clean before report generation.
+- Contact evidence RED: the three real Contact create/update/delete cases failed as expected while phantom, unexecuted pre-existing, and forged wrong-owner guards passed. GREEN: the combined Contact plus Asset/Event mutation slice → **13 passed**.
+- Subscriber queue RED: the full-status-queue case lost the confirmed-mutation frame. GREEN: queue preservation/coalescing/no-subscriber plus notification outbox coverage passed; the final combined backend focused suite → **50 passed, 23 warnings in 33.76s**.
+- Library catch-up RED: focused mobile tests failed to compile before the independent revision, SSE success hook, and Library listeners existed. GREEN: resume/reconnect, same-turn coalescing, populated Library overview/asset-list, and exact-mutation coverage → **64 passed**.
+- Asset-container ordering RED: an active refresh dropped a pending refresh, refresh ran concurrently with initial load, older in-flight pagination merged stale rows and cursor state after reconciliation, and replacement completion did not notify that pagination was available. GREEN: adversarial refresh-during-refresh, refresh-during-load, pagination-during-refresh, and notifier tests plus the Asset-list widget suite → **19 passed**.
+- Intermediate full mobile after delivery hardening: **1081 passed (56s)**; after initial ordering hardening: **1083 passed (50s)**; after pagination invalidation: **1084 passed (50s)**.
+- Final full mobile after all delivery and ordering fixes: `flutter test` → **1085 passed (51s)**.
+- Final changed delivery mobile sources/tests: `flutter analyze` with all 14 changed Dart paths → **No issues found (3.9s)**.
+- Independent final review through `2ea2f3a` found no concrete issue in Contact evidence, subscriber preservation, catch-up signaling, replacement queuing, pagination invalidation/blocking, notifier timing, or disposal handling.
 
 ## Remaining limitations
 
