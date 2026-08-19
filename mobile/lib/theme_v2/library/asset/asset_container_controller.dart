@@ -40,6 +40,9 @@ class AssetContainerController extends ChangeNotifier {
   String? _nextCursor;
   bool _refreshing = false;
   bool _loadingMore = false;
+  Future<void>? _loadFuture;
+  bool _loadQueued = false;
+  bool _queuedAsInitialLoad = false;
   bool _disposed = false;
   String? _errorMessage;
   String? _paginationError;
@@ -82,8 +85,46 @@ class AssetContainerController extends ChangeNotifier {
         .length;
   }
 
-  Future<void> load() async {
-    if (_loadState == AssetContainerLoadState.loading) return;
+  Future<void> load() => _scheduleLoad(asInitialLoad: true);
+
+  Future<void> refresh() => _scheduleLoad(asInitialLoad: false);
+
+  Future<void> _scheduleLoad({required bool asInitialLoad}) {
+    if (_disposed) return Future<void>.value();
+    final active = _loadFuture;
+    if (active != null) {
+      _loadQueued = true;
+      _queuedAsInitialLoad = _queuedAsInitialLoad || asInitialLoad;
+      return active;
+    }
+    final operation = _runLoadQueue(asInitialLoad: asInitialLoad);
+    _loadFuture = operation;
+    operation.whenComplete(() {
+      if (identical(_loadFuture, operation)) _loadFuture = null;
+    });
+    return operation;
+  }
+
+  Future<void> _runLoadQueue({required bool asInitialLoad}) async {
+    try {
+      var nextIsInitialLoad = asInitialLoad;
+      do {
+        _loadQueued = false;
+        _queuedAsInitialLoad = false;
+        if (nextIsInitialLoad) {
+          await _loadOnce();
+        } else {
+          await _refreshOnce();
+        }
+        nextIsInitialLoad = _queuedAsInitialLoad;
+      } while (_loadQueued && !_disposed);
+    } finally {
+      _loadQueued = false;
+      _queuedAsInitialLoad = false;
+    }
+  }
+
+  Future<void> _loadOnce() async {
     _loadState = AssetContainerLoadState.loading;
     _errorMessage = null;
     _notify();
@@ -101,8 +142,7 @@ class AssetContainerController extends ChangeNotifier {
     _notify();
   }
 
-  Future<void> refresh() async {
-    if (_refreshing) return;
+  Future<void> _refreshOnce() async {
     _refreshing = true;
     _errorMessage = null;
     _notify();

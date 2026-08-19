@@ -60,6 +60,55 @@ void main() {
   });
 
   test(
+    'refresh requested during refresh runs once more with latest data',
+    () async {
+      final repository = _ControlledAssetContainerRepository();
+      final controller = AssetContainerController(
+        repository: repository,
+        containerId: 'notes',
+        initialRecords: [_todo('cached', dueAt: null)],
+      );
+      addTearDown(controller.dispose);
+
+      final catchUp = controller.refresh();
+      final mutation = controller.refresh();
+      expect(repository.requests, hasLength(1));
+
+      repository.complete(0, [_todo('before-mutation', dueAt: null)]);
+      await Future<void>.delayed(Duration.zero);
+      expect(repository.requests, hasLength(2));
+      repository.complete(1, [_todo('after-mutation', dueAt: null)]);
+
+      await Future.wait([catchUp, mutation]);
+      expect(controller.records.single.id, 'after-mutation');
+    },
+  );
+
+  test(
+    'refresh waits for initial load before reconciling newer data',
+    () async {
+      final repository = _ControlledAssetContainerRepository();
+      final controller = AssetContainerController(
+        repository: repository,
+        containerId: 'notes',
+      );
+      addTearDown(controller.dispose);
+
+      final initialLoad = controller.load();
+      final catchUp = controller.refresh();
+      expect(repository.requests, hasLength(1));
+
+      repository.complete(0, [_todo('initial-snapshot', dueAt: null)]);
+      await Future<void>.delayed(Duration.zero);
+      expect(repository.requests, hasLength(2));
+      repository.complete(1, [_todo('reconciled-snapshot', dueAt: null)]);
+
+      await Future.wait([initialLoad, catchUp]);
+      expect(controller.records.single.id, 'reconciled-snapshot');
+    },
+  );
+
+  test(
     'failed optimistic completion restores only the changed record',
     () async {
       final repository = _FakeAssetContainerRepository([
@@ -142,6 +191,24 @@ class _FakeAssetContainerRepository implements AssetContainerRepository {
   Future<void> setTodoCompleted(String id, bool completed) async {
     if (completeError != null) throw completeError!;
   }
+}
+
+class _ControlledAssetContainerRepository implements AssetContainerRepository {
+  final requests = <Completer<AssetContainerPage>>[];
+
+  void complete(int index, List<AssetRecordViewModel> records) {
+    requests[index].complete(AssetContainerPage(records: records));
+  }
+
+  @override
+  Future<AssetContainerPage> load({String? cursor}) {
+    final request = Completer<AssetContainerPage>();
+    requests.add(request);
+    return request.future;
+  }
+
+  @override
+  Future<void> setTodoCompleted(String id, bool completed) async {}
 }
 
 AssetRecordViewModel _todo(
