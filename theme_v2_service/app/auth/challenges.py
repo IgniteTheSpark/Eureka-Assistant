@@ -86,7 +86,11 @@ async def issue_challenge(
     if request_ip is not None:
         await _enforce_rate_limits(session, email=email, ip_hash=_hash_ip(request_ip))
 
-    code = generate_code()
+    code = (
+        settings.email_fixed_code
+        if settings.email_provider == "mock" and settings.email_fixed_code is not None
+        else generate_code()
+    )
     challenge = EmailVerificationChallenge(
         id=str(uuid4()),
         purpose=purpose,
@@ -168,6 +172,7 @@ async def find_active_challenge(
         )
         .order_by(EmailVerificationChallenge.created_at.desc())
         .limit(1)
+        .with_for_update()
     )
     return await session.scalar(stmt)
 

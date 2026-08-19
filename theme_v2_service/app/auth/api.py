@@ -34,6 +34,11 @@ from app.domains.assets.service import ensure_capture_skills
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_PASSWORD_UPPER_RE = re.compile(r"[A-Z]")
+_PASSWORD_LOWER_RE = re.compile(r"[a-z]")
+_PASSWORD_DIGIT_RE = re.compile(r"[0-9]")
+_PASSWORD_SYMBOL_RE = re.compile(r"[!@#$%^&*._+=?-]")
+_PASSWORD_ALLOWED_RE = re.compile(r"^[A-Za-z0-9!@#$%^&*._+=?-]+$")
 _MIN_PASSWORD = 8
 _MAX_PASSWORD = 128
 
@@ -69,6 +74,20 @@ class ChangePasswordRequest(BaseModel):
 
 def _normalize_email(email: str) -> str:
     return email.strip().lower()
+
+
+def _password_policy_error(password: str) -> str | None:
+    if not _PASSWORD_UPPER_RE.search(password):
+        return "密码必须包含大写字母 A-Z"
+    if not _PASSWORD_LOWER_RE.search(password):
+        return "密码必须包含小写字母 a-z"
+    if not _PASSWORD_DIGIT_RE.search(password):
+        return "密码必须包含数字 0-9"
+    if not _PASSWORD_SYMBOL_RE.search(password):
+        return "密码必须包含安全符号 ! @ # $ % ^ & * . _ + = ? -"
+    if not _PASSWORD_ALLOWED_RE.fullmatch(password):
+        return "密码只能使用 ASCII 字母、数字和安全符号 ! @ # $ % ^ & * . _ + = ? -"
+    return None
 
 
 def _user_response(user: UserAccount) -> dict:
@@ -147,6 +166,9 @@ async def register(
         raise HTTPException(status_code=400, detail="邮箱格式不正确")
     if not body.terms_accepted:
         raise HTTPException(status_code=400, detail="请先阅读并同意服务条款")
+    password_error = _password_policy_error(body.password)
+    if password_error is not None:
+        raise HTTPException(status_code=422, detail=password_error)
 
     challenge = await find_active_challenge(
         session, email=email, purpose=CHALLENGE_REGISTER

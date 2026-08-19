@@ -50,7 +50,6 @@ _configure_flash_file_logging()
 
 from agents.mcp_toolset import close_mcp_toolset
 from api.auth import router as auth_router
-from api.auth_baizhi import router as auth_baizhi_router    # §13.1 / B1 百智 OAuth login
 from api.chat import router as chat_router
 from api.flash import router as flash_router
 from api.skills import router as skills_router
@@ -131,7 +130,6 @@ app.add_middleware(
 )
 
 app.include_router(auth_router,        prefix="/api", tags=["auth"])
-app.include_router(auth_baizhi_router, prefix="/api", tags=["auth"])    # §13.1 / B1 百智 OAuth
 app.include_router(chat_router,        prefix="/api", tags=["chat"])
 app.include_router(flash_router,       prefix="/api", tags=["flash"])
 app.include_router(skills_router,      prefix="/api", tags=["skills"])

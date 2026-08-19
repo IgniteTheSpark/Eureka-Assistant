@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.api import ChangePasswordRequest
 from app.auth.dependencies import get_current_user_id
 from app.auth.models import UserAccount
-from app.auth.security import create_token, hash_password, verify_password
+from app.auth.security import hash_password, verify_password
 from app.db.session import get_session
 
 
@@ -33,10 +33,7 @@ async def change_password(
     user.password_updated_at = utc_now()
     await session.flush()
 
-    return {
-        "ok": True,
-        "token": create_token(user.id, auth_version=user.auth_version),
-    }
+    return {"ok": True}
 
 
 from typing import Literal

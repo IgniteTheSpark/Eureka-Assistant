@@ -68,6 +68,7 @@ class Settings(BaseSettings):
 
     # --- Email verification (§5.2 / §5.3) ---
     email_provider: str = "mock"  # mock | aliyun_directmail | disabled
+    email_fixed_code: str | None = Field(default=None, pattern=r"^\d{6}$")
     email_from_address: str = "noreply@example.com"
     email_from_name: str = "UReka"
     email_code_ttl_seconds: int = 600  # 10 minutes
@@ -91,6 +92,19 @@ class Settings(BaseSettings):
     def reject_insecure_prod(self) -> "Settings":
         if self.env in {"prod", "production"} and self.jwt_secret == "dev-insecure-change-me":
             raise ValueError("JWT_SECRET must be changed in production")
+        if self.env in {"prod", "production"}:
+            if self.email_fixed_code is not None:
+                raise ValueError("EMAIL_FIXED_CODE is forbidden in production")
+            if self.email_provider != "aliyun_directmail":
+                raise ValueError("EMAIL_PROVIDER must be aliyun_directmail in production")
+            if not self.terms_url.startswith("https://"):
+                raise ValueError("TERMS_URL must be an HTTPS URL in production")
+            if not self.privacy_url.startswith("https://"):
+                raise ValueError("PRIVACY_URL must be an HTTPS URL in production")
+            if not self.terms_version_current.strip():
+                raise ValueError("TERMS_VERSION_CURRENT is required in production")
+            self.email_from_address = "verify@mail.ureka.chat"
+            self.directmail_account_name = "verify@mail.ureka.chat"
         return self
 
     def provider_readiness_errors(self) -> list[str]:

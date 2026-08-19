@@ -102,7 +102,11 @@ class AliyunDirectMailVerificationSender(VerificationSender):
         from_name: str | None = None,
     ) -> None:
         settings = get_settings()
-        self.account_name = account_name or settings.directmail_account_name
+        self.account_name = (
+            "verify@mail.ureka.chat"
+            if settings.env in {"prod", "production"}
+            else account_name or settings.directmail_account_name
+        )
         self.access_key_id = access_key_id or settings.directmail_access_key_id
         self.access_key_secret = access_key_secret or settings.directmail_access_key_secret
         self.from_name = from_name or settings.email_from_name

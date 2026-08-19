@@ -52,14 +52,14 @@ async def export_options(session: AsyncSession, user_id: str) -> dict:
 
     skill_counts = (
         await session.execute(
-            select(UserSkill.display_name, func.count(Asset.id))
+            select(UserSkill.id, UserSkill.display_name, func.count(Asset.id))
             .join(Asset, Asset.user_skill_id == UserSkill.id)
             .where(Asset.user_id == user_id)
             .group_by(UserSkill.id, UserSkill.display_name)
         )
     ).all()
-    for name, count in skill_counts:
-        options.append({"type": "skill", "name": name, "count": int(count)})
+    for skill_id, name, count in skill_counts:
+        options.append({"type": f"skill:{skill_id}", "name": name, "count": int(count)})
 
     event_count = (
         await session.scalar(
@@ -178,9 +178,18 @@ async def _gather_rows(
     rows: list[dict] = []
     skill_ids: list[str] = []
 
-    if "skill" in selected_types or not selected_types:
+    selected_skill_ids = {
+        value.removeprefix("skill:")
+        for value in selected_types
+        if value.startswith("skill:") and value.removeprefix("skill:")
+    }
+    if selected_skill_ids or not selected_types:
         skill_map = await _skill_id_map(session, user_id)
-        skill_ids = list(skill_map.keys())
+        skill_ids = [
+            skill_id
+            for skill_id in skill_map
+            if not selected_skill_ids or skill_id in selected_skill_ids
+        ]
 
     for skill_id in skill_ids:
         rows.extend(await _rows_assets(session, user_id, skill_id))

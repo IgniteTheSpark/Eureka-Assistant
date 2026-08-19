@@ -128,13 +128,8 @@ class User(Base):
     __tablename__ = "users"
 
     id            = Column(String(50), primary_key=True, default=lambda: uuid.uuid4().hex)
-    # email + password_hash are nullable: a 百智-OAuth user (§13.1) has neither —
-    # their identity is `baizhi_user_id`. Email users still set both.
     email         = Column(String(255), unique=True, nullable=True, index=True)
     password_hash = Column(String(255), nullable=True)
-    # §13.1 — stable 百智 (100wiser) identity ↔ Eureka user mapping. Unique so one
-    # 百智 account = one Eureka user; null for email-registered users.
-    baizhi_user_id = Column(String(64), unique=True, nullable=True, index=True)
     # Embedded EurekaMind host-app identity. The shared local database already
     # carries this relation through migration 0030_eureka_user_id.
     eureka_user_id = Column(String(100), unique=True, nullable=True, index=True)

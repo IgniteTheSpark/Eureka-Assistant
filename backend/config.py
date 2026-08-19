@@ -43,21 +43,6 @@ class Settings(BaseSettings):
     # urlsafe-base64 32 bytes). Empty → derived from jwt_secret (dev-only).
     connected_apps_key: str = ""
 
-    # §13.1 / B1 — 百智 (100wiser) OAuth login. 百智 is the IdP; Eureka still mints
-    # its own HS256 session token (§3 unchanged). app_id/secret/name come from the
-    # 百智 console → set in .env.prod ONLY (app_secret NEVER leaves the backend).
-    # Blank app_id → the 百智 login endpoints report "未配置" (503); email login is
-    # unaffected. baizhi_me_url is OPTIONAL: the authoritative "current user"
-    # endpoint for a stable id; when blank we derive the id from the real-token JWT.
-    baizhi_base_url:       str = "https://openapi.100wiser.com"   # API host (token exchange)
-    baizhi_oauth_base_url: str = "https://100wiser.com"           # OAuth bridge host
-    baizhi_app_id:         str = ""
-    baizhi_app_secret:     str = ""
-    baizhi_app_name:       str = ""
-    baizhi_redirect_url:   str = ""   # = 百智 console redirectUrl (this backend's /auth/baizhi/callback)
-    baizhi_me_url:         str = ""   # OPTIONAL authoritative "current user" endpoint (Bearer real-token)
-    eureka_app_scheme:     str = "eureka"   # deep-link scheme back to the Flutter app
-
     # 闪念文件 ASR — App 创建同事公开服务的 Tencent ASR S3 异步任务，
     # Eureka 只记录 task_id，并轮询公开服务拿识别结果。
     tencent_asr_service_base_url:              str = "https://pre.card.biz"
