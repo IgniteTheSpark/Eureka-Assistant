@@ -43,6 +43,7 @@ class AssetContainerController extends ChangeNotifier {
   Future<void>? _loadFuture;
   bool _loadQueued = false;
   bool _queuedAsInitialLoad = false;
+  int _replacementRevision = 0;
   bool _disposed = false;
   String? _errorMessage;
   String? _paginationError;
@@ -54,7 +55,8 @@ class AssetContainerController extends ChangeNotifier {
   bool get loadingMore => _loadingMore;
   String? get errorMessage => _errorMessage;
   String? get paginationError => _paginationError;
-  bool get canLoadMore => _nextCursor != null && !_loadingMore;
+  bool get canLoadMore =>
+      _nextCursor != null && !_loadingMore && _loadFuture == null;
   double get currentScrollOffset => _offsets[_filter] ?? 0;
 
   List<AssetRecordViewModel> get records {
@@ -91,6 +93,7 @@ class AssetContainerController extends ChangeNotifier {
 
   Future<void> _scheduleLoad({required bool asInitialLoad}) {
     if (_disposed) return Future<void>.value();
+    _replacementRevision++;
     final active = _loadFuture;
     if (active != null) {
       _loadQueued = true;
@@ -166,13 +169,14 @@ class AssetContainerController extends ChangeNotifier {
 
   Future<void> loadMore() async {
     final cursor = _nextCursor;
-    if (cursor == null || _loadingMore) return;
+    if (cursor == null || _loadingMore || _loadFuture != null) return;
+    final replacementRevision = _replacementRevision;
     _loadingMore = true;
     _paginationError = null;
     _notify();
     try {
       final page = await repository.load(cursor: cursor);
-      if (_disposed) return;
+      if (_disposed || replacementRevision != _replacementRevision) return;
       final byId = {for (final record in _records) record.id: record};
       for (final record in page.records) {
         byId[record.id] = record;
@@ -180,7 +184,7 @@ class AssetContainerController extends ChangeNotifier {
       _records = byId.values.toList();
       _nextCursor = page.nextCursor;
     } catch (_) {
-      if (_disposed) return;
+      if (_disposed || replacementRevision != _replacementRevision) return;
       _paginationError = '更多内容暂时无法加载';
     } finally {
       if (!_disposed) {

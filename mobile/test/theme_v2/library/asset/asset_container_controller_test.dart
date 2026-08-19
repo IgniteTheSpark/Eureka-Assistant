@@ -108,6 +108,34 @@ void main() {
     },
   );
 
+  test('refresh invalidates an older in-flight pagination response', () async {
+    final repository = _ControlledAssetContainerRepository();
+    final controller = AssetContainerController(
+      repository: repository,
+      containerId: 'notes',
+    );
+    addTearDown(controller.dispose);
+
+    final initialLoad = controller.load();
+    repository.complete(0, [_todo('initial', dueAt: null)], nextCursor: 'next');
+    await initialLoad;
+
+    final pagination = controller.loadMore();
+    expect(repository.requests[1].cursor, 'next');
+    final catchUp = controller.refresh();
+    expect(repository.requests[2].cursor, isNull);
+    repository.complete(2, [_todo('reconciled', dueAt: null)]);
+    await catchUp;
+
+    repository.complete(1, [
+      _todo('stale-page', dueAt: null),
+    ], nextCursor: 'stale-next');
+    await pagination;
+
+    expect(controller.records.map((record) => record.id), ['reconciled']);
+    expect(controller.canLoadMore, isFalse);
+  });
+
   test(
     'failed optimistic completion restores only the changed record',
     () async {
@@ -194,21 +222,34 @@ class _FakeAssetContainerRepository implements AssetContainerRepository {
 }
 
 class _ControlledAssetContainerRepository implements AssetContainerRepository {
-  final requests = <Completer<AssetContainerPage>>[];
+  final requests = <_ControlledLoad>[];
 
-  void complete(int index, List<AssetRecordViewModel> records) {
-    requests[index].complete(AssetContainerPage(records: records));
+  void complete(
+    int index,
+    List<AssetRecordViewModel> records, {
+    String? nextCursor,
+  }) {
+    requests[index].completer.complete(
+      AssetContainerPage(records: records, nextCursor: nextCursor),
+    );
   }
 
   @override
   Future<AssetContainerPage> load({String? cursor}) {
-    final request = Completer<AssetContainerPage>();
+    final request = _ControlledLoad(cursor);
     requests.add(request);
-    return request.future;
+    return request.completer.future;
   }
 
   @override
   Future<void> setTodoCompleted(String id, bool completed) async {}
+}
+
+class _ControlledLoad {
+  _ControlledLoad(this.cursor);
+
+  final String? cursor;
+  final completer = Completer<AssetContainerPage>();
 }
 
 AssetRecordViewModel _todo(
