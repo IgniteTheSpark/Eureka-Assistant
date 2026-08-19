@@ -65,12 +65,31 @@ async def test_export_options_lists_types_with_counts(client):
     )
     assert response.status_code == 200
     options = response.json()["options"]
-    assert any(o["type"] == "skill" and o["count"] == 1 for o in options)
+    assert any(
+        o["type"].startswith("skill:") and o["count"] == 1 for o in options
+    )
 
 
 async def test_export_options_requires_auth(client):
     response = await client.get("/api/account/export-options")
     assert response.status_code == 401
+
+
+async def test_export_accepts_stable_skill_token(client):
+    token, _ = await _user_with_asset(client, "expskill@example.com")
+    options = (
+        await client.get("/api/account/export-options", headers=_headers(token))
+    ).json()["options"]
+    skill_token = next(option["type"] for option in options if option["type"].startswith("skill:"))
+
+    response = await client.post(
+        "/api/account/export",
+        headers=_headers(token),
+        json={"types": [skill_token], "format": "md"},
+    )
+
+    assert response.status_code == 200
+    assert "记录" in response.text
 
 
 async def test_export_markdown(client):
@@ -115,14 +134,14 @@ async def test_export_empty_user_returns_empty(client):
     assert "没有可导出的数据" in response.text
 
 
-async def test_delete_account_revokes_and_removes(client, session):
+async def test_delete_account_revokes_and_preserves_business_data(client, session):
     token, user_id = await _user_with_asset(client, "del@example.com")
 
     response = await client.request(
         "DELETE",
         "/api/account",
         headers={**_headers(token), "content-type": "application/json"},
-        content=json.dumps({"password": "secret123"}),
+        content=json.dumps({"password": "Secret123!"}),
     )
     assert response.status_code == 200
     assert response.json() == {"ok": True}
@@ -141,9 +160,11 @@ async def test_delete_account_revokes_and_removes(client, session):
         skill_count = (
             await database.execute(text("SELECT COUNT(*) FROM user_skills WHERE user_id=:u"), {"u": user_id})
         ).scalar_one()
-    assert user is None
-    assert asset_count == 0
-    assert skill_count == 0
+    assert user is not None
+    assert user.deleted_at is not None
+    assert user.password_hash is None
+    assert asset_count > 0
+    assert skill_count > 0
 
 
 async def test_delete_account_rejects_wrong_password(client):

@@ -34,6 +34,15 @@ async def test_challenge_stores_digest_not_plaintext(session):
     assert challenge.consumed_at is None
 
 
+def test_fixed_code_setting_accepts_six_digits(monkeypatch):
+    monkeypatch.setenv("EMAIL_FIXED_CODE", "123456")
+    get_settings.cache_clear()
+    try:
+        assert get_settings().email_fixed_code == "123456"
+    finally:
+        get_settings.cache_clear()
+
+
 async def test_verify_correct_code_consumes(session):
     challenge, code = await issue_challenge(
         session, email="a@x.com", purpose=CHALLENGE_REGISTER, request_ip="1.2.3.4"

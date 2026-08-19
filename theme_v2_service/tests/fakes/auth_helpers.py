@@ -7,7 +7,7 @@ from app.auth.email_sender import get_verification_sender
 async def register_user(
     client: AsyncClient,
     email: str,
-    password: str = "secret123",
+    password: str = "Secret123!",
 ) -> dict:
     """Request a registration code, then verify + register. Returns response JSON."""
     code_response = await client.post(

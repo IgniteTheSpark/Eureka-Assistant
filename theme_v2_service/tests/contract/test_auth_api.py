@@ -46,7 +46,7 @@ async def _request_register_code(client, email: str):
     )
 
 
-async def _register_with_code(client, email: str, *, password: str = "secret123"):
+async def _register_with_code(client, email: str, *, password: str = "Secret123!"):
     request_response = await _request_register_code(client, email)
     assert request_response.status_code == 200, request_response.text
     code = _last_sent_code(email)
@@ -110,7 +110,7 @@ async def test_register_without_terms_rejected(client):
         json={
             "email": "person@example.com",
             "verification_code": code,
-            "password": "secret123",
+        "password": "Secret123!",
             "terms_version": "2026-08-v1",
             "terms_accepted": False,
         },
@@ -127,13 +127,32 @@ async def test_register_with_wrong_code_rejected(client):
         json={
             "email": "person@example.com",
             "verification_code": "000000",
-            "password": "secret123",
+        "password": "Secret123!",
             "terms_version": "2026-08-v1",
             "terms_accepted": True,
         },
     )
 
     assert response.status_code == 400
+
+
+async def test_register_rejects_weak_password(client):
+    await _request_register_code(client, "weak-password@example.com")
+    code = _last_sent_code("weak-password@example.com")
+
+    response = await client.post(
+        "/api/auth/register",
+        json={
+            "email": "weak-password@example.com",
+            "verification_code": code,
+            "password": "weakpass1",
+            "terms_version": "2026-08-v1",
+            "terms_accepted": True,
+        },
+    )
+
+    assert response.status_code == 422
+    assert "大写字母" in response.json()["detail"]
 
 
 async def test_register_conflict_surfaces_on_verified_register(client):
@@ -150,7 +169,7 @@ async def test_login_and_me_round_trip(client):
 
     login = await client.post(
         "/api/auth/login",
-        json={"email": "PERSON@example.com", "password": "secret123"},
+        json={"email": "PERSON@example.com", "password": "Secret123!"},
     )
     assert login.status_code == 200
     assert login.json()["user"]["email"] == "person@example.com"
@@ -219,20 +238,20 @@ async def test_password_reset_replaces_password_and_invalidates_old_token(client
         json={
             "email": "reset@example.com",
             "verification_code": code,
-            "new_password": "newpass456",
+        "new_password": "Newpass456!",
         },
     )
     assert reset.status_code == 200
 
     old_login = await client.post(
         "/api/auth/login",
-        json={"email": "reset@example.com", "password": "secret123"},
+        json={"email": "reset@example.com", "password": "Secret123!"},
     )
     assert old_login.status_code == 401
 
     new_login = await client.post(
         "/api/auth/login",
-        json={"email": "reset@example.com", "password": "newpass456"},
+        json={"email": "reset@example.com", "password": "Newpass456!"},
     )
     assert new_login.status_code == 200
 
@@ -243,17 +262,17 @@ async def test_password_reset_replaces_password_and_invalidates_old_token(client
     assert old_token_me.status_code == 401
 
 
-async def test_change_password_returns_replacement_token(client):
+async def test_change_password_revokes_session_and_requires_relogin(client):
     registered = await _register_with_code(client, "change@example.com")
     old_token = registered.json()["token"]
 
     changed = await client.patch(
         "/api/account/password",
         headers={"Authorization": f"Bearer {old_token}"},
-        json={"current_password": "secret123", "new_password": "changed789"},
+        json={"current_password": "Secret123!", "new_password": "Changed789!"},
     )
     assert changed.status_code == 200
-    replacement = changed.json()["token"]
+    assert changed.json() == {"ok": True}
 
     old_token_me = await client.get(
         "/api/auth/me",
@@ -261,11 +280,11 @@ async def test_change_password_returns_replacement_token(client):
     )
     assert old_token_me.status_code == 401
 
-    replacement_me = await client.get(
-        "/api/auth/me",
-        headers={"Authorization": f"Bearer {replacement}"},
+    relogin = await client.post(
+        "/api/auth/login",
+        json={"email": "change@example.com", "password": "Changed789!"},
     )
-    assert replacement_me.status_code == 200
+    assert relogin.status_code == 200
 
 
 async def test_change_password_rejects_wrong_current(client):
@@ -275,7 +294,7 @@ async def test_change_password_rejects_wrong_current(client):
     response = await client.patch(
         "/api/account/password",
         headers={"Authorization": f"Bearer {token}"},
-        json={"current_password": "not-the-password", "new_password": "changed789"},
+        json={"current_password": "not-the-password", "new_password": "Changed789!"},
     )
 
     assert response.status_code == 400

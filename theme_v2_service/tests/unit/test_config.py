@@ -15,6 +15,45 @@ def test_prod_rejects_dev_secret():
     raise AssertionError("prod must reject the development JWT secret")
 
 
+def test_prod_requires_directmail_and_https_legal_links():
+    for kwargs in (
+        {"email_provider": "mock"},
+        {"terms_url": "http://terms.example.com"},
+        {"privacy_url": "http://privacy.example.com"},
+        {"terms_version_current": ""},
+    ):
+        config = {
+            "env": "prod",
+            "database_url": "mysql://u:p@mysql/db",
+            "jwt_secret": "production-secret-that-is-long-enough",
+            "email_provider": "aliyun_directmail",
+            "terms_url": "https://terms.example.com",
+            "privacy_url": "https://privacy.example.com",
+            **kwargs,
+        }
+        try:
+            Settings(**config)
+        except ValidationError:
+            continue
+        raise AssertionError(f"production accepted unsafe configuration: {kwargs}")
+
+
+def test_prod_forces_fixed_sender_address():
+    settings = Settings(
+        env="prod",
+        database_url="mysql://u:p@mysql/db",
+        jwt_secret="production-secret-that-is-long-enough",
+        email_provider="aliyun_directmail",
+        email_from_address="unsafe@example.com",
+        directmail_account_name="unsafe@example.com",
+        terms_url="https://terms.example.com",
+        privacy_url="https://privacy.example.com",
+    )
+
+    assert settings.email_from_address == "verify@mail.ureka.chat"
+    assert settings.directmail_account_name == "verify@mail.ureka.chat"
+
+
 def test_theme_v2_defaults_are_isolated(monkeypatch):
     for name in (
         "ENV",
