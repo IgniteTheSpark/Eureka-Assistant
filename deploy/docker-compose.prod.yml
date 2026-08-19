@@ -71,16 +71,6 @@ services:
       DINGTALK_AIHUB_URL_CALENDAR: ${DINGTALK_AIHUB_URL_CALENDAR:-}
       DINGTALK_AIHUB_URL_TODO: ${DINGTALK_AIHUB_URL_TODO:-}
       DINGTALK_AIHUB_URL_NOTES: ${DINGTALK_AIHUB_URL_NOTES:-}
-      # §13.1 / B1 百智 OAuth (optional — blank = 百智 login disabled, 503; email
-      # login unaffected). Fill from the 百智 console AFTER the domain is live.
-      BAIZHI_BASE_URL: ${BAIZHI_BASE_URL:-https://openapi.100wiser.com}
-      BAIZHI_OAUTH_BASE_URL: ${BAIZHI_OAUTH_BASE_URL:-https://100wiser.com}
-      BAIZHI_APP_ID: ${BAIZHI_APP_ID:-}
-      BAIZHI_APP_SECRET: ${BAIZHI_APP_SECRET:-}
-      BAIZHI_APP_NAME: ${BAIZHI_APP_NAME:-}
-      BAIZHI_REDIRECT_URL: ${BAIZHI_REDIRECT_URL:-}
-      BAIZHI_ME_URL: ${BAIZHI_ME_URL:-}
-      EUREKA_APP_SCHEME: ${EUREKA_APP_SCHEME:-eureka}
     depends_on:
       db:
         condition: service_healthy
