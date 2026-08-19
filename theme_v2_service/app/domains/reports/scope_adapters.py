@@ -283,7 +283,7 @@ def resolve_report_period(
         monday = local_now.date() - timedelta(days=local_now.weekday())
         start = datetime.combine(monday, time.min, tzinfo=zone)
         return TimeRange(from_at=start, to_at=start + timedelta(days=7))
-    day_match = re.search(r"(?:最近|近|过去)\s*(7|30)\s*天", normalized)
+    day_match = re.search(r"(?:最近|近|过去)\s*(7|14|30)\s*天", normalized)
     if day_match is not None:
         days = int(day_match.group(1))
         return TimeRange(from_at=local_now - timedelta(days=days), to_at=local_now)
@@ -297,48 +297,17 @@ def time_range_options(
 ) -> list[TimeRangeOption]:
     zone = ZoneInfo(timezone_name)
     local_now = _aware_utc(now).astimezone(zone)
-    month_start = datetime.combine(
-        local_now.date().replace(day=1),
-        time.min,
-        tzinfo=zone,
-    )
-    week_start = datetime.combine(
-        local_now.date() - timedelta(days=local_now.weekday()),
-        time.min,
-        tzinfo=zone,
-    )
     return [
         TimeRangeOption(
-            id="last_7_days",
-            label="过去 7 天",
+            id=f"last_{days}_days",
+            label=f"最近 {days} 天",
             time_range=TimeRange(
-                from_at=local_now - timedelta(days=7),
+                from_at=local_now - timedelta(days=days),
                 to_at=local_now,
             ),
-        ),
-        TimeRangeOption(
-            id="last_30_days",
-            label="过去 30 天",
-            time_range=TimeRange(
-                from_at=local_now - timedelta(days=30),
-                to_at=local_now,
-            ),
-        ),
-        TimeRangeOption(
-            id="current_month",
-            label="本月",
-            time_range=TimeRange(from_at=month_start, to_at=local_now),
-        ),
-        TimeRangeOption(
-            id="current_week",
-            label="本周",
-            time_range=TimeRange(
-                from_at=week_start,
-                to_at=week_start + timedelta(days=7),
-            ),
-        ),
-        TimeRangeOption(id="custom", label="自定义"),
-    ]
+        )
+        for days in (7, 14, 30)
+    ] + [TimeRangeOption(id="custom", label="其他")]
 
 
 def initial_scope(
@@ -648,7 +617,11 @@ async def list_scope_candidates(
             now=now,
             timezone_name=timezone_name,
         )
-        period = draft.time_range or options[1].time_range
+        period = draft.time_range or next(
+            option.time_range
+            for option in options
+            if option.id == "last_30_days"
+        )
         assert period is not None
         record_groups = await _period_records(
             session,
@@ -656,19 +629,22 @@ async def list_scope_candidates(
             period=period,
             timezone_name=timezone_name,
         )
+        _, type_matches = _group_term_matches(record_groups, intent)
+        needs_asset_type = not type_matches and len(record_groups) > 1
         record_groups = _filter_record_groups_for_intent(record_groups, intent)
-        auto_references = (
-            [
-                record.reference
-                for group in record_groups
-                for record in group.records
-            ]
-            if draft.time_range is not None
-            else []
-        )
+        auto_references = [
+            record.reference
+            for group in record_groups
+            for record in group.records
+        ]
         draft = draft.model_copy(
             update={
+                "time_range": period,
                 "skill_ids": [group.skill_id for group in record_groups],
+                "missing_dimensions": [
+                    *draft.missing_dimensions,
+                    *(["asset_type"] if needs_asset_type else []),
+                ],
                 "supporting_references": auto_references,
                 "selection": ReportAssetSelection(
                     auto_references=auto_references,

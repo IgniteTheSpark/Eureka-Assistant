@@ -216,26 +216,60 @@ async def _seed_report_record_types(session):
     await session.commit()
 
 
-async def test_vague_recent_running_matches_only_running_and_requires_time(session):
+async def test_vague_recent_dance_previews_thirty_days_and_selects_dance(session):
     await _seed_report_record_types(session)
 
     response = await list_scope_candidates(
         session,
         user_id="user-1",
         adapter_kind="period_summary",
-        intent="总结最近的跑步情况",
+        intent="总结最近的跳舞情况",
         now=NOW,
         timezone_name="Asia/Shanghai",
     )
 
-    assert [group.machine_name for group in response.record_groups] == [
-        "running_log"
+    assert [option.id for option in response.time_range_options] == [
+        "last_7_days",
+        "last_14_days",
+        "last_30_days",
+        "custom",
     ]
-    assert response.default_scope.skill_ids == ["skill-running"]
-    assert response.default_scope.time_range is None
+    assert [group.machine_name for group in response.record_groups] == [
+        "dance_log"
+    ]
+    assert response.default_scope.skill_ids == ["skill-dance"]
+    assert (
+        response.default_scope.time_range
+        == response.time_range_options[2].time_range
+    )
     assert response.default_scope.missing_dimensions == ["time_range"]
-    assert response.default_scope.supporting_references == []
-    assert response.default_scope.selection.auto_references == []
+    assert [
+        reference.id
+        for reference in response.default_scope.supporting_references
+    ] == ["asset-3"]
+    assert [
+        reference.id
+        for reference in response.default_scope.selection.auto_references
+    ] == ["asset-3"]
+
+
+async def test_vague_recent_summary_requires_time_and_asset_type(session):
+    await _seed_report_record_types(session)
+
+    response = await list_scope_candidates(
+        session,
+        user_id="user-1",
+        adapter_kind="period_summary",
+        intent="总结最近的情况",
+        now=NOW,
+        timezone_name="Asia/Shanghai",
+    )
+
+    assert len(response.record_groups) == 4
+    assert response.default_scope.missing_dimensions == [
+        "time_range",
+        "asset_type",
+    ]
 
 
 async def test_explicit_period_selects_only_matching_running_assets(session):
