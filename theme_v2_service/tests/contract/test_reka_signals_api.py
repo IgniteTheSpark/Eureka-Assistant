@@ -23,7 +23,7 @@ async def client(session):
 
 
 async def _register(client: AsyncClient, email: str) -> tuple[str, str]:
-    body = await register_user(client, email, password="secret123")
+    body = await register_user(client, email, password="Secret123!")
     return body["token"], body["user"]["id"]
 
 def _headers(token: str) -> dict[str, str]:

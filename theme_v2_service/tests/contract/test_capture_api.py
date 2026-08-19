@@ -36,7 +36,7 @@ async def client(session):
 
 
 async def _register(client: AsyncClient, email: str) -> str:
-    body = await register_user(client, email, password="secret123")
+    body = await register_user(client, email, password="Secret123!")
     return body["token"]
 
 
@@ -1130,7 +1130,7 @@ async def test_listening_state_is_published_to_live_subscriber(client):
     app.state.notification_subscribers = registry
     registered = await client.post(
         "/api/auth/login",
-        json={"email": "listener@example.com", "password": "secret123"},
+        json={"email": "listener@example.com", "password": "Secret123!"},
     )
     user_id = registered.json()["user"]["id"]
     queue = registry.subscribe(user_id)

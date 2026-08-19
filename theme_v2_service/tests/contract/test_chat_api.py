@@ -48,7 +48,7 @@ async def client(session):
 
 
 async def _register(client: AsyncClient) -> str:
-    body = await register_user(client, "chat@example.com", password="secret123")
+    body = await register_user(client, "chat@example.com", password="Secret123!")
     return body["token"]
 
 def _headers(token: str) -> dict[str, str]:

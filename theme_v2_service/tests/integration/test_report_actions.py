@@ -21,7 +21,7 @@ async def client(session):
 
 
 async def _register(client: AsyncClient, email: str) -> tuple[dict[str, str], str]:
-    body = await register_user(client, email, password="secret123")
+    body = await register_user(client, email, password="Secret123!")
     return (
         {"Authorization": f"Bearer {body['token']}"},
         body["user"]["id"],
