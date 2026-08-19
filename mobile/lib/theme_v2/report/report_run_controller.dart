@@ -392,6 +392,9 @@ class ReportRunController extends ChangeNotifier {
     );
     _scopeDraftOverride = current.copyWith(
       skillIds: skillIds.toList(growable: false),
+      missingDimensions: current.missingDimensions
+          .where((item) => item != 'asset_type')
+          .toList(growable: false),
       supportingReferences: selection.resolvedReferences,
       selection: selection,
     );

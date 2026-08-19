@@ -273,7 +273,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('跑步记录'), findsOneWidget);
+    expect(find.text('跑步记录 × 1'), findsOneWidget);
     expect(find.text('消费'), findsNothing);
     expect(find.text('喝水记录'), findsNothing);
     expect(find.text('跳舞记录'), findsNothing);
@@ -286,6 +286,121 @@ void main() {
     expect(find.text('数据复盘'), findsOneWidget);
     expect(find.text('补充信息（选填）'), findsOneWidget);
   });
+
+  testWidgets(
+    'vague recent skill scope shows provisional time and selected group summary',
+    (tester) async {
+      final api = ApiClient(
+        baseUrl: 'https://reports.test',
+        enableLogging: false,
+        client: MockClient((request) async {
+          if (request.url.path.endsWith('/scope-candidates')) {
+            return _json({
+              'adapter_kind': 'period_summary',
+              'events': [],
+              'record_groups': [
+                {
+                  'skill_id': 'dance',
+                  'label': '跳舞',
+                  'count': 2,
+                  'default_selected': true,
+                  'records': [
+                    {
+                      'reference': {'kind': 'asset', 'id': 'dance-1'},
+                      'title': '爵士训练',
+                    },
+                    {
+                      'reference': {'kind': 'asset', 'id': 'dance-2'},
+                      'title': '编舞课',
+                    },
+                  ],
+                },
+              ],
+              'time_range_options': [
+                {
+                  'id': 'last_7_days',
+                  'label': '最近 7 天',
+                  'time_range': {
+                    'from': '2026-08-12T00:00:00+08:00',
+                    'to': '2026-08-19T00:00:00+08:00',
+                  },
+                },
+                {
+                  'id': 'last_14_days',
+                  'label': '最近 14 天',
+                  'time_range': {
+                    'from': '2026-08-05T00:00:00+08:00',
+                    'to': '2026-08-19T00:00:00+08:00',
+                  },
+                },
+                {
+                  'id': 'last_30_days',
+                  'label': '最近 30 天',
+                  'time_range': {
+                    'from': '2026-07-20T00:00:00+08:00',
+                    'to': '2026-08-19T00:00:00+08:00',
+                  },
+                },
+                {'id': 'custom', 'label': '其他'},
+              ],
+              'default_scope': {
+                'adapter_kind': 'period_summary',
+                'skill_ids': ['dance'],
+                'supporting_references': [
+                  {'kind': 'asset', 'id': 'dance-1'},
+                  {'kind': 'asset', 'id': 'dance-2'},
+                ],
+                'time_range': {
+                  'from': '2026-07-20T00:00:00+08:00',
+                  'to': '2026-08-19T00:00:00+08:00',
+                },
+                'missing_dimensions': ['time_range'],
+                'selection': {
+                  'auto_references': [
+                    {'kind': 'asset', 'id': 'dance-1'},
+                    {'kind': 'asset', 'id': 'dance-2'},
+                  ],
+                },
+              },
+            });
+          }
+          return _json({
+            'id': 'run-dance',
+            'state': 'awaiting_selection',
+            'scope_revision': 0,
+            'pending_decision': {
+              'type': 'scope_confirmation',
+              'adapter_kind': 'period_summary',
+            },
+            'scope_draft': {'adapter_kind': 'period_summary'},
+          });
+        }),
+      );
+      addTearDown(api.close);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildThemeV2Theme(Brightness.light),
+          home: ReportRunPage(runId: 'run-dance', api: api),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('最近 30 天'), findsOneWidget);
+      expect(find.text('已选择 2 项资产'), findsOneWidget);
+      expect(find.text('跳舞 × 2'), findsOneWidget);
+      expect(find.text('爵士训练'), findsNothing);
+      expect(find.text('编舞课'), findsNothing);
+      expect(find.text('手动添加资产'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.text('补充信息（选填）'),
+        240,
+        scrollable: find.byType(Scrollable).last,
+      );
+      expect(find.text('呈现方式（选填）'), findsOneWidget);
+      expect(find.text('补充信息（选填）'), findsOneWidget);
+    },
+  );
 
   testWidgets('exact single asset remains visible with manual add available', (
     tester,
@@ -431,12 +546,16 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('report-open-evidence-picker')));
     await tester.pumpAndSettle();
 
-    expect(find.byType(BottomSheet), findsOneWidget);
+    expect(find.byType(BottomSheet), findsNothing);
+    expect(find.text('参考资产'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('report-evidence-confirm')),
       findsOneWidget,
     );
-    expect(find.byType(ReportRunPage), findsOneWidget);
+    expect(
+      find.byType(ReportRunPage, skipOffstage: false),
+      findsOneWidget,
+    );
 
     await tester.tap(find.byKey(const ValueKey('report-evidence-cancel')));
     await tester.pumpAndSettle();

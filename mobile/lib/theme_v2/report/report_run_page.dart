@@ -506,10 +506,54 @@ class _ReportRunPageState extends State<ReportRunPage> {
             ],
           ),
         ],
+        if (adapter == 'period_summary' &&
+            scope.missingDimensions.contains('asset_type') &&
+            candidates.recordGroups.isNotEmpty) ...[
+          const SizedBox(height: ThemeV2Spacing.lg),
+          const Text('资产类型'),
+          const SizedBox(height: ThemeV2Spacing.xs),
+          const Text('选择你想纳入报告的记录类型。'),
+          const SizedBox(height: ThemeV2Spacing.sm),
+          Wrap(
+            spacing: ThemeV2Spacing.sm,
+            runSpacing: ThemeV2Spacing.sm,
+            children: [
+              for (final group in candidates.recordGroups)
+                FilterChip(
+                  key: ValueKey('report-scope-type-${group.skillId}'),
+                  label: Text(group.label),
+                  selected: scope.skillIds.contains(group.skillId),
+                  onSelected: (selected) =>
+                      _controller.toggleScopeGroup(group.skillId, selected),
+                ),
+            ],
+          ),
+        ],
+        if (adapter == 'period_summary' &&
+            scope.supportingReferences.isNotEmpty) ...[
+          const SizedBox(height: ThemeV2Spacing.lg),
+          Wrap(
+            spacing: ThemeV2Spacing.sm,
+            runSpacing: ThemeV2Spacing.sm,
+            children: [
+              for (final group in candidates.recordGroups)
+                if (_selectedRecordCount(group, scope) > 0)
+                  ActionChip(
+                    key: ValueKey('report-selected-group-${group.skillId}'),
+                    label: Text(
+                      '${group.label} × ${_selectedRecordCount(group, scope)}',
+                    ),
+                    avatar: const Icon(Icons.inventory_2_outlined, size: 18),
+                    onPressed: () =>
+                        _openEvidencePicker(initialSkillId: group.skillId),
+                  ),
+            ],
+          ),
+        ],
         const SizedBox(height: ThemeV2Spacing.lg),
         OutlinedButton.icon(
           key: const ValueKey('report-open-evidence-picker'),
-          onPressed: _openEvidencePicker,
+          onPressed: () => _openEvidencePicker(),
           icon: const Icon(Icons.add_rounded),
           label: const Text('手动添加资产'),
           style: OutlinedButton.styleFrom(
@@ -538,10 +582,7 @@ class _ReportRunPageState extends State<ReportRunPage> {
           if (scope.timeRange == null)
             _emptyScopeCard('选择时间后，Reka 会筛出对应资产')
           else if (candidates.recordGroups.isEmpty)
-            _emptyScopeCard('这段时间内还没有可汇总的记录')
-          else
-            for (final group in candidates.recordGroups)
-              _recordScopeGroup(group, scope),
+            _emptyScopeCard('这段时间内还没有可汇总的记录'),
         ],
         const SizedBox(height: ThemeV2Spacing.xl),
         const Text(
@@ -683,45 +724,12 @@ class _ReportRunPageState extends State<ReportRunPage> {
     ),
   );
 
-  Widget _recordScopeGroup(
+  int _selectedRecordCount(
     ReportScopeRecordGroupView group,
     ReportScopeDraftView scope,
-  ) {
-    final groupSelected = scope.skillIds.contains(group.skillId);
-    return Card(
-      margin: const EdgeInsets.only(bottom: ThemeV2Spacing.sm),
-      color: context.themeV2.surface,
-      child: ExpansionTile(
-        key: ValueKey('report-scope-group-${group.skillId}'),
-        leading: Checkbox(
-          value: groupSelected,
-          onChanged: (value) =>
-              _controller.toggleScopeGroup(group.skillId, value ?? false),
-        ),
-        title: Text(
-          group.label,
-          style: const TextStyle(fontWeight: FontWeight.w700),
-        ),
-        subtitle: Text('${group.count} 条记录'),
-        children: [
-          for (final record in group.records)
-            CheckboxListTile(
-              key: ValueKey('report-scope-record-${record.reference.id}'),
-              value: scope.supportingReferences.contains(record.reference),
-              onChanged: (value) => _controller.toggleScopeRecord(
-                record.reference,
-                value ?? false,
-              ),
-              title: Text(record.title),
-              subtitle: record.effectiveAt == null
-                  ? null
-                  : Text(_formatScopeRecordTime(record.effectiveAt!)),
-              controlAffinity: ListTileControlAffinity.leading,
-            ),
-        ],
-      ),
-    );
-  }
+  ) => group.records
+      .where((record) => scope.supportingReferences.contains(record.reference))
+      .length;
 
   Widget _emptyScopeCard(String message) => Container(
     padding: const EdgeInsets.all(ThemeV2Spacing.lg),
@@ -735,12 +743,6 @@ class _ReportRunPageState extends State<ReportRunPage> {
 
   TextStyle _scopeSecondaryStyle() =>
       TextStyle(color: context.themeV2.muted, height: 1.35);
-
-  String _formatScopeRecordTime(DateTime value) {
-    final local = value.toLocal();
-    String two(int number) => number.toString().padLeft(2, '0');
-    return '${local.month}月${local.day}日 ${two(local.hour)}:${two(local.minute)}';
-  }
 
   bool _sameTimeRange(
     Map<String, dynamic>? current,
@@ -1026,13 +1028,14 @@ class _ReportRunPageState extends State<ReportRunPage> {
         (scope == null || scope.adapterKind != 'generic');
   }
 
-  Future<void> _openEvidencePicker() async {
+  Future<void> _openEvidencePicker({String? initialSkillId}) async {
     final scope = _controller.scopeDraft;
     if (scope == null) return;
     final selected = await showReportEvidencePickerSheet(
       context,
       loadPage: _controller.loadEvidenceOptions,
       initialSelected: scope.supportingReferences,
+      initialSkillId: initialSkillId,
     );
     if (!mounted || selected == null) return;
     _controller.replaceScopeSupportingReferences(selected);
