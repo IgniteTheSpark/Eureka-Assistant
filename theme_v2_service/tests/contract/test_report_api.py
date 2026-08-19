@@ -8,6 +8,7 @@ from app.db.models import WorkflowJob
 from app.domains.reports.models import File, ReportGenerationRun
 from app.domains.reports.service import CompletedReportData, persist_completed_report
 from app.domains.reports.storage import LocalStorage, persist_owned_file
+from tests.fakes.auth_helpers import register_user
 from app.main import app
 
 
@@ -21,13 +22,8 @@ async def client(session):
 
 
 async def _register(client: AsyncClient, email: str) -> tuple[str, str]:
-    response = await client.post(
-        "/api/auth/register",
-        json={"email": email, "password": "secret1"},
-    )
-    assert response.status_code == 200
-    return response.json()["token"], response.json()["user"]["id"]
-
+    body = await register_user(client, email, password="secret123")
+    return body["token"], body["user"]["id"]
 
 def _headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}

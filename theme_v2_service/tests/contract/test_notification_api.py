@@ -5,6 +5,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.domains.notifications.schemas import NotificationCreate
 from app.domains.notifications.service import create_notification
+from tests.fakes.auth_helpers import register_user
 from app.main import app
 
 
@@ -21,14 +22,8 @@ async def client(session):
 
 
 async def _register(client: AsyncClient, email: str) -> tuple[str, str]:
-    response = await client.post(
-        "/api/auth/register",
-        json={"email": email, "password": "secret1"},
-    )
-    assert response.status_code == 200
-    body = response.json()
+    body = await register_user(client, email, password="secret123")
     return body["token"], body["user"]["id"]
-
 
 def _headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}

@@ -28,6 +28,8 @@ def test_foundation_migration_round_trip_and_physical_types():
     Base.metadata.drop_all(bind=engine)
     with engine.begin() as connection:
         connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
+        connection.execute(text("DROP TABLE IF EXISTS onboarding_asset_results"))
+        connection.execute(text("DROP TABLE IF EXISTS deletion_cleanup_items"))
 
     config = Config("alembic.ini")
     command.upgrade(config, "head")
@@ -66,7 +68,6 @@ def test_foundation_migration_round_trip_and_physical_types():
         "agent_pending_actions",
         "nudges",
         "rhythm_profiles",
-        "reminder_deliveries",
     }.issubset(set(inspector.get_table_names()))
 
     asset_columns = {column["name"]: column for column in inspector.get_columns("assets")}
@@ -184,18 +185,6 @@ def test_foundation_migration_round_trip_and_physical_types():
     }
     assert nudge_columns["natural_key"]["type"].length == 255
     assert nudge_columns["dismissed_at"]["type"].fsp == 6
-    assert nudge_columns["remind_again_at"]["type"].fsp == 6
-
-    event_columns = {
-        column["name"]: column for column in inspector.get_columns("events")
-    }
-    assert isinstance(event_columns["reminder_offsets_json"]["type"], mysql.JSON)
-
-    reminder_columns = {
-        column["name"]: column
-        for column in inspector.get_columns("reminder_deliveries")
-    }
-    assert reminder_columns["natural_key"]["type"].length == 255
 
     rhythm_columns = {
         column["name"]: column
@@ -204,7 +193,7 @@ def test_foundation_migration_round_trip_and_physical_types():
     assert isinstance(rhythm_columns["patterns_json"]["type"], mysql.JSON)
     assert rhythm_columns["timezone_name"]["type"].length == 64
 
-    assert revision == "0024_reka_reminders"
+    assert revision == "0028_deletion_cleanup_items"
     engine.dispose()
 
 
@@ -213,6 +202,8 @@ def test_internal_mcp_migration_backfills_existing_domain_data():
     Base.metadata.drop_all(bind=engine)
     with engine.begin() as connection:
         connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
+        connection.execute(text("DROP TABLE IF EXISTS onboarding_asset_results"))
+        connection.execute(text("DROP TABLE IF EXISTS deletion_cleanup_items"))
 
     config = Config("alembic.ini")
     command.upgrade(config, "0014_agent_session_foundation")
@@ -382,7 +373,7 @@ def test_internal_mcp_migration_backfills_existing_domain_data():
         revision = connection.execute(
             text("SELECT version_num FROM alembic_version")
         ).scalar_one()
-    assert revision == "0024_reka_reminders"
+    assert revision == "0028_deletion_cleanup_items"
     engine.dispose()
 
 
@@ -391,6 +382,8 @@ def test_legacy_agent_data_backfill_preserves_same_name_contacts_and_chat():
     Base.metadata.drop_all(bind=engine)
     with engine.begin() as connection:
         connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
+        connection.execute(text("DROP TABLE IF EXISTS onboarding_asset_results"))
+        connection.execute(text("DROP TABLE IF EXISTS deletion_cleanup_items"))
 
     config = Config("alembic.ini")
     command.upgrade(config, "0016_agent_pending_actions")

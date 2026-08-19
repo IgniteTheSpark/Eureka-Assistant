@@ -6,6 +6,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
 from app.db.models import Asset, UserSkill
+from tests.fakes.auth_helpers import register_user
 from app.main import app
 
 
@@ -22,13 +23,8 @@ async def client(session):
 
 
 async def _register(client: AsyncClient, email: str) -> tuple[str, str]:
-    response = await client.post(
-        "/api/auth/register",
-        json={"email": email, "password": "secret1"},
-    )
-    assert response.status_code == 200
-    return response.json()["token"], response.json()["user"]["id"]
-
+    body = await register_user(client, email, password="secret123")
+    return body["token"], body["user"]["id"]
 
 def _headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}

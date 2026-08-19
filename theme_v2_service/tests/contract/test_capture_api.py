@@ -19,6 +19,7 @@ from app.domains.sessions.models import InputTurn, SessionMessage
 from app.domains.sessions.tools import SessionToolExecutor
 from app.internal_mcp.runtime import InternalMCPTrustedContext
 from app.internal_mcp.tools import EurekaToolContext, execute_tool
+from tests.fakes.auth_helpers import register_user
 from app.domains.notifications.subscribers import SubscriberRegistry
 from app.jobs.registry import JobHandlerRegistry
 from app.jobs.runner import run_worker_once
@@ -35,12 +36,8 @@ async def client(session):
 
 
 async def _register(client: AsyncClient, email: str) -> str:
-    response = await client.post(
-        "/api/auth/register",
-        json={"email": email, "password": "secret1"},
-    )
-    assert response.status_code == 200
-    return response.json()["token"]
+    body = await register_user(client, email, password="secret123")
+    return body["token"]
 
 
 def _headers(token: str) -> dict[str, str]:
@@ -1133,7 +1130,7 @@ async def test_listening_state_is_published_to_live_subscriber(client):
     app.state.notification_subscribers = registry
     registered = await client.post(
         "/api/auth/login",
-        json={"email": "listener@example.com", "password": "secret1"},
+        json={"email": "listener@example.com", "password": "secret123"},
     )
     user_id = registered.json()["user"]["id"]
     queue = registry.subscribe(user_id)

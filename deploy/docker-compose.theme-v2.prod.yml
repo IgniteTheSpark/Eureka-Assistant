@@ -16,6 +16,16 @@ x-theme-v2-environment: &theme-v2-environment
   DATABASE_URL: ${THEME_V2_DATABASE_URL:?set THEME_V2_DATABASE_URL in deploy/.env.theme-v2.prod}
   JWT_SECRET: ${THEME_V2_JWT_SECRET:?set THEME_V2_JWT_SECRET in deploy/.env.theme-v2.prod}
   MEDIA_ROOT: /data/media
+  # uvicorn --proxy-headers only trusts X-Forwarded-For from these peers. The
+  # edge network is pinned to 172.20.0.0/24 so only Caddy (the sole edge
+  # container) can set it; every other client falls through to the socket peer.
+  FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-172.20.0.0/24}
+  EMAIL_PROVIDER: ${EMAIL_PROVIDER:?set EMAIL_PROVIDER in deploy/.env.theme-v2.prod (aliyun_directmail, mock, or disabled); production requires aliyun_directmail}
+  EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-verify@mail.ureka.chat}
+  EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-UReka}
+  DIRECTMAIL_ACCOUNT_NAME: ${DIRECTMAIL_ACCOUNT_NAME:-verify@mail.ureka.chat}
+  DIRECTMAIL_ACCESS_KEY_ID: ${DIRECTMAIL_ACCESS_KEY_ID:-}
+  DIRECTMAIL_ACCESS_KEY_SECRET: ${DIRECTMAIL_ACCESS_KEY_SECRET:-}
   DEFAULT_USER_TIMEZONE: ${DEFAULT_USER_TIMEZONE:-Asia/Shanghai}
   TENCENT_ASR_SERVICE_BASE_URL: ${TENCENT_ASR_SERVICE_BASE_URL:?set TENCENT_ASR_SERVICE_BASE_URL}
   CAPTURE_ASR_POLL_INTERVAL_SECONDS: ${CAPTURE_ASR_POLL_INTERVAL_SECONDS:-5}
@@ -154,6 +164,9 @@ services:
 
 networks:
   edge:
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
   backend:
 
 volumes:

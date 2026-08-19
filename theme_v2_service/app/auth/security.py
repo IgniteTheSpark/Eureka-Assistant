@@ -53,6 +53,7 @@ def verify_password(password: str, stored: str) -> bool:
 def create_token(
     user_id: str,
     *,
+    auth_version: int = 1,
     now: int | None = None,
     ttl_seconds: int = 86_400,
 ) -> str:
@@ -60,6 +61,7 @@ def create_token(
     header = {"alg": "HS256", "typ": "JWT"}
     payload = {
         "sub": user_id,
+        "av": auth_version,
         "iat": issued_at,
         "exp": issued_at + ttl_seconds,
     }

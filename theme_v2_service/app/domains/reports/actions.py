@@ -123,11 +123,13 @@ async def create_report_action_todo(
     if action is None:
         raise ReportActionNotFound()
     existing = await session.scalar(
-        select(Asset).where(
+        select(Asset)
+        .where(
             Asset.user_id == user_id,
             Asset.source_report_id == report.id,
             Asset.source_report_action_id == action.id,
         )
+        .with_for_update()
     )
     if existing is not None:
         return _state(action, existing, created=False), False

@@ -41,13 +41,18 @@ async def _authenticated_request(client: AsyncClient) -> tuple[Request, str]:
             "app": app,
         }
     )
-    assert get_current_user_id(request) == registered.json()["user"]["id"]
+    async with AsyncSessionFactory() as database:
+        assert (
+            await get_current_user_id(request, database)
+            == registered.json()["user"]["id"]
+        )
     return request, token
 
 
 async def test_worker_notification_reaches_sse_and_survives_reconnect(client):
     request, token = await _authenticated_request(client)
-    user_id = get_current_user_id(request)
+    async with AsyncSessionFactory() as database:
+        user_id = await get_current_user_id(request, database)
     registry = SubscriberRegistry()
     app.state.notification_subscribers = registry
 

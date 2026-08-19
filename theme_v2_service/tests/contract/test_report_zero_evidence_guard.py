@@ -4,6 +4,7 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 from app.domains.reports.models import ReportGenerationRun
+from tests.fakes.auth_helpers import register_user
 from app.main import app
 
 
@@ -17,12 +18,9 @@ async def client(session):
 
 
 async def test_user_report_without_evidence_stays_at_plan_selection(client, session):
-    registered = await client.post(
-        "/api/auth/register",
-        json={"email": "empty-report@example.com", "password": "secret1"},
-    )
-    user_id = registered.json()["user"]["id"]
-    headers = {"Authorization": f"Bearer {registered.json()['token']}"}
+    registered = await register_user(client, "empty-report@example.com")
+    user_id = registered["user"]["id"]
+    headers = {"Authorization": f"Bearer {registered['token']}"}
     option = {
         "id": "daily",
         "recommended": True,
