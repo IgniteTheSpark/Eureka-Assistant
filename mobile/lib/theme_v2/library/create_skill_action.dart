@@ -5,7 +5,7 @@ import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
 import 'create_skill/skill_configuration_repository.dart';
 import 'create_skill/skill_management_controller.dart';
-import 'create_skill/skill_management_sheet.dart';
+import 'create_skill/skill_field_configuration_page.dart';
 import 'create_skill/skill_wizard_controller.dart';
 import 'create_skill/theme_v2_skill_wizard.dart';
 
@@ -192,26 +192,17 @@ Future<void> showThemeV2SkillManagementLaunch(
     userSkillId: userSkillId,
     disposeRepository: usesProductionRepository,
   );
-  await showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    useSafeArea: true,
-    enableDrag: false,
-    isDismissible: false,
-    backgroundColor: Colors.transparent,
-    barrierColor: Colors.black.withValues(alpha: .32),
-    builder: (sheetContext) => SizedBox(
-      height: MediaQuery.sizeOf(sheetContext).height,
-      child: ThemeV2SkillManagementSheet(
+  await Navigator.of(context).push<void>(
+    MaterialPageRoute<void>(
+      fullscreenDialog: true,
+      builder: (pageContext) => ThemeV2SkillFieldConfigurationPage(
         controller: controller,
-        onClose: () => Navigator.of(sheetContext).pop(),
         onSaved: () {
           bumpData();
           onSaved?.call();
         },
         onDeleted: () {
           bumpData();
-          Navigator.of(sheetContext).pop();
           onDeleted?.call();
         },
       ),

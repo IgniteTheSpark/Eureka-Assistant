@@ -329,6 +329,16 @@ class SkillManagementController extends ChangeNotifier {
     return true;
   }
 
+  bool removeField(String key) {
+    if (!_fields.any((field) => field.key == key)) return false;
+    _fields = _fields
+        .where((field) => field.key != key)
+        .toList(growable: false);
+    _errorMessage = null;
+    _notify();
+    return true;
+  }
+
   void reorderField(int oldIndex, int newIndex) {
     if (oldIndex < 0 || oldIndex >= _fields.length) return;
     final next = [..._fields];
@@ -354,6 +364,31 @@ class SkillManagementController extends ChangeNotifier {
           renderSpec:
               _cardSelection?.config.applyToRenderSpec(current.renderSpec) ??
               current.renderSpec,
+          expectedUpdatedAt: current.updatedAt,
+        ),
+      );
+      if (_disposed) return false;
+      _applySkill(saved);
+      _setState(SkillManagementState.ready);
+      return true;
+    } catch (error) {
+      _fail('保存失败：$error');
+      return false;
+    }
+  }
+
+  Future<bool> saveFieldsOnly() async {
+    final current = _skill;
+    if (current == null || busy) return false;
+    _setState(SkillManagementState.saving);
+    try {
+      final saved = await repository.save(
+        userSkillId,
+        SkillManagementDraft(
+          displayName: current.displayName,
+          description: current.description,
+          schema: _serializeSchema(current.rootSchema),
+          renderSpec: current.renderSpec,
           expectedUpdatedAt: current.updatedAt,
         ),
       );

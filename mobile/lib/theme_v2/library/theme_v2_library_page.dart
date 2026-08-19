@@ -277,7 +277,7 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
       return const SizedBox.shrink();
     }
     final custom = !container.isSystem;
-    final configureCard = custom ? null : _displayConfigurationFor(container);
+    final configureCard = _displayConfigurationFor(container);
     final manageSkill = custom ? _managementFor(container) : null;
     switch (container.type) {
       case LibraryContainerType.event:

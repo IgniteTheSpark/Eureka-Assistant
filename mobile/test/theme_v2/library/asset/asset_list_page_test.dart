@@ -346,7 +346,7 @@ void main() {
     expect(requests, ['GET /api/asset-details/event/e1']);
   });
 
-  testWidgets('custom container exposes one unified management entry', (
+  testWidgets('custom container exposes card display and field settings', (
     tester,
   ) async {
     var configured = false;
@@ -365,11 +365,13 @@ void main() {
       ),
     );
 
-    expect(find.byKey(const ValueKey('custom-skill-edit')), findsOneWidget);
-    expect(find.bySemanticsLabel('Card Display Settings'), findsNothing);
-    await tester.tap(find.byKey(const ValueKey('custom-skill-edit')));
+    expect(find.byKey(const ValueKey('custom-skill-fields')), findsOneWidget);
+    expect(find.bySemanticsLabel('Card Display Settings'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('custom-skill-fields')));
     expect(managed, isTrue);
     expect(configured, isFalse);
+    await tester.tap(find.bySemanticsLabel('Card Display Settings'));
+    expect(configured, isTrue);
   });
 
   testWidgets('built-in container keeps only card display settings', (

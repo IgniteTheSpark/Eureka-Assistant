@@ -59,13 +59,41 @@ def test_custom_skill_schema_allows_relabel_hide_reorder_and_new_optional_field(
     assert normalized["required"] == []
 
 
+def test_custom_skill_schema_allows_deleting_fields_including_the_last_field():
+    skill = _skill(
+        schema={
+            "type": "object",
+            "properties": {
+                "duration": {"type": "number", "title": "时长"},
+                "location": {"type": "string", "title": "地点"},
+            },
+            "required": [],
+        }
+    )
+
+    validate_custom_skill_update(
+        skill,
+        UserSkillUpdate(
+            schema={
+                "type": "object",
+                "properties": {
+                    "location": {"type": "string", "title": "地点"},
+                },
+                "required": [],
+            }
+        ),
+    )
+    validate_custom_skill_update(
+        _skill(),
+        UserSkillUpdate(
+            schema={"type": "object", "properties": {}, "required": []}
+        ),
+    )
+
+
 @pytest.mark.parametrize(
     ("schema", "code"),
     [
-        (
-            {"type": "object", "properties": {}},
-            "field_removed",
-        ),
         (
             {
                 "type": "object",
@@ -85,15 +113,6 @@ def test_custom_skill_schema_allows_relabel_hide_reorder_and_new_optional_field(
                 },
             },
             "field_format_changed",
-        ),
-        (
-            {
-                "type": "object",
-                "properties": {
-                    "duration": {"type": "number", "title": "时长", "x-hidden": True}
-                },
-            },
-            "no_visible_fields",
         ),
     ],
 )

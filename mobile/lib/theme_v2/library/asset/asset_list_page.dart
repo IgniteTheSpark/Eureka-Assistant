@@ -727,7 +727,7 @@ class _ListHeader extends StatelessWidget {
                 ),
               ),
             ),
-            if (onConfigureCard != null && onManageSkill == null)
+            if (onConfigureCard != null)
               ThemeV2IconButton(
                 semanticLabel: 'Card Display Settings',
                 icon: Icons.tune,
@@ -735,9 +735,9 @@ class _ListHeader extends StatelessWidget {
               ),
             if (onManageSkill != null)
               ThemeV2IconButton(
-                key: const ValueKey('custom-skill-edit'),
-                semanticLabel: '管理 Skill',
-                icon: Icons.settings,
+                key: const ValueKey('custom-skill-fields'),
+                semanticLabel: '字段配置',
+                icon: Icons.view_list_outlined,
                 onPressed: onManageSkill,
               ),
           ],

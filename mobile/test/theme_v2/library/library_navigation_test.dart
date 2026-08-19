@@ -377,7 +377,7 @@ void main() {
     }
   });
 
-  testWidgets('custom containers expose only unified skill management', (
+  testWidgets('custom containers expose card display and field settings', (
     tester,
   ) async {
     final controller = await _controller();
@@ -396,10 +396,10 @@ void main() {
     final page = tester.widget<ThemeV2AssetListPage>(
       find.byType(ThemeV2AssetListPage),
     );
-    expect(page.onConfigureCard, isNull);
+    expect(page.onConfigureCard, isNotNull);
     expect(page.onManageSkill, isNotNull);
-    expect(find.byKey(const ValueKey('custom-skill-edit')), findsOneWidget);
-    expect(find.bySemanticsLabel('Card Display Settings'), findsNothing);
+    expect(find.byKey(const ValueKey('custom-skill-fields')), findsOneWidget);
+    expect(find.bySemanticsLabel('Card Display Settings'), findsOneWidget);
   });
 
   testWidgets(

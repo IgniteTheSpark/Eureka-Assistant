@@ -184,10 +184,7 @@ def validate_custom_skill_update(
     for key, definition in current.items():
         replacement = proposed.get(key)
         if replacement is None:
-            raise SkillUpdateConflict(
-                "field_removed",
-                f"字段 {key} 不能删除，可以将它隐藏",
-            )
+            continue
         if definition.get("type") != replacement.get("type"):
             raise SkillUpdateConflict(
                 "field_type_changed",
@@ -205,10 +202,4 @@ def validate_custom_skill_update(
         raise SkillUpdateConflict(
             "new_field_required",
             "新增字段必须保持可选",
-        )
-
-    if not any(not bool(definition.get("x-hidden")) for definition in proposed.values()):
-        raise SkillUpdateConflict(
-            "no_visible_fields",
-            "至少保留一个可见字段",
         )

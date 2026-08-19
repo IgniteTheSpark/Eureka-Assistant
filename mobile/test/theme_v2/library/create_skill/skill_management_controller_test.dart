@@ -8,8 +8,51 @@ import 'package:flutter/material.dart';
 import 'package:eureka/theme_v2/library/create_skill/skill_configuration_repository.dart';
 import 'package:eureka/theme_v2/library/create_skill/skill_management_controller.dart';
 import 'package:eureka/theme_v2/library/create_skill/skill_management_sheet.dart';
+import 'package:eureka/theme_v2/library/create_skill/skill_field_configuration_page.dart';
 
 void main() {
+  testWidgets('field configuration is isolated and allows normal deletion', (
+    tester,
+  ) async {
+    final repository = _FakeRepository(_multiFieldSkill());
+    final controller = SkillManagementController(
+      repository: repository,
+      userSkillId: 'tennis-id',
+    );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildThemeV2Theme(Brightness.light),
+        home: ThemeV2SkillFieldConfigurationPage(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('字段配置'), findsOneWidget);
+    expect(find.text('基本信息'), findsNothing);
+    expect(find.text('卡片展示'), findsNothing);
+    expect(find.byType(CardFieldSelector), findsNothing);
+    expect(
+      find.byKey(const ValueKey('skill-field-row-duration')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('skill-field-delete-duration')));
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('skill-field-row-duration')),
+      findsNothing,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('skill-fields-save')));
+    await tester.pumpAndSettle();
+
+    final properties = repository.savedSchema!['properties'] as Map;
+    expect(properties.containsKey('duration'), isFalse);
+    expect(repository.saved!.renderSpec, repository.skill.renderSpec);
+  });
+
   testWidgets('custom management contains fields card display and deletion', (
     tester,
   ) async {
