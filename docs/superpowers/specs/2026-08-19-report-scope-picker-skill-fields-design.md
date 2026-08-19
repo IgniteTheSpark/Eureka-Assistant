@@ -179,14 +179,14 @@ All contexts use the same picker implementation and the same selection state mod
 
 ### 3.1 Minimal entry change
 
-Keep the existing “卡片展示设置” page and its current interaction. Do not create a Skill management hub or combine two editors.
+Keep the existing card-display icon and “卡片展示设置” page with their current interaction. Do not create a Skill management hub or combine two editors.
 
-Add one field-configuration icon immediately beside the top title. It has:
+In the custom Skill asset-list header, add one field-configuration icon immediately beside the existing card-display icon. It has:
 
 - tooltip and accessibility label `字段配置`;
 - a single action that opens a separate full-screen field-configuration page.
 
-The card-display page removes any obsolete Describe/Fields stepper or field-editing content if still present, but otherwise remains unchanged.
+The card-display page remains unchanged. The new field entry does not appear inside that page.
 
 ### 3.2 Field-configuration page
 
