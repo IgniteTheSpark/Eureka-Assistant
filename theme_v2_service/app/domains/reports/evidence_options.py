@@ -47,22 +47,43 @@ def _text(value: Any) -> str:
     return ""
 
 
-def _asset_title(asset: Asset, skill: UserSkill) -> str:
-    payload = asset.payload_json or {}
-    for field in ("title", "content", "name", "description", "amount"):
-        value = _text(payload.get(field))
-        if value:
-            return value[:120]
-    return skill.display_name
+def _card_fields(skill: UserSkill) -> tuple[str, list[str]]:
+    render_spec = skill.render_spec_json or {}
+    card_display = render_spec.get("card_display")
+    if not isinstance(card_display, dict):
+        card_display = {}
+    primary = str(
+        card_display.get("primary_field_id")
+        or render_spec.get("primary_field")
+        or ""
+    ).strip()
+    secondary = card_display.get("secondary_field_ids")
+    if not isinstance(secondary, list):
+        secondary = [render_spec.get("secondary_field")]
+        meta_fields = render_spec.get("meta_fields")
+        if isinstance(meta_fields, list):
+            secondary.extend(
+                row.get("field")
+                for row in meta_fields
+                if isinstance(row, dict)
+            )
+    return primary, [
+        str(field).strip()
+        for field in secondary
+        if field and str(field).strip() != primary
+    ][:3]
 
 
-def _asset_subtitle(asset: Asset, skill: UserSkill) -> str | None:
+def _asset_card_text(asset: Asset, skill: UserSkill) -> tuple[str, str | None]:
     payload = asset.payload_json or {}
-    for field in ("description", "note", "merchant", "category"):
-        value = _text(payload.get(field))
-        if value and value != _asset_title(asset, skill):
-            return value[:120]
-    return skill.display_name
+    primary, secondary = _card_fields(skill)
+    title = _text(payload.get(primary))[:120] if primary else ""
+    subtitle = " · ".join(
+        value
+        for field in secondary
+        if (value := _text(payload.get(field)))
+    )
+    return title, subtitle[:120] or None
 
 
 def _asset_icon(skill: UserSkill) -> str:
@@ -123,8 +144,7 @@ async def list_evidence_options(
             skill = skills_by_id.get(asset.user_skill_id)
             if skill is None:
                 continue
-            title = _asset_title(asset, skill)
-            subtitle = _asset_subtitle(asset, skill)
+            title, subtitle = _asset_card_text(asset, skill)
             haystack = f"{title} {subtitle or ''} {skill.display_name}".casefold()
             if normalized_query and normalized_query.casefold() not in haystack:
                 continue

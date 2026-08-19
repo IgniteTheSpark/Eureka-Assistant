@@ -764,3 +764,66 @@ async def test_evidence_options_unify_owned_assets_events_and_contacts(client, s
         "联系人",
         "跑步训练",
     }
+
+
+async def test_evidence_options_use_configured_custom_asset_card_fields(
+    client,
+    session,
+):
+    token, user_id = await _register(client, "picker-fields@example.com")
+    skill = UserSkill(
+        user_id=user_id,
+        machine_name="dance_log",
+        display_name="跳舞记录",
+        description=None,
+        domain="health",
+        schema_json={
+            "type": "object",
+            "properties": {
+                "practice_name": {"type": "string"},
+                "location": {"type": "string"},
+                "duration": {"type": "number"},
+            },
+        },
+        render_spec_json={
+            "icon": "💃",
+            "primary_field": "practice_name",
+            "card_display": {
+                "primary_field_id": "practice_name",
+                "secondary_field_ids": ["location", "duration"],
+            },
+        },
+    )
+    session.add(skill)
+    await session.flush()
+    configured = Asset(
+        user_id=user_id,
+        user_skill_id=skill.id,
+        payload_json={
+            "practice_name": "Urban 编舞",
+            "location": "网球中心",
+            "duration": 48,
+        },
+    )
+    missing_primary = Asset(
+        user_id=user_id,
+        user_skill_id=skill.id,
+        payload_json={"location": "舞蹈教室"},
+    )
+    session.add_all([configured, missing_primary])
+    await session.commit()
+
+    response = await client.get(
+        "/api/report-generation-runs/evidence-options",
+        headers=_headers(token),
+        params={"type": "asset", "skill": skill.id},
+    )
+
+    assert response.status_code == 200
+    options = {
+        item["reference"]["id"]: item for item in response.json()["items"]
+    }
+    assert options[configured.id]["title"] == "Urban 编舞"
+    assert options[configured.id]["subtitle"] == "网球中心 · 48"
+    assert options[missing_primary.id]["title"] == ""
+    assert options[missing_primary.id]["subtitle"] == "舞蹈教室"
