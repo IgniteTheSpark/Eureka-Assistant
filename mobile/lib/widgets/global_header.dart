@@ -3,17 +3,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
-import '../auth/auth_controller.dart';
-import '../config.dart';
 import '../device/device_controller.dart';
-import '../pages/connected_apps_page.dart';
 import '../pages/device_pairing_page.dart';
 import '../pages/my_device_page.dart';
 import '../pages/my_ring_page.dart';
 import '../ring/ring_connection.dart';
-import '../pages/ring_debug_page.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_controller.dart';
+import '../theme_v2/account/theme_v2_account_page.dart';
 import 'toast.dart';
 
 /// App-wide top bar (Calendar / Library — not the pushed chat route). Holds the
@@ -41,22 +38,26 @@ class GlobalHeaderBar extends StatelessWidget {
       ),
       child: Row(
         children: [
-          // Brand wordmark (official mark + EUREKA), tinted to brand blue so it
-          // reads on both light & dark headers (the source SVG is monochrome).
-          SvgPicture.asset(
-            'assets/logo/eureka_wordmark.svg',
-            height: 19,
-            colorFilter: ColorFilter.mode(eu.brand, BlendMode.srcIn),
+          // The brand wordmark is also the account entry point. Keep personal
+          // center out of the trailing action row so the header stays quiet.
+          Semantics(
+            button: true,
+            label: '个人中心',
+            child: GestureDetector(
+              onTap: () => _openProfile(context),
+              behavior: HitTestBehavior.opaque,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: SvgPicture.asset(
+                  'assets/logo/eureka_wordmark.svg',
+                  height: 19,
+                  colorFilter: ColorFilter.mode(eu.brand, BlendMode.srcIn),
+                ),
+              ),
+            ),
           ),
           const Spacer(),
           ThemeToggle(onDark: onDark),
-          // 通知 moved onto REKA (§9.2) — no header bell.
-          _GhostButton(
-            icon: Icons.person_outline,
-            tooltip: '个人中心',
-            onDark: onDark,
-            onTap: () => _openProfile(context),
-          ),
           AnimatedBuilder(
             animation: Listenable.merge([
               DeviceController.instance,
@@ -124,172 +125,11 @@ class _GhostButton extends StatelessWidget {
   }
 }
 
-/// 个人中心 — current account + 退出登录 (the rest is upcoming).
+/// Open the full account center from the brand wordmark.
 void _openProfile(BuildContext context) {
-  final eu = context.eu;
-  showModalBottomSheet<void>(
-    context: context,
-    backgroundColor: eu.surfaceRaised,
-    showDragHandle: true,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-    ),
-    builder: (sheetCtx) => SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: eu.brand.withValues(alpha: 0.14),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: eu.brand.withValues(alpha: 0.28)),
-                  ),
-                  child: Icon(Icons.person_outline, color: eu.brand, size: 22),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        AuthController.instance.email ?? '已登录',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: eu.textHi,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Eureka 账号',
-                        style: TextStyle(color: eu.textMid, fontSize: 12),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 18),
-            // 已连接应用 (Connected Apps) — external app connections.
-            GestureDetector(
-              onTap: () {
-                Navigator.of(sheetCtx).pop();
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const ConnectedAppsPage()),
-                );
-              },
-              behavior: HitTestBehavior.opaque,
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 14,
-                ),
-                decoration: BoxDecoration(
-                  color: eu.bg,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: eu.border),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.hub_outlined, size: 19, color: eu.textMid),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        '已连接应用',
-                        style: TextStyle(color: eu.textHi, fontSize: 15),
-                      ),
-                    ),
-                    Icon(Icons.chevron_right, size: 18, color: eu.textLo),
-                  ],
-                ),
-              ),
-            ),
-            if (AppConfig.showRingDebug) ...[
-              const SizedBox(height: 10),
-              GestureDetector(
-                onTap: () {
-                  Navigator.of(sheetCtx).pop();
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const RingDebugPage()),
-                  );
-                },
-                behavior: HitTestBehavior.opaque,
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 14,
-                  ),
-                  decoration: BoxDecoration(
-                    color: eu.bg,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: eu.border),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.bluetooth_audio_outlined,
-                        size: 19,
-                        color: eu.textMid,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          '[Debug] Ring 调试',
-                          style: TextStyle(color: eu.textHi, fontSize: 15),
-                        ),
-                      ),
-                      Icon(Icons.chevron_right, size: 18, color: eu.textLo),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-            const SizedBox(height: 10),
-            GestureDetector(
-              onTap: () {
-                Navigator.of(sheetCtx).pop();
-                AuthController.instance.logout(); // gate rebuilds to login
-              },
-              behavior: HitTestBehavior.opaque,
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: eu.accentRed.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: eu.accentRed.withValues(alpha: 0.28),
-                  ),
-                ),
-                child: Text(
-                  '退出登录',
-                  style: TextStyle(
-                    color: eu.accentRed,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
+  Navigator.of(
+    context,
+  ).push(MaterialPageRoute<void>(builder: (_) => const ThemeV2AccountPage()));
 }
 
 /// 设备连接 → 先判断蓝牙与真实连接态，再进入我的设备或扫描页。
