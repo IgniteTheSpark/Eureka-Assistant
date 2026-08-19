@@ -137,6 +137,32 @@ void main() {
   });
 
   test(
+    'replacement completion notifies when pagination becomes available',
+    () async {
+      final repository = _ControlledAssetContainerRepository();
+      final controller = AssetContainerController(
+        repository: repository,
+        containerId: 'notes',
+      );
+      addTearDown(controller.dispose);
+      final observedCanLoadMore = <bool>[];
+      controller.addListener(
+        () => observedCanLoadMore.add(controller.canLoadMore),
+      );
+
+      final load = controller.load();
+      repository.complete(0, [
+        _todo('initial', dueAt: null),
+      ], nextCursor: 'next');
+      await load;
+      await Future<void>.delayed(Duration.zero);
+
+      expect(observedCanLoadMore, isNotEmpty);
+      expect(observedCanLoadMore.last, isTrue);
+    },
+  );
+
+  test(
     'failed optimistic completion restores only the changed record',
     () async {
       final repository = _FakeAssetContainerRepository([

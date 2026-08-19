@@ -103,7 +103,10 @@ class AssetContainerController extends ChangeNotifier {
     final operation = _runLoadQueue(asInitialLoad: asInitialLoad);
     _loadFuture = operation;
     operation.whenComplete(() {
-      if (identical(_loadFuture, operation)) _loadFuture = null;
+      if (identical(_loadFuture, operation)) {
+        _loadFuture = null;
+        _notify();
+      }
     });
     return operation;
   }
