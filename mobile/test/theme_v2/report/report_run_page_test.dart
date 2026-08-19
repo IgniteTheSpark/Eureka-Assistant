@@ -454,7 +454,7 @@ void main() {
     expect(find.text('手动添加资产'), findsOneWidget);
   });
 
-  testWidgets('report adjustment uses three distinct stepper screens', (
+  testWidgets('report demand confirmation keeps all inputs on one screen', (
     tester,
   ) async {
     final api = ApiClient(
@@ -495,10 +495,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('report-plan-stepper')), findsOneWidget);
-    expect(find.text('范围'), findsOneWidget);
-    expect(find.text('方案'), findsOneWidget);
-    expect(find.text('生成'), findsOneWidget);
+    expect(find.byKey(const ValueKey('report-plan-stepper')), findsNothing);
+    expect(find.text('你的需求'), findsOneWidget);
+    expect(find.text('为球队建设会议准备会前调研'), findsOneWidget);
     expect(find.byKey(const ValueKey('report-step-scope')), findsOneWidget);
     expect(find.text('确认报告输入'), findsOneWidget);
     expect(find.text('资产范围'), findsOneWidget);
@@ -552,10 +551,7 @@ void main() {
       find.byKey(const ValueKey('report-evidence-confirm')),
       findsOneWidget,
     );
-    expect(
-      find.byType(ReportRunPage, skipOffstage: false),
-      findsOneWidget,
-    );
+    expect(find.byType(ReportRunPage, skipOffstage: false), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('report-evidence-cancel')));
     await tester.pumpAndSettle();
@@ -573,7 +569,7 @@ void main() {
     expect(find.byKey(const ValueKey('report-additional-focus')), findsNothing);
   });
 
-  testWidgets('stepper preserves edits and submits only from final step', (
+  testWidgets('plan stages preserve edits and submit only after confirmation', (
     tester,
   ) async {
     final requests = <String>[];
@@ -690,6 +686,7 @@ Map<String, dynamic> _scopeRun({
   Map<String, dynamic>? draft,
 }) => {
   'id': 'run-plan',
+  'intent': '为球队建设会议准备会前调研',
   'state': 'awaiting_selection',
   'scope_revision': revision,
   'pending_decision': {

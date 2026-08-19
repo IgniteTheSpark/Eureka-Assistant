@@ -30,6 +30,7 @@ class ReportRunController extends ChangeNotifier {
   bool _disposed = false;
 
   String get runId => _run?['id']?.toString() ?? '';
+  String get intent => _run?['intent']?.toString().trim() ?? '';
   String get state => _run?['state']?.toString() ?? 'idle';
   String get activeStage => _run?['active_stage']?.toString() ?? '';
   int get planRevision => (_run?['plan_revision'] as num?)?.toInt() ?? 0;

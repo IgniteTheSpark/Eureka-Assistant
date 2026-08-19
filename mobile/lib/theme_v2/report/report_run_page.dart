@@ -297,11 +297,6 @@ class _ReportRunPageState extends State<ReportRunPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _ReportPlanStepper(
-          key: const ValueKey('report-plan-stepper'),
-          currentStep: _planStep,
-        ),
-        const SizedBox(height: ThemeV2Spacing.xl),
         Expanded(
           child: AnimatedSwitcher(
             duration: const Duration(milliseconds: 180),
@@ -453,6 +448,9 @@ class _ReportRunPageState extends State<ReportRunPage> {
   Widget _scopeStepBody(ReportScopeDraftView scope) {
     final candidates = _controller.scopeCandidates!;
     final adapter = scope.adapterKind;
+    final intent = _controller.intent.isNotEmpty
+        ? _controller.intent
+        : widget.intent?.trim() ?? '';
     return ListView(
       key: const ValueKey('report-step-scope'),
       children: [
@@ -462,6 +460,31 @@ class _ReportRunPageState extends State<ReportRunPage> {
         ),
         const SizedBox(height: ThemeV2Spacing.sm),
         const Text('先确认使用哪些资产；呈现方式和补充说明都可以留给 Reka 推荐。'),
+        if (intent.isNotEmpty) ...[
+          const SizedBox(height: ThemeV2Spacing.lg),
+          Container(
+            padding: const EdgeInsets.all(ThemeV2Spacing.md),
+            decoration: BoxDecoration(
+              color: context.themeV2.surface,
+              borderRadius: BorderRadius.circular(ThemeV2Radii.lg),
+              border: Border.all(color: context.themeV2.border),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '你的需求',
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: context.themeV2.muted,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: ThemeV2Spacing.xs),
+                Text(intent),
+              ],
+            ),
+          ),
+        ],
         const SizedBox(height: ThemeV2Spacing.xl),
         const Text(
           '资产范围',
@@ -1128,100 +1151,6 @@ class _ReportRunPageState extends State<ReportRunPage> {
           child: Text(_controller.busy ? '提交中…' : '继续准备方案'),
         ),
       ],
-    );
-  }
-}
-
-class _ReportPlanStepper extends StatelessWidget {
-  const _ReportPlanStepper({super.key, required this.currentStep});
-
-  final int currentStep;
-
-  static const _labels = ['范围', '方案', '生成'];
-
-  @override
-  Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
-    final border = context.themeV2.border;
-    final muted = context.themeV2.muted;
-    return Semantics(
-      label: '报告方案步骤 ${currentStep + 1} / ${_labels.length}',
-      child: Column(
-        children: [
-          Row(
-            children: [
-              for (var index = 0; index < _labels.length; index++) ...[
-                if (index > 0)
-                  Expanded(
-                    child: Container(
-                      height: 2,
-                      color: index <= currentStep ? primary : border,
-                    ),
-                  ),
-                Semantics(
-                  selected: index == currentStep,
-                  label: '第 ${index + 1} 步：${_labels[index]}',
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 160),
-                    width: 30,
-                    height: 30,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: index <= currentStep
-                          ? primary
-                          : Colors.transparent,
-                      border: Border.all(
-                        color: index <= currentStep ? primary : border,
-                      ),
-                    ),
-                    alignment: Alignment.center,
-                    child: index < currentStep
-                        ? Icon(
-                            Icons.check_rounded,
-                            size: 18,
-                            color: Theme.of(context).colorScheme.onPrimary,
-                          )
-                        : Text(
-                            '${index + 1}',
-                            style: TextStyle(
-                              color: index == currentStep
-                                  ? Theme.of(context).colorScheme.onPrimary
-                                  : muted,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-          const SizedBox(height: ThemeV2Spacing.xs),
-          Row(
-            children: [
-              for (var index = 0; index < _labels.length; index++)
-                Expanded(
-                  child: Text(
-                    _labels[index],
-                    textAlign: switch (index) {
-                      0 => TextAlign.left,
-                      2 => TextAlign.right,
-                      _ => TextAlign.center,
-                    },
-                    style: TextStyle(
-                      color: index == currentStep
-                          ? context.themeV2.foreground
-                          : muted,
-                      fontSize: 12,
-                      fontWeight: index == currentStep
-                          ? FontWeight.w700
-                          : FontWeight.w500,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ],
-      ),
     );
   }
 }
