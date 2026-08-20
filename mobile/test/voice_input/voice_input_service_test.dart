@@ -96,6 +96,36 @@ void main() {
   });
 
   test(
+    'coordinator cancellation interrupts a start waiting for ready',
+    () async {
+      final capture = _FakeCapture();
+      final gateway = _FakeGatewayConnection();
+      final service = _service(
+        capture: capture,
+        connector: (_, _) async => gateway,
+      );
+      final start = service.start(VoiceInputMode.ordinary);
+      final startExpectation = expectLater(
+        start,
+        throwsA(
+          isA<VoiceInputException>().having(
+            (error) => error.code,
+            'code',
+            VoiceInputErrorCode.connectionFailed,
+          ),
+        ),
+      );
+      await pumpEventQueue();
+
+      await service.cancelActive();
+      await startExpectation;
+      expect(capture.stopCount, 1);
+      expect(capture.disposeCount, 1);
+      expect(gateway.closeCount, 1);
+    },
+  );
+
+  test(
     'waits for ready before recording and forwards ordered PCM frames',
     () async {
       final capture = _FakeCapture();

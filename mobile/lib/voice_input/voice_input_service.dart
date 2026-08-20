@@ -17,6 +17,10 @@ abstract interface class VoiceInputServiceClient {
   Future<VoiceInputSessionHandle> start(VoiceInputMode mode);
 }
 
+abstract interface class VoiceInputServiceCancellation {
+  Future<void> cancelActive();
+}
+
 abstract interface class VoiceInputSessionHandle {
   String get voiceSessionId;
   VoiceInputMode get mode;
@@ -61,7 +65,8 @@ final class PcmFrameChunker {
   void clear() => _pending.clear();
 }
 
-final class VoiceInputService implements VoiceInputServiceClient {
+final class VoiceInputService
+    implements VoiceInputServiceClient, VoiceInputServiceCancellation {
   VoiceInputService({
     VoiceAudioCaptureFactory? captureFactory,
     VoiceGatewayConnector? connector,
@@ -84,6 +89,12 @@ final class VoiceInputService implements VoiceInputServiceClient {
 
   VoiceInputSession? _active;
   bool _starting = false;
+
+  @override
+  Future<void> cancelActive() async {
+    final active = _active;
+    if (active != null) await active.cancel();
+  }
 
   @override
   Future<VoiceInputSession> start(VoiceInputMode mode) async {
@@ -284,6 +295,14 @@ final class VoiceInputSession implements VoiceInputSessionHandle {
     }
     _terminal = true;
     _chunker.clear();
+    if (!_ready.isCompleted) {
+      _ready.completeError(
+        const VoiceInputException(
+          VoiceInputErrorCode.connectionFailed,
+          retryable: true,
+        ),
+      );
+    }
     try {
       await _stopCaptureOnce();
       _gateway.sendText(

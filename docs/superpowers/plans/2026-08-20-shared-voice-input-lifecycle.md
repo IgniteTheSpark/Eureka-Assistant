@@ -190,11 +190,11 @@ git commit -m "fix(backend): isolate and finalize streaming asr sessions"
 - Create: `mobile/test/voice_input/voice_input_coordinator_test.dart`
 - Modify: `mobile/test/voice_input/voice_input_service_test.dart`
 
-- [ ] **Step 1: Add coordinator RED tests with a controllable fake service**
+- [x] **Step 1: Add coordinator RED tests with a controllable fake service**
 
 Cover target A start, B superseding A during connecting/listening/finalizing, rapid A→B→C where only C starts, app lifecycle cancellation, disposed-binding late events, failure reuse, and exact one active service session. Assert no target receives a `busy` error.
 
-- [ ] **Step 2: Run focused RED**
+- [x] **Step 2: Run focused RED**
 
 Run:
 
@@ -205,7 +205,7 @@ flutter test test/voice_input/voice_input_coordinator_test.dart
 
 Expected: compile failure because `VoiceInputCoordinator`/binding API is absent.
 
-- [ ] **Step 3: Implement coordinator and disposable binding API**
+- [x] **Step 3: Implement coordinator and disposable binding API**
 
 Implement an App-owned coordinator with a monotonic generation and serialized operation tail:
 
@@ -233,11 +233,11 @@ final class VoiceInputCoordinator {
 
 Invalidation is synchronous: increment generation and restore/cancel the old target before awaiting service cleanup. Queue mutations so the latest requested binding wins. Gate every partial/stable/final/error callback by binding identity, generation, and session ID.
 
-- [ ] **Step 4: Mount a stateful owner above the App**
+- [x] **Step 4: Mount a stateful owner above the App**
 
 Replace `VoiceInputScope.sharedService` and shared lease with `VoiceInputHost`, a stateful root that constructs one service/coordinator, exposes it through `VoiceInputScope`, observes `AppLifecycleState`, and cancels on inactive/paused/detached. Ensure logout/auth expiry invokes the same coordinator cancellation path.
 
-- [ ] **Step 5: Run focused tests and analyzer GREEN**
+- [x] **Step 5: Run focused tests and analyzer GREEN**
 
 Run:
 
@@ -251,7 +251,7 @@ flutter analyze lib/voice_input lib/main.dart \
 
 Expected: all tests pass and analyzer reports `No issues found!`.
 
-- [ ] **Step 6: Commit Task 3**
+- [x] **Step 6: Commit Task 3**
 
 ```bash
 git add mobile/lib/main.dart mobile/lib/voice_input \

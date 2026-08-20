@@ -26,6 +26,7 @@ import 'theme/app_theme.dart';
 import 'theme/eureka_colors.dart';
 import 'theme/theme_controller.dart';
 import 'theme_v2/theme_v2_rollout.dart';
+import 'voice_input/voice_input_scope.dart';
 
 const _startupCapabilities = AppConfig.themeV2
     ? StartupCapabilities.themeV2()
@@ -44,7 +45,15 @@ Future<void> main() async {
   // login vs. app shell once loaded. (AppEvents/SSE need the token, so they
   // start only once authed — see _AuthGate.)
   AuthController.instance.load();
-  runApp(const ProviderScope(child: EurekaApp()));
+  runApp(
+    ProviderScope(
+      child: VoiceInputHost(
+        sessionListenable: AuthController.instance,
+        sessionIdentity: () => AuthController.instance.sessionEpoch,
+        child: const EurekaApp(),
+      ),
+    ),
+  );
 }
 
 class _FlashFileLifecycleObserver extends WidgetsBindingObserver {
