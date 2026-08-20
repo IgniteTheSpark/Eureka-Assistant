@@ -5,6 +5,7 @@ import '../../asset/asset_card_display.dart';
 import '../../foundation/theme_v2_tokens.dart';
 import '../../foundation/theme_v2_time_formatter.dart';
 import '../../../render/render_spec.dart';
+import '../../../voice_input/voice_input_field.dart';
 import '../../asset_detail/markdown_field_editor.dart';
 
 class AssetEditorDraft extends ChangeNotifier {
@@ -279,9 +280,30 @@ class _EditorField extends StatelessWidget {
         errorText: draft.errors[field],
       );
     }
+    if (draft.typeFor(field) == 'string') {
+      return VoiceInputTextAdapter(
+        key: ValueKey('asset-editor-voice-$field'),
+        controller: draft.controllerFor(field),
+        builder: (context, controller, voiceBusy) =>
+            _shortTextField(controller, label: label, readOnly: voiceBusy),
+      );
+    }
+    return _shortTextField(
+      draft.controllerFor(field),
+      label: label,
+      readOnly: false,
+    );
+  }
+
+  Widget _shortTextField(
+    TextEditingController controller, {
+    required String label,
+    required bool readOnly,
+  }) {
     return TextField(
       key: ValueKey('asset-editor-$field'),
-      controller: draft.controllerFor(field),
+      controller: controller,
+      readOnly: readOnly,
       minLines: 1,
       maxLines: 1,
       keyboardType: switch (draft.typeFor(field)) {

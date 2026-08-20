@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:eureka/voice_input/voice_input_controller.dart';
 import 'package:eureka/voice_input/voice_input_field.dart';
 import 'package:eureka/voice_input/voice_input_models.dart';
+import 'package:eureka/voice_input/voice_input_scope.dart';
 import 'package:eureka/voice_input/voice_input_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -112,6 +113,45 @@ void main() {
     expect(session.cancelCount, 1);
     expect(controller.isBusy, isFalse);
     expect(text.text, 'original');
+  });
+
+  testWidgets('adapter adds voice input to an existing plain controller', (
+    tester,
+  ) async {
+    final plain = TextEditingController(text: 'before ');
+    final session = _WidgetFakeSession();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VoiceInputScope(
+          service: _WidgetFakeService(session),
+          lease: VoiceInputLease(),
+          child: Scaffold(
+            body: VoiceInputTextAdapter(
+              controller: plain,
+              builder: (_, controller, voiceBusy) =>
+                  TextField(controller: controller, readOnly: voiceBusy),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(VoiceInputField.micKey));
+    await tester.pump();
+    session.emit(
+      const VoiceTranscriptEvent(
+        kind: VoiceTranscriptKind.partial,
+        sequence: 1,
+        text: 'voice',
+      ),
+    );
+    await tester.pump();
+    expect(plain.text, 'before voice');
+
+    await tester.tap(find.byKey(VoiceInputField.cancelKey));
+    await tester.pumpAndSettle();
+    expect(plain.text, 'before ');
   });
 }
 

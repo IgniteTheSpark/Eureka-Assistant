@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../voice_input/voice_input_controller.dart';
+import '../../voice_input/voice_input_field.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
 
@@ -8,20 +10,22 @@ class SessionComposer extends StatelessWidget {
     super.key,
     required this.controller,
     required this.focusNode,
+    required this.voiceController,
     required this.streaming,
     required this.onAddContext,
     required this.onSend,
   });
 
-  final TextEditingController controller;
+  final VoiceInputTextController controller;
   final FocusNode focusNode;
+  final VoiceInputController voiceController;
   final bool streaming;
   final VoidCallback onAddContext;
   final Future<void> Function(String text) onSend;
 
   Future<void> _submit(String text) async {
     final trimmed = text.trim();
-    if (trimmed.isEmpty || streaming) return;
+    if (trimmed.isEmpty || streaming || voiceController.isBusy) return;
     controller.clear();
     focusNode.unfocus();
     await onSend(trimmed);
@@ -51,63 +55,72 @@ class SessionComposer extends StatelessWidget {
           child: ValueListenableBuilder<TextEditingValue>(
             valueListenable: controller,
             builder: (context, value, _) {
-              final enabled = value.text.trim().isNotEmpty && !streaming;
+              final enabled =
+                  value.text.trim().isNotEmpty &&
+                  !streaming &&
+                  !voiceController.isBusy;
               return Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Expanded(
-                    child: TextField(
-                      key: const ValueKey('session-composer-field'),
-                      controller: controller,
-                      focusNode: focusNode,
-                      minLines: 1,
-                      maxLines: 5,
-                      keyboardType: TextInputType.multiline,
-                      textInputAction: TextInputAction.newline,
-                      style: TextStyle(
-                        color: tokens.foreground,
-                        fontSize: 13,
-                        height: 1.35,
-                      ),
-                      decoration: InputDecoration(
-                        hintText: '问 Agent 任何事…',
-                        hintStyle: TextStyle(color: tokens.muted),
-                        prefixIcon: IconButton(
-                          tooltip: '添加上下文资产',
-                          onPressed: onAddContext,
-                          constraints: const BoxConstraints(
-                            minWidth: ThemeV2Sizes.minTouchTarget,
-                            minHeight: ThemeV2Sizes.minTouchTarget,
-                          ),
-                          icon: Icon(
-                            Icons.auto_awesome_outlined,
-                            color: tokens.accent,
-                            size: 18,
-                          ),
+                    child: VoiceInputField(
+                      key: const ValueKey('session-composer-voice'),
+                      controller: voiceController,
+                      enabled: !streaming,
+                      builder: (context, voiceBusy) => TextField(
+                        key: const ValueKey('session-composer-field'),
+                        controller: controller,
+                        focusNode: focusNode,
+                        readOnly: voiceBusy,
+                        minLines: 1,
+                        maxLines: 5,
+                        keyboardType: TextInputType.multiline,
+                        textInputAction: TextInputAction.newline,
+                        style: TextStyle(
+                          color: tokens.foreground,
+                          fontSize: 13,
+                          height: 1.35,
                         ),
-                        filled: true,
-                        fillColor: tokens.surface,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 12,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(
-                            ThemeV2Radii.pill,
+                        decoration: InputDecoration(
+                          hintText: '问 Agent 任何事…',
+                          hintStyle: TextStyle(color: tokens.muted),
+                          prefixIcon: IconButton(
+                            tooltip: '添加上下文资产',
+                            onPressed: voiceBusy ? null : onAddContext,
+                            constraints: const BoxConstraints(
+                              minWidth: ThemeV2Sizes.minTouchTarget,
+                              minHeight: ThemeV2Sizes.minTouchTarget,
+                            ),
+                            icon: Icon(
+                              Icons.auto_awesome_outlined,
+                              color: tokens.accent,
+                              size: 18,
+                            ),
                           ),
-                          borderSide: BorderSide(color: tokens.border),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(
-                            ThemeV2Radii.pill,
+                          filled: true,
+                          fillColor: tokens.surface,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
                           ),
-                          borderSide: BorderSide(color: tokens.border),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(
-                            ThemeV2Radii.pill,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(
+                              ThemeV2Radii.pill,
+                            ),
+                            borderSide: BorderSide(color: tokens.border),
                           ),
-                          borderSide: BorderSide(color: tokens.accent),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(
+                              ThemeV2Radii.pill,
+                            ),
+                            borderSide: BorderSide(color: tokens.border),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(
+                              ThemeV2Radii.pill,
+                            ),
+                            borderSide: BorderSide(color: tokens.accent),
+                          ),
                         ),
                       ),
                     ),

@@ -9,6 +9,8 @@ import '../../chat/chat_models.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/eureka_colors.dart';
 import '../../widgets/asset_picker.dart';
+import '../../voice_input/voice_input_controller.dart';
+import '../../voice_input/voice_input_scope.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
 import 'session_composer.dart';
@@ -105,8 +107,9 @@ class ThemeV2SessionPage extends StatefulWidget {
 
 class _ThemeV2SessionPageState extends State<ThemeV2SessionPage> {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
-  final _inputController = TextEditingController();
+  final _inputController = VoiceInputTextController();
   final _inputFocusNode = FocusNode();
+  late final VoiceInputController _voiceController;
   late final ThemeV2SessionController _controller;
   UnifiedSessionController? _ownedController;
   late bool _historyOpen = widget.initialHistoryOpen;
@@ -117,6 +120,10 @@ class _ThemeV2SessionPageState extends State<ThemeV2SessionPage> {
   @override
   void initState() {
     super.initState();
+    _voiceController = VoiceInputController(
+      textController: _inputController,
+      service: VoiceInputScope.sharedService,
+    )..addListener(_onVoiceChanged);
     final supplied = widget.controller;
     if (supplied is FlashSessionWorkflow) {
       _ownedController = UnifiedSessionController(
@@ -168,6 +175,10 @@ class _ThemeV2SessionPageState extends State<ThemeV2SessionPage> {
       ..clear()
       ..addAll(restored);
     setState(() {});
+  }
+
+  void _onVoiceChanged() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _addContext() async {
@@ -247,6 +258,9 @@ class _ThemeV2SessionPageState extends State<ThemeV2SessionPage> {
   @override
   void dispose() {
     _controller.removeListener(_onControllerChanged);
+    _voiceController.removeListener(_onVoiceChanged);
+    unawaited(_voiceController.close());
+    _voiceController.dispose();
     _ownedController?.dispose();
     _inputController.dispose();
     _inputFocusNode.dispose();
@@ -342,6 +356,7 @@ class _ThemeV2SessionPageState extends State<ThemeV2SessionPage> {
               SessionComposer(
                 controller: _inputController,
                 focusNode: _inputFocusNode,
+                voiceController: _voiceController,
                 streaming: state.streaming,
                 onAddContext: () => unawaited(_addContext()),
                 onSend: _controller.send,

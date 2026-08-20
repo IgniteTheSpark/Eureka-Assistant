@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 
 import '../../api/api_client.dart';
 import '../../pages/report_viewer_page.dart';
+import '../../voice_input/voice_input_controller.dart';
+import '../../voice_input/voice_input_field.dart';
+import '../../voice_input/voice_input_scope.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_content_surface.dart';
 import '../foundation/theme_v2_tokens.dart';
@@ -35,8 +38,11 @@ class _ReportRunPageState extends State<ReportRunPage> {
   )..addListener(_changed);
   var _openingReport = false;
   String? _openReportError;
-  final _focusController = TextEditingController();
+  final _focusController = VoiceInputTextController();
   final _presentationController = TextEditingController();
+  late final VoiceInputController _focusVoiceController;
+  final Map<String, TextEditingController> _clarificationTextControllers = {};
+  final Set<String> _activeClarificationVoice = {};
   ReportPlanDraftView? _draft;
   int _planStep = 0;
   bool _generateAfterScopeResolution = false;
@@ -44,6 +50,11 @@ class _ReportRunPageState extends State<ReportRunPage> {
   @override
   void initState() {
     super.initState();
+    _focusVoiceController = VoiceInputController(
+      textController: _focusController,
+      service: VoiceInputScope.sharedService,
+    )..addListener(_voiceChanged);
+    _focusController.addListener(_syncAdditionalFocus);
     final runId = widget.runId;
     if (runId != null) {
       unawaited(_controller.loadRun(runId));
@@ -52,6 +63,34 @@ class _ReportRunPageState extends State<ReportRunPage> {
     } else {
       unawaited(_controller.startUserInitiated(widget.intent!));
     }
+  }
+
+  void _voiceChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _syncAdditionalFocus() {
+    _controller.updateScopeAdditionalFocus(_focusController.text);
+  }
+
+  TextEditingController _clarificationController(String id) {
+    return _clarificationTextControllers.putIfAbsent(id, () {
+      final current = _controller.clarificationAnswers[id]?.toString() ?? '';
+      final controller = TextEditingController(text: current);
+      controller.addListener(() {
+        _controller.answerQuestion(id, controller.text);
+      });
+      return controller;
+    });
+  }
+
+  void _clarificationVoiceChanged(String id, bool busy) {
+    if (busy) {
+      _activeClarificationVoice.add(id);
+    } else {
+      _activeClarificationVoice.remove(id);
+    }
+    if (mounted) setState(() {});
   }
 
   void _changed() {
@@ -66,7 +105,9 @@ class _ReportRunPageState extends State<ReportRunPage> {
       _draft = serverDraft;
     }
     final scopeFocus = _controller.scopeDraft?.additionalFocus ?? '';
-    if (_planStep == 0 && _focusController.text != scopeFocus) {
+    if (_planStep == 0 &&
+        !_focusVoiceController.isBusy &&
+        _focusController.text != scopeFocus) {
       _focusController.text = scopeFocus;
     }
     final presentationText =
@@ -142,6 +183,13 @@ class _ReportRunPageState extends State<ReportRunPage> {
 
   @override
   void dispose() {
+    for (final controller in _clarificationTextControllers.values) {
+      controller.dispose();
+    }
+    _focusController.removeListener(_syncAdditionalFocus);
+    _focusVoiceController.removeListener(_voiceChanged);
+    unawaited(_focusVoiceController.close());
+    _focusVoiceController.dispose();
     _focusController.dispose();
     _presentationController.dispose();
     _controller
@@ -666,15 +714,20 @@ class _ReportRunPageState extends State<ReportRunPage> {
           ),
           const SizedBox(height: ThemeV2Spacing.sm),
         ],
-        TextField(
-          key: const ValueKey('report-additional-focus'),
-          controller: _focusController,
-          maxLength: 500,
-          maxLines: 3,
-          onChanged: _controller.updateScopeAdditionalFocus,
-          decoration: const InputDecoration(
-            labelText: '背景、重点或需要排除的内容',
-            hintText: '例如：重点解释周末支出，忽略报销项目',
+        VoiceInputField(
+          key: const ValueKey('report-additional-focus-voice'),
+          controller: _focusVoiceController,
+          enabled: !_controller.busy,
+          builder: (context, voiceBusy) => TextField(
+            key: const ValueKey('report-additional-focus'),
+            controller: _focusController,
+            readOnly: voiceBusy,
+            maxLength: 500,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              labelText: '背景、重点或需要排除的内容',
+              hintText: '例如：重点解释周末支出，忽略报销项目',
+            ),
           ),
         ),
       ],
@@ -946,7 +999,11 @@ class _ReportRunPageState extends State<ReportRunPage> {
   ) => switch (_planStep) {
     0 => FilledButton(
       key: const ValueKey('report-scope-confirm'),
-      onPressed: _controller.busy || scope == null || !_scopeCanContinue(scope)
+      onPressed:
+          _controller.busy ||
+              _focusVoiceController.isBusy ||
+              scope == null ||
+              !_scopeCanContinue(scope)
           ? null
           : () => _controller.confirmScope(
               scope.copyWith(additionalFocus: _focusController.text.trim()),
@@ -1106,6 +1163,9 @@ class _ReportRunPageState extends State<ReportRunPage> {
                   .map((option) => option.toString())
                   .where((option) => option.isNotEmpty)
                   .toList(growable: false);
+              final answerController = options.isEmpty
+                  ? _clarificationController(id)
+                  : null;
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -1115,10 +1175,17 @@ class _ReportRunPageState extends State<ReportRunPage> {
                   ),
                   const SizedBox(height: ThemeV2Spacing.sm),
                   if (options.isEmpty)
-                    TextField(
-                      onChanged: (value) =>
-                          _controller.answerQuestion(id, value),
-                      decoration: const InputDecoration(hintText: '请输入'),
+                    VoiceInputTextAdapter(
+                      key: ValueKey('report-clarification-voice-$id'),
+                      controller: answerController!,
+                      enabled: !_controller.busy,
+                      onBusyChanged: (busy) =>
+                          _clarificationVoiceChanged(id, busy),
+                      builder: (context, controller, voiceBusy) => TextField(
+                        controller: controller,
+                        readOnly: voiceBusy,
+                        decoration: const InputDecoration(hintText: '请输入'),
+                      ),
                     )
                   else
                     Wrap(
@@ -1142,7 +1209,10 @@ class _ReportRunPageState extends State<ReportRunPage> {
         ),
         FilledButton(
           key: const ValueKey('report-run-clarification-submit'),
-          onPressed: _controller.busy || !_controller.canSubmitClarification
+          onPressed:
+              _controller.busy ||
+                  _activeClarificationVoice.isNotEmpty ||
+                  !_controller.canSubmitClarification
               ? null
               : _controller.submitClarification,
           style: FilledButton.styleFrom(

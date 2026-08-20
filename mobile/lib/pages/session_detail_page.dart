@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../api/api_client.dart';
@@ -10,6 +12,9 @@ import '../flash/flash_processing_state.dart';
 import '../render/skill_card.dart';
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
+import '../voice_input/voice_input_controller.dart';
+import '../voice_input/voice_input_field.dart';
+import '../voice_input/voice_input_scope.dart';
 
 /// One session opened from the timeline (a ⚡ flash capture or a chat thread).
 /// Replays the transcript + the agent's「已记录 N 项内容」summary + the cards it
@@ -33,7 +38,8 @@ class SessionDetailPage extends StatefulWidget {
 class _SessionDetailPageState extends State<SessionDetailPage> {
   final _chat = ChatController();
   final _api = ApiClient();
-  final _input = TextEditingController();
+  final _input = VoiceInputTextController();
+  late final VoiceInputController _voiceController;
   final _scroll = ScrollController();
   final _tailKey = GlobalKey();
   final _scaffoldKey = GlobalKey<ScaffoldState>();
@@ -46,12 +52,20 @@ class _SessionDetailPageState extends State<SessionDetailPage> {
   @override
   void initState() {
     super.initState();
+    _voiceController = VoiceInputController(
+      textController: _input,
+      service: VoiceInputScope.sharedService,
+    )..addListener(_onVoiceChanged);
     _chat.addListener(_onChange);
     _load();
     // Hardware capture / flash-done bumps dataRevision → reload so a new
     // capture's input +「正在整理」+ cards appear live in this open session.
     dataRevision.addListener(_reload);
     FlashProcessingStatus.instance.revision.addListener(_onChange);
+  }
+
+  void _onVoiceChanged() {
+    if (mounted) setState(() {});
   }
 
   void _reload() => _chat.loadSession(_sessionId);
@@ -150,13 +164,16 @@ class _SessionDetailPageState extends State<SessionDetailPage> {
 
   void _send() {
     final t = _input.text;
-    if (t.trim().isEmpty || _chat.streaming) return;
+    if (t.trim().isEmpty || _chat.streaming || _voiceController.isBusy) return;
     _input.clear();
     _chat.send(t);
   }
 
   @override
   void dispose() {
+    _voiceController.removeListener(_onVoiceChanged);
+    unawaited(_voiceController.close());
+    _voiceController.dispose();
     dataRevision.removeListener(_reload);
     FlashProcessingStatus.instance.revision.removeListener(_onChange);
     _chat.removeListener(_onChange);
@@ -256,6 +273,7 @@ class _SessionDetailPageState extends State<SessionDetailPage> {
             ),
             _InputBar(
               controller: _input,
+              voiceController: _voiceController,
               onSend: _send,
               streaming: _chat.streaming,
             ),
@@ -470,11 +488,13 @@ class _Bubble extends StatelessWidget {
 }
 
 class _InputBar extends StatelessWidget {
-  final TextEditingController controller;
+  final VoiceInputTextController controller;
+  final VoiceInputController voiceController;
   final VoidCallback onSend;
   final bool streaming;
   const _InputBar({
     required this.controller,
+    required this.voiceController,
     required this.onSend,
     required this.streaming,
   });
@@ -487,40 +507,45 @@ class _InputBar extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-            child: TextField(
-              controller: controller,
-              minLines: 1,
-              maxLines: 6,
-              keyboardType: TextInputType.multiline,
-              textInputAction: TextInputAction.newline,
-              style: TextStyle(color: eu.textHi),
-              decoration: InputDecoration(
-                hintText: '问 Agent 任何事…',
-                hintStyle: TextStyle(color: eu.textLo),
-                filled: true,
-                fillColor: eu.surfaceRaised,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
-                ),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(22),
-                  borderSide: BorderSide(color: eu.border),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(22),
-                  borderSide: BorderSide(color: eu.border),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(22),
-                  borderSide: BorderSide(color: eu.brand),
+            child: VoiceInputField(
+              controller: voiceController,
+              enabled: !streaming,
+              builder: (context, voiceBusy) => TextField(
+                controller: controller,
+                readOnly: voiceBusy,
+                minLines: 1,
+                maxLines: 6,
+                keyboardType: TextInputType.multiline,
+                textInputAction: TextInputAction.newline,
+                style: TextStyle(color: eu.textHi),
+                decoration: InputDecoration(
+                  hintText: '问 Agent 任何事…',
+                  hintStyle: TextStyle(color: eu.textLo),
+                  filled: true,
+                  fillColor: eu.surfaceRaised,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(22),
+                    borderSide: BorderSide(color: eu.border),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(22),
+                    borderSide: BorderSide(color: eu.border),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(22),
+                    borderSide: BorderSide(color: eu.brand),
+                  ),
                 ),
               ),
             ),
           ),
           const SizedBox(width: 8),
           IconButton.filled(
-            onPressed: streaming ? null : onSend,
+            onPressed: streaming || voiceController.isBusy ? null : onSend,
             style: IconButton.styleFrom(backgroundColor: eu.brand),
             icon: streaming
                 ? const SizedBox(
