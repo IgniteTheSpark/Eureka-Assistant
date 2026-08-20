@@ -5,6 +5,7 @@ import socket
 from uuid import uuid4
 
 from app.config import get_settings
+from app.auth.maintenance import run_challenge_cleanup_scheduler
 from app.domains.notifications.maintenance import run_notification_prune_scheduler
 from app.domains.reminders.maintenance import run_reminder_maintenance_scheduler
 from app.domains.reka.maintenance import run_reka_maintenance_scheduler
@@ -57,6 +58,9 @@ async def serve() -> None:
         ),
         asyncio.create_task(
             run_report_maintenance_scheduler(stop_event=stop_event)
+        ),
+        asyncio.create_task(
+            run_challenge_cleanup_scheduler(stop_event=stop_event)
         ),
     )
     try:

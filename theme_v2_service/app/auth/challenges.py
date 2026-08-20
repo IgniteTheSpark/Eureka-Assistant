@@ -16,10 +16,10 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-from sqlalchemy import and_, delete, select
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.models import EmailVerificationChallenge
+from app.auth.models import EmailRateLimitBucket, EmailVerificationChallenge
 from app.config import get_settings
 
 
@@ -44,6 +44,10 @@ def _hash_ip(ip: str) -> str:
         ip.encode(),
         hashlib.sha256,
     ).hexdigest()
+
+
+def _bucket_key(scope: str, value: str) -> tuple[str, str]:
+    return scope, _hash_ip(value)
 
 
 def generate_code() -> str:
@@ -83,8 +87,12 @@ async def issue_challenge(
     settings = get_settings()
     now = _now()
 
-    if request_ip is not None:
-        await _enforce_rate_limits(session, email=email, ip_hash=_hash_ip(request_ip))
+    async with session.begin_nested():
+        await _enforce_rate_limits(
+            session,
+            email=email,
+            ip_hash=_hash_ip(request_ip) if request_ip is not None else None,
+        )
 
     code = (
         settings.email_fixed_code
@@ -112,49 +120,181 @@ async def _enforce_rate_limits(
     session: AsyncSession,
     *,
     email: str,
-    ip_hash: str,
+    ip_hash: str | None,
 ) -> None:
     settings = get_settings()
     now = _now()
 
-    cooldown = now - timedelta(seconds=settings.email_resend_cooldown_seconds)
-    last = await _count_sent(session, email=email, since=cooldown)
-    if last >= 1:
+    if not await _reserve_cooldown(
+        session,
+        key=_bucket_key("email-cooldown", email),
+        cooldown_seconds=settings.email_resend_cooldown_seconds,
+        now=now,
+    ):
         raise ChallengeRateLimitError("发送太频繁，请稍后再试")
 
-    email_hour = now - timedelta(hours=1)
-    email_day = now - timedelta(days=1)
-    hour_count = await _count_sent(session, email=email, since=email_hour)
-    day_count = await _count_sent(session, email=email, since=email_day)
-    if hour_count >= settings.email_send_per_hour_per_email:
+    if not await _reserve_bucket(
+        session,
+        key=_bucket_key("email-hour", email),
+        window_seconds=3600,
+        limit=settings.email_send_per_hour_per_email,
+        now=now,
+    ):
         raise ChallengeRateLimitError("发送太频繁，请稍后再试")
-    if day_count >= settings.email_send_per_day_per_email:
+    if not await _reserve_bucket(
+        session,
+        key=_bucket_key("email-day", email),
+        window_seconds=86400,
+        limit=settings.email_send_per_day_per_email,
+        now=now,
+    ):
         raise ChallengeRateLimitError("今日发送次数已达上限")
 
-    ip_hour = await _count_sent(session, ip_hash=ip_hash, since=email_hour)
-    ip_day = await _count_sent(session, ip_hash=ip_hash, since=email_day)
-    if ip_hour >= settings.email_send_per_hour_per_ip:
-        raise ChallengeRateLimitError("发送太频繁，请稍后再试")
-    if ip_day >= settings.email_send_per_day_per_ip:
-        raise ChallengeRateLimitError("今日发送次数已达上限")
+    if ip_hash is not None:
+        if not await _reserve_bucket(
+            session,
+            key=_bucket_key("ip-hour", ip_hash),
+            window_seconds=3600,
+            limit=settings.email_send_per_hour_per_ip,
+            now=now,
+        ):
+            raise ChallengeRateLimitError("发送太频繁，请稍后再试")
+        if not await _reserve_bucket(
+            session,
+            key=_bucket_key("ip-day", ip_hash),
+            window_seconds=86400,
+            limit=settings.email_send_per_day_per_ip,
+            now=now,
+        ):
+            raise ChallengeRateLimitError("今日发送次数已达上限")
 
 
-async def _count_sent(
+async def _reserve_bucket(
     session: AsyncSession,
     *,
-    email: str | None = None,
-    ip_hash: str | None = None,
-    since: datetime,
-) -> int:
-    stmt = select(EmailVerificationChallenge).where(
-        EmailVerificationChallenge.sent_at >= since
+    key: tuple[str, str],
+    window_seconds: int,
+    limit: int,
+    now: datetime,
+) -> bool:
+    epoch = datetime(1970, 1, 1)
+    elapsed = int((now - epoch).total_seconds())
+    bucket_start = epoch + timedelta(
+        seconds=elapsed - (elapsed % window_seconds)
     )
-    if email is not None:
-        stmt = stmt.where(EmailVerificationChallenge.email == email)
-    if ip_hash is not None:
-        stmt = stmt.where(EmailVerificationChallenge.request_ip_hash == ip_hash)
-    rows = (await session.scalars(stmt)).all()
-    return len(rows)
+    scope_type, scope_hash = key
+    await session.execute(
+        text(
+            """
+            INSERT INTO email_rate_limit_buckets
+                (scope_type, scope_hash, bucket_start, last_request_at, request_count)
+            VALUES (:scope_type, :scope_hash, :bucket_start, NULL, 1)
+            ON DUPLICATE KEY UPDATE
+                request_count = IF(
+                    bucket_start < VALUES(bucket_start),
+                    1,
+                    request_count + 1
+                ),
+                bucket_start = GREATEST(bucket_start, VALUES(bucket_start)),
+                last_request_at = NULL
+            """
+        ),
+        {
+            "scope_type": scope_type,
+            "scope_hash": scope_hash,
+            "bucket_start": bucket_start,
+        },
+    )
+    bucket = (
+        await session.execute(
+            text(
+                """
+                SELECT request_count
+                FROM email_rate_limit_buckets
+                WHERE scope_type = :scope_type
+                  AND scope_hash = :scope_hash
+                  AND bucket_start = :bucket_start
+                FOR UPDATE
+                """
+            ),
+            {
+                "scope_type": scope_type,
+                "scope_hash": scope_hash,
+                "bucket_start": bucket_start,
+            },
+        )
+    ).one_or_none()
+    return bucket is not None and bucket.request_count <= limit
+
+
+async def _reserve_cooldown(
+    session: AsyncSession,
+    *,
+    key: str,
+    cooldown_seconds: int,
+    now: datetime,
+) -> bool:
+    await session.execute(
+        text(
+            """
+            INSERT INTO email_rate_limit_buckets
+                (scope_type, scope_hash, bucket_start, last_request_at, request_count)
+            VALUES (:scope_type, :scope_hash, :bucket_start, :initial_request_at, 1)
+            ON DUPLICATE KEY UPDATE scope_type = scope_type
+            """
+        ),
+        {
+            "scope_type": key[0],
+            "scope_hash": key[1],
+            "bucket_start": datetime(1970, 1, 1),
+            "initial_request_at": now
+            - timedelta(seconds=cooldown_seconds)
+            - timedelta(microseconds=1),
+        },
+    )
+    bucket = (
+        await session.execute(
+            text(
+                """
+                SELECT last_request_at
+                FROM email_rate_limit_buckets
+                WHERE scope_type = :scope_type
+                  AND scope_hash = :scope_hash
+                  AND bucket_start = :bucket_start
+                FOR UPDATE
+                """
+            ),
+            {
+                "scope_type": key[0],
+                "scope_hash": key[1],
+                "bucket_start": datetime(1970, 1, 1),
+            },
+        )
+    ).one_or_none()
+    if bucket is None:
+        return False
+    if bucket.last_request_at is not None and now - bucket.last_request_at < timedelta(
+        seconds=cooldown_seconds
+    ):
+        return False
+    await session.execute(
+        text(
+            """
+            UPDATE email_rate_limit_buckets
+            SET last_request_at = :now, request_count = 1
+            WHERE scope_type = :scope_type
+              AND scope_hash = :scope_hash
+              AND bucket_start = :bucket_start
+            """
+        ),
+        {
+            "scope_type": key[0],
+            "scope_hash": key[1],
+            "bucket_start": datetime(1970, 1, 1),
+            "now": now,
+        },
+    )
+    return True
 
 
 async def find_active_challenge(
@@ -215,9 +355,20 @@ async def verify_code(
 async def cleanup_expired(session: AsyncSession) -> int:
     """Delete consumed/expired challenges older than the 30-day window."""
     cutoff = _now() - timedelta(days=30)
-    stmt = delete(EmailVerificationChallenge).where(
+    challenge_stmt = delete(EmailVerificationChallenge).where(
         EmailVerificationChallenge.created_at < cutoff
     )
-    result = await session.execute(stmt)
+    result = await session.execute(challenge_stmt)
+    bucket_stmt = delete(EmailRateLimitBucket).where(
+        (
+            EmailRateLimitBucket.last_request_at.is_not(None)
+            & (EmailRateLimitBucket.last_request_at < _now() - timedelta(days=2))
+        )
+        | (
+            EmailRateLimitBucket.last_request_at.is_(None)
+            & (EmailRateLimitBucket.bucket_start < _now() - timedelta(days=2))
+        )
+    )
+    await session.execute(bucket_stmt)
     await session.flush()
     return result.rowcount or 0

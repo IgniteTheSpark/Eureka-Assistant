@@ -72,3 +72,17 @@ class EmailVerificationChallenge(Base):
     delivery_status: Mapped[str] = mapped_column(
         String(24), default="pending", nullable=False
     )
+
+
+class EmailRateLimitBucket(Base):
+    __tablename__ = "email_rate_limit_buckets"
+
+    scope_type: Mapped[str] = mapped_column(String(32), primary_key=True)
+    scope_hash: Mapped[str] = mapped_column(String(128), primary_key=True)
+    bucket_start: Mapped[datetime] = mapped_column(
+        mysql.DATETIME(fsp=6), primary_key=True
+    )
+    last_request_at: Mapped[datetime | None] = mapped_column(
+        mysql.DATETIME(fsp=6), nullable=True
+    )
+    request_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
