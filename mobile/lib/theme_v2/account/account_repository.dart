@@ -1,6 +1,6 @@
 import '../../api/api_client.dart';
 
-/// Data access for account settings (§9 export / §10 deletion).
+/// Data access for account settings (§9 export / §10 deactivation 停用账户).
 class AccountRepository {
   AccountRepository({ApiClient? client}) : _client = client ?? ApiClient();
 
@@ -24,7 +24,7 @@ class AccountRepository {
     });
   }
 
-  /// Permanently deletes the account (password re-authentication).
+  /// Deactivates (停用) the account; tokens are revoked, data is retained.
   Future<void> deleteAccount({required String password}) async {
     await _client.deleteWithBody('/api/account', {'password': password});
   }

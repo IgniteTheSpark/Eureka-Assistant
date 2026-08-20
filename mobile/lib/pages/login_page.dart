@@ -33,6 +33,7 @@ class _LoginPageState extends State<LoginPage> {
   final _passwordConfirmation = TextEditingController();
   final _verificationCode = TextEditingController();
   bool _register = false; // false = login, true = register
+  bool _forgotPassword = false; // password-reset mode
   bool _busy = false;
   bool _codeBusy = false;
   int _codeCooldown = 0;
@@ -108,13 +109,13 @@ class _LoginPageState extends State<LoginPage> {
     });
     final error = await AuthController.instance.requestVerificationCode(
       email,
-      'register',
+      _forgotPassword ? 'password_reset' : 'register',
     );
     if (!mounted) return;
     setState(() {
       _codeBusy = false;
       _error = error;
-      _notice = error == null ? '验证码已发送，请查看后台日志' : null;
+      _notice = error == null ? '验证码已发送' : null;
     });
     if (error == null) _startCodeCooldown();
   }
@@ -141,17 +142,18 @@ class _LoginPageState extends State<LoginPage> {
     final email = _email.text.trim();
     final pw = _password.text;
     final code = _verificationCode.text.trim();
-    if (email.isEmpty || pw.isEmpty || (_register && code.isEmpty)) {
+    final needsCode = _register || _forgotPassword;
+    if (email.isEmpty || pw.isEmpty || (needsCode && code.isEmpty)) {
       setState(() {
-        _error = _register ? '请输入邮箱、验证码和密码' : '请输入邮箱和密码';
+        _error = needsCode ? '请输入邮箱、验证码和密码' : '请输入邮箱和密码';
       });
       return;
     }
-    if (_register && !_passwordPolicyValid) {
+    if (needsCode && !_passwordPolicyValid) {
       setState(() => _error = '密码未满足下方全部要求');
       return;
     }
-    if (_register && pw != _passwordConfirmation.text) {
+    if (needsCode && pw != _passwordConfirmation.text) {
       setState(() => _error = '两次输入的密码不一致');
       return;
     }
@@ -165,19 +167,58 @@ class _LoginPageState extends State<LoginPage> {
       _notice = null;
     });
     final auth = AuthController.instance;
-    final err = _register
-        ? await auth.register(
-            email,
-            code,
-            pw,
-            termsVersion: _termsVersion,
-            termsAccepted: _termsAccepted,
-          )
-        : await auth.login(email, pw);
+    final String? err;
+    if (_register) {
+      err = await auth.register(
+        email,
+        code,
+        pw,
+        termsVersion: _termsVersion,
+        termsAccepted: _termsAccepted,
+      );
+    } else if (_forgotPassword) {
+      err = await auth.resetPassword(email, code, pw);
+    } else {
+      err = await auth.login(email, pw);
+    }
     if (!mounted) return;
+    if (_forgotPassword && err == null) {
+      _codeTimer?.cancel();
+      setState(() {
+        _busy = false;
+        _forgotPassword = false;
+        _register = false;
+        _codeCooldown = 0;
+        _error = null;
+        _notice = '密码已重置，请使用新密码登录';
+        _email.clear();
+        _verificationCode.clear();
+        _password.clear();
+        _passwordConfirmation.clear();
+      });
+      return;
+    }
     setState(() {
       _busy = false;
       _error = err; // null = success → gate rebuilds away from here
+    });
+  }
+
+  void _switchMode(bool register) {
+    setState(() {
+      _register = register;
+      _forgotPassword = false;
+      _error = null;
+      _notice = null;
+    });
+  }
+
+  void _enterForgotMode() {
+    setState(() {
+      _forgotPassword = true;
+      _register = false;
+      _error = null;
+      _notice = null;
     });
   }
 
@@ -204,13 +245,17 @@ class _LoginPageState extends State<LoginPage> {
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  _register ? '创建账号' : '登录你的账号',
+                  _forgotPassword
+                      ? '忘记密码？'
+                      : _register
+                      ? '创建账号'
+                      : '登录你的账号',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: eu.textMid, fontSize: 15),
                 ),
                 const SizedBox(height: 28),
                 _field(eu, _email, '邮箱', TextInputType.emailAddress, false),
-                if (_register) ...[
+                if (_register || _forgotPassword) ...[
                   const SizedBox(height: 12),
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -250,18 +295,35 @@ class _LoginPageState extends State<LoginPage> {
                 _field(
                   eu,
                   _password,
-                  '密码',
+                  _forgotPassword ? '新密码' : '密码',
                   TextInputType.visiblePassword,
                   true,
                   onChanged: (_) => setState(() {}),
                   onSubmit: (_) => _submit(),
                 ),
-                if (_register) ...[
+                if (!_register && !_forgotPassword) ...[
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      style: TextButton.styleFrom(
+                        foregroundColor: eu.brand,
+                        padding: EdgeInsets.zero,
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        visualDensity: VisualDensity.compact,
+                        textStyle: const TextStyle(fontSize: 13),
+                      ),
+                      onPressed: _busy ? null : _enterForgotMode,
+                      child: const Text('忘记密码？'),
+                    ),
+                  ),
+                ],
+                if (_register || _forgotPassword) ...[
                   const SizedBox(height: 12),
                   _field(
                     eu,
                     _passwordConfirmation,
-                    '确认密码',
+                    _forgotPassword ? '确认新密码' : '确认密码',
                     TextInputType.visiblePassword,
                     true,
                     onChanged: (_) => setState(() {}),
@@ -303,6 +365,8 @@ class _LoginPageState extends State<LoginPage> {
                       ],
                     ),
                   ),
+                ],
+                if (_register) ...[
                   const SizedBox(height: 8),
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.center,
@@ -426,7 +490,11 @@ class _LoginPageState extends State<LoginPage> {
                             ),
                           )
                         : Text(
-                            _register ? '注册并进入' : '登录',
+                            _forgotPassword
+                                ? '重置密码'
+                                : _register
+                                ? '注册并进入'
+                                : '登录',
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 16,
@@ -439,20 +507,31 @@ class _LoginPageState extends State<LoginPage> {
                 GestureDetector(
                   onTap: _busy
                       ? null
-                      : () => setState(() {
-                          _register = !_register;
-                          _error = null;
-                        }),
+                      : () {
+                          if (_forgotPassword) {
+                            _switchMode(false);
+                          } else {
+                            _switchMode(!_register);
+                          }
+                        },
                   behavior: HitTestBehavior.opaque,
                   child: Text.rich(
                     TextSpan(
                       children: [
                         TextSpan(
-                          text: _register ? '已有账号？' : '还没有账号？',
+                          text: _forgotPassword
+                              ? ''
+                              : _register
+                              ? '已有账号？'
+                              : '还没有账号？',
                           style: TextStyle(color: eu.textMid, fontSize: 13),
                         ),
                         TextSpan(
-                          text: _register ? '去登录' : '去注册',
+                          text: _forgotPassword
+                              ? '返回登录'
+                              : _register
+                              ? '去登录'
+                              : '去注册',
                           style: TextStyle(
                             color: eu.brand,
                             fontSize: 13,

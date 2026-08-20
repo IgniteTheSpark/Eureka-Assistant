@@ -8,6 +8,24 @@ import 'auth_store.dart';
 
 const int _maxLoggedBodyBytes = 64 * 1024;
 
+const Set<String> _sensitiveBodyKeys = {
+  'email',
+  'code',
+  'verification_code',
+  'password',
+  'current_password',
+  'new_password',
+  'token',
+  'access_token',
+  'refresh_token',
+  'api_key',
+  'apikey',
+  'access_key_id',
+  'access_key_secret',
+  'secret',
+  'authorization',
+};
+
 /// Non-2xx response from the backend.
 class ApiException implements Exception {
   final int statusCode;
@@ -258,12 +276,14 @@ class _ApiLoggingClient extends http.BaseClient {
       '[API] Headers:',
       ..._prefixedMapLines(request.headers),
       '[API] Body:',
-      ..._prefixedBodyLines(_requestBody(request)),
+      ..._prefixedBodyLines(_redactSensitiveBody(_requestBody(request))),
       '[API] ---------------------------- Response ----------------------',
       '[API] Headers:',
       ..._prefixedMapLines(response.headers),
       '[API] Raw Body:',
-      ..._prefixedBodyLines(responseBody ?? '[$responseBodyNote]'),
+      ..._prefixedBodyLines(
+        _redactSensitiveBody(responseBody ?? '[$responseBodyNote]'),
+      ),
       '[API] ============================================================',
     ];
     debugPrint(lines.join('\n'));
@@ -288,7 +308,7 @@ class _ApiLoggingClient extends http.BaseClient {
       '[API] Headers:',
       ..._prefixedMapLines(request.headers),
       '[API] Body:',
-      ..._prefixedBodyLines(_requestBody(request)),
+      ..._prefixedBodyLines(_redactSensitiveBody(_requestBody(request))),
       '[API] ---------------------------- Error -------------------------',
       '[API] $error',
       '[API] ============================================================',
@@ -353,6 +373,33 @@ class _ApiLoggingClient extends http.BaseClient {
       return '${entry.key}: $rendered';
     }).toList();
   }
+
+  String _redactSensitiveBody(String body) {
+    if (body.isEmpty || body == '[empty]') return body;
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic> || decoded is List) {
+        return jsonEncode(_redactValue(decoded));
+      }
+      return body;
+    } on FormatException {
+      return body;
+    }
+  }
+
+  Object? _redactValue(Object? value) {
+    if (value is Map<String, dynamic>) {
+      return value.map((key, v) => MapEntry(
+            key,
+            _isSensitiveKey(key) ? '[REDACTED]' : _redactValue(v),
+          ));
+    }
+    if (value is List) return value.map(_redactValue).toList();
+    return value;
+  }
+
+  bool _isSensitiveKey(String key) =>
+      _sensitiveBodyKeys.contains(key.toLowerCase());
 
   List<String> _prefixedBodyLines(String body) {
     if (body.isEmpty) return const ['[API]   [empty]'];

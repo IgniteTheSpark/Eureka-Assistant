@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app_events.dart';
@@ -28,6 +29,13 @@ class AuthController extends ChangeNotifier {
   static const _kEmail = 'eureka_email';
   static const _kUserId = 'eureka_user_id';
   static const _kOnboardingStatus = 'eureka_onboarding_status';
+
+  /// Test seam: override the HTTP transport used by every ApiClient this
+  /// controller builds. Null in production → real HTTP.
+  @visibleForTesting
+  static http.Client Function()? clientOverride;
+
+  ApiClient _api() => ApiClient(client: clientOverride?.call());
 
   String? _email;
   String? _userId;
@@ -82,7 +90,7 @@ class AuthController extends ChangeNotifier {
 
   /// Returns null on success, or a user-facing error message.
   Future<String?> login(String email, String password) async {
-    final api = ApiClient();
+    final api = _api();
     try {
       final res = await api.postJson('/api/auth/login', {
         'email': email.trim(),
@@ -112,7 +120,7 @@ class AuthController extends ChangeNotifier {
   /// Request a 6-digit verification code for `register` or `password_reset`.
   /// Returns null on success or a user-facing error message.
   Future<String?> requestVerificationCode(String email, String purpose) async {
-    final api = ApiClient();
+    final api = _api();
     try {
       await api.postJson('/api/auth/verification-codes', {
         'email': email.trim(),
@@ -137,7 +145,7 @@ class AuthController extends ChangeNotifier {
     required String termsVersion,
     required bool termsAccepted,
   }) async {
-    final api = ApiClient();
+    final api = _api();
     try {
       final res = await api.postJson('/api/auth/register', {
         'email': email.trim(),
@@ -168,7 +176,7 @@ class AuthController extends ChangeNotifier {
   }
 
   Future<Map<String, String>> loadAuthConfig() async {
-    final api = ApiClient();
+    final api = _api();
     try {
       final response = await api.getJson('/api/auth/config');
       final data = (response as Map).cast<String, dynamic>();
@@ -190,7 +198,7 @@ class AuthController extends ChangeNotifier {
     String verificationCode,
     String newPassword,
   ) async {
-    final api = ApiClient();
+    final api = _api();
     try {
       await api.postJson('/api/auth/password-reset', {
         'email': email.trim(),
@@ -207,19 +215,30 @@ class AuthController extends ChangeNotifier {
     }
   }
 
-  /// Change the authenticated user's password (§8.3), then require a fresh
-  /// login because the backend revokes the current session.
+  /// Change the authenticated user's password (§8.3) and replace this session
+  /// with the token issued at the new auth version.
   Future<String?> changePassword(
     String currentPassword,
     String newPassword,
   ) async {
-    final api = ApiClient();
+    final api = _api();
     try {
-      await api.patchJson('/api/account/password', {
+      final response = await api.patchJson('/api/account/password', {
         'current_password': currentPassword,
         'new_password': newPassword,
       });
-      await logout();
+      final data = (response as Map).cast<String, dynamic>();
+      final token = data['token'] as String?;
+      if (token == null || token.isEmpty) return '密码修改响应无效，请重新登录';
+      final user = (data['user'] as Map?)?.cast<String, dynamic>();
+      final finished = await _finishLogin(
+        token,
+        userId: user?['id'] as String? ?? _userId,
+        email: user?['email'] as String? ?? _email,
+        onboardingStatus:
+            user?['onboarding_status'] as String? ?? _onboardingStatus,
+      );
+      if (!finished) return '登录状态更新失败，请重新登录';
       return null;
     } on ApiException catch (e) {
       return _errMsg(e);
@@ -293,6 +312,13 @@ class AuthController extends ChangeNotifier {
       final body = jsonDecode(e.body);
       final d = body is Map ? body['detail'] : null;
       if (d is String && d.isNotEmpty) return d;
+      if (d is List && d.isNotEmpty) {
+        final first = d.first;
+        if (first is Map) {
+          final msg = first['msg'];
+          if (msg is String && msg.isNotEmpty) return msg;
+        }
+      }
     } catch (_) {}
     return '操作失败 (${e.statusCode})';
   }
@@ -381,7 +407,7 @@ class AuthController extends ChangeNotifier {
   }
 
   Future<Map<String, dynamic>?> _fetchCurrentUser() async {
-    final api = ApiClient();
+    final api = _api();
     try {
       final res = await api.getJson('/api/auth/me');
       final user = (res as Map)['user'];
