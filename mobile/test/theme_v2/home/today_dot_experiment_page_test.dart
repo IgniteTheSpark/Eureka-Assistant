@@ -13,10 +13,252 @@ import 'package:eureka/theme_v2/home/today_reka_motion_controller.dart';
 import 'package:eureka/theme_v2/home/today_reka_capture_cue.dart';
 import 'package:eureka/theme_v2/home/today_reka_scene.dart';
 import 'package:eureka/today/today_data.dart';
+import 'package:eureka/voice_input/reka_voice_capture.dart';
+import 'package:eureka/voice_input/voice_input_controller.dart';
+import 'package:eureka/voice_input/voice_input_models.dart';
+import 'package:eureka/voice_input/voice_input_service.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets(
+    'long pressing the dithered Reka shows live text and release sends it',
+    (tester) async {
+      final session = _RekaVoiceSession();
+      final sent = <(String, String)>[];
+      final voice = RekaVoiceCaptureCoordinator(
+        service: _RekaVoiceService(session),
+        lease: VoiceInputLease(),
+        sendFlash: (text, sessionId) async => sent.add((text, sessionId)),
+        haptic: () {},
+      );
+      addTearDown(() async {
+        await voice.close();
+        voice.dispose();
+      });
+
+      await tester.pumpWidget(
+        _Host(
+          child: TodayDotExperimentPage(
+            repository: _ImmediateRepository(TodayData.empty),
+            rekaVoiceCoordinator: voice,
+            rekaBuilder: (_, _, _, _, _, _, _) => const SizedBox.expand(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final target = find.byKey(TodayRekaScene.rekaTargetKey);
+      final gesture = await tester.startGesture(tester.getCenter(target));
+      await tester.pump(kLongPressTimeout + const Duration(milliseconds: 10));
+      await tester.pump();
+      await tester.pump();
+      expect(voice.state, RekaVoiceCaptureState.listening);
+
+      session.emit(
+        const VoiceTranscriptEvent(
+          kind: VoiceTranscriptKind.partial,
+          sequence: 1,
+          text: '明天上午十点开会',
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        find.byKey(TodayDotExperimentPage.rekaVoiceOverlayKey),
+        findsOneWidget,
+      );
+      expect(find.text('明天上午十点开会'), findsOneWidget);
+      expect(find.text('上滑取消 · 松开发送'), findsOneWidget);
+      expect(find.text('手动记录'), findsNothing);
+
+      await gesture.up();
+      await tester.pump();
+      expect(session.stopCount, 1);
+      session.emit(
+        const VoiceTranscriptEvent(
+          kind: VoiceTranscriptKind.finalTranscript,
+          sequence: 2,
+          text: '明天上午十点开会。',
+        ),
+      );
+      for (var i = 0; i < 8 && sent.isEmpty; i++) {
+        await tester.pump();
+      }
+      await tester.runAsync(() => pumpEventQueue());
+      await tester.pump();
+      await tester.runAsync(() => pumpEventQueue());
+      await tester.pump();
+
+      expect(sent, [('明天上午十点开会。', 'reka-page-session')]);
+      expect(
+        find.byKey(TodayDotExperimentPage.rekaVoiceOverlayKey),
+        findsNothing,
+      );
+    },
+  );
+
+  testWidgets('sliding the dithered Reka upward cancels without a Flash', (
+    tester,
+  ) async {
+    final session = _RekaVoiceSession();
+    final sent = <String>[];
+    final voice = RekaVoiceCaptureCoordinator(
+      service: _RekaVoiceService(session),
+      lease: VoiceInputLease(),
+      sendFlash: (text, _) async => sent.add(text),
+      haptic: () {},
+    );
+    addTearDown(() async {
+      await voice.close();
+      voice.dispose();
+    });
+    await tester.pumpWidget(
+      _Host(
+        child: TodayDotExperimentPage(
+          repository: _ImmediateRepository(TodayData.empty),
+          rekaVoiceCoordinator: voice,
+          rekaBuilder: (_, _, _, _, _, _, _) => const SizedBox.expand(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byKey(TodayRekaScene.rekaTargetKey)),
+    );
+    await tester.pump(kLongPressTimeout + const Duration(milliseconds: 10));
+    await tester.pump();
+    await tester.pump();
+
+    await gesture.moveBy(const Offset(0, -90));
+    await tester.pump();
+    expect(voice.state, RekaVoiceCaptureState.cancelArmed);
+    expect(find.text('松开取消'), findsOneWidget);
+
+    await gesture.up();
+    await tester.runAsync(() => pumpEventQueue());
+    await tester.pump();
+
+    expect(session.cancelCount, 1);
+    expect(sent, isEmpty);
+    expect(voice.state, RekaVoiceCaptureState.idle);
+    expect(
+      find.byKey(TodayDotExperimentPage.rekaVoiceOverlayKey),
+      findsNothing,
+    );
+  });
+
+  testWidgets('backgrounding after release cancels a stopping voice capture', (
+    tester,
+  ) async {
+    final session = _RekaVoiceSession();
+    final sent = <String>[];
+    final voice = RekaVoiceCaptureCoordinator(
+      service: _RekaVoiceService(session),
+      lease: VoiceInputLease(),
+      sendFlash: (text, _) async => sent.add(text),
+      haptic: () {},
+    );
+    addTearDown(() async {
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await voice.close();
+      voice.dispose();
+    });
+    await tester.pumpWidget(
+      _Host(
+        child: TodayDotExperimentPage(
+          repository: _ImmediateRepository(TodayData.empty),
+          rekaVoiceCoordinator: voice,
+          rekaBuilder: (_, _, _, _, _, _, _) => const SizedBox.expand(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byKey(TodayRekaScene.rekaTargetKey)),
+    );
+    await tester.pump(kLongPressTimeout + const Duration(milliseconds: 10));
+    await tester.pump();
+    await tester.pump();
+    await gesture.up();
+    await tester.pump();
+    expect(voice.state, RekaVoiceCaptureState.stopping);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.runAsync(() => pumpEventQueue());
+    session.emit(
+      const VoiceTranscriptEvent(
+        kind: VoiceTranscriptKind.finalTranscript,
+        sequence: 1,
+        text: '不应该发送',
+      ),
+    );
+    await tester.runAsync(() => pumpEventQueue());
+
+    expect(session.cancelCount, 1);
+    expect(sent, isEmpty);
+    expect(voice.state, RekaVoiceCaptureState.idle);
+  });
+
+  testWidgets('voice error does not mask hardware cue and hides in agenda', (
+    tester,
+  ) async {
+    final capture = CaptureActivityCoordinator();
+    final voice = RekaVoiceCaptureCoordinator(
+      service: _FailingRekaVoiceService(),
+      lease: VoiceInputLease(),
+      sendFlash: (_, _) async {},
+      haptic: () {},
+    );
+    addTearDown(() async {
+      capture.dispose();
+      await voice.close();
+      voice.dispose();
+    });
+    await voice.begin();
+    expect(voice.state, RekaVoiceCaptureState.error);
+    capture.apply(
+      CaptureActivityEvent(
+        aliases: const {'capture-after-voice-error'},
+        source: CaptureActivitySource.ring,
+        phase: CaptureActivityPhase.understanding,
+        occurredAt: DateTime.utc(2026, 8, 20),
+        isRealtime: true,
+      ),
+    );
+    var cue = const TodayRekaCaptureCue.idle();
+    await tester.pumpWidget(
+      _Host(
+        child: TodayDotExperimentPage(
+          repository: _ImmediateRepository(TodayData.empty),
+          captureActivityCoordinator: capture,
+          rekaVoiceCoordinator: voice,
+          rekaBuilder: (_, _, _, _, _, _, captureCue) {
+            cue = captureCue;
+            return const SizedBox.expand();
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(cue.action, TodayRekaCaptureAction.understanding);
+    expect(
+      find.byKey(TodayDotExperimentPage.rekaVoiceOverlayKey),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('today-next-schedule')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(HomeAgendaPanel), findsOneWidget);
+    expect(
+      find.byKey(TodayDotExperimentPage.rekaVoiceOverlayKey),
+      findsNothing,
+    );
+  });
+
   testWidgets('capture coordinator updates the mounted Reka cue in place', (
     tester,
   ) async {
@@ -527,4 +769,55 @@ class _Host extends StatelessWidget {
       child: Scaffold(body: child),
     ),
   );
+}
+
+class _RekaVoiceService implements VoiceInputServiceClient {
+  _RekaVoiceService(this.session);
+
+  final _RekaVoiceSession session;
+
+  @override
+  Future<VoiceInputSessionHandle> start(VoiceInputMode mode) async {
+    session.modeValue = mode;
+    return session;
+  }
+}
+
+class _FailingRekaVoiceService implements VoiceInputServiceClient {
+  @override
+  Future<VoiceInputSessionHandle> start(VoiceInputMode mode) {
+    throw const VoiceInputException(
+      VoiceInputErrorCode.connectionFailed,
+      retryable: true,
+    );
+  }
+}
+
+class _RekaVoiceSession implements VoiceInputSessionHandle {
+  final StreamController<VoiceInputEvent> _events =
+      StreamController<VoiceInputEvent>.broadcast();
+  VoiceInputMode modeValue = VoiceInputMode.ordinary;
+  int stopCount = 0;
+  int cancelCount = 0;
+  int disposeCount = 0;
+
+  void emit(VoiceInputEvent event) => _events.add(event);
+
+  @override
+  String get voiceSessionId => 'reka-page-session';
+
+  @override
+  VoiceInputMode get mode => modeValue;
+
+  @override
+  Stream<VoiceInputEvent> get events => _events.stream;
+
+  @override
+  Future<void> stop() async => stopCount++;
+
+  @override
+  Future<void> cancel() async => cancelCount++;
+
+  @override
+  Future<void> dispose() async => disposeCount++;
 }

@@ -35,6 +35,10 @@ class TodayRekaScene extends StatefulWidget {
     this.content,
     this.cue = const TodayOutputCue.idle(),
     this.captureCue = const TodayRekaCaptureCue.idle(),
+    this.onRekaLongPressStart,
+    this.onRekaLongPressMove,
+    this.onRekaLongPressEnd,
+    this.onRekaLongPressCancel,
   });
 
   static const backgroundKey = ValueKey<String>('today-reka-background');
@@ -54,6 +58,10 @@ class TodayRekaScene extends StatefulWidget {
   final Widget? content;
   final TodayOutputCue cue;
   final TodayRekaCaptureCue captureCue;
+  final VoidCallback? onRekaLongPressStart;
+  final ValueChanged<double>? onRekaLongPressMove;
+  final VoidCallback? onRekaLongPressEnd;
+  final VoidCallback? onRekaLongPressCancel;
 
   @override
   State<TodayRekaScene> createState() => _TodayRekaSceneState();
@@ -72,6 +80,7 @@ class _TodayRekaSceneState extends State<TodayRekaScene>
   Size _lastSize = Size.zero;
   EdgeInsets? _lastReservedInsets;
   bool? _reduceMotion;
+  bool _longPressActive = false;
 
   @override
   void initState() {
@@ -101,6 +110,7 @@ class _TodayRekaSceneState extends State<TodayRekaScene>
     if (oldWidget.active && !widget.active) {
       _controller.cancelDrag();
       _lastDragTimestamp = null;
+      _cancelVoiceCapture();
     }
     if (oldWidget.active != widget.active) _syncTicker();
   }
@@ -111,6 +121,7 @@ class _TodayRekaSceneState extends State<TodayRekaScene>
     if (state != AppLifecycleState.resumed) {
       _controller.cancelDrag();
       _lastDragTimestamp = null;
+      _cancelVoiceCapture();
     }
     _syncTicker();
   }
@@ -198,6 +209,34 @@ class _TodayRekaSceneState extends State<TodayRekaScene>
     );
   }
 
+  void _handleLongPressStart(LongPressStartDetails details) {
+    if (!widget.active || _longPressActive) return;
+    _longPressActive = true;
+    widget.onRekaLongPressStart?.call();
+  }
+
+  void _handleLongPressMove(LongPressMoveUpdateDetails details) {
+    if (!widget.active || !_longPressActive) return;
+    widget.onRekaLongPressMove?.call(details.offsetFromOrigin.dy);
+  }
+
+  void _handleLongPressEnd(LongPressEndDetails details) {
+    if (!_longPressActive) return;
+    _longPressActive = false;
+    widget.onRekaLongPressEnd?.call();
+  }
+
+  void _cancelLongPress() {
+    if (!_longPressActive) return;
+    _longPressActive = false;
+    widget.onRekaLongPressCancel?.call();
+  }
+
+  void _cancelVoiceCapture() {
+    _longPressActive = false;
+    widget.onRekaLongPressCancel?.call();
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
@@ -231,6 +270,8 @@ class _TodayRekaSceneState extends State<TodayRekaScene>
         final targetRadius = targetExtent / 2;
         final reduceMotion = _reduceMotion ?? true;
         final rekaBuilder = widget.rekaBuilder ?? _buildDefaultReka;
+        final supportsLongPress =
+            widget.active && widget.onRekaLongPressStart != null;
 
         return ColoredBox(
           key: TodayRekaScene.backgroundKey,
@@ -269,7 +310,9 @@ class _TodayRekaSceneState extends State<TodayRekaScene>
                 left: _controller.rekaCenter.dx - targetRadius,
                 top: _controller.rekaCenter.dy - targetRadius,
                 child: Semantics(
-                  label: 'Reka 快捷操作，可拖动',
+                  label: supportsLongPress
+                      ? 'Reka 快捷操作，可拖动，长按说话'
+                      : 'Reka 快捷操作，可拖动',
                   button: true,
                   expanded: widget.menuExpanded,
                   onTap: _reportTapAnchor,
@@ -282,6 +325,18 @@ class _TodayRekaSceneState extends State<TodayRekaScene>
                       onPanUpdate: _handlePanUpdate,
                       onPanEnd: _handlePanEnd,
                       onPanCancel: _handlePanCancel,
+                      onLongPressStart: supportsLongPress
+                          ? _handleLongPressStart
+                          : null,
+                      onLongPressMoveUpdate: supportsLongPress
+                          ? _handleLongPressMove
+                          : null,
+                      onLongPressEnd: supportsLongPress
+                          ? _handleLongPressEnd
+                          : null,
+                      onLongPressCancel: supportsLongPress
+                          ? _cancelLongPress
+                          : null,
                       child: SizedBox.square(
                         key: _rekaGeometryKey,
                         dimension: targetExtent,

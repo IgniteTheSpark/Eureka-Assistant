@@ -3,6 +3,7 @@ import 'package:eureka/theme_v2/home/today_reka_motion_controller.dart';
 import 'package:eureka/theme_v2/home/today_reka_capture_cue.dart';
 import 'package:eureka/theme_v2/home/today_reka_scene.dart';
 import 'package:eureka/theme_v2/home/today_output_coordinator.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -116,6 +117,45 @@ void main() {
     expect(anchor!.width, closeTo(220, .001));
     expect(anchor!.height, closeTo(220, .001));
   });
+
+  testWidgets(
+    'long press reports voice movement and release without opening actions',
+    (tester) async {
+      var taps = 0;
+      var starts = 0;
+      var ends = 0;
+      var cancels = 0;
+      final offsets = <double>[];
+      await tester.pumpWidget(
+        _host(
+          TodayRekaScene(
+            refreshSignal: 0,
+            onRekaTap: (_) => taps++,
+            onRekaLongPressStart: () => starts++,
+            onRekaLongPressMove: offsets.add,
+            onRekaLongPressEnd: () => ends++,
+            onRekaLongPressCancel: () => cancels++,
+            rekaBuilder: _fakeReka,
+          ),
+        ),
+      );
+      final target = find.byKey(TodayRekaScene.rekaTargetKey);
+      final gesture = await tester.startGesture(tester.getCenter(target));
+
+      await tester.pump(kLongPressTimeout + const Duration(milliseconds: 10));
+      await gesture.moveBy(const Offset(0, -90));
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+
+      expect(starts, 1);
+      expect(offsets, isNotEmpty);
+      expect(offsets.last, closeTo(-90, .001));
+      expect(ends, 1);
+      expect(cancels, 0);
+      expect(taps, 0);
+    },
+  );
 
   testWidgets('inactive scene cancels an active drag', (tester) async {
     final controller = TodayRekaMotionController();

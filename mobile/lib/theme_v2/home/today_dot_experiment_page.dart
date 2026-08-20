@@ -2,9 +2,15 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 
+import '../../api/api_client.dart';
 import '../../data_revision.dart';
+import '../../flash/flash.dart';
 import '../../today/today_data.dart';
+import '../../voice_input/reka_voice_capture.dart';
+import '../../voice_input/voice_input_controller.dart';
+import '../../voice_input/voice_input_scope.dart';
 import '../foundation/theme_v2_motion.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../capture/capture_activity_coordinator.dart';
@@ -37,10 +43,14 @@ class TodayDotExperimentPage extends StatefulWidget {
     this.rekaConfig = const TodayDitheredRekaConfig(),
     this.rekaBuilder,
     this.captureActivityCoordinator,
+    this.rekaVoiceCoordinator,
     this.extendUnderChrome = false,
   });
 
   static const scrollKey = ValueKey<String>('today-dot-experiment-scroll');
+  static const rekaVoiceOverlayKey = ValueKey<String>(
+    'today-dot-reka-voice-overlay',
+  );
 
   final ThemeV2HomeRepository? repository;
   final VoidCallback? onManualRecord;
@@ -55,6 +65,7 @@ class TodayDotExperimentPage extends StatefulWidget {
   final TodayDitheredRekaConfig rekaConfig;
   final TodayRekaBuilder? rekaBuilder;
   final CaptureActivityCoordinator? captureActivityCoordinator;
+  final RekaVoiceCaptureCoordinator? rekaVoiceCoordinator;
   final bool extendUnderChrome;
 
   @override
@@ -81,15 +92,41 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
       TodayOutputCoordinator();
   bool _outputRebuildScheduled = false;
   late CaptureActivityCoordinator _captureActivityCoordinator;
+  late final RekaVoiceCaptureCoordinator _rekaVoiceCoordinator;
+  late final bool _ownsRekaVoiceCoordinator;
 
-  TodayRekaCaptureCue get _captureCue =>
-      TodayRekaCaptureCue.fromSnapshot(_captureActivityCoordinator.snapshot);
+  TodayRekaCaptureCue get _captureCue {
+    final voiceAction = switch (_rekaVoiceCoordinator.state) {
+      RekaVoiceCaptureState.connecting ||
+      RekaVoiceCaptureState.listening ||
+      RekaVoiceCaptureState.cancelArmed => TodayRekaCaptureAction.listening,
+      RekaVoiceCaptureState.stopping => TodayRekaCaptureAction.transcribing,
+      RekaVoiceCaptureState.sending => TodayRekaCaptureAction.organizing,
+      RekaVoiceCaptureState.error || RekaVoiceCaptureState.idle => null,
+    };
+    if (voiceAction != null) {
+      return TodayRekaCaptureCue(action: voiceAction, isRealtime: true);
+    }
+    return TodayRekaCaptureCue.fromSnapshot(
+      _captureActivityCoordinator.snapshot,
+    );
+  }
 
   @override
   void initState() {
     super.initState();
     _installRepository(widget.repository);
     _installCaptureActivityCoordinator(widget.captureActivityCoordinator);
+    _ownsRekaVoiceCoordinator = widget.rekaVoiceCoordinator == null;
+    _rekaVoiceCoordinator =
+        widget.rekaVoiceCoordinator ??
+        RekaVoiceCaptureCoordinator(
+          service: VoiceInputScope.sharedService,
+          lease: VoiceInputLease.shared,
+          sendFlash: _sendRekaVoiceFlash,
+          haptic: () => unawaited(HapticFeedback.mediumImpact()),
+        );
+    _rekaVoiceCoordinator.addListener(_onRekaVoiceChanged);
     _outputCoordinator.addListener(_onOutputChanged);
     dataRevision.addListener(_onDataRevision);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -100,6 +137,13 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
   @override
   void didUpdateWidget(covariant TodayDotExperimentPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    assert(
+      identical(oldWidget.rekaVoiceCoordinator, widget.rekaVoiceCoordinator),
+      'rekaVoiceCoordinator cannot change while the page is mounted',
+    );
+    if (oldWidget.active && !widget.active) {
+      unawaited(_rekaVoiceCoordinator.cancelGesture());
+    }
     if (!identical(oldWidget.repository, widget.repository)) {
       _requestSerial++;
       _disposeOwnedRepository();
@@ -131,6 +175,19 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
 
   void _onCaptureActivityChanged() {
     if (mounted) setState(() {});
+  }
+
+  void _onRekaVoiceChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _sendRekaVoiceFlash(String text, String voiceSessionId) async {
+    final api = ApiClient();
+    try {
+      await sendVoiceFlash(api, text, voiceSessionId: voiceSessionId);
+    } finally {
+      api.close();
+    }
   }
 
   void _installRepository(ThemeV2HomeRepository? repository) {
@@ -221,7 +278,10 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
     }
   }
 
-  void _openAgenda() => setState(() => _agendaOpen = true);
+  void _openAgenda() {
+    unawaited(_rekaVoiceCoordinator.cancelGesture());
+    setState(() => _agendaOpen = true);
+  }
 
   void _closeAgenda() => setState(() => _agendaOpen = false);
 
@@ -278,6 +338,11 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
             ),
           ),
         ),
+        onRekaLongPressStart: () => unawaited(_rekaVoiceCoordinator.begin()),
+        onRekaLongPressMove: _rekaVoiceCoordinator.updateVerticalOffset,
+        onRekaLongPressEnd: () => unawaited(_rekaVoiceCoordinator.release()),
+        onRekaLongPressCancel: () =>
+            unawaited(_rekaVoiceCoordinator.cancelGesture()),
         onRekaTap: (anchor) => unawaited(_openQuickActions(anchor)),
       ),
     );
@@ -312,6 +377,11 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
     _requestSerial++;
     dataRevision.removeListener(_onDataRevision);
     _captureActivityCoordinator.removeListener(_onCaptureActivityChanged);
+    _rekaVoiceCoordinator.removeListener(_onRekaVoiceChanged);
+    if (_ownsRekaVoiceCoordinator) {
+      unawaited(_rekaVoiceCoordinator.close());
+      _rekaVoiceCoordinator.dispose();
+    }
     _disposeOwnedRepository();
     if (_ownsSceneRekaController) _sceneRekaController.dispose();
     _outputCoordinator.removeListener(_onOutputChanged);
@@ -378,7 +448,98 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
               right: 18,
               child: _RefreshFailure(onRetry: () => unawaited(_refresh())),
             ),
+          if (widget.active &&
+              !_agendaOpen &&
+              _rekaVoiceCoordinator.state != RekaVoiceCaptureState.idle)
+            Positioned(
+              top: topChromeInset + 16,
+              left: 30,
+              right: 30,
+              child: _RekaVoiceOverlay(coordinator: _rekaVoiceCoordinator),
+            ),
         ],
+      ),
+    );
+  }
+}
+
+class _RekaVoiceOverlay extends StatelessWidget {
+  const _RekaVoiceOverlay({required this.coordinator});
+
+  final RekaVoiceCaptureCoordinator coordinator;
+
+  @override
+  Widget build(BuildContext context) {
+    final transcript = coordinator.transcript;
+    final state = coordinator.state;
+    final primary = transcript.isNotEmpty
+        ? transcript
+        : switch (state) {
+            RekaVoiceCaptureState.connecting => '正在连接语音…',
+            RekaVoiceCaptureState.listening => '请说话…',
+            RekaVoiceCaptureState.cancelArmed => '松开取消',
+            RekaVoiceCaptureState.stopping => '正在识别…',
+            RekaVoiceCaptureState.sending => '正在发送闪念…',
+            RekaVoiceCaptureState.error => '语音输入失败，请再试一次',
+            RekaVoiceCaptureState.idle => '',
+          };
+    final secondary = switch (state) {
+      RekaVoiceCaptureState.connecting || RekaVoiceCaptureState.listening =>
+        coordinator.isDurationWarning ? '即将自动发送' : '上滑取消 · 松开发送',
+      RekaVoiceCaptureState.cancelArmed => transcript.isEmpty ? '' : '松开取消',
+      RekaVoiceCaptureState.stopping => '正在完成识别…',
+      RekaVoiceCaptureState.sending => '正在发送闪念…',
+      RekaVoiceCaptureState.error => '请长按 Reka 再试一次',
+      RekaVoiceCaptureState.idle => '',
+    };
+
+    return IgnorePointer(
+      child: Semantics(
+        key: TodayDotExperimentPage.rekaVoiceOverlayKey,
+        liveRegion: true,
+        label: '$primary，$secondary',
+        child: Material(
+          color: context.themeV2.surface.withValues(alpha: .94),
+          elevation: 3,
+          shadowColor: Colors.black.withValues(alpha: .14),
+          borderRadius: BorderRadius.circular(18),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  primary,
+                  maxLines: 4,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: state == RekaVoiceCaptureState.cancelArmed
+                        ? context.themeV2.critical
+                        : context.themeV2.foreground,
+                    fontSize: 15,
+                    height: 1.45,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (secondary.isNotEmpty) ...[
+                  const SizedBox(height: 5),
+                  Text(
+                    secondary,
+                    style: TextStyle(
+                      color: state == RekaVoiceCaptureState.cancelArmed
+                          ? context.themeV2.critical
+                          : context.themeV2.muted,
+                      fontSize: 11,
+                      height: 1.2,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
