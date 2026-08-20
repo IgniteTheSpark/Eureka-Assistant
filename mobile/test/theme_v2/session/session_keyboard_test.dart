@@ -1,7 +1,9 @@
 import 'package:eureka/chat/chat_models.dart';
 import 'package:eureka/theme/app_theme.dart';
 import 'package:eureka/theme/eureka_colors.dart';
+import 'package:eureka/theme_v2/session/session_composer.dart';
 import 'package:eureka/theme_v2/session/theme_v2_session_page.dart';
+import 'package:eureka/voice_input/voice_input_field.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -53,6 +55,48 @@ void main() {
       tester.getSize(find.byKey(const ValueKey('session-composer'))).height,
       lessThan(240),
     );
+  });
+
+  testWidgets('long text scrolls inside a bounded composer', (tester) async {
+    final controller = FakeSessionController();
+    await _pumpKeyboard(tester, controller: controller);
+
+    final fieldFinder = find.byKey(const ValueKey('session-composer-field'));
+    await tester.enterText(
+      fieldFinder,
+      List<String>.generate(40, (index) => '第$index段很长的输入内容').join('\n'),
+    );
+    await tester.pump();
+
+    final bound = tester.getSize(
+      find.byKey(const ValueKey('session-composer-field-bound')),
+    );
+    final scrollable = tester.state<ScrollableState>(
+      find.descendant(of: fieldFinder, matching: find.byType(Scrollable)).first,
+    );
+    expect(bound.height, lessThanOrEqualTo(116));
+    expect(scrollable.position.maxScrollExtent, greaterThan(0));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('voice and send actions keep a fixed bottom alignment', (
+    tester,
+  ) async {
+    final controller = FakeSessionController();
+    await _pumpKeyboard(tester, controller: controller);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('session-composer-field')),
+      List<String>.filled(30, '很长的消息内容').join('\n'),
+    );
+    await tester.pump();
+
+    final mic = tester.getRect(find.byKey(VoiceInputField.micKey));
+    final send = tester.getRect(find.byKey(const ValueKey('session-send')));
+    expect(mic.size, const Size.square(SessionComposer.actionSize));
+    expect(send.size, const Size.square(SessionComposer.actionSize));
+    expect((mic.bottom - send.bottom).abs(), lessThan(0.5));
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('send is disabled for empty input and while streaming', (

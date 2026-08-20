@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../voice_input/voice_input_controller.dart';
@@ -15,6 +17,9 @@ class SessionComposer extends StatelessWidget {
     required this.onAddContext,
     required this.onSend,
   });
+
+  static const maxVisibleLines = 5;
+  static const actionSize = 48.0;
 
   final VoiceInputTextController controller;
   final FocusNode focusNode;
@@ -35,6 +40,11 @@ class SessionComposer extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
     final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
+    final scaledLineHeight = MediaQuery.textScalerOf(context).scale(13) * 1.35;
+    final maxFieldHeight = math.max(
+      ThemeV2Sizes.minTouchTarget,
+      scaledLineHeight * maxVisibleLines + 24,
+    );
     return AnimatedPadding(
       duration: MediaQuery.disableAnimationsOf(context)
           ? Duration.zero
@@ -59,107 +69,98 @@ class SessionComposer extends StatelessWidget {
                   value.text.trim().isNotEmpty &&
                   !streaming &&
                   !voiceController.isBusy;
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Expanded(
-                    child: VoiceInputField(
-                      key: const ValueKey('session-composer-voice'),
-                      controller: voiceController,
-                      enabled: !streaming,
-                      builder: (context, voice) => TextField(
-                        key: const ValueKey('session-composer-field'),
-                        controller: controller,
-                        focusNode: focusNode,
-                        readOnly: voice.isBusy,
-                        minLines: 1,
-                        maxLines: 5,
-                        keyboardType: TextInputType.multiline,
-                        textInputAction: TextInputAction.newline,
-                        style: TextStyle(
-                          color: tokens.foreground,
-                          fontSize: 13,
-                          height: 1.35,
+              return VoiceInputField(
+                key: const ValueKey('session-composer-voice'),
+                controller: voiceController,
+                enabled: !streaming,
+                trailing: Semantics(
+                  label: streaming ? '正在发送' : '发送消息',
+                  button: true,
+                  enabled: enabled,
+                  child: SizedBox.square(
+                    dimension: actionSize,
+                    child: IconButton(
+                      key: const ValueKey('session-send'),
+                      onPressed: enabled ? () => _submit(value.text) : null,
+                      style: IconButton.styleFrom(
+                        fixedSize: const Size.square(actionSize),
+                        backgroundColor: enabled
+                            ? tokens.accent
+                            : tokens.border,
+                        foregroundColor: tokens.background,
+                        disabledForegroundColor: tokens.muted,
+                      ),
+                      icon: streaming
+                          ? SizedBox.square(
+                              dimension: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: tokens.muted,
+                              ),
+                            )
+                          : const Icon(Icons.arrow_upward_rounded, size: 20),
+                    ),
+                  ),
+                ),
+                builder: (context, voice) => ConstrainedBox(
+                  key: const ValueKey('session-composer-field-bound'),
+                  constraints: BoxConstraints(maxHeight: maxFieldHeight),
+                  child: TextField(
+                    key: const ValueKey('session-composer-field'),
+                    controller: controller,
+                    focusNode: focusNode,
+                    readOnly: voice.isBusy,
+                    minLines: 1,
+                    maxLines: maxVisibleLines,
+                    keyboardType: TextInputType.multiline,
+                    textInputAction: TextInputAction.newline,
+                    style: TextStyle(
+                      color: tokens.foreground,
+                      fontSize: 13,
+                      height: 1.35,
+                    ),
+                    decoration: InputDecoration(
+                      hintText: '问 Agent 任何事…',
+                      hintStyle: TextStyle(color: tokens.muted),
+                      prefixIcon: IconButton(
+                        tooltip: '添加上下文资产',
+                        onPressed: voice.isBusy ? null : onAddContext,
+                        constraints: const BoxConstraints(
+                          minWidth: ThemeV2Sizes.minTouchTarget,
+                          minHeight: ThemeV2Sizes.minTouchTarget,
                         ),
-                        decoration: InputDecoration(
-                          hintText: '问 Agent 任何事…',
-                          hintStyle: TextStyle(color: tokens.muted),
-                          prefixIcon: IconButton(
-                            tooltip: '添加上下文资产',
-                            onPressed: voice.isBusy ? null : onAddContext,
-                            constraints: const BoxConstraints(
-                              minWidth: ThemeV2Sizes.minTouchTarget,
-                              minHeight: ThemeV2Sizes.minTouchTarget,
-                            ),
-                            icon: Icon(
-                              Icons.auto_awesome_outlined,
-                              color: tokens.accent,
-                              size: 18,
-                            ),
-                          ),
-                          suffixIcon: voice.statusIcon(color: tokens.accent),
-                          suffixIconConstraints: const BoxConstraints(
-                            minWidth: 40,
-                            minHeight: 40,
-                          ),
-                          filled: true,
-                          fillColor: tokens.surface,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 12,
-                          ),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(
-                              ThemeV2Radii.pill,
-                            ),
-                            borderSide: BorderSide(color: tokens.border),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(
-                              ThemeV2Radii.pill,
-                            ),
-                            borderSide: BorderSide(color: tokens.border),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(
-                              ThemeV2Radii.pill,
-                            ),
-                            borderSide: BorderSide(color: tokens.accent),
-                          ),
+                        icon: Icon(
+                          Icons.auto_awesome_outlined,
+                          color: tokens.accent,
+                          size: 18,
                         ),
+                      ),
+                      suffixIcon: voice.statusIcon(color: tokens.accent),
+                      suffixIconConstraints: const BoxConstraints(
+                        minWidth: 40,
+                        minHeight: 40,
+                      ),
+                      filled: true,
+                      fillColor: tokens.surface,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(ThemeV2Radii.pill),
+                        borderSide: BorderSide(color: tokens.border),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(ThemeV2Radii.pill),
+                        borderSide: BorderSide(color: tokens.border),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(ThemeV2Radii.pill),
+                        borderSide: BorderSide(color: tokens.accent),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Semantics(
-                    label: streaming ? '正在发送' : '发送消息',
-                    button: true,
-                    enabled: enabled,
-                    child: SizedBox.square(
-                      dimension: ThemeV2Sizes.minTouchTarget,
-                      child: IconButton(
-                        key: const ValueKey('session-send'),
-                        onPressed: enabled ? () => _submit(value.text) : null,
-                        style: IconButton.styleFrom(
-                          backgroundColor: enabled
-                              ? tokens.accent
-                              : tokens.border,
-                          foregroundColor: tokens.background,
-                          disabledForegroundColor: tokens.muted,
-                        ),
-                        icon: streaming
-                            ? SizedBox.square(
-                                dimension: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: tokens.muted,
-                                ),
-                              )
-                            : const Icon(Icons.arrow_upward_rounded, size: 20),
-                      ),
-                    ),
-                  ),
-                ],
+                ),
               );
             },
           ),
