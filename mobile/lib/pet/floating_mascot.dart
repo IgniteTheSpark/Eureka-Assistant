@@ -3,19 +3,22 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../api/api_client.dart';
 import '../app_events.dart' show navigatorKey, openNotificationTarget;
 import '../auth/auth_controller.dart';
 import '../ble_flash/flash_file_status_controller.dart';
-import '../chat/recent_session.dart';
-import '../pages/chat_page.dart';
+import '../flash/flash.dart';
 import '../pages/pet_page.dart';
 import '../pages/pet_spawn_page.dart';
 import '../render/pet_view.dart';
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
-import '../theme_v2/capture/capture_session_page.dart';
+import '../voice_input/reka_voice_capture.dart';
+import '../voice_input/voice_input_controller.dart';
+import '../voice_input/voice_input_scope.dart';
 import 'pet_controller.dart';
 import 'pet_cosmetics.dart' show rekaGlow;
 import 'reka_chat.dart';
@@ -111,8 +114,8 @@ class RekaFly {
 
 /// §9.2 全局浮动球球 — a draggable companion that floats over the home shell,
 /// remembers its position, and is the emotional entry to the pet + agent:
-/// - **短按** → agent 对话(未孵化则进孵化接管)
-/// - **长按** → 子菜单(新建对话 / 快创 / 洞察·升华 / 我的岛)
+/// - **短按** → REKA 功能菜单(未孵化则进孵化接管)
+/// - **长按** → 流式语音闪念；上滑取消，松手发送
 ///
 /// Mount as `Positioned.fill(child: FloatingMascot())` inside a Stack: empty
 /// areas stay transparent to touches (only the ball's GestureDetector is hit),
@@ -181,6 +184,7 @@ class _FloatingMascotState extends State<FloatingMascot>
   bool _nudgeExpanded = false;
   Timer? _peekTimer;
   Pet? _lastRenderedPet;
+  late final RekaVoiceCaptureCoordinator _voice;
 
   @override
   void initState() {
@@ -198,6 +202,25 @@ class _FloatingMascotState extends State<FloatingMascot>
     _lastBob = _nudges.bobSignal;
     _lastPeekId = _nudges.peek?.id;
     _nudges.addListener(_onNudges);
+    _voice = RekaVoiceCaptureCoordinator(
+      service: VoiceInputScope.sharedService,
+      lease: VoiceInputLease.shared,
+      sendFlash: _sendVoiceFlash,
+      haptic: () => unawaited(HapticFeedback.mediumImpact()),
+    )..addListener(_onVoiceChanged);
+  }
+
+  void _onVoiceChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _sendVoiceFlash(String text, String voiceSessionId) async {
+    final api = ApiClient();
+    try {
+      await sendVoiceFlash(api, text, voiceSessionId: voiceSessionId);
+    } finally {
+      api.close();
+    }
   }
 
   void _onAuth() {
@@ -211,6 +234,7 @@ class _FloatingMascotState extends State<FloatingMascot>
       return;
     }
     _wasAuthed = false;
+    unawaited(_voice.cancelGesture());
     _activeClose?.call();
     RekaFly.instance.cancel();
     RekaFly.instance.outFrom.value = null;
@@ -366,6 +390,9 @@ class _FloatingMascotState extends State<FloatingMascot>
     RekaFly.instance.outFrom.removeListener(_onFlyOut);
     RekaNotifications.instance.removeListener(_onNotif);
     _nudges.removeListener(_onNudges);
+    _voice.removeListener(_onVoiceChanged);
+    unawaited(_voice.close());
+    _voice.dispose();
     _peekTimer?.cancel();
     _bob.dispose();
     _pulse.dispose();
@@ -447,7 +474,7 @@ class _FloatingMascotState extends State<FloatingMascot>
     await p.setDouble(_prefDy, _frac.dy);
   }
 
-  // §9.2 gestures (folded design): 短按 → 雷达功能菜单; 长按 → 续上次对话.
+  // §9.2 gestures: 短按 → 雷达功能菜单; 长按 → 语音闪念.
   // While a menu is open, a tap on REKA just closes it (no re-open / no stacking).
   void _onTap() {
     if (_menuOpen) {
@@ -461,7 +488,7 @@ class _FloatingMascotState extends State<FloatingMascot>
     }
   }
 
-  void _onLongPress() {
+  void _onLongPressStart(LongPressStartDetails _) {
     if (_menuOpen) {
       _activeClose?.call();
       return;
@@ -469,28 +496,20 @@ class _FloatingMascotState extends State<FloatingMascot>
     if (!_pet.onboardingCompleted) {
       _push(const PetSpawnPage());
     } else {
-      unawaited(_openLatestSession());
+      unawaited(_voice.begin());
     }
   }
 
-  Future<void> _openLatestSession() async {
-    final latest = await RecentSessionStore.resolve();
-    if (!mounted) return;
-    if (latest == null) {
-      _push(const ChatPage());
-      return;
-    }
-    switch (latest.type) {
-      case 'flash':
-        _push(CaptureSessionPage(recordingId: latest.id));
-        return;
-      case 'chat':
-        _push(ChatPage(boundSessionId: latest.id));
-        return;
-      default:
-        _push(const ChatPage());
-        return;
-    }
+  void _onLongPressMoveUpdate(LongPressMoveUpdateDetails details) {
+    _voice.updateVerticalOffset(details.offsetFromOrigin.dy);
+  }
+
+  void _onLongPressEnd(LongPressEndDetails _) {
+    unawaited(_voice.release());
+  }
+
+  void _onLongPressCancel() {
+    unawaited(_voice.cancelGesture());
   }
 
   // REKA lives in the root overlay (above every route), so it navigates via the
@@ -700,7 +719,10 @@ class _FloatingMascotState extends State<FloatingMascot>
                       key: _ballKey,
                       behavior: HitTestBehavior.opaque,
                       onTap: _onTap,
-                      onLongPress: _onLongPress,
+                      onLongPressStart: _onLongPressStart,
+                      onLongPressMoveUpdate: _onLongPressMoveUpdate,
+                      onLongPressEnd: _onLongPressEnd,
+                      onLongPressCancel: _onLongPressCancel,
                       onPanUpdate: (d) {
                         if (_menuOpen || travelW == 0 || travelH == 0) return;
                         setState(() {
@@ -718,6 +740,9 @@ class _FloatingMascotState extends State<FloatingMascot>
                 // §14.7 nudge surfaces (peek 气泡 / 可动作面板 / 「...」安静 chip) —
                 // above the ball so the expanded panel's barrier wins taps.
                 if (!effectiveHidden)
+                  ..._voiceLayer(context, left, _frac.dy * travelH, maxW, maxH),
+                if (!effectiveHidden &&
+                    _voice.state == RekaVoiceCaptureState.idle)
                   ..._flashStatusLayer(
                     context,
                     left,
@@ -725,7 +750,8 @@ class _FloatingMascotState extends State<FloatingMascot>
                     maxW,
                     maxH,
                   ),
-                if (!effectiveHidden)
+                if (!effectiveHidden &&
+                    _voice.state == RekaVoiceCaptureState.idle)
                   ..._nudgeLayer(context, left, _frac.dy * travelH, maxW, maxH),
               ],
             );
@@ -733,6 +759,112 @@ class _FloatingMascotState extends State<FloatingMascot>
         );
       },
     );
+  }
+
+  List<Widget> _voiceLayer(
+    BuildContext context,
+    double ballLeft,
+    double ballTop,
+    double maxW,
+    double maxH,
+  ) {
+    final state = _voice.state;
+    if (state == RekaVoiceCaptureState.idle) return const [];
+    final cancelArmed = state == RekaVoiceCaptureState.cancelArmed;
+    final transcript = _voice.transcript;
+    final title = switch (state) {
+      RekaVoiceCaptureState.connecting => '正在连接…',
+      RekaVoiceCaptureState.listening =>
+        transcript.isEmpty ? '请说话…' : transcript,
+      RekaVoiceCaptureState.cancelArmed => '松开取消',
+      RekaVoiceCaptureState.stopping =>
+        transcript.isEmpty ? '正在识别…' : transcript,
+      RekaVoiceCaptureState.sending => '正在发送闪念…',
+      RekaVoiceCaptureState.error => '语音输入失败，请再试一次',
+      RekaVoiceCaptureState.idle => '',
+    };
+    final hint = cancelArmed
+        ? '移回下方可继续'
+        : (_voice.isDurationWarning
+              ? '即将到达 60 秒上限'
+              : switch (state) {
+                  RekaVoiceCaptureState.connecting ||
+                  RekaVoiceCaptureState.listening => '上滑取消 · 松开发送',
+                  RekaVoiceCaptureState.stopping => '正在整理最后一句',
+                  RekaVoiceCaptureState.sending => '松手后已直接发送',
+                  _ => '',
+                });
+    const width = 244.0;
+    final left = (ballLeft + _size / 2 - width / 2).clamp(
+      8.0,
+      maxW - width - 8,
+    );
+    final openAbove = ballTop > maxH * 0.38;
+    final bubbleTop = openAbove ? null : ballTop + _size + 12;
+    final bubbleBottom = openAbove ? maxH - ballTop + 12 : null;
+    final eu = context.eu;
+    final accent = cancelArmed ? eu.accentRed : eu.brand;
+    return [
+      Positioned(
+        key: const ValueKey('reka-voice-bubble'),
+        left: left,
+        top: bubbleTop,
+        bottom: bubbleBottom,
+        width: width,
+        child: IgnorePointer(
+          child: Material(
+            color: Colors.transparent,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 11),
+              decoration: BoxDecoration(
+                color: Color.alphaBlend(
+                  accent.withValues(alpha: 0.16),
+                  eu.surfaceRaised,
+                ),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: accent.withValues(alpha: 0.72)),
+                boxShadow: [
+                  BoxShadow(
+                    color: accent.withValues(alpha: 0.22),
+                    blurRadius: 22,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 4,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: cancelArmed ? eu.accentRed : eu.textHi,
+                      fontSize: 14,
+                      height: 1.4,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  if (hint.isNotEmpty) ...[
+                    const SizedBox(height: 5),
+                    Text(
+                      hint,
+                      style: TextStyle(
+                        color: cancelArmed ? eu.accentRed : eu.textMid,
+                        fontSize: 11.5,
+                        height: 1.25,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    ];
   }
 
   List<Widget> _flashStatusLayer(
