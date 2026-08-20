@@ -6,10 +6,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'theme_v2_test_app.dart';
 
 void main() {
-  test('Today dot experiment is opt-in', () {
+  test('the latest Today experience is the production default', () {
     const expected = bool.fromEnvironment(
       'TODAY_DOT_EXPERIMENT',
-      defaultValue: false,
+      defaultValue: true,
     );
     expect(AppConfig.todayDotExperiment, expected);
   });

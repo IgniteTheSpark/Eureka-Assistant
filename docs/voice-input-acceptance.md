@@ -33,7 +33,7 @@ flutter test test/theme_v2/session test/theme_v2/report \
   test/theme_v2/library test/theme_v2/home               500 passed
 flutter analyze lib test/voice_input test/theme_v2       No issues found
 flutter build apk --debug \
-  --dart-define=API_BASE_URL=http://127.0.0.1:8200        PASS
+  --dart-define=API_BASE=http://127.0.0.1:8200            PASS
 ```
 
 The rebuilt backend was started with the untracked root `.env` explicitly

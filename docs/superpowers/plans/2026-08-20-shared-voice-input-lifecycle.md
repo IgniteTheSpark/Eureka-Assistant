@@ -459,7 +459,7 @@ flutter test test/theme_v2/session test/theme_v2/report \
   test/theme_v2/library test/theme_v2/home
 flutter analyze lib test/voice_input test/theme_v2
 flutter build apk --debug \
-  --dart-define=API_BASE_URL=http://127.0.0.1:8200
+  --dart-define=API_BASE=http://127.0.0.1:8200
 ```
 
 Expected: tests pass, analyzer clean, debug APK builds.

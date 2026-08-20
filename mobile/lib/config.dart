@@ -12,12 +12,13 @@ class AppConfig {
   ///   flutter run --dart-define=THEME_V2=false
   static const themeV2 = bool.fromEnvironment('THEME_V2', defaultValue: true);
 
-  /// Enables the reversible Light Today dithered-Reka evaluation surface.
+  /// Selects the current immersive Today/Reka home experience.
   ///
-  /// The environment name stays unchanged for build and rollout compatibility.
+  /// It is the product default. Set `TODAY_DOT_EXPERIMENT=false` only when
+  /// comparing against the retired standard Today page.
   static const todayDotExperiment = bool.fromEnvironment(
     'TODAY_DOT_EXPERIMENT',
-    defaultValue: false,
+    defaultValue: true,
   );
 
   static const apiBase = String.fromEnvironment(
