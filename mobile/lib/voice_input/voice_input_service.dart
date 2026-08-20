@@ -13,6 +13,20 @@ typedef VoiceAudioCaptureFactory = VoiceAudioCapture Function();
 typedef VoiceTokenProvider = String? Function();
 typedef VoiceSessionIdFactory = String Function();
 
+abstract interface class VoiceInputServiceClient {
+  Future<VoiceInputSessionHandle> start(VoiceInputMode mode);
+}
+
+abstract interface class VoiceInputSessionHandle {
+  String get voiceSessionId;
+  VoiceInputMode get mode;
+  Stream<VoiceInputEvent> get events;
+
+  Future<void> stop();
+  Future<void> cancel();
+  Future<void> dispose();
+}
+
 final class PcmFrameChunker {
   PcmFrameChunker({this.frameBytes = 6400}) {
     if (frameBytes <= 0 || frameBytes.isOdd) {
@@ -47,7 +61,7 @@ final class PcmFrameChunker {
   void clear() => _pending.clear();
 }
 
-final class VoiceInputService {
+final class VoiceInputService implements VoiceInputServiceClient {
   VoiceInputService({
     VoiceAudioCaptureFactory? captureFactory,
     VoiceGatewayConnector? connector,
@@ -71,6 +85,7 @@ final class VoiceInputService {
   VoiceInputSession? _active;
   bool _starting = false;
 
+  @override
   Future<VoiceInputSession> start(VoiceInputMode mode) async {
     if (_starting || (_active != null && !_active!.isTerminal)) {
       throw const VoiceInputException(VoiceInputErrorCode.busy);
@@ -132,7 +147,7 @@ final class VoiceInputService {
   }
 }
 
-final class VoiceInputSession {
+final class VoiceInputSession implements VoiceInputSessionHandle {
   VoiceInputSession._({
     required this.voiceSessionId,
     required this.mode,
@@ -145,7 +160,9 @@ final class VoiceInputSession {
        _readyTimeout = readyTimeout,
        _onTerminal = onTerminal;
 
+  @override
   final String voiceSessionId;
+  @override
   final VoiceInputMode mode;
   final VoiceAudioCapture _capture;
   final VoiceGatewayConnection _gateway;
@@ -166,6 +183,7 @@ final class VoiceInputSession {
   Future<void>? _captureStopFuture;
   Future<void>? _cleanupFuture;
 
+  @override
   Stream<VoiceInputEvent> get events => _events.stream;
   bool get isTerminal => _terminal;
 
@@ -240,6 +258,7 @@ final class VoiceInputSession {
     }
   }
 
+  @override
   Future<void> stop() async {
     if (_terminal || _stopping) return;
     _stopping = true;
@@ -257,6 +276,7 @@ final class VoiceInputSession {
     }
   }
 
+  @override
   Future<void> cancel() async {
     if (_terminal) {
       await _cleanup();
@@ -277,6 +297,7 @@ final class VoiceInputSession {
     _onTerminal();
   }
 
+  @override
   Future<void> dispose() => cancel();
 
   void _onAudio(Uint8List value) {
@@ -316,7 +337,10 @@ final class VoiceInputSession {
 
       final sequence = event['sequence'];
       final text = event['text'];
-      if (sequence is! int || sequence <= 0 || text is! String) {
+      if (sequence is! int ||
+          sequence <= 0 ||
+          text is! String ||
+          text.trim().isEmpty) {
         throw const FormatException();
       }
       if (sequence <= _lastSequence) return;
