@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -23,6 +24,42 @@ LEGACY_DEPLOY_README = DEPLOY_DIR / "README.md"
 LEGACY_CADDYFILE = DEPLOY_DIR / "Caddyfile.cn-8443"
 PRODUCTION_API_BASE = "https://api.ureka.chat"
 RETIRED_API_HOST = ".".join(("39", "96", "55", "118"))
+
+
+def _write_temp_env(values: dict[str, str]) -> Path:
+    handle = tempfile.NamedTemporaryFile(
+        "w", suffix=".env", delete=False, encoding="utf-8"
+    )
+    with handle:
+        for key, value in values.items():
+            handle.write(f"{key}={value}\n")
+    return Path(handle.name)
+
+
+PLACEHOLDER_ENV: dict[str, str] = {
+    "DOMAIN": "api.example.com",
+    "ACME_EMAIL": "ops@example.com",
+    "APP_IMAGE_TAG": "replace-with-git-sha",
+    "DEBIAN_MIRROR": "mirrors.aliyun.com",
+    "PIP_INDEX_URL": "https://mirrors.aliyun.com/pypi/simple/",
+    "THEME_V2_DATABASE_URL": (
+        "mysql://theme_v2:replace-with-password@db:3306/eureka_theme_v2"
+    ),
+    "THEME_V2_DB_PASSWORD": "replace-with-db-password",
+    "THEME_V2_DB_ROOT_PASSWORD": "replace-with-root-password",
+    "THEME_V2_JWT_SECRET": "replace-with-jwt-secret",
+    "EMAIL_PROVIDER": "aliyun_directmail",
+    "EMAIL_FROM_ADDRESS": "verify@mail.ureka.chat",
+    "EMAIL_FROM_NAME": "UReka",
+    "DIRECTMAIL_ACCOUNT_NAME": "verify@mail.ureka.chat",
+    "DIRECTMAIL_ACCESS_KEY_ID": "replace-with-directmail-access-key-id",
+    "DIRECTMAIL_ACCESS_KEY_SECRET": "replace-with-directmail-access-key-secret",
+    "TERMS_URL": "https://example.com/terms",
+    "PRIVACY_URL": "https://example.com/privacy",
+    "TERMS_VERSION_CURRENT": "prelaunch-v0",
+    "TENCENT_ASR_SERVICE_BASE_URL": "https://pre.card.biz",
+    "REPORT_PUBLIC_BASE_URL": "https://api.example.com",
+}
 
 
 class ThemeV2ProductionDeploymentTest(unittest.TestCase):
@@ -137,6 +174,15 @@ class ThemeV2ProductionDeploymentTest(unittest.TestCase):
                 "THEME_V2_DB_PASSWORD",
                 "THEME_V2_DB_ROOT_PASSWORD",
                 "THEME_V2_JWT_SECRET",
+                "EMAIL_PROVIDER",
+                "EMAIL_FROM_ADDRESS",
+                "EMAIL_FROM_NAME",
+                "DIRECTMAIL_ACCOUNT_NAME",
+                "DIRECTMAIL_ACCESS_KEY_ID",
+                "DIRECTMAIL_ACCESS_KEY_SECRET",
+                "TERMS_URL",
+                "PRIVACY_URL",
+                "TERMS_VERSION_CURRENT",
                 "CAPTURE_AGENT_ENABLED",
                 "CHAT_AGENT_ENABLED",
                 "REPORT_PIPELINE_ENABLED",
@@ -147,6 +193,90 @@ class ThemeV2ProductionDeploymentTest(unittest.TestCase):
                 "REPORT_PUBLIC_BASE_URL",
             }.issubset(keys)
         )
+
+    def test_environment_template_uses_placeholder_only_values(self) -> None:
+        text = ENV_FILE.read_text()
+        for secret_like_key in (
+            "DIRECTMAIL_ACCESS_KEY_ID",
+            "DIRECTMAIL_ACCESS_KEY_SECRET",
+            "THEME_V2_DB_PASSWORD",
+            "THEME_V2_DB_ROOT_PASSWORD",
+            "THEME_V2_JWT_SECRET",
+        ):
+            value = next(
+                (
+                    line.split("=", 1)[1].strip()
+                    for line in text.splitlines()
+                    if line.startswith(f"{secret_like_key}=")
+                ),
+                "",
+            )
+            self.assertIn("replace-with", value, secret_like_key)
+        self.assertIn("TERMS_VERSION_CURRENT=prelaunch-v0", text)
+        self.assertIn("TERMS_URL=https://example.com/terms", text)
+        self.assertIn("PRIVACY_URL=https://example.com/privacy", text)
+
+    def test_production_compose_parses_temporary_placeholder_env(self) -> None:
+        temp_env = _write_temp_env(PLACEHOLDER_ENV)
+        try:
+            result = subprocess.run(
+                [
+                    "docker",
+                    "compose",
+                    "--env-file",
+                    str(temp_env),
+                    "-f",
+                    str(COMPOSE_FILE),
+                    "config",
+                    "--format",
+                    "json",
+                ],
+                cwd=ROOT,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        finally:
+            temp_env.unlink()
+        rendered = json.loads(result.stdout)
+        api_environment = rendered["services"]["api"]["environment"]
+        self.assertEqual("aliyun_directmail", api_environment["EMAIL_PROVIDER"])
+        self.assertEqual("verify@mail.ureka.chat", api_environment["EMAIL_FROM_ADDRESS"])
+        self.assertEqual("https://example.com/terms", api_environment["TERMS_URL"])
+        self.assertEqual("prelaunch-v0", api_environment["TERMS_VERSION_CURRENT"])
+
+    def test_production_compose_requires_directmail_terms_and_version(self) -> None:
+        required_vars = (
+            "EMAIL_FROM_ADDRESS",
+            "DIRECTMAIL_ACCOUNT_NAME",
+            "DIRECTMAIL_ACCESS_KEY_ID",
+            "DIRECTMAIL_ACCESS_KEY_SECRET",
+            "TERMS_URL",
+            "PRIVACY_URL",
+            "TERMS_VERSION_CURRENT",
+        )
+        for missing in required_vars:
+            values = {key: value for key, value in PLACEHOLDER_ENV.items() if key != missing}
+            temp_env = _write_temp_env(values)
+            try:
+                result = subprocess.run(
+                    [
+                        "docker",
+                        "compose",
+                        "--env-file",
+                        str(temp_env),
+                        "-f",
+                        str(COMPOSE_FILE),
+                        "config",
+                    ],
+                    cwd=ROOT,
+                    capture_output=True,
+                    text=True,
+                )
+            finally:
+                temp_env.unlink()
+            self.assertNotEqual(0, result.returncode, missing)
+            self.assertIn(missing, result.stderr, missing)
 
     def test_operational_scripts_fail_fast_and_support_rollback(self) -> None:
         deploy_script = DEPLOY_SCRIPT.read_text()

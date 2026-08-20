@@ -20,12 +20,15 @@ x-theme-v2-environment: &theme-v2-environment
   # edge network is pinned to 172.20.0.0/24 so only Caddy (the sole edge
   # container) can set it; every other client falls through to the socket peer.
   FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-172.20.0.0/24}
-  EMAIL_PROVIDER: ${EMAIL_PROVIDER:?set EMAIL_PROVIDER in deploy/.env.theme-v2.prod (aliyun_directmail, mock, or disabled); production requires aliyun_directmail}
-  EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-verify@mail.ureka.chat}
+  EMAIL_PROVIDER: ${EMAIL_PROVIDER:?set EMAIL_PROVIDER in deploy/.env.theme-v2.prod (must be aliyun_directmail)}
+  EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:?set EMAIL_FROM_ADDRESS to the verified sender (verify@mail.ureka.chat)}
   EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-UReka}
-  DIRECTMAIL_ACCOUNT_NAME: ${DIRECTMAIL_ACCOUNT_NAME:-verify@mail.ureka.chat}
-  DIRECTMAIL_ACCESS_KEY_ID: ${DIRECTMAIL_ACCESS_KEY_ID:-}
-  DIRECTMAIL_ACCESS_KEY_SECRET: ${DIRECTMAIL_ACCESS_KEY_SECRET:-}
+  DIRECTMAIL_ACCOUNT_NAME: ${DIRECTMAIL_ACCOUNT_NAME:?set DIRECTMAIL_ACCOUNT_NAME to the verified sender (verify@mail.ureka.chat)}
+  DIRECTMAIL_ACCESS_KEY_ID: ${DIRECTMAIL_ACCESS_KEY_ID:?set DIRECTMAIL_ACCESS_KEY_ID in deploy/.env.theme-v2.prod}
+  DIRECTMAIL_ACCESS_KEY_SECRET: ${DIRECTMAIL_ACCESS_KEY_SECRET:?set DIRECTMAIL_ACCESS_KEY_SECRET in deploy/.env.theme-v2.prod}
+  TERMS_URL: ${TERMS_URL:?set TERMS_URL to the public HTTPS terms URL}
+  PRIVACY_URL: ${PRIVACY_URL:?set PRIVACY_URL to the public HTTPS privacy URL}
+  TERMS_VERSION_CURRENT: ${TERMS_VERSION_CURRENT:?set TERMS_VERSION_CURRENT}
   DEFAULT_USER_TIMEZONE: ${DEFAULT_USER_TIMEZONE:-Asia/Shanghai}
   TENCENT_ASR_SERVICE_BASE_URL: ${TENCENT_ASR_SERVICE_BASE_URL:?set TENCENT_ASR_SERVICE_BASE_URL}
   CAPTURE_ASR_POLL_INTERVAL_SECONDS: ${CAPTURE_ASR_POLL_INTERVAL_SECONDS:-5}
