@@ -9,7 +9,6 @@ import '../../data_revision.dart';
 import '../../flash/flash.dart';
 import '../../today/today_data.dart';
 import '../../voice_input/reka_voice_capture.dart';
-import '../../voice_input/voice_input_controller.dart';
 import '../../voice_input/voice_input_scope.dart';
 import '../foundation/theme_v2_motion.dart';
 import '../foundation/theme_v2_theme.dart';
@@ -94,6 +93,7 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
   late CaptureActivityCoordinator _captureActivityCoordinator;
   late final RekaVoiceCaptureCoordinator _rekaVoiceCoordinator;
   late final bool _ownsRekaVoiceCoordinator;
+  bool _rekaVoiceBound = false;
 
   TodayRekaCaptureCue get _captureCue {
     final voiceAction = switch (_rekaVoiceCoordinator.state) {
@@ -117,21 +117,27 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
     super.initState();
     _installRepository(widget.repository);
     _installCaptureActivityCoordinator(widget.captureActivityCoordinator);
-    _ownsRekaVoiceCoordinator = widget.rekaVoiceCoordinator == null;
-    _rekaVoiceCoordinator =
-        widget.rekaVoiceCoordinator ??
-        RekaVoiceCaptureCoordinator(
-          service: VoiceInputScope.sharedService,
-          lease: VoiceInputLease.shared,
-          sendFlash: _sendRekaVoiceFlash,
-          haptic: () => unawaited(HapticFeedback.mediumImpact()),
-        );
-    _rekaVoiceCoordinator.addListener(_onRekaVoiceChanged);
     _outputCoordinator.addListener(_onOutputChanged);
     dataRevision.addListener(_onDataRevision);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) unawaited(_refresh());
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_rekaVoiceBound) return;
+    _rekaVoiceBound = true;
+    _ownsRekaVoiceCoordinator = widget.rekaVoiceCoordinator == null;
+    _rekaVoiceCoordinator =
+        widget.rekaVoiceCoordinator ??
+        RekaVoiceCaptureCoordinator(
+          coordinator: VoiceInputScope.coordinatorOf(context),
+          sendFlash: _sendRekaVoiceFlash,
+          haptic: () => unawaited(HapticFeedback.mediumImpact()),
+        );
+    _rekaVoiceCoordinator.addListener(_onRekaVoiceChanged);
   }
 
   @override

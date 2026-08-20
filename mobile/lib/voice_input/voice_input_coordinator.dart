@@ -46,11 +46,13 @@ final class VoiceInputTargetBinding extends ChangeNotifier {
 
   VoiceInputCoordinatorState _state = VoiceInputCoordinatorState.idle;
   VoiceInputErrorCode? _errorCode;
+  String? _voiceSessionId;
   int _generation = 0;
   bool _disposed = false;
 
   VoiceInputCoordinatorState get state => _state;
   VoiceInputErrorCode? get errorCode => _errorCode;
+  String? get voiceSessionId => _voiceSessionId;
   bool get isActive => _state != VoiceInputCoordinatorState.idle;
   bool get isDisposed => _disposed;
 
@@ -88,6 +90,7 @@ final class VoiceInputTargetBinding extends ChangeNotifier {
     if (_disposed) return;
     _generation = generation;
     _errorCode = null;
+    _voiceSessionId = null;
     _setState(VoiceInputCoordinatorState.connecting);
     _safeCall(_callbacks.onActivated);
   }
@@ -98,11 +101,13 @@ final class VoiceInputTargetBinding extends ChangeNotifier {
   }
 
   void _cancelled(VoiceInputCancelReason reason) {
+    _voiceSessionId = null;
     _setState(VoiceInputCoordinatorState.idle);
     _safeCall(() => _callbacks.onCancelled(reason));
   }
 
   void _failed(VoiceInputErrorCode code) {
+    _voiceSessionId = null;
     _errorCode = code;
     _setState(VoiceInputCoordinatorState.idle);
     _safeCall(() => _callbacks.onFailure(code));
@@ -197,6 +202,7 @@ final class VoiceInputCoordinator {
       }
 
       _activeSession = session;
+      binding._voiceSessionId = session.voiceSessionId;
       _activeSubscription = session.events.listen(
         (event) => _onEvent(binding, generation, session.voiceSessionId, event),
         onError: (_) => _failActive(
@@ -340,6 +346,7 @@ final class VoiceInputCoordinator {
       binding._cancelled(reason);
     } else {
       binding._setState(VoiceInputCoordinatorState.idle);
+      binding._voiceSessionId = null;
     }
     return resources;
   }

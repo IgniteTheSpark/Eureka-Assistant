@@ -17,7 +17,6 @@ import '../render/pet_view.dart';
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
 import '../voice_input/reka_voice_capture.dart';
-import '../voice_input/voice_input_controller.dart';
 import '../voice_input/voice_input_scope.dart';
 import 'pet_controller.dart';
 import 'pet_cosmetics.dart' show rekaGlow;
@@ -185,6 +184,7 @@ class _FloatingMascotState extends State<FloatingMascot>
   Timer? _peekTimer;
   Pet? _lastRenderedPet;
   late final RekaVoiceCaptureCoordinator _voice;
+  bool _voiceBound = false;
 
   @override
   void initState() {
@@ -202,9 +202,15 @@ class _FloatingMascotState extends State<FloatingMascot>
     _lastBob = _nudges.bobSignal;
     _lastPeekId = _nudges.peek?.id;
     _nudges.addListener(_onNudges);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_voiceBound) return;
+    _voiceBound = true;
     _voice = RekaVoiceCaptureCoordinator(
-      service: VoiceInputScope.sharedService,
-      lease: VoiceInputLease.shared,
+      coordinator: VoiceInputScope.coordinatorOf(context),
       sendFlash: _sendVoiceFlash,
       haptic: () => unawaited(HapticFeedback.mediumImpact()),
     )..addListener(_onVoiceChanged);

@@ -381,11 +381,11 @@ git commit -m "refactor(mobile): bind authoring voice input globally"
 - Modify: `mobile/test/theme_v2/home/today_dot_experiment_page_test.dart`
 - Add/Modify: Reka coordinator tests under `mobile/test/voice_input/`
 
-- [ ] **Step 1: Add Reka switching and gesture RED tests**
+- [x] **Step 1: Add Reka switching and gesture RED tests**
 
 Cover ordinary→Reka supersession, Reka→ordinary supersession, release-after-final submits once, slide-up cancellation submits nothing, page disposal during startup, and late final after cancellation. Assert Reka's one-minute mode and ordinary's five-minute mode reach the service correctly.
 
-- [ ] **Step 2: Run focused RED**
+- [x] **Step 2: Run focused RED**
 
 ```bash
 cd mobile
@@ -395,15 +395,15 @@ flutter test test/theme_v2/home/today_dot_experiment_page_test.dart \
 
 Expected: current Reka coordinator owns the service/lease independently or cannot switch through the App coordinator.
 
-- [ ] **Step 3: Rebuild Reka presentation over a target binding**
+- [x] **Step 3: Rebuild Reka presentation over a target binding**
 
 Keep the existing `connecting/listening/cancelArmed/stopping/sending/error` presentation states, long-press gesture, provisional transcript, release-to-submit, and slide-up cancellation. Delegate microphone/session ownership to `VoiceInputCoordinator`; submit only a non-empty final transcript for the still-active generation through the existing Flash path.
 
-- [ ] **Step 4: Migrate both current Reka entry points**
+- [x] **Step 4: Migrate both current Reka entry points**
 
 Inject/bind from `VoiceInputScope.of(context)` for the Theme V2 home and any remaining floating mascot route. Do not reintroduce the removed legacy floating Reka UI as part of this migration.
 
-- [ ] **Step 5: Run Reka, coordinator, and analyzer gates GREEN**
+- [x] **Step 5: Run Reka, coordinator, and analyzer gates GREEN**
 
 ```bash
 cd mobile
@@ -415,7 +415,7 @@ flutter analyze lib/voice_input lib/theme_v2/home \
 
 Expected: all tests pass and no independent voice service/lease remains.
 
-- [ ] **Step 6: Commit Task 6**
+- [x] **Step 6: Commit Task 6**
 
 ```bash
 git add mobile/lib/voice_input/reka_voice_capture.dart \

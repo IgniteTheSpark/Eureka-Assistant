@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:eureka/voice_input/voice_input_controller.dart';
+import 'package:eureka/voice_input/voice_input_coordinator.dart';
 import 'package:eureka/voice_input/voice_input_field.dart';
 import 'package:eureka/voice_input/voice_input_models.dart';
 import 'package:eureka/voice_input/voice_input_scope.dart';
@@ -16,8 +17,7 @@ void main() {
     final session = _WidgetFakeSession();
     final controller = VoiceInputController(
       textController: text,
-      service: _WidgetFakeService(session),
-      lease: VoiceInputLease(),
+      coordinator: VoiceInputCoordinator(service: _WidgetFakeService(session)),
     );
     var submits = 0;
 
@@ -79,8 +79,7 @@ void main() {
     final session = _WidgetFakeSession();
     final controller = VoiceInputController(
       textController: text,
-      service: _WidgetFakeService(session),
-      lease: VoiceInputLease(),
+      coordinator: VoiceInputCoordinator(service: _WidgetFakeService(session)),
       maximumDuration: const Duration(milliseconds: 20),
       warningDuration: const Duration(milliseconds: 15),
     );
@@ -123,9 +122,8 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        home: VoiceInputScope(
+        home: VoiceInputHost(
           service: _WidgetFakeService(session),
-          lease: VoiceInputLease(),
           child: Scaffold(
             body: VoiceInputTextAdapter(
               controller: plain,

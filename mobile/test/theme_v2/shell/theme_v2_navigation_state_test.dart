@@ -9,6 +9,7 @@ import 'package:eureka/theme_v2/home/theme_v2_home_page.dart';
 import 'package:eureka/theme_v2/home/home_agenda_panel.dart';
 import 'package:eureka/theme_v2/home/home_repository.dart';
 import 'package:eureka/theme_v2/home/today_dot_experiment_page.dart';
+import 'package:eureka/theme_v2/home/today_reka_scene.dart';
 import 'package:eureka/theme_v2/reka/reka_signal_repository.dart';
 import 'package:eureka/theme_v2/reka/reka_signals_page.dart';
 import 'package:eureka/today/today_data.dart';
@@ -356,7 +357,7 @@ void main() {
       expect(find.byKey(ThemeV2FloatingDock.dockKey), findsOneWidget);
 
       for (final label in ['手动记录', '创建报告', '开始新聊天']) {
-        await tester.tap(find.bySemanticsLabel('Reka 快捷操作，可拖动'));
+        await tester.tap(find.byKey(TodayRekaScene.rekaTargetKey));
         await tester.pumpAndSettle();
         await tester.tap(find.text(label));
         await tester.pumpAndSettle();

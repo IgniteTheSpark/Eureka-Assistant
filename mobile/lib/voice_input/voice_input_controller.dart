@@ -5,28 +5,8 @@ import 'package:flutter/material.dart';
 
 import 'voice_input_coordinator.dart';
 import 'voice_input_models.dart';
-import 'voice_input_service.dart';
 
 enum VoiceInputControllerState { idle, connecting, listening, stopping }
-
-final class VoiceInputLease {
-  static final VoiceInputLease shared = VoiceInputLease();
-
-  Object? _owner;
-
-  bool acquire(Object owner) {
-    if (_owner != null) return identical(_owner, owner);
-    _owner = owner;
-    return true;
-  }
-
-  void release(Object owner) {
-    if (identical(_owner, owner)) _owner = null;
-  }
-
-  bool isOwnedBy(Object owner) => identical(_owner, owner);
-  bool get isActive => _owner != null;
-}
 
 final class VoiceInputTextController extends TextEditingController {
   VoiceInputTextController({String? text, TextSelection? selection})
@@ -92,21 +72,11 @@ final class VoiceInputTextController extends TextEditingController {
 final class VoiceInputController extends ChangeNotifier {
   VoiceInputController({
     required this.textController,
-    VoiceInputCoordinator? coordinator,
-    VoiceInputServiceClient? service,
-    VoiceInputLease? lease,
+    required VoiceInputCoordinator coordinator,
     this.maximumDuration = const Duration(minutes: 5),
     this.warningDuration = const Duration(seconds: 30),
-    this.finalTimeout = const Duration(seconds: 10),
-  }) : assert(
-         coordinator != null || service != null,
-         'VoiceInputController requires the App coordinator',
-       ),
-       _coordinator =
-           coordinator ??
-           VoiceInputCoordinator(service: service!, finalTimeout: finalTimeout),
-       _ownsCoordinator = coordinator == null {
-    _binding = _coordinator.bind(
+  }) {
+    _binding = coordinator.bind(
       targetId: this,
       mode: VoiceInputMode.ordinary,
       callbacks: VoiceInputTargetCallbacks(
@@ -119,12 +89,9 @@ final class VoiceInputController extends ChangeNotifier {
   }
 
   final VoiceInputTextController textController;
-  final VoiceInputCoordinator _coordinator;
-  final bool _ownsCoordinator;
   late final VoiceInputTargetBinding _binding;
   final Duration maximumDuration;
   final Duration warningDuration;
-  final Duration finalTimeout;
 
   final Duration productionMaximumDuration = const Duration(minutes: 5);
   final Duration productionWarningAt = const Duration(seconds: 270);
@@ -174,7 +141,6 @@ final class VoiceInputController extends ChangeNotifier {
     _cancelAllTimers();
     _binding.removeListener(_onBindingChanged);
     await _binding.close();
-    if (_ownsCoordinator) await _coordinator.dispose();
   }
 
   void _onActivated() {

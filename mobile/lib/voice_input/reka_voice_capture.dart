@@ -2,9 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
-import 'voice_input_controller.dart';
+import 'voice_input_coordinator.dart';
 import 'voice_input_models.dart';
-import 'voice_input_service.dart';
 
 enum RekaVoiceCaptureState {
   idle,
@@ -19,31 +18,37 @@ enum RekaVoiceCaptureState {
 typedef RekaVoiceFlashSender =
     Future<void> Function(String text, String voiceSessionId);
 
-/// Owns the asynchronous boundary between REKA's press gesture, streaming ASR,
-/// and creating exactly one text Flash. It deliberately stores no audio and
-/// never retries either operation.
+/// Presents REKA's press gesture over the App-owned voice coordinator.
+///
+/// This class owns gesture and submission state only. The root coordinator is
+/// the sole owner of the microphone and streaming ASR session.
 final class RekaVoiceCaptureCoordinator extends ChangeNotifier {
   RekaVoiceCaptureCoordinator({
-    required VoiceInputServiceClient service,
-    required VoiceInputLease lease,
+    required VoiceInputCoordinator coordinator,
     required RekaVoiceFlashSender sendFlash,
     required VoidCallback haptic,
     this.maximumDuration = const Duration(minutes: 1),
     this.warningDuration = const Duration(seconds: 30),
-    this.finalTimeout = const Duration(seconds: 10),
     this.cancelThreshold = 72,
-  }) : _service = service,
-       _lease = lease,
-       _sendFlash = sendFlash,
-       _haptic = haptic;
+  }) : _sendFlash = sendFlash,
+       _haptic = haptic {
+    _binding = coordinator.bind(
+      targetId: this,
+      mode: VoiceInputMode.reka,
+      callbacks: VoiceInputTargetCallbacks(
+        onActivated: _onActivated,
+        onTranscript: _onTranscript,
+        onCancelled: _onCancelled,
+        onFailure: _onFailure,
+      ),
+    )..addListener(_onBindingChanged);
+  }
 
-  final VoiceInputServiceClient _service;
-  final VoiceInputLease _lease;
+  late final VoiceInputTargetBinding _binding;
   final RekaVoiceFlashSender _sendFlash;
   final VoidCallback _haptic;
   final Duration maximumDuration;
   final Duration warningDuration;
-  final Duration finalTimeout;
   final double cancelThreshold;
 
   final Duration productionMaximumDuration = const Duration(minutes: 1);
@@ -51,14 +56,12 @@ final class RekaVoiceCaptureCoordinator extends ChangeNotifier {
 
   RekaVoiceCaptureState _state = RekaVoiceCaptureState.idle;
   VoiceInputErrorCode? _errorCode;
-  VoiceInputSessionHandle? _session;
-  StreamSubscription<VoiceInputEvent>? _subscription;
   Timer? _warningTimer;
   Timer? _durationTimer;
-  Timer? _finalTimer;
   final List<String> _stableParts = <String>[];
   String _partial = '';
   String? _pendingFinal;
+  String _voiceSessionId = '';
   int _lastSequence = 0;
   int _epoch = 0;
   bool _held = false;
@@ -66,7 +69,6 @@ final class RekaVoiceCaptureCoordinator extends ChangeNotifier {
   bool _cancelRequested = false;
   bool _terminal = false;
   bool _closed = false;
-  bool _leaseHeld = false;
   bool _durationWarning = false;
   Future<void>? _terminalFuture;
 
@@ -85,13 +87,6 @@ final class RekaVoiceCaptureCoordinator extends ChangeNotifier {
 
   Future<bool> begin() async {
     if (_closed || isActive) return false;
-    if (!_lease.acquire(this)) {
-      _errorCode = VoiceInputErrorCode.busy;
-      _state = RekaVoiceCaptureState.error;
-      _notify();
-      return false;
-    }
-    _leaseHeld = true;
     final epoch = ++_epoch;
     _resetCapture();
     _held = true;
@@ -99,55 +94,15 @@ final class RekaVoiceCaptureCoordinator extends ChangeNotifier {
     _haptic();
     _notify();
 
-    try {
-      final session = await _service.start(VoiceInputMode.reka);
-      if (!_isCurrent(epoch) || _terminal) {
-        await _quietly(session.cancel);
-        return false;
-      }
-      _session = session;
-      _subscription = session.events.listen(
-        (event) => _onEvent(event, epoch),
-        onError: (_) => _beginFailure(
-          VoiceInputErrorCode.connectionLost,
-          epoch,
-          cancelSession: false,
-        ),
-        onDone: () {
-          if (!_terminal && _pendingFinal == null && _isCurrent(epoch)) {
-            _beginFailure(
-              VoiceInputErrorCode.connectionLost,
-              epoch,
-              cancelSession: false,
-            );
-          }
-        },
-      );
-      _scheduleDurationLimits(epoch);
-      if (_cancelRequested) {
-        await _cancel(epoch);
-      } else if (_releaseRequested) {
-        await _stop(epoch);
-      } else {
-        _state = RekaVoiceCaptureState.listening;
-        _notify();
-      }
-      return true;
-    } on VoiceInputException catch (error) {
-      if (_isCurrent(epoch)) {
-        await _fail(error.code, epoch, cancelSession: false);
-      }
-      return false;
-    } catch (_) {
-      if (_isCurrent(epoch)) {
-        await _fail(
-          VoiceInputErrorCode.connectionFailed,
-          epoch,
-          cancelSession: false,
-        );
-      }
-      return false;
+    final started = await _binding.start();
+    if (!_isCurrent(epoch) || _terminal || !started) return false;
+    if (_cancelRequested) {
+      await _cancel(epoch);
+    } else if (_releaseRequested &&
+        _binding.state == VoiceInputCoordinatorState.listening) {
+      await _stop(epoch);
     }
+    return true;
   }
 
   void updateVerticalOffset(double offsetFromOriginDy) {
@@ -161,7 +116,7 @@ final class RekaVoiceCaptureCoordinator extends ChangeNotifier {
     if (_cancelRequested && !wasArmed) _haptic();
     final next = _cancelRequested
         ? RekaVoiceCaptureState.cancelArmed
-        : (_session == null
+        : (_binding.state == VoiceInputCoordinatorState.connecting
               ? RekaVoiceCaptureState.connecting
               : RekaVoiceCaptureState.listening);
     if (_state != next) {
@@ -179,7 +134,15 @@ final class RekaVoiceCaptureCoordinator extends ChangeNotifier {
       await _cancel(epoch);
       return;
     }
-    if (_session != null) await _stop(epoch);
+    final finalText = _pendingFinal;
+    if (finalText != null) {
+      _beginSubmit(finalText, epoch);
+      await _terminalFuture;
+      return;
+    }
+    if (_binding.state == VoiceInputCoordinatorState.listening) {
+      await _stop(epoch);
+    }
   }
 
   Future<void> cancelGesture() async {
@@ -190,15 +153,41 @@ final class RekaVoiceCaptureCoordinator extends ChangeNotifier {
     await _cancel(_epoch);
   }
 
-  void _onEvent(VoiceInputEvent event, int epoch) {
-    if (!_isCurrent(epoch) || _terminal) return;
-    if (event is VoiceInputFailure) {
-      _beginFailure(event.code, epoch, cancelSession: false);
-      return;
+  void _onActivated() {
+    if (_closed) return;
+    _state = RekaVoiceCaptureState.connecting;
+    _notify();
+  }
+
+  void _onBindingChanged() {
+    if (_closed || _terminal) return;
+    switch (_binding.state) {
+      case VoiceInputCoordinatorState.connecting:
+        if (!_cancelRequested) _state = RekaVoiceCaptureState.connecting;
+      case VoiceInputCoordinatorState.listening:
+        _scheduleDurationLimits(_epoch);
+        if (_cancelRequested) {
+          unawaited(_cancel(_epoch));
+          return;
+        }
+        if (_releaseRequested) {
+          unawaited(_stop(_epoch));
+          return;
+        }
+        _state = RekaVoiceCaptureState.listening;
+      case VoiceInputCoordinatorState.finalizing:
+        _cancelDurationTimers();
+        _state = RekaVoiceCaptureState.stopping;
+      case VoiceInputCoordinatorState.idle:
+        if (_pendingFinal != null && _held) {
+          _state = RekaVoiceCaptureState.listening;
+        }
     }
-    if (event is! VoiceTranscriptEvent || event.sequence <= _lastSequence) {
-      return;
-    }
+    _notify();
+  }
+
+  void _onTranscript(VoiceTranscriptEvent event) {
+    if (_closed || _terminal || event.sequence <= _lastSequence) return;
     _lastSequence = event.sequence;
     switch (event.kind) {
       case VoiceTranscriptKind.partial:
@@ -209,14 +198,39 @@ final class RekaVoiceCaptureCoordinator extends ChangeNotifier {
         _partial = '';
         _notify();
       case VoiceTranscriptKind.finalTranscript:
+        _voiceSessionId = _binding.voiceSessionId ?? _voiceSessionId;
         _pendingFinal = event.text;
         _partial = '';
+        _cancelDurationTimers();
         _notify();
         if (!_held || _releaseRequested) {
-          _cancelDurationTimers();
-          _beginSubmit(event.text, epoch);
+          _beginSubmit(event.text, _epoch);
         }
     }
+  }
+
+  void _onCancelled(VoiceInputCancelReason reason) {
+    if (_closed) return;
+    _epoch += 1;
+    _terminal = true;
+    _cancelAllTimers();
+    _stableParts.clear();
+    _partial = '';
+    _pendingFinal = null;
+    _voiceSessionId = '';
+    _errorCode = null;
+    _durationWarning = false;
+    _state = RekaVoiceCaptureState.idle;
+    _notify();
+  }
+
+  void _onFailure(VoiceInputErrorCode code) {
+    if (_closed || _terminal) return;
+    _terminal = true;
+    _cancelAllTimers();
+    _errorCode = code;
+    _state = RekaVoiceCaptureState.error;
+    _notify();
   }
 
   Future<void> _stop(int epoch) async {
@@ -227,29 +241,11 @@ final class RekaVoiceCaptureCoordinator extends ChangeNotifier {
       await _terminalFuture;
       return;
     }
-    if (_state == RekaVoiceCaptureState.stopping) return;
-    final session = _session;
-    if (session == null) return;
+    if (_binding.state != VoiceInputCoordinatorState.listening) return;
     _state = RekaVoiceCaptureState.stopping;
     _cancelDurationTimers();
     _notify();
-    try {
-      await session.stop();
-      if (!_isCurrent(epoch) || _terminal) return;
-      _finalTimer = Timer(finalTimeout, () {
-        _beginFailure(
-          VoiceInputErrorCode.connectionLost,
-          epoch,
-          cancelSession: true,
-        );
-      });
-    } catch (_) {
-      await _fail(
-        VoiceInputErrorCode.connectionLost,
-        epoch,
-        cancelSession: true,
-      );
-    }
+    await _binding.stop();
   }
 
   void _beginSubmit(String text, int epoch) {
@@ -262,19 +258,13 @@ final class RekaVoiceCaptureCoordinator extends ChangeNotifier {
     _terminal = true;
     _cancelAllTimers();
     final text = rawText.trim();
-    final sessionId = _session?.voiceSessionId ?? '';
-    final session = _session;
-    final subscription = _subscription;
-    _session = null;
-    _subscription = null;
+    final sessionId = _voiceSessionId;
     _state = text.isEmpty
         ? RekaVoiceCaptureState.idle
         : RekaVoiceCaptureState.sending;
     _notify();
 
     try {
-      await _quietly(session?.dispose);
-      await _cancelSubscription(subscription);
       if (text.isNotEmpty) await _sendFlash(text, sessionId);
       if (_isCurrent(epoch)) {
         _errorCode = null;
@@ -286,7 +276,6 @@ final class RekaVoiceCaptureCoordinator extends ChangeNotifier {
         _state = RekaVoiceCaptureState.error;
       }
     } finally {
-      _releaseLease();
       _terminalFuture = null;
       _notify();
     }
@@ -296,52 +285,13 @@ final class RekaVoiceCaptureCoordinator extends ChangeNotifier {
     if (!_isCurrent(epoch) || _terminal) return;
     _terminal = true;
     _cancelAllTimers();
-    final session = _session;
-    final subscription = _subscription;
-    _session = null;
-    _subscription = null;
     _state = RekaVoiceCaptureState.idle;
     _notify();
-    await _quietly(session?.cancel);
-    await _cancelSubscription(subscription);
-    _releaseLease();
-  }
-
-  void _beginFailure(
-    VoiceInputErrorCode code,
-    int epoch, {
-    required bool cancelSession,
-  }) {
-    if (_terminalFuture != null || _terminal) return;
-    _terminalFuture = _fail(code, epoch, cancelSession: cancelSession);
-  }
-
-  Future<void> _fail(
-    VoiceInputErrorCode code,
-    int epoch, {
-    required bool cancelSession,
-  }) async {
-    if (!_isCurrent(epoch) || _terminal) return;
-    _terminal = true;
-    _cancelAllTimers();
-    final session = _session;
-    final subscription = _subscription;
-    _session = null;
-    _subscription = null;
-    _errorCode = code;
-    _state = RekaVoiceCaptureState.error;
-    _notify();
-    if (cancelSession) {
-      await _quietly(session?.cancel);
-    } else {
-      await _quietly(session?.dispose);
-    }
-    await _cancelSubscription(subscription);
-    _releaseLease();
-    _terminalFuture = null;
+    await _binding.cancel();
   }
 
   void _scheduleDurationLimits(int epoch) {
+    if (_warningTimer != null || _durationTimer != null) return;
     final warningDelay = maximumDuration - warningDuration;
     _warningTimer = Timer(
       warningDelay.isNegative ? Duration.zero : warningDelay,
@@ -363,11 +313,10 @@ final class RekaVoiceCaptureCoordinator extends ChangeNotifier {
   void _resetCapture() {
     _cancelAllTimers();
     _errorCode = null;
-    _session = null;
-    _subscription = null;
     _stableParts.clear();
     _partial = '';
     _pendingFinal = null;
+    _voiceSessionId = '';
     _lastSequence = 0;
     _held = false;
     _releaseRequested = false;
@@ -380,23 +329,11 @@ final class RekaVoiceCaptureCoordinator extends ChangeNotifier {
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
-    final session = _session;
-    final subscription = _subscription;
-    _session = null;
-    _subscription = null;
-    final shouldCancel = isActive && !_terminal;
     _terminal = true;
-    if (shouldCancel) await _quietly(session?.cancel);
-    await _cancelSubscription(subscription);
-    await _terminalFuture;
     _cancelAllTimers();
-    _releaseLease();
-  }
-
-  void _releaseLease() {
-    if (!_leaseHeld) return;
-    _leaseHeld = false;
-    _lease.release(this);
+    _binding.removeListener(_onBindingChanged);
+    await _binding.close();
+    await _terminalFuture;
   }
 
   bool _isCurrent(int epoch) => !_closed && epoch == _epoch;
@@ -414,23 +351,6 @@ final class RekaVoiceCaptureCoordinator extends ChangeNotifier {
 
   void _cancelAllTimers() {
     _cancelDurationTimers();
-    _finalTimer?.cancel();
-    _finalTimer = null;
-  }
-
-  Future<void> _cancelSubscription(
-    StreamSubscription<VoiceInputEvent>? subscription,
-  ) async {
-    try {
-      await subscription?.cancel();
-    } catch (_) {}
-  }
-
-  Future<void> _quietly(Future<void> Function()? action) async {
-    if (action == null) return;
-    try {
-      await action();
-    } catch (_) {}
   }
 }
 

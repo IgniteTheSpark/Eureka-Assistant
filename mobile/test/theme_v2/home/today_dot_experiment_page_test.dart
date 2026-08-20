@@ -14,7 +14,7 @@ import 'package:eureka/theme_v2/home/today_reka_capture_cue.dart';
 import 'package:eureka/theme_v2/home/today_reka_scene.dart';
 import 'package:eureka/today/today_data.dart';
 import 'package:eureka/voice_input/reka_voice_capture.dart';
-import 'package:eureka/voice_input/voice_input_controller.dart';
+import 'package:eureka/voice_input/voice_input_coordinator.dart';
 import 'package:eureka/voice_input/voice_input_models.dart';
 import 'package:eureka/voice_input/voice_input_service.dart';
 import 'package:flutter/gestures.dart';
@@ -28,8 +28,7 @@ void main() {
       final session = _RekaVoiceSession();
       final sent = <(String, String)>[];
       final voice = RekaVoiceCaptureCoordinator(
-        service: _RekaVoiceService(session),
-        lease: VoiceInputLease(),
+        coordinator: VoiceInputCoordinator(service: _RekaVoiceService(session)),
         sendFlash: (text, sessionId) async => sent.add((text, sessionId)),
         haptic: () {},
       );
@@ -105,8 +104,7 @@ void main() {
     final session = _RekaVoiceSession();
     final sent = <String>[];
     final voice = RekaVoiceCaptureCoordinator(
-      service: _RekaVoiceService(session),
-      lease: VoiceInputLease(),
+      coordinator: VoiceInputCoordinator(service: _RekaVoiceService(session)),
       sendFlash: (text, _) async => sent.add(text),
       haptic: () {},
     );
@@ -155,8 +153,7 @@ void main() {
     final session = _RekaVoiceSession();
     final sent = <String>[];
     final voice = RekaVoiceCaptureCoordinator(
-      service: _RekaVoiceService(session),
-      lease: VoiceInputLease(),
+      coordinator: VoiceInputCoordinator(service: _RekaVoiceService(session)),
       sendFlash: (text, _) async => sent.add(text),
       haptic: () {},
     );
@@ -206,8 +203,7 @@ void main() {
   ) async {
     final capture = CaptureActivityCoordinator();
     final voice = RekaVoiceCaptureCoordinator(
-      service: _FailingRekaVoiceService(),
-      lease: VoiceInputLease(),
+      coordinator: VoiceInputCoordinator(service: _FailingRekaVoiceService()),
       sendFlash: (_, _) async {},
       haptic: () {},
     );

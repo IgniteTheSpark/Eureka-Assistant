@@ -2,11 +2,51 @@ import 'dart:async';
 
 import 'package:eureka/voice_input/reka_voice_capture.dart';
 import 'package:eureka/voice_input/voice_input_controller.dart';
+import 'package:eureka/voice_input/voice_input_coordinator.dart';
 import 'package:eureka/voice_input/voice_input_models.dart';
 import 'package:eureka/voice_input/voice_input_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('ordinary and Reka supersede each other without busy', () async {
+    final firstOrdinary = _FakeSession('ordinary-first');
+    final rekaSession = _FakeSession('reka-middle');
+    final secondOrdinary = _FakeSession('ordinary-second');
+    final shared = VoiceInputCoordinator(
+      service: _QueueService([firstOrdinary, rekaSession, secondOrdinary]),
+    );
+    final ordinary = VoiceInputController(
+      textController: VoiceInputTextController(text: 'original'),
+      coordinator: shared,
+    );
+    final reka = RekaVoiceCaptureCoordinator(
+      coordinator: shared,
+      sendFlash: (_, _) async {},
+      haptic: () {},
+    );
+
+    expect(await ordinary.start(), isTrue);
+    firstOrdinary.emit(_partial(1, 'temporary'));
+    await pumpEventQueue();
+    expect(await reka.begin(), isTrue);
+    expect(firstOrdinary.cancelCount, 1);
+    expect(ordinary.textController.text, 'original');
+    expect(ordinary.errorCode, isNull);
+    expect(rekaSession.modeValue, VoiceInputMode.reka);
+
+    expect(await ordinary.start(), isTrue);
+    expect(rekaSession.cancelCount, 1);
+    expect(reka.state, RekaVoiceCaptureState.idle);
+    expect(reka.errorCode, isNull);
+    expect(secondOrdinary.modeValue, VoiceInputMode.ordinary);
+
+    await ordinary.close();
+    ordinary.dispose();
+    await reka.close();
+    reka.dispose();
+    await shared.dispose();
+  });
+
   test(
     'release before connection readiness stops then sends one final',
     () async {
@@ -14,8 +54,7 @@ void main() {
       final sent = <(String, String)>[];
       var haptics = 0;
       final coordinator = RekaVoiceCaptureCoordinator(
-        service: service,
-        lease: VoiceInputLease(),
+        coordinator: VoiceInputCoordinator(service: service),
         sendFlash: (text, sessionId) async => sent.add((text, sessionId)),
         haptic: () => haptics += 1,
       );
@@ -49,13 +88,13 @@ void main() {
       final service = _DelayedService();
       final sent = <String>[];
       final coordinator = RekaVoiceCaptureCoordinator(
-        service: service,
-        lease: VoiceInputLease(),
+        coordinator: VoiceInputCoordinator(service: service),
         sendFlash: (text, _) async => sent.add(text),
         haptic: () {},
       );
 
       final start = coordinator.begin();
+      await service.started.future;
       coordinator.updateVerticalOffset(-100);
       await coordinator.release();
       final session = _FakeSession('voice-early-cancel');
@@ -119,8 +158,9 @@ void main() {
     final second = _FakeSession('voice-error');
     final sent = <String>[];
     final coordinator = RekaVoiceCaptureCoordinator(
-      service: _QueueService([first, second]),
-      lease: VoiceInputLease(),
+      coordinator: VoiceInputCoordinator(
+        service: _QueueService([first, second]),
+      ),
       sendFlash: (text, _) async => sent.add(text),
       haptic: () {},
     );
@@ -218,11 +258,12 @@ void main() {
     final second = _FakeSession('voice-close');
     final sent = <String>[];
     final coordinator = RekaVoiceCaptureCoordinator(
-      service: _QueueService([first, second]),
-      lease: VoiceInputLease(),
+      coordinator: VoiceInputCoordinator(
+        service: _QueueService([first, second]),
+        finalTimeout: const Duration(milliseconds: 10),
+      ),
       sendFlash: (text, _) async => sent.add(text),
       haptic: () {},
-      finalTimeout: const Duration(milliseconds: 10),
     );
 
     await coordinator.begin();
@@ -249,8 +290,7 @@ RekaVoiceCaptureCoordinator _coordinator(
   Duration warningDuration = const Duration(seconds: 30),
 }) {
   return RekaVoiceCaptureCoordinator(
-    service: _QueueService([session]),
-    lease: VoiceInputLease(),
+    coordinator: VoiceInputCoordinator(service: _QueueService([session])),
     sendFlash: sendFlash ?? (_, _) async {},
     haptic: haptic ?? () {},
     maximumDuration: maximumDuration,
@@ -294,11 +334,13 @@ class _QueueService implements VoiceInputServiceClient {
 
 class _DelayedService implements VoiceInputServiceClient {
   final Completer<_FakeSession> _completer = Completer<_FakeSession>();
+  final Completer<void> started = Completer<void>();
 
   void complete(_FakeSession session) => _completer.complete(session);
 
   @override
   Future<VoiceInputSessionHandle> start(VoiceInputMode mode) async {
+    if (!started.isCompleted) started.complete();
     final session = await _completer.future;
     session.modeValue = mode;
     return session;

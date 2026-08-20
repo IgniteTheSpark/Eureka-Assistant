@@ -2,8 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/widgets.dart';
 
-import 'voice_input_controller.dart';
 import 'voice_input_coordinator.dart';
+import 'voice_input_models.dart';
 import 'voice_input_service.dart';
 
 typedef VoiceInputSessionIdentity = Object? Function();
@@ -57,7 +57,7 @@ final class _VoiceInputHostState extends State<VoiceInputHost>
   }
 
   void _createCoordinator() {
-    _service = widget.service ?? VoiceInputScope.sharedService;
+    _service = widget.service ?? VoiceInputService();
     _coordinator = VoiceInputCoordinator(service: _service);
   }
 
@@ -84,36 +84,24 @@ final class _VoiceInputHostState extends State<VoiceInputHost>
 
   @override
   Widget build(BuildContext context) {
-    return VoiceInputScope(
-      coordinator: _coordinator,
-      service: _service,
-      child: widget.child,
-    );
+    return VoiceInputScope(coordinator: _coordinator, child: widget.child);
   }
 }
 
 final class VoiceInputScope extends InheritedWidget {
-  VoiceInputScope({
+  const VoiceInputScope({
     super.key,
     required super.child,
-    VoiceInputCoordinator? coordinator,
-    VoiceInputServiceClient? service,
-    VoiceInputLease? lease,
-  }) : service = service ?? sharedService,
-       coordinator =
-           coordinator ??
-           VoiceInputCoordinator(service: service ?? sharedService),
-       lease = lease ?? VoiceInputLease.shared;
+    required this.coordinator,
+  });
 
-  // Transitional compatibility for existing voice adopters. Task 4-6 migrate
-  // every surface to [coordinator], after which this static access is removed.
-  static final VoiceInputServiceClient sharedService = VoiceInputService();
-  static final VoiceInputCoordinator _fallbackCoordinator =
-      VoiceInputCoordinator(service: sharedService);
+  // Widget tests that mount an individual surface without the real App root
+  // receive a fail-closed coordinator. Production always uses VoiceInputHost.
+  @visibleForTesting
+  static final VoiceInputCoordinator testFallbackCoordinator =
+      VoiceInputCoordinator(service: const _MissingVoiceInputHostService());
 
   final VoiceInputCoordinator coordinator;
-  final VoiceInputServiceClient service;
-  final VoiceInputLease lease;
 
   static VoiceInputScope? maybeOf(BuildContext context) {
     return context.dependOnInheritedWidgetOfExactType<VoiceInputScope>();
@@ -126,13 +114,20 @@ final class VoiceInputScope extends InheritedWidget {
   }
 
   static VoiceInputCoordinator coordinatorOf(BuildContext context) {
-    return maybeOf(context)?.coordinator ?? _fallbackCoordinator;
+    return maybeOf(context)?.coordinator ?? testFallbackCoordinator;
   }
 
   @override
   bool updateShouldNotify(VoiceInputScope oldWidget) {
-    return coordinator != oldWidget.coordinator ||
-        service != oldWidget.service ||
-        lease != oldWidget.lease;
+    return coordinator != oldWidget.coordinator;
+  }
+}
+
+final class _MissingVoiceInputHostService implements VoiceInputServiceClient {
+  const _MissingVoiceInputHostService();
+
+  @override
+  Future<VoiceInputSessionHandle> start(VoiceInputMode mode) {
+    throw const VoiceInputException(VoiceInputErrorCode.serviceUnavailable);
   }
 }

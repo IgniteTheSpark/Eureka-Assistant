@@ -18,8 +18,7 @@ void main() {
       final session = _FakeSession();
       final controller = VoiceInputController(
         textController: text,
-        service: _FakeService([session]),
-        lease: VoiceInputLease(),
+        coordinator: VoiceInputCoordinator(service: _FakeService([session])),
       );
 
       expect(await controller.start(), isTrue);
@@ -47,8 +46,7 @@ void main() {
       final session = _FakeSession();
       final controller = VoiceInputController(
         textController: text,
-        service: _FakeService([session]),
-        lease: VoiceInputLease(),
+        coordinator: VoiceInputCoordinator(service: _FakeService([session])),
       );
 
       await controller.start();
@@ -75,8 +73,9 @@ void main() {
     final second = _FakeSession();
     final controller = VoiceInputController(
       textController: text,
-      service: _FakeService([first, second]),
-      lease: VoiceInputLease(),
+      coordinator: VoiceInputCoordinator(
+        service: _FakeService([first, second]),
+      ),
     );
 
     await controller.start();
@@ -133,9 +132,10 @@ void main() {
     final session = _FakeSession();
     final controller = VoiceInputController(
       textController: text,
-      service: _FakeService([session]),
-      lease: VoiceInputLease(),
-      finalTimeout: const Duration(milliseconds: 10),
+      coordinator: VoiceInputCoordinator(
+        service: _FakeService([session]),
+        finalTimeout: const Duration(milliseconds: 10),
+      ),
     );
 
     await controller.start();
@@ -156,8 +156,7 @@ void main() {
       final session = _FakeSession();
       final controller = VoiceInputController(
         textController: VoiceInputTextController(),
-        service: _FakeService([session]),
-        lease: VoiceInputLease(),
+        coordinator: VoiceInputCoordinator(service: _FakeService([session])),
         maximumDuration: const Duration(milliseconds: 40),
         warningDuration: const Duration(milliseconds: 20),
       );
