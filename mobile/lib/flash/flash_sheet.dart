@@ -41,15 +41,18 @@ class _FlashSheetState extends State<_FlashSheet> {
   final _input = VoiceInputTextController();
   final _scroll = ScrollController();
   late final VoiceInputController _voiceController;
+  bool _voiceBound = false;
   final List<_Turn> _turns = [];
   bool _sending = false;
 
   @override
-  void initState() {
-    super.initState();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_voiceBound) return;
+    _voiceBound = true;
     _voiceController = VoiceInputController(
       textController: _input,
-      service: VoiceInputScope.sharedService,
+      coordinator: VoiceInputScope.coordinatorOf(context),
     )..addListener(_voiceChanged);
   }
 

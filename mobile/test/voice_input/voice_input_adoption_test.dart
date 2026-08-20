@@ -29,4 +29,27 @@ void main() {
     expect(source, isNot(contains('SpeechToText')));
     expect(source, isNot(contains('_ListeningOverlay')));
   });
+
+  test('ordinary authoring surfaces never own a voice service or lease', () {
+    const sources = [
+      'lib/pages/chat_page.dart',
+      'lib/pages/session_detail_page.dart',
+      'lib/theme_v2/session/theme_v2_session_page.dart',
+      'lib/theme_v2/report/report_create_sheet.dart',
+      'lib/theme_v2/report/report_run_page.dart',
+      'lib/theme_v2/library/create_skill/theme_v2_skill_wizard.dart',
+      'lib/flash/flash_sheet.dart',
+    ];
+
+    for (final path in sources) {
+      final source = File(path).readAsStringSync();
+      expect(
+        source,
+        isNot(contains('VoiceInputScope.sharedService')),
+        reason: path,
+      );
+      expect(source, isNot(contains('VoiceInputLease')), reason: path);
+      expect(source, isNot(contains('VoiceInputService(')), reason: path);
+    }
+  });
 }

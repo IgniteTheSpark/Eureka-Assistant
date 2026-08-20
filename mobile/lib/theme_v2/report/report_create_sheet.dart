@@ -35,17 +35,20 @@ class ReportCreateSheet extends StatefulWidget {
 class _ReportCreateSheetState extends State<ReportCreateSheet> {
   final _intent = VoiceInputTextController();
   late final VoiceInputController _voiceController;
+  bool _voiceBound = false;
   late final ReportRunController _controller = ReportRunController(
     api: widget.api,
     autoPoll: false,
   )..addListener(_changed);
 
   @override
-  void initState() {
-    super.initState();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_voiceBound) return;
+    _voiceBound = true;
     _voiceController = VoiceInputController(
       textController: _intent,
-      service: VoiceInputScope.sharedService,
+      coordinator: VoiceInputScope.coordinatorOf(context),
     )..addListener(_changed);
   }
 

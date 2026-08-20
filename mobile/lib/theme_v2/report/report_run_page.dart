@@ -41,6 +41,7 @@ class _ReportRunPageState extends State<ReportRunPage> {
   final _focusController = VoiceInputTextController();
   final _presentationController = TextEditingController();
   late final VoiceInputController _focusVoiceController;
+  bool _voiceBound = false;
   final Map<String, TextEditingController> _clarificationTextControllers = {};
   final Set<String> _activeClarificationVoice = {};
   ReportPlanDraftView? _draft;
@@ -50,11 +51,18 @@ class _ReportRunPageState extends State<ReportRunPage> {
   @override
   void initState() {
     super.initState();
+    _focusController.addListener(_syncAdditionalFocus);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_voiceBound) return;
+    _voiceBound = true;
     _focusVoiceController = VoiceInputController(
       textController: _focusController,
-      service: VoiceInputScope.sharedService,
+      coordinator: VoiceInputScope.coordinatorOf(context),
     )..addListener(_voiceChanged);
-    _focusController.addListener(_syncAdditionalFocus);
     final runId = widget.runId;
     if (runId != null) {
       unawaited(_controller.loadRun(runId));

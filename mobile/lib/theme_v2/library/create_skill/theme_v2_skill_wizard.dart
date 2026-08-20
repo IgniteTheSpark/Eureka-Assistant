@@ -51,6 +51,7 @@ class _ThemeV2SkillWizardSheetState extends State<ThemeV2SkillWizardSheet> {
     text: widget.controller?.description ?? '',
   );
   late final VoiceInputController _descriptionVoice;
+  bool _voiceBound = false;
   final Set<String> _activeQuestionVoice = {};
 
   Listenable get _listenable =>
@@ -59,14 +60,21 @@ class _ThemeV2SkillWizardSheetState extends State<ThemeV2SkillWizardSheet> {
   @override
   void initState() {
     super.initState();
-    _descriptionVoice = VoiceInputController(
-      textController: _description,
-      service: VoiceInputScope.sharedService,
-    )..addListener(_voiceChanged);
     _description.addListener(_syncDescription);
     if (widget.configurationController != null) {
       unawaited(widget.configurationController!.load());
     }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_voiceBound) return;
+    _voiceBound = true;
+    _descriptionVoice = VoiceInputController(
+      textController: _description,
+      coordinator: VoiceInputScope.coordinatorOf(context),
+    )..addListener(_voiceChanged);
   }
 
   void _voiceChanged() {

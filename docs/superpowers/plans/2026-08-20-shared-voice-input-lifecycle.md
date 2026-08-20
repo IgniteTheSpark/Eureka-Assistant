@@ -328,7 +328,7 @@ git commit -m "fix(mobile): share voice input across session fields"
 - Modify: every remaining ordinary voice-input adopter reported by `rg`
 - Modify/Create: corresponding widget tests under `mobile/test/theme_v2/`, `mobile/test/flash/`, and `mobile/test/voice_input/`
 
-- [ ] **Step 1: Inventory every remaining adopter and add behavioral RED coverage**
+- [x] **Step 1: Inventory every remaining adopter and add behavioral RED coverage**
 
 Run:
 
@@ -338,11 +338,11 @@ rg -n "VoiceInputScope\.sharedService|VoiceInputLease|VoiceInputService\(" mobil
 
 Add tests proving report→Skill→Session switching, leaving a sheet/page frees the next target, and no canceled provisional text creates a report, Skill, Flash, asset, or chat turn.
 
-- [ ] **Step 2: Migrate every ordinary adopter to the scoped coordinator**
+- [x] **Step 2: Migrate every ordinary adopter to the scoped coordinator**
 
 Use the common ordinary adapter; do not create per-page services or locks. Preserve each surface's existing typed submission controls and ensure voice finalization never triggers them automatically.
 
-- [ ] **Step 3: Prove direct ownership is gone**
+- [x] **Step 3: Prove ordinary direct ownership is gone**
 
 Run:
 
@@ -350,9 +350,11 @@ Run:
 rg -n "VoiceInputScope\.sharedService|VoiceInputLease\.shared|VoiceInputService\(" mobile/lib
 ```
 
-Expected: only the App-root host constructs `VoiceInputService`; no UI surface references a shared static service or lease.
+Expected at this stage: every ordinary authoring surface is clean; only the two
+Reka entry points scheduled for Task 6 and the transitional App-root scope may
+still reference the legacy service/lease.
 
-- [ ] **Step 4: Run migrated-surface tests and analyzer GREEN**
+- [x] **Step 4: Run migrated-surface tests and analyzer GREEN**
 
 ```bash
 cd mobile
@@ -362,7 +364,7 @@ flutter analyze lib test/voice_input test/theme_v2 test/flash
 
 Expected: all selected tests pass, analyzer clean.
 
-- [ ] **Step 5: Commit Task 5**
+- [x] **Step 5: Commit Task 5**
 
 ```bash
 git add mobile/lib mobile/test
