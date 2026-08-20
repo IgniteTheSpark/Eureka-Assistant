@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import 'voice_input_coordinator.dart';
 import 'voice_input_models.dart';
 import 'voice_input_service.dart';
 
@@ -91,17 +92,36 @@ final class VoiceInputTextController extends TextEditingController {
 final class VoiceInputController extends ChangeNotifier {
   VoiceInputController({
     required this.textController,
-    required VoiceInputServiceClient service,
+    VoiceInputCoordinator? coordinator,
+    VoiceInputServiceClient? service,
     VoiceInputLease? lease,
     this.maximumDuration = const Duration(minutes: 5),
     this.warningDuration = const Duration(seconds: 30),
     this.finalTimeout = const Duration(seconds: 10),
-  }) : _service = service,
-       _lease = lease ?? VoiceInputLease.shared;
+  }) : assert(
+         coordinator != null || service != null,
+         'VoiceInputController requires the App coordinator',
+       ),
+       _coordinator =
+           coordinator ??
+           VoiceInputCoordinator(service: service!, finalTimeout: finalTimeout),
+       _ownsCoordinator = coordinator == null {
+    _binding = _coordinator.bind(
+      targetId: this,
+      mode: VoiceInputMode.ordinary,
+      callbacks: VoiceInputTargetCallbacks(
+        onActivated: _onActivated,
+        onTranscript: _onEvent,
+        onCancelled: _onCancelled,
+        onFailure: _onFailure,
+      ),
+    )..addListener(_onBindingChanged);
+  }
 
   final VoiceInputTextController textController;
-  final VoiceInputServiceClient _service;
-  final VoiceInputLease _lease;
+  final VoiceInputCoordinator _coordinator;
+  final bool _ownsCoordinator;
+  late final VoiceInputTargetBinding _binding;
   final Duration maximumDuration;
   final Duration warningDuration;
   final Duration finalTimeout;
@@ -111,12 +131,9 @@ final class VoiceInputController extends ChangeNotifier {
 
   VoiceInputControllerState _state = VoiceInputControllerState.idle;
   VoiceInputErrorCode? _errorCode;
-  VoiceInputSessionHandle? _session;
-  StreamSubscription<VoiceInputEvent>? _subscription;
   TextEditingValue? _snapshot;
   Timer? _warningTimer;
   Timer? _durationTimer;
-  Timer? _finalTimer;
   final List<String> _stableParts = <String>[];
   String _provisional = '';
   int _lastSequence = 0;
@@ -131,20 +148,36 @@ final class VoiceInputController extends ChangeNotifier {
   VoiceInputErrorCode? get errorCode => _errorCode;
   bool get isBusy => _state != VoiceInputControllerState.idle;
   bool get isStopping => _state == VoiceInputControllerState.stopping;
-  bool get canStop =>
-      _state == VoiceInputControllerState.listening && _session != null;
+  bool get canStop => _state == VoiceInputControllerState.listening;
   bool get isDurationWarning => _durationWarning;
   int get terminalCount => _terminalCount;
 
   Future<bool> start() async {
     if (_closed || isBusy) return false;
     _errorCode = null;
-    if (!_lease.acquire(this)) {
-      _errorCode = VoiceInputErrorCode.busy;
-      notifyListeners();
-      return false;
-    }
+    return _binding.start();
+  }
 
+  Future<void> stop() async {
+    if (!canStop || _terminalLatched) return;
+    await _binding.stop();
+  }
+
+  Future<void> cancel() async {
+    if (!isBusy || _terminalLatched) return;
+    await _binding.cancel();
+  }
+
+  Future<void> close() async {
+    if (_closed) return;
+    _closed = true;
+    _cancelAllTimers();
+    _binding.removeListener(_onBindingChanged);
+    await _binding.close();
+    if (_ownsCoordinator) await _coordinator.dispose();
+  }
+
+  void _onActivated() {
     _snapshot = textController.value;
     _captureInsertionRange(_snapshot!);
     _stableParts.clear();
@@ -152,101 +185,35 @@ final class VoiceInputController extends ChangeNotifier {
     _lastSequence = 0;
     _durationWarning = false;
     _terminalLatched = false;
+    _errorCode = null;
     _state = VoiceInputControllerState.connecting;
-    notifyListeners();
+    if (!_closed) notifyListeners();
+  }
 
-    try {
-      final session = await _service.start(VoiceInputMode.ordinary);
-      if (_closed || _terminalLatched) {
-        await session.cancel();
-        return false;
-      }
-      _session = session;
-      _subscription = session.events.listen(
-        _onEvent,
-        onError: (_) => _startFailure(
-          VoiceInputErrorCode.connectionLost,
-          cancelSession: false,
-        ),
-        onDone: () {
-          if (!_terminalLatched) {
-            _startFailure(
-              VoiceInputErrorCode.connectionLost,
-              cancelSession: false,
-            );
-          }
-        },
-      );
-      _state = VoiceInputControllerState.listening;
+  void _onBindingChanged() {
+    final next = switch (_binding.state) {
+      VoiceInputCoordinatorState.idle => VoiceInputControllerState.idle,
+      VoiceInputCoordinatorState.connecting =>
+        VoiceInputControllerState.connecting,
+      VoiceInputCoordinatorState.listening =>
+        VoiceInputControllerState.listening,
+      VoiceInputCoordinatorState.finalizing =>
+        VoiceInputControllerState.stopping,
+    };
+    if (next == VoiceInputControllerState.listening &&
+        _state != VoiceInputControllerState.listening) {
       _scheduleDurationLimits();
-      notifyListeners();
-      return true;
-    } on VoiceInputException catch (error) {
-      await _finish(
-        restoreSnapshot: true,
-        errorCode: error.code,
-        cancelSession: false,
-      );
-      return false;
-    } catch (_) {
-      await _finish(
-        restoreSnapshot: true,
-        errorCode: VoiceInputErrorCode.connectionFailed,
-        cancelSession: false,
-      );
-      return false;
     }
-  }
-
-  Future<void> stop() async {
-    if (!canStop || _terminalLatched) return;
-    _state = VoiceInputControllerState.stopping;
-    _cancelDurationTimers();
-    notifyListeners();
-    try {
-      await _session!.stop();
-      if (_terminalLatched) return;
-      _finalTimer = Timer(finalTimeout, () {
-        _startFailure(VoiceInputErrorCode.connectionLost, cancelSession: true);
-      });
-    } catch (_) {
-      await _finish(
-        restoreSnapshot: true,
-        errorCode: VoiceInputErrorCode.connectionLost,
-        cancelSession: true,
-      );
+    if (next == VoiceInputControllerState.stopping) {
+      _cancelDurationTimers();
     }
+    _state = next;
+    if (!_closed) notifyListeners();
   }
 
-  Future<void> cancel() async {
-    if (!isBusy || _terminalLatched) return;
-    await _finish(restoreSnapshot: true, errorCode: null, cancelSession: true);
-  }
-
-  Future<void> close() async {
-    if (_closed) return;
-    _closed = true;
-    if (isBusy && !_terminalLatched) {
-      await _finish(
-        restoreSnapshot: true,
-        errorCode: null,
-        cancelSession: true,
-      );
-    }
-    _cancelAllTimers();
-    await _subscription?.cancel();
-    _lease.release(this);
-  }
-
-  void _onEvent(VoiceInputEvent event) {
+  void _onEvent(VoiceTranscriptEvent event) {
     if (_terminalLatched) return;
-    if (event is VoiceInputFailure) {
-      _startFailure(event.code, cancelSession: false);
-      return;
-    }
-    if (event is! VoiceTranscriptEvent || event.sequence <= _lastSequence) {
-      return;
-    }
+    if (event.sequence <= _lastSequence) return;
     _lastSequence = event.sequence;
     switch (event.kind) {
       case VoiceTranscriptKind.partial:
@@ -258,53 +225,25 @@ final class VoiceInputController extends ChangeNotifier {
         _renderVoiceText();
       case VoiceTranscriptKind.finalTranscript:
         _applyFinalText(event.text);
-        _terminalLatched = true;
-        unawaited(
-          _finish(
-            restoreSnapshot: false,
-            errorCode: null,
-            cancelSession: false,
-            alreadyLatched: true,
-          ),
-        );
+        _completePresentation(restoreSnapshot: false, errorCode: null);
     }
   }
 
-  void _startFailure(VoiceInputErrorCode code, {required bool cancelSession}) {
-    if (_terminalLatched) return;
-    _terminalLatched = true;
-    unawaited(
-      _finish(
-        restoreSnapshot: true,
-        errorCode: code,
-        cancelSession: cancelSession,
-        alreadyLatched: true,
-      ),
-    );
+  void _onCancelled(VoiceInputCancelReason reason) {
+    _completePresentation(restoreSnapshot: true, errorCode: null);
   }
 
-  Future<void> _finish({
+  void _onFailure(VoiceInputErrorCode code) {
+    _completePresentation(restoreSnapshot: true, errorCode: code);
+  }
+
+  void _completePresentation({
     required bool restoreSnapshot,
     required VoiceInputErrorCode? errorCode,
-    required bool cancelSession,
-    bool alreadyLatched = false,
-  }) async {
-    if (!alreadyLatched) {
-      if (_terminalLatched) return;
-      _terminalLatched = true;
-    }
+  }) {
+    if (_terminalLatched) return;
+    _terminalLatched = true;
     _cancelAllTimers();
-    final session = _session;
-    final subscription = _subscription;
-    _subscription = null;
-    _session = null;
-
-    final sessionCleanup = _cleanSession(session, cancel: cancelSession);
-    final subscriptionCleanup = subscription?.cancel();
-
-    // Restore/commit the field synchronously. Network and stream teardown may
-    // take another event-loop turn, but the terminal latch already suppresses
-    // every late callback and the user should see cancel/final immediately.
     if (restoreSnapshot && _snapshot != null) {
       textController.setVoiceValue(_snapshot!);
     } else {
@@ -315,28 +254,8 @@ final class VoiceInputController extends ChangeNotifier {
     _errorCode = errorCode;
     _durationWarning = false;
     _state = VoiceInputControllerState.idle;
-    _lease.release(this);
     _terminalCount += 1;
     if (!_closed) notifyListeners();
-
-    await sessionCleanup;
-    try {
-      await subscriptionCleanup;
-    } catch (_) {}
-  }
-
-  Future<void> _cleanSession(
-    VoiceInputSessionHandle? session, {
-    required bool cancel,
-  }) async {
-    if (session == null) return;
-    try {
-      if (cancel) {
-        await session.cancel();
-      } else {
-        await session.dispose();
-      }
-    } catch (_) {}
   }
 
   void _captureInsertionRange(TextEditingValue snapshot) {
@@ -413,8 +332,12 @@ final class VoiceInputController extends ChangeNotifier {
 
   void _cancelAllTimers() {
     _cancelDurationTimers();
-    _finalTimer?.cancel();
-    _finalTimer = null;
+  }
+
+  @override
+  void dispose() {
+    if (!_closed) unawaited(close());
+    super.dispose();
   }
 }
 

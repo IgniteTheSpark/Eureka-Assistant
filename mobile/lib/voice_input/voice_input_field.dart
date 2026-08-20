@@ -92,13 +92,13 @@ final class VoiceInputField extends StatelessWidget {
 String _errorCopy(VoiceInputErrorCode code) => switch (code) {
   VoiceInputErrorCode.permissionDenied => '请先允许麦克风权限',
   VoiceInputErrorCode.unauthenticated => '登录已失效，请重新登录',
-  VoiceInputErrorCode.busy => '另一个输入框正在使用麦克风',
   VoiceInputErrorCode.rateLimited => '语音输入过于频繁，请稍后再试',
   VoiceInputErrorCode.noSpeech => '没有识别到清晰语音，请重试',
   VoiceInputErrorCode.unsupportedAudio => '当前设备无法开始录音',
   VoiceInputErrorCode.connectionFailed ||
   VoiceInputErrorCode.connectionLost ||
   VoiceInputErrorCode.serviceUnavailable ||
+  VoiceInputErrorCode.busy ||
   VoiceInputErrorCode.protocolError => '语音服务暂时不可用，请重试',
 };
 
@@ -157,8 +157,7 @@ class _VoiceInputTextAdapterState extends State<VoiceInputTextAdapter> {
     final scope = VoiceInputScope.maybeOf(context);
     _voiceController = VoiceInputController(
       textController: _textController,
-      service: scope?.service ?? VoiceInputScope.sharedService,
-      lease: scope?.lease ?? VoiceInputLease.shared,
+      coordinator: scope?.coordinator ?? VoiceInputScope.coordinatorOf(context),
     )..addListener(_onVoiceChanged);
   }
 

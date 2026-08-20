@@ -110,6 +110,7 @@ class _ThemeV2SessionPageState extends State<ThemeV2SessionPage> {
   final _inputController = VoiceInputTextController();
   final _inputFocusNode = FocusNode();
   late final VoiceInputController _voiceController;
+  bool _voiceBound = false;
   late final ThemeV2SessionController _controller;
   UnifiedSessionController? _ownedController;
   late bool _historyOpen = widget.initialHistoryOpen;
@@ -120,10 +121,6 @@ class _ThemeV2SessionPageState extends State<ThemeV2SessionPage> {
   @override
   void initState() {
     super.initState();
-    _voiceController = VoiceInputController(
-      textController: _inputController,
-      service: VoiceInputScope.sharedService,
-    )..addListener(_onVoiceChanged);
     final supplied = widget.controller;
     if (supplied is FlashSessionWorkflow) {
       _ownedController = UnifiedSessionController(
@@ -146,6 +143,17 @@ class _ThemeV2SessionPageState extends State<ThemeV2SessionPage> {
         if (mounted) _scaffoldKey.currentState?.openDrawer();
       });
     }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_voiceBound) return;
+    _voiceBound = true;
+    _voiceController = VoiceInputController(
+      textController: _inputController,
+      coordinator: VoiceInputScope.coordinatorOf(context),
+    )..addListener(_onVoiceChanged);
   }
 
   void _initialize() {

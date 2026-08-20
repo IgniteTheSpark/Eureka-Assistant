@@ -274,11 +274,11 @@ git commit -m "feat(mobile): own voice input at app root"
 - Modify: `mobile/test/voice_input/voice_input_field_test.dart`
 - Add/Modify: focused Session widget tests under `mobile/test/theme_v2/session/`
 
-- [ ] **Step 1: Replace the old lease/busy test with latest-target-wins RED tests**
+- [x] **Step 1: Replace the old lease/busy test with latest-target-wins RED tests**
 
 Assert starting controller B while A is active restores A's exact `TextEditingValue`, cancels A, starts B, and never exposes `another input is using the microphone`. Add route disposal during connect/listen/finalize and late-event suppression cases.
 
-- [ ] **Step 2: Run focused RED**
+- [x] **Step 2: Run focused RED**
 
 ```bash
 cd mobile
@@ -288,15 +288,15 @@ flutter test test/voice_input/voice_input_controller_test.dart \
 
 Expected: old `VoiceInputLease` rejects B or stale A events mutate the field.
 
-- [ ] **Step 3: Convert `VoiceInputController` into an ordinary target adapter**
+- [x] **Step 3: Convert `VoiceInputController` into an ordinary target adapter**
 
 The controller receives a `VoiceInputCoordinator`, creates one target binding, snapshots `TextEditingValue` on start, appends provisional text only for the active generation, commits final text without submit, and restores the complete snapshot on cancel/switch/failure. `dispose()` invalidates immediately and schedules bounded cancellation through the binding.
 
-- [ ] **Step 4: Migrate current and legacy Session composers**
+- [x] **Step 4: Migrate current and legacy Session composers**
 
 Obtain the coordinator from `VoiceInputScope.of(context)` after dependencies are available (`didChangeDependencies` or a scoped builder), not from a static singleton. Keep the current tap-to-start/tap-to-stop UI and editable final transcript.
 
-- [ ] **Step 5: Run Session/field suites and analyzer GREEN**
+- [x] **Step 5: Run Session/field suites and analyzer GREEN**
 
 ```bash
 cd mobile
@@ -308,7 +308,7 @@ flutter analyze lib/voice_input lib/theme_v2/session \
 
 Expected: switching tests pass; no static service/lease references remain in Session code.
 
-- [ ] **Step 6: Commit Task 4**
+- [x] **Step 6: Commit Task 4**
 
 ```bash
 git add mobile/lib/voice_input mobile/lib/theme_v2/session \

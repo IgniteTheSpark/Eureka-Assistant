@@ -40,6 +40,7 @@ class _SessionDetailPageState extends State<SessionDetailPage> {
   final _api = ApiClient();
   final _input = VoiceInputTextController();
   late final VoiceInputController _voiceController;
+  bool _voiceBound = false;
   final _scroll = ScrollController();
   final _tailKey = GlobalKey();
   final _scaffoldKey = GlobalKey<ScaffoldState>();
@@ -52,16 +53,23 @@ class _SessionDetailPageState extends State<SessionDetailPage> {
   @override
   void initState() {
     super.initState();
-    _voiceController = VoiceInputController(
-      textController: _input,
-      service: VoiceInputScope.sharedService,
-    )..addListener(_onVoiceChanged);
     _chat.addListener(_onChange);
     _load();
     // Hardware capture / flash-done bumps dataRevision → reload so a new
     // capture's input +「正在整理」+ cards appear live in this open session.
     dataRevision.addListener(_reload);
     FlashProcessingStatus.instance.revision.addListener(_onChange);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_voiceBound) return;
+    _voiceBound = true;
+    _voiceController = VoiceInputController(
+      textController: _input,
+      coordinator: VoiceInputScope.coordinatorOf(context),
+    )..addListener(_onVoiceChanged);
   }
 
   void _onVoiceChanged() {

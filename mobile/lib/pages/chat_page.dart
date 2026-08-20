@@ -66,6 +66,7 @@ class _ChatPageState extends State<ChatPage> {
   String? _anchorLabel;
   final _input = VoiceInputTextController();
   late final VoiceInputController _voiceController;
+  bool _voiceBound = false;
   final _scroll = ScrollController();
   final _tailKey = GlobalKey();
   final _scaffoldKey = GlobalKey<ScaffoldState>();
@@ -79,10 +80,6 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void initState() {
     super.initState();
-    _voiceController = VoiceInputController(
-      textController: _input,
-      service: VoiceInputScope.sharedService,
-    )..addListener(_onVoiceChanged);
     _themeV2Controller = UnifiedSessionController(
       chatController: ChatControllerSessionAdapter(_chat),
     );
@@ -102,6 +99,17 @@ class _ChatPageState extends State<ChatPage> {
       // so backing out and returning doesn't lose the thread.
       _chat.resumeLast();
     }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_voiceBound) return;
+    _voiceBound = true;
+    _voiceController = VoiceInputController(
+      textController: _input,
+      coordinator: VoiceInputScope.coordinatorOf(context),
+    )..addListener(_onVoiceChanged);
   }
 
   void _onVoiceChanged() {

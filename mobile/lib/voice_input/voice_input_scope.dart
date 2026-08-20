@@ -108,6 +108,8 @@ final class VoiceInputScope extends InheritedWidget {
   // Transitional compatibility for existing voice adopters. Task 4-6 migrate
   // every surface to [coordinator], after which this static access is removed.
   static final VoiceInputServiceClient sharedService = VoiceInputService();
+  static final VoiceInputCoordinator _fallbackCoordinator =
+      VoiceInputCoordinator(service: sharedService);
 
   final VoiceInputCoordinator coordinator;
   final VoiceInputServiceClient service;
@@ -121,6 +123,10 @@ final class VoiceInputScope extends InheritedWidget {
     final scope = maybeOf(context);
     assert(scope != null, 'VoiceInputScope is missing above this context');
     return scope!;
+  }
+
+  static VoiceInputCoordinator coordinatorOf(BuildContext context) {
+    return maybeOf(context)?.coordinator ?? _fallbackCoordinator;
   }
 
   @override

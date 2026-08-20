@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:eureka/voice_input/voice_input_controller.dart';
+import 'package:eureka/voice_input/voice_input_coordinator.dart';
 import 'package:eureka/voice_input/voice_input_models.dart';
 import 'package:eureka/voice_input/voice_input_service.dart';
 import 'package:flutter/material.dart';
@@ -99,29 +100,32 @@ void main() {
     expect(controller.terminalCount, 2);
   });
 
-  test('one lease rejects a second field until the first releases', () async {
-    final lease = VoiceInputLease();
+  test('new field supersedes and restores the active field', () async {
     final firstSession = _FakeSession();
     final secondSession = _FakeSession();
+    final service = _FakeService([firstSession, secondSession]);
+    final coordinator = VoiceInputCoordinator(service: service);
+    final firstText = VoiceInputTextController(text: 'first original');
     final first = VoiceInputController(
-      textController: VoiceInputTextController(),
-      service: _FakeService([firstSession]),
-      lease: lease,
+      textController: firstText,
+      coordinator: coordinator,
     );
-    final secondService = _FakeService([secondSession]);
     final second = VoiceInputController(
       textController: VoiceInputTextController(),
-      service: secondService,
-      lease: lease,
+      coordinator: coordinator,
     );
 
     expect(await first.start(), isTrue);
-    expect(await second.start(), isFalse);
-    expect(second.errorCode, VoiceInputErrorCode.busy);
-    expect(secondService.startCount, 0);
+    firstSession.emit(_partial(1, 'temporary'));
+    await pumpEventQueue();
+    expect(firstText.text, 'first originaltemporary');
 
-    await first.cancel();
     expect(await second.start(), isTrue);
+    expect(firstText.text, 'first original');
+    expect(firstSession.cancelCount, 1);
+    expect(first.errorCode, isNull);
+    expect(second.errorCode, isNull);
+    expect(service.startCount, 2);
   });
 
   test('stop-final timeout restores text and cancels the session', () async {
