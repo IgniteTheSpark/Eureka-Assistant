@@ -27,7 +27,7 @@
 - Modify: `backend/core/asr/streaming.py`
 - Modify: `backend/scripts/test_asr_stream_gateway.py`
 
-- [ ] **Step 1: Replace the exploratory timeout test with lifecycle RED tests**
+- [x] **Step 1: Replace the exploratory timeout test with lifecycle RED tests**
 
 Add deterministic fake providers/sockets covering:
 
@@ -40,7 +40,7 @@ async def test_terminal_event_is_emitted_at_most_once(): ...
 
 The hanging provider must signal when `start()` entered and record cancellation/close counts. The registry must expose test-only observable ownership through a query method rather than sleeps.
 
-- [ ] **Step 2: Run the gateway suite and observe the intended RED**
+- [x] **Step 2: Run the gateway suite and observe the intended RED**
 
 Run:
 
@@ -51,7 +51,7 @@ docker compose -p cloud-streaming-asr -f docker-compose.yml exec -T backend \
 
 Expected: failure because the explicit session lifecycle/disconnect race does not exist; do not accept an unrelated import or syntax failure as RED.
 
-- [ ] **Step 3: Introduce the explicit connection state machine**
+- [x] **Step 3: Introduce the explicit connection state machine**
 
 Create `StreamingAsrSession` with one-way phases and idempotent termination:
 
@@ -74,11 +74,11 @@ class StreamingAsrSession:
 
 The session owns provider/client/timer/forwarding tasks. Provider startup races provider readiness, client disconnect/cancel, and `provider_start_timeout_seconds`. Cancel and drain every losing task. Normalize a provider deadline to the existing `service_unavailable` error without leaking raw exceptions.
 
-- [ ] **Step 4: Make the gateway an admission/lease wrapper**
+- [x] **Step 4: Make the gateway an admission/lease wrapper**
 
 Keep parsing, auth/rate-limit behavior, and event shapes in `streaming.py`, but delegate one accepted connection to `StreamingAsrSession`. Put exact lease release in the gateway's outermost `finally` so provider/socket cleanup failures cannot strand ownership.
 
-- [ ] **Step 5: Run focused and neighboring backend suites GREEN**
+- [x] **Step 5: Run focused and neighboring backend suites GREEN**
 
 Run:
 
@@ -91,7 +91,7 @@ docker compose -p cloud-streaming-asr -f docker-compose.yml exec -T backend \
 
 Expected: all cases pass; the hanging-start test completes within its test deadline and records exactly one provider cancellation/close.
 
-- [ ] **Step 6: Commit Task 1**
+- [x] **Step 6: Commit Task 1**
 
 ```bash
 git add backend/core/asr/session.py backend/core/asr/streaming.py \

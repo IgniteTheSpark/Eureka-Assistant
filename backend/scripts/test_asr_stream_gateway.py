@@ -109,6 +109,42 @@ class _FakeProvider:
             yield item
 
 
+class _HangingStartProvider(_FakeProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.start_cancelled = 0
+        self._never_ready = asyncio.Event()
+
+    async def start(self) -> None:
+        self.started += 1
+        try:
+            await self._never_ready.wait()
+        except asyncio.CancelledError:
+            self.start_cancelled += 1
+            raise
+
+
+class _CleanupFailProvider(_HangingStartProvider):
+    async def cancel(self) -> None:
+        self.cancel_count += 1
+        raise RuntimeError("cleanup failed")
+
+
+class _DuplicateFinalProvider(_FakeProvider):
+    async def finish(self) -> None:
+        self.finish_count += 1
+        for sequence, text in ((2, "first"), (3, "second")):
+            await self._events.put(
+                ProviderTranscriptEvent(
+                    ProviderEventKind.FINAL,
+                    sequence,
+                    text,
+                    1000,
+                )
+            )
+        await self._events.put(None)
+
+
 def _text(value: dict[str, Any]) -> dict[str, Any]:
     return {"type": "websocket.receive", "text": json.dumps(value)}
 
@@ -272,6 +308,95 @@ async def test_registry_and_rate_limiter_fail_closed() -> None:
     assert await limiter.allow("user-1") is True
 
 
+async def test_provider_start_timeout_cleans_up_and_releases_user() -> None:
+    provider = _HangingStartProvider()
+    registry = AsrSessionRegistry()
+    socket = _FakeClientSocket([_start()])
+    gateway = StreamingAsrGateway(
+        provider_factory=lambda: provider,
+        registry=registry,
+        provider_start_timeout_seconds=0.01,
+    )
+
+    await gateway.handle(socket, user_id="user-1")
+
+    assert socket.sent == [
+        {
+            "type": "error",
+            "voiceSessionId": "voice-session",
+            "code": "service_unavailable",
+            "retryable": True,
+        }
+    ]
+    assert provider.started == 1
+    assert provider.start_cancelled == 1
+    assert provider.cancel_count == 1
+    assert not await registry.is_active("user-1")
+    assert await registry.acquire("user-1") is True
+    await registry.release("user-1")
+
+
+async def test_disconnect_during_provider_start_cancels_immediately() -> None:
+    provider = _HangingStartProvider()
+    registry = AsrSessionRegistry()
+    socket = _FakeClientSocket(
+        [_start(), {"type": "websocket.disconnect"}],
+    )
+    gateway = StreamingAsrGateway(
+        provider_factory=lambda: provider,
+        registry=registry,
+        provider_start_timeout_seconds=1.0,
+    )
+
+    await asyncio.wait_for(
+        gateway.handle(socket, user_id="user-1"),
+        timeout=0.1,
+    )
+
+    assert socket.sent == []
+    assert provider.started == 1
+    assert provider.start_cancelled == 1
+    assert provider.cancel_count == 1
+    assert not await registry.is_active("user-1")
+    assert await registry.acquire("user-1") is True
+    await registry.release("user-1")
+
+
+async def test_cleanup_failure_still_releases_user() -> None:
+    provider = _CleanupFailProvider()
+    registry = AsrSessionRegistry()
+    socket = _FakeClientSocket([_start()])
+    gateway = StreamingAsrGateway(
+        provider_factory=lambda: provider,
+        registry=registry,
+        provider_start_timeout_seconds=0.01,
+    )
+
+    await gateway.handle(socket, user_id="user-1")
+
+    assert provider.cancel_count == 1
+    assert not await registry.is_active("user-1")
+    assert await registry.acquire("user-1") is True
+    await registry.release("user-1")
+
+
+async def test_terminal_event_is_emitted_at_most_once() -> None:
+    provider = _DuplicateFinalProvider()
+    socket = _FakeClientSocket(
+        [
+            _start(),
+            _text({"type": "stop", "voiceSessionId": "voice-session"}),
+        ]
+    )
+    gateway = StreamingAsrGateway(provider_factory=lambda: provider)
+
+    await gateway.handle(socket, user_id="user-1")
+
+    terminal = [event for event in socket.sent if event["type"] in {"final", "error"}]
+    assert len(terminal) == 1
+    assert terminal[0]["text"] == "first"
+
+
 def test_contract_validation_and_authoritative_limits() -> None:
     assert duration_limit_for("ordinary") == 300
     assert duration_limit_for("reka") == 60
@@ -313,6 +438,10 @@ async def _run() -> None:
     await test_provider_error_is_redacted()
     await test_empty_final_becomes_no_speech()
     await test_registry_and_rate_limiter_fail_closed()
+    await test_provider_start_timeout_cleans_up_and_releases_user()
+    await test_disconnect_during_provider_start_cancels_immediately()
+    await test_cleanup_failure_still_releases_user()
+    await test_terminal_event_is_emitted_at_most_once()
     test_contract_validation_and_authoritative_limits()
     test_bearer_parser_is_strict()
 

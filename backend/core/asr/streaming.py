@@ -12,16 +12,18 @@ from typing import Any
 
 from config import settings, validate_asr_settings
 from core.asr.provider import (
-    ProviderEventKind,
     StreamingAsrProvider,
     StreamingAsrProviderError,
 )
 from core.asr.qwen_streaming import QwenStreamingAsrProvider
+from core.asr.session import StreamingAsrSession
 
 
 _MAX_AUDIO_FRAME_BYTES = 32_000
 _FINAL_TIMEOUT_SECONDS = 10.0
 _START_TIMEOUT_SECONDS = 5.0
+_PROVIDER_START_TIMEOUT_SECONDS = 8.0
+_PROVIDER_CLEANUP_TIMEOUT_SECONDS = 2.0
 _RETRYABLE_CODES = {
     "connection_failed",
     "connection_lost",
@@ -55,6 +57,10 @@ class AsrSessionRegistry:
     async def release(self, user_id: str) -> None:
         async with self._lock:
             self._active_users.discard(user_id)
+
+    async def is_active(self, user_id: str) -> bool:
+        async with self._lock:
+            return user_id in self._active_users
 
 
 class SlidingWindowRateLimiter:
@@ -139,6 +145,9 @@ class StreamingAsrGateway:
         registry: AsrSessionRegistry | None = None,
         rate_limiter: SlidingWindowRateLimiter | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        provider_start_timeout_seconds: float = _PROVIDER_START_TIMEOUT_SECONDS,
+        provider_final_timeout_seconds: float = _FINAL_TIMEOUT_SECONDS,
+        provider_cleanup_timeout_seconds: float = _PROVIDER_CLEANUP_TIMEOUT_SECONDS,
     ) -> None:
         if provider_factory is None:
             self._provider_factory = QwenStreamingAsrProvider
@@ -151,15 +160,14 @@ class StreamingAsrGateway:
             limit=settings.asr_rate_limit_per_minute
         )
         self._sleep = sleep
+        self._provider_start_timeout_seconds = provider_start_timeout_seconds
+        self._provider_final_timeout_seconds = provider_final_timeout_seconds
+        self._provider_cleanup_timeout_seconds = provider_cleanup_timeout_seconds
 
     async def handle(self, socket: Any, *, user_id: str) -> None:
-        provider: StreamingAsrProvider | None = None
-        provider_task: asyncio.Task[bool] | None = None
-        timer_task: asyncio.Task[None] | None = None
+        session: StreamingAsrSession | None = None
         acquired = False
-        provider_terminal = False
         voice_session_id = ""
-        client_cancelled = asyncio.Event()
 
         try:
             try:
@@ -190,7 +198,23 @@ class StreamingAsrGateway:
             try:
                 self._settings_validator()
                 provider = self._provider_factory()
-                await provider.start()
+                session = StreamingAsrSession(
+                    socket=socket,
+                    provider=provider,
+                    voice_session_id=voice_session_id,
+                    duration_limit_seconds=start.duration_limit_seconds,
+                    validate_audio_frame=validate_audio_frame,
+                    sleep=self._sleep,
+                    provider_start_timeout_seconds=(
+                        self._provider_start_timeout_seconds
+                    ),
+                    provider_final_timeout_seconds=(
+                        self._provider_final_timeout_seconds
+                    ),
+                    provider_cleanup_timeout_seconds=(
+                        self._provider_cleanup_timeout_seconds
+                    ),
+                )
             except (RuntimeError, StreamingAsrProviderError):
                 await self._send_error(socket, voice_session_id, "service_unavailable")
                 return
@@ -198,181 +222,12 @@ class StreamingAsrGateway:
                 await self._send_error(socket, voice_session_id, "connection_failed")
                 return
 
-            await socket.send_json(
-                {"type": "ready", "voiceSessionId": voice_session_id}
-            )
-            provider_task = asyncio.create_task(
-                self._forward_provider_events(
-                    socket,
-                    provider,
-                    voice_session_id,
-                    client_cancelled=client_cancelled,
-                )
-            )
-            timer_task = asyncio.create_task(self._sleep(start.duration_limit_seconds))
-
-            while True:
-                receive_task = asyncio.create_task(socket.receive())
-                done, _ = await asyncio.wait(
-                    {receive_task, provider_task, timer_task},
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
-
-                if provider_task in done:
-                    receive_task.cancel()
-                    await _drain_cancelled(receive_task)
-                    provider_terminal = await provider_task
-                    return
-
-                if timer_task in done:
-                    receive_task.cancel()
-                    await _drain_cancelled(receive_task)
-                    await provider.finish()
-                    provider_terminal = await self._await_final(
-                        socket, provider, provider_task, voice_session_id
-                    )
-                    return
-
-                message = receive_task.result()
-                if message.get("type") == "websocket.disconnect":
-                    return
-                frame = message.get("bytes")
-                if isinstance(frame, bytes):
-                    try:
-                        validate_audio_frame(frame)
-                        await provider.send_audio(frame)
-                    except ValueError:
-                        await self._send_error(
-                            socket, voice_session_id, "unsupported_audio"
-                        )
-                        return
-                    except StreamingAsrProviderError as exc:
-                        await self._send_error(
-                            socket, voice_session_id, _safe_provider_code(exc.code)
-                        )
-                        return
-                    continue
-
-                raw_control = message.get("text")
-                try:
-                    control = json.loads(raw_control) if isinstance(raw_control, str) else None
-                except ValueError:
-                    control = None
-                if (
-                    not isinstance(control, dict)
-                    or control.get("voiceSessionId") != voice_session_id
-                ):
-                    await self._send_error(
-                        socket, voice_session_id, "unsupported_audio"
-                    )
-                    return
-
-                control_type = control.get("type")
-                if control_type == "cancel":
-                    # Publish cancellation before asking the provider to stop. Its
-                    # event iterator may end immediately, and that is not a
-                    # connection failure from the client's perspective.
-                    client_cancelled.set()
-                    await provider.cancel()
-                    provider_terminal = True
-                    return
-                if control_type == "stop":
-                    try:
-                        await provider.finish()
-                    except StreamingAsrProviderError as exc:
-                        await self._send_error(
-                            socket, voice_session_id, _safe_provider_code(exc.code)
-                        )
-                        return
-                    provider_terminal = await self._await_final(
-                        socket, provider, provider_task, voice_session_id
-                    )
-                    return
-                await self._send_error(socket, voice_session_id, "unsupported_audio")
-                return
+            await session.run()
         finally:
-            if timer_task is not None and not timer_task.done():
-                timer_task.cancel()
-                await _drain_cancelled(timer_task)
-            if provider_task is not None and not provider_task.done():
-                provider_task.cancel()
-                await _drain_cancelled(provider_task)
-            if provider is not None and not provider_terminal:
-                await provider.cancel()
+            if session is not None:
+                await session.close()
             if acquired:
                 await self._registry.release(user_id)
-
-    async def _await_final(
-        self,
-        socket: Any,
-        provider: StreamingAsrProvider,
-        provider_task: asyncio.Task[bool],
-        voice_session_id: str,
-    ) -> bool:
-        try:
-            return await asyncio.wait_for(
-                asyncio.shield(provider_task), timeout=_FINAL_TIMEOUT_SECONDS
-            )
-        except asyncio.TimeoutError:
-            await provider.cancel()
-            await self._send_error(socket, voice_session_id, "service_unavailable")
-            return True
-
-    async def _forward_provider_events(
-        self,
-        socket: Any,
-        provider: StreamingAsrProvider,
-        voice_session_id: str,
-        *,
-        client_cancelled: asyncio.Event,
-    ) -> bool:
-        last_sequence = 0
-        saw_terminal = False
-        try:
-            async for event in provider.events():
-                if client_cancelled.is_set():
-                    return True
-                if event.sequence <= last_sequence:
-                    continue
-                last_sequence = event.sequence
-                if event.kind == ProviderEventKind.FINAL:
-                    saw_terminal = True
-                    text = event.text.strip()
-                    if not text:
-                        await self._send_error(socket, voice_session_id, "no_speech")
-                    else:
-                        await socket.send_json(
-                            {
-                                "type": "final",
-                                "voiceSessionId": voice_session_id,
-                                "sequence": event.sequence,
-                                "text": text,
-                                "audioDurationMs": event.duration_ms,
-                            }
-                        )
-                    return True
-                await socket.send_json(
-                    {
-                        "type": event.kind.value,
-                        "voiceSessionId": voice_session_id,
-                        "sequence": event.sequence,
-                        "text": event.text,
-                    }
-                )
-        except StreamingAsrProviderError as exc:
-            await self._send_error(
-                socket, voice_session_id, _safe_provider_code(exc.code)
-            )
-            return True
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            await self._send_error(socket, voice_session_id, "connection_lost")
-            return True
-
-        if not saw_terminal and not client_cancelled.is_set():
-            await self._send_error(socket, voice_session_id, "connection_lost")
-        return True
 
     @staticmethod
     async def _send_error(
@@ -389,20 +244,3 @@ class StreamingAsrGateway:
             )
         except Exception:
             pass
-
-
-def _safe_provider_code(code: str) -> str:
-    if code in {
-        "connection_failed",
-        "connection_lost",
-        "service_unavailable",
-    }:
-        return code
-    return "service_unavailable"
-
-
-async def _drain_cancelled(task: asyncio.Task[Any]) -> None:
-    try:
-        await task
-    except (asyncio.CancelledError, Exception):
-        pass
