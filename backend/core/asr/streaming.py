@@ -8,6 +8,7 @@ import time
 from collections import defaultdict, deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from itertools import count
 from typing import Any
 
 from config import settings, validate_asr_settings
@@ -20,10 +21,7 @@ from core.asr.session import StreamingAsrSession
 
 
 _MAX_AUDIO_FRAME_BYTES = 32_000
-_FINAL_TIMEOUT_SECONDS = 10.0
 _START_TIMEOUT_SECONDS = 5.0
-_PROVIDER_START_TIMEOUT_SECONDS = 8.0
-_PROVIDER_CLEANUP_TIMEOUT_SECONDS = 2.0
 _RETRYABLE_CODES = {
     "connection_failed",
     "connection_lost",
@@ -40,27 +38,48 @@ class ClientStart:
     duration_limit_seconds: int
 
 
+@dataclass(frozen=True)
+class AsrSessionLease:
+    user_id: str
+    token: int
+
+
+@dataclass(frozen=True)
+class _RegistryEntry:
+    lease: AsrSessionLease
+    session: Any
+
+
 class AsrSessionRegistry:
-    """Process-local one-active-session guard for the current one-worker deploy."""
+    """Atomically replace same-user sessions and release only exact leases."""
 
     def __init__(self) -> None:
-        self._active_users: set[str] = set()
+        self._active: dict[str, _RegistryEntry] = {}
+        self._tokens = count(1)
         self._lock = asyncio.Lock()
 
-    async def acquire(self, user_id: str) -> bool:
+    async def install(
+        self,
+        user_id: str,
+        session: Any,
+    ) -> tuple[AsrSessionLease, Any | None]:
         async with self._lock:
-            if user_id in self._active_users:
-                return False
-            self._active_users.add(user_id)
-            return True
+            previous = self._active.get(user_id)
+            lease = AsrSessionLease(user_id=user_id, token=next(self._tokens))
+            self._active[user_id] = _RegistryEntry(lease=lease, session=session)
+            return lease, previous.session if previous is not None else None
 
-    async def release(self, user_id: str) -> None:
+    async def release(self, lease: AsrSessionLease) -> bool:
         async with self._lock:
-            self._active_users.discard(user_id)
+            current = self._active.get(lease.user_id)
+            if current is None or current.lease != lease:
+                return False
+            del self._active[lease.user_id]
+            return True
 
     async def is_active(self, user_id: str) -> bool:
         async with self._lock:
-            return user_id in self._active_users
+            return user_id in self._active
 
 
 class SlidingWindowRateLimiter:
@@ -145,9 +164,9 @@ class StreamingAsrGateway:
         registry: AsrSessionRegistry | None = None,
         rate_limiter: SlidingWindowRateLimiter | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
-        provider_start_timeout_seconds: float = _PROVIDER_START_TIMEOUT_SECONDS,
-        provider_final_timeout_seconds: float = _FINAL_TIMEOUT_SECONDS,
-        provider_cleanup_timeout_seconds: float = _PROVIDER_CLEANUP_TIMEOUT_SECONDS,
+        provider_start_timeout_seconds: float | None = None,
+        provider_final_timeout_seconds: float | None = None,
+        provider_cleanup_timeout_seconds: float | None = None,
     ) -> None:
         if provider_factory is None:
             self._provider_factory = QwenStreamingAsrProvider
@@ -160,13 +179,26 @@ class StreamingAsrGateway:
             limit=settings.asr_rate_limit_per_minute
         )
         self._sleep = sleep
-        self._provider_start_timeout_seconds = provider_start_timeout_seconds
-        self._provider_final_timeout_seconds = provider_final_timeout_seconds
-        self._provider_cleanup_timeout_seconds = provider_cleanup_timeout_seconds
+        self._provider_start_timeout_seconds = (
+            settings.asr_provider_start_timeout_seconds
+            if provider_start_timeout_seconds is None
+            else provider_start_timeout_seconds
+        )
+        self._provider_final_timeout_seconds = (
+            settings.asr_provider_finalize_timeout_seconds
+            if provider_final_timeout_seconds is None
+            else provider_final_timeout_seconds
+        )
+        self._provider_cleanup_timeout_seconds = (
+            settings.asr_provider_cleanup_timeout_seconds
+            if provider_cleanup_timeout_seconds is None
+            else provider_cleanup_timeout_seconds
+        )
 
     async def handle(self, socket: Any, *, user_id: str) -> None:
         session: StreamingAsrSession | None = None
-        acquired = False
+        supersede_task: asyncio.Task[None] | None = None
+        lease: AsrSessionLease | None = None
         voice_session_id = ""
 
         try:
@@ -190,11 +222,6 @@ class StreamingAsrGateway:
             if not await self._rate_limiter.allow(user_id):
                 await self._send_error(socket, voice_session_id, "rate_limited")
                 return
-            acquired = await self._registry.acquire(user_id)
-            if not acquired:
-                await self._send_error(socket, voice_session_id, "rate_limited")
-                return
-
             try:
                 self._settings_validator()
                 provider = self._provider_factory()
@@ -222,12 +249,24 @@ class StreamingAsrGateway:
                 await self._send_error(socket, voice_session_id, "connection_failed")
                 return
 
+            lease, previous = await self._registry.install(user_id, session)
+            if previous is not None:
+                supersede_task = asyncio.create_task(previous.supersede())
             await session.run()
         finally:
-            if session is not None:
-                await session.close()
-            if acquired:
-                await self._registry.release(user_id)
+            try:
+                if session is not None:
+                    await session.close()
+            finally:
+                try:
+                    if lease is not None:
+                        await self._registry.release(lease)
+                finally:
+                    if supersede_task is not None:
+                        await _drain_supersede(
+                            supersede_task,
+                            timeout=self._provider_cleanup_timeout_seconds * 4,
+                        )
 
     @staticmethod
     async def _send_error(
@@ -244,3 +283,16 @@ class StreamingAsrGateway:
             )
         except Exception:
             pass
+
+
+async def _drain_supersede(task: asyncio.Task[None], *, timeout: float) -> None:
+    try:
+        await asyncio.wait_for(task, timeout=timeout)
+    except asyncio.TimeoutError:
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
+    except (asyncio.CancelledError, Exception):
+        pass

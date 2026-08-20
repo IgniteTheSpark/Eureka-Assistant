@@ -6,6 +6,7 @@ normalized, content-minimal contracts from :mod:`core.asr.provider`.
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 import re
@@ -59,6 +60,7 @@ class QwenStreamingAsrProvider:
         self._cancelled = False
         self._terminal = False
         self._closed = False
+        self._close_lock = asyncio.Lock()
 
     async def start(self) -> None:
         if self._started:
@@ -103,6 +105,9 @@ class QwenStreamingAsrProvider:
                 )
             self._started = True
         except StreamingAsrProviderError:
+            await self._close_once()
+            raise
+        except asyncio.CancelledError:
             await self._close_once()
             raise
         except Exception as exc:
@@ -285,15 +290,20 @@ class QwenStreamingAsrProvider:
         )
 
     async def _close_once(self) -> None:
-        if self._closed:
-            return
-        self._closed = True
-        socket = self._socket
-        if socket is not None:
+        async with self._close_lock:
+            if self._closed:
+                return
+            socket = self._socket
+            if socket is None:
+                self._closed = True
+                return
             try:
                 await socket.close()
+            except asyncio.CancelledError:
+                raise
             except Exception:
                 pass
+            self._closed = True
 
 
 def _needs_space(left: str, right: str) -> bool:

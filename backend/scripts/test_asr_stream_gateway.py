@@ -48,6 +48,9 @@ class _FakeClientSocket:
     async def send_json(self, value: dict[str, Any]) -> None:
         self.sent.append(value)
 
+    def queue(self, value: dict[str, Any]) -> None:
+        self._incoming.put_nowait(value)
+
 
 class _FakeProvider:
     def __init__(self, *, final_text: str = "你好 world", fail: bool = False):
@@ -113,10 +116,12 @@ class _HangingStartProvider(_FakeProvider):
     def __init__(self) -> None:
         super().__init__()
         self.start_cancelled = 0
+        self.start_entered = asyncio.Event()
         self._never_ready = asyncio.Event()
 
     async def start(self) -> None:
         self.started += 1
+        self.start_entered.set()
         try:
             await self._never_ready.wait()
         except asyncio.CancelledError:
@@ -143,6 +148,60 @@ class _DuplicateFinalProvider(_FakeProvider):
                 )
             )
         await self._events.put(None)
+
+
+class _HangingFinishProvider(_FakeProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.finish_entered = asyncio.Event()
+        self._never_finishes = asyncio.Event()
+
+    async def finish(self) -> None:
+        self.finish_count += 1
+        self.finish_entered.set()
+        await self._never_finishes.wait()
+
+
+class _HangingCleanupProvider(_HangingStartProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.cleanup_entered = asyncio.Event()
+
+    async def cancel(self) -> None:
+        self.cancel_count += 1
+        self.cleanup_entered.set()
+        await asyncio.Event().wait()
+
+
+class _ReadyStartProvider(_FakeProvider):
+    def __init__(self, *, final_text: str) -> None:
+        super().__init__(final_text=final_text)
+        self.start_entered = asyncio.Event()
+
+    async def start(self) -> None:
+        self.start_entered.set()
+        await super().start()
+
+
+class _FailingSendSocket(_FakeClientSocket):
+    def __init__(self, incoming: list[dict[str, Any]], *, fail_after: int):
+        super().__init__(incoming)
+        self._send_count = 0
+        self._fail_after = fail_after
+
+    async def send_json(self, value: dict[str, Any]) -> None:
+        self._send_count += 1
+        if self._send_count > self._fail_after:
+            raise RuntimeError("client disconnected while sending")
+        await super().send_json(value)
+
+
+class _SupersedableSession:
+    def __init__(self) -> None:
+        self.supersede_count = 0
+
+    async def supersede(self) -> None:
+        self.supersede_count += 1
 
 
 def _text(value: dict[str, Any]) -> dict[str, Any]:
@@ -294,10 +353,14 @@ async def test_empty_final_becomes_no_speech() -> None:
 
 async def test_registry_and_rate_limiter_fail_closed() -> None:
     registry = AsrSessionRegistry()
-    assert await registry.acquire("user-1") is True
-    assert await registry.acquire("user-1") is False
-    await registry.release("user-1")
-    assert await registry.acquire("user-1") is True
+    first = _SupersedableSession()
+    second = _SupersedableSession()
+    first_lease, replaced = await registry.install("user-1", first)
+    assert replaced is None
+    second_lease, replaced = await registry.install("user-1", second)
+    assert replaced is first
+    assert await registry.release(first_lease) is False
+    assert await registry.release(second_lease) is True
 
     now = [100.0]
     limiter = SlidingWindowRateLimiter(limit=2, clock=lambda: now[0])
@@ -332,8 +395,8 @@ async def test_provider_start_timeout_cleans_up_and_releases_user() -> None:
     assert provider.start_cancelled == 1
     assert provider.cancel_count == 1
     assert not await registry.is_active("user-1")
-    assert await registry.acquire("user-1") is True
-    await registry.release("user-1")
+    probe_lease, _ = await registry.install("user-1", _SupersedableSession())
+    assert await registry.release(probe_lease) is True
 
 
 async def test_disconnect_during_provider_start_cancels_immediately() -> None:
@@ -358,8 +421,8 @@ async def test_disconnect_during_provider_start_cancels_immediately() -> None:
     assert provider.start_cancelled == 1
     assert provider.cancel_count == 1
     assert not await registry.is_active("user-1")
-    assert await registry.acquire("user-1") is True
-    await registry.release("user-1")
+    probe_lease, _ = await registry.install("user-1", _SupersedableSession())
+    assert await registry.release(probe_lease) is True
 
 
 async def test_cleanup_failure_still_releases_user() -> None:
@@ -376,8 +439,8 @@ async def test_cleanup_failure_still_releases_user() -> None:
 
     assert provider.cancel_count == 1
     assert not await registry.is_active("user-1")
-    assert await registry.acquire("user-1") is True
-    await registry.release("user-1")
+    probe_lease, _ = await registry.install("user-1", _SupersedableSession())
+    assert await registry.release(probe_lease) is True
 
 
 async def test_terminal_event_is_emitted_at_most_once() -> None:
@@ -395,6 +458,223 @@ async def test_terminal_event_is_emitted_at_most_once() -> None:
     terminal = [event for event in socket.sent if event["type"] in {"final", "error"}]
     assert len(terminal) == 1
     assert terminal[0]["text"] == "first"
+
+
+async def test_registry_releases_only_the_exact_installed_lease() -> None:
+    registry = AsrSessionRegistry()
+    first = _SupersedableSession()
+    second = _SupersedableSession()
+
+    first_lease, replaced = await registry.install("user-1", first)
+    assert replaced is None
+    second_lease, replaced = await registry.install("user-1", second)
+    assert replaced is first
+
+    assert await registry.release(first_lease) is False
+    assert await registry.is_active("user-1")
+    assert await registry.release(second_lease) is True
+    assert not await registry.is_active("user-1")
+
+
+async def test_new_same_user_session_supersedes_stalled_session() -> None:
+    stalled = _HangingStartProvider()
+    replacement = _FakeProvider(final_text="replacement")
+    providers = deque([stalled, replacement])
+    registry = AsrSessionRegistry()
+    gateway = StreamingAsrGateway(
+        provider_factory=providers.popleft,
+        registry=registry,
+        provider_start_timeout_seconds=5.0,
+    )
+    first_socket = _FakeClientSocket([_start("old")])
+    second_socket = _FakeClientSocket(
+        [
+            _start("new"),
+            _text({"type": "stop", "voiceSessionId": "new"}),
+        ]
+    )
+    first_task = asyncio.create_task(gateway.handle(first_socket, user_id="user-1"))
+    await asyncio.wait_for(stalled.start_entered.wait(), timeout=0.1)
+
+    try:
+        await asyncio.wait_for(
+            gateway.handle(second_socket, user_id="user-1"),
+            timeout=0.2,
+        )
+        await asyncio.wait_for(first_task, timeout=0.2)
+    finally:
+        if not first_task.done():
+            first_task.cancel()
+            try:
+                await first_task
+            except asyncio.CancelledError:
+                pass
+
+    assert stalled.start_cancelled == 1
+    assert stalled.cancel_count == 1
+    assert [event["type"] for event in second_socket.sent] == [
+        "ready",
+        "partial",
+        "stable",
+        "final",
+    ]
+    assert all(event.get("code") != "rate_limited" for event in second_socket.sent)
+    assert not await registry.is_active("user-1")
+
+
+async def test_stalled_user_does_not_delay_another_user() -> None:
+    stalled = _HangingStartProvider()
+    other = _FakeProvider(final_text="other user")
+    providers = deque([stalled, other])
+    registry = AsrSessionRegistry()
+    gateway = StreamingAsrGateway(
+        provider_factory=providers.popleft,
+        registry=registry,
+        provider_start_timeout_seconds=5.0,
+    )
+    first_task = asyncio.create_task(
+        gateway.handle(_FakeClientSocket([_start("a")]), user_id="user-a")
+    )
+    await asyncio.wait_for(stalled.start_entered.wait(), timeout=0.1)
+    other_socket = _FakeClientSocket(
+        [
+            _start("b"),
+            _text({"type": "stop", "voiceSessionId": "b"}),
+        ]
+    )
+
+    await asyncio.wait_for(
+        gateway.handle(other_socket, user_id="user-b"),
+        timeout=0.2,
+    )
+    first_task.cancel()
+    try:
+        await first_task
+    except asyncio.CancelledError:
+        pass
+
+    assert other.finish_count == 1
+    assert other_socket.sent[-1]["type"] == "final"
+
+
+async def test_replacement_start_does_not_wait_for_old_cleanup() -> None:
+    stalled = _HangingCleanupProvider()
+    replacement = _ReadyStartProvider(final_text="replacement")
+    providers = deque([stalled, replacement])
+    gateway = StreamingAsrGateway(
+        provider_factory=providers.popleft,
+        registry=AsrSessionRegistry(),
+        provider_start_timeout_seconds=5.0,
+        provider_cleanup_timeout_seconds=0.05,
+    )
+    first_task = asyncio.create_task(
+        gateway.handle(_FakeClientSocket([_start("old")]), user_id="user-1")
+    )
+    await asyncio.wait_for(stalled.start_entered.wait(), timeout=0.1)
+    second_socket = _FakeClientSocket(
+        [
+            _start("new"),
+            _text({"type": "stop", "voiceSessionId": "new"}),
+        ]
+    )
+    second_task = asyncio.create_task(
+        gateway.handle(second_socket, user_id="user-1")
+    )
+
+    try:
+        await asyncio.wait_for(replacement.start_entered.wait(), timeout=0.02)
+    finally:
+        await asyncio.wait_for(
+            asyncio.gather(first_task, second_task, return_exceptions=True),
+            timeout=0.3,
+        )
+
+    assert second_socket.sent[-1]["type"] == "final"
+
+
+async def test_finalization_timeout_is_bounded_and_releases_user() -> None:
+    provider = _HangingFinishProvider()
+    registry = AsrSessionRegistry()
+    socket = _FakeClientSocket(
+        [
+            _start(),
+            _text({"type": "stop", "voiceSessionId": "voice-session"}),
+        ]
+    )
+    gateway = StreamingAsrGateway(
+        provider_factory=lambda: provider,
+        registry=registry,
+        provider_final_timeout_seconds=0.01,
+    )
+
+    await asyncio.wait_for(gateway.handle(socket, user_id="user-1"), timeout=0.1)
+
+    assert provider.finish_count == 1
+    assert provider.cancel_count == 1
+    assert socket.sent[-1]["code"] == "service_unavailable"
+    assert not await registry.is_active("user-1")
+
+
+async def test_cleanup_timeout_is_bounded_and_releases_user() -> None:
+    provider = _HangingCleanupProvider()
+    registry = AsrSessionRegistry()
+    socket = _FakeClientSocket([_start()])
+    gateway = StreamingAsrGateway(
+        provider_factory=lambda: provider,
+        registry=registry,
+        provider_start_timeout_seconds=0.01,
+        provider_cleanup_timeout_seconds=0.01,
+    )
+
+    await asyncio.wait_for(gateway.handle(socket, user_id="user-1"), timeout=0.1)
+
+    assert provider.cleanup_entered.is_set()
+    assert not await registry.is_active("user-1")
+
+
+async def test_client_send_failure_cleans_provider_and_releases_user() -> None:
+    provider = _FakeProvider()
+    registry = AsrSessionRegistry()
+    socket = _FailingSendSocket(
+        [
+            _start(),
+            _text({"type": "stop", "voiceSessionId": "voice-session"}),
+        ],
+        fail_after=1,
+    )
+    gateway = StreamingAsrGateway(
+        provider_factory=lambda: provider,
+        registry=registry,
+    )
+
+    await asyncio.wait_for(gateway.handle(socket, user_id="user-1"), timeout=0.1)
+
+    assert provider.cancel_count == 1
+    assert not await registry.is_active("user-1")
+
+
+async def test_cumulative_pcm_bytes_cannot_exceed_mode_limit() -> None:
+    provider = _FakeProvider()
+    registry = AsrSessionRegistry()
+    one_second = b"\x00\x00" * 16_000
+    socket = _FakeClientSocket(
+        [_start(mode="reka"), *[_bytes(one_second) for _ in range(61)]]
+    )
+    gateway = StreamingAsrGateway(
+        provider_factory=lambda: provider,
+        registry=registry,
+    )
+
+    await asyncio.wait_for(gateway.handle(socket, user_id="user-1"), timeout=0.2)
+
+    assert len(provider.frames) == 60
+    assert socket.sent[-1] == {
+        "type": "error",
+        "voiceSessionId": "voice-session",
+        "code": "unsupported_audio",
+        "retryable": False,
+    }
+    assert not await registry.is_active("user-1")
 
 
 def test_contract_validation_and_authoritative_limits() -> None:
@@ -442,6 +722,14 @@ async def _run() -> None:
     await test_disconnect_during_provider_start_cancels_immediately()
     await test_cleanup_failure_still_releases_user()
     await test_terminal_event_is_emitted_at_most_once()
+    await test_registry_releases_only_the_exact_installed_lease()
+    await test_new_same_user_session_supersedes_stalled_session()
+    await test_stalled_user_does_not_delay_another_user()
+    await test_replacement_start_does_not_wait_for_old_cleanup()
+    await test_finalization_timeout_is_bounded_and_releases_user()
+    await test_cleanup_timeout_is_bounded_and_releases_user()
+    await test_client_send_failure_cleans_provider_and_releases_user()
+    await test_cumulative_pcm_bytes_cannot_exceed_mode_limit()
     test_contract_validation_and_authoritative_limits()
     test_bearer_parser_is_strict()
 

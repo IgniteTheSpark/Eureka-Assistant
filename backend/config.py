@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     dashscope_asr_ws_url:          str = ""
     ali_asr_model:                 str = "qwen-audio-3.0-asr-flash-streaming"
     asr_rate_limit_per_minute:     int = 10
+    asr_provider_start_timeout_seconds:    float = 8.0
+    asr_provider_finalize_timeout_seconds: float = 10.0
+    asr_provider_cleanup_timeout_seconds:  float = 2.0
+    asr_client_ready_timeout_seconds:      float = 10.0
 
     # §6.6.2 AI 配图 — OPTIONAL dedicated image key/model. Lets a fresh image key
     # land WITHOUT touching the working DeepSeek text key (which is on a
@@ -93,6 +97,7 @@ def _jwt_secret_is_weak(secret: str) -> bool:
 
 def validate_asr_settings() -> None:
     """Fail closed before allocating a paid provider stream."""
+    import math
     from urllib.parse import urlsplit
 
     if not settings.dashscope_api_key.strip():
@@ -119,6 +124,32 @@ def validate_asr_settings() -> None:
         )
     if settings.asr_rate_limit_per_minute < 1:
         raise RuntimeError("ASR_RATE_LIMIT_PER_MINUTE must be positive")
+
+    deadlines = {
+        "ASR_PROVIDER_START_TIMEOUT_SECONDS": (
+            settings.asr_provider_start_timeout_seconds
+        ),
+        "ASR_PROVIDER_FINALIZE_TIMEOUT_SECONDS": (
+            settings.asr_provider_finalize_timeout_seconds
+        ),
+        "ASR_PROVIDER_CLEANUP_TIMEOUT_SECONDS": (
+            settings.asr_provider_cleanup_timeout_seconds
+        ),
+        "ASR_CLIENT_READY_TIMEOUT_SECONDS": (
+            settings.asr_client_ready_timeout_seconds
+        ),
+    }
+    for name, value in deadlines.items():
+        if not math.isfinite(value) or value <= 0:
+            raise RuntimeError(f"{name} must be a positive finite number")
+    if (
+        settings.asr_client_ready_timeout_seconds
+        <= settings.asr_provider_start_timeout_seconds + 1.0
+    ):
+        raise RuntimeError(
+            "ASR_CLIENT_READY_TIMEOUT_SECONDS must exceed "
+            "ASR_PROVIDER_START_TIMEOUT_SECONDS by more than 1 second"
+        )
 
 
 def validate_prod_secrets() -> None:

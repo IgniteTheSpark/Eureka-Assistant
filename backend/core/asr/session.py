@@ -71,7 +71,10 @@ class StreamingAsrSession:
         self._terminal_event_sent = False
         self._provider_terminal = False
         self._client_gone = False
+        self._superseded = False
         self._closed = False
+        self._received_pcm_bytes = 0
+        self._maximum_pcm_bytes = duration_limit_seconds * 16_000 * 2
 
     @property
     def phase(self) -> SessionPhase:
@@ -82,7 +85,10 @@ class StreamingAsrSession:
 
         self._phase = SessionPhase.VALIDATING
         pending_message = await self._start_provider()
-        if self._phase == SessionPhase.TERMINAL:
+        if self._closed or self._phase in {
+            SessionPhase.TERMINAL,
+            SessionPhase.CLOSED,
+        }:
             return
 
         self._phase = SessionPhase.READY
@@ -105,6 +111,7 @@ class StreamingAsrSession:
     async def supersede(self) -> None:
         """Cancel this session because a newer same-user session won ownership."""
 
+        self._superseded = True
         self._client_cancelled.set()
         self._phase = SessionPhase.TERMINAL
         await self.close()
@@ -128,9 +135,14 @@ class StreamingAsrSession:
             for task in tasks:
                 if task is not None and task is not current and not task.done():
                     task.cancel()
-            for task in tasks:
-                if task is not None and task is not current:
-                    await _drain_task(task)
+            drainable = [
+                task for task in tasks if task is not None and task is not current
+            ]
+            if drainable:
+                await _bounded_cleanup(
+                    asyncio.gather(*drainable, return_exceptions=True),
+                    timeout=self._provider_cleanup_timeout_seconds,
+                )
 
             if not self._provider_terminal:
                 await _bounded_cleanup(
@@ -163,6 +175,11 @@ class StreamingAsrSession:
         if self._client_receive_task in done:
             try:
                 pending_message = self._client_receive_task.result()
+            except asyncio.CancelledError:
+                if self._superseded or self._closed:
+                    self._phase = SessionPhase.TERMINAL
+                    return None
+                raise
             except Exception:
                 self._client_gone = True
                 self._phase = SessionPhase.TERMINAL
@@ -192,6 +209,9 @@ class StreamingAsrSession:
             self._phase = SessionPhase.TERMINAL
             return None
         except asyncio.CancelledError:
+            if self._superseded or self._closed:
+                self._phase = SessionPhase.TERMINAL
+                return None
             raise
         except Exception:
             await self._send_error("connection_failed")
@@ -239,6 +259,9 @@ class StreamingAsrSession:
             if isinstance(frame, bytes):
                 try:
                     self._validate_audio_frame(frame)
+                    if self._received_pcm_bytes + len(frame) > self._maximum_pcm_bytes:
+                        raise ValueError("audio duration exceeds mode limit")
+                    self._received_pcm_bytes += len(frame)
                     await self._provider.send_audio(frame)
                 except ValueError:
                     await self._send_error("unsupported_audio")
@@ -280,6 +303,8 @@ class StreamingAsrSession:
         except StreamingAsrProviderError as exc:
             await self._send_error(_safe_provider_code(exc.code))
         except asyncio.CancelledError:
+            if self._superseded or self._closed:
+                return
             raise
         except Exception:
             await self._send_error("connection_lost")

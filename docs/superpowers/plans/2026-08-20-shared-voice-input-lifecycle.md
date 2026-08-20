@@ -113,7 +113,7 @@ git commit -m "fix(backend): bound streaming asr session startup"
 - Modify: `backend/scripts/test_qwen_streaming_asr.py`
 - Modify: `backend/scripts/test_asr_config.py`
 
-- [ ] **Step 1: Add RED tests for same-user replacement and different-user isolation**
+- [x] **Step 1: Add RED tests for same-user replacement and different-user isolation**
 
 Add tests that hold user A in startup, then prove:
 
@@ -126,13 +126,13 @@ assert not await registry.release("a", old_a.lease_id)
 
 Also assert a stale session cannot delete a newer lease and that supersession is not sent as a user-visible `busy` error.
 
-- [ ] **Step 2: Add RED tests for finalization/cleanup deadlines and byte accumulation**
+- [x] **Step 2: Add RED tests for finalization/cleanup deadlines and byte accumulation**
 
 Cover provider `finish()` hanging, final provider event never arriving, downstream `send_json()` failing, provider close hanging, and many individually valid PCM frames whose cumulative bytes exceed `duration_limit_seconds * 16_000 * 2`.
 
 Expected RED: current code either hangs, leaks ownership, or accepts cumulative audio past the authoritative duration.
 
-- [ ] **Step 3: Implement lease-token replacement and bounded finalization**
+- [x] **Step 3: Implement lease-token replacement and bounded finalization**
 
 Use a registry entry containing a unique lease token plus session reference. Install a new same-user entry atomically, request cancellation of the replaced session outside the registry lock, and release only when both user and token match. Add separate settings:
 
@@ -144,19 +144,19 @@ asr_provider_cleanup_timeout_seconds: float
 
 Race finalization against its whole deadline, not separate unbounded `finish()` and final-event waits. Always close locally and release the lease even when client/provider cleanup times out.
 
-- [ ] **Step 4: Enforce cumulative bytes before provider forwarding**
+- [x] **Step 4: Enforce cumulative bytes before provider forwarding**
 
 Maintain `received_pcm_bytes`. Reject the frame that would make it exceed the mode's maximum bytes; emit one normalized terminal error and do not forward the offending bytes.
 
-- [ ] **Step 5: Harden Qwen partial startup cancellation**
+- [x] **Step 5: Harden Qwen partial startup cancellation**
 
 Wrap socket creation/start handshake with explicit `asyncio.CancelledError` handling and close any partially initialized socket/task before re-raising cancellation. Keep provider message bodies out of application logs. Align the `websockets` dependency with the API used by the adapter (`additional_headers`).
 
-- [ ] **Step 6: Validate timeout relationships in config**
+- [x] **Step 6: Validate timeout relationships in config**
 
 Reject non-positive deadlines and enforce that the client-ready contract remains larger than server provider-start plus transport margin. Wire environment defaults in `docker-compose.yml`; never add the API key value to tracked files.
 
-- [ ] **Step 7: Run all backend ASR gates GREEN**
+- [x] **Step 7: Run all backend ASR gates GREEN**
 
 Run:
 
@@ -171,7 +171,7 @@ docker compose -p cloud-streaming-asr -f docker-compose.yml exec -T backend \
 
 Expected: all tests pass without unbounded sleeps; A's hanging session never delays B.
 
-- [ ] **Step 8: Commit Task 2**
+- [x] **Step 8: Commit Task 2**
 
 ```bash
 git add backend/core/asr backend/config.py backend/requirements.txt \

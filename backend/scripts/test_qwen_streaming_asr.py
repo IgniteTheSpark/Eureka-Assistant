@@ -35,6 +35,17 @@ class _FakeSocket:
         self.close_count += 1
 
 
+class _BlockingStartSocket(_FakeSocket):
+    def __init__(self) -> None:
+        super().__init__([])
+        self.send_entered = asyncio.Event()
+
+    async def send(self, value: str | bytes) -> None:
+        self.sent.append(value)
+        self.send_entered.set()
+        await asyncio.Event().wait()
+
+
 async def _provider(
     inbound: list[dict[str, Any]],
 ) -> tuple[QwenStreamingAsrProvider, _FakeSocket, list[dict[str, Any]]]:
@@ -196,12 +207,40 @@ async def test_cancel_is_idempotent_and_emits_nothing() -> None:
     )
 
 
+async def test_cancelled_partial_start_closes_allocated_socket() -> None:
+    socket = _BlockingStartSocket()
+
+    async def connect(url: str, **kwargs: Any) -> _BlockingStartSocket:
+        return socket
+
+    provider = QwenStreamingAsrProvider(
+        api_key="sk-test-only",
+        ws_url="wss://workspace.cn-beijing.maas.aliyuncs.com/api-ws/v1/inference",
+        model="qwen-audio-3.0-asr-flash-streaming",
+        connector=connect,
+        task_id_factory=lambda: "client-task-id",
+    )
+    start_task = asyncio.create_task(provider.start())
+    await asyncio.wait_for(socket.send_entered.wait(), timeout=0.1)
+
+    start_task.cancel()
+    try:
+        await start_task
+    except asyncio.CancelledError:
+        pass
+    else:
+        raise AssertionError("cancelled provider start did not propagate cancellation")
+
+    assert socket.close_count == 1
+
+
 async def _run() -> None:
     await test_start_sends_run_task_and_waits_for_started()
     await test_audio_partial_and_stable_events_are_ordered()
     await test_finish_sends_finish_task_and_keeps_last_partial()
     await test_task_failed_uses_stable_error_without_provider_body()
     await test_cancel_is_idempotent_and_emits_nothing()
+    await test_cancelled_partial_start_closes_allocated_socket()
 
 
 def main() -> None:
