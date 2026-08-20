@@ -86,6 +86,8 @@ full, commented list. The essentials:
 | Var | Required | What |
 |---|---|---|
 | `DEEPSEEK_API_KEY` | ✅ | Primary LLM (https://platform.deepseek.com). Blank → falls back to OpenRouter (dev only). |
+| `DASHSCOPE_API_KEY` / `DASHSCOPE_ASR_WS_URL` | ✅ for mobile voice | Backend-only Alibaba Cloud Model Studio credential and workspace streaming endpoint. The App never receives either value. |
+| `ALI_ASR_MODEL` | — | Mobile voice model; defaults to `qwen-audio-3.0-asr-flash-streaming`. |
 | `JWT_SECRET` | ✅ (prod) | Session-token signing key. `openssl rand -hex 32`. |
 | `CONNECTED_APPS_KEY` | ✅ (prod) | Fernet key encrypting per-user third-party credentials. The backend refuses to boot in prod without it. Generate: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
 | `IMAGE_API_KEY` / `IMAGE_MODEL` | — | 豆包 Seedream key/model for report images (blank → reports come out image-less). |

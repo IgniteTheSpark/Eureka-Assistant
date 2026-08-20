@@ -1,8 +1,8 @@
 # Mobile Cloud Voice Input Design
 
 - **Date:** 2026-08-20
-- **Status:** Approved design; awaiting written-spec review
-- **Scope:** Eureka mobile app voice input, authenticated ASR gateway, and Tencent streaming ASR integration
+- **Status:** Approved for implementation
+- **Scope:** Eureka mobile app voice input, authenticated ASR gateway, and Alibaba Cloud Model Studio streaming ASR integration
 
 ## 1. Summary
 
@@ -10,7 +10,7 @@ Eureka will provide one shared voice-to-text capability for every user-authored 
 
 The app will not bundle a local ASR model or provide an offline fallback. When the device has no network, voice input does not start and the user receives a clear error. This matches the product's dependency on online Agent processing after transcription and avoids shipping the slow, large bundled Whisper implementation explored previously.
 
-The app connects only to an authenticated Eureka streaming ASR gateway. The gateway owns provider integration and credentials. Tencent Cloud real-time ASR is the production provider; the final server-side route through `card.biz` remains an explicit release-gated decision.
+The app connects only to an authenticated Eureka streaming ASR gateway. The gateway owns provider integration and credentials. Alibaba Cloud Model Studio `qwen-audio-3.0-asr-flash-streaming` is the production provider. The confirmed non-streaming `card.biz` API remains unchanged for existing hardware callers and is not used by mobile voice input.
 
 This design supersedes `2026-08-18-mobile-bundled-offline-asr-design.md` for app voice input. That document and the `offline-asr` branch remain historical exploration and must not be merged as the implementation basis for this feature. Existing hardware ASR integrations remain unchanged.
 
@@ -80,7 +80,7 @@ Reka recording is limited to 60 seconds. The UI warns at 30 seconds remaining; r
 
 ### 3.4 Language behavior
 
-The production Tencent engine is `16k_zh_en`, which supports Mandarin, English, and code-switching without a user-facing selector.
+The production model is `qwen-audio-3.0-asr-flash-streaming`, which supports Mandarin, English, and multilingual speech without a user-facing selector. Mandarin-English code-switching is an explicit physical-device acceptance case rather than a language-detection contract.
 
 Language detection is not part of the product contract. The app does not need to display or depend on a detected-language field, and the gateway must not claim reliable identification of unsupported languages. Other languages are best effort only. If the provider produces no useful text, the app shows the generic message:
 
@@ -95,12 +95,11 @@ First-release acceptance testing covers Mandarin, English, and mixed Mandarin-En
 ```text
 Mobile app
   -> authenticated Eureka streaming ASR gateway
-      -> provider adapter
-          -> card.biz streaming endpoint, if PENDING-ASR-01 resolves to that route
-          -> otherwise Tencent Cloud real-time ASR directly
+      -> Alibaba Cloud Model Studio provider adapter
+          -> workspace-scoped Qwen Audio streaming WebSocket
 ```
 
-The mobile app never connects directly to Tencent or `card.biz`, never receives Tencent credentials, and does not know which provider route is active. The Eureka gateway exposes one stable application protocol and maps provider-specific events and failures into it.
+The mobile app never connects directly to Alibaba Cloud or `card.biz`, never receives the DashScope API key or workspace endpoint, and does not know which provider model is active. The Eureka gateway exposes one stable application protocol and maps provider-specific events and failures into it.
 
 The ASR gateway only transcribes. It does not create messages, reports, Skills, notes, or Flashes. Business actions remain in the app and existing business APIs.
 
@@ -124,26 +123,21 @@ The gateway is organized under the backend ASR boundary:
 - `backend/api/asr_stream.py`: authenticated WebSocket endpoint and application protocol.
 - `backend/core/asr/streaming.py`: session orchestration, frame forwarding, cancellation, and normalized events.
 - `backend/core/asr/provider.py`: provider interface and normalized provider errors.
-- A route-specific adapter for either `card.biz` streaming or direct Tencent streaming.
+- `backend/core/asr/qwen_streaming.py`: direct Alibaba Cloud Model Studio WebSocket adapter.
 
 The gateway enforces authentication, per-user concurrency, maximum duration, input format, frame-size bounds, and rate limits before or while forwarding audio.
 
-### 4.4 Provider route release gate
+### 4.4 Provider decision
 
-`PENDING-ASR-01` must be resolved before claiming live production transcription is complete.
+The provider route is resolved:
 
-The product owner must confirm:
+- The Eureka backend connects directly to Alibaba Cloud Model Studio.
+- The model is configured server-side as `qwen-audio-3.0-asr-flash-streaming`.
+- `DASHSCOPE_API_KEY` and the workspace-scoped `DASHSCOPE_ASR_WS_URL` live only in the backend environment or production secret manager.
+- The first implementation uses the raw provider WebSocket so the backend retains authentication, lifecycle, rate-limit, and normalized-event control.
+- There is no runtime provider fallback and no original-audio retry.
 
-- Whether the `card.biz` backend can add a streaming WebSocket endpoint.
-- Where Tencent production credentials and account configuration will live.
-- That the selected Tencent account and service configuration meet the no-retention requirement, including provider-side processing and diagnostic settings.
-
-Resolution is deterministic:
-
-- If `card.biz` is modifiable, add its streaming endpoint and let it connect to Tencent `16k_zh_en`; the Eureka gateway connects to and normalizes that endpoint.
-- If `card.biz` is not modifiable, the Eureka backend connects directly to Tencent `16k_zh_en` through the same provider interface.
-
-Until this item is resolved, the mobile contracts, UI components, gateway protocol, provider interface, and fake-provider tests may proceed. Production credentials must not be placed in the app, and the feature must not be declared live against the current non-streaming `card.biz` API.
+Provider-side data retention and diagnostic settings remain a production release check. They do not block contract and implementation work, but must be verified in the Alibaba Cloud account before broad rollout.
 
 ### 4.5 Existing ASR compatibility
 
@@ -160,7 +154,7 @@ The app opens an authenticated WebSocket to the Eureka gateway and sends:
 - A `stop` control message for normal finalization.
 - A `cancel` control message when the result must be discarded.
 
-The app emits approximately 200 ms PCM frames, matching Tencent's recommended 6,400-byte packet size for this format. The server validates but does not reinterpret the client-selected duration limit; server-side limits are authoritative.
+The app emits approximately 200 ms PCM frames, or 6,400 bytes for this format. The server validates but does not reinterpret the client-selected duration limit; server-side limits are authoritative.
 
 ### 5.2 Server events
 
@@ -178,9 +172,9 @@ The controller ignores stale or duplicate sequence numbers and emits one termina
 
 ### 5.3 Provider mapping
 
-For Tencent real-time ASR, replaceable slice results map to `partial`, stable slice results map to `stable`, and the completed sentence/session maps to `final`. Tencent voice activity detection and forced segmentation may divide long dictation internally without ending the app session.
+For Qwen Audio streaming, `result-generated` events with `sentence_end=false` map to `partial`; `sentence_end=true` maps to `stable`. `task-finished` emits the normalized `final` event containing the accumulated stable text and any final replaceable sentence. Provider sentence segmentation may divide long dictation internally without ending the app session.
 
-The integration uses production `16k_zh_en`, not the preview `Hy-ASR-3.0-preview` engine, because the preview engine's short request-duration limit is incompatible with five-minute dictation.
+The provider adapter sends `run-task`, waits for `task-started`, forwards binary PCM frames, sends `finish-task`, and treats `task-failed` or connection loss as a normalized terminal error.
 
 ## 6. State and Lifecycle
 
@@ -218,7 +212,7 @@ If Reka receives a valid final transcript but `POST /api/flash` times out, the a
 
 ## 7. Privacy, Security, and Observability
 
-- The app bundle contains no ASR model and no Tencent credential.
+- The app bundle contains no ASR model and no Alibaba Cloud credential.
 - The app does not save microphone audio to a file, database, cache, or user library.
 - The Eureka gateway forwards frames in memory and does not write raw audio to logs, databases, object storage, or diagnostic artifacts.
 - Transcript bodies are not written to ASR infrastructure logs. Text is persisted only through an explicit existing business action, such as sending a message or creating a Flash.
@@ -226,7 +220,7 @@ If Reka receives a valid final transcript but `POST /api/flash` times out, the a
 - Authentication is required before provider resources are allocated.
 - Rate limits and one-active-session enforcement protect both account cost and service capacity.
 - Secrets remain server-side and must use the repository's established secret-management mechanism.
-- Provider retention and diagnostic behavior is a production release gate in `PENDING-ASR-01`.
+- Alibaba Cloud retention and diagnostic behavior is a production release check before broad rollout.
 
 ## 8. Error Model and User Feedback
 
@@ -268,8 +262,8 @@ The UI maps these codes to concise localized messages. No error path auto-submit
 - `partial`, `stable`, `final`, cancellation, disconnect, timeout, and provider errors map to the normalized protocol.
 - Sequence numbers are monotonic and duplicate/stale events do not regress text.
 - Per-user concurrency, rate limits, and both duration caps are enforced server-side.
-- Fake adapters run all protocol tests before the production route is selected.
-- The chosen production adapter has a live sandbox smoke test after `PENDING-ASR-01` is resolved.
+- Fake adapters run all protocol tests without spending provider quota.
+- The Qwen adapter has an opt-in live smoke test that reads secrets only from the backend environment and never logs audio or transcripts.
 
 ### 9.3 Business-flow tests
 
@@ -299,8 +293,8 @@ These are end-to-end objectives, not claims about the current file-upload endpoi
 
 ## 10. Delivery Sequence
 
-1. Resolve `PENDING-ASR-01`, or proceed only with fake-provider contracts while the release gate remains open.
-2. Implement the provider interface and authenticated Eureka WebSocket gateway.
+1. Implement the Qwen provider interface and authenticated Eureka WebSocket gateway.
+2. Verify the configured Alibaba Cloud workspace with an opt-in live smoke test.
 3. Implement `VoiceInputService`, the shared controller, session state, and audio capture.
 4. Build the reusable ordinary free-text input component.
 5. Inventory and migrate Session Chat, report, Skill, note, and other eligible authoring surfaces.
@@ -316,16 +310,17 @@ The design is implemented when:
 - Ordinary dictation inserts editable final text and never auto-submits.
 - Reka long press shows provisional text; normal release creates one text Flash; slide-up release cancels.
 - Mandarin, English, and mixed speech pass physical-device acceptance.
-- The app connects only to Eureka and contains neither Tencent credentials nor a local ASR model.
+- The app connects only to Eureka and contains neither Alibaba Cloud credentials nor a local ASR model.
 - Audio is streamed in memory and is not retained by Eureka-controlled systems; provider retention requirements are verified.
 - Offline, cancelled, interrupted, empty, and failed sessions create no business entity.
 - The one-minute and five-minute caps are enforced by both app and gateway.
-- The streaming provider route is resolved and documented under `PENDING-ASR-01`.
+- The streaming provider route is Alibaba Cloud Model Studio `qwen-audio-3.0-asr-flash-streaming` through the Eureka backend.
 - Existing hardware ASR paths continue to behave as before.
 
 ## 12. References
 
-- [Tencent Cloud real-time speech recognition WebSocket API](https://cloud.tencent.com/document/product/1093/48982)
+- [Alibaba Cloud Model Studio Qwen Audio streaming ASR](https://help.aliyun.com/zh/model-studio/qwen-audio-3-0-asr-flash-streaming)
+- [Alibaba Cloud Model Studio realtime WebSocket API](https://help.aliyun.com/zh/model-studio/fun-asr-realtime-websocket-api)
 - Existing hardware client: `ring-desktop/ring_desktop/asr.py`
 - Existing hardware protocol: `ring-desktop/SPEC.md`
 - Existing mobile completed-file client: `mobile/lib/api/tencent_asr_s3_client.dart`
