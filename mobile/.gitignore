@@ -36,6 +36,12 @@ migrate_working_dir/
 /coverage/
 .tokens/
 
+# Local dependency overrides (points at sibling ../ble/ checkouts of the
+# private company Flutter packages). Committed pubspec.yaml keeps the git:
+# sources as the reproducible default for CI / other machines.
+/pubspec_overrides.yaml
+/vendor/
+
 # Symbolication related
 app.*.symbols
 
