@@ -30,6 +30,33 @@ void main() {
     expect(source, isNot(contains('_ListeningOverlay')));
   });
 
+  test(
+    'every ordinary voice builder places shared status inside its field',
+    () {
+      const expectedStatusCalls = <String, int>{
+        'lib/flash/flash_sheet.dart': 1,
+        'lib/pages/chat_page.dart': 1,
+        'lib/pages/session_detail_page.dart': 1,
+        'lib/theme_v2/asset_detail/markdown_field_editor.dart': 1,
+        'lib/theme_v2/library/asset/asset_editor.dart': 1,
+        'lib/theme_v2/library/create_skill/theme_v2_skill_wizard.dart': 2,
+        'lib/theme_v2/report/report_create_sheet.dart': 1,
+        'lib/theme_v2/report/report_run_page.dart': 2,
+        'lib/theme_v2/session/session_composer.dart': 1,
+      };
+
+      for (final entry in expectedStatusCalls.entries) {
+        final source = File(entry.key).readAsStringSync();
+        expect(
+          '.statusIcon('.allMatches(source),
+          hasLength(entry.value),
+          reason: entry.key,
+        );
+        expect(source, isNot(contains('voiceBusy')), reason: entry.key);
+      }
+    },
+  );
+
   test('ordinary authoring surfaces never own a voice service or lease', () {
     const sources = [
       'lib/pages/chat_page.dart',

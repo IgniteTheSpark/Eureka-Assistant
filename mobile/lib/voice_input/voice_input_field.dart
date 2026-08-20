@@ -5,9 +5,10 @@ import 'package:flutter/material.dart';
 import 'voice_input_controller.dart';
 import 'voice_input_models.dart';
 import 'voice_input_scope.dart';
+import 'voice_input_status_icon.dart';
 
 typedef VoiceInputFieldBuilder =
-    Widget Function(BuildContext context, bool voiceBusy);
+    Widget Function(BuildContext context, VoiceInputPresentation voice);
 
 final class VoiceInputField extends StatelessWidget {
   const VoiceInputField({
@@ -15,51 +16,53 @@ final class VoiceInputField extends StatelessWidget {
     required this.controller,
     required this.builder,
     this.enabled = true,
+    this.trailing,
   });
 
   static const micKey = Key('voice-input-mic');
-  static const cancelKey = Key('voice-input-cancel');
 
   final VoiceInputController controller;
   final VoiceInputFieldBuilder builder;
   final bool enabled;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
-        final busy = controller.isBusy;
+        final voice = VoiceInputPresentation(controller.state);
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
             Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Expanded(child: builder(context, busy)),
+                Expanded(child: builder(context, voice)),
                 const SizedBox(width: 6),
                 IconButton(
                   key: micKey,
-                  tooltip: busy ? '停止语音输入' : '开始语音输入',
+                  tooltip: switch (controller.state) {
+                    VoiceInputControllerState.idle => '开始语音输入',
+                    VoiceInputControllerState.connecting => '正在连接语音',
+                    VoiceInputControllerState.listening => '停止语音输入',
+                    VoiceInputControllerState.stopping => '正在完成转录',
+                  },
                   onPressed: !enabled
                       ? null
-                      : busy
-                      ? controller.canStop
-                            ? () => unawaited(controller.stop())
-                            : null
-                      : () => unawaited(controller.start()),
+                      : controller.state == VoiceInputControllerState.idle
+                      ? () => unawaited(controller.start())
+                      : controller.canStop
+                      ? () => unawaited(controller.stop())
+                      : null,
                   icon: Icon(
-                    busy ? Icons.stop_circle_outlined : Icons.mic_none_rounded,
+                    controller.state == VoiceInputControllerState.idle
+                        ? Icons.mic_none_rounded
+                        : Icons.stop_rounded,
                   ),
                 ),
-                if (busy)
-                  IconButton(
-                    key: cancelKey,
-                    tooltip: '取消语音输入',
-                    onPressed: () => unawaited(controller.cancel()),
-                    icon: const Icon(Icons.close_rounded),
-                  ),
+                if (trailing != null) ...[const SizedBox(width: 8), trailing!],
               ],
             ),
             if (controller.isDurationWarning)
@@ -72,7 +75,7 @@ final class VoiceInputField extends StatelessWidget {
                   ),
                 ),
               ),
-            if (!busy && controller.errorCode != null)
+            if (!voice.isBusy && controller.errorCode != null)
               Padding(
                 padding: const EdgeInsets.only(top: 4),
                 child: Text(
@@ -106,7 +109,7 @@ typedef VoiceInputTextAdapterBuilder =
     Widget Function(
       BuildContext context,
       VoiceInputTextController controller,
-      bool voiceBusy,
+      VoiceInputPresentation voice,
     );
 
 /// Adds the shared voice lifecycle to an existing controller without forcing
@@ -212,8 +215,8 @@ class _VoiceInputTextAdapterState extends State<VoiceInputTextAdapter> {
     return VoiceInputField(
       controller: voiceController,
       enabled: widget.enabled,
-      builder: (context, voiceBusy) =>
-          widget.builder(context, _textController, voiceBusy),
+      builder: (context, voice) =>
+          widget.builder(context, _textController, voice),
     );
   }
 }

@@ -117,10 +117,10 @@ class _ReportCreateSheetState extends State<ReportCreateSheet> {
               key: const ValueKey('report-create-voice'),
               controller: _voiceController,
               enabled: !_controller.busy,
-              builder: (context, voiceBusy) => TextField(
+              builder: (context, voice) => TextField(
                 key: const ValueKey('report-create-intent'),
                 controller: _intent,
-                readOnly: voiceBusy,
+                readOnly: voice.isBusy,
                 autofocus: true,
                 minLines: 3,
                 maxLines: 5,
@@ -128,12 +128,13 @@ class _ReportCreateSheetState extends State<ReportCreateSheet> {
                 textInputAction: TextInputAction.done,
                 onChanged: (_) => setState(() {}),
                 onSubmitted: (_) {
-                  if (!voiceBusy) unawaited(_submit());
+                  if (!voice.isBusy) unawaited(_submit());
                 },
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: '你想生成什么报告？',
                   hintText: '例如：总结最近一个月的跑步训练，并分析恢复情况',
                   alignLabelWithHint: true,
+                  suffixIcon: voice.statusIcon(color: context.themeV2.accent),
                 ),
               ),
             ),

@@ -1251,9 +1251,9 @@ class _InputBar extends StatelessWidget {
             child: VoiceInputField(
               controller: voiceController,
               enabled: !streaming,
-              builder: (context, voiceBusy) => TextField(
+              builder: (context, voice) => TextField(
                 controller: controller,
-                readOnly: voiceBusy,
+                readOnly: voice.isBusy,
                 minLines: 1,
                 maxLines: 6,
                 keyboardType: TextInputType.multiline,
@@ -1264,6 +1264,11 @@ class _InputBar extends StatelessWidget {
                   hintStyle: TextStyle(color: eu.textLo),
                   filled: true,
                   fillColor: eu.surfaceRaised,
+                  suffixIcon: voice.statusIcon(color: eu.brand),
+                  suffixIconConstraints: const BoxConstraints(
+                    minWidth: 40,
+                    minHeight: 40,
+                  ),
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 16,
                     vertical: 12,

@@ -80,15 +80,22 @@ class _MarkdownFieldEditorState extends State<MarkdownFieldEditor> {
               : VoiceInputTextAdapter(
                   key: const ValueKey('markdown-editor-voice'),
                   controller: widget.controller,
-                  builder: (context, controller, voiceBusy) => TextField(
+                  builder: (context, controller, voice) => TextField(
                     key: const ValueKey('markdown-editor-input'),
                     controller: controller,
-                    readOnly: voiceBusy,
+                    readOnly: voice.isBusy,
                     minLines: 9,
                     maxLines: null,
                     keyboardType: TextInputType.multiline,
-                    decoration: const InputDecoration.collapsed(
+                    decoration: InputDecoration(
                       hintText: '支持 Markdown：# 标题、**加粗**、*斜体*、- 列表、> 引用…',
+                      border: InputBorder.none,
+                      isCollapsed: true,
+                      suffixIcon: voice.statusIcon(color: tokens.accent),
+                      suffixIconConstraints: const BoxConstraints(
+                        minWidth: 32,
+                        minHeight: 32,
+                      ),
                     ),
                   ),
                 ),

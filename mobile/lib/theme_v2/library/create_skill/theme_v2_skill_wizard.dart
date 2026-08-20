@@ -222,14 +222,16 @@ class _ThemeV2SkillWizardSheetState extends State<ThemeV2SkillWizardSheet> {
             key: const ValueKey('skill-description-voice'),
             controller: _descriptionVoice,
             enabled: !controller.busy,
-            builder: (context, voiceBusy) => TextField(
+            builder: (context, voice) => TextField(
               key: const ValueKey('skill-wizard-description'),
               controller: _description,
-              readOnly: voiceBusy,
+              readOnly: voice.isBusy,
               autofocus: true,
               minLines: 4,
               maxLines: 7,
-              decoration: _inputDecoration('例如：记录每次跑步的距离、配速、地点和感受'),
+              decoration: _inputDecoration(
+                '例如：记录每次跑步的距离、配速、地点和感受',
+              ).copyWith(suffixIcon: voice.statusIcon(color: tokens.accent)),
             ),
           ),
           const SizedBox(height: ThemeV2Spacing.md),
@@ -823,11 +825,14 @@ class _ClarificationQuestionState extends State<_ClarificationQuestion> {
               controller: _other,
               enabled: !controller.busy,
               onBusyChanged: widget.onVoiceBusyChanged,
-              builder: (context, textController, voiceBusy) => TextFormField(
+              builder: (context, textController, voice) => TextFormField(
                 key: ValueKey('skill-question-other-input-${question.key}'),
                 controller: textController,
-                readOnly: voiceBusy,
-                decoration: InputDecoration(hintText: question.placeholder),
+                readOnly: voice.isBusy,
+                decoration: InputDecoration(
+                  hintText: question.placeholder,
+                  suffixIcon: voice.statusIcon(color: context.themeV2.accent),
+                ),
               ),
             ),
           ],

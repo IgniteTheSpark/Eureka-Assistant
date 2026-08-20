@@ -67,11 +67,11 @@ class SessionComposer extends StatelessWidget {
                       key: const ValueKey('session-composer-voice'),
                       controller: voiceController,
                       enabled: !streaming,
-                      builder: (context, voiceBusy) => TextField(
+                      builder: (context, voice) => TextField(
                         key: const ValueKey('session-composer-field'),
                         controller: controller,
                         focusNode: focusNode,
-                        readOnly: voiceBusy,
+                        readOnly: voice.isBusy,
                         minLines: 1,
                         maxLines: 5,
                         keyboardType: TextInputType.multiline,
@@ -86,7 +86,7 @@ class SessionComposer extends StatelessWidget {
                           hintStyle: TextStyle(color: tokens.muted),
                           prefixIcon: IconButton(
                             tooltip: '添加上下文资产',
-                            onPressed: voiceBusy ? null : onAddContext,
+                            onPressed: voice.isBusy ? null : onAddContext,
                             constraints: const BoxConstraints(
                               minWidth: ThemeV2Sizes.minTouchTarget,
                               minHeight: ThemeV2Sizes.minTouchTarget,
@@ -96,6 +96,11 @@ class SessionComposer extends StatelessWidget {
                               color: tokens.accent,
                               size: 18,
                             ),
+                          ),
+                          suffixIcon: voice.statusIcon(color: tokens.accent),
+                          suffixIconConstraints: const BoxConstraints(
+                            minWidth: 40,
+                            minHeight: 40,
                           ),
                           filled: true,
                           fillColor: tokens.surface,

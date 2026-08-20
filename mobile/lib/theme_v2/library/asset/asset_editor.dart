@@ -284,14 +284,19 @@ class _EditorField extends StatelessWidget {
       return VoiceInputTextAdapter(
         key: ValueKey('asset-editor-voice-$field'),
         controller: draft.controllerFor(field),
-        builder: (context, controller, voiceBusy) =>
-            _shortTextField(controller, label: label, readOnly: voiceBusy),
+        builder: (context, controller, voice) => _shortTextField(
+          controller,
+          label: label,
+          readOnly: voice.isBusy,
+          statusIcon: voice.statusIcon(color: ThemeV2Tokens.of(context).accent),
+        ),
       );
     }
     return _shortTextField(
       draft.controllerFor(field),
       label: label,
       readOnly: false,
+      statusIcon: null,
     );
   }
 
@@ -299,6 +304,7 @@ class _EditorField extends StatelessWidget {
     TextEditingController controller, {
     required String label,
     required bool readOnly,
+    required Widget? statusIcon,
   }) {
     return TextField(
       key: ValueKey('asset-editor-$field'),
@@ -315,6 +321,7 @@ class _EditorField extends StatelessWidget {
       decoration: InputDecoration(
         labelText: label,
         errorText: draft.errors[field],
+        suffixIcon: statusIcon,
       ),
     );
   }

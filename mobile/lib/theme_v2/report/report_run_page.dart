@@ -726,15 +726,16 @@ class _ReportRunPageState extends State<ReportRunPage> {
           key: const ValueKey('report-additional-focus-voice'),
           controller: _focusVoiceController,
           enabled: !_controller.busy,
-          builder: (context, voiceBusy) => TextField(
+          builder: (context, voice) => TextField(
             key: const ValueKey('report-additional-focus'),
             controller: _focusController,
-            readOnly: voiceBusy,
+            readOnly: voice.isBusy,
             maxLength: 500,
             maxLines: 3,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: '背景、重点或需要排除的内容',
               hintText: '例如：重点解释周末支出，忽略报销项目',
+              suffixIcon: voice.statusIcon(color: context.themeV2.accent),
             ),
           ),
         ),
@@ -1189,10 +1190,15 @@ class _ReportRunPageState extends State<ReportRunPage> {
                       enabled: !_controller.busy,
                       onBusyChanged: (busy) =>
                           _clarificationVoiceChanged(id, busy),
-                      builder: (context, controller, voiceBusy) => TextField(
+                      builder: (context, controller, voice) => TextField(
                         controller: controller,
-                        readOnly: voiceBusy,
-                        decoration: const InputDecoration(hintText: '请输入'),
+                        readOnly: voice.isBusy,
+                        decoration: InputDecoration(
+                          hintText: '请输入',
+                          suffixIcon: voice.statusIcon(
+                            color: context.themeV2.accent,
+                          ),
+                        ),
                       ),
                     )
                   else

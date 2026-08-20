@@ -6,6 +6,7 @@ import 'package:eureka/voice_input/voice_input_field.dart';
 import 'package:eureka/voice_input/voice_input_models.dart';
 import 'package:eureka/voice_input/voice_input_scope.dart';
 import 'package:eureka/voice_input/voice_input_service.dart';
+import 'package:eureka/voice_input/voice_input_status_icon.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -26,10 +27,11 @@ void main() {
         home: Scaffold(
           body: VoiceInputField(
             controller: controller,
-            builder: (context, voiceBusy) => TextField(
+            builder: (context, voice) => TextField(
               key: const Key('dictation-field'),
               controller: text,
-              readOnly: voiceBusy,
+              readOnly: voice.isBusy,
+              decoration: InputDecoration(suffixIcon: voice.statusIcon()),
               onSubmitted: (_) => submits += 1,
             ),
           ),
@@ -39,7 +41,9 @@ void main() {
 
     await tester.tap(find.byKey(VoiceInputField.micKey));
     await tester.pump();
-    expect(find.byKey(VoiceInputField.cancelKey), findsOneWidget);
+    expect(find.byKey(const Key('voice-input-cancel')), findsNothing);
+    expect(find.bySemanticsLabel('正在聆听'), findsOneWidget);
+    expect(find.byIcon(Icons.stop_rounded), findsOneWidget);
     expect(
       tester
           .widget<TextField>(find.byKey(const Key('dictation-field')))
@@ -72,6 +76,80 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets('shows connecting, listening, and finalizing inside the field', (
+    tester,
+  ) async {
+    final text = VoiceInputTextController(text: 'before ');
+    final session = _WidgetFakeSession();
+    final startGate = Completer<VoiceInputSessionHandle>();
+    final controller = VoiceInputController(
+      textController: text,
+      coordinator: VoiceInputCoordinator(
+        service: _GatedWidgetFakeService(startGate.future),
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: VoiceInputField(
+            controller: controller,
+            builder: (context, voice) => TextField(
+              key: const Key('dictation-field'),
+              controller: text,
+              readOnly: voice.isBusy,
+              decoration: InputDecoration(suffixIcon: voice.statusIcon()),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(VoiceInputField.micKey));
+    await tester.pump();
+    expect(find.byKey(VoiceInputStatusIcon.statusKey), findsOneWidget);
+    expect(find.bySemanticsLabel('正在连接语音'), findsOneWidget);
+    expect(find.byKey(const Key('voice-input-cancel')), findsNothing);
+
+    startGate.complete(session);
+    await tester.pump();
+    expect(find.bySemanticsLabel('正在聆听'), findsOneWidget);
+    expect(find.byIcon(Icons.stop_rounded), findsOneWidget);
+
+    await tester.tap(find.byKey(VoiceInputField.micKey));
+    await tester.pump();
+    expect(session.stopCount, 1);
+    expect(find.bySemanticsLabel('正在完成转录'), findsOneWidget);
+
+    session.emit(
+      const VoiceTranscriptEvent(
+        kind: VoiceTranscriptKind.finalTranscript,
+        sequence: 1,
+        text: 'before voice',
+        audioDurationMs: 100,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(VoiceInputStatusIcon.statusKey), findsNothing);
+  });
+
+  testWidgets('reduced motion uses a static listening icon', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: MediaQuery(
+          data: MediaQueryData(disableAnimations: true),
+          child: VoiceInputStatusIcon(
+            state: VoiceInputControllerState.listening,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.bySemanticsLabel('正在聆听'), findsOneWidget);
+    expect(find.byKey(VoiceInputStatusIcon.pulseKey), findsNothing);
+    expect(find.byIcon(Icons.graphic_eq_rounded), findsOneWidget);
+  });
+
   testWidgets('cancel restores text and warning copy is visible', (
     tester,
   ) async {
@@ -89,8 +167,11 @@ void main() {
         home: Scaffold(
           body: VoiceInputField(
             controller: controller,
-            builder: (_, voiceBusy) =>
-                TextField(controller: text, readOnly: voiceBusy),
+            builder: (_, voice) => TextField(
+              controller: text,
+              readOnly: voice.isBusy,
+              decoration: InputDecoration(suffixIcon: voice.statusIcon()),
+            ),
           ),
         ),
       ),
@@ -107,8 +188,9 @@ void main() {
       ),
     );
     await tester.pump();
-    await tester.tap(find.byKey(VoiceInputField.cancelKey));
+    unawaited(controller.cancel());
     await tester.pumpAndSettle();
+    expect(find.byKey(const Key('voice-input-cancel')), findsNothing);
     expect(session.cancelCount, 1);
     expect(controller.isBusy, isFalse);
     expect(text.text, 'original');
@@ -127,8 +209,11 @@ void main() {
           child: Scaffold(
             body: VoiceInputTextAdapter(
               controller: plain,
-              builder: (_, controller, voiceBusy) =>
-                  TextField(controller: controller, readOnly: voiceBusy),
+              builder: (_, controller, voice) => TextField(
+                controller: controller,
+                readOnly: voice.isBusy,
+                decoration: InputDecoration(suffixIcon: voice.statusIcon()),
+              ),
             ),
           ),
         ),
@@ -147,10 +232,29 @@ void main() {
     await tester.pump();
     expect(plain.text, 'before voice');
 
-    await tester.tap(find.byKey(VoiceInputField.cancelKey));
+    await tester.tap(find.byKey(VoiceInputField.micKey));
+    await tester.pump();
+    session.emit(
+      const VoiceTranscriptEvent(
+        kind: VoiceTranscriptKind.finalTranscript,
+        sequence: 2,
+        text: 'voice',
+        audioDurationMs: 100,
+      ),
+    );
     await tester.pumpAndSettle();
-    expect(plain.text, 'before ');
+    expect(plain.text, 'before voice');
+    expect(find.byKey(const Key('voice-input-cancel')), findsNothing);
   });
+}
+
+class _GatedWidgetFakeService implements VoiceInputServiceClient {
+  const _GatedWidgetFakeService(this.result);
+
+  final Future<VoiceInputSessionHandle> result;
+
+  @override
+  Future<VoiceInputSessionHandle> start(VoiceInputMode mode) => result;
 }
 
 class _WidgetFakeService implements VoiceInputServiceClient {

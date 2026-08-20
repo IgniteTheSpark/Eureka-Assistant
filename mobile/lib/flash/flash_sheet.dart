@@ -279,12 +279,12 @@ class _FlashSheetState extends State<_FlashSheet> {
             key: const ValueKey('flash-input-voice'),
             controller: _voiceController,
             enabled: !_sending,
-            builder: (context, voiceBusy) => TextField(
+            builder: (context, voice) => TextField(
               controller: _input,
               minLines: 1,
               maxLines: 4,
               enabled: !_sending,
-              readOnly: voiceBusy,
+              readOnly: voice.isBusy,
               keyboardType: TextInputType.multiline,
               textInputAction: TextInputAction.newline,
               style: TextStyle(color: eu.textHi),
@@ -293,6 +293,11 @@ class _FlashSheetState extends State<_FlashSheet> {
                 hintStyle: TextStyle(color: eu.textLo),
                 filled: true,
                 fillColor: eu.surfaceRaised,
+                suffixIcon: voice.statusIcon(color: eu.brand),
+                suffixIconConstraints: const BoxConstraints(
+                  minWidth: 40,
+                  minHeight: 40,
+                ),
                 contentPadding: const EdgeInsets.symmetric(
                   horizontal: 14,
                   vertical: 12,
