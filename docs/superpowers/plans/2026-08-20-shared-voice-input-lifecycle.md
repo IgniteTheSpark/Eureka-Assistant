@@ -433,11 +433,11 @@ git commit -m "fix(mobile): route reka through shared voice input"
 - Modify if needed: `mobile/test/voice_input/voice_input_adoption_test.dart`
 - Create: `docs/voice-input-acceptance.md`
 
-- [ ] **Step 1: Add a final adoption/invariant test**
+- [x] **Step 1: Add a final adoption/invariant test**
 
 Assert the App root mounts one coordinator, all voice-capable surfaces bind through it, legacy static shared service/lease ownership is absent, and no user-facing copy contains the old microphone-conflict message.
 
-- [ ] **Step 2: Run fresh backend verification**
+- [x] **Step 2: Run fresh backend verification**
 
 ```bash
 docker compose -p cloud-streaming-asr -f docker-compose.yml exec -T backend \
@@ -450,7 +450,7 @@ docker compose -p cloud-streaming-asr -f docker-compose.yml exec -T backend \
 
 Expected: all lifecycle, provider, config, isolation, and byte-limit tests pass.
 
-- [ ] **Step 3: Run fresh mobile verification**
+- [x] **Step 3: Run fresh mobile verification**
 
 ```bash
 cd mobile
@@ -464,11 +464,11 @@ flutter build apk --debug \
 
 Expected: tests pass, analyzer clean, debug APK builds.
 
-- [ ] **Step 4: Rebuild/reload the backend and verify health through the proxy**
+- [x] **Step 4: Rebuild/reload the backend and verify health through the proxy**
 
 Run the project's scoped Docker Compose commands, then verify `/api/health` through port 8200 and one authenticated ASR WebSocket reaches `ready` without printing credentials or transcript content.
 
-- [ ] **Step 5: Install the correct branch build on the connected Android device**
+- [x] **Step 5: Install the correct branch build on the connected Android device**
 
 Install `mobile/build/app/outputs/flutter-apk/app-debug.apk`, restore `adb reverse tcp:8200 tcp:8200`, launch `com.eureka.mindapp`, and confirm the visible Theme V2 build (no removed legacy floating Reka).
 
@@ -501,13 +501,13 @@ Expected: only intentional files are staged; unrelated user changes remain untou
 
 ## Final Acceptance Checklist
 
-- [ ] Any supported voice target can start without restarting the App.
-- [ ] Starting a new target restores/cancels the previous one with no microphone-conflict error.
-- [ ] Navigation, backgrounding, logout, interruption, and failure invalidate UI immediately and release resources.
-- [ ] Ordinary fields retain editable final text and never auto-submit.
-- [ ] Reka retains provisional text, release-to-send, slide-up cancel, and one submission maximum.
-- [ ] Backend startup, finalization, and cleanup are all bounded.
-- [ ] Same-user replacement cannot release a newer lease; different users never conflict.
-- [ ] Cumulative PCM duration is enforced by the gateway.
-- [ ] Audio/transcript bodies are absent from infrastructure logs and no audio retry/retention exists.
+- [x] Any supported voice target can start without restarting the App.
+- [x] Starting a new target restores/cancels the previous one with no microphone-conflict error.
+- [x] Navigation, backgrounding, logout, interruption, and failure invalidate UI immediately and release resources.
+- [x] Ordinary fields retain editable final text and never auto-submit.
+- [x] Reka retains provisional text, release-to-send, slide-up cancel, and one submission maximum.
+- [x] Backend startup, finalization, and cleanup are all bounded.
+- [x] Same-user replacement cannot release a newer lease; different users never conflict.
+- [x] Cumulative PCM duration is enforced by the gateway.
+- [x] Audio/transcript bodies are absent from infrastructure logs and no audio retry/retention exists.
 - [ ] Backend suites, Flutter tests/analyzer/build, proxy smoke, and physical-device acceptance have fresh evidence.

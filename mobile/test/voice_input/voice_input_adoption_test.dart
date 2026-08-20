@@ -52,4 +52,25 @@ void main() {
       expect(source, isNot(contains('VoiceInputService(')), reason: path);
     }
   });
+
+  test('the App root is the only real voice service owner', () {
+    final main = File('lib/main.dart').readAsStringSync();
+    final scope = File(
+      'lib/voice_input/voice_input_scope.dart',
+    ).readAsStringSync();
+    final production = Directory('lib')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((file) => file.path.endsWith('.dart'))
+        .map((file) => file.readAsStringSync())
+        .join('\n');
+
+    expect(main, contains('VoiceInputHost('));
+    expect(scope, contains('_service = widget.service ?? VoiceInputService()'));
+    expect(scope, contains('VoiceInputCoordinator(service: _service)'));
+    expect('VoiceInputService()'.allMatches(production), hasLength(1));
+    expect(production, isNot(contains('VoiceInputLease')));
+    expect(production, isNot(contains('VoiceInputScope.sharedService')));
+    expect(production, isNot(contains('另一个输入框正在使用麦克风')));
+  });
 }
