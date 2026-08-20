@@ -22,7 +22,7 @@ from app.db.base import Base, new_uuid, utc_now
 from app.db.models import UserSkill
 from app.domains.assets.schemas import AssetCreate, UserSkillCreate
 from app.domains.assets.service import create_asset, create_user_skill
-from app.domains.assets.validation import AssetWriteProfile
+from app.domains.assets.validation import AssetPayloadInvalid, AssetWriteProfile
 from app.domains.onboarding.catalog import get_category
 
 
@@ -64,8 +64,21 @@ def _normalize(value: str) -> str:
 
 
 def _field_fingerprint(fields: list[dict]) -> str:
-    keys = sorted(_normalize(str(f.get("key", ""))) for f in fields)
-    return "|".join(k for k in keys if k)
+    """Fingerprint the identity-relevant field shape.
+
+    Includes the normalized key, type, and label so that two field sets with
+    the same keys but different types or labels produce distinct skill
+    identities (§6 custom-field invariant).
+    """
+    entries = []
+    for field in fields:
+        key = _normalize(str(field.get("key", "")))
+        if not key:
+            continue
+        field_type = _normalize(str(field.get("type", "text")))
+        label = _normalize(str(field.get("label", "")))
+        entries.append(f"{key}:{field_type}:{label}")
+    return "|".join(sorted(entries))
 
 
 def machine_name_for(category: str, fields: list[dict]) -> str:
@@ -100,6 +113,17 @@ def _schema_from_fields(fields: list[dict]) -> dict:
     }
 
 
+def _validate_custom_fields(fields: list[dict]) -> None:
+    """Reject blank user-entered field names before any skill is created."""
+    for index, field in enumerate(fields):
+        key = _normalize(str(field.get("key", "")))
+        label = _normalize(str(field.get("label", "")))
+        if not key:
+            raise OnboardingError(f"字段 {index + 1} 的名称(key)不能为空")
+        if not label:
+            raise OnboardingError(f"字段 {index + 1} 的显示名称(label)不能为空")
+
+
 async def create_onboarding_skill(
     session: AsyncSession,
     user_id: str,
@@ -107,6 +131,7 @@ async def create_onboarding_skill(
     category: str,
     fields: list[dict],
 ) -> tuple[UserSkill, bool]:
+    _validate_custom_fields(fields)
     catalog_entry = get_category(category)
     display_name = (
         catalog_entry["label"] if catalog_entry else _normalize(category).capitalize()
@@ -238,6 +263,11 @@ async def confirm_onboarding_asset(
     payload: dict,
     idempotency_key: str,
 ) -> ConfirmationResult:
+    # §6: an all-empty confirmation must never mint an Asset; guard sits
+    # before the idempotency lookup so `{}` cannot be accepted even on retry.
+    if not isinstance(payload, dict) or not payload:
+        raise AssetPayloadInvalid("onboarding payload must not be empty")
+
     existing = await session.scalar(
         select(AssetResultMarker).where(
             AssetResultMarker.user_id == user_id,
@@ -295,13 +325,15 @@ async def confirm_onboarding_asset(
 
 
 async def skip_onboarding(session: AsyncSession, user_id: str) -> str:
-    from app.auth.models import ONBOARDING_SKIPPED, UserAccount
+    from app.auth.models import ONBOARDING_COMPLETED, ONBOARDING_SKIPPED, UserAccount
 
     user = await session.scalar(
         select(UserAccount).where(UserAccount.id == user_id)
     )
     if user is None:
         raise OnboardingError("account not found")
+    if user.onboarding_status == ONBOARDING_COMPLETED:
+        return user.onboarding_status
     user.onboarding_status = ONBOARDING_SKIPPED
     await session.flush()
     return user.onboarding_status

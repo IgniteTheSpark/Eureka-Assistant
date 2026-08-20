@@ -1,10 +1,10 @@
-"""Account deletion (§10).
+"""Account deactivation (§10, 停用账户).
 
-Deletion requires password re-authentication. The account row is revoked
-(auth_version bump + deleted_at) FIRST so every token dies immediately, then a
-single transaction removes all user-owned rows across the deletion graph, and
-finally the account row itself. Orphaned storage keys are recorded as durable
-cleanup work items so a worker can retry physical file deletion.
+Deactivation requires password re-authentication. The account row is revoked
+(auth_version bump + deleted_at + password_hash clear) so every existing token
+dies immediately and password login is blocked. Deactivation is intentionally
+soft: the email and all business data are retained, and there is no
+self-service restore. No rows are deleted and no physical cleanup is enqueued.
 """
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ async def delete_account(
     if user is None or user.password_hash is None:
         raise DeletePasswordError("账号不存在或未设置密码")
     if not verify_password(password, user.password_hash):
-        raise DeletePasswordError("密码不正确，无法删除账号")
+        raise DeletePasswordError("密码不正确，无法停用账户")
 
     # Deactivation is intentionally soft: preserve business data while making
     # every existing token invalid and blocking password authentication.

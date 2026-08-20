@@ -1,4 +1,4 @@
-"""Account export + deletion contract tests (§9 / §10)."""
+"""Account export + deactivation (停用账户) contract tests (§9 / §10)."""
 import json
 
 import pytest
@@ -177,6 +177,62 @@ async def test_delete_account_rejects_wrong_password(client):
         content=json.dumps({"password": "wrong-password"}),
     )
     assert response.status_code == 400
+    assert response.json()["detail"] == "密码不正确，无法停用账户"
 
     me = await client.get("/api/auth/me", headers=_headers(token))
     assert me.status_code == 200
+
+
+async def test_change_password_rejects_weak_new_password(client):
+    """Account change enforces the same password policy as register/reset."""
+    registered = await register_user(client, "weakchange@example.com")
+    token = registered["token"]
+
+    response = await client.patch(
+        "/api/account/password",
+        headers=_headers(token),
+        json={"current_password": "Secret123!", "new_password": "weakpass1"},
+    )
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert isinstance(detail, list)
+    assert "大写字母" in detail[0]["msg"]
+
+    # The existing password is untouched.
+    me = await client.get("/api/auth/me", headers=_headers(token))
+    assert me.status_code == 200
+
+
+async def test_stopped_account_cannot_re_register_or_login(client):
+    token, _ = await _user_with_asset(client, "delre@example.com")
+
+    response = await client.request(
+        "DELETE",
+        "/api/account",
+        headers={**_headers(token), "content-type": "application/json"},
+        content=json.dumps({"password": "Secret123!"}),
+    )
+    assert response.status_code == 200
+
+    # Retained email must block re-registration: requesting a register
+    # verification code for the stopped address fails with 409.
+    code_response = await client.post(
+        "/api/auth/verification-codes",
+        json={"email": "delre@example.com", "purpose": "register"},
+    )
+    assert code_response.status_code == 409
+    assert code_response.json()["detail"] == "该邮箱已注册"
+
+    # Password login for the stopped account fails safely.
+    login = await client.post(
+        "/api/auth/login",
+        json={"email": "delre@example.com", "password": "Secret123!"},
+    )
+    assert login.status_code == 401
+
+    # The stopped account's old token is rejected on every authenticated route.
+    me = await client.get("/api/auth/me", headers=_headers(token))
+    assert me.status_code == 401
+    options = await client.get("/api/account/export-options", headers=_headers(token))
+    assert options.status_code == 401

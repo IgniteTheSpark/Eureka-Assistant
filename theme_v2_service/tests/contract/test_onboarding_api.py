@@ -240,3 +240,161 @@ async def test_confirm_marks_onboarding_completed(client):
             select(UserAccount).where(UserAccount.email == "keep@example.com")
         )
     assert user.onboarding_status == ONBOARDING_COMPLETED
+
+
+async def test_custom_category_and_fields_round_trip(client):
+    token, _ = await _authed_user(client, "custom@example.com")
+
+    response = await client.post(
+        "/api/onboarding/skills",
+        headers=_headers(token),
+        json={
+            "category": "睡眠",
+            "fields": [
+                {"key": "wake_time", "label": "起床时间", "type": "text"},
+                {"key": "hours", "label": "睡眠时长", "type": "duration"},
+            ],
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    skill = body["skill"]
+    assert body["created"] is True
+    assert skill["display_name"] == "睡眠"
+    assert skill["machine_name"].startswith("onb_")
+    properties = skill["schema"]["properties"]
+    assert properties["wake_time"]["x-type"] == "text"
+    assert properties["hours"]["x-type"] == "duration"
+    assert properties["hours"]["type"] == "number"
+
+
+async def test_blank_custom_field_names_rejected(client):
+    token, _ = await _authed_user(client, "blank@example.com")
+
+    for fields in (
+        [{"key": "", "label": "备注", "type": "text"}],
+        [{"key": "note", "label": "  ", "type": "text"}],
+    ):
+        response = await client.post(
+            "/api/onboarding/skills",
+            headers=_headers(token),
+            json={"category": "自定义", "fields": fields},
+        )
+        assert response.status_code == 400, response.text
+
+
+async def test_empty_payload_confirm_rejected_and_no_asset_created(client):
+    token, user_id = await _authed_user(client, "empty@example.com")
+    skill_id = await _create_running_skill(client, token)
+
+    response = await client.post(
+        "/api/onboarding/confirm",
+        headers=_headers(token),
+        json={
+            "skill_id": skill_id,
+            "payload": {},
+            "idempotency_key": "empty-key-1",
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "onboarding payload must not be empty"
+
+    async with AsyncSessionFactory() as database:
+        count = list(
+            (
+                await database.execute(
+                    Asset.__table__.select().where(Asset.user_id == user_id)
+                )
+            ).scalars().all()
+        )
+    assert len(count) == 0
+
+
+async def test_manual_payload_creates_one_asset_and_marks_completed(client):
+    token, user_id = await _authed_user(client, "manualdone@example.com")
+    skill_id = await _create_running_skill(client, token)
+
+    response = await client.post(
+        "/api/onboarding/confirm",
+        headers=_headers(token),
+        json={
+            "skill_id": skill_id,
+            "payload": {"distance_km": 5.0, "location": "河边"},
+            "idempotency_key": "manual-key-1",
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["created"] is True
+
+    from sqlalchemy import select
+    async with AsyncSessionFactory() as database:
+        assets = list(
+            (
+                await database.execute(
+                    Asset.__table__.select().where(Asset.user_id == user_id)
+                )
+            ).scalars().all()
+        )
+        user = await database.scalar(
+            select(UserAccount).where(UserAccount.email == "manualdone@example.com")
+        )
+    assert len(assets) == 1
+    assert user.onboarding_status == ONBOARDING_COMPLETED
+
+
+async def test_completed_skip_leaves_completed(client):
+    token, _ = await _authed_user(client, "noskip@example.com")
+    skill_id = await _create_running_skill(client, token)
+
+    await client.post(
+        "/api/onboarding/confirm",
+        headers=_headers(token),
+        json={
+            "skill_id": skill_id,
+            "payload": {"distance_km": 5, "duration_min": 32},
+            "idempotency_key": "noskip-conf-1",
+        },
+    )
+
+    response = await client.post(
+        "/api/onboarding/skip",
+        headers=_headers(token),
+        json={"idempotency_key": "noskip-skip-1"},
+    )
+    assert response.status_code == 200
+    assert response.json()["onboarding_status"] == ONBOARDING_COMPLETED
+
+    from sqlalchemy import select
+    async with AsyncSessionFactory() as database:
+        user = await database.scalar(
+            select(UserAccount).where(UserAccount.email == "noskip@example.com")
+        )
+    assert user.onboarding_status == ONBOARDING_COMPLETED
+
+
+async def test_same_keys_different_type_or_label_produce_distinct_skills(client):
+    token, _ = await _authed_user(client, "finger@example.com")
+
+    async def create(fields):
+        response = await client.post(
+            "/api/onboarding/skills",
+            headers=_headers(token),
+            json={"category": "跑步", "fields": fields},
+        )
+        assert response.status_code == 200, response.text
+        return response.json()["skill"]
+
+    duration_skill = await create(
+        [{"key": "duration_min", "label": "时长", "type": "duration"}]
+    )
+    number_skill = await create(
+        [{"key": "duration_min", "label": "时长", "type": "number"}]
+    )
+    assert duration_skill["machine_name"] != number_skill["machine_name"]
+    assert duration_skill["id"] != number_skill["id"]
+
+    relabeled = await create(
+        [{"key": "duration_min", "label": "时长(分钟)", "type": "duration"}]
+    )
+    assert duration_skill["machine_name"] != relabeled["machine_name"]
+    assert duration_skill["id"] != relabeled["id"]

@@ -75,12 +75,15 @@ async def create_skill(
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
-    skill, created = await create_onboarding_skill(
-        session,
-        user_id,
-        category=body.category,
-        fields=body.fields,
-    )
+    try:
+        skill, created = await create_onboarding_skill(
+            session,
+            user_id,
+            category=body.category,
+            fields=body.fields,
+        )
+    except OnboardingError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {
         "skill": {
             "id": skill.id,

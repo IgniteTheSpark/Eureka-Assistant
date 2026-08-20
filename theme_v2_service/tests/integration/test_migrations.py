@@ -29,7 +29,6 @@ def test_foundation_migration_round_trip_and_physical_types():
     with engine.begin() as connection:
         connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
         connection.execute(text("DROP TABLE IF EXISTS onboarding_asset_results"))
-        connection.execute(text("DROP TABLE IF EXISTS deletion_cleanup_items"))
 
     config = Config("alembic.ini")
     command.upgrade(config, "head")
@@ -69,6 +68,7 @@ def test_foundation_migration_round_trip_and_physical_types():
         "nudges",
         "rhythm_profiles",
     }.issubset(set(inspector.get_table_names()))
+    assert "deletion_cleanup_items" not in inspector.get_table_names()
 
     asset_columns = {column["name"]: column for column in inspector.get_columns("assets")}
     assert asset_columns["id"]["type"].length == 36
@@ -193,7 +193,9 @@ def test_foundation_migration_round_trip_and_physical_types():
     assert isinstance(rhythm_columns["patterns_json"]["type"], mysql.JSON)
     assert rhythm_columns["timezone_name"]["type"].length == 64
 
-    assert revision == "0028_deletion_cleanup_items"
+    assert revision == "0031_challenge_indexes"
+    assert not inspector.has_table("deletion_cleanup_items")
+    assert inspector.has_table("email_rate_limit_buckets")
     engine.dispose()
 
 
@@ -203,7 +205,6 @@ def test_internal_mcp_migration_backfills_existing_domain_data():
     with engine.begin() as connection:
         connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
         connection.execute(text("DROP TABLE IF EXISTS onboarding_asset_results"))
-        connection.execute(text("DROP TABLE IF EXISTS deletion_cleanup_items"))
 
     config = Config("alembic.ini")
     command.upgrade(config, "0014_agent_session_foundation")
@@ -373,7 +374,7 @@ def test_internal_mcp_migration_backfills_existing_domain_data():
         revision = connection.execute(
             text("SELECT version_num FROM alembic_version")
         ).scalar_one()
-    assert revision == "0028_deletion_cleanup_items"
+    assert revision == "0031_challenge_indexes"
     engine.dispose()
 
 
@@ -383,7 +384,6 @@ def test_legacy_agent_data_backfill_preserves_same_name_contacts_and_chat():
     with engine.begin() as connection:
         connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
         connection.execute(text("DROP TABLE IF EXISTS onboarding_asset_results"))
-        connection.execute(text("DROP TABLE IF EXISTS deletion_cleanup_items"))
 
     config = Config("alembic.ini")
     command.upgrade(config, "0016_agent_pending_actions")
