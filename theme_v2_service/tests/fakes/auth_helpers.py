@@ -2,6 +2,7 @@
 from httpx import AsyncClient
 
 from app.auth.email_sender import get_verification_sender
+from app.config import get_settings
 
 
 async def register_user(
@@ -31,7 +32,7 @@ async def register_user(
             "email": email,
             "verification_code": code,
             "password": password,
-            "terms_version": "2026-08-v1",
+            "terms_version": get_settings().terms_version_current,
             "terms_accepted": True,
         },
     )

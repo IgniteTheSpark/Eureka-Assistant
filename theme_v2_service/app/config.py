@@ -5,6 +5,21 @@ from urllib.parse import urlparse
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_PRODUCTION_SENDER = "verify@mail.ureka.chat"
+_EXAMPLE_SECRET_MARKERS = ("replace-with", "example.com")
+
+
+def _is_example_placeholder(value: str) -> bool:
+    lowered = value.strip().lower()
+    return any(marker in lowered for marker in _EXAMPLE_SECRET_MARKERS)
+
+
+def _is_absolute_https_url(value: str) -> bool:
+    parsed = urlparse(value)
+    if parsed.scheme != "https" or not parsed.netloc:
+        return False
+    return not any(char.isspace() for char in value)
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -97,14 +112,32 @@ class Settings(BaseSettings):
                 raise ValueError("EMAIL_FIXED_CODE is forbidden in production")
             if self.email_provider != "aliyun_directmail":
                 raise ValueError("EMAIL_PROVIDER must be aliyun_directmail in production")
-            if not self.terms_url.startswith("https://"):
-                raise ValueError("TERMS_URL must be an HTTPS URL in production")
-            if not self.privacy_url.startswith("https://"):
-                raise ValueError("PRIVACY_URL must be an HTTPS URL in production")
+            if self.email_from_address.strip() != _PRODUCTION_SENDER:
+                raise ValueError(
+                    f"EMAIL_FROM_ADDRESS must be {_PRODUCTION_SENDER!r} in production"
+                )
+            if self.directmail_account_name.strip() != _PRODUCTION_SENDER:
+                raise ValueError(
+                    f"DIRECTMAIL_ACCOUNT_NAME must be {_PRODUCTION_SENDER!r} in production"
+                )
+            if not self.directmail_access_key_id.strip():
+                raise ValueError("DIRECTMAIL_ACCESS_KEY_ID is required in production")
+            if _is_example_placeholder(self.directmail_access_key_id):
+                raise ValueError(
+                    "DIRECTMAIL_ACCESS_KEY_ID must not be an example placeholder in production"
+                )
+            if not self.directmail_access_key_secret.strip():
+                raise ValueError("DIRECTMAIL_ACCESS_KEY_SECRET is required in production")
+            if _is_example_placeholder(self.directmail_access_key_secret):
+                raise ValueError(
+                    "DIRECTMAIL_ACCESS_KEY_SECRET must not be an example placeholder in production"
+                )
+            if not _is_absolute_https_url(self.terms_url):
+                raise ValueError("TERMS_URL must be an absolute HTTPS URL in production")
+            if not _is_absolute_https_url(self.privacy_url):
+                raise ValueError("PRIVACY_URL must be an absolute HTTPS URL in production")
             if not self.terms_version_current.strip():
                 raise ValueError("TERMS_VERSION_CURRENT is required in production")
-            self.email_from_address = "verify@mail.ureka.chat"
-            self.directmail_account_name = "verify@mail.ureka.chat"
         return self
 
     def provider_readiness_errors(self) -> list[str]:

@@ -3,6 +3,28 @@ from pydantic import ValidationError
 from app.config import Settings
 
 
+def _assert_prod_rejects(kwargs: dict) -> None:
+    config = {
+        "env": "prod",
+        "database_url": "mysql://u:p@mysql/db",
+        "jwt_secret": "production-secret-that-is-long-enough",
+        "email_provider": "aliyun_directmail",
+        "email_from_address": "verify@mail.ureka.chat",
+        "directmail_account_name": "verify@mail.ureka.chat",
+        "directmail_access_key_id": "LTAI-test-access-key",
+        "directmail_access_key_secret": "test-access-key-secret",
+        "terms_url": "https://terms.example.com",
+        "privacy_url": "https://privacy.example.com",
+        "terms_version_current": "prelaunch-v0",
+        **kwargs,
+    }
+    try:
+        Settings(**config)
+    except ValidationError:
+        return
+    raise AssertionError(f"production accepted unsafe configuration: {kwargs}")
+
+
 def test_prod_rejects_dev_secret():
     try:
         Settings(
@@ -27,6 +49,10 @@ def test_prod_requires_directmail_and_https_legal_links():
             "database_url": "mysql://u:p@mysql/db",
             "jwt_secret": "production-secret-that-is-long-enough",
             "email_provider": "aliyun_directmail",
+            "email_from_address": "verify@mail.ureka.chat",
+            "directmail_account_name": "verify@mail.ureka.chat",
+            "directmail_access_key_id": "LTAI-test-access-key",
+            "directmail_access_key_secret": "test-access-key-secret",
             "terms_url": "https://terms.example.com",
             "privacy_url": "https://privacy.example.com",
             **kwargs,
@@ -39,19 +65,82 @@ def test_prod_requires_directmail_and_https_legal_links():
 
 
 def test_prod_forces_fixed_sender_address():
+    """Senders are server-authoritative: wrong values are rejected, the valid
+    prelaunch sender/account is preserved verbatim (no silent rewrite)."""
     settings = Settings(
         env="prod",
         database_url="mysql://u:p@mysql/db",
         jwt_secret="production-secret-that-is-long-enough",
         email_provider="aliyun_directmail",
-        email_from_address="unsafe@example.com",
-        directmail_account_name="unsafe@example.com",
+        email_from_address="verify@mail.ureka.chat",
+        directmail_account_name="verify@mail.ureka.chat",
+        directmail_access_key_id="LTAI-prelaunch-access-key",
+        directmail_access_key_secret="prelaunch-access-key-secret",
         terms_url="https://terms.example.com",
         privacy_url="https://privacy.example.com",
+        terms_version_current="prelaunch-v0",
     )
 
     assert settings.email_from_address == "verify@mail.ureka.chat"
     assert settings.directmail_account_name == "verify@mail.ureka.chat"
+
+
+def test_prod_accepts_valid_prelaunch_placeholder_config():
+    """Valid prelaunch placeholders (prelaunch-v0 version, reserved example.com
+    HTTPS legal URLs, non-example DirectMail keys) construct successfully."""
+    settings = Settings(
+        env="prod",
+        database_url="mysql://u:p@mysql/db",
+        jwt_secret="production-secret-that-is-long-enough",
+        email_provider="aliyun_directmail",
+        email_from_address="verify@mail.ureka.chat",
+        directmail_account_name="verify@mail.ureka.chat",
+        directmail_access_key_id="LTAI-prelaunch-access-key",
+        directmail_access_key_secret="prelaunch-access-key-secret",
+        terms_url="https://example.com/terms",
+        privacy_url="https://example.com/privacy",
+        terms_version_current="prelaunch-v0",
+    )
+
+    assert settings.terms_url == "https://example.com/terms"
+    assert settings.privacy_url == "https://example.com/privacy"
+    assert settings.terms_version_current == "prelaunch-v0"
+    assert settings.email_from_address == "verify@mail.ureka.chat"
+    assert settings.directmail_account_name == "verify@mail.ureka.chat"
+
+
+def test_prod_rejects_wrong_sender_and_account():
+    for kwargs in (
+        {"email_from_address": "unsafe@example.com"},
+        {"email_from_address": "replace-with-sender@example.com"},
+        {"directmail_account_name": "unsafe@example.com"},
+    ):
+        _assert_prod_rejects(kwargs)
+
+
+def test_prod_rejects_missing_directmail_access_keys():
+    for kwargs in (
+        {"directmail_access_key_id": ""},
+        {"directmail_access_key_secret": ""},
+    ):
+        _assert_prod_rejects(kwargs)
+
+
+def test_prod_rejects_example_directmail_access_keys():
+    for kwargs in (
+        {"directmail_access_key_id": "replace-with-directmail-access-key-id"},
+        {"directmail_access_key_secret": "replace-with-directmail-access-key-secret"},
+    ):
+        _assert_prod_rejects(kwargs)
+
+
+def test_prod_rejects_malformed_https_legal_urls():
+    for kwargs in (
+        {"terms_url": "https://"},
+        {"privacy_url": "https://"},
+        {"terms_url": "https://terms.example.com/path with spaces"},
+    ):
+        _assert_prod_rejects(kwargs)
 
 
 def test_theme_v2_defaults_are_isolated(monkeypatch):

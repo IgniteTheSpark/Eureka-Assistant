@@ -5,12 +5,16 @@ Application-owned interface with three implementations:
   - AliyunDirectMailVerificationSender : production mainland-China provider
   - DisabledVerificationSender  : explicit local disable; fails readiness in prod
 
-Provider timeouts/failures become a bounded public error so the client can retry.
-DirectMail response payloads are never exposed to the client; codes and access
-keys are never logged.
+Provider timeouts/failures and configuration/initialization failures all become
+a bounded public error (`EmailDeliveryError`) so the client can retry. The
+blocking HTTP call (`urlopen`, response drain, and close) runs entirely inside
+one worker thread so the event loop stays free. DirectMail response payloads,
+recipient addresses, codes, and access keys are never logged or exposed to the
+client.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import logging
@@ -32,7 +36,13 @@ _DIRECTMAIL_SIGN_METHOD = "HMAC-SHA1"
 
 
 class EmailDeliveryError(Exception):
-    """Raised when the provider fails to deliver; safe to surface as a retryable error."""
+    """Raised when the provider (or its configuration) cannot deliver.
+
+    Safe to surface as a bounded, retryable error; never contains secrets.
+    """
+
+
+_SEND_FAILED_MESSAGE = "验证码发送失败，请稍后重试"
 
 
 class VerificationSender:
@@ -53,6 +63,8 @@ class FakeVerificationSender(VerificationSender):
     """Test provider. Records the last sent code for in-process retrieval.
 
     Never used in production: the provider factory refuses Mock in prod.
+    Recipient addresses and codes are intentionally absent from the log line
+    (the recorded `sent` list is the retrieval mechanism for tests).
     """
 
     def __init__(self) -> None:
@@ -67,10 +79,7 @@ class FakeVerificationSender(VerificationSender):
         expires_in_seconds: int,
     ) -> None:
         self.sent.append({"email": email, "code": code, "purpose": purpose})
-        # Mock is dev/test-only (the factory forbids it in production), so the
-        # code is logged for local testing. Production uses DirectMail and never
-        # logs codes.
-        logger.info("fake email to %s purpose=%s code=%s", email, purpose, code)
+        logger.info("fake verification code sent purpose=%s", purpose)
 
 
 class DisabledVerificationSender(VerificationSender):
@@ -101,17 +110,26 @@ class AliyunDirectMailVerificationSender(VerificationSender):
         access_key_secret: str | None = None,
         from_name: str | None = None,
     ) -> None:
-        settings = get_settings()
-        self.account_name = (
-            "verify@mail.ureka.chat"
-            if settings.env in {"prod", "production"}
-            else account_name or settings.directmail_account_name
-        )
-        self.access_key_id = access_key_id or settings.directmail_access_key_id
-        self.access_key_secret = access_key_secret or settings.directmail_access_key_secret
-        self.from_name = from_name or settings.email_from_name
-        if not (self.account_name and self.access_key_id and self.access_key_secret):
-            raise EmailDeliveryError("DirectMail credentials are not configured")
+        try:
+            settings = get_settings()
+            self.account_name = (
+                "verify@mail.ureka.chat"
+                if settings.env in {"prod", "production"}
+                else account_name or settings.directmail_account_name
+            )
+            self.access_key_id = access_key_id or settings.directmail_access_key_id
+            self.access_key_secret = (
+                access_key_secret or settings.directmail_access_key_secret
+            )
+            self.from_name = from_name or settings.email_from_name
+            if not (self.account_name and self.access_key_id and self.access_key_secret):
+                raise EmailDeliveryError("DirectMail credentials are not configured")
+        except EmailDeliveryError:
+            raise
+        except Exception as exc:
+            # Config failures are normalized into the bounded, retryable boundary.
+            logger.warning("directmail sender initialization failed")
+            raise EmailDeliveryError("DirectMail provider is not configured") from exc
 
     def _sign(self, params: dict[str, str]) -> str:
         canonical = "&".join(
@@ -162,26 +180,16 @@ class AliyunDirectMailVerificationSender(VerificationSender):
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
         try:
-            # Run the blocking HTTP call on a thread so the event loop stays free.
-            import asyncio
-
-            response = await asyncio.to_thread(
-                urllib.request.urlopen, request, timeout=10
-            )
-            status = response.status
-            # Drain (and discard) the response body — never log vendor payloads.
-            response.read()
+            # urlopen, drain, and close all run together inside the worker
+            # thread (to_thread), so blocking I/O never touches the event loop.
+            status = await asyncio.to_thread(_directmail_post, request, timeout=10)
         except Exception as exc:
-            logger.warning(
-                "directmail send failed to=%s purpose=%s", email, purpose
-            )
-            raise EmailDeliveryError("验证码发送失败，请稍后重试") from exc
+            logger.warning("directmail send failed purpose=%s", purpose)
+            raise EmailDeliveryError(_SEND_FAILED_MESSAGE) from exc
 
         if status != 200:
-            logger.warning(
-                "directmail returned %s to=%s purpose=%s", status, email, purpose
-            )
-            raise EmailDeliveryError("验证码发送失败，请稍后重试")
+            logger.warning("directmail returned status=%s purpose=%s", status, purpose)
+            raise EmailDeliveryError(_SEND_FAILED_MESSAGE)
 
     def _subject(self, purpose: str) -> str:
         return "UReka 注册验证码" if purpose == "register" else "UReka 重置密码验证码"
@@ -197,15 +205,28 @@ class AliyunDirectMailVerificationSender(VerificationSender):
         )
 
 
+def _directmail_post(request: urllib.request.Request, *, timeout: int) -> int:
+    """POST and fully consume the response inside this worker thread.
+
+    The response is closed by the context manager, the body is drained and
+    discarded (never parsed, never logged), and only the HTTP status is
+    returned.
+    """
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        status = response.status
+        response.read()
+    return status
+
+
 def _resolve_provider() -> VerificationSender:
-    """Strict provider resolution. Unknown/mock in production refuses to boot."""
+    """Strict provider resolution; failures surface as EmailDeliveryError."""
     settings = get_settings()
     provider = settings.email_provider
     if settings.env in {"prod", "production"}:
         if provider != "aliyun_directmail":
-            raise RuntimeError(
-                "EMAIL_PROVIDER must be 'aliyun_directmail' in production "
-                f"(got '{provider}'); mock/disabled providers are forbidden."
+            raise EmailDeliveryError(
+                "EMAIL_PROVIDER must be 'aliyun_directmail' in production; "
+                "mock/disabled providers are forbidden."
             )
         return AliyunDirectMailVerificationSender()
     if provider == "aliyun_directmail":
@@ -214,7 +235,7 @@ def _resolve_provider() -> VerificationSender:
         return DisabledVerificationSender()
     if provider == "mock":
         return FakeVerificationSender()
-    raise RuntimeError(f"unknown EMAIL_PROVIDER: {provider!r}")
+    raise EmailDeliveryError(f"unknown EMAIL_PROVIDER: {provider!r}")
 
 
 @lru_cache(maxsize=None)

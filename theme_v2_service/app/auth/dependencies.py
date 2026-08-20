@@ -14,7 +14,8 @@ async def get_current_user_id(
     """Resolve the authenticated user id, enforcing auth_version (§5.4).
 
     Token must be valid, reference an existing account, carry an auth_version
-    equal to the account's current one, and the account must not be deleted.
+    equal to the account's current one, and the account must not be deactivated
+    (停用账户).
     """
     value = request.headers.get("Authorization", "")
     if not value.startswith("Bearer "):
@@ -28,7 +29,7 @@ async def get_current_user_id(
         select(UserAccount).where(UserAccount.id == str(payload["sub"]))
     )
     if user is None or user.deleted_at is not None:
-        raise HTTPException(status_code=401, detail="账号不存在或已注销")
+        raise HTTPException(status_code=401, detail="账号不存在或已停用")
 
     token_version = int(payload.get("av", 0))
     if token_version != user.auth_version:

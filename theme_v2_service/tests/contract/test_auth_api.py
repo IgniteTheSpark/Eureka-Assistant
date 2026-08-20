@@ -1,10 +1,12 @@
 """Theme V2 auth API contract tests (§5.5)."""
+import json
+
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
-from app.auth.email_sender import get_verification_sender
+from app.auth.email_sender import EmailDeliveryError, get_verification_sender
 from app.auth.models import UserAccount
 from app.config import get_settings
 from app.db.models import UserSkill
@@ -46,6 +48,10 @@ async def _request_register_code(client, email: str):
     )
 
 
+def _current_terms_version() -> str:
+    return get_settings().terms_version_current
+
+
 async def _register_with_code(client, email: str, *, password: str = "Secret123!"):
     request_response = await _request_register_code(client, email)
     assert request_response.status_code == 200, request_response.text
@@ -56,7 +62,7 @@ async def _register_with_code(client, email: str, *, password: str = "Secret123!
             "email": email,
             "verification_code": code,
             "password": password,
-            "terms_version": "2026-08-v1",
+            "terms_version": _current_terms_version(),
             "terms_accepted": True,
         },
     )
@@ -71,6 +77,47 @@ async def test_verification_code_request_returns_bounded_info(client):
     assert body["resend_delay_seconds"] >= 0
     assert body["expires_in_seconds"] > 0
     assert "code" not in body
+
+
+async def test_verification_code_503_when_sender_construction_fails(
+    client, monkeypatch
+):
+    from app.auth import api as auth_api
+
+    def failing_init():
+        raise EmailDeliveryError("directmail not configured")
+
+    monkeypatch.setattr(auth_api, "get_verification_sender", failing_init)
+
+    response = await client.post(
+        "/api/auth/verification-codes",
+        json={"email": "bound@example.com", "purpose": "register"},
+    )
+
+    assert response.status_code == 503
+    body = response.json()
+    assert body["detail"] == "验证码发送失败，请稍后重试"
+    assert "directmail" not in json.dumps(body)
+
+
+async def test_verification_code_503_when_provider_fails(client, monkeypatch):
+    from app.auth import api as auth_api
+
+    class _FailingSender:
+        async def send_code(self, **kwargs):
+            raise EmailDeliveryError("provider timeout")
+
+    monkeypatch.setattr(auth_api, "get_verification_sender", lambda: _FailingSender())
+
+    response = await client.post(
+        "/api/auth/verification-codes",
+        json={"email": "bound@example.com", "purpose": "register"},
+    )
+
+    assert response.status_code == 503
+    body = response.json()
+    assert body["detail"] == "验证码发送失败，请稍后重试"
+    assert "provider timeout" not in json.dumps(body)
 
 
 async def test_register_normalizes_email_and_creates_verified_account(client):
@@ -111,7 +158,7 @@ async def test_register_without_terms_rejected(client):
             "email": "person@example.com",
             "verification_code": code,
         "password": "Secret123!",
-            "terms_version": "2026-08-v1",
+            "terms_version": _current_terms_version(),
             "terms_accepted": False,
         },
     )
@@ -128,7 +175,7 @@ async def test_register_with_wrong_code_rejected(client):
             "email": "person@example.com",
             "verification_code": "000000",
         "password": "Secret123!",
-            "terms_version": "2026-08-v1",
+            "terms_version": _current_terms_version(),
             "terms_accepted": True,
         },
     )
@@ -146,13 +193,32 @@ async def test_register_rejects_weak_password(client):
             "email": "weak-password@example.com",
             "verification_code": code,
             "password": "weakpass1",
-            "terms_version": "2026-08-v1",
+            "terms_version": _current_terms_version(),
             "terms_accepted": True,
         },
     )
 
     assert response.status_code == 422
     assert "大写字母" in response.json()["detail"]
+
+
+async def test_register_rejects_short_password_without_input_echo(client):
+    await _request_register_code(client, "short-password@example.com")
+    code = _last_sent_code("short-password@example.com")
+
+    response = await client.post(
+        "/api/auth/register",
+        json={
+            "email": "short-password@example.com",
+            "verification_code": code,
+            "password": "abc",
+            "terms_version": _current_terms_version(),
+            "terms_accepted": True,
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "密码长度至少 8 位"
 
 
 async def test_register_conflict_surfaces_on_verified_register(client):
@@ -272,13 +338,22 @@ async def test_change_password_revokes_session_and_requires_relogin(client):
         json={"current_password": "Secret123!", "new_password": "Changed789!"},
     )
     assert changed.status_code == 200
-    assert changed.json() == {"ok": True}
+    replacement = changed.json()
+    assert replacement["ok"] is True
+    assert replacement["token"]
+    assert replacement["user"]["id"] == registered.json()["user"]["id"]
 
     old_token_me = await client.get(
         "/api/auth/me",
         headers={"Authorization": f"Bearer {old_token}"},
     )
     assert old_token_me.status_code == 401
+
+    replacement_me = await client.get(
+        "/api/auth/me",
+        headers={"Authorization": f"Bearer {replacement['token']}"},
+    )
+    assert replacement_me.status_code == 200
 
     relogin = await client.post(
         "/api/auth/login",
@@ -298,3 +373,142 @@ async def test_change_password_rejects_wrong_current(client):
     )
 
     assert response.status_code == 400
+
+
+# --- Server-authoritative terms version (§5.5) ---
+
+
+async def test_register_rejects_missing_terms_version(client):
+    await _request_register_code(client, "termless@example.com")
+    code = _last_sent_code("termless@example.com")
+
+    response = await client.post(
+        "/api/auth/register",
+        json={
+            "email": "termless@example.com",
+            "verification_code": code,
+            "password": "Secret123!",
+            "terms_version": "",
+            "terms_accepted": True,
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "缺少服务条款版本，请刷新后重试"
+
+
+async def test_register_rejects_stale_terms_version(client):
+    await _request_register_code(client, "stale@example.com")
+    code = _last_sent_code("stale@example.com")
+
+    response = await client.post(
+        "/api/auth/register",
+        json={
+            "email": "stale@example.com",
+            "verification_code": code,
+            "password": "Secret123!",
+            "terms_version": "2020-01-v0",
+            "terms_accepted": True,
+        },
+    )
+
+    assert response.status_code == 409
+    assert "最新版本" in response.json()["detail"]
+
+
+async def test_register_records_server_current_terms_version(client):
+    await _request_register_code(client, "terms@example.com")
+    code = _last_sent_code("terms@example.com")
+    current = _current_terms_version()
+
+    response = await client.post(
+        "/api/auth/register",
+        json={
+            "email": "terms@example.com",
+            "verification_code": code,
+            "password": "Secret123!",
+            "terms_version": current,
+            "terms_accepted": True,
+        },
+    )
+    assert response.status_code == 200
+
+    async with AsyncSessionFactory() as database:
+        user = await database.scalar(
+            select(UserAccount).where(UserAccount.email == "terms@example.com")
+        )
+    assert user is not None
+    # The server records its own current version — never a client-supplied value.
+    assert user.terms_version == current
+    assert user.terms_accepted_at is not None
+
+
+async def test_register_records_rotated_server_terms_version(client, monkeypatch):
+    """After the server bumps TERMS_VERSION_CURRENT, the recorded value follows
+    the server, and the previously-current client version becomes stale."""
+    from app.config import get_settings as _get_settings
+
+    monkeypatch.setattr(_get_settings(), "terms_version_current", "2026-09-v2")
+
+    stale = await client.post(
+        "/api/auth/register",
+        json={
+            "email": "rotate@example.com",
+            "verification_code": "000000",
+            "password": "Secret123!",
+            "terms_version": "2026-08-v1",
+            "terms_accepted": True,
+        },
+    )
+    assert stale.status_code == 409
+
+    await _request_register_code(client, "rotate@example.com")
+    code = _last_sent_code("rotate@example.com")
+    fresh = await client.post(
+        "/api/auth/register",
+        json={
+            "email": "rotate@example.com",
+            "verification_code": code,
+            "password": "Secret123!",
+            "terms_version": "2026-09-v2",
+            "terms_accepted": True,
+        },
+    )
+    assert fresh.status_code == 200
+
+    async with AsyncSessionFactory() as database:
+        user = await database.scalar(
+            select(UserAccount).where(UserAccount.email == "rotate@example.com")
+        )
+    assert user is not None
+    assert user.terms_version == "2026-09-v2"
+
+
+# --- Unified password policy across register / reset / account change (§5.5) ---
+
+
+async def test_password_reset_rejects_weak_password(client):
+    registered = await _register_with_code(client, "weakreset@example.com")
+    assert registered.status_code == 200
+
+    assert (await _request_reset_code(client, "weakreset@example.com")).status_code == 200
+    code = _last_sent_code("weakreset@example.com")
+
+    response = await client.post(
+        "/api/auth/password-reset",
+        json={
+            "email": "weakreset@example.com",
+            "verification_code": code,
+            "new_password": "weakpass1",
+        },
+    )
+
+    assert response.status_code == 422
+    assert "大写字母" in response.json()["detail"]
+
+    # The reset must NOT have consumed the code or changed the password.
+    old_login = await client.post(
+        "/api/auth/login",
+        json={"email": "weakreset@example.com", "password": "Secret123!"},
+    )
+    assert old_login.status_code == 200

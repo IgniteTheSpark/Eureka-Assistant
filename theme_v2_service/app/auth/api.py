@@ -2,7 +2,7 @@ import re
 from app.db.base import utc_now
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -56,7 +56,7 @@ class VerificationCodeRequest(BaseModel):
 class RegisterRequest(BaseModel):
     email: str
     verification_code: str
-    password: str = Field(min_length=8, max_length=128)
+    password: str
     terms_version: str
     terms_accepted: bool
 
@@ -64,12 +64,20 @@ class RegisterRequest(BaseModel):
 class PasswordResetRequest(BaseModel):
     email: str
     verification_code: str
-    new_password: str = Field(min_length=8, max_length=128)
+    new_password: str
 
 
 class ChangePasswordRequest(BaseModel):
     current_password: str
-    new_password: str = Field(min_length=8, max_length=128)
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def _password_policy(cls, value: str) -> str:
+        error = _password_policy_error(value)
+        if error is not None:
+            raise ValueError(error)
+        return value
 
 
 def _normalize_email(email: str) -> str:
@@ -77,6 +85,10 @@ def _normalize_email(email: str) -> str:
 
 
 def _password_policy_error(password: str) -> str | None:
+    if len(password) < _MIN_PASSWORD:
+        return f"密码长度至少 {_MIN_PASSWORD} 位"
+    if len(password) > _MAX_PASSWORD:
+        return f"密码长度不能超过 {_MAX_PASSWORD} 位"
     if not _PASSWORD_UPPER_RE.search(password):
         return "密码必须包含大写字母 A-Z"
     if not _PASSWORD_LOWER_RE.search(password):
@@ -137,9 +149,9 @@ async def request_verification_code(
     except ChallengeRateLimitError as exc:
         raise HTTPException(status_code=429, detail=str(exc)) from exc
 
-    sender = get_verification_sender()
     settings = get_settings()
     try:
+        sender = get_verification_sender()
         await sender.send_code(
             email=email,
             code=code,
@@ -166,6 +178,12 @@ async def register(
         raise HTTPException(status_code=400, detail="邮箱格式不正确")
     if not body.terms_accepted:
         raise HTTPException(status_code=400, detail="请先阅读并同意服务条款")
+    terms_version = (body.terms_version or "").strip()
+    if not terms_version:
+        raise HTTPException(status_code=400, detail="缺少服务条款版本，请刷新后重试")
+    settings = get_settings()
+    if terms_version != settings.terms_version_current:
+        raise HTTPException(status_code=409, detail="服务条款已更新，请阅读并同意最新版本后重试")
     password_error = _password_policy_error(body.password)
     if password_error is not None:
         raise HTTPException(status_code=422, detail=password_error)
@@ -183,6 +201,7 @@ async def register(
         raise HTTPException(status_code=400, detail="验证码已失效，请重新获取") from exc
     except ChallengeLockedError as exc:
         raise HTTPException(status_code=429, detail=str(exc)) from exc
+    await session.commit()
 
     existing = await session.scalar(
         select(UserAccount).where(UserAccount.email == email)
@@ -197,7 +216,7 @@ async def register(
         email_verified_at=now,
         onboarding_status=ONBOARDING_PENDING,
         terms_accepted_at=now,
-        terms_version=body.terms_version,
+        terms_version=settings.terms_version_current,
         auth_version=1,
     )
     session.add(user)
@@ -257,6 +276,9 @@ async def password_reset(
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     email = _normalize_email(body.email)
+    password_error = _password_policy_error(body.new_password)
+    if password_error is not None:
+        raise HTTPException(status_code=422, detail=password_error)
     challenge = await find_active_challenge(
         session, email=email, purpose=CHALLENGE_PASSWORD_RESET
     )
@@ -270,6 +292,7 @@ async def password_reset(
         raise HTTPException(status_code=400, detail="验证码已失效，请重新获取") from exc
     except ChallengeLockedError as exc:
         raise HTTPException(status_code=429, detail=str(exc)) from exc
+    await session.commit()
 
     user = await session.scalar(
         select(UserAccount).where(UserAccount.email == email)
