@@ -1,9 +1,14 @@
+import 'dart:async';
+
 import 'package:eureka/chat/chat_models.dart';
 import 'package:eureka/theme/app_theme.dart';
 import 'package:eureka/theme/eureka_colors.dart';
 import 'package:eureka/theme_v2/session/session_composer.dart';
 import 'package:eureka/theme_v2/session/theme_v2_session_page.dart';
 import 'package:eureka/voice_input/voice_input_field.dart';
+import 'package:eureka/voice_input/voice_input_models.dart';
+import 'package:eureka/voice_input/voice_input_scope.dart';
+import 'package:eureka/voice_input/voice_input_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -171,6 +176,81 @@ void main() {
       isNull,
     );
   });
+
+  testWidgets('voice transcript always follows the newest line', (
+    tester,
+  ) async {
+    final controller = FakeSessionController();
+    final voiceSession = _ComposerVoiceSession();
+    await _pumpKeyboard(
+      tester,
+      controller: controller,
+      voiceService: _ComposerVoiceService(voiceSession),
+    );
+    final field = find.byKey(const ValueKey('session-composer-field'));
+
+    await tester.tap(field);
+    await tester.pump();
+    expect(tester.widget<TextField>(field).focusNode!.hasFocus, isTrue);
+    await tester.tap(find.byKey(VoiceInputField.micKey));
+    await tester.pump();
+    expect(tester.widget<TextField>(field).focusNode!.hasFocus, isFalse);
+    expect(find.byKey(const ValueKey('session-send')), findsNothing);
+
+    final firstTranscript = List<String>.generate(
+      12,
+      (index) => '第 ${index + 1} 行语音内容',
+    ).join('\n');
+    voiceSession.emit(
+      VoiceTranscriptEvent(
+        kind: VoiceTranscriptKind.partial,
+        sequence: 1,
+        text: firstTranscript,
+      ),
+    );
+    await tester.pump();
+
+    ScrollableState fieldScroll() => tester.state<ScrollableState>(
+      find.descendant(of: field, matching: find.byType(Scrollable)).first,
+    );
+
+    final scrollable = fieldScroll();
+    expect(scrollable.position.maxScrollExtent, greaterThan(0));
+    scrollable.position.jumpTo(0);
+
+    final nextTranscript = '$firstTranscript\n第 13 行最新语音内容';
+    voiceSession.emit(
+      VoiceTranscriptEvent(
+        kind: VoiceTranscriptKind.partial,
+        sequence: 2,
+        text: nextTranscript,
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(
+      fieldScroll().position.pixels,
+      closeTo(fieldScroll().position.maxScrollExtent, 1),
+    );
+
+    voiceSession.emit(
+      VoiceTranscriptEvent(
+        kind: VoiceTranscriptKind.finalTranscript,
+        sequence: 3,
+        text: nextTranscript,
+        audioDurationMs: 1200,
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('session-send')), findsOneWidget);
+    expect(tester.widget<TextField>(field).focusNode!.hasFocus, isFalse);
+    expect(
+      fieldScroll().position.pixels,
+      closeTo(fieldScroll().position.maxScrollExtent, 1),
+    );
+  });
 }
 
 Future<void> _pumpKeyboard(
@@ -179,11 +259,16 @@ Future<void> _pumpKeyboard(
   Size size = const Size(360, 800),
   EdgeInsets viewInsets = EdgeInsets.zero,
   TextScaler textScaler = TextScaler.noScaling,
+  VoiceInputServiceClient? voiceService,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = size;
   addTearDown(tester.view.resetDevicePixelRatio);
   addTearDown(tester.view.resetPhysicalSize);
+  final session = ThemeV2SessionPage(
+    controller: controller,
+    initializeController: false,
+  );
   await tester.pumpWidget(
     MediaQuery(
       data: MediaQueryData(
@@ -194,13 +279,46 @@ Future<void> _pumpKeyboard(
       ),
       child: MaterialApp(
         theme: buildEurekaTheme(EurekaColors.light),
-        home: ThemeV2SessionPage(
-          controller: controller,
-          initializeController: false,
-        ),
+        home: voiceService == null
+            ? session
+            : VoiceInputHost(service: voiceService, child: session),
       ),
     ),
   );
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 100));
+}
+
+final class _ComposerVoiceService implements VoiceInputServiceClient {
+  const _ComposerVoiceService(this.session);
+
+  final _ComposerVoiceSession session;
+
+  @override
+  Future<VoiceInputSessionHandle> start(VoiceInputMode mode) async => session;
+}
+
+final class _ComposerVoiceSession implements VoiceInputSessionHandle {
+  final StreamController<VoiceInputEvent> _events =
+      StreamController<VoiceInputEvent>();
+
+  void emit(VoiceInputEvent event) => _events.add(event);
+
+  @override
+  Stream<VoiceInputEvent> get events => _events.stream;
+
+  @override
+  VoiceInputMode get mode => VoiceInputMode.ordinary;
+
+  @override
+  String get voiceSessionId => 'session-composer-test';
+
+  @override
+  Future<void> cancel() async {}
+
+  @override
+  Future<void> dispose() async {}
+
+  @override
+  Future<void> stop() async {}
 }

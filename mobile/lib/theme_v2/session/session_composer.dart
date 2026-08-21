@@ -34,9 +34,14 @@ class SessionComposer extends StatefulWidget {
 }
 
 class _SessionComposerState extends State<SessionComposer> {
+  final ScrollController _textScrollController = ScrollController();
+  bool _tailFollowScheduled = false;
+  late int _lastTerminalCount;
+
   @override
   void initState() {
     super.initState();
+    _lastTerminalCount = widget.voiceController.terminalCount;
     _addListeners(widget);
   }
 
@@ -47,6 +52,7 @@ class _SessionComposerState extends State<SessionComposer> {
         !identical(oldWidget.focusNode, widget.focusNode) ||
         !identical(oldWidget.voiceController, widget.voiceController)) {
       _removeListeners(oldWidget);
+      _lastTerminalCount = widget.voiceController.terminalCount;
       _addListeners(widget);
     }
   }
@@ -64,10 +70,27 @@ class _SessionComposerState extends State<SessionComposer> {
   }
 
   void _onComposerChanged() {
+    final terminalCount = widget.voiceController.terminalCount;
+    final terminalChanged = terminalCount != _lastTerminalCount;
+    _lastTerminalCount = terminalCount;
     if (widget.voiceController.isBusy && widget.focusNode.hasFocus) {
       widget.focusNode.unfocus();
     }
+    if (widget.voiceController.isBusy || terminalChanged) {
+      _scheduleVoiceTailFollow();
+    }
     if (mounted) setState(() {});
+  }
+
+  void _scheduleVoiceTailFollow() {
+    if (_tailFollowScheduled) return;
+    _tailFollowScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _tailFollowScheduled = false;
+      if (!mounted || !_textScrollController.hasClients) return;
+      final position = _textScrollController.position;
+      _textScrollController.jumpTo(position.maxScrollExtent);
+    });
   }
 
   Future<void> _submit(String text) async {
@@ -144,6 +167,7 @@ class _SessionComposerState extends State<SessionComposer> {
                 child: TextField(
                   key: const ValueKey('session-composer-field'),
                   controller: widget.controller,
+                  scrollController: _textScrollController,
                   focusNode: widget.focusNode,
                   readOnly: voice.isBusy,
                   minLines: 1,
@@ -348,6 +372,7 @@ class _SessionComposerState extends State<SessionComposer> {
   @override
   void dispose() {
     _removeListeners(widget);
+    _textScrollController.dispose();
     super.dispose();
   }
 }
