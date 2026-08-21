@@ -8,6 +8,48 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('position duration only animates an active root handoff', () {
+    expect(
+      shellRekaPositionDuration(reduceMotion: false, handoffActive: false),
+      Duration.zero,
+    );
+    expect(
+      shellRekaPositionDuration(reduceMotion: false, handoffActive: true),
+      ShellDitheredReka.transitionDuration,
+    );
+    expect(
+      shellRekaPositionDuration(reduceMotion: true, handoffActive: true),
+      Duration.zero,
+    );
+  });
+
+  testWidgets('Today visual follows controller drag in one frame', (
+    tester,
+  ) async {
+    final harness = _Harness();
+    addTearDown(harness.dispose);
+    harness.motion.layout(
+      const Size(400, 700),
+      reservedInsets: const EdgeInsets.all(4),
+    );
+    await tester.pumpWidget(
+      _host(harness.child(mode: ShellDitheredRekaMode.today)),
+    );
+    final before = tester.getCenter(find.byKey(ShellDitheredReka.visualKey));
+    final start = harness.motion.rekaCenter;
+
+    harness.motion.beginDrag(start);
+    harness.motion.updateDrag(
+      start + const Offset(90, -30),
+      const Duration(milliseconds: 16),
+    );
+    await tester.pump();
+
+    final after = tester.getCenter(find.byKey(ShellDitheredReka.visualKey));
+    expect(after.dx - before.dx, closeTo(90, .01));
+    expect(after.dy - before.dy, closeTo(-30, .01));
+  });
+
   testWidgets('Dock mode floats one dither renderer without changing Dock', (
     tester,
   ) async {
@@ -83,23 +125,24 @@ class _Harness {
   final ShellRekaPresentationController presentation =
       ShellRekaPresentationController();
 
-  Widget child() => Stack(
-    children: [
-      ThemeV2FloatingDock(selectedIndex: 1, onDestinationSelected: (_) {}),
-      Positioned.fill(
-        child: ShellDitheredReka(
-          mode: ShellDitheredRekaMode.dock,
-          motionController: motion,
-          presentationController: presentation,
-          onTap: (_) {},
-          onLongPressStart: () {},
-          onLongPressMove: (_) {},
-          onLongPressEnd: () {},
-          onLongPressCancel: () {},
-        ),
-      ),
-    ],
-  );
+  Widget child({ShellDitheredRekaMode mode = ShellDitheredRekaMode.dock}) =>
+      Stack(
+        children: [
+          ThemeV2FloatingDock(selectedIndex: 1, onDestinationSelected: (_) {}),
+          Positioned.fill(
+            child: ShellDitheredReka(
+              mode: mode,
+              motionController: motion,
+              presentationController: presentation,
+              onTap: (_) {},
+              onLongPressStart: () {},
+              onLongPressMove: (_) {},
+              onLongPressEnd: () {},
+              onLongPressCancel: () {},
+            ),
+          ),
+        ],
+      );
 
   void dispose() {
     motion.dispose();

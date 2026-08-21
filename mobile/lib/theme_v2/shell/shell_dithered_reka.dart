@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -10,6 +11,15 @@ import 'shell_reka_presentation_controller.dart';
 import 'theme_v2_floating_dock.dart';
 
 enum ShellDitheredRekaMode { today, dock }
+
+@visibleForTesting
+Duration shellRekaPositionDuration({
+  required bool reduceMotion,
+  required bool handoffActive,
+}) {
+  if (reduceMotion || !handoffActive) return Duration.zero;
+  return ShellDitheredReka.transitionDuration;
+}
 
 class ShellDitheredReka extends StatefulWidget {
   const ShellDitheredReka({
@@ -73,6 +83,8 @@ class _ShellDitheredRekaState extends State<ShellDitheredReka>
   bool? _reduceMotion;
   bool _appIsResumed = true;
   bool _rebuildScheduled = false;
+  bool _handoffActive = false;
+  Timer? _handoffTimer;
 
   @override
   void initState() {
@@ -94,6 +106,14 @@ class _ShellDitheredRekaState extends State<ShellDitheredReka>
   @override
   void didUpdateWidget(covariant ShellDitheredReka oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.mode != widget.mode) {
+      _handoffTimer?.cancel();
+      _handoffActive = true;
+      _handoffTimer = Timer(ShellDitheredReka.transitionDuration, () {
+        if (!mounted) return;
+        setState(() => _handoffActive = false);
+      });
+    }
     if (!identical(oldWidget.motionController, widget.motionController)) {
       oldWidget.motionController.removeListener(_onChanged);
       widget.motionController.addListener(_onChanged);
@@ -181,6 +201,7 @@ class _ShellDitheredRekaState extends State<ShellDitheredReka>
     WidgetsBinding.instance.removeObserver(this);
     widget.motionController.removeListener(_onChanged);
     widget.presentationController.removeListener(_onChanged);
+    _handoffTimer?.cancel();
     _breathing.dispose();
     super.dispose();
   }
@@ -203,9 +224,10 @@ class _ShellDitheredRekaState extends State<ShellDitheredReka>
             ? 1.0
             : ShellDitheredReka.dockVisibleSize.width /
                   _config.visibleBodyWidth;
-        final duration = reduceMotion
-            ? Duration.zero
-            : ShellDitheredReka.transitionDuration;
+        final duration = shellRekaPositionDuration(
+          reduceMotion: reduceMotion,
+          handoffActive: _handoffActive,
+        );
 
         return Stack(
           clipBehavior: Clip.none,
