@@ -140,6 +140,7 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
   Size _box = Size.zero;
   bool _reduceMotion = false;
   Offset _gravity = const Offset(0, 20);
+  Duration? _lastTickElapsed;
 
   bool get _foreground {
     final state = WidgetsBinding.instance.lifecycleState;
@@ -155,6 +156,8 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
   static const _settledSlotCount = 22;
   static const _compactDiameter = 36.0;
   static const _minimumTargetSize = 44.0;
+  static const _physicsStepSeconds = 1 / 60;
+  static const _maximumCatchUpSeconds = .2;
 
   bool get _usesCompactGrid =>
       _reduceMotion && widget.assets.length > _settledSlotCount;
@@ -350,6 +353,7 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
   void _syncLifecycle() {
     if (!_physicsActive) {
       _ticker?.stop();
+      _lastTickElapsed = null;
       unawaited(_gravitySubscription?.cancel());
       _gravitySubscription = null;
       return;
@@ -387,6 +391,7 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
   }
 
   void _startTicker() {
+    _lastTickElapsed = Duration.zero;
     (_ticker ??= createTicker(_onTick)).start();
   }
 
@@ -398,11 +403,13 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
     if (box == Size.zero || widget.assets.isEmpty) {
       _field = null;
       _ticker?.stop();
+      _lastTickElapsed = null;
       return;
     }
     if (_usesCompactGrid) {
       _field = null;
       _ticker?.stop();
+      _lastTickElapsed = null;
       _repaint.value++;
       _syncLifecycle();
       return;
@@ -541,9 +548,22 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
     if (!_physicsActive || field == null) return;
     if (!field.anyAwake) {
       _ticker?.stop();
+      _lastTickElapsed = null;
       return;
     }
-    field.step();
+
+    final previousElapsed = _lastTickElapsed ?? Duration.zero;
+    _lastTickElapsed = elapsed;
+    var remainingSeconds =
+        (elapsed - previousElapsed).inMicroseconds /
+        Duration.microsecondsPerSecond;
+    remainingSeconds = remainingSeconds.clamp(0, _maximumCatchUpSeconds);
+    if (remainingSeconds <= 0) return;
+    while (remainingSeconds > 1e-9) {
+      final stepSeconds = math.min(remainingSeconds, _physicsStepSeconds);
+      field.step(stepSeconds);
+      remainingSeconds -= stepSeconds;
+    }
     _repaint.value++;
   }
 
