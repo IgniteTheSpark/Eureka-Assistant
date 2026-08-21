@@ -29,12 +29,9 @@ void main() {
     final bodyRect = tester.getRect(find.byKey(const ValueKey('test-body')));
     expect(
       scaffoldRect.bottom - bodyRect.bottom,
-      ThemeV2FloatingDock.companionContentClearance,
+      ThemeV2FloatingDock.contentClearance,
     );
-    expect(
-      ThemeV2FloatingDock.companionContentClearance,
-      ThemeV2FloatingDock.compositionHeight + ThemeV2FloatingDock.contentGap,
-    );
+    expect(ThemeV2FloatingDock.contentClearance, 72);
     expect(find.byKey(const ValueKey('test-companion')), findsOneWidget);
   });
 

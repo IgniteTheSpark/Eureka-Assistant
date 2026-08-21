@@ -382,7 +382,7 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
         ? ThemeV2GlobalTopNav.floatingExtent
         : 0.0;
     final bottomChromeInset = widget.extendUnderChrome
-        ? ThemeV2FloatingDock.companionContentClearance + bottomPadding
+        ? ThemeV2FloatingDock.contentClearance + bottomPadding
         : 0.0;
     return ColoredBox(
       color: context.themeV2.background,

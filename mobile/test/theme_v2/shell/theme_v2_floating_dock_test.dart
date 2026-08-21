@@ -4,28 +4,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('Dock owns one 248x64 shell and one 76x72 cockpit', (
+  testWidgets('Dock restores one compact three-destination shell', (
     tester,
   ) async {
     await tester.pumpWidget(
       _host(
-        ThemeV2FloatingDock(
-          selectedIndex: 1,
-          onDestinationSelected: (_) {},
-          rekaCockpit: const SizedBox(key: ValueKey('cockpit-child')),
-        ),
+        ThemeV2FloatingDock(selectedIndex: 1, onDestinationSelected: (_) {}),
       ),
     );
 
     expect(
       tester.getSize(find.byKey(ThemeV2FloatingDock.dockKey)),
-      const Size(248, 64),
+      const Size(169, 60),
     );
-    expect(
-      tester.getSize(find.byKey(ThemeV2FloatingDock.cockpitKey)),
-      const Size(76, 72),
-    );
-    expect(find.byKey(const ValueKey('cockpit-child')), findsOneWidget);
+    expect(find.byKey(ThemeV2FloatingDock.cockpitKey), findsNothing);
     for (final label in const ['今日', '日历', '资产']) {
       final size = tester.getSize(find.bySemanticsLabel(label));
       expect(size.width, greaterThanOrEqualTo(44), reason: label);
@@ -33,16 +25,14 @@ void main() {
     }
   });
 
-  testWidgets('Today keeps an empty recess without a Reka hit target', (
-    tester,
-  ) async {
+  testWidgets('Today keeps no empty Reka recess or hit target', (tester) async {
     await tester.pumpWidget(
       _host(
         ThemeV2FloatingDock(selectedIndex: 0, onDestinationSelected: (_) {}),
       ),
     );
 
-    expect(find.byKey(ThemeV2FloatingDock.cockpitKey), findsOneWidget);
+    expect(find.byKey(ThemeV2FloatingDock.cockpitKey), findsNothing);
     expect(find.bySemanticsLabel(RegExp(r'^Reka，')), findsNothing);
   });
 
@@ -58,7 +48,7 @@ void main() {
 
     expect(
       tester.getSize(find.byKey(ThemeV2FloatingDock.compositionKey)),
-      const Size(248, 98),
+      const Size(169, 60),
     );
     final compositionBottom = tester
         .getBottomLeft(find.byKey(ThemeV2FloatingDock.compositionKey))

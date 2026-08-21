@@ -21,19 +21,17 @@ class ThemeV2FloatingDock extends StatelessWidget {
   static const double elevation = 8;
   static const double lightRadius = 18;
   static Color get lightShadowColor => Colors.black.withValues(alpha: 0.12);
-  static const Size shellSize = Size(248, 64);
+  static const Size shellSize = Size(169, 60);
   static const double cockpitExtent = 76;
   static const double cockpitTargetExtent = 72;
   static const double cockpitRise = 34;
-  static const double compositionHeight = 98;
+  static const double compositionHeight = 60;
   static const double contentGap = 12;
-  static const double companionContentClearance =
-      compositionHeight + contentGap;
-  static const double contentClearance = companionContentClearance;
+  static const double contentClearance = compositionHeight + contentGap;
   static const double cockpitTopAboveDockBottom = compositionHeight;
   static const double miniRekaGap = 6;
   static const double viewportBottomPadding = 35;
-  static const double dockHeight = 64;
+  static const double dockHeight = 60;
 
   final int selectedIndex;
   final ValueChanged<int> onDestinationSelected;
@@ -73,47 +71,19 @@ class ThemeV2FloatingDock extends StatelessWidget {
           key: compositionKey,
           width: shellSize.width,
           height: compositionHeight,
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                height: shellSize.height,
-                child: ThemeV2GlassChrome(
-                  materialKey: dockKey,
-                  elevation: elevation,
-                  shadowColor: dark
-                      ? Colors.black.withValues(alpha: 0.22)
-                      : lightShadowColor,
-                  borderRadius: BorderRadius.circular(dark ? 20 : lightRadius),
-                  child: Row(
-                    children: [
-                      SizedBox(
-                        width: 88,
-                        child: Row(
-                          children: [
-                            Expanded(child: _destination(0)),
-                            Expanded(child: _destination(1)),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: cockpitExtent),
-                      SizedBox(width: 84, child: _destination(2)),
-                    ],
-                  ),
-                ),
-              ),
-              Positioned(
-                key: cockpitKey,
-                left: (shellSize.width - cockpitExtent) / 2,
-                top: 0,
-                width: cockpitExtent,
-                height: cockpitTargetExtent,
-                child: _DockCockpit(child: rekaCockpit),
-              ),
-            ],
+          child: ThemeV2GlassChrome(
+            materialKey: dockKey,
+            elevation: elevation,
+            shadowColor: dark
+                ? Colors.black.withValues(alpha: 0.22)
+                : lightShadowColor,
+            borderRadius: BorderRadius.circular(dark ? 20 : lightRadius),
+            child: Row(
+              children: [
+                for (var index = 0; index < _destinations.length; index++)
+                  Expanded(child: _destination(index)),
+              ],
+            ),
           ),
         ),
       ),
@@ -128,48 +98,6 @@ class ThemeV2FloatingDock extends StatelessWidget {
     selected: selectedIndex == index,
     onPressed: () => onDestinationSelected(index),
   );
-}
-
-class _DockCockpit extends StatelessWidget {
-  const _DockCockpit({required this.child});
-
-  final Widget? child;
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.themeV2;
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: const BorderRadius.vertical(
-          top: Radius.circular(30),
-          bottom: Radius.circular(22),
-        ),
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            tokens.surface.withValues(alpha: dark ? .96 : .92),
-            tokens.background.withValues(alpha: dark ? .9 : .84),
-          ],
-        ),
-        border: Border.all(color: tokens.border),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: dark ? .26 : .12),
-            blurRadius: 18,
-            offset: const Offset(0, 7),
-          ),
-          BoxShadow(
-            color: tokens.accent.withValues(alpha: dark ? .09 : .07),
-            blurRadius: 16,
-            spreadRadius: -5,
-          ),
-        ],
-      ),
-      child: Center(child: child),
-    );
-  }
 }
 
 class _DockDestination extends StatelessWidget {

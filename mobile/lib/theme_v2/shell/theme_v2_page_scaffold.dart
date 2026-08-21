@@ -57,7 +57,7 @@ class ThemeV2PageScaffold extends StatelessWidget {
         ? topNavExtent
         : 0.0;
     final bottomClearance = showDock && !extendBodyBehindChrome
-        ? ThemeV2FloatingDock.companionContentClearance +
+        ? ThemeV2FloatingDock.contentClearance +
               MediaQuery.paddingOf(context).bottom
         : 0.0;
     final composition = SafeArea(
