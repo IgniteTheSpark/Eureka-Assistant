@@ -3,18 +3,26 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('circle pressure is strongest at center and zero outside feather', () {
-    const source = ThemeV2DitherSource.circle(
+  test('circle pressure expands beyond its resting feather with energy', () {
+    const resting = ThemeV2DitherSource.circle(
+      center: Offset(40, 40),
+      radius: 20,
+    );
+    const moving = ThemeV2DitherSource.circle(
       center: Offset(40, 40),
       radius: 20,
       energy: .7,
     );
 
     expect(
-      themeV2DitherPressureAt(const Offset(40, 40), source),
+      themeV2DitherPressureAt(const Offset(40, 40), moving),
       greaterThan(.9),
     );
-    expect(themeV2DitherPressureAt(const Offset(80, 40), source), 0);
+    expect(themeV2DitherPressureAt(const Offset(80, 40), resting), 0);
+    expect(
+      themeV2DitherPressureAt(const Offset(80, 40), moving),
+      greaterThan(.1),
+    );
   });
 
   test('capsule pressure covers its body but not its exterior', () {

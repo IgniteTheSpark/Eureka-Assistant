@@ -115,8 +115,10 @@ float displacement(vec2 point) {
     }
     vec4 rect = uSourceRects[index];
     vec2 meta = uSourceMeta[index];
-    float distance = sourceDistance(point, rect, meta.x);
-    float feather = clamp(min(rect.z, rect.w) * 0.44, 4.0, 14.0);
+    float diameter = min(rect.z, rect.w) * 2.0;
+    float spread = clamp(meta.y, 0.0, 1.0) * clamp(diameter * 0.34, 18.0, 24.0);
+    float distance = sourceDistance(point, rect, meta.x) - spread;
+    float feather = clamp(min(rect.z, rect.w) * 0.44, 4.0, 14.0) + spread * 0.35;
     float influence = 1.0 - smoothstep(-feather, feather, distance);
     pressure = max(pressure, influence * (1.0 + meta.y * 0.18));
   }

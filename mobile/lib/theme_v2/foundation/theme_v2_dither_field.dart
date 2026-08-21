@@ -34,6 +34,12 @@ class ThemeV2DitherSource {
   Size get size => _capsuleSize ?? Size.square(_radius * 2);
 }
 
+double themeV2DitherSpreadFor(ThemeV2DitherSource source) {
+  final diameter = math.min(source.size.width, source.size.height);
+  final maximumSpread = (diameter * .34).clamp(18.0, 24.0);
+  return source.energy.clamp(0, 1).toDouble() * maximumSpread;
+}
+
 double themeV2DitherPressureAt(Offset point, ThemeV2DitherSource source) {
   final delta = point - source.center;
   final halfWidth = source.size.width / 2;
@@ -46,11 +52,12 @@ double themeV2DitherPressureAt(Offset point, ThemeV2DitherSource source) {
       return math.sqrt(x * x + delta.dy * delta.dy) - halfHeight;
     }(),
   };
-  final feather = (math.min(source.size.width, source.size.height) * .22).clamp(
-    4.0,
-    14.0,
-  );
-  final linear = 1 - ((signedDistance + feather) / (feather * 2)).clamp(0, 1);
+  final spread = themeV2DitherSpreadFor(source);
+  final feather =
+      (math.min(source.size.width, source.size.height) * .22).clamp(4.0, 14.0) +
+      spread * .35;
+  final expandedDistance = signedDistance - spread;
+  final linear = 1 - ((expandedDistance + feather) / (feather * 2)).clamp(0, 1);
   final smooth = linear * linear * (3 - 2 * linear);
   return (smooth * (1 + source.energy.clamp(0, 1) * .18)).clamp(0, 1);
 }
