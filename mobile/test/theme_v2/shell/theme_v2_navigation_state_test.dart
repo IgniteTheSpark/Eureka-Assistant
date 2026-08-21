@@ -9,6 +9,7 @@ import 'package:eureka/theme_v2/home/theme_v2_home_page.dart';
 import 'package:eureka/theme_v2/home/home_agenda_panel.dart';
 import 'package:eureka/theme_v2/home/home_repository.dart';
 import 'package:eureka/theme_v2/home/today_dot_experiment_page.dart';
+import 'package:eureka/theme_v2/home/today_dithered_reka.dart';
 import 'package:eureka/theme_v2/home/today_reka_scene.dart';
 import 'package:eureka/theme_v2/reka/reka_signal_repository.dart';
 import 'package:eureka/theme_v2/reka/reka_signals_page.dart';
@@ -19,8 +20,7 @@ import 'package:eureka/theme_v2/library/theme_v2_library_page.dart';
 import 'package:eureka/theme_v2/device/theme_v2_card_device_detail_page.dart';
 import 'package:eureka/theme_v2/device/theme_v2_ring_device_detail_page.dart';
 import 'package:eureka/theme_v2/shell/device_status_summary.dart';
-import 'package:eureka/theme_v2/shell/reka_mini.dart';
-import 'package:eureka/theme_v2/shell/reka_shell_companion.dart';
+import 'package:eureka/theme_v2/shell/shell_dithered_reka.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_app_shell.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_floating_dock.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_global_top_nav.dart';
@@ -366,7 +366,7 @@ void main() {
     },
   );
 
-  testWidgets('Today to Calendar exposes only the proxy for 260ms', (
+  testWidgets('Today to Calendar moves one dither renderer for 260ms', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -383,32 +383,65 @@ void main() {
     await tester.pump();
 
     expect(find.byKey(TodayRekaScene.rekaTargetKey), findsOneWidget);
-    expect(find.byKey(RekaMini.targetKey), findsNothing);
+    expect(find.byKey(ShellDitheredReka.targetKey), findsNothing);
+    expect(find.byType(TodayDitheredReka), findsOneWidget);
+    final todayCenter = tester.getCenter(
+      find.byKey(ShellDitheredReka.visualKey),
+    );
 
     await tester.tap(find.bySemanticsLabel('日历'));
     await tester.pump();
-    expect(find.byKey(RekaShellCompanion.handoffProxyKey), findsOneWidget);
     expect(find.byKey(TodayRekaScene.rekaTargetKey), findsNothing);
-    expect(find.byKey(RekaMini.targetKey), findsNothing);
+    expect(find.byKey(ShellDitheredReka.targetKey), findsNothing);
+    expect(find.byType(TodayDitheredReka), findsOneWidget);
 
     await tester.pump(const Duration(milliseconds: 259));
-    expect(find.byKey(RekaShellCompanion.handoffProxyKey), findsOneWidget);
+    expect(find.byType(TodayDitheredReka), findsOneWidget);
+    expect(
+      tester.getCenter(find.byKey(ShellDitheredReka.visualKey)),
+      isNot(todayCenter),
+    );
     await tester.pump(const Duration(milliseconds: 1));
-    expect(find.byKey(RekaShellCompanion.handoffProxyKey), findsNothing);
-    expect(find.byKey(RekaMini.targetKey), findsOneWidget);
+    expect(find.byKey(ShellDitheredReka.targetKey), findsOneWidget);
 
     await tester.tap(find.bySemanticsLabel('今日'));
     await tester.pump();
-    expect(find.byKey(RekaShellCompanion.handoffProxyKey), findsOneWidget);
     expect(find.byKey(TodayRekaScene.rekaTargetKey), findsNothing);
-    expect(find.byKey(RekaMini.targetKey), findsNothing);
+    expect(find.byKey(ShellDitheredReka.targetKey), findsNothing);
+    expect(find.byType(TodayDitheredReka), findsOneWidget);
     await tester.pump(const Duration(milliseconds: 260));
-    expect(find.byKey(RekaShellCompanion.handoffProxyKey), findsNothing);
     expect(find.byKey(TodayRekaScene.rekaTargetKey), findsOneWidget);
-    expect(find.byKey(RekaMini.targetKey), findsNothing);
+    expect(find.byKey(ShellDitheredReka.targetKey), findsNothing);
   });
 
-  testWidgets('reduced motion handoff crossfades without travel', (
+  testWidgets('one dither renderer survives every root destination', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const _ThemeHost(
+        disableAnimations: false,
+        child: ThemeV2AppShell(
+          showStartupOverlays: false,
+          deviceStatus: DeviceStatusSummary.disconnected(),
+          homeRepository: _HomeRepository(),
+          todayDotExperimentOverride: true,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byType(TodayDitheredReka), findsOneWidget);
+
+    await tester.tap(find.bySemanticsLabel('日历'));
+    await tester.pump(const Duration(milliseconds: 260));
+    expect(find.byType(TodayDitheredReka), findsOneWidget);
+
+    await tester.tap(find.bySemanticsLabel('资产'));
+    await tester.pump(const Duration(milliseconds: 260));
+    expect(find.byType(TodayDitheredReka), findsOneWidget);
+  });
+
+  testWidgets('reduced motion handoff snaps one renderer without duplication', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -425,20 +458,20 @@ void main() {
 
     await tester.tap(find.bySemanticsLabel('日历'));
     await tester.pump();
+    expect(find.byType(TodayDitheredReka), findsOneWidget);
     final initialCenter = tester.getCenter(
-      find.byKey(RekaShellCompanion.handoffVisualKey),
+      find.byKey(ShellDitheredReka.visualKey),
     );
     await tester.pump(const Duration(milliseconds: 130));
     expect(
-      tester.getCenter(find.byKey(RekaShellCompanion.handoffVisualKey)),
+      tester.getCenter(find.byKey(ShellDitheredReka.visualKey)),
       initialCenter,
     );
     expect(find.byKey(TodayRekaScene.rekaTargetKey), findsNothing);
-    expect(find.byKey(RekaMini.targetKey), findsNothing);
+    expect(find.byKey(ShellDitheredReka.targetKey), findsNothing);
 
     await tester.pump(const Duration(milliseconds: 130));
-    expect(find.byKey(RekaShellCompanion.handoffProxyKey), findsNothing);
-    expect(find.byKey(RekaMini.targetKey), findsOneWidget);
+    expect(find.byKey(ShellDitheredReka.targetKey), findsOneWidget);
   });
 
   testWidgets('root pages share the floating Top Dock', (tester) async {

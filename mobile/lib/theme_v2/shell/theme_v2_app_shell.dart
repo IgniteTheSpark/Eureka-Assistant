@@ -38,6 +38,7 @@ import '../reka/reka_signals_page.dart';
 import '../report/report_container_page.dart';
 import 'device_status_summary.dart';
 import 'reka_shell_companion.dart';
+import 'shell_reka_presentation_controller.dart';
 import 'theme_v2_device_status_adapter.dart';
 import 'theme_v2_floating_dock.dart';
 import 'theme_v2_global_top_nav.dart';
@@ -136,6 +137,8 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
   late final TodayRekaMotionController _todayRekaController =
       widget.todayRekaController ?? TodayRekaMotionController();
   late final bool _ownsTodayRekaController = widget.todayRekaController == null;
+  late final ShellRekaPresentationController _shellRekaPresentationController =
+      ShellRekaPresentationController();
   Timer? _rekaHandoffTimer;
   RekaShellHandoffDirection? _rekaHandoffDirection;
   int _rekaHandoffEpoch = 0;
@@ -175,6 +178,7 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
       unawaited(_closeOwnedRekaVoice(voice));
     }
     if (_ownsTodayRekaController) _todayRekaController.dispose();
+    _shellRekaPresentationController.dispose();
     _detachDeviceStatusAdapter();
     if (widget.usesLegacyInbox) {
       _inboxController.removeListener(_onInboxChanged);
@@ -538,6 +542,10 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
                     extendUnderChrome: immersiveToday,
                     rekaController: _todayRekaController,
                     rekaVoiceCoordinator: _rekaVoiceCoordinator,
+                    shellRekaPresentationController:
+                        _shellRekaPresentationController,
+                    rekaBuilder: (_, _, _, _, _, _, _) =>
+                        const SizedBox.shrink(),
                     repository: widget.homeRepository,
                     captureActivityCoordinator: _captureActivityCoordinator,
                     onStartChat: () => _resumeChat(context),
@@ -608,23 +616,9 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
     );
     final companionController = _rekaCompanionController;
     final fullTodayActive = _usesFullTodayReka && _index == 0;
-    final showDockReka =
-        companionController != null &&
-        !fullTodayActive &&
-        _rekaHandoffDirection == null;
     final dock = ThemeV2FloatingDock(
       selectedIndex: _index,
       onDestinationSelected: _selectDestination,
-      rekaCockpit: showDockReka
-          ? RekaDockCockpit(
-              controller: companionController,
-              onTap: (_) => _resumeChat(context),
-              onLongPressStart: _beginRekaVoice,
-              onLongPressMove: _moveRekaVoice,
-              onLongPressEnd: _releaseRekaVoice,
-              onLongPressCancel: _cancelRekaVoice,
-            )
-          : null,
     );
     final companion = companionController == null
         ? null
@@ -634,13 +628,13 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
                 : RekaShellCompanionMode.mini,
             controller: companionController,
             todayRekaController: _todayRekaController,
+            presentationController: _shellRekaPresentationController,
             onRekaTap: (_) => _resumeChat(context),
             onLongPressStart: _beginRekaVoice,
             onLongPressMove: _moveRekaVoice,
             onLongPressEnd: _releaseRekaVoice,
             onLongPressCancel: _cancelRekaVoice,
             handoffDirection: _rekaHandoffDirection,
-            handoffEpoch: _rekaHandoffEpoch,
             onOpenDetail: () {
               final activity = companionController.openableActivity;
               if (activity != null) _openCaptureActivity(context, activity);

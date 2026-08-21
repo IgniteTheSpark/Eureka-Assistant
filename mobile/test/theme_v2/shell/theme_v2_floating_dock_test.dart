@@ -17,7 +17,7 @@ void main() {
       tester.getSize(find.byKey(ThemeV2FloatingDock.dockKey)),
       const Size(169, 60),
     );
-    expect(find.byKey(ThemeV2FloatingDock.cockpitKey), findsNothing);
+    expect(find.byKey(const Key('theme-v2-reka-cockpit')), findsNothing);
     for (final label in const ['今日', '日历', '资产']) {
       final size = tester.getSize(find.bySemanticsLabel(label));
       expect(size.width, greaterThanOrEqualTo(44), reason: label);
@@ -32,7 +32,7 @@ void main() {
       ),
     );
 
-    expect(find.byKey(ThemeV2FloatingDock.cockpitKey), findsNothing);
+    expect(find.byKey(const Key('theme-v2-reka-cockpit')), findsNothing);
     expect(find.bySemanticsLabel(RegExp(r'^Reka，')), findsNothing);
   });
 

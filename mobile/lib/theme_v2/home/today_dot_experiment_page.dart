@@ -13,6 +13,7 @@ import '../../voice_input/voice_input_scope.dart';
 import '../foundation/theme_v2_motion.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../capture/capture_activity_coordinator.dart';
+import '../shell/shell_reka_presentation_controller.dart';
 import '../shell/theme_v2_floating_dock.dart';
 import '../shell/theme_v2_global_top_nav.dart';
 import '../reka/reka_signal_actions.dart';
@@ -41,6 +42,7 @@ class TodayDotExperimentPage extends StatefulWidget {
     this.rekaBuilder,
     this.captureActivityCoordinator,
     this.rekaVoiceCoordinator,
+    this.shellRekaPresentationController,
     this.extendUnderChrome = false,
   });
 
@@ -59,6 +61,7 @@ class TodayDotExperimentPage extends StatefulWidget {
   final TodayRekaBuilder? rekaBuilder;
   final CaptureActivityCoordinator? captureActivityCoordinator;
   final RekaVoiceCaptureCoordinator? rekaVoiceCoordinator;
+  final ShellRekaPresentationController? shellRekaPresentationController;
   final bool extendUnderChrome;
 
   @override
@@ -132,6 +135,7 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
           haptic: () => unawaited(HapticFeedback.mediumImpact()),
         );
     _rekaVoiceCoordinator.addListener(_onRekaVoiceChanged);
+    _syncShellRekaPresentation();
   }
 
   @override
@@ -140,6 +144,13 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
     assert(
       identical(oldWidget.rekaVoiceCoordinator, widget.rekaVoiceCoordinator),
       'rekaVoiceCoordinator cannot change while the page is mounted',
+    );
+    assert(
+      identical(
+        oldWidget.shellRekaPresentationController,
+        widget.shellRekaPresentationController,
+      ),
+      'shellRekaPresentationController cannot change while mounted',
     );
     if (oldWidget.active && !widget.active && _ownsRekaVoiceCoordinator) {
       unawaited(_rekaVoiceCoordinator.cancelGesture());
@@ -174,11 +185,23 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
   }
 
   void _onCaptureActivityChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {});
+    _syncShellRekaPresentation();
   }
 
   void _onRekaVoiceChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {});
+    _syncShellRekaPresentation();
+  }
+
+  void _syncShellRekaPresentation() {
+    widget.shellRekaPresentationController?.update(
+      refreshSignal: _refreshSignal,
+      cue: _outputCoordinator.cue,
+      captureCue: _captureCue,
+    );
   }
 
   Future<void> _sendRekaVoiceFlash(String text, String voiceSessionId) async {
@@ -208,7 +231,9 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
     _outputRebuildScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _outputRebuildScheduled = false;
-      if (mounted) setState(() {});
+      if (!mounted) return;
+      setState(() {});
+      _syncShellRekaPresentation();
     });
   }
 
@@ -233,6 +258,7 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
         _refreshFailed = false;
         _refreshSignal++;
       });
+      _syncShellRekaPresentation();
     }
     try {
       final loaded = await _repository.load();
@@ -243,12 +269,14 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
         _refreshing = false;
         _refreshFailed = false;
       });
+      _syncShellRekaPresentation();
     } catch (_) {
       if (!mounted || serial != _requestSerial) return;
       setState(() {
         _refreshing = false;
         _refreshFailed = true;
       });
+      _syncShellRekaPresentation();
     }
   }
 

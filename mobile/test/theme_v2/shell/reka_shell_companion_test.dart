@@ -4,11 +4,11 @@ import 'package:eureka/capture_activity/capture_activity_event.dart';
 import 'package:eureka/theme_v2/capture/capture_activity_coordinator.dart';
 import 'package:eureka/theme_v2/capture/reka_companion_controller.dart';
 import 'package:eureka/theme_v2/capture/reka_terminal.dart';
-import 'package:eureka/theme_v2/capture/reka_terminal_models.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
+import 'package:eureka/theme_v2/home/today_dithered_reka.dart';
 import 'package:eureka/theme_v2/home/today_reka_motion_controller.dart';
-import 'package:eureka/theme_v2/shell/reka_mini.dart';
 import 'package:eureka/theme_v2/shell/reka_shell_companion.dart';
+import 'package:eureka/theme_v2/shell/shell_dithered_reka.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_floating_dock.dart';
 import 'package:eureka/voice_input/reka_voice_capture.dart';
 import 'package:eureka/voice_input/voice_input_coordinator.dart';
@@ -19,7 +19,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('Dock projection follows companion phase and reports gestures', (
+  testWidgets('Dock projection keeps dither renderer and reports gestures', (
     tester,
   ) async {
     final harness = _Harness();
@@ -36,23 +36,15 @@ void main() {
             ThemeV2FloatingDock(
               selectedIndex: 1,
               onDestinationSelected: (_) {},
-              rekaCockpit: RekaDockCockpit(
-                controller: harness.companion,
-                onTap: (anchor) => tapAnchor = anchor,
-                onLongPressStart: () => starts += 1,
-                onLongPressMove: offsets.add,
-                onLongPressEnd: () => releases += 1,
-                onLongPressCancel: () {},
-              ),
             ),
             RekaShellCompanion(
               mode: RekaShellCompanionMode.mini,
               controller: harness.companion,
               todayRekaController: harness.today,
-              onRekaTap: (_) {},
-              onLongPressStart: () {},
-              onLongPressMove: (_) {},
-              onLongPressEnd: () {},
+              onRekaTap: (anchor) => tapAnchor = anchor,
+              onLongPressStart: () => starts += 1,
+              onLongPressMove: offsets.add,
+              onLongPressEnd: () => releases += 1,
               onLongPressCancel: () {},
               onOpenDetail: () {},
             ),
@@ -61,20 +53,17 @@ void main() {
       ),
     );
 
-    expect(tester.widget<RekaMini>(find.byType(RekaMini)).phase, isNull);
+    expect(find.byType(TodayDitheredReka), findsOneWidget);
     final dockTop = tester
         .getTopLeft(find.byKey(ThemeV2FloatingDock.dockKey))
         .dy;
     final rekaBottom = tester
-        .getBottomLeft(find.byKey(RekaMini.visualKey))
+        .getBottomLeft(find.byKey(ShellDitheredReka.visibleBoundsKey))
         .dy;
-    expect(rekaBottom - dockTop, closeTo(14, .01));
-    final initialLight = tester
-        .widget<DecoratedBox>(find.byKey(RekaDockCockpit.lightKey))
-        .decoration;
+    expect(rekaBottom - dockTop, closeTo(15, .01));
 
     final gesture = await tester.startGesture(
-      tester.getCenter(find.byKey(RekaMini.targetKey)),
+      tester.getCenter(find.byKey(ShellDitheredReka.targetKey)),
     );
     await tester.pump(kLongPressTimeout + const Duration(milliseconds: 10));
     await gesture.moveBy(const Offset(0, -80));
@@ -86,25 +75,19 @@ void main() {
     expect(offsets.last, closeTo(-80, .01));
     expect(releases, 1);
 
-    await tester.tap(find.byKey(RekaMini.targetKey));
+    await tester.tap(find.byKey(ShellDitheredReka.targetKey));
     expect(tapAnchor, isNotNull);
-    expect(tapAnchor!.size, const Size.square(RekaMini.targetExtent));
+    expect(tapAnchor!.size, const Size.square(ShellDitheredReka.targetExtent));
 
     harness.activities.apply(_understandingEvent());
     await tester.pump();
-    expect(
-      tester.widget<RekaMini>(find.byType(RekaMini)).phase,
-      RekaTerminalPhase.understanding,
-    );
-    expect(
-      tester
-          .widget<DecoratedBox>(find.byKey(RekaDockCockpit.lightKey))
-          .decoration,
-      isNot(initialLight),
-    );
+    expect(find.byType(RekaTerminal), findsOneWidget);
+    expect(find.byType(TodayDitheredReka), findsOneWidget);
   });
 
-  testWidgets('Dock Terminal remains above the cockpit', (tester) async {
+  testWidgets('Dock Terminal remains above the floating dither renderer', (
+    tester,
+  ) async {
     final harness = _Harness();
     addTearDown(harness.dispose);
     harness.activities.apply(_understandingEvent());
@@ -115,14 +98,6 @@ void main() {
             ThemeV2FloatingDock(
               selectedIndex: 1,
               onDestinationSelected: (_) {},
-              rekaCockpit: RekaDockCockpit(
-                controller: harness.companion,
-                onTap: (_) {},
-                onLongPressStart: () {},
-                onLongPressMove: (_) {},
-                onLongPressEnd: () {},
-                onLongPressCancel: () {},
-              ),
             ),
             RekaShellCompanion(
               mode: RekaShellCompanionMode.mini,
@@ -143,7 +118,8 @@ void main() {
     expect(
       tester.getBottomLeft(find.byType(RekaTerminal)).dy,
       lessThanOrEqualTo(
-        tester.getTopLeft(find.byKey(ThemeV2FloatingDock.cockpitKey)).dy - 10,
+        tester.getTopLeft(find.byKey(ShellDitheredReka.visibleBoundsKey)).dy -
+            10,
       ),
     );
   });
@@ -182,7 +158,7 @@ void main() {
       ),
     );
 
-    expect(find.byKey(RekaMini.targetKey), findsNothing);
+    expect(find.byKey(ShellDitheredReka.targetKey), findsNothing);
     expect(find.byType(RekaTerminal), findsOneWidget);
     final firstRect = tester.getRect(find.byType(RekaTerminal));
     expect(firstRect.left, greaterThanOrEqualTo(16));
@@ -202,34 +178,33 @@ void main() {
     expect(secondRect.right, lessThanOrEqualTo(384));
   });
 
-  testWidgets('reduced motion uses immediate companion transitions', (
-    tester,
-  ) async {
-    final harness = _Harness();
-    addTearDown(harness.dispose);
-    await tester.pumpWidget(
-      _host(
-        RekaShellCompanion(
-          mode: RekaShellCompanionMode.mini,
-          controller: harness.companion,
-          todayRekaController: harness.today,
-          onRekaTap: (_) {},
-          onLongPressStart: () {},
-          onLongPressMove: (_) {},
-          onLongPressEnd: () {},
-          onLongPressCancel: () {},
-          onOpenDetail: () {},
+  testWidgets(
+    'reduced motion keeps one dock renderer without a transition copy',
+    (tester) async {
+      final harness = _Harness();
+      addTearDown(harness.dispose);
+      await tester.pumpWidget(
+        _host(
+          RekaShellCompanion(
+            mode: RekaShellCompanionMode.mini,
+            controller: harness.companion,
+            todayRekaController: harness.today,
+            onRekaTap: (_) {},
+            onLongPressStart: () {},
+            onLongPressMove: (_) {},
+            onLongPressEnd: () {},
+            onLongPressCancel: () {},
+            onOpenDetail: () {},
+          ),
+          disableAnimations: true,
         ),
-        disableAnimations: true,
-      ),
-    );
+      );
 
-    final switcher = tester.widget<AnimatedSwitcher>(
-      find.byKey(RekaShellCompanion.transitionKey),
-    );
-    expect(switcher.duration, Duration.zero);
-    expect(find.byType(RekaTerminal), findsNothing);
-  });
+      expect(find.byType(TodayDitheredReka), findsOneWidget);
+      expect(find.byKey(ShellDitheredReka.targetKey), findsOneWidget);
+      expect(find.byType(RekaTerminal), findsNothing);
+    },
+  );
 }
 
 CaptureActivityEvent _understandingEvent() => CaptureActivityEvent(

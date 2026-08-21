@@ -8,7 +8,7 @@ import 'package:eureka/theme_v2/capture/capture_activity_top_bar.dart';
 import 'package:eureka/theme_v2/capture/reka_companion_controller.dart';
 import 'package:eureka/theme_v2/capture/reka_terminal.dart';
 import 'package:eureka/theme_v2/shell/device_status_summary.dart';
-import 'package:eureka/theme_v2/shell/reka_mini.dart';
+import 'package:eureka/theme_v2/shell/shell_dithered_reka.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_app_shell.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_global_top_nav.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_page_scaffold.dart';
@@ -57,7 +57,7 @@ void main() {
       ),
     );
 
-    await tester.tap(find.byKey(RekaMini.targetKey));
+    await tester.tap(find.byKey(ShellDitheredReka.targetKey));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
 
@@ -127,7 +127,7 @@ void main() {
     expect(find.byType(CaptureActivityTopBar), findsNothing);
     expect(find.byType(ThemeV2GlobalTopNav), findsOneWidget);
     expect(find.byType(RekaTerminal), findsOneWidget);
-    expect(find.byKey(RekaMini.targetKey), findsOneWidget);
+    expect(find.byKey(ShellDitheredReka.targetKey), findsOneWidget);
     expect(find.bySemanticsLabel('设备：未连接'), findsOneWidget);
     expect(find.bySemanticsLabel('通知'), findsOneWidget);
 

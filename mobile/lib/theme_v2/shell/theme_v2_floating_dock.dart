@@ -11,31 +11,23 @@ class ThemeV2FloatingDock extends StatelessWidget {
     super.key,
     required this.selectedIndex,
     required this.onDestinationSelected,
-    this.rekaCockpit,
   }) : assert(selectedIndex >= 0 && selectedIndex < 3);
 
   static const safeAreaPaddingKey = Key('theme-v2-dock-safe-area');
   static const compositionKey = Key('theme-v2-dock-composition');
   static const dockKey = Key('theme-v2-floating-dock');
-  static const cockpitKey = Key('theme-v2-reka-cockpit');
   static const double elevation = 8;
   static const double lightRadius = 18;
   static Color get lightShadowColor => Colors.black.withValues(alpha: 0.12);
   static const Size shellSize = Size(169, 60);
-  static const double cockpitExtent = 76;
-  static const double cockpitTargetExtent = 72;
-  static const double cockpitRise = 34;
   static const double compositionHeight = 60;
   static const double contentGap = 12;
   static const double contentClearance = compositionHeight + contentGap;
-  static const double cockpitTopAboveDockBottom = compositionHeight;
-  static const double miniRekaGap = 6;
   static const double viewportBottomPadding = 35;
   static const double dockHeight = 60;
 
   final int selectedIndex;
   final ValueChanged<int> onDestinationSelected;
-  final Widget? rekaCockpit;
 
   static const _destinations =
       <({IconData icon, IconData selectedIcon, String label})>[
