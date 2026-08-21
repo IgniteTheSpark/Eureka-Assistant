@@ -71,4 +71,25 @@ void main() {
 
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('reduced motion keeps the orb static across state changes', (
+    tester,
+  ) async {
+    Widget host(ThinkingOrbVisualState state) => MaterialApp(
+      theme: buildThemeV2Theme(Brightness.light),
+      home: MediaQuery(
+        data: const MediaQueryData(disableAnimations: true),
+        child: Center(child: ThinkingOrb(state: state, size: 32)),
+      ),
+    );
+
+    await tester.pumpWidget(host(ThinkingOrbVisualState.listening));
+    await tester.pump(const Duration(seconds: 1));
+    expect(tester.hasRunningAnimations, isFalse);
+
+    await tester.pumpWidget(host(ThinkingOrbVisualState.organizing));
+    await tester.pump();
+    expect(tester.hasRunningAnimations, isFalse);
+    expect(tester.takeException(), isNull);
+  });
 }
