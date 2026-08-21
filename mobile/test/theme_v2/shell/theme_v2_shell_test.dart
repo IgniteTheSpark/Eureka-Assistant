@@ -321,7 +321,7 @@ void main() {
     );
     expect(safePadding.padding, const EdgeInsets.only(bottom: 35));
     final dock = find.byKey(ThemeV2FloatingDock.dockKey);
-    expect(tester.getSize(dock).width, 169);
+    expect(tester.getSize(dock), ThemeV2FloatingDock.shellSize);
     expect(
       tester.getCenter(dock).dx,
       tester.getCenter(find.byType(ThemeV2FloatingDock)).dx,

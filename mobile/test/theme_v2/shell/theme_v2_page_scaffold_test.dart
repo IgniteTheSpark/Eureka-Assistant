@@ -31,6 +31,10 @@ void main() {
       scaffoldRect.bottom - bodyRect.bottom,
       ThemeV2FloatingDock.companionContentClearance,
     );
+    expect(
+      ThemeV2FloatingDock.companionContentClearance,
+      ThemeV2FloatingDock.compositionHeight + ThemeV2FloatingDock.contentGap,
+    );
     expect(find.byKey(const ValueKey('test-companion')), findsOneWidget);
   });
 
