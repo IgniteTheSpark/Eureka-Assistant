@@ -10,6 +10,14 @@ import 'voice_input_status_icon.dart';
 typedef VoiceInputFieldBuilder =
     Widget Function(BuildContext context, VoiceInputPresentation voice);
 
+typedef VoiceInputFieldLayoutBuilder =
+    Widget Function(
+      BuildContext context,
+      VoiceInputPresentation voice,
+      Widget field,
+      Widget voiceAction,
+    );
+
 final class VoiceInputField extends StatelessWidget {
   const VoiceInputField({
     super.key,
@@ -17,6 +25,7 @@ final class VoiceInputField extends StatelessWidget {
     required this.builder,
     this.enabled = true,
     this.trailing,
+    this.layoutBuilder,
   });
 
   static const micKey = Key('voice-input-mic');
@@ -25,6 +34,7 @@ final class VoiceInputField extends StatelessWidget {
   final VoiceInputFieldBuilder builder;
   final bool enabled;
   final Widget? trailing;
+  final VoiceInputFieldLayoutBuilder? layoutBuilder;
 
   @override
   Widget build(BuildContext context) {
@@ -32,39 +42,44 @@ final class VoiceInputField extends StatelessWidget {
       animation: controller,
       builder: (context, _) {
         final voice = VoiceInputPresentation(controller.state);
+        final field = builder(context, voice);
+        final voiceAction = IconButton(
+          key: micKey,
+          tooltip: switch (controller.state) {
+            VoiceInputControllerState.idle => '开始语音输入',
+            VoiceInputControllerState.connecting => '正在连接语音',
+            VoiceInputControllerState.listening => '停止语音输入',
+            VoiceInputControllerState.stopping => '正在完成转录',
+          },
+          onPressed: !enabled
+              ? null
+              : controller.state == VoiceInputControllerState.idle
+              ? () => unawaited(controller.start())
+              : controller.canStop
+              ? () => unawaited(controller.stop())
+              : null,
+          icon: Icon(
+            controller.state == VoiceInputControllerState.idle
+                ? Icons.mic_none_rounded
+                : Icons.stop_rounded,
+          ),
+        );
+        final body =
+            layoutBuilder?.call(context, voice, field, voiceAction) ??
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Expanded(child: field),
+                const SizedBox(width: 6),
+                voiceAction,
+                if (trailing != null) ...[const SizedBox(width: 8), trailing!],
+              ],
+            );
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Expanded(child: builder(context, voice)),
-                const SizedBox(width: 6),
-                IconButton(
-                  key: micKey,
-                  tooltip: switch (controller.state) {
-                    VoiceInputControllerState.idle => '开始语音输入',
-                    VoiceInputControllerState.connecting => '正在连接语音',
-                    VoiceInputControllerState.listening => '停止语音输入',
-                    VoiceInputControllerState.stopping => '正在完成转录',
-                  },
-                  onPressed: !enabled
-                      ? null
-                      : controller.state == VoiceInputControllerState.idle
-                      ? () => unawaited(controller.start())
-                      : controller.canStop
-                      ? () => unawaited(controller.stop())
-                      : null,
-                  icon: Icon(
-                    controller.state == VoiceInputControllerState.idle
-                        ? Icons.mic_none_rounded
-                        : Icons.stop_rounded,
-                  ),
-                ),
-                if (trailing != null) ...[const SizedBox(width: 8), trailing!],
-              ],
-            ),
+            body,
             if (controller.isDurationWarning)
               Padding(
                 padding: const EdgeInsets.only(top: 4),

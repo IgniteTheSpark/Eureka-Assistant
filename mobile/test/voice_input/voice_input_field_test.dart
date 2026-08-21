@@ -11,6 +11,79 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('presentation exposes provider-neutral status labels', () {
+    expect(
+      const VoiceInputPresentation(VoiceInputControllerState.idle).statusLabel,
+      isNull,
+    );
+    expect(
+      const VoiceInputPresentation(
+        VoiceInputControllerState.connecting,
+      ).statusLabel,
+      '正在连接语音',
+    );
+    expect(
+      const VoiceInputPresentation(
+        VoiceInputControllerState.listening,
+      ).statusLabel,
+      '正在聆听',
+    );
+    expect(
+      const VoiceInputPresentation(
+        VoiceInputControllerState.stopping,
+      ).statusLabel,
+      '正在完成转录',
+    );
+  });
+
+  testWidgets('custom layout receives the field and canonical voice action', (
+    tester,
+  ) async {
+    final text = VoiceInputTextController();
+    final session = _WidgetFakeSession();
+    final controller = VoiceInputController(
+      textController: text,
+      coordinator: VoiceInputCoordinator(service: _WidgetFakeService(session)),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: VoiceInputField(
+            controller: controller,
+            layoutBuilder: (context, voice, field, voiceAction) => Row(
+              key: const Key('custom-voice-layout'),
+              children: [
+                Expanded(child: field),
+                voiceAction,
+              ],
+            ),
+            builder: (_, _) => const TextField(key: Key('custom-field')),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byKey(const Key('custom-voice-layout')), findsOneWidget);
+    expect(find.byKey(const Key('custom-field')), findsOneWidget);
+    expect(find.byKey(VoiceInputField.micKey), findsOneWidget);
+    await tester.tap(find.byKey(VoiceInputField.micKey));
+    await tester.pump();
+    expect(controller.state, VoiceInputControllerState.listening);
+
+    await tester.tap(find.byKey(VoiceInputField.micKey));
+    await tester.pump();
+    session.emit(
+      const VoiceTranscriptEvent(
+        kind: VoiceTranscriptKind.finalTranscript,
+        sequence: 1,
+        text: '完成',
+        audioDurationMs: 100,
+      ),
+    );
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('mic starts/stops, shows provisional text, and never submits', (
     tester,
   ) async {

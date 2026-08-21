@@ -10,6 +10,13 @@ final class VoiceInputPresentation {
 
   bool get isBusy => state != VoiceInputControllerState.idle;
 
+  String? get statusLabel => switch (state) {
+    VoiceInputControllerState.idle => null,
+    VoiceInputControllerState.connecting => '正在连接语音',
+    VoiceInputControllerState.listening => '正在聆听',
+    VoiceInputControllerState.stopping => '正在完成转录',
+  };
+
   Widget? statusIcon({Color? color, double size = 18}) {
     if (!isBusy) return null;
     return VoiceInputStatusIcon(state: state, color: color, size: size);
@@ -78,12 +85,7 @@ class _VoiceInputStatusIconState extends State<VoiceInputStatusIcon>
       return const SizedBox.shrink();
     }
     final color = widget.color ?? Theme.of(context).colorScheme.primary;
-    final label = switch (widget.state) {
-      VoiceInputControllerState.idle => '',
-      VoiceInputControllerState.connecting => '正在连接语音',
-      VoiceInputControllerState.listening => '正在聆听',
-      VoiceInputControllerState.stopping => '正在完成转录',
-    };
+    final label = VoiceInputPresentation(widget.state).statusLabel!;
     final indicator = switch (widget.state) {
       VoiceInputControllerState.connecting ||
       VoiceInputControllerState.stopping => SizedBox.square(
