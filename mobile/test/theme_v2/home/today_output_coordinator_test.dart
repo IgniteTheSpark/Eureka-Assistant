@@ -53,6 +53,12 @@ void main() {
     coordinator.completeCurrent();
     expect(coordinator.producing?.id, 'asset-2');
     expect(coordinator.cue.phase, TodayOutputPhase.charge);
+    coordinator.updatePhase(TodayOutputPhase.handoff);
+    expect(coordinator.stableAssetIds(const ['asset-1', 'asset-2']), [
+      'asset-1',
+      'asset-2',
+    ]);
+    expect(coordinator.producing?.id, 'asset-2');
     coordinator.completeCurrent();
     expect(coordinator.producing, isNull);
     expect(coordinator.cue.phase, TodayOutputPhase.idle);

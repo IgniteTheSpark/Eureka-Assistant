@@ -246,7 +246,7 @@ class _TodayLivingSurfaceState extends State<TodayLivingSurface>
                     ),
                     item: output,
                     signalBoundaryY: 74,
-                    assetFloorY: constraints.maxHeight,
+                    assetEntryY: assetChamberTop,
                     side: output.side,
                     assetDiameter: producingAssetIndex >= 0
                         ? themeV2AssetBubbleDiameter(producingAssetIndex)

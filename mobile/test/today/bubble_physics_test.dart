@@ -18,6 +18,37 @@ void main() {
     expect(velocity.y, closeTo(5, 0.001));
   });
 
+  test(
+    'generated bubble collides with an existing bubble before the floor',
+    () {
+      final field = BubbleField(
+        box: const Size(300, 500),
+        gravity: Offset.zero,
+      );
+      field
+        ..addBubble('existing', const Offset(150, 210), 28)
+        ..addBubble(
+          'generated',
+          const Offset(150, 70),
+          28,
+          velocityPxPerSecond: const Offset(0, 720),
+        );
+
+      for (var frame = 0; frame < 20; frame++) {
+        field.step();
+      }
+
+      final existing = field.bubbles.singleWhere(
+        (bubble) => bubble.id == 'existing',
+      );
+      final generated = field.bubbles.singleWhere(
+        (bubble) => bubble.id == 'generated',
+      );
+      expect(existing.body.linearVelocity.y, greaterThan(0));
+      expect(generated.y, lessThan(500 - generated.r));
+    },
+  );
+
   test('field without a dock applies gravity and keeps bubbles in bounds', () {
     BubbleField? field;
     Object? constructorError;

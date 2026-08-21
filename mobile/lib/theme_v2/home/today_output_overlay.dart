@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
@@ -18,7 +19,7 @@ class TodayOutputOverlay extends StatefulWidget {
     super.key,
     required this.item,
     required this.signalBoundaryY,
-    required this.assetFloorY,
+    required this.assetEntryY,
     required this.onComplete,
     this.side,
     this.onPhaseChanged,
@@ -30,7 +31,7 @@ class TodayOutputOverlay extends StatefulWidget {
 
   final TodayOutputItem item;
   final double signalBoundaryY;
-  final double assetFloorY;
+  final double assetEntryY;
   final TodayOutputSide? side;
   final ValueChanged<TodayOutputPhase>? onPhaseChanged;
   final ValueChanged<Offset>? onHandoff;
@@ -82,8 +83,8 @@ class _TodayOutputOverlayState extends State<TodayOutputOverlay>
     }
     if (value >= plan.travelEnd &&
         (_reportedPhase?.index ?? 0) < TodayOutputPhase.handoff.index) {
-      _reportPhase(TodayOutputPhase.handoff);
       _handoff();
+      _reportPhase(TodayOutputPhase.handoff);
     }
     if (value >= plan.recoveryStart &&
         (_reportedPhase?.index ?? 0) < TodayOutputPhase.recover.index) {
@@ -142,8 +143,8 @@ class _TodayOutputOverlayState extends State<TodayOutputOverlay>
     if (status != AnimationStatus.completed || _completed) return;
     _completed = true;
     if (widget.item.reduceMotion) {
-      _reportPhase(TodayOutputPhase.handoff);
       _handoff();
+      _reportPhase(TodayOutputPhase.handoff);
       _reportPhase(TodayOutputPhase.recover);
     } else {
       _handoff();
@@ -185,22 +186,27 @@ class _TodayOutputOverlayState extends State<TodayOutputOverlay>
             }
             return AnimatedBuilder(
               animation: _controller,
-              builder: (context, _) => Stack(
-                fit: StackFit.expand,
-                children: [
-                  Positioned(
-                    key: ValueKey('today-output-asset-ball-${widget.item.id}'),
-                    left: _destination.dx - widget.assetDiameter / 2,
-                    top: _destination.dy - widget.assetDiameter / 2,
-                    width: widget.assetDiameter,
-                    height: widget.assetDiameter,
-                    child: Opacity(
-                      opacity: 1 - _controller.value,
-                      child: visual,
+              builder: (context, _) {
+                if (_handedOff) return const SizedBox.expand();
+                return Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Positioned(
+                      key: ValueKey(
+                        'today-output-asset-ball-${widget.item.id}',
+                      ),
+                      left: _destination.dx - widget.assetDiameter / 2,
+                      top: _destination.dy - widget.assetDiameter / 2,
+                      width: widget.assetDiameter,
+                      height: widget.assetDiameter,
+                      child: Opacity(
+                        opacity: 1 - _controller.value,
+                        child: visual,
+                      ),
                     ),
-                  ),
-                ],
-              ),
+                  ],
+                );
+              },
             );
           }
           return AnimatedBuilder(
@@ -230,6 +236,7 @@ class _TodayOutputOverlayState extends State<TodayOutputOverlay>
                   );
               final signal = widget.item.kind == TodayOutputKind.signal;
               if (!signal) {
+                if (_handedOff) return const SizedBox.expand();
                 final visual = widget.assetVisual;
                 if (visual == null) return const SizedBox.expand();
                 final gravity = ((raw - plan.chargeEnd) / travelSpan).clamp(
@@ -300,12 +307,14 @@ class _TodayOutputOverlayState extends State<TodayOutputOverlay>
     );
   }
 
-  Offset _handoffPoint(Offset source) => Offset(
-    source.dx,
-    widget.item.kind == TodayOutputKind.signal
-        ? widget.signalBoundaryY
-        : widget.assetFloorY - (widget.item.reduceMotion ? 0 : 16),
-  );
+  Offset _handoffPoint(Offset source) {
+    if (widget.item.kind == TodayOutputKind.signal) {
+      return Offset(source.dx, widget.signalBoundaryY);
+    }
+    final entryCenter = widget.assetEntryY + widget.assetDiameter / 2;
+    final downwardCenter = source.dy + (widget.item.reduceMotion ? 0 : 16);
+    return Offset(source.dx, math.max(entryCenter, downwardCenter));
+  }
 
   Widget _buildTrail({
     required int index,

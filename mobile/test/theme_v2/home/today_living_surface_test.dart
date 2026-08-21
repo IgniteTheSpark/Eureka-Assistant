@@ -9,6 +9,62 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('generated Asset overlay hands off at the chamber entry', (
+    tester,
+  ) async {
+    final clock = ValueNotifier(DateTime(2026, 8, 14, 10));
+    var data = _data([_asset]);
+    late StateSetter update;
+    addTearDown(clock.dispose);
+    await tester.pumpWidget(
+      StatefulBuilder(
+        builder: (context, setState) {
+          update = setState;
+          return _host(
+            data: data,
+            rekaCenter: const Offset(200, 200),
+            disableAnimations: false,
+            clock: clock,
+          );
+        },
+      ),
+    );
+    await tester.pump();
+    update(() => data = _data([_asset, _secondAsset]));
+    await tester.pump();
+
+    final overlay = tester.widget<TodayOutputOverlay>(
+      find.byType(TodayOutputOverlay),
+    );
+    final livingTop = tester
+        .getTopLeft(find.byKey(const ValueKey('today-living-surface')))
+        .dy;
+    final chamberTop = tester
+        .getTopLeft(find.byKey(const ValueKey('today-asset-chamber')))
+        .dy;
+    expect(overlay.assetEntryY, closeTo(chamberTop - livingTop, .01));
+
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1220));
+    await tester.pump();
+    final field = tester.widget<ThemeV2AssetBubbleField>(
+      find.byType(ThemeV2AssetBubbleField),
+    );
+    final spawn = field.spawnStates[_secondAsset.id];
+    expect(field.assets.map((asset) => asset.id), contains(_secondAsset.id));
+    expect(spawn, isNotNull);
+    expect(spawn!.center.dy, closeTo(themeV2AssetBubbleDiameter(1) / 2, .01));
+    expect(spawn.velocity.dy, greaterThan(0));
+    expect(
+      find.byKey(const ValueKey('today-output-asset-ball-asset-2')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('theme-v2-asset-bubble-asset-2')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('parent prunes stale spawn state before an asset is re-added', (
     tester,
   ) async {
@@ -181,6 +237,15 @@ final _asset = PoolAsset(
   title: '记录',
   payload: const {'content': '记录'},
   createdAt: DateTime(2026, 8, 14, 9),
+);
+
+final _secondAsset = PoolAsset(
+  id: 'asset-2',
+  type: 'notes',
+  domain: 'work',
+  title: '第二条记录',
+  payload: const {'content': '第二条记录'},
+  createdAt: DateTime(2026, 8, 14, 9, 30),
 );
 
 TodayData _data(List<PoolAsset> pool) => TodayData(
