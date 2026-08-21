@@ -8,7 +8,6 @@ import 'package:eureka/theme_v2/home/home_repository.dart';
 import 'package:eureka/theme_v2/home/home_agenda_panel.dart';
 import 'package:eureka/theme_v2/home/today_dot_experiment_page.dart';
 import 'package:eureka/theme_v2/home/today_living_surface.dart';
-import 'package:eureka/theme_v2/home/today_reka_quick_actions.dart';
 import 'package:eureka/theme_v2/home/today_reka_motion_controller.dart';
 import 'package:eureka/theme_v2/home/today_reka_capture_cue.dart';
 import 'package:eureka/theme_v2/home/today_reka_scene.dart';
@@ -546,48 +545,26 @@ void main() {
     );
   });
 
-  testWidgets('quick actions invoke only the selected callback', (
-    tester,
-  ) async {
-    final counts = <TodayRekaAction, int>{
-      for (final action in TodayRekaAction.values) action: 0,
-    };
-
-    for (final selected in TodayRekaAction.values) {
-      await tester.pumpWidget(
-        _Host(
-          child: Builder(
-            builder: (context) => TextButton(
-              onPressed: () => showTodayRekaQuickActions(
-                context,
-                anchor: const Rect.fromLTWH(32, 420, 200, 200),
-                onManualRecord: () => counts[TodayRekaAction.manualRecord] =
-                    counts[TodayRekaAction.manualRecord]! + 1,
-                onCreateReport: () => counts[TodayRekaAction.createReport] =
-                    counts[TodayRekaAction.createReport]! + 1,
-                onStartChat: () => counts[TodayRekaAction.startChat] =
-                    counts[TodayRekaAction.startChat]! + 1,
-              ),
-              child: const Text('打开菜单'),
-            ),
-          ),
+  testWidgets('Today Reka tap resumes Session without a menu', (tester) async {
+    var opens = 0;
+    await tester.pumpWidget(
+      _Host(
+        child: TodayDotExperimentPage(
+          repository: _ImmediateRepository(TodayData.empty),
+          onStartChat: () => opens++,
+          rekaBuilder: (_, _, _, _, _, _, _) => const SizedBox.expand(),
         ),
-      );
+      ),
+    );
+    await tester.pump();
 
-      await tester.tap(find.text('打开菜单'));
-      await tester.pumpAndSettle();
-      expect(find.text('手动记录'), findsOneWidget);
-      expect(find.text('创建报告'), findsOneWidget);
-      expect(find.text('开始新聊天'), findsOneWidget);
+    await tester.tap(find.byKey(TodayRekaScene.rekaTargetKey));
+    await tester.pump();
 
-      await tester.tap(find.text(selected.label));
-      await tester.pumpAndSettle();
-
-      for (final action in TodayRekaAction.values) {
-        expect(counts[action], action == selected ? 1 : 0);
-      }
-      counts[selected] = 0;
-    }
+    expect(opens, 1);
+    expect(find.text('手动记录'), findsNothing);
+    expect(find.text('创建报告'), findsNothing);
+    expect(find.text('开始新聊天'), findsNothing);
   });
 
   testWidgets('empty scene refreshes once and emits one Reka pulse', (

@@ -22,7 +22,6 @@ import 'today_dithered_reka_config.dart';
 import 'today_output_coordinator.dart';
 import 'today_reka_capture_cue.dart';
 import 'today_reka_motion_controller.dart';
-import 'today_reka_quick_actions.dart';
 import 'today_reka_scene.dart';
 import 'today_living_surface.dart';
 
@@ -30,8 +29,6 @@ class TodayDotExperimentPage extends StatefulWidget {
   const TodayDotExperimentPage({
     super.key,
     this.repository,
-    this.onManualRecord,
-    this.onCreateReport,
     this.onStartChat,
     this.onOpenReka,
     this.onOpenAssetLibrary,
@@ -49,8 +46,6 @@ class TodayDotExperimentPage extends StatefulWidget {
   static const scrollKey = ValueKey<String>('today-dot-experiment-scroll');
 
   final ThemeV2HomeRepository? repository;
-  final VoidCallback? onManualRecord;
-  final VoidCallback? onCreateReport;
   final VoidCallback? onStartChat;
   final VoidCallback? onOpenReka;
   final VoidCallback? onOpenAssetLibrary;
@@ -74,7 +69,6 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
   Future<void>? _inflightRefresh;
   bool _refreshing = false;
   bool _refreshFailed = false;
-  bool _menuExpanded = false;
   bool _agendaOpen = false;
   int _refreshSignal = 0;
   int _requestSerial = 0;
@@ -267,21 +261,6 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
     if (mounted) await _refresh();
   }
 
-  Future<void> _openQuickActions(Rect anchor) async {
-    setState(() => _menuExpanded = true);
-    try {
-      await showTodayRekaQuickActions(
-        context,
-        anchor: anchor,
-        onManualRecord: widget.onManualRecord,
-        onCreateReport: widget.onCreateReport,
-        onStartChat: widget.onStartChat,
-      );
-    } finally {
-      if (mounted) setState(() => _menuExpanded = false);
-    }
-  }
-
   void _openAgenda() {
     unawaited(_rekaVoiceCoordinator.cancelGesture());
     setState(() => _agendaOpen = true);
@@ -300,7 +279,7 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
         topChromeInset: topChromeInset,
         bottomChromeInset: bottomChromeInset,
         refreshSignal: _refreshSignal,
-        menuExpanded: _menuExpanded,
+        menuExpanded: false,
         now: widget.now,
         active: widget.active,
         cue: _outputCoordinator.cue,
@@ -347,7 +326,7 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
         onRekaLongPressEnd: () => unawaited(_rekaVoiceCoordinator.release()),
         onRekaLongPressCancel: () =>
             unawaited(_rekaVoiceCoordinator.cancelGesture()),
-        onRekaTap: (anchor) => unawaited(_openQuickActions(anchor)),
+        onRekaTap: (_) => widget.onStartChat?.call(),
       ),
     );
   }

@@ -327,13 +327,12 @@ void main() {
   });
 
   testWidgets(
-    'Today dot experiment replaces only Home and wires Reka actions',
+    'Today dot experiment replaces only Home and opens Session directly',
     (tester) async {
       tester.view.physicalSize = const Size(411, 960);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
-      var manualRecordCount = 0;
       var createReportCount = 0;
       var startChatCount = 0;
       await tester.pumpWidget(
@@ -343,7 +342,6 @@ void main() {
             deviceStatus: const DeviceStatusSummary.disconnected(),
             homeRepository: const _HomeRepository(),
             todayDotExperimentOverride: true,
-            onManualRecord: () => manualRecordCount++,
             onCreateReport: () => createReportCount++,
             onStartChat: () => startChatCount++,
           ),
@@ -356,16 +354,12 @@ void main() {
       expect(find.byType(ThemeV2GlobalTopNav), findsOneWidget);
       expect(find.byKey(ThemeV2FloatingDock.dockKey), findsOneWidget);
 
-      for (final label in ['手动记录', '创建报告', '开始新聊天']) {
-        await tester.tap(find.byKey(TodayRekaScene.rekaTargetKey));
-        await tester.pumpAndSettle();
-        await tester.tap(find.text(label));
-        await tester.pumpAndSettle();
-      }
+      await tester.tap(find.byKey(TodayRekaScene.rekaTargetKey));
+      await tester.pump();
 
-      expect(manualRecordCount, 1);
-      expect(createReportCount, 1);
+      expect(createReportCount, 0);
       expect(startChatCount, 1);
+      expect(find.byType(PopupMenuItem), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );

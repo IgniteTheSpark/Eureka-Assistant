@@ -18,7 +18,6 @@ import '../../theme/app_theme.dart';
 import '../../voice_input/reka_voice_capture.dart';
 import '../../voice_input/voice_input_scope.dart';
 import '../calendar/calendar_controller.dart';
-import '../calendar/calendar_editor_router.dart';
 import '../calendar/theme_v2_calendar_page.dart';
 import '../capture/capture_activity_coordinator.dart';
 import '../capture/capture_activity_models.dart';
@@ -30,7 +29,6 @@ import '../home/home_repository.dart';
 import '../home/theme_v2_home_page.dart';
 import '../home/today_dot_experiment_page.dart';
 import '../home/today_reka_motion_controller.dart';
-import '../home/today_reka_quick_actions.dart';
 import '../inbox/reka_inbox_controller.dart';
 import '../inbox/reka_inbox_page.dart';
 import '../library/library_navigation.dart';
@@ -70,7 +68,6 @@ class ThemeV2AppShell extends StatefulWidget {
     this.todayRekaController,
     this.onCaptureActivitySelected,
     this.todayDotExperimentOverride,
-    this.onManualRecord,
     this.onCreateReport,
     this.onStartChat,
     this.initialIndex = const int.fromEnvironment('START_TAB', defaultValue: 0),
@@ -102,7 +99,6 @@ class ThemeV2AppShell extends StatefulWidget {
   final TodayRekaMotionController? todayRekaController;
   final ValueChanged<CaptureActivityItem>? onCaptureActivitySelected;
   final bool? todayDotExperimentOverride;
-  final VoidCallback? onManualRecord;
   final VoidCallback? onCreateReport;
   final VoidCallback? onStartChat;
   final int initialIndex;
@@ -423,15 +419,6 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
     );
   }
 
-  void _openManualRecord(BuildContext context) {
-    final callback = widget.onManualRecord;
-    if (callback != null) {
-      callback();
-      return;
-    }
-    unawaited(openCalendarManualRecordFlow(context));
-  }
-
   void _createReport(BuildContext context) {
     final callback = widget.onCreateReport;
     if (callback != null) {
@@ -441,7 +428,7 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
     _openReports(context, startCreate: true);
   }
 
-  void _startBlankChat(BuildContext context) {
+  void _resumeChat(BuildContext context) {
     final callback = widget.onStartChat;
     if (callback != null) {
       callback();
@@ -449,18 +436,8 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
     }
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => const ChatPage(startBlank: true, themeV2Override: true),
+        builder: (_) => const ChatPage(themeV2Override: true),
       ),
-    );
-  }
-
-  Future<void> _openRekaQuickActions(BuildContext context, Rect anchor) {
-    return showTodayRekaQuickActions(
-      context,
-      anchor: anchor,
-      onManualRecord: () => _openManualRecord(context),
-      onCreateReport: () => _createReport(context),
-      onStartChat: () => _startBlankChat(context),
     );
   }
 
@@ -531,9 +508,7 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
                     rekaVoiceCoordinator: _rekaVoiceCoordinator,
                     repository: widget.homeRepository,
                     captureActivityCoordinator: _captureActivityCoordinator,
-                    onManualRecord: () => _openManualRecord(context),
-                    onCreateReport: () => _createReport(context),
-                    onStartChat: () => _startBlankChat(context),
+                    onStartChat: () => _resumeChat(context),
                     onOpenReka: () => _openRekaSignals(context),
                     onOpenAssetLibrary: () => _selectDestination(2),
                   )
@@ -615,8 +590,7 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
                 : RekaShellCompanionMode.mini,
             controller: companionController,
             todayRekaController: _todayRekaController,
-            onRekaTap: (anchor) =>
-                unawaited(_openRekaQuickActions(context, anchor)),
+            onRekaTap: (_) => _resumeChat(context),
             onLongPressStart: _beginRekaVoice,
             onLongPressMove: _moveRekaVoice,
             onLongPressEnd: _releaseRekaVoice,

@@ -1,4 +1,5 @@
 import 'package:eureka/capture_activity/capture_activity_event.dart';
+import 'package:eureka/pages/chat_page.dart';
 import 'package:eureka/theme/app_theme.dart';
 import 'package:eureka/theme/eureka_colors.dart';
 import 'package:eureka/theme_v2/capture/capture_activity_coordinator.dart';
@@ -19,6 +20,53 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('Reka tap pushes resumable Theme V2 ChatPage', (tester) async {
+    final coordinator = CaptureActivityCoordinator();
+    final voice = RekaVoiceCaptureCoordinator(
+      coordinator: VoiceInputCoordinator(service: _UnusedVoiceService()),
+      sendFlash: (_, _) async {},
+      haptic: () {},
+    );
+    final companion = RekaCompanionController(
+      voice: voice,
+      activities: coordinator,
+    );
+    addTearDown(() async {
+      companion.dispose();
+      await voice.close();
+      voice.dispose();
+      coordinator.dispose();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildEurekaTheme(EurekaColors.light),
+        home: ThemeV2AppShell(
+          initialIndex: 1,
+          showStartupOverlays: false,
+          deviceStatus: const DeviceStatusSummary.disconnected(),
+          captureActivityCoordinator: coordinator,
+          rekaVoiceCoordinator: voice,
+          rekaCompanionController: companion,
+          pages: const [
+            ThemeV2PageScaffold(body: Text('today')),
+            ThemeV2PageScaffold(body: Text('calendar')),
+            ThemeV2PageScaffold(body: Text('library')),
+          ],
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(RekaMini.targetKey));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    final page = tester.widget<ChatPage>(find.byType(ChatPage));
+    expect(page.themeV2Override, isTrue);
+    expect(page.startBlank, isFalse);
+    expect(find.byType(PopupMenuItem), findsNothing);
+  });
+
   testWidgets('capture activity keeps root header and opens Reka terminal', (
     tester,
   ) async {
