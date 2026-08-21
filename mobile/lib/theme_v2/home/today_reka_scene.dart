@@ -31,6 +31,7 @@ class TodayRekaScene extends StatefulWidget {
     this.menuExpanded = false,
     this.now,
     this.active = true,
+    this.rekaVisible = true,
     this.rekaBuilder,
     this.content,
     this.cue = const TodayOutputCue.idle(),
@@ -54,6 +55,7 @@ class TodayRekaScene extends StatefulWidget {
   final bool menuExpanded;
   final DateTime? now;
   final bool active;
+  final bool rekaVisible;
   final TodayRekaBuilder? rekaBuilder;
   final Widget? content;
   final TodayOutputCue cue;
@@ -107,11 +109,15 @@ class _TodayRekaSceneState extends State<TodayRekaScene>
   void didUpdateWidget(covariant TodayRekaScene oldWidget) {
     super.didUpdateWidget(oldWidget);
     assert(identical(oldWidget.controller, widget.controller));
-    if (oldWidget.active && !widget.active) {
+    if ((oldWidget.active && !widget.active) ||
+        (oldWidget.rekaVisible && !widget.rekaVisible)) {
       _controller.cancelDrag();
       _lastDragTimestamp = null;
     }
-    if (oldWidget.active != widget.active) _syncTicker();
+    if (oldWidget.active != widget.active ||
+        oldWidget.rekaVisible != widget.rekaVisible) {
+      _syncTicker();
+    }
   }
 
   @override
@@ -128,6 +134,7 @@ class _TodayRekaSceneState extends State<TodayRekaScene>
   void _syncTicker() {
     final shouldTick =
         widget.active &&
+        widget.rekaVisible &&
         _lifecycleState == AppLifecycleState.resumed &&
         !(_reduceMotion ?? true) &&
         _controller.state == TodayRekaMotionState.settling;
@@ -270,7 +277,9 @@ class _TodayRekaSceneState extends State<TodayRekaScene>
         final reduceMotion = _reduceMotion ?? true;
         final rekaBuilder = widget.rekaBuilder ?? _buildDefaultReka;
         final supportsLongPress =
-            widget.active && widget.onRekaLongPressStart != null;
+            widget.active &&
+            widget.rekaVisible &&
+            widget.onRekaLongPressStart != null;
 
         return ColoredBox(
           key: TodayRekaScene.backgroundKey,
@@ -287,63 +296,65 @@ class _TodayRekaSceneState extends State<TodayRekaScene>
                   top: widget.topChromeInset + 14,
                   child: _TodayHeading(now: widget.now ?? DateTime.now()),
                 ),
-              Positioned(
-                left: _controller.rekaCenter.dx - renderRadius,
-                top: _controller.rekaCenter.dy - renderRadius,
-                width: renderExtent,
-                height: renderExtent,
-                child: KeyedSubtree(
-                  key: TodayRekaScene.rekaRenderKey,
-                  child: rekaBuilder(
-                    context,
-                    _controller.pose,
-                    widget.active,
-                    reduceMotion,
-                    widget.refreshSignal,
-                    widget.cue,
-                    widget.captureCue,
+              if (widget.rekaVisible) ...[
+                Positioned(
+                  left: _controller.rekaCenter.dx - renderRadius,
+                  top: _controller.rekaCenter.dy - renderRadius,
+                  width: renderExtent,
+                  height: renderExtent,
+                  child: KeyedSubtree(
+                    key: TodayRekaScene.rekaRenderKey,
+                    child: rekaBuilder(
+                      context,
+                      _controller.pose,
+                      widget.active,
+                      reduceMotion,
+                      widget.refreshSignal,
+                      widget.cue,
+                      widget.captureCue,
+                    ),
                   ),
                 ),
-              ),
-              Positioned(
-                left: _controller.rekaCenter.dx - targetRadius,
-                top: _controller.rekaCenter.dy - targetRadius,
-                child: Semantics(
-                  label: supportsLongPress
-                      ? 'Reka 快捷操作，可拖动，长按说话'
-                      : 'Reka 快捷操作，可拖动',
-                  button: true,
-                  expanded: widget.menuExpanded,
-                  onTap: _reportTapAnchor,
-                  child: ExcludeSemantics(
-                    child: GestureDetector(
-                      key: TodayRekaScene.rekaTargetKey,
-                      behavior: HitTestBehavior.opaque,
-                      onTap: widget.active ? _reportTapAnchor : null,
-                      onPanStart: _handlePanStart,
-                      onPanUpdate: _handlePanUpdate,
-                      onPanEnd: _handlePanEnd,
-                      onPanCancel: _handlePanCancel,
-                      onLongPressStart: supportsLongPress
-                          ? _handleLongPressStart
-                          : null,
-                      onLongPressMoveUpdate: supportsLongPress
-                          ? _handleLongPressMove
-                          : null,
-                      onLongPressEnd: supportsLongPress
-                          ? _handleLongPressEnd
-                          : null,
-                      onLongPressCancel: supportsLongPress
-                          ? _cancelLongPress
-                          : null,
-                      child: SizedBox.square(
-                        key: _rekaGeometryKey,
-                        dimension: targetExtent,
+                Positioned(
+                  left: _controller.rekaCenter.dx - targetRadius,
+                  top: _controller.rekaCenter.dy - targetRadius,
+                  child: Semantics(
+                    label: supportsLongPress
+                        ? 'Reka 快捷操作，可拖动，长按说话'
+                        : 'Reka 快捷操作，可拖动',
+                    button: true,
+                    expanded: widget.menuExpanded,
+                    onTap: _reportTapAnchor,
+                    child: ExcludeSemantics(
+                      child: GestureDetector(
+                        key: TodayRekaScene.rekaTargetKey,
+                        behavior: HitTestBehavior.opaque,
+                        onTap: widget.active ? _reportTapAnchor : null,
+                        onPanStart: _handlePanStart,
+                        onPanUpdate: _handlePanUpdate,
+                        onPanEnd: _handlePanEnd,
+                        onPanCancel: _handlePanCancel,
+                        onLongPressStart: supportsLongPress
+                            ? _handleLongPressStart
+                            : null,
+                        onLongPressMoveUpdate: supportsLongPress
+                            ? _handleLongPressMove
+                            : null,
+                        onLongPressEnd: supportsLongPress
+                            ? _handleLongPressEnd
+                            : null,
+                        onLongPressCancel: supportsLongPress
+                            ? _cancelLongPress
+                            : null,
+                        child: SizedBox.square(
+                          key: _rekaGeometryKey,
+                          dimension: targetExtent,
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
+              ],
             ],
           ),
         );

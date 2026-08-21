@@ -4,6 +4,7 @@ import 'package:eureka/capture_activity/capture_activity_event.dart';
 import 'package:eureka/theme_v2/capture/capture_activity_coordinator.dart';
 import 'package:eureka/theme_v2/capture/reka_companion_controller.dart';
 import 'package:eureka/theme_v2/capture/reka_terminal.dart';
+import 'package:eureka/theme_v2/capture/reka_terminal_models.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/home/today_reka_motion_controller.dart';
 import 'package:eureka/theme_v2/shell/reka_mini.dart';
@@ -18,7 +19,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('mini Reka is centered above Dock and reports hold movement', (
+  testWidgets('Dock projection follows companion phase and reports gestures', (
     tester,
   ) async {
     final harness = _Harness();
@@ -35,15 +36,23 @@ void main() {
             ThemeV2FloatingDock(
               selectedIndex: 1,
               onDestinationSelected: (_) {},
+              rekaCockpit: RekaDockCockpit(
+                controller: harness.companion,
+                onTap: (anchor) => tapAnchor = anchor,
+                onLongPressStart: () => starts += 1,
+                onLongPressMove: offsets.add,
+                onLongPressEnd: () => releases += 1,
+                onLongPressCancel: () {},
+              ),
             ),
             RekaShellCompanion(
               mode: RekaShellCompanionMode.mini,
               controller: harness.companion,
               todayRekaController: harness.today,
-              onRekaTap: (anchor) => tapAnchor = anchor,
-              onLongPressStart: () => starts += 1,
-              onLongPressMove: offsets.add,
-              onLongPressEnd: () => releases += 1,
+              onRekaTap: (_) {},
+              onLongPressStart: () {},
+              onLongPressMove: (_) {},
+              onLongPressEnd: () {},
               onLongPressCancel: () {},
               onOpenDetail: () {},
             ),
@@ -52,18 +61,17 @@ void main() {
       ),
     );
 
-    expect(
-      tester.getCenter(find.byKey(RekaMini.targetKey)).dx,
-      closeTo(
-        tester.getCenter(find.byKey(ThemeV2FloatingDock.dockKey)).dx,
-        .01,
-      ),
-    );
-    final miniBottom = tester.getBottomLeft(find.byKey(RekaMini.visualKey)).dy;
+    expect(tester.widget<RekaMini>(find.byType(RekaMini)).phase, isNull);
     final dockTop = tester
         .getTopLeft(find.byKey(ThemeV2FloatingDock.dockKey))
         .dy;
-    expect(dockTop - miniBottom, closeTo(6, .01));
+    final rekaBottom = tester
+        .getBottomLeft(find.byKey(RekaMini.visualKey))
+        .dy;
+    expect(rekaBottom - dockTop, closeTo(14, .01));
+    final initialLight = tester
+        .widget<DecoratedBox>(find.byKey(RekaDockCockpit.lightKey))
+        .decoration;
 
     final gesture = await tester.startGesture(
       tester.getCenter(find.byKey(RekaMini.targetKey)),
@@ -81,6 +89,63 @@ void main() {
     await tester.tap(find.byKey(RekaMini.targetKey));
     expect(tapAnchor, isNotNull);
     expect(tapAnchor!.size, const Size.square(RekaMini.targetExtent));
+
+    harness.activities.apply(_understandingEvent());
+    await tester.pump();
+    expect(
+      tester.widget<RekaMini>(find.byType(RekaMini)).phase,
+      RekaTerminalPhase.understanding,
+    );
+    expect(
+      tester
+          .widget<DecoratedBox>(find.byKey(RekaDockCockpit.lightKey))
+          .decoration,
+      isNot(initialLight),
+    );
+  });
+
+  testWidgets('Dock Terminal remains above the cockpit', (tester) async {
+    final harness = _Harness();
+    addTearDown(harness.dispose);
+    harness.activities.apply(_understandingEvent());
+    await tester.pumpWidget(
+      _host(
+        Stack(
+          children: [
+            ThemeV2FloatingDock(
+              selectedIndex: 1,
+              onDestinationSelected: (_) {},
+              rekaCockpit: RekaDockCockpit(
+                controller: harness.companion,
+                onTap: (_) {},
+                onLongPressStart: () {},
+                onLongPressMove: (_) {},
+                onLongPressEnd: () {},
+                onLongPressCancel: () {},
+              ),
+            ),
+            RekaShellCompanion(
+              mode: RekaShellCompanionMode.mini,
+              controller: harness.companion,
+              todayRekaController: harness.today,
+              onRekaTap: (_) {},
+              onLongPressStart: () {},
+              onLongPressMove: (_) {},
+              onLongPressEnd: () {},
+              onLongPressCancel: () {},
+              onOpenDetail: () {},
+            ),
+          ],
+        ),
+      ),
+    );
+
+    expect(
+      tester.getBottomLeft(find.byType(RekaTerminal)).dy,
+      lessThanOrEqualTo(
+        tester.getTopLeft(find.byKey(ThemeV2FloatingDock.cockpitKey)).dy - 10,
+      ),
+    );
   });
 
   testWidgets('Today mode renders only terminal and follows safe Reka anchor', (
@@ -166,6 +231,13 @@ void main() {
     expect(find.byType(RekaTerminal), findsNothing);
   });
 }
+
+CaptureActivityEvent _understandingEvent() => CaptureActivityEvent(
+  aliases: const {'client:ring-status'},
+  source: CaptureActivitySource.ring,
+  phase: CaptureActivityPhase.understanding,
+  occurredAt: DateTime.utc(2026, 8, 21),
+);
 
 Widget _host(Widget child, {bool disableAnimations = false}) => MaterialApp(
   theme: buildThemeV2Theme(Brightness.light),

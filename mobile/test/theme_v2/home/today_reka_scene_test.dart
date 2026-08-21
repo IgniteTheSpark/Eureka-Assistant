@@ -8,6 +8,27 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('hidden Today Reka keeps content but removes render and target', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _host(
+        TodayRekaScene(
+          rekaVisible: false,
+          refreshSignal: 0,
+          onRekaTap: (_) {},
+          rekaBuilder: _fakeReka,
+          content: const Text('Today content'),
+        ),
+      ),
+    );
+
+    expect(find.byKey(TodayRekaScene.backgroundKey), findsOneWidget);
+    expect(find.text('Today content'), findsOneWidget);
+    expect(find.byKey(TodayRekaScene.rekaRenderKey), findsNothing);
+    expect(find.byKey(TodayRekaScene.rekaTargetKey), findsNothing);
+  });
+
   testWidgets('scene uses the standard background and renders only Reka', (
     tester,
   ) async {

@@ -6,12 +6,137 @@ import 'package:flutter/scheduler.dart';
 
 import '../capture/reka_companion_controller.dart';
 import '../capture/reka_terminal.dart';
+import '../capture/reka_terminal_models.dart';
 import '../home/today_dithered_reka_config.dart';
 import '../home/today_reka_motion_controller.dart';
 import 'reka_mini.dart';
 import 'theme_v2_floating_dock.dart';
 
 enum RekaShellCompanionMode { today, mini }
+
+enum RekaShellHandoffDirection { toDock, toToday }
+
+@visibleForTesting
+Color rekaCockpitLightColor(RekaTerminalPhase? phase, Brightness brightness) =>
+    switch (phase) {
+      null =>
+        brightness == Brightness.dark
+            ? const Color(0x2EFFFFFF)
+            : const Color(0x245E7180),
+      RekaTerminalPhase.connecting ||
+      RekaTerminalPhase.listening => const Color(0xAA53DDF5),
+      RekaTerminalPhase.cancelArmed ||
+      RekaTerminalPhase.failed ||
+      RekaTerminalPhase.empty => const Color(0xAEEF6878),
+      RekaTerminalPhase.transcribing ||
+      RekaTerminalPhase.receiving ||
+      RekaTerminalPhase.sending ||
+      RekaTerminalPhase.understanding ||
+      RekaTerminalPhase.organizing => const Color(0xAA826CFF),
+      RekaTerminalPhase.done => const Color(0xAA78D98B),
+    };
+
+class RekaDockCockpit extends StatefulWidget {
+  const RekaDockCockpit({
+    super.key,
+    required this.controller,
+    required this.onTap,
+    required this.onLongPressStart,
+    required this.onLongPressMove,
+    required this.onLongPressEnd,
+    required this.onLongPressCancel,
+  });
+
+  static const lightKey = ValueKey<String>('reka-dock-cockpit-light');
+
+  final RekaCompanionController controller;
+  final ValueChanged<Rect> onTap;
+  final VoidCallback onLongPressStart;
+  final ValueChanged<double> onLongPressMove;
+  final VoidCallback onLongPressEnd;
+  final VoidCallback onLongPressCancel;
+
+  @override
+  State<RekaDockCockpit> createState() => _RekaDockCockpitState();
+}
+
+class _RekaDockCockpitState extends State<RekaDockCockpit> {
+  bool _rebuildScheduled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onControllerChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant RekaDockCockpit oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (identical(oldWidget.controller, widget.controller)) return;
+    oldWidget.controller.removeListener(_onControllerChanged);
+    widget.controller.addListener(_onControllerChanged);
+  }
+
+  void _onControllerChanged() {
+    if (!mounted) return;
+    final phase = SchedulerBinding.instance.schedulerPhase;
+    final duringFrame =
+        phase == SchedulerPhase.persistentCallbacks ||
+        phase == SchedulerPhase.midFrameMicrotasks;
+    if (!duringFrame) {
+      setState(() {});
+      return;
+    }
+    if (_rebuildScheduled) return;
+    _rebuildScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _rebuildScheduled = false;
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onControllerChanged);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final phase = widget.controller.terminal?.phase;
+    final light = rekaCockpitLightColor(phase, Theme.of(context).brightness);
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        Positioned.fill(
+          child: IgnorePointer(
+            child: DecoratedBox(
+              key: RekaDockCockpit.lightKey,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [light, light.withValues(alpha: 0)],
+                  stops: const [.08, .82],
+                ),
+                boxShadow: [
+                  BoxShadow(color: light, blurRadius: 18, spreadRadius: -8),
+                ],
+              ),
+            ),
+          ),
+        ),
+        RekaMini(
+          phase: phase,
+          onTap: widget.onTap,
+          onLongPressStart: widget.onLongPressStart,
+          onLongPressMove: widget.onLongPressMove,
+          onLongPressEnd: widget.onLongPressEnd,
+          onLongPressCancel: widget.onLongPressCancel,
+        ),
+      ],
+    );
+  }
+}
 
 class RekaShellCompanion extends StatefulWidget {
   const RekaShellCompanion({
@@ -25,11 +150,18 @@ class RekaShellCompanion extends StatefulWidget {
     required this.onLongPressEnd,
     required this.onLongPressCancel,
     required this.onOpenDetail,
+    this.handoffDirection,
+    this.handoffEpoch = 0,
   });
 
   static const transitionKey = ValueKey<String>(
     'reka-shell-companion-transition',
   );
+  static const handoffProxyKey = ValueKey<String>('reka-shell-handoff-proxy');
+  static const handoffVisualKey = ValueKey<String>(
+    'reka-shell-handoff-visual',
+  );
+  static const handoffDuration = Duration(milliseconds: 260);
   static const double terminalGap = 10;
   static const double viewportMargin = 16;
   static const double estimatedTerminalHeight = 224;
@@ -43,6 +175,8 @@ class RekaShellCompanion extends StatefulWidget {
   final VoidCallback onLongPressEnd;
   final VoidCallback onLongPressCancel;
   final VoidCallback onOpenDetail;
+  final RekaShellHandoffDirection? handoffDirection;
+  final int handoffEpoch;
 
   @override
   State<RekaShellCompanion> createState() => _RekaShellCompanionState();
@@ -130,25 +264,25 @@ class _RekaShellCompanionState extends State<RekaShellCompanion> {
           MediaQuery.paddingOf(context).bottom,
           ThemeV2FloatingDock.viewportBottomPadding,
         );
-        final miniTargetBottom =
-            bottomPadding +
-            ThemeV2FloatingDock.dockHeight +
-            ThemeV2FloatingDock.miniRekaGap -
-            (RekaMini.targetExtent - RekaMini.visualSize.height) / 2;
         final terminal = widget.controller.terminal;
         final children = <Widget>[];
 
-        if (widget.mode == RekaShellCompanionMode.mini) {
+        if (widget.handoffDirection case final direction?) {
           children.add(
-            Positioned(
-              left: (size.width - RekaMini.targetExtent) / 2,
-              bottom: miniTargetBottom,
-              child: RekaMini(
-                onTap: widget.onRekaTap,
-                onLongPressStart: widget.onLongPressStart,
-                onLongPressMove: widget.onLongPressMove,
-                onLongPressEnd: widget.onLongPressEnd,
-                onLongPressCancel: widget.onLongPressCancel,
+            Positioned.fill(
+              child: _RekaHandoffProxy(
+                key: RekaShellCompanion.handoffProxyKey,
+                direction: direction,
+                epoch: widget.handoffEpoch,
+                todayCenter: widget.todayRekaController.rekaCenter,
+                dockCenter: Offset(
+                  size.width / 2,
+                  size.height -
+                      bottomPadding -
+                      ThemeV2FloatingDock.compositionHeight +
+                      ThemeV2FloatingDock.cockpitTargetExtent / 2,
+                ),
+                phase: terminal?.phase,
               ),
             ),
           );
@@ -161,7 +295,13 @@ class _RekaShellCompanionState extends State<RekaShellCompanion> {
           );
           final anchor = widget.mode == RekaShellCompanionMode.today
               ? widget.todayRekaController.rekaCenter
-              : Offset(size.width / 2, size.height - miniTargetBottom);
+              : Offset(
+                  size.width / 2,
+                  size.height -
+                      bottomPadding -
+                      ThemeV2FloatingDock.compositionHeight +
+                      ThemeV2FloatingDock.cockpitTargetExtent / 2,
+                );
           final left = (anchor.dx - terminalWidth / 2).clamp(
             RekaShellCompanion.viewportMargin,
             size.width - terminalWidth - RekaShellCompanion.viewportMargin,
@@ -173,8 +313,8 @@ class _RekaShellCompanionState extends State<RekaShellCompanion> {
                 left: left,
                 width: terminalWidth,
                 bottom:
-                    miniTargetBottom +
-                    RekaMini.targetExtent +
+                    bottomPadding +
+                    ThemeV2FloatingDock.cockpitTopAboveDockBottom +
                     RekaShellCompanion.terminalGap,
                 child: _terminal(),
               ),
@@ -230,4 +370,76 @@ class _RekaShellCompanionState extends State<RekaShellCompanion> {
         ? widget.onOpenDetail
         : null,
   );
+}
+
+class _RekaHandoffProxy extends StatelessWidget {
+  const _RekaHandoffProxy({
+    super.key,
+    required this.direction,
+    required this.epoch,
+    required this.todayCenter,
+    required this.dockCenter,
+    required this.phase,
+  });
+
+  final RekaShellHandoffDirection direction;
+  final int epoch;
+  final Offset todayCenter;
+  final Offset dockCenter;
+  final RekaTerminalPhase? phase;
+
+  @override
+  Widget build(BuildContext context) {
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final from = direction == RekaShellHandoffDirection.toDock
+        ? todayCenter
+        : dockCenter;
+    final to = direction == RekaShellHandoffDirection.toDock
+        ? dockCenter
+        : todayCenter;
+    const fullScale = 2.75;
+
+    return IgnorePointer(
+      child: ExcludeSemantics(
+        child: TweenAnimationBuilder<double>(
+          key: ValueKey<int>(epoch),
+          tween: Tween(begin: 0, end: 1),
+          duration: RekaShellCompanion.handoffDuration,
+          curve: Curves.easeInOutCubic,
+          builder: (context, progress, child) {
+            final center = reduceMotion ? to : Offset.lerp(from, to, progress)!;
+            final startScale = direction == RekaShellHandoffDirection.toDock
+                ? fullScale
+                : 1.0;
+            final endScale = direction == RekaShellHandoffDirection.toDock
+                ? 1.0
+                : fullScale;
+            final scale = reduceMotion
+                ? endScale
+                : startScale + (endScale - startScale) * progress;
+            final opacity = reduceMotion
+                ? math.sin(progress * math.pi).clamp(0.0, 1.0).toDouble()
+                : 1.0;
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                Positioned(
+                  left: center.dx - RekaMini.visualSize.width / 2,
+                  top: center.dy - RekaMini.visualSize.height / 2,
+                  child: Opacity(
+                    opacity: opacity,
+                    child: Transform.scale(scale: scale, child: child),
+                  ),
+                ),
+              ],
+            );
+          },
+          child: RepaintBoundary(
+            key: RekaShellCompanion.handoffVisualKey,
+            child: RekaMiniVisual(phase: phase),
+          ),
+        ),
+      ),
+    );
+  }
 }

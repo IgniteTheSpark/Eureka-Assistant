@@ -19,6 +19,8 @@ import 'package:eureka/theme_v2/library/theme_v2_library_page.dart';
 import 'package:eureka/theme_v2/device/theme_v2_card_device_detail_page.dart';
 import 'package:eureka/theme_v2/device/theme_v2_ring_device_detail_page.dart';
 import 'package:eureka/theme_v2/shell/device_status_summary.dart';
+import 'package:eureka/theme_v2/shell/reka_mini.dart';
+import 'package:eureka/theme_v2/shell/reka_shell_companion.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_app_shell.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_floating_dock.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_global_top_nav.dart';
@@ -364,6 +366,81 @@ void main() {
     },
   );
 
+  testWidgets('Today to Calendar exposes only the proxy for 260ms', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const _ThemeHost(
+        disableAnimations: false,
+        child: ThemeV2AppShell(
+          showStartupOverlays: false,
+          deviceStatus: DeviceStatusSummary.disconnected(),
+          homeRepository: _HomeRepository(),
+          todayDotExperimentOverride: true,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byKey(TodayRekaScene.rekaTargetKey), findsOneWidget);
+    expect(find.byKey(RekaMini.targetKey), findsNothing);
+
+    await tester.tap(find.bySemanticsLabel('日历'));
+    await tester.pump();
+    expect(find.byKey(RekaShellCompanion.handoffProxyKey), findsOneWidget);
+    expect(find.byKey(TodayRekaScene.rekaTargetKey), findsNothing);
+    expect(find.byKey(RekaMini.targetKey), findsNothing);
+
+    await tester.pump(const Duration(milliseconds: 259));
+    expect(find.byKey(RekaShellCompanion.handoffProxyKey), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(find.byKey(RekaShellCompanion.handoffProxyKey), findsNothing);
+    expect(find.byKey(RekaMini.targetKey), findsOneWidget);
+
+    await tester.tap(find.bySemanticsLabel('今日'));
+    await tester.pump();
+    expect(find.byKey(RekaShellCompanion.handoffProxyKey), findsOneWidget);
+    expect(find.byKey(TodayRekaScene.rekaTargetKey), findsNothing);
+    expect(find.byKey(RekaMini.targetKey), findsNothing);
+    await tester.pump(const Duration(milliseconds: 260));
+    expect(find.byKey(RekaShellCompanion.handoffProxyKey), findsNothing);
+    expect(find.byKey(TodayRekaScene.rekaTargetKey), findsOneWidget);
+    expect(find.byKey(RekaMini.targetKey), findsNothing);
+  });
+
+  testWidgets('reduced motion handoff crossfades without travel', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const _ThemeHost(
+        child: ThemeV2AppShell(
+          showStartupOverlays: false,
+          deviceStatus: DeviceStatusSummary.disconnected(),
+          homeRepository: _HomeRepository(),
+          todayDotExperimentOverride: true,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.bySemanticsLabel('日历'));
+    await tester.pump();
+    final initialCenter = tester.getCenter(
+      find.byKey(RekaShellCompanion.handoffVisualKey),
+    );
+    await tester.pump(const Duration(milliseconds: 130));
+    expect(
+      tester.getCenter(find.byKey(RekaShellCompanion.handoffVisualKey)),
+      initialCenter,
+    );
+    expect(find.byKey(TodayRekaScene.rekaTargetKey), findsNothing);
+    expect(find.byKey(RekaMini.targetKey), findsNothing);
+
+    await tester.pump(const Duration(milliseconds: 130));
+    expect(find.byKey(RekaShellCompanion.handoffProxyKey), findsNothing);
+    expect(find.byKey(RekaMini.targetKey), findsOneWidget);
+  });
+
   testWidgets('root pages share the floating Top Dock', (tester) async {
     await tester.pumpWidget(
       _ThemeHost(
@@ -654,17 +731,18 @@ void main() {
 }
 
 class _ThemeHost extends StatelessWidget {
-  const _ThemeHost({required this.child});
+  const _ThemeHost({required this.child, this.disableAnimations = true});
 
   final Widget child;
+  final bool disableAnimations;
 
   @override
   Widget build(BuildContext context) {
     return MediaQuery(
-      data: const MediaQueryData(
-        size: Size(411, 960),
+      data: MediaQueryData(
+        size: const Size(411, 960),
         devicePixelRatio: 1,
-        disableAnimations: true,
+        disableAnimations: disableAnimations,
         textScaler: TextScaler.noScaling,
       ),
       child: ValueListenableBuilder<ThemeMode>(

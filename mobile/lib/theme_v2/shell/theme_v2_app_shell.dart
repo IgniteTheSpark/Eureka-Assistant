@@ -136,6 +136,12 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
   late final TodayRekaMotionController _todayRekaController =
       widget.todayRekaController ?? TodayRekaMotionController();
   late final bool _ownsTodayRekaController = widget.todayRekaController == null;
+  Timer? _rekaHandoffTimer;
+  RekaShellHandoffDirection? _rekaHandoffDirection;
+  int _rekaHandoffEpoch = 0;
+
+  bool get _usesFullTodayReka =>
+      widget.pages == null && widget.usesTodayDotExperiment;
 
   @override
   void initState() {
@@ -162,6 +168,7 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
 
   @override
   void dispose() {
+    _rekaHandoffTimer?.cancel();
     _disposeOwnedRekaCompanion();
     final voice = _rekaVoiceCoordinator;
     if (_ownsRekaVoiceCoordinator && voice != null) {
@@ -351,7 +358,31 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
   void _selectDestination(int index) {
     if (index == 1 && _index == 1) calendarHome.value++;
     if (index == 2 && _index == 2) _libraryNavigation.home();
-    if (_index != index) setState(() => _index = index);
+    if (_index == index) return;
+
+    final oldIndex = _index;
+    final crossesFullToday =
+        _usesFullTodayReka &&
+        _rekaCompanionController != null &&
+        ((oldIndex == 0 && index != 0) || (oldIndex != 0 && index == 0));
+    final direction = !crossesFullToday
+        ? null
+        : index == 0
+        ? RekaShellHandoffDirection.toToday
+        : RekaShellHandoffDirection.toDock;
+
+    _rekaHandoffTimer?.cancel();
+    setState(() {
+      _index = index;
+      _rekaHandoffDirection = direction;
+      if (direction != null) _rekaHandoffEpoch++;
+    });
+    if (direction == null) return;
+    final epoch = _rekaHandoffEpoch;
+    _rekaHandoffTimer = Timer(RekaShellCompanion.handoffDuration, () {
+      if (!mounted || epoch != _rekaHandoffEpoch) return;
+      setState(() => _rekaHandoffDirection = null);
+    });
   }
 
   void _openDevice(BuildContext context, ThemeV2DeviceTarget target) {
@@ -503,6 +534,7 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
             body: widget.usesTodayDotExperiment
                 ? TodayDotExperimentPage(
                     active: _index == 0,
+                    rekaVisible: _index == 0 && _rekaHandoffDirection == null,
                     extendUnderChrome: immersiveToday,
                     rekaController: _todayRekaController,
                     rekaVoiceCoordinator: _rekaVoiceCoordinator,
@@ -574,18 +606,30 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
       onDeviceSelected: (target) => _openDevice(context, target),
       onNotificationsPressed: () => _openNotifications(context),
     );
+    final companionController = _rekaCompanionController;
+    final fullTodayActive = _usesFullTodayReka && _index == 0;
+    final showDockReka =
+        companionController != null &&
+        !fullTodayActive &&
+        _rekaHandoffDirection == null;
     final dock = ThemeV2FloatingDock(
       selectedIndex: _index,
       onDestinationSelected: _selectDestination,
+      rekaCockpit: showDockReka
+          ? RekaDockCockpit(
+              controller: companionController,
+              onTap: (_) => _resumeChat(context),
+              onLongPressStart: _beginRekaVoice,
+              onLongPressMove: _moveRekaVoice,
+              onLongPressEnd: _releaseRekaVoice,
+              onLongPressCancel: _cancelRekaVoice,
+            )
+          : null,
     );
-    final companionController = _rekaCompanionController;
     final companion = companionController == null
         ? null
         : RekaShellCompanion(
-            mode:
-                widget.pages == null &&
-                    widget.usesTodayDotExperiment &&
-                    _index == 0
+            mode: fullTodayActive
                 ? RekaShellCompanionMode.today
                 : RekaShellCompanionMode.mini,
             controller: companionController,
@@ -595,6 +639,8 @@ class _ThemeV2AppShellState extends State<ThemeV2AppShell>
             onLongPressMove: _moveRekaVoice,
             onLongPressEnd: _releaseRekaVoice,
             onLongPressCancel: _cancelRekaVoice,
+            handoffDirection: _rekaHandoffDirection,
+            handoffEpoch: _rekaHandoffEpoch,
             onOpenDetail: () {
               final activity = companionController.openableActivity;
               if (activity != null) _openCaptureActivity(context, activity);

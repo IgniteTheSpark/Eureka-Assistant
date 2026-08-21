@@ -35,6 +35,7 @@ class TodayDotExperimentPage extends StatefulWidget {
     this.clock,
     this.now,
     this.active = true,
+    this.rekaVisible = true,
     this.rekaController,
     this.rekaConfig = const TodayDitheredRekaConfig(),
     this.rekaBuilder,
@@ -52,6 +53,7 @@ class TodayDotExperimentPage extends StatefulWidget {
   final ValueListenable<DateTime>? clock;
   final DateTime? now;
   final bool active;
+  final bool rekaVisible;
   final TodayRekaMotionController? rekaController;
   final TodayDitheredRekaConfig rekaConfig;
   final TodayRekaBuilder? rekaBuilder;
@@ -282,6 +284,7 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
         menuExpanded: false,
         now: widget.now,
         active: widget.active,
+        rekaVisible: widget.rekaVisible,
         cue: _outputCoordinator.cue,
         captureCue: _captureCue,
         controller: _sceneRekaController,

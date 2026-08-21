@@ -128,7 +128,8 @@ class _RekaMiniState extends State<RekaMini>
           onLongPressCancel: _longPressCancel,
           child: SizedBox.square(
             dimension: RekaMini.targetExtent,
-            child: Center(
+            child: Align(
+              alignment: Alignment.topCenter,
               child: AnimatedBuilder(
                 animation: _breathing,
                 builder: (context, child) {
@@ -142,23 +143,7 @@ class _RekaMiniState extends State<RekaMini>
                   );
                 },
                 child: RepaintBoundary(
-                  child: SizedBox.fromSize(
-                    key: RekaMini.visualKey,
-                    size: RekaMini.visualSize,
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        CustomPaint(
-                          key: RekaMini.shellKey,
-                          painter: const _RekaMiniShellPainter(),
-                        ),
-                        CustomPaint(
-                          key: RekaMini.visorKey,
-                          painter: _RekaMiniVisorPainter(widget.phase),
-                        ),
-                      ],
-                    ),
-                  ),
+                  child: RekaMiniVisual(phase: widget.phase, debugKeys: true),
                 ),
               ),
             ),
@@ -167,6 +152,33 @@ class _RekaMiniState extends State<RekaMini>
       ),
     );
   }
+}
+
+/// The non-interactive native Reka artwork used by visual-only transitions.
+class RekaMiniVisual extends StatelessWidget {
+  const RekaMiniVisual({super.key, this.phase, this.debugKeys = false});
+
+  final RekaTerminalPhase? phase;
+  final bool debugKeys;
+
+  @override
+  Widget build(BuildContext context) => SizedBox.fromSize(
+    key: debugKeys ? RekaMini.visualKey : null,
+    size: RekaMini.visualSize,
+    child: Stack(
+      fit: StackFit.expand,
+      children: [
+        CustomPaint(
+          key: debugKeys ? RekaMini.shellKey : null,
+          painter: const _RekaMiniShellPainter(),
+        ),
+        CustomPaint(
+          key: debugKeys ? RekaMini.visorKey : null,
+          painter: _RekaMiniVisorPainter(phase),
+        ),
+      ],
+    ),
+  );
 }
 
 class _RekaMiniShellPainter extends CustomPainter {
