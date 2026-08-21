@@ -257,7 +257,7 @@ class _SessionComposerState extends State<SessionComposer> {
     final statusIcon = voice.statusIcon(color: tokens.accent);
     return Row(
       children: [
-        if (statusIcon != null) statusIcon,
+        ?statusIcon,
         if (voice.statusLabel != null) ...[
           const SizedBox(width: 4),
           ExcludeSemantics(

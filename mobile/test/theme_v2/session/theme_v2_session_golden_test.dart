@@ -13,7 +13,16 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'session_state_test.dart' show FakeSessionController;
 
-enum _GoldenState { loaded, analyzing, history, keyboard, empty, error }
+enum _GoldenState {
+  loaded,
+  analyzing,
+  history,
+  keyboard,
+  reviewReady,
+  longReviewReady,
+  empty,
+  error,
+}
 
 void main() {
   const surface = ValueKey('session-golden-surface');
@@ -85,6 +94,25 @@ void main() {
         );
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 500));
+        if (state == _GoldenState.keyboard ||
+            state == _GoldenState.reviewReady ||
+            state == _GoldenState.longReviewReady) {
+          final field = find.byKey(const ValueKey('session-composer-field'));
+          await tester.tap(field);
+          await tester.pump();
+          if (state != _GoldenState.keyboard) {
+            final text = state == _GoldenState.reviewReady
+                ? '请整理访谈反馈，并输出三个行动建议。'
+                : List<String>.generate(
+                    10,
+                    (index) => '第 ${index + 1} 行访谈重点',
+                  ).join('\n');
+            await tester.enterText(field, text);
+            await tester.pump();
+            tester.widget<TextField>(field).focusNode!.unfocus();
+            await tester.pump();
+          }
+        }
         await expectLater(
           find.byKey(surface),
           matchesGoldenFile('goldens/session-${state.name}-411-$suffix.png'),

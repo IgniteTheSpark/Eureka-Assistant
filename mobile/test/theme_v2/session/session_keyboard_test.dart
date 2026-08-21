@@ -251,6 +251,36 @@ void main() {
       closeTo(fieldScroll().position.maxScrollExtent, 1),
     );
   });
+
+  testWidgets('long review-ready draft keeps its footer on screen', (
+    tester,
+  ) async {
+    final controller = FakeSessionController(
+      messages: [ChatMessage.user('u1', '已有会话内容')],
+    );
+    await _pumpKeyboard(
+      tester,
+      controller: controller,
+      size: const Size(411, 960),
+    );
+    final field = find.byKey(const ValueKey('session-composer-field'));
+
+    await tester.tap(field);
+    await tester.pump();
+    await tester.enterText(
+      field,
+      List<String>.generate(10, (index) => '第 ${index + 1} 行访谈重点').join('\n'),
+    );
+    await tester.pump();
+    tester.widget<TextField>(field).focusNode!.unfocus();
+    await tester.pump();
+
+    final footer = find.byKey(const ValueKey('session-composer-footer'));
+    expect(footer, findsOneWidget);
+    expect(find.byKey(const ValueKey('session-send')), findsOneWidget);
+    expect(tester.getRect(footer).bottom, lessThanOrEqualTo(960));
+    expect(tester.takeException(), isNull);
+  });
 }
 
 Future<void> _pumpKeyboard(
