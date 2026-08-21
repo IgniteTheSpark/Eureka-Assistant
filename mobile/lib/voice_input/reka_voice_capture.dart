@@ -12,6 +12,7 @@ enum RekaVoiceCaptureState {
   cancelArmed,
   stopping,
   sending,
+  empty,
   error,
 }
 
@@ -74,8 +75,16 @@ final class RekaVoiceCaptureCoordinator extends ChangeNotifier {
 
   RekaVoiceCaptureState get state => _state;
   VoiceInputErrorCode? get errorCode => _errorCode;
+  int get captureEpoch => _epoch;
+  String? get voiceSessionId {
+    final value = _voiceSessionId.trim();
+    return value.isEmpty ? null : value;
+  }
+
   bool get isActive => switch (_state) {
-    RekaVoiceCaptureState.idle || RekaVoiceCaptureState.error => false,
+    RekaVoiceCaptureState.idle ||
+    RekaVoiceCaptureState.empty ||
+    RekaVoiceCaptureState.error => false,
     _ => true,
   };
   bool get isDurationWarning => _durationWarning;
@@ -260,15 +269,17 @@ final class RekaVoiceCaptureCoordinator extends ChangeNotifier {
     final text = rawText.trim();
     final sessionId = _voiceSessionId;
     _state = text.isEmpty
-        ? RekaVoiceCaptureState.idle
+        ? RekaVoiceCaptureState.empty
         : RekaVoiceCaptureState.sending;
     _notify();
 
     try {
-      if (text.isNotEmpty) await _sendFlash(text, sessionId);
-      if (_isCurrent(epoch)) {
-        _errorCode = null;
-        _state = RekaVoiceCaptureState.idle;
+      if (text.isNotEmpty) {
+        await _sendFlash(text, sessionId);
+        if (_isCurrent(epoch)) {
+          _errorCode = null;
+          _state = RekaVoiceCaptureState.idle;
+        }
       }
     } catch (_) {
       if (_isCurrent(epoch)) {

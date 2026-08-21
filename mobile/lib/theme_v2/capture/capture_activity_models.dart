@@ -47,7 +47,8 @@ class CaptureActivityItem {
     }
     if (phase == CaptureActivityPhase.receiving &&
         !isRealtime &&
-        source != CaptureActivitySource.audioUpload) {
+        (source == CaptureActivitySource.ring ||
+            source == CaptureActivitySource.card)) {
       return '正在同步离线闪念';
     }
     return phase.label;

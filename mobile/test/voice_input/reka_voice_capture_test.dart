@@ -165,13 +165,18 @@ void main() {
       haptic: () {},
     );
 
+    final initialEpoch = coordinator.captureEpoch;
     await coordinator.begin();
+    expect(coordinator.captureEpoch, initialEpoch + 1);
     await coordinator.release();
     first.emit(_final(1, '   '));
     await pumpEventQueue();
     expect(sent, isEmpty);
+    expect(coordinator.state, RekaVoiceCaptureState.empty);
+    expect(coordinator.voiceSessionId, 'voice-empty');
 
     await coordinator.begin();
+    expect(coordinator.captureEpoch, initialEpoch + 2);
     second.emit(
       const VoiceInputFailure(
         code: VoiceInputErrorCode.connectionLost,

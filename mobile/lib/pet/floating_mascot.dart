@@ -786,6 +786,7 @@ class _FloatingMascotState extends State<FloatingMascot>
       RekaVoiceCaptureState.stopping =>
         transcript.isEmpty ? '正在识别…' : transcript,
       RekaVoiceCaptureState.sending => '正在发送闪念…',
+      RekaVoiceCaptureState.empty => '未识别到有效内容',
       RekaVoiceCaptureState.error => '语音输入失败，请再试一次',
       RekaVoiceCaptureState.idle => '',
     };

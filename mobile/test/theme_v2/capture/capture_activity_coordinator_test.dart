@@ -188,13 +188,13 @@ void main() {
 
     expect(coordinator.snapshot.active!.phase, CaptureActivityPhase.done);
     expect(coordinator.snapshot.active!.resultCount, 3);
-    expect(scheduled, contains(const Duration(milliseconds: 1500)));
+    expect(scheduled, contains(const Duration(seconds: 2)));
 
-    scheduled[const Duration(milliseconds: 1500)]!();
+    scheduled[const Duration(seconds: 2)]!();
     expect(coordinator.snapshot.active!.aliases, contains('client:second'));
   });
 
-  test('failure and empty use three and two second dwell', () {
+  test('failure and empty use four and three second dwell', () {
     final durations = <Duration>[];
     final failed = CaptureActivityCoordinator(
       schedule: (duration, _) => durations.add(duration),
@@ -223,8 +223,8 @@ void main() {
     expect(
       durations,
       containsAll(<Duration>[
+        const Duration(seconds: 4),
         const Duration(seconds: 3),
-        const Duration(seconds: 2),
       ]),
     );
   });
