@@ -110,7 +110,6 @@ class _TodayRekaSceneState extends State<TodayRekaScene>
     if (oldWidget.active && !widget.active) {
       _controller.cancelDrag();
       _lastDragTimestamp = null;
-      _cancelVoiceCapture();
     }
     if (oldWidget.active != widget.active) _syncTicker();
   }

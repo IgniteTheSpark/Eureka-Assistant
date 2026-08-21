@@ -181,6 +181,26 @@ void main() {
     await gesture.cancel();
   });
 
+  testWidgets('inactive scene leaves Shell-owned voice capture running', (
+    tester,
+  ) async {
+    var voiceCancels = 0;
+    Widget build(bool active) => _host(
+      TodayRekaScene(
+        active: active,
+        refreshSignal: 0,
+        onRekaTap: (_) {},
+        onRekaLongPressCancel: () => voiceCancels += 1,
+        rekaBuilder: _fakeReka,
+      ),
+    );
+
+    await tester.pumpWidget(build(true));
+    await tester.pumpWidget(build(false));
+
+    expect(voiceCancels, 0);
+  });
+
   testWidgets(
     'inactive scene keeps its last valid layout when chrome shrinks',
     (tester) async {

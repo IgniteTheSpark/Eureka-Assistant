@@ -18,6 +18,7 @@ class ThemeV2PageScaffold extends StatelessWidget {
     this.extendBodyBehindChrome = false,
     this.topNav,
     this.dock,
+    this.companion,
     this.topNavExtent = ThemeV2GlobalTopNav.height,
   });
 
@@ -28,12 +29,14 @@ class ThemeV2PageScaffold extends StatelessWidget {
   final bool extendBodyBehindChrome;
   final Widget? topNav;
   final Widget? dock;
+  final Widget? companion;
   final double topNavExtent;
 
   ThemeV2PageScaffold withShellChrome({
     required Widget body,
     required Widget topNav,
     required Widget dock,
+    Widget? companion,
   }) {
     return ThemeV2PageScaffold(
       body: body,
@@ -43,6 +46,7 @@ class ThemeV2PageScaffold extends StatelessWidget {
       extendBodyBehindChrome: extendBodyBehindChrome,
       topNav: topNav,
       dock: dock,
+      companion: companion,
       topNavExtent: topNavExtent,
     );
   }
@@ -53,7 +57,7 @@ class ThemeV2PageScaffold extends StatelessWidget {
         ? topNavExtent
         : 0.0;
     final bottomClearance = showDock && !extendBodyBehindChrome
-        ? ThemeV2FloatingDock.contentClearance +
+        ? ThemeV2FloatingDock.companionContentClearance +
               MediaQuery.paddingOf(context).bottom
         : 0.0;
     final composition = SafeArea(
@@ -74,6 +78,7 @@ class ThemeV2PageScaffold extends StatelessWidget {
             Positioned(left: 0, right: 0, top: 0, child: topNav!),
           if (showDock && dock != null)
             Positioned(left: 0, right: 0, bottom: 0, child: dock!),
+          if (showDock && companion != null) Positioned.fill(child: companion!),
         ],
       ),
     );

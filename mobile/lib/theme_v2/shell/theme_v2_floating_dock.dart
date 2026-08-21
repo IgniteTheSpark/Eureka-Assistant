@@ -19,7 +19,10 @@ class ThemeV2FloatingDock extends StatelessWidget {
   static const double lightRadius = 18;
   static Color get lightShadowColor => Colors.black.withValues(alpha: 0.12);
   static const double contentClearance = 80;
+  static const double companionContentClearance = 136;
+  static const double miniRekaGap = 6;
   static const double viewportBottomPadding = 35;
+  static const double dockHeight = 60;
 
   final int selectedIndex;
   final ValueChanged<int> onDestinationSelected;
@@ -64,7 +67,7 @@ class ThemeV2FloatingDock extends StatelessWidget {
                 : lightShadowColor,
             borderRadius: BorderRadius.circular(dark ? 20 : lightRadius),
             child: SizedBox(
-              height: 60,
+              height: dockHeight,
               child: Row(
                 children: [
                   for (var index = 0; index < _destinations.length; index++)

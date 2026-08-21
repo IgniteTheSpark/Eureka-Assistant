@@ -29,7 +29,6 @@ class RekaShellCompanion extends StatelessWidget {
   static const transitionKey = ValueKey<String>(
     'reka-shell-companion-transition',
   );
-  static const double miniVisualGap = 6;
   static const double terminalGap = 10;
   static const double viewportMargin = 16;
   static const double estimatedTerminalHeight = 224;
@@ -85,8 +84,8 @@ class RekaShellCompanion extends StatelessWidget {
         );
         final miniTargetBottom =
             bottomPadding +
-            60 +
-            miniVisualGap -
+            ThemeV2FloatingDock.dockHeight +
+            ThemeV2FloatingDock.miniRekaGap -
             (RekaMini.targetExtent - RekaMini.visualSize.height) / 2;
         final terminal = controller.terminal;
         final children = <Widget>[];

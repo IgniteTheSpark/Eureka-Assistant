@@ -47,9 +47,6 @@ class TodayDotExperimentPage extends StatefulWidget {
   });
 
   static const scrollKey = ValueKey<String>('today-dot-experiment-scroll');
-  static const rekaVoiceOverlayKey = ValueKey<String>(
-    'today-dot-reka-voice-overlay',
-  );
 
   final ThemeV2HomeRepository? repository;
   final VoidCallback? onManualRecord;
@@ -148,7 +145,7 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
       identical(oldWidget.rekaVoiceCoordinator, widget.rekaVoiceCoordinator),
       'rekaVoiceCoordinator cannot change while the page is mounted',
     );
-    if (oldWidget.active && !widget.active) {
+    if (oldWidget.active && !widget.active && _ownsRekaVoiceCoordinator) {
       unawaited(_rekaVoiceCoordinator.cancelGesture());
     }
     if (!identical(oldWidget.repository, widget.repository)) {
@@ -403,7 +400,7 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
         ? ThemeV2GlobalTopNav.floatingExtent
         : 0.0;
     final bottomChromeInset = widget.extendUnderChrome
-        ? ThemeV2FloatingDock.contentClearance + bottomPadding
+        ? ThemeV2FloatingDock.companionContentClearance + bottomPadding
         : 0.0;
     return ColoredBox(
       color: context.themeV2.background,
@@ -455,100 +452,7 @@ class _TodayDotExperimentPageState extends State<TodayDotExperimentPage> {
               right: 18,
               child: _RefreshFailure(onRetry: () => unawaited(_refresh())),
             ),
-          if (widget.active &&
-              !_agendaOpen &&
-              _rekaVoiceCoordinator.state != RekaVoiceCaptureState.idle)
-            Positioned(
-              top: topChromeInset + 16,
-              left: 30,
-              right: 30,
-              child: _RekaVoiceOverlay(coordinator: _rekaVoiceCoordinator),
-            ),
         ],
-      ),
-    );
-  }
-}
-
-class _RekaVoiceOverlay extends StatelessWidget {
-  const _RekaVoiceOverlay({required this.coordinator});
-
-  final RekaVoiceCaptureCoordinator coordinator;
-
-  @override
-  Widget build(BuildContext context) {
-    final transcript = coordinator.transcript;
-    final state = coordinator.state;
-    final primary = transcript.isNotEmpty
-        ? transcript
-        : switch (state) {
-            RekaVoiceCaptureState.connecting => '正在连接语音…',
-            RekaVoiceCaptureState.listening => '请说话…',
-            RekaVoiceCaptureState.cancelArmed => '松开取消',
-            RekaVoiceCaptureState.stopping => '正在识别…',
-            RekaVoiceCaptureState.sending => '正在发送闪念…',
-            RekaVoiceCaptureState.empty => '未识别到有效内容',
-            RekaVoiceCaptureState.error => '语音输入失败，请再试一次',
-            RekaVoiceCaptureState.idle => '',
-          };
-    final secondary = switch (state) {
-      RekaVoiceCaptureState.connecting || RekaVoiceCaptureState.listening =>
-        coordinator.isDurationWarning ? '即将自动发送' : '上滑取消 · 松开发送',
-      RekaVoiceCaptureState.cancelArmed => transcript.isEmpty ? '' : '松开取消',
-      RekaVoiceCaptureState.stopping => '正在完成识别…',
-      RekaVoiceCaptureState.sending => '正在发送闪念…',
-      RekaVoiceCaptureState.empty => '请长按 Reka 再试一次',
-      RekaVoiceCaptureState.error => '请长按 Reka 再试一次',
-      RekaVoiceCaptureState.idle => '',
-    };
-
-    return IgnorePointer(
-      child: Semantics(
-        key: TodayDotExperimentPage.rekaVoiceOverlayKey,
-        liveRegion: true,
-        label: '$primary，$secondary',
-        child: Material(
-          color: context.themeV2.surface.withValues(alpha: .94),
-          elevation: 3,
-          shadowColor: Colors.black.withValues(alpha: .14),
-          borderRadius: BorderRadius.circular(18),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  primary,
-                  maxLines: 4,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: state == RekaVoiceCaptureState.cancelArmed
-                        ? context.themeV2.critical
-                        : context.themeV2.foreground,
-                    fontSize: 15,
-                    height: 1.45,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                if (secondary.isNotEmpty) ...[
-                  const SizedBox(height: 5),
-                  Text(
-                    secondary,
-                    style: TextStyle(
-                      color: state == RekaVoiceCaptureState.cancelArmed
-                          ? context.themeV2.critical
-                          : context.themeV2.muted,
-                      fontSize: 11,
-                      height: 1.2,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
       ),
     );
   }

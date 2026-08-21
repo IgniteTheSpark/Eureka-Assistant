@@ -64,12 +64,9 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      expect(
-        find.byKey(TodayDotExperimentPage.rekaVoiceOverlayKey),
-        findsOneWidget,
-      );
-      expect(find.text('明天上午十点开会'), findsOneWidget);
-      expect(find.text('上滑取消 · 松开发送'), findsOneWidget);
+      expect(voice.transcript, '明天上午十点开会');
+      expect(find.text('明天上午十点开会'), findsNothing);
+      expect(find.text('上滑取消 · 松开发送'), findsNothing);
       expect(find.text('手动记录'), findsNothing);
 
       await gesture.up();
@@ -91,10 +88,7 @@ void main() {
       await tester.pump();
 
       expect(sent, [('明天上午十点开会。', 'reka-page-session')]);
-      expect(
-        find.byKey(TodayDotExperimentPage.rekaVoiceOverlayKey),
-        findsNothing,
-      );
+      expect(find.text('明天上午十点开会。'), findsNothing);
     },
   );
 
@@ -132,7 +126,7 @@ void main() {
     await gesture.moveBy(const Offset(0, -90));
     await tester.pump();
     expect(voice.state, RekaVoiceCaptureState.cancelArmed);
-    expect(find.text('松开取消'), findsOneWidget);
+    expect(find.text('松开取消'), findsNothing);
 
     await gesture.up();
     await tester.runAsync(() => pumpEventQueue());
@@ -141,10 +135,7 @@ void main() {
     expect(session.cancelCount, 1);
     expect(sent, isEmpty);
     expect(voice.state, RekaVoiceCaptureState.idle);
-    expect(
-      find.byKey(TodayDotExperimentPage.rekaVoiceOverlayKey),
-      findsNothing,
-    );
+    expect(find.text('松开取消'), findsNothing);
   });
 
   testWidgets('backgrounding after release cancels a stopping voice capture', (
@@ -240,19 +231,13 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(cue.action, TodayRekaCaptureAction.understanding);
-    expect(
-      find.byKey(TodayDotExperimentPage.rekaVoiceOverlayKey),
-      findsOneWidget,
-    );
+    expect(find.text('语音输入失败，请再试一次'), findsNothing);
 
     await tester.tap(find.byKey(const ValueKey('today-next-schedule')));
     await tester.pumpAndSettle();
 
     expect(find.byType(HomeAgendaPanel), findsOneWidget);
-    expect(
-      find.byKey(TodayDotExperimentPage.rekaVoiceOverlayKey),
-      findsNothing,
-    );
+    expect(find.text('语音输入失败，请再试一次'), findsNothing);
   });
 
   testWidgets('capture coordinator updates the mounted Reka cue in place', (
