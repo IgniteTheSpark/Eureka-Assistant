@@ -10,6 +10,54 @@ import 'package:flutter_test/flutter_test.dart';
 import 'session_state_test.dart' show FakeSessionController;
 
 void main() {
+  testWidgets('idle composer is compact and omits send and context actions', (
+    tester,
+  ) async {
+    final controller = FakeSessionController();
+    await _pumpKeyboard(tester, controller: controller);
+
+    expect(find.byKey(const ValueKey('session-composer-footer')), findsNothing);
+    expect(find.byKey(const ValueKey('session-send')), findsNothing);
+    expect(find.byKey(VoiceInputField.micKey), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('session-composer-sparkle')),
+      findsOneWidget,
+    );
+    expect(find.byTooltip('添加上下文资产'), findsNothing);
+  });
+
+  testWidgets('focus expands controls and dismissed drafts remain sendable', (
+    tester,
+  ) async {
+    final controller = FakeSessionController();
+    await _pumpKeyboard(tester, controller: controller);
+    final field = find.byKey(const ValueKey('session-composer-field'));
+
+    await tester.tap(field);
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('session-composer-footer')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('session-send')), findsOneWidget);
+
+    await tester.enterText(field, '保留草稿');
+    tester.widget<TextField>(field).focusNode!.unfocus();
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('session-composer-footer')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('session-send')), findsOneWidget);
+    expect(
+      tester
+          .widget<IconButton>(find.byKey(const ValueKey('session-send')))
+          .onPressed,
+      isNotNull,
+    );
+  });
+
   testWidgets(
     'composer follows the real keyboard inset without losing content',
     (tester) async {
@@ -53,7 +101,7 @@ void main() {
     expect(exception, isNull);
     expect(
       tester.getSize(find.byKey(const ValueKey('session-composer'))).height,
-      lessThan(240),
+      lessThan(280),
     );
   });
 
@@ -99,20 +147,18 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('send is disabled for empty input and while streaming', (
-    tester,
-  ) async {
+  testWidgets('agent reply disables both send and voice', (tester) async {
     final controller = FakeSessionController();
     await _pumpKeyboard(tester, controller: controller);
+    final field = find.byKey(const ValueKey('session-composer-field'));
 
     IconButton sendButton() =>
         tester.widget<IconButton>(find.byKey(const ValueKey('session-send')));
 
+    await tester.tap(field);
+    await tester.pump();
     expect(sendButton().onPressed, isNull);
-    await tester.enterText(
-      find.byKey(const ValueKey('session-composer-field')),
-      '可以发送',
-    );
+    await tester.enterText(field, '可以发送');
     await tester.pump();
     expect(sendButton().onPressed, isNotNull);
 
@@ -120,6 +166,10 @@ void main() {
     controller.notifyListeners();
     await tester.pump();
     expect(sendButton().onPressed, isNull);
+    expect(
+      tester.widget<IconButton>(find.byKey(VoiceInputField.micKey)).onPressed,
+      isNull,
+    );
   });
 }
 

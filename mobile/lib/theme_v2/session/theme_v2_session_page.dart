@@ -4,11 +4,9 @@ export 'session_controller.dart';
 
 import 'package:flutter/material.dart';
 
-import '../../assets/assets.dart';
 import '../../chat/chat_models.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/eureka_colors.dart';
-import '../../widgets/asset_picker.dart';
 import '../../voice_input/voice_input_controller.dart';
 import '../../voice_input/voice_input_scope.dart';
 import '../foundation/theme_v2_theme.dart';
@@ -189,28 +187,6 @@ class _ThemeV2SessionPageState extends State<ThemeV2SessionPage> {
     if (mounted) setState(() {});
   }
 
-  Future<void> _addContext() async {
-    final taken = _contexts.map((context) => context.id).toSet();
-    final picked = await showModalBottomSheet<List<AssetItem>>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      backgroundColor: context.themeV2.surface,
-      builder: (_) => AssetPickerPanel(excludeIds: taken),
-    );
-    if (picked == null || picked.isEmpty) return;
-    final ok = await _controller.attachContexts(
-      picked.map((asset) => asset.id).toList(),
-      labels: {for (final asset in picked) asset.id: asset.title},
-    );
-    if (!mounted) return;
-    if (!ok) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('添加资产失败，请重试')));
-    }
-  }
-
   Future<void> _precipitate(ChatMessage message, String skill) {
     final text = message.parts
         .whereType<TextPart>()
@@ -366,7 +342,6 @@ class _ThemeV2SessionPageState extends State<ThemeV2SessionPage> {
                 focusNode: _inputFocusNode,
                 voiceController: _voiceController,
                 streaming: state.streaming,
-                onAddContext: () => unawaited(_addContext()),
                 onSend: _controller.send,
               ),
           ],
