@@ -10,6 +10,7 @@ import '../foundation/theme_v2_dither_surface.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
 import '../foundation/theme_v2_typography.dart';
+import '../shell/theme_v2_dock_overlay_geometry.dart';
 import 'calendar_components.dart';
 import 'calendar_controller.dart';
 import 'calendar_models.dart';
@@ -424,7 +425,7 @@ class _CalendarFlowViewState extends State<CalendarFlowView> {
         Positioned(
           left: 0,
           right: 0,
-          bottom: 0,
+          bottom: ThemeV2DockOverlayGeometry.contentExclusionExtent,
           child: ValueListenableBuilder<_FlowViewportState>(
             valueListenable: _viewportState,
             builder: (context, state, _) {

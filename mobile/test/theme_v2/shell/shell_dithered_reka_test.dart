@@ -3,11 +3,27 @@ import 'package:eureka/theme_v2/home/today_dithered_reka.dart';
 import 'package:eureka/theme_v2/home/today_reka_motion_controller.dart';
 import 'package:eureka/theme_v2/shell/shell_dithered_reka.dart';
 import 'package:eureka/theme_v2/shell/shell_reka_presentation_controller.dart';
+import 'package:eureka/theme_v2/shell/theme_v2_dock_overlay_geometry.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_floating_dock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('dock companion exclusion covers its complete interaction target', () {
+    expect(
+      ThemeV2DockOverlayGeometry.contentExclusionExtent,
+      greaterThanOrEqualTo(ThemeV2DockOverlayGeometry.rekaTargetExtent),
+    );
+    expect(
+      ShellDitheredReka.dockVisibleSize,
+      ThemeV2DockOverlayGeometry.rekaVisibleSize,
+    );
+    expect(
+      ShellDitheredReka.targetExtent,
+      ThemeV2DockOverlayGeometry.rekaTargetExtent,
+    );
+  });
+
   test('position duration only animates an active root handoff', () {
     expect(
       shellRekaPositionDuration(reduceMotion: false, handoffActive: false),

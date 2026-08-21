@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -8,7 +7,7 @@ import '../home/today_dithered_reka.dart';
 import '../home/today_dithered_reka_config.dart';
 import '../home/today_reka_motion_controller.dart';
 import 'shell_reka_presentation_controller.dart';
-import 'theme_v2_floating_dock.dart';
+import 'theme_v2_dock_overlay_geometry.dart';
 
 enum ShellDitheredRekaMode { today, dock }
 
@@ -44,8 +43,10 @@ class ShellDitheredReka extends StatefulWidget {
     'shell-dithered-reka-breathing-transform',
   );
   static const targetKey = ValueKey<String>('shell-dithered-reka-target');
-  static const Size dockVisibleSize = Size(78, 54);
-  static const double targetExtent = 72;
+  static const Size dockVisibleSize =
+      ThemeV2DockOverlayGeometry.rekaVisibleSize;
+  static const double targetExtent =
+      ThemeV2DockOverlayGeometry.rekaTargetExtent;
   static const transitionDuration = Duration(milliseconds: 260);
 
   final ShellDitheredRekaMode mode;
@@ -59,13 +60,8 @@ class ShellDitheredReka extends StatefulWidget {
   final VoidCallback onLongPressCancel;
   final bool forceFallback;
 
-  static Offset dockCenter(Size viewport, double safeBottom) => Offset(
-    viewport.width / 2,
-    viewport.height -
-        math.max(safeBottom, ThemeV2FloatingDock.viewportBottomPadding) -
-        ThemeV2FloatingDock.shellSize.height +
-        -12,
-  );
+  static Offset dockCenter(Size viewport, double safeBottom) =>
+      ThemeV2DockOverlayGeometry.rekaCenter(viewport, safeBottom);
 
   @override
   State<ShellDitheredReka> createState() => _ShellDitheredRekaState();
