@@ -14,6 +14,7 @@ import '../asset_detail/open_asset_detail.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_dither_field.dart';
 import 'today_region_watermark.dart';
+import 'today_output_overlay.dart';
 
 Offset themeV2GravityForAcceleration(double x, double y) {
   const magnitude = 20.0;
@@ -32,6 +33,34 @@ AssetEntityRef assetEntityRefForPoolAsset(PoolAsset asset) => AssetEntityRef(
 );
 
 void _noop() {}
+
+const _themeV2AssetBubbleDiameters = <double>[
+  70,
+  48,
+  72,
+  58,
+  80,
+  52,
+  64,
+  52,
+  44,
+  50,
+  38,
+  46,
+  38,
+  38,
+  54,
+  42,
+  56,
+  46,
+  34,
+  30,
+  34,
+  32,
+];
+
+double themeV2AssetBubbleDiameter(int index) =>
+    _themeV2AssetBubbleDiameters[index % _themeV2AssetBubbleDiameters.length];
 
 class _RetiringBubbleSnapshot {
   const _RetiringBubbleSnapshot({
@@ -60,6 +89,7 @@ class ThemeV2AssetBubbleField extends StatefulWidget {
     this.onOpenAsset,
     this.onOpenLibrary,
     this.spawnCenters = const {},
+    this.spawnStates = const {},
     this.motion,
   });
 
@@ -71,6 +101,7 @@ class ThemeV2AssetBubbleField extends StatefulWidget {
   final ValueChanged<PoolAsset>? onOpenAsset;
   final VoidCallback? onOpenLibrary;
   final Map<String, Offset> spawnCenters;
+  final Map<String, TodayAssetHandoff> spawnStates;
   final Animation<double>? motion;
 
   void _openAsset(BuildContext context, PoolAsset asset) {
@@ -99,14 +130,17 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
   final ValueNotifier<int> _repaint = ValueNotifier(0);
   final Map<String, PoolAsset> _assetsById = {};
   final Map<String, double> _diametersById = {};
+  final Set<String> _consumedSpawnStates = {};
   final List<_RetiringBubbleSnapshot> _retiring = [];
   BubbleField? _field;
   String? _grabbedAssetId;
+  String? _pressedAssetId;
   List<PoolAsset>? _pendingAssets;
   StreamSubscription<Offset>? _gravitySubscription;
   Size _box = Size.zero;
   bool _reduceMotion = false;
   Offset _gravity = const Offset(0, 20);
+  Duration? _lastTickElapsed;
 
   bool get _foreground {
     final state = WidgetsBinding.instance.lifecycleState;
@@ -119,33 +153,11 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
       _foreground &&
       widget.assets.isNotEmpty;
 
-  static const _diameters = <double>[
-    70,
-    48,
-    72,
-    58,
-    80,
-    52,
-    64,
-    52,
-    44,
-    50,
-    38,
-    46,
-    38,
-    38,
-    54,
-    42,
-    56,
-    46,
-    34,
-    30,
-    34,
-    32,
-  ];
   static const _settledSlotCount = 22;
   static const _compactDiameter = 36.0;
   static const _minimumTargetSize = 44.0;
+  static const _physicsStepSeconds = 1 / 60;
+  static const _maximumCatchUpSteps = 4;
 
   bool get _usesCompactGrid =>
       _reduceMotion && widget.assets.length > _settledSlotCount;
@@ -156,7 +168,7 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
   double _diameter(PoolAsset asset, int index) {
     return _diametersById.putIfAbsent(
       asset.id,
-      () => _diameters[index % _diameters.length],
+      () => themeV2AssetBubbleDiameter(index),
     );
   }
 
@@ -234,13 +246,22 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
   }
 
   Offset _spawnCenter(PoolAsset asset, double radius, Offset fallback) {
-    final configured = widget.spawnCenters[asset.id];
-    if (configured == null) return fallback;
+    final configured = !_consumedSpawnStates.contains(asset.id)
+        ? widget.spawnStates[asset.id]?.center
+        : null;
+    final legacy = widget.spawnCenters[asset.id];
+    final center = configured ?? legacy;
+    if (center == null) return fallback;
     return Offset(
-      configured.dx.clamp(radius, math.max(radius, _box.width - radius)),
-      configured.dy.clamp(radius, math.max(radius, _box.height - radius)),
+      center.dx.clamp(radius, math.max(radius, _box.width - radius)),
+      center.dy.clamp(radius, math.max(radius, _box.height - radius)),
     );
   }
+
+  Offset _spawnVelocity(PoolAsset asset) =>
+      _consumedSpawnStates.contains(asset.id)
+      ? Offset.zero
+      : widget.spawnStates[asset.id]?.velocity ?? Offset.zero;
 
   @override
   void didChangeDependencies() {
@@ -261,6 +282,8 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
   void didUpdateWidget(covariant ThemeV2AssetBubbleField oldWidget) {
     super.didUpdateWidget(oldWidget);
     final nextIds = widget.assets.map((asset) => asset.id).toSet();
+    _consumedSpawnStates.retainWhere(nextIds.contains);
+    _diametersById.removeWhere((assetId, _) => !nextIds.contains(assetId));
     final grabbedAssetId = _grabbedAssetId;
     final deferReplacement =
         grabbedAssetId != null &&
@@ -330,6 +353,7 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
   void _syncLifecycle() {
     if (!_physicsActive) {
       _ticker?.stop();
+      _lastTickElapsed = null;
       unawaited(_gravitySubscription?.cancel());
       _gravitySubscription = null;
       return;
@@ -367,6 +391,7 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
   }
 
   void _startTicker() {
+    _lastTickElapsed = Duration.zero;
     (_ticker ??= createTicker(_onTick)).start();
   }
 
@@ -378,11 +403,13 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
     if (box == Size.zero || widget.assets.isEmpty) {
       _field = null;
       _ticker?.stop();
+      _lastTickElapsed = null;
       return;
     }
     if (_usesCompactGrid) {
       _field = null;
       _ticker?.stop();
+      _lastTickElapsed = null;
       _repaint.value++;
       _syncLifecycle();
       return;
@@ -402,7 +429,11 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
             ? _settledCenter(index, radius)
             : _spawnCenter(asset, radius, spawnCenters[index]),
         radius,
+        velocityPxPerSecond: _spawnVelocity(asset),
       );
+      if (widget.spawnStates.containsKey(asset.id)) {
+        _consumedSpawnStates.add(asset.id);
+      }
     }
     _field = field;
     _repaint.value++;
@@ -471,7 +502,11 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                 spawnCenters[additionIndex],
               ),
         addition.radius,
+        velocityPxPerSecond: _spawnVelocity(addition.asset),
       );
+      if (widget.spawnStates.containsKey(addition.asset.id)) {
+        _consumedSpawnStates.add(addition.asset.id);
+      }
     }
     _repaint.value++;
     _syncLifecycle();
@@ -486,6 +521,21 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
     setState(() => _syncAssetsTo(pending));
   }
 
+  void _setPressedAsset(String assetId) {
+    if (_pressedAssetId == assetId) return;
+    setState(() => _pressedAssetId = assetId);
+  }
+
+  void _clearPressedAsset() {
+    if (_pressedAssetId == null) return;
+    setState(() => _pressedAssetId = null);
+  }
+
+  void _endAssetInteraction() {
+    _clearPressedAsset();
+    _releaseGrab();
+  }
+
   void _removeRetiring(String assetId) {
     if (!mounted) return;
     setState(() {
@@ -498,9 +548,25 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
     if (!_physicsActive || field == null) return;
     if (!field.anyAwake) {
       _ticker?.stop();
+      _lastTickElapsed = null;
       return;
     }
-    field.step();
+
+    final previousElapsed = _lastTickElapsed ?? Duration.zero;
+    _lastTickElapsed = elapsed;
+    var remainingSeconds =
+        (elapsed - previousElapsed).inMicroseconds /
+        Duration.microsecondsPerSecond;
+    remainingSeconds = remainingSeconds.clamp(
+      0,
+      _physicsStepSeconds * _maximumCatchUpSteps,
+    );
+    if (remainingSeconds <= 0) return;
+    while (remainingSeconds > 1e-9) {
+      final stepSeconds = math.min(remainingSeconds, _physicsStepSeconds);
+      field.step(stepSeconds);
+      remainingSeconds -= stepSeconds;
+    }
     _repaint.value++;
   }
 
@@ -515,17 +581,20 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
   }
 
   Bubble? _hitBubbleAt(BubbleField field, Offset position) {
-    Bubble? best;
-    var bestDistance = double.infinity;
+    Bubble? nearest;
+    var nearestDistanceSquared = double.infinity;
     for (final bubble in field.bubbles) {
-      if (!_targetRect(bubble).contains(position)) continue;
-      final distance = (Offset(bubble.x, bubble.y) - position).distanceSquared;
-      if (distance < bestDistance) {
-        best = bubble;
-        bestDistance = distance;
+      final target = _targetRect(bubble);
+      if (!target.contains(position)) continue;
+      final dx = bubble.x - position.dx;
+      final dy = bubble.y - position.dy;
+      final distanceSquared = dx * dx + dy * dy;
+      if (distanceSquared < nearestDistanceSquared) {
+        nearest = bubble;
+        nearestDistanceSquared = distanceSquared;
       }
     }
-    return best;
+    return nearest;
   }
 
   double _ditherEnergy(Bubble bubble) {
@@ -590,6 +659,16 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                     ),
                   ),
                 ),
+              if (!_usesCompactGrid)
+                TodayRegionWatermark(
+                  count: widget.trueCount,
+                  label: 'Reka 生成',
+                  alignment: Alignment.topRight,
+                  padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
+                  labelFirst: true,
+                  onPressed: widget.onOpenLibrary,
+                  semanticLabel: '打开资产库',
+                ),
               for (final snapshot in _retiring)
                 Positioned(
                   key: ValueKey(
@@ -617,7 +696,7 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                           angle: snapshot.angle,
                           child: SizedBox.square(
                             dimension: snapshot.radius * 2,
-                            child: _ThemeV2BubbleVisual(
+                            child: ThemeV2AssetBubbleVisual(
                               asset: snapshot.asset,
                               skills: widget.skills,
                               index: snapshot.index,
@@ -637,16 +716,21 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                     skills: widget.skills,
                     motion: widget.motion,
                     onOpenAsset: (asset) => widget._openAsset(context, asset),
+                    trueCount: widget.trueCount,
+                    onOpenLibrary: widget.onOpenLibrary,
                   ),
                 )
               else if (field != null)
                 Positioned.fill(
                   child: GestureDetector(
-                    behavior: HitTestBehavior.translucent,
+                    // Target-only Listeners below make this recognizer join
+                    // hit testing only inside a bubble's accessible target.
+                    behavior: HitTestBehavior.deferToChild,
                     onPanDown: (details) {
                       final bubble = _hitBubbleAt(field, details.localPosition);
                       if (bubble == null) return;
                       _grabbedAssetId = bubble.id;
+                      _setPressedAsset(bubble.id);
                       field.grab(bubble);
                       _syncLifecycle();
                     },
@@ -655,29 +739,28 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                       final asset = bubble == null
                           ? null
                           : _assetsById[bubble.id];
-                      _releaseGrab();
+                      _endAssetInteraction();
                       if (asset != null) widget._openAsset(context, asset);
                     },
                     onPanStart: (details) {
-                      if (_grabbedAssetId != null) {
-                        _syncLifecycle();
-                        return;
+                      if (_grabbedAssetId == null) {
+                        final bubble = _hitBubbleAt(
+                          field,
+                          details.localPosition,
+                        );
+                        if (bubble == null) return;
+                        _grabbedAssetId = bubble.id;
+                        field.grab(bubble);
                       }
-                      final bubble = _hitBubbleAt(field, details.localPosition);
-                      if (bubble == null) {
-                        _releaseGrab();
-                        return;
-                      }
-                      _grabbedAssetId = bubble.id;
-                      field.grab(bubble);
+                      _clearPressedAsset();
                       _syncLifecycle();
                     },
                     onPanUpdate: (details) {
                       field.dragTo(details.localPosition);
                       _syncLifecycle();
                     },
-                    onPanEnd: (_) => _releaseGrab(),
-                    onPanCancel: _releaseGrab,
+                    onPanEnd: (_) => _endAssetInteraction(),
+                    onPanCancel: _endAssetInteraction,
                     child: AnimatedBuilder(
                       animation: _repaint,
                       builder: (context, _) {
@@ -731,22 +814,46 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                                                     'theme-v2-asset-bubble-rotation-${asset.id}',
                                                   ),
                                                   angle: bubble.angle,
-                                                  child: _ThemeV2BubbleVisual(
-                                                    asset: asset,
-                                                    skills: widget.skills,
-                                                    index: index,
-                                                    motion: widget.motion,
-                                                    onTap: () =>
-                                                        widget._openAsset(
-                                                          context,
-                                                          asset,
-                                                        ),
-                                                  ),
+                                                  child:
+                                                      ThemeV2AssetBubbleVisual(
+                                                        asset: asset,
+                                                        skills: widget.skills,
+                                                        index: index,
+                                                        motion: widget.motion,
+                                                        pressed:
+                                                            _pressedAssetId ==
+                                                            asset.id,
+                                                        onTap: () =>
+                                                            widget._openAsset(
+                                                              context,
+                                                              asset,
+                                                            ),
+                                                      ),
                                                 ),
                                               ),
                                             ],
                                           ),
                                         ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                            // These opaque regions establish the real hit-test
+                            // area. The shared recognizer above then selects the
+                            // closest bubble when targets overlap.
+                            for (final bubble in field.bubbles)
+                              if (_assetsById.containsKey(bubble.id))
+                                Builder(
+                                  builder: (context) {
+                                    final target = _targetRect(bubble);
+                                    return Positioned(
+                                      left: target.left,
+                                      top: target.top,
+                                      width: target.width,
+                                      height: target.height,
+                                      child: const Listener(
+                                        behavior: HitTestBehavior.opaque,
+                                        child: SizedBox.expand(),
                                       ),
                                     );
                                   },
@@ -757,15 +864,6 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
                     ),
                   ),
                 ),
-              TodayRegionWatermark(
-                count: widget.trueCount,
-                label: 'Reka 生成',
-                alignment: Alignment.topRight,
-                padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
-                labelFirst: true,
-                onPressed: widget.onOpenLibrary,
-                semanticLabel: '打开资产库',
-              ),
             ],
           ),
         );
@@ -780,12 +878,16 @@ class _ThemeV2CompactAssetGrid extends StatelessWidget {
     required this.skills,
     required this.motion,
     required this.onOpenAsset,
+    required this.trueCount,
+    required this.onOpenLibrary,
   });
 
   final List<PoolAsset> assets;
   final Map<String, SkillMeta> skills;
   final Animation<double>? motion;
   final ValueChanged<PoolAsset> onOpenAsset;
+  final int trueCount;
+  final VoidCallback? onOpenLibrary;
 
   @override
   Widget build(BuildContext context) {
@@ -828,6 +930,15 @@ class _ThemeV2CompactAssetGrid extends StatelessWidget {
               motion: motion,
               reduceMotion: true,
             ),
+            TodayRegionWatermark(
+              count: trueCount,
+              label: 'Reka 生成',
+              alignment: Alignment.topRight,
+              padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
+              labelFirst: true,
+              onPressed: onOpenLibrary,
+              semanticLabel: '打开资产库',
+            ),
             Align(
               alignment: Alignment.bottomLeft,
               child: Wrap(
@@ -864,7 +975,7 @@ class _ThemeV2CompactAssetGrid extends StatelessWidget {
                 angle: 0,
                 child: SizedBox.square(
                   dimension: _ThemeV2AssetBubbleFieldState._compactDiameter,
-                  child: _ThemeV2BubbleVisual(
+                  child: ThemeV2AssetBubbleVisual(
                     asset: asset,
                     skills: skills,
                     index: index,
@@ -881,20 +992,23 @@ class _ThemeV2CompactAssetGrid extends StatelessWidget {
   }
 }
 
-class _ThemeV2BubbleVisual extends StatelessWidget {
-  const _ThemeV2BubbleVisual({
+class ThemeV2AssetBubbleVisual extends StatelessWidget {
+  const ThemeV2AssetBubbleVisual({
+    super.key,
     required this.asset,
     required this.skills,
     required this.index,
     required this.motion,
-    required this.onTap,
+    this.pressed = false,
+    this.onTap,
   });
 
   final PoolAsset asset;
   final Map<String, SkillMeta> skills;
   final int index;
   final Animation<double>? motion;
-  final VoidCallback onTap;
+  final bool pressed;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -915,37 +1029,49 @@ class _ThemeV2BubbleVisual extends StatelessWidget {
         ),
       ),
       child: ClipOval(
-        child: BackdropFilter.grouped(
-          filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
-          child: ColoredBox(
-            key: ValueKey('theme-v2-asset-bubble-glass-${asset.id}'),
-            color: bubbleColor.withValues(
-              alpha: Theme.of(context).brightness == Brightness.dark
-                  ? .09
-                  : .05,
-            ),
-            child: Material(
-              color: Colors.transparent,
-              shape: const CircleBorder(),
-              child: InkWell(
-                customBorder: const CircleBorder(),
-                onTap: onTap,
-                child: LayoutBuilder(
-                  builder: (context, constraints) => Center(
-                    child: Text(
-                      resolveMeta(asset.type, skills).icon,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: math.min(22, constraints.maxWidth * 0.31),
-                        height: 1,
-                        color: bubbleColor,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            BackdropFilter.grouped(
+              filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
+              child: ColoredBox(
+                key: ValueKey('theme-v2-asset-bubble-glass-${asset.id}'),
+                color: bubbleColor.withValues(
+                  alpha: Theme.of(context).brightness == Brightness.dark
+                      ? .09
+                      : .05,
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: onTap,
+                    child: LayoutBuilder(
+                      builder: (context, constraints) => Center(
+                        child: Text(
+                          resolveMeta(asset.type, skills).icon,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: math.min(22, constraints.maxWidth * 0.31),
+                            height: 1,
+                            color: bubbleColor,
+                          ),
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
             ),
-          ),
+            if (pressed)
+              IgnorePointer(
+                child: ColoredBox(
+                  key: ValueKey('theme-v2-asset-bubble-pressed-${asset.id}'),
+                  color: bubbleColor.withValues(alpha: .16),
+                ),
+              ),
+          ],
         ),
       ),
     );

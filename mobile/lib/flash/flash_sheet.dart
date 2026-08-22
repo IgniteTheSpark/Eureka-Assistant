@@ -1,19 +1,19 @@
-import 'dart:math' as math;
+import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 import '../api/api_client.dart';
 import '../data_revision.dart';
 import '../render/skill_card.dart';
 import '../theme/app_theme.dart';
 import '../theme/eureka_colors.dart';
-import '../widgets/toast.dart';
+import '../voice_input/voice_input_controller.dart';
+import '../voice_input/voice_input_field.dart';
+import '../voice_input/voice_input_scope.dart';
 import 'flash.dart';
 
 /// Open the 闪念 capture sheet — a conversational capture surface: each input
-/// shows as a bubble + "分析中…" then the derived cards (web parity). Voice
-/// (press-hold mic) streams a live transcription behind a listening overlay.
+/// shows as a bubble + "分析中…" then the derived cards (web parity).
 Future<void> showFlashSheet(BuildContext context) {
   return showModalBottomSheet<void>(
     context: context,
@@ -38,18 +38,33 @@ class _FlashSheet extends StatefulWidget {
 
 class _FlashSheetState extends State<_FlashSheet> {
   final _api = ApiClient();
-  final _input = TextEditingController();
+  final _input = VoiceInputTextController();
   final _scroll = ScrollController();
-  final _speech = stt.SpeechToText();
+  late final VoiceInputController _voiceController;
+  bool _voiceBound = false;
   final List<_Turn> _turns = [];
-  bool _listening = false;
   bool _sending = false;
-  OverlayEntry? _overlay;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_voiceBound) return;
+    _voiceBound = true;
+    _voiceController = VoiceInputController(
+      textController: _input,
+      coordinator: VoiceInputScope.coordinatorOf(context),
+    )..addListener(_voiceChanged);
+  }
+
+  void _voiceChanged() {
+    if (mounted) setState(() {});
+  }
 
   @override
   void dispose() {
-    _hideOverlay();
-    _speech.stop();
+    _voiceController.removeListener(_voiceChanged);
+    unawaited(_voiceController.close());
+    _voiceController.dispose();
     _api.close();
     _input.dispose();
     _scroll.dispose();
@@ -70,7 +85,7 @@ class _FlashSheetState extends State<_FlashSheet> {
 
   Future<void> _send() async {
     final t = _input.text.trim();
-    if (t.isEmpty || _sending) return;
+    if (t.isEmpty || _sending || _voiceController.isBusy) return;
     _input.clear();
     final turn = _Turn(t);
     setState(() {
@@ -108,54 +123,6 @@ class _FlashSheetState extends State<_FlashSheet> {
         _sending = false;
       });
     }
-  }
-
-  /* ── voice (press-hold) ─────────────────────────────────────────────── */
-
-  Future<void> _startListening() async {
-    if (_listening) return;
-    final ok = await _speech.initialize(
-      onStatus: (s) {
-        if ((s == 'done' || s == 'notListening')) _stopListening();
-      },
-      onError: (_) => _stopListening(),
-    );
-    if (!ok) {
-      if (mounted) {
-        showToast(context, '语音识别不可用，请检查麦克风权限', error: true);
-      }
-      return;
-    }
-    setState(() => _listening = true);
-    _showOverlay();
-    await _speech.listen(
-      listenOptions: stt.SpeechListenOptions(
-        partialResults: true,
-        localeId: 'zh_CN',
-      ),
-      onResult: (r) {
-        _input.text = r.recognizedWords;
-        _input.selection = TextSelection.collapsed(offset: _input.text.length);
-        if (mounted) setState(() {});
-      },
-    );
-  }
-
-  Future<void> _stopListening() async {
-    if (!_listening) return;
-    await _speech.stop();
-    _hideOverlay();
-    if (mounted) setState(() => _listening = false);
-  }
-
-  void _showOverlay() {
-    _overlay = OverlayEntry(builder: (_) => const _ListeningOverlay());
-    Overlay.of(context).insert(_overlay!);
-  }
-
-  void _hideOverlay() {
-    _overlay?.remove();
-    _overlay = null;
   }
 
   @override
@@ -308,65 +275,52 @@ class _FlashSheetState extends State<_FlashSheet> {
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         Expanded(
-          child: TextField(
-            controller: _input,
-            minLines: 1,
-            maxLines: 4,
+          child: VoiceInputField(
+            key: const ValueKey('flash-input-voice'),
+            controller: _voiceController,
             enabled: !_sending,
-            keyboardType: TextInputType.multiline,
-            textInputAction: TextInputAction.newline,
-            style: TextStyle(color: eu.textHi),
-            decoration: InputDecoration(
-              hintText: '说点什么 / 写点什么…',
-              hintStyle: TextStyle(color: eu.textLo),
-              filled: true,
-              fillColor: eu.surfaceRaised,
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 14,
-                vertical: 12,
-              ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(color: eu.border),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(color: eu.border),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(color: eu.brand),
+            builder: (context, voice) => TextField(
+              controller: _input,
+              minLines: 1,
+              maxLines: 4,
+              enabled: !_sending,
+              readOnly: voice.isBusy,
+              keyboardType: TextInputType.multiline,
+              textInputAction: TextInputAction.newline,
+              style: TextStyle(color: eu.textHi),
+              decoration: InputDecoration(
+                hintText: '说点什么 / 写点什么…',
+                hintStyle: TextStyle(color: eu.textLo),
+                filled: true,
+                fillColor: eu.surfaceRaised,
+                suffixIcon: voice.statusIcon(color: eu.brand),
+                suffixIconConstraints: const BoxConstraints(
+                  minWidth: 40,
+                  minHeight: 40,
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide(color: eu.border),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide(color: eu.border),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide(color: eu.brand),
+                ),
               ),
             ),
           ),
         ),
         const SizedBox(width: 8),
-        // Press-hold mic → listening overlay; release to end (松开结束录音).
         GestureDetector(
-          onTapDown: (_) => _startListening(),
-          onTapUp: (_) => _stopListening(),
-          onTapCancel: _stopListening,
-          child: Container(
-            width: 46,
-            height: 46,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: _listening
-                  ? eu.accentRed.withValues(alpha: 0.16)
-                  : eu.surfaceRaised,
-              shape: BoxShape.circle,
-              border: Border.all(color: _listening ? eu.accentRed : eu.border),
-            ),
-            child: Icon(
-              Icons.mic_none,
-              color: _listening ? eu.accentRed : eu.textMid,
-              size: 22,
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        GestureDetector(
-          onTap: _sending ? null : _send,
+          onTap: _sending || _voiceController.isBusy ? null : _send,
           child: Container(
             width: 46,
             height: 46,
@@ -385,97 +339,6 @@ class _FlashSheetState extends State<_FlashSheet> {
           ),
         ),
       ],
-    );
-  }
-}
-
-/// Full-screen listening overlay — big gradient mic + animated waveform +
-/// 「正在聆听… / 松开按钮结束录音」. Mirrors the web ListeningOverlay. IgnorePointer
-/// so the release (pointer-up) still reaches the press-hold mic below.
-class _ListeningOverlay extends StatefulWidget {
-  const _ListeningOverlay();
-  @override
-  State<_ListeningOverlay> createState() => _ListeningOverlayState();
-}
-
-class _ListeningOverlayState extends State<_ListeningOverlay>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 900),
-  )..repeat();
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final eu = context.eu;
-    return IgnorePointer(
-      child: Container(
-        color: eu.bg.withValues(alpha: 0.82),
-        alignment: Alignment.center,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 140,
-              height: 140,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(colors: [eu.brand, eu.accentPurple]),
-                boxShadow: [
-                  BoxShadow(
-                    color: eu.brand.withValues(alpha: 0.5),
-                    blurRadius: 40,
-                    spreadRadius: 6,
-                  ),
-                ],
-              ),
-              child: AnimatedBuilder(
-                animation: _ctrl,
-                builder: (_, child) => Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    for (var i = 0; i < 7; i++) ...[
-                      _bar(i),
-                      if (i < 6) const SizedBox(width: 4),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 28),
-            Text(
-              '正在聆听…',
-              style: TextStyle(
-                color: eu.textHi,
-                fontSize: 22,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text('松开按钮结束录音', style: TextStyle(color: eu.textMid, fontSize: 14)),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _bar(int i) {
-    final phase = (_ctrl.value * 2 * math.pi) + i * 0.7;
-    final h = 14 + 22 * (0.5 + 0.5 * math.sin(phase));
-    return Container(
-      width: 5,
-      height: h,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(3),
-      ),
     );
   }
 }

@@ -5,10 +5,18 @@ from time import monotonic
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.db.base import utc_now
-from app.db.models import UserSkill, WorkflowJob
+from app.db.models import (
+    AgentToolExecution,
+    Asset,
+    Contact,
+    Event,
+    UserSkill,
+    WorkflowJob,
+)
 from app.db.session import session_scope
 from app.domains.assets.service import (
     ensure_capture_skills,
@@ -591,6 +599,140 @@ def _capture_entity_card(
         return None
 
 
+async def _has_durable_capture_mutation(
+    session: AsyncSession,
+    *,
+    user_id: str,
+    input_turn_id: str | None,
+    references: list[dict],
+) -> bool:
+    if input_turn_id is None:
+        return False
+    asset_ids = {
+        str(card.get("entity_id") or "")
+        for card in references
+        if card.get("entity_kind") == "asset"
+    } - {""}
+    event_ids = {
+        str(card.get("entity_id") or "")
+        for card in references
+        if card.get("entity_kind") == "event"
+    } - {""}
+    contact_ids = {
+        str(card.get("entity_id") or "")
+        for card in references
+        if card.get("entity_kind") == "contact"
+    } - {""}
+    executions = list(
+        await session.scalars(
+            select(AgentToolExecution).where(
+                AgentToolExecution.user_id == user_id,
+                AgentToolExecution.input_turn_id == input_turn_id,
+                AgentToolExecution.status == "done",
+                AgentToolExecution.tool_name.in_(
+                    {
+                        "tool_create_asset",
+                        "tool_create_todo",
+                        "tool_create_note",
+                        "tool_update_asset",
+                        "tool_delete_asset",
+                        "tool_create_event",
+                        "tool_update_event",
+                        "tool_delete_event",
+                        "tool_create_contact",
+                        "tool_update_contact",
+                        "tool_delete_contact",
+                    }
+                ),
+            )
+        )
+    )
+    executed_asset_ids: set[str] = set()
+    executed_event_ids: set[str] = set()
+    deleted_asset_ids: set[str] = set()
+    deleted_event_ids: set[str] = set()
+    executed_contact_ids: set[str] = set()
+    deleted_contact_ids: set[str] = set()
+    for execution in executions:
+        result = execution.result_json or {}
+        if result.get("ok") is not True:
+            continue
+        if execution.tool_name == "tool_delete_asset":
+            deleted_asset_ids.add(str(result.get("asset_id") or ""))
+        elif execution.tool_name == "tool_delete_event":
+            deleted_event_ids.add(str(result.get("event_id") or ""))
+        elif execution.tool_name == "tool_delete_contact":
+            deleted_contact_ids.add(str(result.get("contact_id") or ""))
+        elif execution.tool_name in {
+            "tool_create_contact",
+            "tool_update_contact",
+        }:
+            executed_contact_ids.add(str(result.get("contact_id") or ""))
+        elif execution.tool_name in {
+            "tool_create_asset",
+            "tool_create_todo",
+            "tool_create_note",
+            "tool_update_asset",
+        }:
+            executed_asset_ids.add(str(result.get("asset_id") or ""))
+        else:
+            executed_event_ids.add(str(result.get("event_id") or ""))
+    persisted_asset_ids = asset_ids & (executed_asset_ids - {""})
+    persisted_event_ids = event_ids & (executed_event_ids - {""})
+    deleted_asset_ids = asset_ids & (deleted_asset_ids - {""})
+    deleted_event_ids = event_ids & (deleted_event_ids - {""})
+    persisted_contact_ids = contact_ids & (executed_contact_ids - {""})
+    deleted_contact_ids = contact_ids & (deleted_contact_ids - {""})
+    if persisted_asset_ids and await session.scalar(
+        select(Asset.id).where(
+            Asset.user_id == user_id,
+            Asset.id.in_(persisted_asset_ids),
+        ).limit(1)
+    ):
+        return True
+    if persisted_event_ids and await session.scalar(
+        select(Event.id).where(
+            Event.user_id == user_id,
+            Event.id.in_(persisted_event_ids),
+        ).limit(1)
+    ):
+        return True
+    if persisted_contact_ids and await session.scalar(
+        select(Contact.id).where(
+            Contact.user_id == user_id,
+            Contact.id.in_(persisted_contact_ids),
+        ).limit(1)
+    ):
+        return True
+    if deleted_asset_ids:
+        remaining_asset_ids = set(
+            await session.scalars(
+                select(Asset.id).where(Asset.id.in_(deleted_asset_ids))
+            )
+        )
+        if deleted_asset_ids - remaining_asset_ids:
+            return True
+    if deleted_event_ids:
+        remaining_event_ids = set(
+            await session.scalars(
+                select(Event.id).where(
+                    Event.id.in_(deleted_event_ids),
+                )
+            )
+        )
+        if deleted_event_ids - remaining_event_ids:
+            return True
+    if deleted_contact_ids:
+        remaining_contact_ids = set(
+            await session.scalars(
+                select(Contact.id).where(Contact.id.in_(deleted_contact_ids))
+            )
+        )
+        if deleted_contact_ids - remaining_contact_ids:
+            return True
+    return False
+
+
 async def _persist_flash_execution(
     *,
     recording_id: str,
@@ -795,6 +937,12 @@ async def _persist_flash_execution(
                     daily_session,
                     reason="capture_agent_done",
                 )
+        confirmed_mutation = await _has_durable_capture_mutation(
+            session,
+            user_id=recording.user_id,
+            input_turn_id=recording.input_turn_id,
+            references=references,
+        )
         await create_notification(
             session,
             NotificationCreate(
@@ -803,6 +951,7 @@ async def _persist_flash_execution(
                 title="闪念已整理",
                 body=recording.result_summary,
                 link=f"/library?recording_id={recording.id}",
+                confirmed_mutation=confirmed_mutation,
             ),
         )
         await publish_capture_status(

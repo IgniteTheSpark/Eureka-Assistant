@@ -21,17 +21,26 @@ Future<List<EvidenceReferenceView>?> showReportEvidencePickerSheet(
   BuildContext context, {
   required ReportEvidenceLoader loadPage,
   List<EvidenceReferenceView> initialSelected = const [],
-}) => showModalBottomSheet<List<EvidenceReferenceView>>(
-  context: context,
-  isScrollControlled: true,
-  useSafeArea: true,
-  showDragHandle: true,
-  backgroundColor: _pickerSurface(context),
-  builder: (_) => FractionallySizedBox(
-    heightFactor: 0.92,
-    child: ReportEvidencePickerPage(
+  String? initialSkillId,
+}) => showReportEvidencePickerPage(
+  context,
+  loadPage: loadPage,
+  initialSelected: initialSelected,
+  initialSkillId: initialSkillId,
+);
+
+Future<List<EvidenceReferenceView>?> showReportEvidencePickerPage(
+  BuildContext context, {
+  required ReportEvidenceLoader loadPage,
+  List<EvidenceReferenceView> initialSelected = const [],
+  String? initialSkillId,
+}) => Navigator.of(context).push<List<EvidenceReferenceView>>(
+  MaterialPageRoute<List<EvidenceReferenceView>>(
+    fullscreenDialog: true,
+    builder: (_) => ReportEvidencePickerPage(
       loadPage: loadPage,
       initialSelected: initialSelected,
+      initialSkillId: initialSkillId,
     ),
   ),
 );
@@ -41,10 +50,12 @@ class ReportEvidencePickerPage extends StatefulWidget {
     super.key,
     required this.loadPage,
     this.initialSelected = const [],
+    this.initialSkillId,
   });
 
   final ReportEvidenceLoader loadPage;
   final List<EvidenceReferenceView> initialSelected;
+  final String? initialSkillId;
 
   @override
   State<ReportEvidencePickerPage> createState() =>
@@ -63,11 +74,14 @@ class _ReportEvidencePickerPageState extends State<ReportEvidencePickerPage> {
   String? _nextCursor;
   Object? _error;
   bool _loading = true;
+  bool _loadingMore = false;
+  int _requestGeneration = 0;
   Timer? _searchDebounce;
 
   @override
   void initState() {
     super.initState();
+    _filterId = widget.initialSkillId ?? 'all';
     for (final reference in widget.initialSelected) {
       _selected[reference.key] = reference;
     }
@@ -89,21 +103,28 @@ class _ReportEvidencePickerPageState extends State<ReportEvidencePickerPage> {
   };
 
   Future<void> _load({required bool reset}) async {
+    if (!reset && (_loadingMore || _nextCursor == null)) return;
+    final generation = reset ? ++_requestGeneration : _requestGeneration;
+    final query = _searchController.text.trim();
+    final filter = _requestFilter;
+    final cursor = reset ? null : _nextCursor;
     if (reset) {
       setState(() {
         _loading = true;
+        _loadingMore = false;
         _error = null;
       });
+    } else {
+      setState(() => _loadingMore = true);
     }
     try {
-      final filter = _requestFilter;
       final page = await widget.loadPage(
-        query: _searchController.text.trim(),
+        query: query,
         type: filter.type,
         skill: filter.skill,
-        cursor: reset ? null : _nextCursor,
+        cursor: cursor,
       );
-      if (!mounted) return;
+      if (!mounted || generation != _requestGeneration) return;
       setState(() {
         _items = reset ? page.items : [..._items, ...page.items];
         for (final item in page.items) {
@@ -112,12 +133,14 @@ class _ReportEvidencePickerPageState extends State<ReportEvidencePickerPage> {
         if (page.filters.isNotEmpty) _filters = page.filters;
         _nextCursor = page.nextCursor;
         _loading = false;
+        _loadingMore = false;
         _error = null;
       });
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || generation != _requestGeneration) return;
       setState(() {
         _loading = false;
+        _loadingMore = false;
         _error = error;
       });
     }
@@ -141,6 +164,24 @@ class _ReportEvidencePickerPageState extends State<ReportEvidencePickerPage> {
     });
   }
 
+  Future<void> _reviewSelected() async {
+    final reviewed = await Navigator.of(context)
+        .push<List<EvidenceReferenceView>>(
+          MaterialPageRoute<List<EvidenceReferenceView>>(
+            builder: (_) => _SelectedEvidenceReviewPage(
+              selected: _selected.values.toList(growable: false),
+              known: Map<String, ReportEvidenceOption>.from(_known),
+            ),
+          ),
+        );
+    if (!mounted || reviewed == null) return;
+    setState(() {
+      _selected
+        ..clear()
+        ..addEntries(reviewed.map((item) => MapEntry(item.key, item)));
+    });
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: _pickerSurface(context),
@@ -154,15 +195,43 @@ class _ReportEvidencePickerPageState extends State<ReportEvidencePickerPage> {
         onPressed: () => Navigator.of(context).pop(),
         icon: const Icon(Icons.close_rounded),
       ),
-      actions: [
-        TextButton(
-          key: const ValueKey('report-evidence-confirm'),
-          onPressed: () => Navigator.of(
-            context,
-          ).pop(_selected.values.toList(growable: false)),
-          child: Text('完成 ${_selected.length}'),
+    ),
+    bottomNavigationBar: SafeArea(
+      top: false,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(
+          ThemeV2Spacing.lg,
+          ThemeV2Spacing.sm,
+          ThemeV2Spacing.lg,
+          ThemeV2Spacing.md,
         ),
-      ],
+        decoration: BoxDecoration(
+          color: _pickerSurface(context),
+          border: Border(
+            top: BorderSide(color: Theme.of(context).dividerColor),
+          ),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: TextButton(
+                key: const ValueKey('report-evidence-selected-review'),
+                onPressed: _selected.isEmpty ? null : _reviewSelected,
+                style: TextButton.styleFrom(alignment: Alignment.centerLeft),
+                child: Text('已选择 ${_selected.length} 项'),
+              ),
+            ),
+            const SizedBox(width: ThemeV2Spacing.sm),
+            FilledButton(
+              key: const ValueKey('report-evidence-confirm'),
+              onPressed: () => Navigator.of(
+                context,
+              ).pop(_selected.values.toList(growable: false)),
+              child: const Text('完成'),
+            ),
+          ],
+        ),
+      ),
     ),
     body: SafeArea(
       child: Column(
@@ -185,61 +254,29 @@ class _ReportEvidencePickerPageState extends State<ReportEvidencePickerPage> {
               ),
             ),
           ),
-          SizedBox(
-            height: 44,
-            child: ListView.separated(
-              padding: const EdgeInsets.symmetric(
-                horizontal: ThemeV2Spacing.lg,
-              ),
-              scrollDirection: Axis.horizontal,
-              itemCount: _filters.length,
-              separatorBuilder: (_, _) =>
-                  const SizedBox(width: ThemeV2Spacing.sm),
-              itemBuilder: (context, index) {
-                final filter = _filters[index];
-                final id = filter['id'] ?? 'all';
-                return ChoiceChip(
-                  key: ValueKey('report-evidence-filter-$id'),
-                  label: Text(filter['label'] ?? id),
-                  selected: id == _filterId,
-                  onSelected: (_) {
-                    setState(() => _filterId = id);
-                    unawaited(_load(reset: true));
-                  },
-                );
-              },
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: ThemeV2Spacing.lg),
+            child: Wrap(
+              key: const ValueKey('report-evidence-filter-wrap'),
+              spacing: ThemeV2Spacing.sm,
+              runSpacing: ThemeV2Spacing.sm,
+              children: [
+                for (final filter in _filters)
+                  ChoiceChip(
+                    key: ValueKey(
+                      'report-evidence-filter-${filter['id'] ?? 'all'}',
+                    ),
+                    label: Text(filter['label'] ?? filter['id'] ?? '全部'),
+                    selected: (filter['id'] ?? 'all') == _filterId,
+                    onSelected: (_) {
+                      setState(() => _filterId = filter['id'] ?? 'all');
+                      unawaited(_load(reset: true));
+                    },
+                  ),
+              ],
             ),
           ),
-          if (_selected.isNotEmpty)
-            SizedBox(
-              height: 52,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: ThemeV2Spacing.lg,
-                  vertical: ThemeV2Spacing.sm,
-                ),
-                children: [
-                  for (final entry in _selected.entries)
-                    Padding(
-                      padding: const EdgeInsets.only(right: ThemeV2Spacing.sm),
-                      child: InputChip(
-                        key: ValueKey('selected-${entry.key}'),
-                        label: Text(
-                          _known[entry.key]?.title ??
-                              switch (entry.value.kind) {
-                                'event' => '日程',
-                                'contact' => '联系人',
-                                _ => '资产',
-                              },
-                        ),
-                        onDeleted: () =>
-                            setState(() => _selected.remove(entry.key)),
-                      ),
-                    ),
-                ],
-              ),
-            ),
+          const SizedBox(height: ThemeV2Spacing.sm),
           Expanded(child: _content()),
         ],
       ),
@@ -265,8 +302,10 @@ class _ReportEvidencePickerPageState extends State<ReportEvidencePickerPage> {
             padding: const EdgeInsets.all(ThemeV2Spacing.lg),
             child: OutlinedButton(
               key: const ValueKey('report-evidence-load-more'),
-              onPressed: () => unawaited(_load(reset: false)),
-              child: const Text('加载更多'),
+              onPressed: _loadingMore
+                  ? null
+                  : () => unawaited(_load(reset: false)),
+              child: Text(_loadingMore ? '加载中…' : '加载更多'),
             ),
           );
         }
@@ -281,14 +320,13 @@ class _ReportEvidencePickerPageState extends State<ReportEvidencePickerPage> {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
-          subtitle: Text(
-            [option.typeLabel, option.subtitle]
-                .whereType<String>()
-                .where((value) => value.isNotEmpty)
-                .join(' · '),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
+          subtitle: (option.subtitle ?? '').trim().isEmpty
+              ? null
+              : Text(
+                  option.subtitle!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
           trailing: Icon(
             selected
                 ? Icons.check_circle_rounded
@@ -298,4 +336,75 @@ class _ReportEvidencePickerPageState extends State<ReportEvidencePickerPage> {
       },
     );
   }
+}
+
+class _SelectedEvidenceReviewPage extends StatefulWidget {
+  const _SelectedEvidenceReviewPage({
+    required this.selected,
+    required this.known,
+  });
+
+  final List<EvidenceReferenceView> selected;
+  final Map<String, ReportEvidenceOption> known;
+
+  @override
+  State<_SelectedEvidenceReviewPage> createState() =>
+      _SelectedEvidenceReviewPageState();
+}
+
+class _SelectedEvidenceReviewPageState
+    extends State<_SelectedEvidenceReviewPage> {
+  late final Map<String, EvidenceReferenceView> _selected = {
+    for (final item in widget.selected) item.key: item,
+  };
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: _pickerSurface(context),
+    appBar: AppBar(
+      backgroundColor: _pickerSurface(context),
+      title: const Text('已选资产'),
+      actions: [
+        TextButton(
+          key: const ValueKey('report-evidence-review-done'),
+          onPressed: () => Navigator.of(
+            context,
+          ).pop(_selected.values.toList(growable: false)),
+          child: const Text('完成'),
+        ),
+      ],
+    ),
+    body: _selected.isEmpty
+        ? const Center(child: Text('还没有选择资产'))
+        : ListView(
+            children: [
+              for (final entry in _selected.entries)
+                ListTile(
+                  leading: Text(
+                    widget.known[entry.key]?.icon ?? '•',
+                    style: const TextStyle(fontSize: 22),
+                  ),
+                  title: Text(
+                    widget.known[entry.key]?.title ??
+                        switch (entry.value.kind) {
+                          'event' => '日程',
+                          'contact' => '联系人',
+                          _ => '资产',
+                        },
+                  ),
+                  subtitle:
+                      (widget.known[entry.key]?.subtitle ?? '').trim().isEmpty
+                      ? null
+                      : Text(widget.known[entry.key]!.subtitle!),
+                  trailing: IconButton(
+                    key: ValueKey('report-evidence-review-remove-${entry.key}'),
+                    tooltip: '移除',
+                    onPressed: () =>
+                        setState(() => _selected.remove(entry.key)),
+                    icon: const Icon(Icons.remove_circle_outline_rounded),
+                  ),
+                ),
+            ],
+          ),
+  );
 }

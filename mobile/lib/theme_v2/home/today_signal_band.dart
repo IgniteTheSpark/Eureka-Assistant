@@ -201,6 +201,14 @@ class _TodaySignalBandState extends State<TodaySignalBand> {
                         reduceMotion: reduceMotion,
                       ),
                     ),
+                    TodayRegionWatermark(
+                      count: widget.items.length,
+                      label: 'Reka 发现',
+                      alignment: Alignment.bottomLeft,
+                      padding: const EdgeInsets.fromLTRB(18, 12, 18, 8),
+                      onPressed: widget.onOpenAll,
+                      semanticLabel: '查看全部 Reka 发现',
+                    ),
                     for (var lane = 0; lane < 3; lane++)
                       Positioned(
                         key: ValueKey('today-signal-lane-$lane'),
@@ -224,14 +232,6 @@ class _TodaySignalBandState extends State<TodaySignalBand> {
                           ],
                         ),
                       ),
-                    TodayRegionWatermark(
-                      count: widget.items.length,
-                      label: 'Reka 发现',
-                      alignment: Alignment.bottomLeft,
-                      padding: const EdgeInsets.fromLTRB(18, 12, 18, 8),
-                      onPressed: widget.onOpenAll,
-                      semanticLabel: '查看全部 Reka 发现',
-                    ),
                   ],
                 ),
               );

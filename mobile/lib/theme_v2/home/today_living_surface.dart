@@ -9,6 +9,15 @@ import 'today_output_coordinator.dart';
 import 'today_output_overlay.dart';
 import 'today_signal_band.dart';
 
+@visibleForTesting
+void pruneTodayAssetSpawnStates(
+  Map<String, TodayAssetHandoff> states,
+  Iterable<String> assetIds,
+) {
+  final currentIds = assetIds.toSet();
+  states.removeWhere((assetId, _) => !currentIds.contains(assetId));
+}
+
 class TodayLivingSurface extends StatefulWidget {
   const TodayLivingSurface({
     super.key,
@@ -53,7 +62,7 @@ class _TodayLivingSurfaceState extends State<TodayLivingSurface>
   late AppLifecycleState _lifecycleState;
   bool _reconciling = false;
   bool _reduceMotion = false;
-  final Map<String, Offset> _assetSpawnCenters = {};
+  final Map<String, TodayAssetHandoff> _assetSpawnStates = {};
 
   @override
   void initState() {
@@ -101,6 +110,10 @@ class _TodayLivingSurfaceState extends State<TodayLivingSurface>
   void _reconcile() {
     _reconciling = true;
     try {
+      pruneTodayAssetSpawnStates(
+        _assetSpawnStates,
+        widget.data.pool.map((asset) => asset.id),
+      );
       _coordinator.reconcile(
         assetIds: widget.data.pool.map((asset) => asset.id),
         signalIds: widget.data.rekaQueue.map((signal) => signal.id),
@@ -143,6 +156,13 @@ class _TodayLivingSurfaceState extends State<TodayLivingSurface>
         .where((signal) => stableSignalIds.contains(signal.id))
         .toList(growable: false);
     final cue = _coordinator.cue;
+    final producing = _coordinator.producing;
+    final producingAssetIndex = producing?.kind == TodayOutputKind.asset
+        ? widget.data.pool.indexWhere((asset) => asset.id == producing?.id)
+        : -1;
+    final producingAsset = producingAssetIndex >= 0
+        ? widget.data.pool[producingAssetIndex]
+        : null;
     final signalBirthState = switch ((cue.kind, cue.phase)) {
       (TodayOutputKind.signal, TodayOutputPhase.emit) =>
         TodaySignalBirthState.clearing,
@@ -211,7 +231,7 @@ class _TodayLivingSurfaceState extends State<TodayLivingSurface>
                       trueCount: widget.data.poolTrueCount,
                       skills: widget.data.skills,
                       active: widget.active,
-                      spawnCenters: _assetSpawnCenters,
+                      spawnStates: _assetSpawnStates,
                       motion: _ambientMotion,
                       onOpenLibrary: widget.onOpenAssetLibrary,
                     ),
@@ -226,16 +246,28 @@ class _TodayLivingSurfaceState extends State<TodayLivingSurface>
                     ),
                     item: output,
                     signalBoundaryY: 74,
-                    assetFloorY: constraints.maxHeight,
+                    assetEntryY: assetChamberTop,
                     side: output.side,
+                    assetDiameter: producingAssetIndex >= 0
+                        ? themeV2AssetBubbleDiameter(producingAssetIndex)
+                        : 70,
+                    assetVisual: producingAsset == null
+                        ? null
+                        : ThemeV2AssetBubbleVisual(
+                            asset: producingAsset,
+                            skills: widget.data.skills,
+                            index: producingAssetIndex,
+                            motion: _ambientMotion,
+                          ),
                     onPhaseChanged: _coordinator.updatePhase,
-                    onHandoff: (point) {
-                      if (output.kind == TodayOutputKind.asset) {
-                        _assetSpawnCenters[output.id] = Offset(
-                          point.dx,
-                          point.dy - assetChamberTop,
-                        );
-                      }
+                    onAssetHandoff: (handoff) {
+                      _assetSpawnStates[output.id] = TodayAssetHandoff(
+                        center: Offset(
+                          handoff.center.dx,
+                          handoff.center.dy - assetChamberTop,
+                        ),
+                        velocity: handoff.velocity,
+                      );
                     },
                     onComplete: _coordinator.completeCurrent,
                   ),

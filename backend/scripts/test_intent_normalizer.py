@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from agents.intent_normalizer import normalize_intents
+from agents.intent_normalizer import (
+    event_failure_should_fallback_to_todo,
+    has_complete_time_range,
+    normalize_intents,
+)
 
 
 CUSTOM_SKILLS = {
@@ -89,6 +93,13 @@ CASES = [
 
 
 def main() -> None:
+    assert has_complete_time_range("晚上11点到凌晨2点")
+    assert has_complete_time_range("下午3点开会一小时")
+    assert not has_complete_time_range("明天上午9点开会")
+    assert not event_failure_should_fallback_to_todo("晚上11点到凌晨2点")
+    assert event_failure_should_fallback_to_todo("明天上午9点开会")
+    print("ok - complete event ranges never downgrade to todo")
+
     for case in CASES:
         normalized = normalize_intents(case["input"], CUSTOM_SKILLS)
         actual = [(item.get("type"), item.get("source_text")) for item in normalized]

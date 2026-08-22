@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 
-enum CaptureActivitySource { ring, card, audioUpload }
+enum CaptureActivitySource { app, ring, card, audioUpload }
 
 enum CaptureActivityPhase {
   listening,
@@ -58,6 +58,7 @@ class CaptureActivityEvent {
     if (aliases.isEmpty) return null;
     final rawSource = json['source']?.toString();
     final source = switch (rawSource) {
+      'voice' || 'app' => CaptureActivitySource.app,
       'ring' => CaptureActivitySource.ring,
       'card' => CaptureActivitySource.card,
       _ => CaptureActivitySource.audioUpload,
@@ -103,6 +104,7 @@ class CaptureActivityEvent {
 
 extension CaptureActivitySourceCopy on CaptureActivitySource {
   String get label => switch (this) {
+    CaptureActivitySource.app => 'REKA App',
     CaptureActivitySource.ring => 'UREKA 戒指',
     CaptureActivitySource.card => 'UREKA 录音卡',
     CaptureActivitySource.audioUpload => '音频上传',

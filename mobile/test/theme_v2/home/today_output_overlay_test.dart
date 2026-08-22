@@ -21,7 +21,7 @@ void main() {
         TodayOutputOverlay(
           item: item,
           signalBoundaryY: 74,
-          assetFloorY: 760,
+          assetEntryY: 420,
           onPhaseChanged: phases.add,
           onHandoff: (point) => handoff = point,
           onComplete: () => completed++,
@@ -72,7 +72,7 @@ void main() {
         TodayOutputOverlay(
           item: item,
           signalBoundaryY: 74,
-          assetFloorY: 760,
+          assetEntryY: 420,
           onHandoff: (point) => handoff = point,
           onComplete: () => completed++,
         ),
@@ -82,44 +82,111 @@ void main() {
     await tester.pump(const Duration(milliseconds: 180));
 
     expect(find.byKey(const ValueKey('today-output-seed')), findsNothing);
-    expect(handoff?.dy, 760);
+    expect(handoff?.dy, 455);
     expect(completed, 1);
   });
 
-  testWidgets('seed chooses the left side when Reka is near the right edge', (
+  testWidgets(
+    'asset ball chooses the left side when Reka is near the right edge',
+    (tester) async {
+      const item = TodayOutputItem(
+        kind: TodayOutputKind.asset,
+        id: 'asset-motion',
+        source: Offset(350, 300),
+        reduceMotion: false,
+      );
+      await tester.pumpWidget(
+        _host(
+          TodayOutputOverlay(
+            item: item,
+            side: TodayOutputSide.left,
+            signalBoundaryY: 74,
+            assetEntryY: 420,
+            assetVisual: const SizedBox(key: ValueKey('final-asset-ball')),
+            onComplete: () {},
+          ),
+        ),
+      );
+
+      expect(
+        tester.getCenter(find.byKey(const ValueKey('final-asset-ball'))).dx,
+        lessThan(item.source.dx),
+      );
+      expect(find.byKey(const ValueKey('today-output-seed')), findsNothing);
+      expect(find.byKey(const ValueKey('today-output-trail-0')), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'animated Asset hands off at entry and leaves overlay ownership',
+    (tester) async {
+      TodayAssetHandoff? handoff;
+      const item = TodayOutputItem(
+        kind: TodayOutputKind.asset,
+        id: 'asset-visible-handoff',
+        source: Offset(180, 300),
+        reduceMotion: false,
+      );
+      await tester.pumpWidget(
+        _host(
+          TodayOutputOverlay(
+            item: item,
+            signalBoundaryY: 74,
+            assetEntryY: 420,
+            assetVisual: const SizedBox(key: ValueKey('final-asset-ball')),
+            onAssetHandoff: (value) => handoff = value,
+            onComplete: () {},
+          ),
+        ),
+      );
+
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 1180));
+      expect(handoff, isNull);
+      expect(find.byKey(const ValueKey('final-asset-ball')), findsOneWidget);
+      await tester.pump(const Duration(milliseconds: 40));
+      expect(handoff?.center.dy, 455);
+      expect(handoff?.velocity.dy, greaterThan(0));
+      expect(find.byKey(const ValueKey('final-asset-ball')), findsNothing);
+    },
+  );
+
+  testWidgets('Asset already inside the chamber keeps moving downward', (
     tester,
   ) async {
+    TodayAssetHandoff? handoff;
     const item = TodayOutputItem(
       kind: TodayOutputKind.asset,
-      id: 'asset-motion',
-      source: Offset(350, 300),
+      id: 'asset-inside-chamber',
+      source: Offset(180, 600),
       reduceMotion: false,
     );
     await tester.pumpWidget(
       _host(
         TodayOutputOverlay(
           item: item,
-          side: TodayOutputSide.left,
           signalBoundaryY: 74,
-          assetFloorY: 760,
+          assetEntryY: 420,
+          assetVisual: const SizedBox(key: ValueKey('inside-asset-ball')),
+          onAssetHandoff: (value) => handoff = value,
           onComplete: () {},
         ),
       ),
     );
 
-    expect(
-      tester.getCenter(find.byKey(const ValueKey('today-output-seed'))).dx,
-      lessThan(item.source.dx),
-    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1220));
+
+    expect(handoff?.center.dy, greaterThan(item.source.dy));
+    expect(handoff?.velocity.dy, greaterThan(0));
   });
 
-  testWidgets('animated Asset hands off visibly inside the chamber floor', (
+  testWidgets('asset paints before handoff without terminal seed or trail', (
     tester,
   ) async {
-    Offset? handoff;
     const item = TodayOutputItem(
       kind: TodayOutputKind.asset,
-      id: 'asset-visible-handoff',
+      id: 'asset-final-ball',
       source: Offset(180, 300),
       reduceMotion: false,
     );
@@ -128,18 +195,18 @@ void main() {
         TodayOutputOverlay(
           item: item,
           signalBoundaryY: 74,
-          assetFloorY: 760,
-          onHandoff: (value) => handoff = value,
+          assetEntryY: 420,
+          assetVisual: const SizedBox(key: ValueKey('final-asset-ball')),
           onComplete: () {},
         ),
       ),
     );
 
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 1850));
-    expect(handoff, isNull);
-    await tester.pump(const Duration(milliseconds: 60));
-    expect(handoff?.dy, 744);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byKey(const ValueKey('final-asset-ball')), findsOneWidget);
+    expect(find.byKey(const ValueKey('today-output-seed')), findsNothing);
+    expect(find.byKey(const ValueKey('today-output-trail-0')), findsNothing);
   });
 }
 

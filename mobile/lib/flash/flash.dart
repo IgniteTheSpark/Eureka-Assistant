@@ -110,3 +110,25 @@ Future<FlashResult> sendFlash(
   }
   return result;
 }
+
+/// Creates a text-only Flash from a completed streaming-ASR session. The voice
+/// session id is reused as the backend idempotency key; callers intentionally
+/// do not retry or retain the original audio.
+Future<FlashResult> sendVoiceFlash(
+  ApiClient api,
+  String text, {
+  required String voiceSessionId,
+}) async {
+  final result = await sendFlash(
+    api,
+    text,
+    source: 'voice',
+    clientTaskId: voiceSessionId,
+  );
+  if (!result.ok) {
+    throw StateError(
+      result.error.isEmpty ? 'voice Flash was not created' : result.error,
+    );
+  }
+  return result;
+}

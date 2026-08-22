@@ -40,6 +40,10 @@ class AssetContainerController extends ChangeNotifier {
   String? _nextCursor;
   bool _refreshing = false;
   bool _loadingMore = false;
+  Future<void>? _loadFuture;
+  bool _loadQueued = false;
+  bool _queuedAsInitialLoad = false;
+  int _replacementRevision = 0;
   bool _disposed = false;
   String? _errorMessage;
   String? _paginationError;
@@ -51,7 +55,8 @@ class AssetContainerController extends ChangeNotifier {
   bool get loadingMore => _loadingMore;
   String? get errorMessage => _errorMessage;
   String? get paginationError => _paginationError;
-  bool get canLoadMore => _nextCursor != null && !_loadingMore;
+  bool get canLoadMore =>
+      _nextCursor != null && !_loadingMore && _loadFuture == null;
   double get currentScrollOffset => _offsets[_filter] ?? 0;
 
   List<AssetRecordViewModel> get records {
@@ -82,8 +87,50 @@ class AssetContainerController extends ChangeNotifier {
         .length;
   }
 
-  Future<void> load() async {
-    if (_loadState == AssetContainerLoadState.loading) return;
+  Future<void> load() => _scheduleLoad(asInitialLoad: true);
+
+  Future<void> refresh() => _scheduleLoad(asInitialLoad: false);
+
+  Future<void> _scheduleLoad({required bool asInitialLoad}) {
+    if (_disposed) return Future<void>.value();
+    _replacementRevision++;
+    final active = _loadFuture;
+    if (active != null) {
+      _loadQueued = true;
+      _queuedAsInitialLoad = _queuedAsInitialLoad || asInitialLoad;
+      return active;
+    }
+    final operation = _runLoadQueue(asInitialLoad: asInitialLoad);
+    _loadFuture = operation;
+    operation.whenComplete(() {
+      if (identical(_loadFuture, operation)) {
+        _loadFuture = null;
+        _notify();
+      }
+    });
+    return operation;
+  }
+
+  Future<void> _runLoadQueue({required bool asInitialLoad}) async {
+    try {
+      var nextIsInitialLoad = asInitialLoad;
+      do {
+        _loadQueued = false;
+        _queuedAsInitialLoad = false;
+        if (nextIsInitialLoad) {
+          await _loadOnce();
+        } else {
+          await _refreshOnce();
+        }
+        nextIsInitialLoad = _queuedAsInitialLoad;
+      } while (_loadQueued && !_disposed);
+    } finally {
+      _loadQueued = false;
+      _queuedAsInitialLoad = false;
+    }
+  }
+
+  Future<void> _loadOnce() async {
     _loadState = AssetContainerLoadState.loading;
     _errorMessage = null;
     _notify();
@@ -101,8 +148,7 @@ class AssetContainerController extends ChangeNotifier {
     _notify();
   }
 
-  Future<void> refresh() async {
-    if (_refreshing) return;
+  Future<void> _refreshOnce() async {
     _refreshing = true;
     _errorMessage = null;
     _notify();
@@ -126,13 +172,14 @@ class AssetContainerController extends ChangeNotifier {
 
   Future<void> loadMore() async {
     final cursor = _nextCursor;
-    if (cursor == null || _loadingMore) return;
+    if (cursor == null || _loadingMore || _loadFuture != null) return;
+    final replacementRevision = _replacementRevision;
     _loadingMore = true;
     _paginationError = null;
     _notify();
     try {
       final page = await repository.load(cursor: cursor);
-      if (_disposed) return;
+      if (_disposed || replacementRevision != _replacementRevision) return;
       final byId = {for (final record in _records) record.id: record};
       for (final record in page.records) {
         byId[record.id] = record;
@@ -140,7 +187,7 @@ class AssetContainerController extends ChangeNotifier {
       _records = byId.values.toList();
       _nextCursor = page.nextCursor;
     } catch (_) {
-      if (_disposed) return;
+      if (_disposed || replacementRevision != _replacementRevision) return;
       _paginationError = '更多内容暂时无法加载';
     } finally {
       if (!_disposed) {

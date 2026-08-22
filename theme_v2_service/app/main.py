@@ -14,6 +14,7 @@ from app.auth.api import router as auth_router
 from app.config import get_settings
 from app.db.session import AsyncSessionFactory
 from app.domains.assets.api import router as assets_router
+from app.domains.asr.api import router as asr_router
 from app.domains.capture.api import router as capture_router
 from app.domains.contacts.api import router as contacts_router
 from app.domains.devices.api import router as devices_router
@@ -72,6 +73,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(account_router)
 app.include_router(assets_router)
+app.include_router(asr_router)
 app.include_router(capture_router)
 app.include_router(contacts_router)
 app.include_router(devices_router)

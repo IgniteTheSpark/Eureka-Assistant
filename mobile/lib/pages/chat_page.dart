@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../assets/assets.dart';
@@ -12,6 +14,9 @@ import '../api/api_client.dart';
 import '../theme/eureka_colors.dart';
 import '../widgets/asset_picker.dart';
 import '../widgets/toast.dart';
+import '../voice_input/voice_input_controller.dart';
+import '../voice_input/voice_input_field.dart';
+import '../voice_input/voice_input_scope.dart';
 import '../theme_v2/session/theme_v2_session_page.dart';
 import '../theme_v2/session/unified_session_controller.dart';
 
@@ -59,7 +64,9 @@ class _ChatPageState extends State<ChatPage> {
   // widget param is immutable, so we mirror it here and drive the chip/header
   // from this field instead.
   String? _anchorLabel;
-  final _input = TextEditingController();
+  final _input = VoiceInputTextController();
+  late final VoiceInputController _voiceController;
+  bool _voiceBound = false;
   final _scroll = ScrollController();
   final _tailKey = GlobalKey();
   final _scaffoldKey = GlobalKey<ScaffoldState>();
@@ -92,6 +99,21 @@ class _ChatPageState extends State<ChatPage> {
       // so backing out and returning doesn't lose the thread.
       _chat.resumeLast();
     }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_voiceBound) return;
+    _voiceBound = true;
+    _voiceController = VoiceInputController(
+      textController: _input,
+      coordinator: VoiceInputScope.coordinatorOf(context),
+    )..addListener(_onVoiceChanged);
+  }
+
+  void _onVoiceChanged() {
+    if (mounted) setState(() {});
   }
 
   // 新建对话 — wipe everything so the new thread carries no context: the
@@ -162,6 +184,9 @@ class _ChatPageState extends State<ChatPage> {
 
   @override
   void dispose() {
+    _voiceController.removeListener(_onVoiceChanged);
+    unawaited(_voiceController.close());
+    _voiceController.dispose();
     _chat.removeListener(_onChange);
     _themeV2Controller.dispose();
     _chat.dispose();
@@ -201,7 +226,7 @@ class _ChatPageState extends State<ChatPage> {
 
   void _send() {
     final t = _input.text;
-    if (t.trim().isEmpty || _chat.streaming) return;
+    if (t.trim().isEmpty || _chat.streaming || _voiceController.isBusy) return;
     _input.clear();
     _chat.send(t);
   }
@@ -405,6 +430,7 @@ class _ChatPageState extends State<ChatPage> {
             ),
             _InputBar(
               controller: _input,
+              voiceController: _voiceController,
               onSend: _send,
               streaming: _chat.streaming,
             ),
@@ -1203,11 +1229,13 @@ class _SessionsDrawerState extends State<_SessionsDrawer> {
 }
 
 class _InputBar extends StatelessWidget {
-  final TextEditingController controller;
+  final VoiceInputTextController controller;
+  final VoiceInputController voiceController;
   final VoidCallback onSend;
   final bool streaming;
   const _InputBar({
     required this.controller,
+    required this.voiceController,
     required this.onSend,
     required this.streaming,
   });
@@ -1220,40 +1248,50 @@ class _InputBar extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-            child: TextField(
-              controller: controller,
-              minLines: 1,
-              maxLines: 6,
-              keyboardType: TextInputType.multiline,
-              textInputAction: TextInputAction.newline,
-              style: TextStyle(color: eu.textHi),
-              decoration: InputDecoration(
-                hintText: '问 Agent 任何事…',
-                hintStyle: TextStyle(color: eu.textLo),
-                filled: true,
-                fillColor: eu.surfaceRaised,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
-                ),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(22),
-                  borderSide: BorderSide(color: eu.border),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(22),
-                  borderSide: BorderSide(color: eu.border),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(22),
-                  borderSide: BorderSide(color: eu.brand),
+            child: VoiceInputField(
+              controller: voiceController,
+              enabled: !streaming,
+              builder: (context, voice) => TextField(
+                controller: controller,
+                readOnly: voice.isBusy,
+                minLines: 1,
+                maxLines: 6,
+                keyboardType: TextInputType.multiline,
+                textInputAction: TextInputAction.newline,
+                style: TextStyle(color: eu.textHi),
+                decoration: InputDecoration(
+                  hintText: '问 Agent 任何事…',
+                  hintStyle: TextStyle(color: eu.textLo),
+                  filled: true,
+                  fillColor: eu.surfaceRaised,
+                  suffixIcon: voice.statusIcon(color: eu.brand),
+                  suffixIconConstraints: const BoxConstraints(
+                    minWidth: 40,
+                    minHeight: 40,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(22),
+                    borderSide: BorderSide(color: eu.border),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(22),
+                    borderSide: BorderSide(color: eu.border),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(22),
+                    borderSide: BorderSide(color: eu.brand),
+                  ),
                 ),
               ),
             ),
           ),
           const SizedBox(width: 8),
           IconButton.filled(
-            onPressed: streaming ? null : onSend,
+            onPressed: streaming || voiceController.isBusy ? null : onSend,
             style: IconButton.styleFrom(backgroundColor: eu.brand),
             icon: streaming
                 ? const SizedBox(

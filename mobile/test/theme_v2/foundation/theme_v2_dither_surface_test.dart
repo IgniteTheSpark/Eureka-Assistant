@@ -5,6 +5,24 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('motion energy expands dither beyond the physical source', () {
+    const resting = ThemeV2DitherSource.circle(
+      center: Offset(100, 100),
+      radius: 30,
+    );
+    const moving = ThemeV2DitherSource.circle(
+      center: Offset(100, 100),
+      radius: 30,
+      energy: 1,
+    );
+    const probe = Offset(145, 100);
+
+    expect(themeV2DitherPressureAt(probe, resting), 0);
+    expect(themeV2DitherPressureAt(probe, moving), greaterThan(.15));
+    expect(themeV2DitherSpreadFor(resting), 0);
+    expect(themeV2DitherSpreadFor(moving), inInclusiveRange(18, 24));
+  });
+
   test('Calendar and Library presets match the approved motion contract', () {
     const calendar = ThemeV2DitherFieldConfig.calendar();
     const library = ThemeV2DitherFieldConfig.library();
@@ -122,7 +140,7 @@ void main() {
     expect(running.value, phase);
   });
 
-  testWidgets('Reduce Motion freezes phase and dark mode uses .26 opacity', (
+  testWidgets('Reduce Motion freezes phase and preserves configured opacity', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -143,7 +161,7 @@ void main() {
       find.byType(ThemeV2DitherField),
     );
     expect(field.reduceMotion, isTrue);
-    expect(field.config.opacity, .26);
+    expect(field.config.opacity, .28);
     expect((field.motion! as AnimationController).isAnimating, isFalse);
   });
 }

@@ -179,7 +179,7 @@ void main() {
     final shape = material.shape! as RoundedRectangleBorder;
     expect(material.elevation, ThemeV2FloatingDock.elevation);
     expect(material.shadowColor, ThemeV2FloatingDock.lightShadowColor);
-    expect(material.color, ThemeV2Tokens.light.surface);
+    expect(material.color, ThemeV2Tokens.light.surface.withValues(alpha: .82));
     expect(
       shape.borderRadius,
       BorderRadius.circular(ThemeV2FloatingDock.lightRadius),
@@ -365,7 +365,7 @@ void main() {
     );
     expect(safePadding.padding, const EdgeInsets.only(bottom: 35));
     final dock = find.byKey(ThemeV2FloatingDock.dockKey);
-    expect(tester.getSize(dock).width, 169);
+    expect(tester.getSize(dock), ThemeV2FloatingDock.shellSize);
     expect(
       tester.getCenter(dock).dx,
       tester.getCenter(find.byType(ThemeV2FloatingDock)).dx,
@@ -455,7 +455,10 @@ void main() {
       find.byKey(ThemeV2FloatingDock.dockKey),
     );
     final lightShape = lightMaterial.shape! as RoundedRectangleBorder;
-    expect(lightMaterial.color, ThemeV2Tokens.light.surface);
+    expect(
+      lightMaterial.color,
+      ThemeV2Tokens.light.surface.withValues(alpha: .82),
+    );
     expect(lightMaterial.shadowColor, Colors.black.withValues(alpha: 0.12));
     expect(lightShape.borderRadius, BorderRadius.circular(18));
     expect(lightShape.side.color, ThemeV2Tokens.light.border);
@@ -475,10 +478,13 @@ void main() {
       find.byKey(ThemeV2FloatingDock.dockKey),
     );
     final darkShape = darkMaterial.shape! as RoundedRectangleBorder;
-    expect(darkMaterial.color, const Color(0xE8191E29));
+    expect(
+      darkMaterial.color,
+      ThemeV2Tokens.dark.surface.withValues(alpha: .88),
+    );
     expect(darkMaterial.shadowColor, Colors.black.withValues(alpha: 0.22));
     expect(darkShape.borderRadius, BorderRadius.circular(20));
-    expect(darkShape.side, const BorderSide(color: Color(0xFF343B4A)));
+    expect(darkShape.side, BorderSide(color: ThemeV2Tokens.dark.border));
   });
 
   testWidgets('async primitives render loading and empty states', (

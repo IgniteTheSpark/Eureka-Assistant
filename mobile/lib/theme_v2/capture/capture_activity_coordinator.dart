@@ -128,9 +128,9 @@ class CaptureActivityCoordinator extends ChangeNotifier {
   }
 
   Duration _terminalDwell(CaptureActivityPhase phase) => switch (phase) {
-    CaptureActivityPhase.done => const Duration(milliseconds: 1500),
-    CaptureActivityPhase.empty => const Duration(seconds: 2),
-    CaptureActivityPhase.failed => const Duration(seconds: 3),
+    CaptureActivityPhase.done => const Duration(seconds: 2),
+    CaptureActivityPhase.empty => const Duration(seconds: 3),
+    CaptureActivityPhase.failed => const Duration(seconds: 4),
     _ => Duration.zero,
   };
 

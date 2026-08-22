@@ -1,6 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../api/api_client.dart';
+import '../../voice_input/voice_input_controller.dart';
+import '../../voice_input/voice_input_field.dart';
+import '../../voice_input/voice_input_scope.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
 import 'report_run_controller.dart';
@@ -28,11 +33,24 @@ class ReportCreateSheet extends StatefulWidget {
 }
 
 class _ReportCreateSheetState extends State<ReportCreateSheet> {
-  final _intent = TextEditingController();
+  final _intent = VoiceInputTextController();
+  late final VoiceInputController _voiceController;
+  bool _voiceBound = false;
   late final ReportRunController _controller = ReportRunController(
     api: widget.api,
     autoPoll: false,
   )..addListener(_changed);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_voiceBound) return;
+    _voiceBound = true;
+    _voiceController = VoiceInputController(
+      textController: _intent,
+      coordinator: VoiceInputScope.coordinatorOf(context),
+    )..addListener(_changed);
+  }
 
   void _changed() {
     if (mounted) setState(() {});
@@ -40,7 +58,7 @@ class _ReportCreateSheetState extends State<ReportCreateSheet> {
 
   Future<void> _submit() async {
     final value = _intent.text.trim();
-    if (value.isEmpty || _controller.busy) return;
+    if (value.isEmpty || _controller.busy || _voiceController.isBusy) return;
     FocusManager.instance.primaryFocus?.unfocus();
     await _controller.startUserInitiated(value);
     if (!mounted || _controller.runId.isEmpty || _controller.error != null) {
@@ -54,6 +72,9 @@ class _ReportCreateSheetState extends State<ReportCreateSheet> {
     _controller
       ..removeListener(_changed)
       ..dispose();
+    _voiceController.removeListener(_changed);
+    unawaited(_voiceController.close());
+    _voiceController.dispose();
     _intent.dispose();
     super.dispose();
   }
@@ -61,7 +82,10 @@ class _ReportCreateSheetState extends State<ReportCreateSheet> {
   @override
   Widget build(BuildContext context) {
     final bottom = MediaQuery.viewInsetsOf(context).bottom;
-    final canSubmit = _intent.text.trim().isNotEmpty && !_controller.busy;
+    final canSubmit =
+        _intent.text.trim().isNotEmpty &&
+        !_controller.busy &&
+        !_voiceController.isBusy;
     return SafeArea(
       top: false,
       child: Padding(
@@ -89,20 +113,29 @@ class _ReportCreateSheetState extends State<ReportCreateSheet> {
               ).textTheme.bodySmall?.copyWith(color: context.themeV2.muted),
             ),
             const SizedBox(height: ThemeV2Spacing.lg),
-            TextField(
-              key: const ValueKey('report-create-intent'),
-              controller: _intent,
-              autofocus: true,
-              minLines: 3,
-              maxLines: 5,
-              maxLength: 4000,
-              textInputAction: TextInputAction.done,
-              onChanged: (_) => setState(() {}),
-              onSubmitted: (_) => _submit(),
-              decoration: const InputDecoration(
-                labelText: '你想生成什么报告？',
-                hintText: '例如：总结最近一个月的跑步训练，并分析恢复情况',
-                alignLabelWithHint: true,
+            VoiceInputField(
+              key: const ValueKey('report-create-voice'),
+              controller: _voiceController,
+              enabled: !_controller.busy,
+              builder: (context, voice) => TextField(
+                key: const ValueKey('report-create-intent'),
+                controller: _intent,
+                readOnly: voice.isBusy,
+                autofocus: true,
+                minLines: 3,
+                maxLines: 5,
+                maxLength: 4000,
+                textInputAction: TextInputAction.done,
+                onChanged: (_) => setState(() {}),
+                onSubmitted: (_) {
+                  if (!voice.isBusy) unawaited(_submit());
+                },
+                decoration: InputDecoration(
+                  labelText: '你想生成什么报告？',
+                  hintText: '例如：总结最近一个月的跑步训练，并分析恢复情况',
+                  alignLabelWithHint: true,
+                  suffixIcon: voice.statusIcon(color: context.themeV2.accent),
+                ),
               ),
             ),
             if (_controller.error case final error?) ...[

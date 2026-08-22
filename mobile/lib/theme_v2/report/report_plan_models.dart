@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+String reportTimeBoundaryIso(DateTime value) => value.toUtc().toIso8601String();
+
 @immutable
 class EvidenceReferenceView {
   const EvidenceReferenceView({required this.kind, required this.id});
@@ -26,6 +28,72 @@ class EvidenceReferenceView {
 }
 
 @immutable
+class ReportPresentationPreferenceView {
+  const ReportPresentationPreferenceView({this.family, this.customText = ''});
+
+  final String? family;
+  final String customText;
+
+  factory ReportPresentationPreferenceView.fromJson(
+    Map<String, dynamic> json,
+  ) => ReportPresentationPreferenceView(
+    family: json['family']?.toString(),
+    customText: json['custom_text']?.toString() ?? '',
+  );
+
+  Map<String, dynamic> toJson() => {
+    'family': family,
+    'custom_text': customText,
+  };
+}
+
+@immutable
+class ReportAssetSelectionView {
+  const ReportAssetSelectionView({
+    this.autoReferences = const [],
+    this.manualReferences = const [],
+    this.excludedReferenceIds = const [],
+  });
+
+  final List<EvidenceReferenceView> autoReferences;
+  final List<EvidenceReferenceView> manualReferences;
+  final List<String> excludedReferenceIds;
+
+  factory ReportAssetSelectionView.fromJson(Map<String, dynamic> json) =>
+      ReportAssetSelectionView(
+        autoReferences: _referenceList(json['auto_references']),
+        manualReferences: _referenceList(json['manual_references']),
+        excludedReferenceIds:
+            (json['excluded_reference_ids'] as List? ?? const [])
+                .map((item) => item.toString())
+                .toList(growable: false),
+      );
+
+  List<EvidenceReferenceView> get resolvedReferences {
+    final excluded = excludedReferenceIds.toSet();
+    return <EvidenceReferenceView>{
+      ...autoReferences.where((item) => !excluded.contains(item.id)),
+      ...manualReferences.where((item) => !excluded.contains(item.id)),
+    }.toList(growable: false);
+  }
+
+  Map<String, dynamic> toJson() => {
+    'auto_references': autoReferences.map((item) => item.toJson()).toList(),
+    'manual_references': manualReferences.map((item) => item.toJson()).toList(),
+    'excluded_reference_ids': excludedReferenceIds,
+  };
+}
+
+List<EvidenceReferenceView> _referenceList(dynamic value) =>
+    (value as List? ?? const [])
+        .whereType<Map>()
+        .map(
+          (item) =>
+              EvidenceReferenceView.fromJson(item.cast<String, dynamic>()),
+        )
+        .toList(growable: false);
+
+@immutable
 class ReportScopeDraftView {
   const ReportScopeDraftView({
     required this.adapterKind,
@@ -35,6 +103,9 @@ class ReportScopeDraftView {
     this.timeRange,
     this.attentionFocus = const [],
     this.additionalFocus = '',
+    this.presentationPreference = const ReportPresentationPreferenceView(),
+    this.missingDimensions = const [],
+    this.selection = const ReportAssetSelectionView(),
   });
 
   final String adapterKind;
@@ -44,39 +115,48 @@ class ReportScopeDraftView {
   final Map<String, dynamic>? timeRange;
   final List<String> attentionFocus;
   final String additionalFocus;
+  final ReportPresentationPreferenceView presentationPreference;
+  final List<String> missingDimensions;
+  final ReportAssetSelectionView selection;
 
   List<EvidenceReferenceView> get references => [
     ?primaryReference,
     ...supportingReferences,
   ];
 
-  factory ReportScopeDraftView.fromJson(
-    Map<String, dynamic> json,
-  ) => ReportScopeDraftView(
-    adapterKind: json['adapter_kind']?.toString() ?? 'generic',
-    primaryReference: json['primary_reference'] is Map
-        ? EvidenceReferenceView.fromJson(
-            (json['primary_reference'] as Map).cast<String, dynamic>(),
-          )
-        : null,
-    supportingReferences: (json['supporting_references'] as List? ?? const [])
-        .whereType<Map>()
-        .map(
-          (item) =>
-              EvidenceReferenceView.fromJson(item.cast<String, dynamic>()),
-        )
-        .toList(growable: false),
-    skillIds: (json['skill_ids'] as List? ?? const [])
-        .map((item) => item.toString())
-        .where((item) => item.isNotEmpty)
-        .toList(growable: false),
-    timeRange: (json['time_range'] as Map?)?.cast<String, dynamic>(),
-    attentionFocus: (json['attention_focus'] as List? ?? const [])
-        .map((item) => item.toString())
-        .where((item) => item.isNotEmpty)
-        .toList(growable: false),
-    additionalFocus: json['additional_focus']?.toString() ?? '',
-  );
+  factory ReportScopeDraftView.fromJson(Map<String, dynamic> json) {
+    final supporting = _referenceList(json['supporting_references']);
+    final selectionJson = (json['selection'] as Map?)?.cast<String, dynamic>();
+    return ReportScopeDraftView(
+      adapterKind: json['adapter_kind']?.toString() ?? 'generic',
+      primaryReference: json['primary_reference'] is Map
+          ? EvidenceReferenceView.fromJson(
+              (json['primary_reference'] as Map).cast<String, dynamic>(),
+            )
+          : null,
+      supportingReferences: supporting,
+      skillIds: (json['skill_ids'] as List? ?? const [])
+          .map((item) => item.toString())
+          .where((item) => item.isNotEmpty)
+          .toList(growable: false),
+      timeRange: (json['time_range'] as Map?)?.cast<String, dynamic>(),
+      attentionFocus: (json['attention_focus'] as List? ?? const [])
+          .map((item) => item.toString())
+          .where((item) => item.isNotEmpty)
+          .toList(growable: false),
+      additionalFocus: json['additional_focus']?.toString() ?? '',
+      presentationPreference: ReportPresentationPreferenceView.fromJson(
+        (json['presentation_preference'] as Map?)?.cast<String, dynamic>() ??
+            const {},
+      ),
+      missingDimensions: (json['missing_dimensions'] as List? ?? const [])
+          .map((item) => item.toString())
+          .toList(growable: false),
+      selection: selectionJson == null
+          ? ReportAssetSelectionView(autoReferences: supporting)
+          : ReportAssetSelectionView.fromJson(selectionJson),
+    );
+  }
 
   ReportScopeDraftView copyWith({
     EvidenceReferenceView? primaryReference,
@@ -84,8 +164,12 @@ class ReportScopeDraftView {
     List<EvidenceReferenceView>? supportingReferences,
     List<String>? skillIds,
     Map<String, dynamic>? timeRange,
+    bool clearTimeRange = false,
     List<String>? attentionFocus,
     String? additionalFocus,
+    ReportPresentationPreferenceView? presentationPreference,
+    List<String>? missingDimensions,
+    ReportAssetSelectionView? selection,
   }) => ReportScopeDraftView(
     adapterKind: adapterKind,
     primaryReference: clearPrimaryReference
@@ -93,9 +177,13 @@ class ReportScopeDraftView {
         : primaryReference ?? this.primaryReference,
     supportingReferences: supportingReferences ?? this.supportingReferences,
     skillIds: skillIds ?? this.skillIds,
-    timeRange: timeRange ?? this.timeRange,
+    timeRange: clearTimeRange ? null : timeRange ?? this.timeRange,
     attentionFocus: attentionFocus ?? this.attentionFocus,
     additionalFocus: additionalFocus ?? this.additionalFocus,
+    presentationPreference:
+        presentationPreference ?? this.presentationPreference,
+    missingDimensions: missingDimensions ?? this.missingDimensions,
+    selection: selection ?? this.selection,
   );
 
   Map<String, dynamic> toJson() => {
@@ -108,6 +196,9 @@ class ReportScopeDraftView {
     'time_range': timeRange,
     'attention_focus': attentionFocus,
     'additional_focus': additionalFocus,
+    'presentation_preference': presentationPreference.toJson(),
+    'missing_dimensions': missingDimensions,
+    'selection': selection.toJson(),
   };
 }
 
@@ -210,12 +301,14 @@ class ReportScopeCandidateResponseView {
     required this.events,
     required this.recordGroups,
     required this.defaultScope,
+    this.timeRangeOptions = const [],
   });
 
   final String adapterKind;
   final List<ReportScopeEventCandidateView> events;
   final List<ReportScopeRecordGroupView> recordGroups;
   final ReportScopeDraftView defaultScope;
+  final List<ReportTimeRangeOptionView> timeRangeOptions;
 
   factory ReportScopeCandidateResponseView.fromJson(
     Map<String, dynamic> json,
@@ -239,7 +332,34 @@ class ReportScopeCandidateResponseView {
     defaultScope: ReportScopeDraftView.fromJson(
       (json['default_scope'] as Map?)?.cast<String, dynamic>() ?? const {},
     ),
+    timeRangeOptions: (json['time_range_options'] as List? ?? const [])
+        .whereType<Map>()
+        .map(
+          (item) =>
+              ReportTimeRangeOptionView.fromJson(item.cast<String, dynamic>()),
+        )
+        .toList(growable: false),
   );
+}
+
+@immutable
+class ReportTimeRangeOptionView {
+  const ReportTimeRangeOptionView({
+    required this.id,
+    required this.label,
+    this.timeRange,
+  });
+
+  final String id;
+  final String label;
+  final Map<String, dynamic>? timeRange;
+
+  factory ReportTimeRangeOptionView.fromJson(Map<String, dynamic> json) =>
+      ReportTimeRangeOptionView(
+        id: json['id']?.toString() ?? '',
+        label: json['label']?.toString() ?? '',
+        timeRange: (json['time_range'] as Map?)?.cast<String, dynamic>(),
+      );
 }
 
 @immutable

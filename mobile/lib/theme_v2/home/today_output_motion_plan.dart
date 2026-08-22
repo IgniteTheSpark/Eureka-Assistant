@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'today_output_coordinator.dart';
+
 @immutable
 class TodayOutputMotionPlan {
   const TodayOutputMotionPlan({
@@ -36,6 +38,7 @@ TodayOutputMotionPlan todayOutputMotionPlan({
   required Offset source,
   required Offset destination,
   required bool reduceMotion,
+  TodayOutputKind kind = TodayOutputKind.signal,
 }) {
   final distance = (destination - source).distance;
   if (reduceMotion) {
@@ -48,7 +51,9 @@ TodayOutputMotionPlan todayOutputMotionPlan({
       recoveryDuration: const Duration(milliseconds: 90),
     );
   }
-  final travelMilliseconds = (distance / 280 * 1000).round().clamp(1200, 2400);
+  final travelMilliseconds = kind == TodayOutputKind.asset
+      ? (distance / 360 * 1000).round().clamp(900, 1800)
+      : (distance / 280 * 1000).round().clamp(1200, 2400);
   return TodayOutputMotionPlan(
     distance: distance,
     reduceMotion: false,

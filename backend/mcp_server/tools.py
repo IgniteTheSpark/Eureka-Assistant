@@ -58,6 +58,26 @@ def _err(msg: str):
     return {"ok": False, "error": msg}
 
 
+def _normalize_event_end(start_dt, end_dt, roll_forward_end):
+    """Return a valid end instant, rolling ambiguous clock times forward.
+
+    Voice extraction can encode a range such as ``晚上 11 点到 2 点`` with
+    both clock times on the same date.  When the caller marks that end as an
+    implicit clock-time interpretation, advance it along the nearest 12-hour
+    timeline until it is strictly after the start.  Explicit API ranges remain
+    strict so a genuinely invalid edit is never silently changed.
+    """
+    from datetime import timedelta
+
+    if end_dt is None or end_dt > start_dt:
+        return end_dt
+    if not roll_forward_end:
+        raise ValueError("invalid_event_range")
+    while end_dt <= start_dt:
+        end_dt += timedelta(hours=12)
+    return end_dt
+
+
 # ── Asset tools ────────────────────────────────────────────────────────────────
 
 _PERIODS = {"凌晨", "上午", "中午", "下午", "晚上"}
@@ -786,6 +806,7 @@ async def create_event(
     recurrence_rule: str = "",
     source_input_turn_id: str = "",
     user_id: str = "default",
+    roll_forward_end: int = 0,
 ) -> dict:
     """
     Create an event. Requires title + start_at (ISO8601 with TZ).
@@ -818,6 +839,17 @@ async def create_event(
             return _err(f"invalid end_at ISO8601: {end_at}")
         if end_dt.tzinfo is None:
             end_dt = end_dt.replace(tzinfo=_LOCAL_TZ)
+
+    try:
+        end_dt = _normalize_event_end(
+            start_dt,
+            end_dt,
+            bool(roll_forward_end),
+        )
+    except ValueError:
+        return _err(
+            "结束时间必须晚于开始时间，请调整结束时间后重试。"
+        )
 
     # ── Hard validation: time span required ──
     if not end_dt and not bool(all_day):

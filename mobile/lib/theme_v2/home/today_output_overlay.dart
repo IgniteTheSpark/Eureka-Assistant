@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
@@ -5,24 +6,38 @@ import 'package:flutter/material.dart';
 import 'today_output_coordinator.dart';
 import 'today_output_motion_plan.dart';
 
+@immutable
+class TodayAssetHandoff {
+  const TodayAssetHandoff({required this.center, required this.velocity});
+
+  final Offset center;
+  final Offset velocity;
+}
+
 class TodayOutputOverlay extends StatefulWidget {
   const TodayOutputOverlay({
     super.key,
     required this.item,
     required this.signalBoundaryY,
-    required this.assetFloorY,
+    required this.assetEntryY,
     required this.onComplete,
     this.side,
     this.onPhaseChanged,
     this.onHandoff,
+    this.onAssetHandoff,
+    this.assetVisual,
+    this.assetDiameter = 70,
   });
 
   final TodayOutputItem item;
   final double signalBoundaryY;
-  final double assetFloorY;
+  final double assetEntryY;
   final TodayOutputSide? side;
   final ValueChanged<TodayOutputPhase>? onPhaseChanged;
   final ValueChanged<Offset>? onHandoff;
+  final ValueChanged<TodayAssetHandoff>? onAssetHandoff;
+  final Widget? assetVisual;
+  final double assetDiameter;
   final VoidCallback onComplete;
 
   @override
@@ -68,8 +83,8 @@ class _TodayOutputOverlayState extends State<TodayOutputOverlay>
     }
     if (value >= plan.travelEnd &&
         (_reportedPhase?.index ?? 0) < TodayOutputPhase.handoff.index) {
-      _reportPhase(TodayOutputPhase.handoff);
       _handoff();
+      _reportPhase(TodayOutputPhase.handoff);
     }
     if (value >= plan.recoveryStart &&
         (_reportedPhase?.index ?? 0) < TodayOutputPhase.recover.index) {
@@ -87,6 +102,21 @@ class _TodayOutputOverlayState extends State<TodayOutputOverlay>
     if (_handedOff) return;
     _handedOff = true;
     widget.onHandoff?.call(_destination);
+    if (widget.item.kind == TodayOutputKind.asset) {
+      widget.onAssetHandoff?.call(
+        TodayAssetHandoff(center: _destination, velocity: _assetVelocity()),
+      );
+    }
+  }
+
+  Offset _assetVelocity() {
+    final plan = _plan;
+    if (plan == null || plan.travelDuration == Duration.zero) {
+      return const Offset(0, 80);
+    }
+    final seconds = plan.travelDuration.inMicroseconds / 1000000;
+    final displacement = _destination.dy - widget.item.source.dy;
+    return Offset(0, 2 * displacement / seconds);
   }
 
   void _installMotionPlan(Offset source, Offset destination) {
@@ -95,6 +125,7 @@ class _TodayOutputOverlayState extends State<TodayOutputOverlay>
       source: source,
       destination: destination,
       reduceMotion: widget.item.reduceMotion,
+      kind: widget.item.kind,
     );
     _plan = plan;
     _controller.duration = plan.totalDuration;
@@ -112,8 +143,8 @@ class _TodayOutputOverlayState extends State<TodayOutputOverlay>
     if (status != AnimationStatus.completed || _completed) return;
     _completed = true;
     if (widget.item.reduceMotion) {
-      _reportPhase(TodayOutputPhase.handoff);
       _handoff();
+      _reportPhase(TodayOutputPhase.handoff);
       _reportPhase(TodayOutputPhase.recover);
     } else {
       _handoff();
@@ -148,7 +179,36 @@ class _TodayOutputOverlayState extends State<TodayOutputOverlay>
           );
           _destination = _handoffPoint(detached);
           _installMotionPlan(detached, _destination);
-          if (widget.item.reduceMotion) return const SizedBox.expand();
+          if (widget.item.reduceMotion) {
+            final visual = widget.assetVisual;
+            if (widget.item.kind != TodayOutputKind.asset || visual == null) {
+              return const SizedBox.expand();
+            }
+            return AnimatedBuilder(
+              animation: _controller,
+              builder: (context, _) {
+                if (_handedOff) return const SizedBox.expand();
+                return Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Positioned(
+                      key: ValueKey(
+                        'today-output-asset-ball-${widget.item.id}',
+                      ),
+                      left: _destination.dx - widget.assetDiameter / 2,
+                      top: _destination.dy - widget.assetDiameter / 2,
+                      width: widget.assetDiameter,
+                      height: widget.assetDiameter,
+                      child: Opacity(
+                        opacity: 1 - _controller.value,
+                        child: visual,
+                      ),
+                    ),
+                  ],
+                );
+              },
+            );
+          }
           return AnimatedBuilder(
             animation: _controller,
             builder: (context, _) {
@@ -175,6 +235,37 @@ class _TodayOutputOverlayState extends State<TodayOutputOverlay>
                     1.0,
                   );
               final signal = widget.item.kind == TodayOutputKind.signal;
+              if (!signal) {
+                if (_handedOff) return const SizedBox.expand();
+                final visual = widget.assetVisual;
+                if (visual == null) return const SizedBox.expand();
+                final gravity = ((raw - plan.chargeEnd) / travelSpan).clamp(
+                  0.0,
+                  1.0,
+                );
+                final assetCenter = Offset(
+                  detached.dx,
+                  lerpDouble(detached.dy, _destination.dy, gravity * gravity)!,
+                );
+                return Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Positioned(
+                      key: ValueKey(
+                        'today-output-asset-ball-${widget.item.id}',
+                      ),
+                      left: assetCenter.dx - widget.assetDiameter / 2,
+                      top: assetCenter.dy - widget.assetDiameter / 2,
+                      width: widget.assetDiameter,
+                      height: widget.assetDiameter,
+                      child: Opacity(
+                        opacity: (1 - recover).clamp(0.0, 1.0),
+                        child: visual,
+                      ),
+                    ),
+                  ],
+                );
+              }
               final width = signal ? lerpDouble(20, 172, unfold)! : 20.0;
               final opacity = ((.35 + .65 * charge) * (1 - recover)).clamp(
                 0.0,
@@ -216,12 +307,14 @@ class _TodayOutputOverlayState extends State<TodayOutputOverlay>
     );
   }
 
-  Offset _handoffPoint(Offset source) => Offset(
-    source.dx,
-    widget.item.kind == TodayOutputKind.signal
-        ? widget.signalBoundaryY
-        : widget.assetFloorY - (widget.item.reduceMotion ? 0 : 16),
-  );
+  Offset _handoffPoint(Offset source) {
+    if (widget.item.kind == TodayOutputKind.signal) {
+      return Offset(source.dx, widget.signalBoundaryY);
+    }
+    final entryCenter = widget.assetEntryY + widget.assetDiameter / 2;
+    final downwardCenter = source.dy + (widget.item.reduceMotion ? 0 : 16);
+    return Offset(source.dx, math.max(entryCenter, downwardCenter));
+  }
 
   Widget _buildTrail({
     required int index,

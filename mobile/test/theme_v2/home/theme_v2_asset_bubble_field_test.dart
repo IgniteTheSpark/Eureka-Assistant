@@ -5,6 +5,7 @@ import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/home/theme_v2_asset_bubble_field.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_dither_field.dart';
 import 'package:eureka/theme_v2/home/today_dither_material.dart';
+import 'package:eureka/theme_v2/home/today_output_overlay.dart';
 import 'package:eureka/theme_v2/home/today_region_watermark.dart';
 import 'package:eureka/timeline/timeline.dart';
 import 'package:eureka/today/today_data.dart';
@@ -228,15 +229,25 @@ void main() {
     },
   );
 
-  testWidgets('empty chamber omits its watermark and empty copy', (
-    tester,
-  ) async {
-    await _pumpField(tester, assets: const [], disableAnimations: true);
+  testWidgets(
+    'empty chamber keeps its watermark actionable without empty copy',
+    (tester) async {
+      var openLibraryCalls = 0;
+      await _pumpField(
+        tester,
+        assets: const [],
+        disableAnimations: true,
+        onOpenLibrary: () => openLibraryCalls++,
+      );
 
-    expect(find.text('0'), findsNothing);
-    expect(find.text('Reka 生成'), findsNothing);
-    expect(find.text('今天生成的资产会落在这里'), findsNothing);
-  });
+      expect(find.text('0'), findsOneWidget);
+      expect(find.text('Reka 生成'), findsOneWidget);
+      expect(find.bySemanticsLabel('打开资产库'), findsOneWidget);
+      expect(find.text('今天生成的资产会落在这里'), findsNothing);
+      await tester.tap(find.text('Reka 生成'));
+      expect(openLibraryCalls, 1);
+    },
+  );
 
   testWidgets('generated watermark opens the Asset Library', (tester) async {
     var openLibraryCalls = 0;
@@ -248,10 +259,177 @@ void main() {
     );
 
     expect(find.bySemanticsLabel('打开资产库'), findsOneWidget);
-    await tester.tap(find.text('1'));
-    await tester.tap(find.text('Reka 生成'));
-    expect(openLibraryCalls, 2);
+    tester.semantics.tap(find.semantics.byLabel('打开资产库'));
+    await tester.pump();
+    expect(openLibraryCalls, 1);
   });
+
+  testWidgets(
+    'noncompact chamber keeps physical watermark routing outside bubble targets',
+    (tester) async {
+      var openLibraryCalls = 0;
+      var openAssetCalls = 0;
+      await _pumpField(
+        tester,
+        assets: [asset],
+        disableAnimations: true,
+        onOpenLibrary: () => openLibraryCalls++,
+        onOpenAsset: (_) => openAssetCalls++,
+      );
+
+      await tester.tap(find.text('1'));
+      await tester.tap(find.text('Reka 生成'));
+      await tester.tapAt(
+        tester.getCenter(
+          find.byWidgetPredicate(
+            (widget) => widget is SizedBox && widget.height == 7,
+          ),
+        ),
+      );
+      expect(openLibraryCalls, 3);
+      expect(openAssetCalls, 0);
+
+      await tester.tapAt(
+        tester.getCenter(
+          find.byKey(const ValueKey('theme-v2-asset-bubble-asset-1')),
+        ),
+      );
+      expect(openAssetCalls, 1);
+    },
+  );
+
+  testWidgets(
+    'physical bubble press shows feedback for the selected target once',
+    (tester) async {
+      var activationCount = 0;
+      await _pumpField(
+        tester,
+        assets: [asset],
+        disableAnimations: false,
+        gravityStream: const Stream<Offset>.empty(),
+        onOpenAsset: (_) => activationCount++,
+      );
+
+      final target = find.byKey(
+        const ValueKey('theme-v2-asset-bubble-asset-1'),
+      );
+      final pressed = find.byKey(
+        const ValueKey('theme-v2-asset-bubble-pressed-asset-1'),
+      );
+      expect(pressed, findsNothing);
+
+      final gesture = await tester.startGesture(tester.getCenter(target));
+      await tester.pump();
+      expect(pressed, findsOneWidget);
+      expect(activationCount, 0);
+
+      await gesture.up();
+      await tester.pump();
+      expect(pressed, findsNothing);
+      expect(activationCount, 1);
+    },
+  );
+
+  testWidgets('overlapping bubble targets open the nearest bubble once', (
+    tester,
+  ) async {
+    final assets = _assets(11);
+    final firstAsset = assets[8];
+    final nearerAsset = assets[10];
+    PoolAsset? opened;
+    var activationCount = 0;
+    await _pumpField(
+      tester,
+      assets: assets,
+      disableAnimations: false,
+      gravityStream: const Stream<Offset>.empty(),
+      spawnCenters: const {
+        'asset-8': Offset(130, 180),
+        'asset-10': Offset(160, 180),
+      },
+      onOpenAsset: (value) {
+        opened = value;
+        activationCount++;
+      },
+    );
+
+    final firstTarget = find.byKey(
+      ValueKey('theme-v2-asset-bubble-${firstAsset.id}'),
+    );
+    final nearerTarget = find.byKey(
+      ValueKey('theme-v2-asset-bubble-${nearerAsset.id}'),
+    );
+    expect(tester.getSize(firstTarget), const Size.square(44));
+    expect(tester.getSize(nearerTarget), const Size.square(44));
+    final overlap = tester
+        .getRect(firstTarget)
+        .intersect(tester.getRect(nearerTarget));
+    expect(overlap, isNot(Rect.zero));
+    // This point lies inside both 44px targets but is nearer asset-2.
+    await tester.tapAt(Offset(overlap.right - 1, overlap.center.dy));
+
+    expect(opened?.id, nearerAsset.id);
+    expect(activationCount, 1);
+  });
+
+  testWidgets(
+    'removed asset IDs can consume a new spawn handoff when re-added',
+    (tester) async {
+      var assets = [asset];
+      var spawnStates = const {
+        'asset-1': TodayAssetHandoff(
+          center: Offset(100, 180),
+          velocity: Offset.zero,
+        ),
+      };
+      late StateSetter update;
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(395, 790);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildThemeV2Theme(Brightness.light),
+          home: StatefulBuilder(
+            builder: (context, setState) {
+              update = setState;
+              return MediaQuery(
+                data: const MediaQueryData(disableAnimations: false),
+                child: ThemeV2AssetBubbleField(
+                  assets: assets,
+                  trueCount: assets.length,
+                  gravityStream: const Stream<Offset>.empty(),
+                  spawnStates: spawnStates,
+                ),
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      update(() => assets = []);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      update(() {
+        spawnStates = const {
+          'asset-1': TodayAssetHandoff(
+            center: Offset(300, 320),
+            velocity: Offset.zero,
+          ),
+        };
+        assets = [asset];
+      });
+      await tester.pump();
+
+      final center = tester.getCenter(
+        find.byKey(const ValueKey('theme-v2-asset-bubble-asset-1')),
+      );
+      expect(center.dx, closeTo(300, 2));
+      expect(center.dy, closeTo(320, 2));
+    },
+  );
 
   testWidgets('Asset dither and watermark use brightness-specific contrast', (
     tester,
@@ -274,8 +452,10 @@ void main() {
       final dark = brightness == Brightness.dark;
 
       expect(field.config.opacity, dark ? .30 : .38);
-      expect(count.style!.color!.a, closeTo(dark ? .14 : .07, .01));
-      expect(label.style!.color!.a, closeTo(dark ? .68 : .44, .01));
+      expect(count.style!.color!.a, closeTo(dark ? .18 : .10, .01));
+      expect(label.style!.fontSize, greaterThanOrEqualTo(14));
+      expect(label.style!.fontWeight, FontWeight.w700);
+      expect(label.style!.color!.a, greaterThanOrEqualTo(dark ? .72 : .56));
       expect(watermark.padding.top, 8);
       expect(watermark.labelFirst, isTrue);
     }
@@ -326,6 +506,21 @@ void main() {
     expect(field.sources.single.shape, ThemeV2DitherSourceShape.circle);
     expect(identical(field.motion, motion), isTrue);
     expect(field.config.opacity, greaterThanOrEqualTo(.28));
+    final stack = tester.widget<Stack>(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is Stack &&
+            widget.children.any((child) => child is TodayRegionWatermark),
+      ),
+    );
+    final watermarkIndex = stack.children.indexWhere(
+      (child) => child is TodayRegionWatermark,
+    );
+    final bubbleLayerIndex = stack.children.lastIndexWhere(
+      (child) => child is Positioned && child.child is GestureDetector,
+    );
+    expect(watermarkIndex, greaterThan(0));
+    expect(watermarkIndex, lessThan(bubbleLayerIndex));
     final outline = tester.widget<DecoratedBox>(
       find.byKey(const ValueKey('theme-v2-asset-bubble-outline-asset-1')),
     );
@@ -443,6 +638,48 @@ void main() {
     expect(tester.getCenter(bubble), before);
   });
 
+  testWidgets('returning Home caps physics catch-up work during a slow frame', (
+    tester,
+  ) async {
+    Future<double> descentAfterResume(List<Duration> frames) async {
+      await _pumpField(
+        tester,
+        assets: [asset],
+        active: false,
+        disableAnimations: false,
+        gravityStream: const Stream<Offset>.empty(),
+      );
+      final bubble = find.byKey(
+        const ValueKey('theme-v2-asset-bubble-asset-1'),
+      );
+      final before = tester.getCenter(bubble).dy;
+
+      await _pumpField(
+        tester,
+        assets: [asset],
+        active: true,
+        disableAnimations: false,
+        gravityStream: const Stream<Offset>.empty(),
+      );
+      for (final frame in frames) {
+        await tester.pump(frame);
+      }
+      return tester.getCenter(bubble).dy - before;
+    }
+
+    final boundedBudget = await descentAfterResume(
+      List.filled(4, const Duration(milliseconds: 16)),
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    final slowFrame = await descentAfterResume(const [
+      Duration(milliseconds: 160),
+    ]);
+
+    expect(boundedBudget, greaterThan(0));
+    expect(slowFrame, closeTo(boundedBudget, 2));
+  });
+
   testWidgets('gravity stream redirects active bubble motion', (tester) async {
     final gravity = StreamController<Offset>();
     addTearDown(gravity.close);
@@ -518,7 +755,11 @@ void main() {
     expect(target, findsOneWidget);
     expect(tester.getSize(target).width, greaterThanOrEqualTo(44));
     expect(tester.getSize(target).height, greaterThanOrEqualTo(44));
-    await tester.tap(target);
+    await tester.tapAt(
+      tester.getCenter(
+        find.byKey(const ValueKey('theme-v2-asset-bubble-asset-1')),
+      ),
+    );
 
     expect(opened?.id, 'asset-1');
     expect(activationCount, 1);
@@ -907,7 +1148,11 @@ void main() {
       expect(find.bySemanticsLabel('打开资产 Kevin'), findsNothing);
       final updatedTarget = find.bySemanticsLabel('打开资产 更新后的 Kevin');
       expect(updatedTarget, findsOneWidget);
-      await tester.tap(updatedTarget);
+      await tester.tapAt(
+        tester.getCenter(
+          find.byKey(const ValueKey('theme-v2-asset-bubble-asset-1')),
+        ),
+      );
       expect(identical(opened, updated), isTrue);
       expect(opened?.type, 'expense');
       expect(opened?.payload['amount'], 88);
@@ -1038,6 +1283,8 @@ Future<void> _pumpField(
   Animation<double>? motion,
   Brightness brightness = Brightness.light,
   int? trueCount,
+  Map<String, Offset> spawnCenters = const {},
+  Map<String, TodayAssetHandoff> spawnStates = const {},
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = size;
@@ -1058,6 +1305,8 @@ Future<void> _pumpField(
             skills: skills,
             active: active,
             gravityStream: gravityStream,
+            spawnCenters: spawnCenters,
+            spawnStates: spawnStates,
             onOpenAsset: onOpenAsset,
             onOpenLibrary: onOpenLibrary,
             motion: motion,

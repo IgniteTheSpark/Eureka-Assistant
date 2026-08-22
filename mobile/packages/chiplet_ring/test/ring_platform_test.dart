@@ -18,21 +18,32 @@ void main() {
   });
 
   test(
-    'startScan/connect/startRecording invoke expected method names',
+    'filtered scan and background capture invoke expected native methods',
     () async {
       final p = RingPlatform();
-      await p.startScan();
+      await p.startBackgroundSession();
+      await p.startScan(targetId: 'AA:BB');
       await p.connect('AA:BB');
+      await p.setCaptureActive(true);
       await p.startRecording();
       await p.stopRecording();
+      await p.setCaptureActive(false);
       await p.disconnect();
+      await p.stopBackgroundSession();
       expect(calls.map((call) => call.method), [
+        'startBackgroundSession',
         'startScan',
         'connect',
+        'setCaptureActive',
         'startRecording',
         'stopRecording',
+        'setCaptureActive',
         'disconnect',
+        'stopBackgroundSession',
       ]);
+      expect(calls[1].arguments, {'targetId': 'AA:BB'});
+      expect(calls[3].arguments, {'active': true});
+      expect(calls[6].arguments, {'active': false});
     },
   );
 

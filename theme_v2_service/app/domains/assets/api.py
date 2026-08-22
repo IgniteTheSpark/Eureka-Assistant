@@ -14,6 +14,8 @@ from app.domains.assets.schemas import (
     EventCreate,
     EventRead,
     EventUpdate,
+    SkillDeletionImpact,
+    SkillDeletionResult,
     SkillDraftRequest,
     UserSkillCreate,
     UserSkillRead,
@@ -42,6 +44,11 @@ async def create_user_skill(
 ):
     try:
         return await service.create_user_skill(session, user_id, command)
+    except service.SkillUpdateConflict as exc:
+        raise HTTPException(
+            status_code=409 if exc.code == "system_skill_protected" else 422,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
     except IntegrityError as exc:
         await session.rollback()
         raise HTTPException(status_code=409, detail="machine name already exists") from exc
@@ -102,10 +109,64 @@ async def update_user_skill(
     user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_session),
 ):
-    skill = await service.update_user_skill(session, user_id, skill_id, command)
+    try:
+        skill = await service.update_user_skill(session, user_id, skill_id, command)
+    except service.SkillUpdateConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
     if skill is None:
         raise _not_found()
     return skill
+
+
+@router.get(
+    "/user-skills/{skill_id}/deletion-impact",
+    response_model=SkillDeletionImpact,
+)
+async def get_user_skill_deletion_impact(
+    skill_id: str,
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+):
+    try:
+        impact = await service.skill_deletion_impact(session, user_id, skill_id)
+    except service.SkillUpdateConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    if impact is None:
+        raise _not_found()
+    return impact
+
+
+@router.delete(
+    "/user-skills/{skill_id}",
+    response_model=SkillDeletionResult,
+)
+async def delete_user_skill(
+    skill_id: str,
+    confirmation_token: str = Query(min_length=1),
+    user_id: str = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+):
+    try:
+        result = await service.delete_user_skill(
+            session,
+            user_id,
+            skill_id,
+            confirmation_token,
+        )
+    except service.SkillUpdateConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    if result is None:
+        raise _not_found()
+    return result
 
 
 @router.post("/assets", response_model=AssetRead)

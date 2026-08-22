@@ -117,7 +117,7 @@ void main() {
       expect(data.timeLabel, '21:34');
     });
 
-    test('skips blanks and falls back to skill label for primary', () {
+    test('skips blanks and leaves a deleted primary display slot empty', () {
       final data = AssetCardViewData.fromPayload(
         payload: const {'title': ' ', 'status': null, 'location': '会议室'},
         display: CardDisplayConfig(
@@ -130,7 +130,7 @@ void main() {
       );
 
       expect(data.mark, '•');
-      expect(data.primaryValue, '事件');
+      expect(data.primaryValue, isEmpty);
       expect(data.secondaryValues, ['会议室']);
       expect(data.timeLabel, isNull);
     });

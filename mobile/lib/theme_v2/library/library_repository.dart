@@ -170,6 +170,9 @@ class ApiLibraryRepository implements LibraryRepository {
         domain: row['domain']?.toString(),
         renderMap: renderMap,
         spec: spec,
+        isSystem: row['is_system'] is bool
+            ? row['is_system'] == true
+            : _legacySystemSkillNames.contains(name),
       );
     }
     return result;
@@ -212,48 +215,67 @@ class ApiLibraryRepository implements LibraryRepository {
     required List<Map<String, dynamic>> events,
     required List<Map<String, dynamic>> contacts,
     required List<Map<String, dynamic>> reports,
-  }) => [
-    _systemContainer(
-      id: 'todo',
-      label: '待办',
-      fallbackMark: todoAssetIcon,
-      type: LibraryContainerType.todo,
-      skill: skills['todo'],
-      count: counts['todo'] ?? 0,
-    ),
-    _systemContainer(
-      id: 'notes',
-      label: '随记',
-      fallbackMark: notesAssetIcon,
-      type: LibraryContainerType.notes,
-      skill: skills['notes'],
-      count: counts['notes'] ?? 0,
-    ),
-    _systemContainer(
-      id: 'event',
-      label: '事件',
-      fallbackMark: eventAssetIcon,
-      type: LibraryContainerType.event,
-      skill: skills['event'],
-      count: counts['event'] ?? events.length,
-    ),
-    _systemContainer(
-      id: 'contact',
-      label: '联系人',
-      fallbackMark: contactAssetIcon,
-      type: LibraryContainerType.contact,
-      skill: skills['contact'],
-      count: counts['contact'] ?? contacts.length,
-    ),
-    _systemContainer(
-      id: 'system:report',
-      label: '报告',
-      fallbackMark: '▤',
-      type: LibraryContainerType.report,
-      skill: null,
-      count: reports.length,
-    ),
-  ];
+  }) {
+    final fixed = [
+      _systemContainer(
+        id: 'todo',
+        label: '待办',
+        fallbackMark: todoAssetIcon,
+        type: LibraryContainerType.todo,
+        skill: skills['todo'],
+        count: counts['todo'] ?? 0,
+      ),
+      _systemContainer(
+        id: 'notes',
+        label: '随记',
+        fallbackMark: notesAssetIcon,
+        type: LibraryContainerType.notes,
+        skill: skills['notes'],
+        count: counts['notes'] ?? 0,
+      ),
+      _systemContainer(
+        id: 'event',
+        label: '事件',
+        fallbackMark: eventAssetIcon,
+        type: LibraryContainerType.event,
+        skill: skills['event'],
+        count: counts['event'] ?? events.length,
+      ),
+      _systemContainer(
+        id: 'contact',
+        label: '联系人',
+        fallbackMark: contactAssetIcon,
+        type: LibraryContainerType.contact,
+        skill: skills['contact'],
+        count: counts['contact'] ?? contacts.length,
+      ),
+      _systemContainer(
+        id: 'system:report',
+        label: '报告',
+        fallbackMark: '▤',
+        type: LibraryContainerType.report,
+        skill: null,
+        count: reports.length,
+      ),
+    ];
+    final fixedIds = fixed.map((container) => container.id).toSet();
+    return [
+      ...fixed,
+      for (final skill in skills.values)
+        if (skill.isSystem &&
+            !fixedIds.contains(skill.name) &&
+            !_hiddenSkillNames.contains(skill.name))
+          LibraryContainerSummary(
+            id: skill.name,
+            label: skill.label,
+            mark: _mark(skill, '•', identity: skill.name),
+            type: LibraryContainerType.custom,
+            totalCount: counts[skill.name] ?? 0,
+            isSystem: true,
+            userSkillId: skill.userSkillId,
+          ),
+    ];
+  }
 
   LibraryContainerSummary _systemContainer({
     required String id,
@@ -276,10 +298,9 @@ class ApiLibraryRepository implements LibraryRepository {
     Map<String, _SkillDefinition> skills,
     Map<String, int> counts,
   ) {
-    const hidden = {'todo', 'notes', 'event', 'contact', 'external_ref', 'qa'};
     return [
       for (final skill in skills.values)
-        if (!hidden.contains(skill.name))
+        if (!skill.isSystem && !_hiddenSkillNames.contains(skill.name))
           LibraryContainerSummary(
             id: skill.name,
             label: skill.label,
@@ -391,6 +412,7 @@ class _SkillDefinition {
     required this.domain,
     required this.renderMap,
     required this.spec,
+    required this.isSystem,
   });
 
   final String name;
@@ -399,4 +421,15 @@ class _SkillDefinition {
   final String? domain;
   final Map<String, dynamic> renderMap;
   final RenderSpec spec;
+  final bool isSystem;
 }
+
+const _legacySystemSkillNames = {
+  'todo',
+  'expense',
+  'contact',
+  'notes',
+  'event',
+  'qa',
+};
+const _hiddenSkillNames = {'external_ref', 'qa'};

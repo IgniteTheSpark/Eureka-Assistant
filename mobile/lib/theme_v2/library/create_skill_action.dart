@@ -4,6 +4,8 @@ import '../../data_revision.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
 import 'create_skill/skill_configuration_repository.dart';
+import 'create_skill/skill_management_controller.dart';
+import 'create_skill/skill_field_configuration_page.dart';
 import 'create_skill/skill_wizard_controller.dart';
 import 'create_skill/theme_v2_skill_wizard.dart';
 
@@ -172,6 +174,38 @@ Future<void> showThemeV2SkillConfigurationLaunch(
         onSaved?.call();
         Navigator.of(sheetContext).pop();
       },
+    ),
+  );
+  controller.dispose();
+}
+
+Future<void> showThemeV2SkillManagementLaunch(
+  BuildContext context, {
+  required String userSkillId,
+  SkillManagementRepository? repository,
+  VoidCallback? onSaved,
+  VoidCallback? onDeleted,
+}) async {
+  final usesProductionRepository = repository == null;
+  final controller = SkillManagementController(
+    repository: repository ?? ApiSkillManagementRepository(),
+    userSkillId: userSkillId,
+    disposeRepository: usesProductionRepository,
+  );
+  await Navigator.of(context).push<void>(
+    MaterialPageRoute<void>(
+      fullscreenDialog: true,
+      builder: (pageContext) => ThemeV2SkillFieldConfigurationPage(
+        controller: controller,
+        onSaved: () {
+          bumpData();
+          onSaved?.call();
+        },
+        onDeleted: () {
+          bumpData();
+          onDeleted?.call();
+        },
+      ),
     ),
   );
   controller.dispose();

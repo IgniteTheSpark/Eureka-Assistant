@@ -32,6 +32,34 @@ class SubscriberFrame(Mapping[str, Any]):
 SubscriberQueue = asyncio.Queue[SubscriberFrame]
 
 
+def _is_confirmed_mutation(frame: SubscriberFrame) -> bool:
+    receipt = frame.payload.get("mutation_receipt")
+    return frame.payload.get("confirmed_mutation") is True or (
+        isinstance(receipt, Mapping)
+        and receipt.get("confirmed_mutation") is True
+    )
+
+
+def _preserve_mutation_signal(
+    queue: SubscriberQueue,
+    incoming: SubscriberFrame,
+) -> None:
+    buffered: list[SubscriberFrame] = []
+    while True:
+        try:
+            buffered.append(queue.get_nowait())
+            queue.task_done()
+        except asyncio.QueueEmpty:
+            break
+    if any(_is_confirmed_mutation(frame) for frame in buffered):
+        for frame in buffered:
+            queue.put_nowait(frame)
+        return
+    for frame in buffered[1:]:
+        queue.put_nowait(frame)
+    queue.put_nowait(incoming)
+
+
 class SubscriberRegistry:
     def __init__(self, queue_size: int = 100):
         if queue_size < 1:
@@ -68,4 +96,6 @@ class SubscriberRegistry:
                 queue.put_nowait(normalized)
             except asyncio.QueueFull:
                 dropped += 1
+                if _is_confirmed_mutation(normalized):
+                    _preserve_mutation_signal(queue, normalized)
         return dropped

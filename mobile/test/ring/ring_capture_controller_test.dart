@@ -218,4 +218,82 @@ void main() {
       expect(completedTasks, ['ring-task-2']);
     },
   );
+
+  test(
+    'capture wake state brackets BLE recording and clears on failure',
+    () async {
+      final keys = StreamController<int>.broadcast();
+      final audio = StreamController<RingFrame>.broadcast();
+      final order = <String>[];
+      var starts = 0;
+      final controller = RingCaptureController(
+        keyEvents: keys.stream,
+        audioFrames: audio.stream,
+        startRecording: () async {
+          order.add('ble-start');
+          starts += 1;
+          if (starts == 1) throw StateError('BLE unavailable');
+        },
+        stopRecording: () async => order.add('ble-stop'),
+        setCaptureActive: (active) async => order.add('wake-$active'),
+        persistBegin: (_, _) async {},
+        onCaptureStartFailed: (_, _) async {},
+        finishCapture: (_) async => RingCaptureFinishOutcome.done,
+        stopDrain: Duration.zero,
+      )..start();
+      addTearDown(controller.dispose);
+
+      keys.add(2);
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      keys.add(2);
+      await Future<void>.delayed(Duration.zero);
+      audio.add(RingFrame(pcm: Uint8List(8), channels: 1));
+      await Future<void>.delayed(Duration.zero);
+      keys.add(2);
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(order, [
+        'wake-true',
+        'ble-start',
+        'wake-false',
+        'wake-true',
+        'ble-start',
+        'ble-stop',
+        'wake-false',
+      ]);
+    },
+  );
+
+  test(
+    'failed wake release is retried before capture teardown completes',
+    () async {
+      final keys = StreamController<int>.broadcast();
+      final audio = StreamController<RingFrame>.broadcast();
+      var releaseAttempts = 0;
+      final controller = RingCaptureController(
+        keyEvents: keys.stream,
+        audioFrames: audio.stream,
+        startRecording: () async {},
+        stopRecording: () async {},
+        setCaptureActive: (active) async {
+          if (active) return;
+          releaseAttempts += 1;
+          if (releaseAttempts == 1) throw StateError('channel unavailable');
+        },
+        persistBegin: (_, _) async {},
+        finishCapture: (_) async => RingCaptureFinishOutcome.done,
+        stopDrain: Duration.zero,
+      )..start();
+      addTearDown(controller.dispose);
+
+      keys.add(2);
+      await Future<void>.delayed(Duration.zero);
+      audio.add(RingFrame(pcm: Uint8List(8), channels: 1));
+      await Future<void>.delayed(Duration.zero);
+      keys.add(2);
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(releaseAttempts, 2);
+    },
+  );
 }

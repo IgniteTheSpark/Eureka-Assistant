@@ -13,16 +13,23 @@ from app.domains.notifications.subscribers import SubscriberRegistry
 NOW = datetime(2026, 7, 31, 10, 0, 0)
 
 
-async def _create_committed(*, user_id: str, title: str = "Report ready") -> str:
+async def _create_committed(
+    *,
+    user_id: str,
+    title: str = "Report ready",
+    notification_type: str = "report_done",
+    confirmed_mutation: bool = False,
+) -> str:
     async with AsyncSessionFactory() as session:
         notification = await create_notification(
             session,
             NotificationCreate(
                 user_id=user_id,
-                type="report_done",
+                type=notification_type,
                 title=title,
                 body="Open the report",
                 link="/reports/run-1",
+                confirmed_mutation=confirmed_mutation,
             ),
         )
         notification.created_at = NOW
@@ -92,6 +99,22 @@ async def test_committed_outbox_routes_to_matching_user(session):
         )
         assert event.published_at == NOW
         assert event.last_error is None
+
+
+async def test_committed_outbox_serializes_confirmed_mutation_evidence(session):
+    notification_id = await _create_committed(
+        user_id="user-1",
+        notification_type="flash_done",
+        confirmed_mutation=True,
+    )
+    registry = SubscriberRegistry()
+    matching = registry.subscribe("user-1")
+
+    assert await dispatch_one(AsyncSessionFactory, registry, now=NOW)
+
+    payload = await matching.get()
+    assert payload["id"] == notification_id
+    assert payload["confirmed_mutation"] is True
 
 
 async def test_missing_notification_marks_outbox_published(session):

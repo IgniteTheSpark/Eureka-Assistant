@@ -11,6 +11,7 @@ import '../../asset_detail/asset_entity_ref.dart';
 import '../../asset_detail/open_asset_detail.dart';
 import '../../foundation/theme_v2_dither_field.dart';
 import '../../foundation/theme_v2_dither_surface.dart';
+import '../../foundation/theme_v2_content_surface.dart';
 import '../../foundation/theme_v2_semantics.dart';
 import '../../foundation/theme_v2_theme.dart';
 import '../../foundation/theme_v2_tokens.dart';
@@ -32,6 +33,7 @@ class ThemeV2AssetListPage extends StatefulWidget {
     this.autoLoad = true,
     this.today,
     this.onConfigureCard,
+    this.onManageSkill,
     this.onBack,
     this.contentBottomPadding = 112,
   }) : source = AssetListSource.assets,
@@ -49,6 +51,7 @@ class ThemeV2AssetListPage extends StatefulWidget {
     this.autoLoad = true,
     this.today,
     this.onConfigureCard,
+    this.onManageSkill,
     this.onBack,
     this.contentBottomPadding = 112,
   }) : source = AssetListSource.entities,
@@ -70,6 +73,7 @@ class ThemeV2AssetListPage extends StatefulWidget {
   final bool autoLoad;
   final DateTime Function()? today;
   final VoidCallback? onConfigureCard;
+  final VoidCallback? onManageSkill;
   final VoidCallback? onBack;
   final double contentBottomPadding;
 
@@ -108,14 +112,18 @@ class _ThemeV2AssetListPageState extends State<ThemeV2AssetListPage> {
       initialScrollOffset: _controller.currentScrollOffset,
     )..addListener(_rememberScrollOffset);
     if (widget.autoLoad) {
-      dataRevision.addListener(_refresh);
+      dataMutationRevision.addListener(_refresh);
+      dataLibraryCatchUpRevision.addListener(_refresh);
       _controller.load();
     }
   }
 
   @override
   void dispose() {
-    if (widget.autoLoad) dataRevision.removeListener(_refresh);
+    if (widget.autoLoad) {
+      dataMutationRevision.removeListener(_refresh);
+      dataLibraryCatchUpRevision.removeListener(_refresh);
+    }
     _scrollController
       ..removeListener(_rememberScrollOffset)
       ..dispose();
@@ -187,6 +195,7 @@ class _ThemeV2AssetListPageState extends State<ThemeV2AssetListPage> {
                     ? _controller.countFor(TodoAssetFilter.all)
                     : records.length,
                 onConfigureCard: widget.onConfigureCard,
+                onManageSkill: widget.onManageSkill,
                 onBack: widget.onBack,
               ),
               if (_controller.isTodo) ...[
@@ -656,7 +665,14 @@ class _AssetRecordRow extends StatelessWidget {
     return ThemeV2DitherSourceReporter(
       id: 'library-asset-${record.id}',
       shape: ThemeV2DitherSourceShape.capsule,
-      child: row,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(ThemeV2Radii.md),
+        child: ThemeV2ContentSurface(
+          key: ValueKey('asset-list-content-surface-${record.id}'),
+          opacity: ThemeV2ContentOpacity.card,
+          child: row,
+        ),
+      ),
     );
   }
 }
@@ -667,6 +683,7 @@ class _ListHeader extends StatelessWidget {
     required this.title,
     required this.count,
     this.onConfigureCard,
+    this.onManageSkill,
     this.onBack,
   });
 
@@ -674,6 +691,7 @@ class _ListHeader extends StatelessWidget {
   final String title;
   final int count;
   final VoidCallback? onConfigureCard;
+  final VoidCallback? onManageSkill;
   final VoidCallback? onBack;
 
   @override
@@ -714,6 +732,13 @@ class _ListHeader extends StatelessWidget {
                 semanticLabel: 'Card Display Settings',
                 icon: Icons.tune,
                 onPressed: onConfigureCard,
+              ),
+            if (onManageSkill != null)
+              ThemeV2IconButton(
+                key: const ValueKey('custom-skill-fields'),
+                semanticLabel: '字段配置',
+                icon: Icons.view_list_outlined,
+                onPressed: onManageSkill,
               ),
           ],
         ),

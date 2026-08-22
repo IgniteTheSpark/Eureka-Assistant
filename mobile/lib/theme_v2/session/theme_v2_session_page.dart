@@ -4,11 +4,11 @@ export 'session_controller.dart';
 
 import 'package:flutter/material.dart';
 
-import '../../assets/assets.dart';
 import '../../chat/chat_models.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/eureka_colors.dart';
-import '../../widgets/asset_picker.dart';
+import '../../voice_input/voice_input_controller.dart';
+import '../../voice_input/voice_input_scope.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
 import 'session_composer.dart';
@@ -105,8 +105,10 @@ class ThemeV2SessionPage extends StatefulWidget {
 
 class _ThemeV2SessionPageState extends State<ThemeV2SessionPage> {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
-  final _inputController = TextEditingController();
+  final _inputController = VoiceInputTextController();
   final _inputFocusNode = FocusNode();
+  late final VoiceInputController _voiceController;
+  bool _voiceBound = false;
   late final ThemeV2SessionController _controller;
   UnifiedSessionController? _ownedController;
   late bool _historyOpen = widget.initialHistoryOpen;
@@ -141,6 +143,17 @@ class _ThemeV2SessionPageState extends State<ThemeV2SessionPage> {
     }
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_voiceBound) return;
+    _voiceBound = true;
+    _voiceController = VoiceInputController(
+      textController: _inputController,
+      coordinator: VoiceInputScope.coordinatorOf(context),
+    )..addListener(_onVoiceChanged);
+  }
+
   void _initialize() {
     if (widget.startBlank) return;
     final sessionId = widget.boundSessionId;
@@ -170,26 +183,8 @@ class _ThemeV2SessionPageState extends State<ThemeV2SessionPage> {
     setState(() {});
   }
 
-  Future<void> _addContext() async {
-    final taken = _contexts.map((context) => context.id).toSet();
-    final picked = await showModalBottomSheet<List<AssetItem>>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      backgroundColor: context.themeV2.surface,
-      builder: (_) => AssetPickerPanel(excludeIds: taken),
-    );
-    if (picked == null || picked.isEmpty) return;
-    final ok = await _controller.attachContexts(
-      picked.map((asset) => asset.id).toList(),
-      labels: {for (final asset in picked) asset.id: asset.title},
-    );
-    if (!mounted) return;
-    if (!ok) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('添加资产失败，请重试')));
-    }
+  void _onVoiceChanged() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _precipitate(ChatMessage message, String skill) {
@@ -247,6 +242,9 @@ class _ThemeV2SessionPageState extends State<ThemeV2SessionPage> {
   @override
   void dispose() {
     _controller.removeListener(_onControllerChanged);
+    _voiceController.removeListener(_onVoiceChanged);
+    unawaited(_voiceController.close());
+    _voiceController.dispose();
     _ownedController?.dispose();
     _inputController.dispose();
     _inputFocusNode.dispose();
@@ -342,8 +340,8 @@ class _ThemeV2SessionPageState extends State<ThemeV2SessionPage> {
               SessionComposer(
                 controller: _inputController,
                 focusNode: _inputFocusNode,
+                voiceController: _voiceController,
                 streaming: state.streaming,
-                onAddContext: () => unawaited(_addContext()),
                 onSend: _controller.send,
               ),
           ],

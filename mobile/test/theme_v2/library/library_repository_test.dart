@@ -225,18 +225,21 @@ void main() {
                   label: '消费',
                   mark: '🍔',
                   primaryField: 'amount',
+                  isSystem: true,
                 ),
                 _skill(
                   name: 'contact',
                   label: '联系人',
                   mark: '🪪',
                   primaryField: 'name',
+                  isSystem: true,
                 ),
                 _skill(
                   name: 'running_training',
                   label: '跑步训练',
                   mark: '🏃',
                   primaryField: 'headline',
+                  isSystem: false,
                 ),
               ],
             },
@@ -261,10 +264,16 @@ void main() {
           '👤',
         );
         expect(
-          overview.customContainers
+          overview.systemContainers
               .singleWhere((container) => container.id == 'expense')
               .mark,
           '💳',
+        );
+        expect(
+          overview.systemContainers
+              .singleWhere((container) => container.id == 'expense')
+              .isSystem,
+          isTrue,
         );
         expect(
           overview.customContainers
@@ -461,11 +470,13 @@ Map<String, dynamic> _skill({
   required String label,
   required String mark,
   required String primaryField,
+  bool? isSystem,
 }) => {
   'id': 'skill-$name',
   'name': name,
   'display_name': label,
   'enabled': 1,
+  'is_system': ?isSystem,
   'render_spec': {
     'icon': mark,
     'accent_color': 'blue',

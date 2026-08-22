@@ -3,10 +3,32 @@ import 'package:eureka/theme_v2/home/today_reka_motion_controller.dart';
 import 'package:eureka/theme_v2/home/today_reka_capture_cue.dart';
 import 'package:eureka/theme_v2/home/today_reka_scene.dart';
 import 'package:eureka/theme_v2/home/today_output_coordinator.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('hidden Today Reka keeps content but removes render and target', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _host(
+        TodayRekaScene(
+          rekaVisible: false,
+          refreshSignal: 0,
+          onRekaTap: (_) {},
+          rekaBuilder: _fakeReka,
+          content: const Text('Today content'),
+        ),
+      ),
+    );
+
+    expect(find.byKey(TodayRekaScene.backgroundKey), findsOneWidget);
+    expect(find.text('Today content'), findsOneWidget);
+    expect(find.byKey(TodayRekaScene.rekaRenderKey), findsNothing);
+    expect(find.byKey(TodayRekaScene.rekaTargetKey), findsNothing);
+  });
+
   testWidgets('scene uses the standard background and renders only Reka', (
     tester,
   ) async {
@@ -117,6 +139,45 @@ void main() {
     expect(anchor!.height, closeTo(220, .001));
   });
 
+  testWidgets(
+    'long press reports voice movement and release without opening actions',
+    (tester) async {
+      var taps = 0;
+      var starts = 0;
+      var ends = 0;
+      var cancels = 0;
+      final offsets = <double>[];
+      await tester.pumpWidget(
+        _host(
+          TodayRekaScene(
+            refreshSignal: 0,
+            onRekaTap: (_) => taps++,
+            onRekaLongPressStart: () => starts++,
+            onRekaLongPressMove: offsets.add,
+            onRekaLongPressEnd: () => ends++,
+            onRekaLongPressCancel: () => cancels++,
+            rekaBuilder: _fakeReka,
+          ),
+        ),
+      );
+      final target = find.byKey(TodayRekaScene.rekaTargetKey);
+      final gesture = await tester.startGesture(tester.getCenter(target));
+
+      await tester.pump(kLongPressTimeout + const Duration(milliseconds: 10));
+      await gesture.moveBy(const Offset(0, -90));
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+
+      expect(starts, 1);
+      expect(offsets, isNotEmpty);
+      expect(offsets.last, closeTo(-90, .001));
+      expect(ends, 1);
+      expect(cancels, 0);
+      expect(taps, 0);
+    },
+  );
+
   testWidgets('inactive scene cancels an active drag', (tester) async {
     final controller = TodayRekaMotionController();
     Widget build(bool active) => _host(
@@ -139,6 +200,26 @@ void main() {
     await tester.pumpWidget(build(false));
     expect(controller.state, TodayRekaMotionState.idle);
     await gesture.cancel();
+  });
+
+  testWidgets('inactive scene leaves Shell-owned voice capture running', (
+    tester,
+  ) async {
+    var voiceCancels = 0;
+    Widget build(bool active) => _host(
+      TodayRekaScene(
+        active: active,
+        refreshSignal: 0,
+        onRekaTap: (_) {},
+        onRekaLongPressCancel: () => voiceCancels += 1,
+        rekaBuilder: _fakeReka,
+      ),
+    );
+
+    await tester.pumpWidget(build(true));
+    await tester.pumpWidget(build(false));
+
+    expect(voiceCancels, 0);
   });
 
   testWidgets(

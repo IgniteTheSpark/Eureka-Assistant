@@ -6,13 +6,17 @@ import 'package:shared_preferences/shared_preferences.dart';
 abstract interface class RingReconnectGateway {
   Stream<RingState> get state;
 
-  Future<void> startScan();
+  Future<void> startScan(String targetId);
 
   Future<void> stopScan();
 
   Future<void> connect(String id);
 
   Future<void> disconnect();
+
+  Future<void> startBackgroundSession();
+
+  Future<void> stopBackgroundSession();
 }
 
 abstract interface class RingReconnectBindingStore {
@@ -57,6 +61,7 @@ class RingReconnect {
   bool _connecting = false;
   bool _scanning = false;
   bool _paused = false;
+  bool _backgroundSessionActive = false;
 
   /// Begin keeping the ring connected. Idempotent.
   Future<void> start() async {
@@ -65,6 +70,8 @@ class RingReconnect {
     final mac = await _bindingStore.readMac();
     if (revision != _operationRevision) return;
     _mac = mac;
+    await _syncBackgroundSessionBestEffort();
+    if (revision != _operationRevision) return;
     _ensureReconnecting();
   }
 
@@ -76,6 +83,8 @@ class RingReconnect {
     final mac = await _bindingStore.readMac();
     if (revision != _operationRevision) return;
     _mac = mac;
+    await _syncBackgroundSessionBestEffort();
+    if (revision != _operationRevision) return;
     _ensureReconnecting();
   }
 
@@ -85,6 +94,7 @@ class RingReconnect {
   void forget() {
     _operationRevision++;
     _mac = null;
+    unawaited(_stopBackgroundSession());
     _stopScan();
     _retryTimer?.cancel();
     _retryTimer = null;
@@ -112,6 +122,8 @@ class RingReconnect {
       final mac = await _bindingStore.readMac();
       if (revision != _operationRevision) return;
       _mac = mac;
+      await _syncBackgroundSessionBestEffort();
+      if (revision != _operationRevision) return;
       _ensureReconnecting();
     } catch (_) {
       // Resume is best effort and must not create an unhandled async error.
@@ -160,7 +172,7 @@ class RingReconnect {
   void _beginScanRound() {
     if (_paused || _connected || _connecting || !_hasMac || _scanning) return;
     _scanning = true;
-    unawaited(_gateway.startScan());
+    unawaited(_gateway.startScan(_mac!));
     _scanTimer?.cancel();
     _scanTimer = Timer(const Duration(seconds: 20), () {
       _stopScan();
@@ -221,6 +233,42 @@ class RingReconnect {
     _connecting = false;
     _paused = false;
     _mac = null;
+    await _stopBackgroundSession();
+  }
+
+  Future<void> _syncBackgroundSession() async {
+    if (_hasMac) {
+      if (_backgroundSessionActive) return;
+      await _gateway.startBackgroundSession();
+      _backgroundSessionActive = true;
+      // The user may unbind while Android is still starting the foreground
+      // service. Reconcile against the latest binding after startup completes.
+      if (!_hasMac) {
+        await _stopBackgroundSession();
+        return;
+      }
+      return;
+    }
+    await _stopBackgroundSession();
+  }
+
+  Future<void> _syncBackgroundSessionBestEffort() async {
+    try {
+      await _syncBackgroundSession();
+    } catch (_) {
+      // Keep foreground reconnect usable if Android rejects FGS startup. The
+      // next lifecycle transition retries background protection.
+    }
+  }
+
+  Future<void> _stopBackgroundSession() async {
+    if (!_backgroundSessionActive) return;
+    try {
+      await _gateway.stopBackgroundSession();
+      _backgroundSessionActive = false;
+    } catch (_) {
+      // Keep the flag set so dispose or the next binding transition retries.
+    }
   }
 }
 
@@ -239,10 +287,17 @@ class _ChipletRingReconnectGateway implements RingReconnectGateway {
   Future<void> disconnect() => _ring.disconnect();
 
   @override
-  Future<void> startScan() => _ring.startScan();
+  Future<void> startScan(String targetId) =>
+      _ring.startScan(targetId: targetId);
 
   @override
   Future<void> stopScan() => _ring.stopScan();
+
+  @override
+  Future<void> startBackgroundSession() => _ring.startBackgroundSession();
+
+  @override
+  Future<void> stopBackgroundSession() => _ring.stopBackgroundSession();
 }
 
 class _SharedPreferencesRingReconnectBindingStore

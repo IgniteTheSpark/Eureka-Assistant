@@ -201,11 +201,11 @@ class _RekaOfferScreenState extends State<RekaOfferScreen>
       await api.putJson('/api/assets/$id', {
         'payload_patch': {'status': 'done'},
       });
+      bumpData();
     } catch (_) {
     } finally {
       api.close();
     }
-    bumpData();
   }
 
   @override

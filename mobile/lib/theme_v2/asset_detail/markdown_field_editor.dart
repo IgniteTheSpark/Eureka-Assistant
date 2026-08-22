@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../voice_input/voice_input_field.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
 import '../markdown/theme_v2_markdown_text.dart';
@@ -76,14 +77,26 @@ class _MarkdownFieldEditorState extends State<MarkdownFieldEditor> {
                           ).textTheme.bodyMedium?.copyWith(height: 1.55),
                         ),
                 )
-              : TextField(
-                  key: const ValueKey('markdown-editor-input'),
+              : VoiceInputTextAdapter(
+                  key: const ValueKey('markdown-editor-voice'),
                   controller: widget.controller,
-                  minLines: 9,
-                  maxLines: null,
-                  keyboardType: TextInputType.multiline,
-                  decoration: const InputDecoration.collapsed(
-                    hintText: '支持 Markdown：# 标题、**加粗**、*斜体*、- 列表、> 引用…',
+                  builder: (context, controller, voice) => TextField(
+                    key: const ValueKey('markdown-editor-input'),
+                    controller: controller,
+                    readOnly: voice.isBusy,
+                    minLines: 9,
+                    maxLines: null,
+                    keyboardType: TextInputType.multiline,
+                    decoration: InputDecoration(
+                      hintText: '支持 Markdown：# 标题、**加粗**、*斜体*、- 列表、> 引用…',
+                      border: InputBorder.none,
+                      isCollapsed: true,
+                      suffixIcon: voice.statusIcon(color: tokens.accent),
+                      suffixIconConstraints: const BoxConstraints(
+                        minWidth: 32,
+                        minHeight: 32,
+                      ),
+                    ),
                   ),
                 ),
         ),

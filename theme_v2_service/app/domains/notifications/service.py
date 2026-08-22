@@ -42,13 +42,16 @@ async def create_notification(
     session.add(notification)
     await session.flush()
 
+    outbox_payload: dict = {"notification_id": notification.id}
+    if command.confirmed_mutation:
+        outbox_payload["confirmed_mutation"] = True
     await publish_domain_event(
         session,
         event_type="notification.created",
         aggregate_type="notification",
         aggregate_id=notification.id,
         user_id=notification.user_id,
-        payload={"notification_id": notification.id},
+        payload=outbox_payload,
     )
     return notification
 

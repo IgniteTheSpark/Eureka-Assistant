@@ -130,11 +130,20 @@ class BubbleField {
   }
 
   /// Add a dynamic bubble at [posPx] (pixels). Drop-in spawns it above the top.
-  void addBubble(String id, Offset posPx, double rPx) {
+  void addBubble(
+    String id,
+    Offset posPx,
+    double rPx, {
+    Offset velocityPxPerSecond = Offset.zero,
+  }) {
     final b = _world.createBody(
       BodyDef()
         ..type = BodyType.dynamic
         ..position = Vector2(posPx.dx / _scale, posPx.dy / _scale)
+        ..linearVelocity = Vector2(
+          velocityPxPerSecond.dx / _scale,
+          velocityPxPerSecond.dy / _scale,
+        )
         ..linearDamping = 0.15
         ..angularDamping = 0.3
         // continuous collision — small fast circles must not tunnel the thin

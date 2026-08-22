@@ -1,16 +1,115 @@
 import 'package:flutter/foundation.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_dither_field.dart';
+import 'package:eureka/theme_v2/home/theme_v2_asset_bubble_field.dart';
 import 'package:eureka/theme_v2/home/today_living_surface.dart';
+import 'package:eureka/theme_v2/home/today_output_overlay.dart';
 import 'package:eureka/today/today_data.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('generated Asset overlay hands off at the chamber entry', (
+    tester,
+  ) async {
+    final clock = ValueNotifier(DateTime(2026, 8, 14, 10));
+    var data = _data([_asset]);
+    late StateSetter update;
+    addTearDown(clock.dispose);
+    await tester.pumpWidget(
+      StatefulBuilder(
+        builder: (context, setState) {
+          update = setState;
+          return _host(
+            data: data,
+            rekaCenter: const Offset(200, 200),
+            disableAnimations: false,
+            clock: clock,
+          );
+        },
+      ),
+    );
+    await tester.pump();
+    update(() => data = _data([_asset, _secondAsset]));
+    await tester.pump();
+
+    final overlay = tester.widget<TodayOutputOverlay>(
+      find.byType(TodayOutputOverlay),
+    );
+    final livingTop = tester
+        .getTopLeft(find.byKey(const ValueKey('today-living-surface')))
+        .dy;
+    final chamberTop = tester
+        .getTopLeft(find.byKey(const ValueKey('today-asset-chamber')))
+        .dy;
+    expect(overlay.assetEntryY, closeTo(chamberTop - livingTop, .01));
+
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1220));
+    await tester.pump();
+    final field = tester.widget<ThemeV2AssetBubbleField>(
+      find.byType(ThemeV2AssetBubbleField),
+    );
+    final spawn = field.spawnStates[_secondAsset.id];
+    expect(field.assets.map((asset) => asset.id), contains(_secondAsset.id));
+    expect(spawn, isNotNull);
+    expect(spawn!.center.dy, closeTo(themeV2AssetBubbleDiameter(1) / 2, .01));
+    expect(spawn.velocity.dy, greaterThan(0));
+    expect(
+      find.byKey(const ValueKey('today-output-asset-ball-asset-2')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('theme-v2-asset-bubble-asset-2')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('parent prunes stale spawn state before an asset is re-added', (
+    tester,
+  ) async {
+    const oldHandoff = TodayAssetHandoff(
+      center: Offset(10, 20),
+      velocity: Offset.zero,
+    );
+    final clock = ValueNotifier(DateTime(2026, 8, 14, 10));
+    var data = _data([_asset]);
+    late StateSetter update;
+    addTearDown(clock.dispose);
+    await tester.pumpWidget(
+      StatefulBuilder(
+        builder: (context, setState) {
+          update = setState;
+          return _host(
+            data: data,
+            rekaCenter: const Offset(112, 330),
+            disableAnimations: true,
+            clock: clock,
+          );
+        },
+      ),
+    );
+    await tester.pump();
+    final parentStates = tester
+        .widget<ThemeV2AssetBubbleField>(find.byType(ThemeV2AssetBubbleField))
+        .spawnStates;
+    parentStates[_asset.id] = oldHandoff;
+
+    update(() => data = _data(const []));
+    await tester.pump();
+    expect(parentStates, isEmpty);
+
+    update(() => data = _data([_asset]));
+    await tester.pump();
+    expect(parentStates[_asset.id], isNot(same(oldHandoff)));
+  });
+
   testWidgets('scene has two container fields and no local Reka dither', (
     tester,
   ) async {
     final clock = ValueNotifier(DateTime(2026, 8, 14, 10));
+    var openRekaCalls = 0;
+    var openLibraryCalls = 0;
     addTearDown(clock.dispose);
 
     await tester.pumpWidget(
@@ -18,6 +117,8 @@ void main() {
         rekaCenter: const Offset(112, 330),
         disableAnimations: true,
         clock: clock,
+        onOpenReka: () => openRekaCalls++,
+        onOpenAssetLibrary: () => openLibraryCalls++,
       ),
     );
     await tester.pump();
@@ -27,6 +128,15 @@ void main() {
     );
     expect(find.byType(ThemeV2DitherField), findsNWidgets(2));
     expect(find.byKey(const ValueKey('today-container-seam')), findsOneWidget);
+    expect(find.text('0'), findsNWidgets(2));
+    expect(find.text('Reka 发现'), findsOneWidget);
+    expect(find.text('Reka 生成'), findsOneWidget);
+    expect(find.bySemanticsLabel('查看全部 Reka 发现'), findsOneWidget);
+    expect(find.bySemanticsLabel('打开资产库'), findsOneWidget);
+    await tester.tap(find.text('Reka 发现'));
+    await tester.tap(find.text('Reka 生成'));
+    expect(openRekaCalls, 1);
+    expect(openLibraryCalls, 1);
   });
 
   testWidgets('shared dither motion pauses with the app lifecycle', (
@@ -88,9 +198,12 @@ void main() {
 }
 
 Widget _host({
+  TodayData data = TodayData.empty,
   required Offset rekaCenter,
   required bool disableAnimations,
   required ValueListenable<DateTime> clock,
+  VoidCallback? onOpenReka,
+  VoidCallback? onOpenAssetLibrary,
 }) => MaterialApp(
   theme: buildThemeV2Theme(Brightness.light),
   home: MediaQuery(
@@ -104,13 +217,41 @@ Widget _host({
         width: 411,
         height: 800,
         child: TodayLivingSurface(
-          data: TodayData.empty,
+          data: data,
           now: clock.value,
           active: true,
           clock: clock,
           rekaCenter: rekaCenter,
+          onOpenReka: onOpenReka,
+          onOpenAssetLibrary: onOpenAssetLibrary,
         ),
       ),
     ),
   ),
+);
+
+final _asset = PoolAsset(
+  id: 'asset-1',
+  type: 'notes',
+  domain: 'work',
+  title: '记录',
+  payload: const {'content': '记录'},
+  createdAt: DateTime(2026, 8, 14, 9),
+);
+
+final _secondAsset = PoolAsset(
+  id: 'asset-2',
+  type: 'notes',
+  domain: 'work',
+  title: '第二条记录',
+  payload: const {'content': '第二条记录'},
+  createdAt: DateTime(2026, 8, 14, 9, 30),
+);
+
+TodayData _data(List<PoolAsset> pool) => TodayData(
+  chain: const [],
+  noTimeTodos: const [],
+  pool: pool,
+  poolTrueCount: pool.length,
+  flashCount: 0,
 );

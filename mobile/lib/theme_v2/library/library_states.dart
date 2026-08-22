@@ -145,22 +145,25 @@ class _LibrarySkeleton extends StatelessWidget {
       label: '正在加载资产库',
       liveRegion: true,
       child: ExcludeSemantics(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              bar(92, 28),
-              const SizedBox(height: 18),
-              bar(double.infinity, 54),
-              const SizedBox(height: 24),
-              bar(86, 10),
-              const SizedBox(height: 10),
-              for (var index = 0; index < 4; index++) ...[
+        child: SingleChildScrollView(
+          physics: const NeverScrollableScrollPhysics(),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                bar(92, 28),
+                const SizedBox(height: 18),
                 bar(double.infinity, 54),
-                const SizedBox(height: 6),
+                const SizedBox(height: 24),
+                bar(86, 10),
+                const SizedBox(height: 10),
+                for (var index = 0; index < 4; index++) ...[
+                  bar(double.infinity, 54),
+                  const SizedBox(height: 6),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),

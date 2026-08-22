@@ -12,6 +12,7 @@ from app.domains.notifications.schemas import NotificationCreate
 from app.domains.notifications.service import create_notification
 from app.domains.reports.models import ReportGenerationRun
 from app.domains.reports.planner_tools import (
+    PlannerEvidenceUnavailable,
     PlannerAssetSummary,
     PlannerEvent,
     PlannerLimits,
@@ -26,6 +27,7 @@ from app.domains.reports.schemas import (
     ReportPlanDraft,
     ReportPlanOption,
     ReportScopeDraft,
+    PresentationPreference,
 )
 from app.domains.reports.state_machine import transition_run
 from app.domains.reports.templates import TemplatePackage, TemplateRegistry
@@ -41,6 +43,50 @@ class InvalidPlannerResult(ValueError):
 
 class PlannerContextTooLarge(ValueError):
     pass
+
+
+class PresentationSelectionBlocked(ValueError):
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+_CUSTOM_PRESENTATION_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "data_trend",
+        ("趋势", "图表", "数据", "看板", "trend", "chart", "dashboard"),
+    ),
+    (
+        "theme_synthesis",
+        ("主题", "故事", "叙事", "杂志", "卡片", "story", "editorial", "card"),
+    ),
+    (
+        "professional_evaluation",
+        ("专业", "评估", "评价", "复盘", "professional", "evaluation"),
+    ),
+    (
+        "briefing_research",
+        ("调研", "简报", "会前", "research", "briefing"),
+    ),
+)
+
+
+def resolve_presentation_family(
+    preference: PresentationPreference | None,
+) -> str | None:
+    if preference is None or preference.family is None:
+        return None
+    if preference.family != "custom":
+        return preference.family
+    normalized = " ".join(preference.custom_text.casefold().split())
+    for family, hints in _CUSTOM_PRESENTATION_HINTS:
+        if any(hint in normalized for hint in hints):
+            return family
+    raise PresentationSelectionBlocked(
+        "custom_presentation_unresolved",
+        "自定义呈现方式无法安全映射到受支持模板，请选择明确的呈现类型",
+    )
 
 
 class PlannerModel(BaseModel):
@@ -195,27 +241,41 @@ async def build_planner_request(
     registry: TemplateRegistry,
 ) -> PlannerRequest:
     scope = EvidenceScope.model_validate(run.evidence_scope or {})
+    scope_draft = (
+        ReportScopeDraft.model_validate(run.scope_draft)
+        if run.scope_draft is not None
+        else None
+    )
+    confirmed_asset_ids = [
+        reference.id
+        for reference in scope.references
+        if reference.kind == "asset"
+    ]
+    try:
+        summaries = await tools.get_asset_summaries_by_ids(confirmed_asset_ids)
+    except PlannerEvidenceUnavailable as exc:
+        raise InvalidPlannerResult(str(exc)) from exc
+    confirmed_owner_ids = list(
+        dict.fromkeys(summary.user_skill_id for summary in summaries)
+    )
     primary_ids = list(scope.skill_ids)
     launch_primary = run.launch_context.get("primary_skill_id")
     if launch_primary and launch_primary not in primary_ids:
         primary_ids.append(launch_primary)
 
-    skills = await tools.list_user_skills(preferred_ids=primary_ids)
+    skills = await tools.list_user_skills(
+        preferred_ids=[*primary_ids, *confirmed_owner_ids]
+    )
     by_id = {skill.id: skill for skill in skills}
     primary = [by_id[skill_id] for skill_id in primary_ids if skill_id in by_id]
     related = [skill for skill in skills if skill.id not in set(primary_ids)]
     related.sort(key=lambda item: (-_related_score(item, primary), item.id))
     if primary:
-        related = [item for item in related if _related_score(item, primary) > 0]
-
-    summaries: list[PlannerAssetSummary] = []
-    for skill in [*primary, *related]:
-        summaries.extend(
-            await tools.get_asset_summaries(
-                skill.id,
-                time_range=scope.time_range,
-            )
-        )
+        related = [
+            item
+            for item in related
+            if item.id in confirmed_owner_ids or _related_score(item, primary) > 0
+        ]
 
     event = None
     event_id = run.launch_context.get("event_id") or next(
@@ -229,9 +289,11 @@ async def build_planner_request(
     if event_id:
         event = await tools.get_event(event_id)
 
+    confirmed_owner_set = set(confirmed_owner_ids)
     capabilities = {
         capability
         for skill in [*primary, *related]
+        if skill.id in confirmed_owner_set
         for capability in skill.capabilities
     }
     if event is not None:
@@ -239,17 +301,28 @@ async def build_planner_request(
         if event.location:
             capabilities.add("location")
     candidates = registry.candidates_for(capabilities)
+    requested_family = resolve_presentation_family(
+        scope_draft.presentation_preference if scope_draft is not None else None
+    )
+    if requested_family is not None:
+        matching_family = [
+            package
+            for package in candidates
+            if package.manifest.base_family == requested_family
+        ]
+        if not matching_family:
+            raise PresentationSelectionBlocked(
+                "presentation_incompatible",
+                "所选呈现方式与已确认数据能力不兼容，请更换呈现方式或数据范围",
+            )
+        candidates = matching_family
     request = PlannerRequest(
         run_id=run.id,
         origin=run.origin,
         intent=run.intent,
         launch_context=run.launch_context,
         answers=run.answers,
-        scope_draft=(
-            ReportScopeDraft.model_validate(run.scope_draft)
-            if run.scope_draft is not None
-            else None
-        ),
+        scope_draft=scope_draft,
         evidence_scope=scope,
         primary_skills=primary,
         related_skills=related,
@@ -294,6 +367,17 @@ def validate_planner_result_against_request(
         template = available_templates[key]
         if option.base_family != template.base_family:
             raise InvalidPlannerResult("option base family conflicts with template")
+        requested_family = resolve_presentation_family(
+            request.scope_draft.presentation_preference
+            if request.scope_draft is not None
+            else None
+        )
+        if requested_family is not None and (
+            option.base_family != requested_family
+        ):
+            raise InvalidPlannerResult(
+                "option base family conflicts with presentation preference"
+            )
         if option.web_search.policy != template.web_policy:
             raise InvalidPlannerResult("option web policy conflicts with template")
         if option.illustration.policy != template.illustration_policy:

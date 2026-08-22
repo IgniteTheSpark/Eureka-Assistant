@@ -18,6 +18,11 @@ import 'package:eureka/theme_v2/calendar/calendar_year_view.dart';
 import 'package:eureka/theme_v2/calendar/theme_v2_calendar_page.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_dither_surface.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
+import 'package:eureka/theme_v2/home/today_reka_motion_controller.dart';
+import 'package:eureka/theme_v2/shell/shell_dithered_reka.dart';
+import 'package:eureka/theme_v2/shell/shell_reka_presentation_controller.dart';
+import 'package:eureka/theme_v2/shell/theme_v2_floating_dock.dart';
+import 'package:eureka/theme_v2/shell/theme_v2_page_scaffold.dart';
 import 'package:eureka/timeline/timeline.dart' show SkillMeta;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -278,6 +283,51 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('calendar-record-event-a')));
     expect(openedId, 'event-a');
+  });
+
+  testWidgets('cross-day slices render on both days and open one event', (
+    tester,
+  ) async {
+    final day = DateTime(2026, 8, 18);
+    final data = CalendarData([
+      calendarFixtureItem(
+        id: 'event-cross-day',
+        title: '线上会议',
+        at: DateTime(2026, 8, 18, 23),
+        endAt: DateTime(2026, 8, 19, 2),
+      ),
+    ], const {});
+    final opened = <String>[];
+
+    await tester.pumpWidget(
+      calendarTestHost(
+        CalendarFlowView(
+          data: data,
+          controller: CalendarController(),
+          today: day,
+          onOpenDay: (_) {},
+          onRequestManualRecord: (_) {},
+          onOpenRecord: (record) => opened.add(record.id),
+          onOpenFlash: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('跨至明日'), findsOneWidget);
+    await tester.tap(
+      find.byKey(
+        const ValueKey('calendar-flow-record-event-cross-day-2026-08-18'),
+      ),
+    );
+    final continuation = find.byKey(
+      const ValueKey('calendar-flow-record-event-cross-day-2026-08-19'),
+    );
+    await tester.ensureVisible(continuation);
+    await tester.pumpAndSettle();
+    expect(find.text('承接昨日'), findsOneWidget);
+    await tester.tap(continuation);
+    expect(opened, ['event-cross-day', 'event-cross-day']);
   });
 
   testWidgets('Flow rows use canonical Skill emoji for every Asset kind', (
@@ -799,6 +849,76 @@ void main() {
       viewportCenter,
       closeTo(todayContent.top - 76 + emptyDayExtent / 2, 0.01),
     );
+  });
+
+  testWidgets('Return to Today stays clear of the docked Reka target', (
+    tester,
+  ) async {
+    final today = DateTime(2026, 7, 3);
+    final motion = TodayRekaMotionController();
+    final presentation = ShellRekaPresentationController();
+    addTearDown(motion.dispose);
+    addTearDown(presentation.dispose);
+    await tester.pumpWidget(
+      calendarTestHost(
+        ThemeV2PageScaffold(
+          showTopNav: false,
+          dock: ThemeV2FloatingDock(
+            selectedIndex: 1,
+            onDestinationSelected: (_) {},
+          ),
+          companion: ShellDitheredReka(
+            mode: ShellDitheredRekaMode.dock,
+            motionController: motion,
+            presentationController: presentation,
+            forceFallback: true,
+            onTap: (_) {},
+            onLongPressStart: () {},
+            onLongPressMove: (_) {},
+            onLongPressEnd: () {},
+            onLongPressCancel: () {},
+          ),
+          body: CalendarFlowView(
+            data: CalendarData(const [], const {}),
+            controller: CalendarController(),
+            today: today,
+            onOpenDay: (_) {},
+            onRequestManualRecord: (_) {},
+            onOpenRecord: (_) {},
+            onOpenFlash: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final scrollFinder = find.byKey(const ValueKey('calendar-flow-scroll'));
+    final list = tester.widget<ListView>(scrollFinder);
+    final initialOffset = list.controller!.offset;
+    final halfViewport = list.controller!.position.viewportDimension / 2;
+    final emptyDayExtent =
+        tester
+            .getTopLeft(find.byKey(const ValueKey('calendar-date-2026-07-05')))
+            .dy -
+        tester
+            .getTopLeft(find.byKey(const ValueKey('calendar-date-2026-07-04')))
+            .dy;
+    list.controller!.jumpTo(
+      initialOffset + 7 * emptyDayExtent + emptyDayExtent / 2 - halfViewport,
+    );
+    await tester.pump();
+
+    final returnToday = find.bySemanticsLabel('回到今天');
+    final rekaTarget = find.byKey(ShellDitheredReka.targetKey);
+    expect(returnToday, findsOneWidget);
+    expect(rekaTarget, findsOneWidget);
+    expect(
+      tester.getRect(returnToday).overlaps(tester.getRect(rekaTarget)),
+      isFalse,
+    );
+    await tester.tap(returnToday);
+    await tester.pumpAndSettle();
+    expect(returnToday, findsNothing);
   });
 
   testWidgets('next day pushes the sticky rail at the day boundary', (

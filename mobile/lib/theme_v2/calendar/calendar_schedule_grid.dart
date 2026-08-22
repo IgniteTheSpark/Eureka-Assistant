@@ -6,6 +6,7 @@ import '../foundation/theme_v2_dither_field.dart';
 import '../foundation/theme_v2_dither_surface.dart';
 import '../foundation/theme_v2_semantics.dart';
 import '../foundation/theme_v2_theme.dart';
+import '../foundation/theme_v2_content_surface.dart';
 import '../foundation/theme_v2_tokens.dart';
 import '../foundation/theme_v2_typography.dart';
 import 'calendar_components.dart';
@@ -119,8 +120,9 @@ class _CalendarScheduleGridState extends State<CalendarScheduleGrid> {
     final activeDraft = widget.controller.inlineDraft;
     if (activeDraft != null) _displayedDraft = activeDraft;
 
-    return ColoredBox(
-      color: Colors.transparent,
+    return ThemeV2ContentSurface(
+      key: const ValueKey('calendar-schedule-content-surface'),
+      opacity: ThemeV2ContentOpacity.dense,
       child: Column(
         children: [
           if (allDay.isNotEmpty || untimed.isNotEmpty)

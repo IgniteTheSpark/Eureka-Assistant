@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
@@ -13,6 +14,78 @@ import 'recent_session.dart';
 
 typedef ChatTurnStream =
     Stream<SseEvent> Function(String path, Map<String, dynamic> body);
+
+/// Explicit write tools in the Assistant MCP contract. A tool result must also
+/// contain its structured successful persistence receipt before it can publish
+/// a Library-invalidating mutation.
+const _persistedMutationToolNames = <String>{
+  'tool_create_asset',
+  'tool_create_todo',
+  'tool_create_note',
+  'tool_update_asset',
+  'tool_delete_asset',
+  'tool_create_contact',
+  'tool_update_contact',
+  'tool_delete_contact',
+  'tool_create_event',
+  'tool_update_event',
+  'tool_delete_event',
+  'tool_add_event_attendee',
+  'tool_update_event_attendee',
+  'tool_delete_event_attendee',
+  'tool_link_event_file',
+  'tool_create_task',
+  'bulk_import',
+};
+
+bool _isConfirmedPersistedMutationToolResult(
+  String name,
+  Map<String, dynamic> response,
+) {
+  if (!_persistedMutationToolNames.contains(name)) return false;
+  final payloads = _toolResultPayloads(response);
+  if (name == 'bulk_import') {
+    // Live bulk results use the same explicit backend receipt as durable
+    // reconciliation. Old card-only payloads are deliberately legacy-only:
+    // a pending or failed pipeline can render provisional cards.
+    return payloads.any((payload) => payload['confirmed_mutation'] == true);
+  }
+  return payloads.any((payload) => payload['ok'] == true);
+}
+
+Iterable<Map<String, dynamic>> _toolResultPayloads(
+  Map<String, dynamic> response,
+) sync* {
+  yield response;
+
+  final structured = response['structuredContent'];
+  if (structured is Map) {
+    yield structured.cast<String, dynamic>();
+    final result = structured['result'];
+    if (result is String) {
+      final parsed = _decodeToolResult(result);
+      if (parsed != null) yield parsed;
+    }
+  }
+
+  final content = response['content'];
+  if (content is List && content.isNotEmpty && content.first is Map) {
+    final text = (content.first as Map)['text'];
+    if (text is String) {
+      final parsed = _decodeToolResult(text);
+      if (parsed != null) yield parsed;
+    }
+  }
+}
+
+Map<String, dynamic>? _decodeToolResult(String value) {
+  try {
+    final decoded = jsonDecode(value);
+    return decoded is Map ? decoded.cast<String, dynamic>() : null;
+  } on FormatException {
+    return null;
+  }
+}
 
 /// Persists the last active chat session so the Agent entry resumes it (web
 /// parity: `eureka:active_chat_session`). Cleared on 新对话 / logout.
@@ -294,7 +367,9 @@ class ChatController extends ChangeNotifier {
     // §1.5.1.3 batch A — a turn may still be generating server-side (we left
     // mid-generation and came back). Its agent message is `running` → shown as
     // 「分析中…」; poll until it lands, then auto-render the reply/cards.
-    if (_hasPending(raw)) _reconcilePending(id, revision);
+    if (_hasPending(raw)) {
+      _reconcilePending(id, revision, _pendingAgentMessageIds(raw));
+    }
   }
 
   /// Rebuild [messages] from a /messages payload. Agent messages with
@@ -360,6 +435,7 @@ class ChatController extends ChangeNotifier {
 
   void _appendStoredToolResults(ChatMessage message, dynamic raw) {
     if (raw is! Map) return;
+    message.confirmedMutation = raw['confirmed_mutation'] == true;
     final results = raw['results'] is List ? raw['results'] as List : [raw];
     for (final result in results.whereType<Map>()) {
       message.parts.add(
@@ -386,7 +462,21 @@ class ChatController extends ChangeNotifier {
   /// Reconcile a session that had an in-flight turn on load: poll the message
   /// log until the running turn lands (or a timeout), then rebuild + render the
   /// reply/cards. Stops if the user switches sessions or the controller dies.
-  Future<void> _reconcilePending(String id, int revision) async {
+  Set<String> _pendingAgentMessageIds(List raw) => raw
+      .whereType<Map>()
+      .where(
+        (message) =>
+            message['role'] == 'agent' && message['status'] == 'running',
+      )
+      .map((message) => message['id']?.toString() ?? '')
+      .where((id) => id.isNotEmpty)
+      .toSet();
+
+  Future<void> _reconcilePending(
+    String id,
+    int revision,
+    Set<String> pendingAgentIds,
+  ) async {
     if (_pollingSession == id && _pollingRevision == revision) {
       return; // already polling this exact history generation
     }
@@ -420,7 +510,11 @@ class ChatController extends ChangeNotifier {
           _reconcileRetrySessionId = null;
           settled = true;
           _notify();
-          bumpData(); // a turn may have created assets → refresh other surfaces
+          _publishTurnRefresh(
+            messages
+                .where((message) => pendingAgentIds.contains(message.id))
+                .any((message) => message.confirmedMutation),
+          );
           break;
         }
       }
@@ -645,7 +739,7 @@ class ChatController extends ChangeNotifier {
         _failedAgent = agent;
       }
       _notify();
-      bumpData();
+      _publishTurnRefresh(_messageHasConfirmedMutation(agent));
       if (!completer.isCompleted) completer.complete();
     }
 
@@ -675,6 +769,20 @@ class ChatController extends ChangeNotifier {
       finalize(failure: e);
     }
     await completer.future;
+  }
+
+  bool _messageHasConfirmedMutation(ChatMessage message) =>
+      message.parts.whereType<ToolResultPart>().any(
+        (part) =>
+            _isConfirmedPersistedMutationToolResult(part.name, part.response),
+      );
+
+  void _publishTurnRefresh(bool hasConfirmedMutation) {
+    if (hasConfirmedMutation) {
+      bumpData();
+    } else {
+      requestDataRefresh();
+    }
   }
 
   void _cancelActiveTurn({required bool notify}) {

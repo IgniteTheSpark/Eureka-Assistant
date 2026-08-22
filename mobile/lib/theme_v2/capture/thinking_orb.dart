@@ -230,11 +230,38 @@ class _ThinkingOrbState extends State<ThinkingOrb>
   late ThinkingOrbProfile _fromProfile = thinkingOrbProfile(widget.state);
   late ThinkingOrbProfile _toProfile = thinkingOrbProfile(widget.state);
   late ThinkingOrbVisualState _fromState = widget.state;
+  bool _reduceMotion = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncMotionPreference();
+  }
+
+  void _syncMotionPreference() {
+    final disabled = MediaQuery.disableAnimationsOf(context);
+    if (_reduceMotion == disabled) return;
+    _reduceMotion = disabled;
+    if (disabled) {
+      _motion.stop();
+      _morph.value = 1;
+    } else {
+      _motion.repeat();
+    }
+  }
 
   @override
   void didUpdateWidget(covariant ThinkingOrb oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.state == widget.state) return;
+    if (_reduceMotion) {
+      _fromProfile = thinkingOrbProfile(widget.state);
+      _toProfile = _fromProfile;
+      _fromState = widget.state;
+      _motion.stop();
+      _morph.value = 1;
+      return;
+    }
     _fromProfile = ThinkingOrbProfile.lerp(
       _fromProfile,
       _toProfile,

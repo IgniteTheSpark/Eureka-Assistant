@@ -97,7 +97,7 @@ void main() {
         final dock = find.byKey(ThemeV2FloatingDock.dockKey);
         expect(dock, findsOneWidget);
         expect(tester.getTopLeft(dock), const Offset(121, 865));
-        expect(tester.getSize(dock), const Size(169, 60));
+        expect(tester.getSize(dock), ThemeV2FloatingDock.shellSize);
 
         await expectLater(
           find.byKey(surface),

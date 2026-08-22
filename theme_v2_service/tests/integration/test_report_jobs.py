@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import func, select
@@ -12,6 +12,7 @@ from app.domains.reports.pipeline import (
 from app.domains.reports.schemas import (
     EvidenceScope,
     ReportPlanDraftUpdate,
+    ReportScopeDraftUpdate,
     UserRunCreate,
 )
 from app.domains.reports.scope_resolution import (
@@ -20,11 +21,13 @@ from app.domains.reports.scope_resolution import (
     execute_scope_resolution_job,
 )
 from app.domains.reports.service import (
+    RunConflict,
     create_user_run,
     generation_write_guard,
     prepare_scope_plan,
     planner_write_guard,
     update_plan_draft,
+    update_scope_draft,
 )
 
 
@@ -79,6 +82,150 @@ async def test_user_run_scope_confirmation_shares_outer_transaction(session):
     assert await session.scalar(
         select(func.count()).select_from(WorkflowJob)
     ) == 0
+
+
+async def test_period_range_expansion_requires_confirmation_of_server_resolution(
+    session,
+    monkeypatch,
+):
+    now = datetime(2026, 8, 19, 12, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr("app.domains.reports.service.utc_now", lambda: now)
+    skill = UserSkill(
+        id="skill-running",
+        user_id="user-1",
+        machine_name="running",
+        display_name="跑步记录",
+        schema_json={
+            "type": "object",
+            "properties": {"distance": {"type": "number"}},
+        },
+    )
+    session.add(skill)
+    await session.flush()
+    recent = Asset(
+        id="asset-recent",
+        user_id="user-1",
+        user_skill_id=skill.id,
+        payload_json={"distance": 5},
+        effective_at=(now - timedelta(days=5)).replace(tzinfo=None),
+    )
+    older = Asset(
+        id="asset-older",
+        user_id="user-1",
+        user_skill_id=skill.id,
+        payload_json={"distance": 10},
+        effective_at=(now - timedelta(days=40)).replace(tzinfo=None),
+    )
+    session.add_all([recent, older])
+    await session.flush()
+    run = await create_user_run(
+        session,
+        user_id="user-1",
+        command=UserRunCreate(intent="总结最近的跑步"),
+    )
+
+    updated = await update_scope_draft(
+        session,
+        user_id="user-1",
+        run_id=run.id,
+        command=ReportScopeDraftUpdate.model_validate(
+            {
+                "expected_revision": 0,
+                "draft": {
+                    **run.scope_draft,
+                    "time_range": {
+                        "from": now - timedelta(days=60),
+                        "to": now,
+                    },
+                    "supporting_references": [
+                        {"kind": "asset", "id": recent.id}
+                    ],
+                    "selection": {
+                        "auto_references": [
+                            {"kind": "asset", "id": recent.id}
+                        ]
+                    },
+                    "missing_dimensions": [],
+                },
+            }
+        ),
+    )
+
+    assert [
+        item["id"] for item in updated.scope_draft["supporting_references"]
+    ] == [older.id, recent.id]
+    assert updated.pending_decision["requires_reconfirmation"] is True
+    with pytest.raises(RunConflict, match="final resolved evidence"):
+        await prepare_scope_plan(
+            session,
+            user_id="user-1",
+            run_id=run.id,
+            expected_revision=1,
+        )
+
+    confirmed = await update_scope_draft(
+        session,
+        user_id="user-1",
+        run_id=run.id,
+        command=ReportScopeDraftUpdate.model_validate(
+            {"expected_revision": 1, "draft": updated.scope_draft}
+        ),
+    )
+    assert "requires_reconfirmation" not in confirmed.pending_decision
+    planned, _ = await prepare_scope_plan(
+        session,
+        user_id="user-1",
+        run_id=run.id,
+        expected_revision=2,
+    )
+    assert planned.state == "planning"
+
+
+async def test_prepare_rejects_unresolved_required_scope_dimensions(session):
+    skill = UserSkill(
+        id="skill-running",
+        user_id="user-1",
+        machine_name="running",
+        display_name="跑步记录",
+        schema_json={"type": "object", "properties": {}},
+    )
+    session.add(skill)
+    await session.flush()
+    run = ReportGenerationRun(
+        user_id="user-1",
+        origin="user_initiated",
+        state="awaiting_selection",
+        active_stage="scope_confirmation",
+        launch_context={},
+        intent="总结最近的记录",
+        answers={},
+        evidence_scope={"skill_ids": ["skill-running"]},
+        pending_decision={
+            "type": "scope_confirmation",
+            "adapter_kind": "period_summary",
+        },
+        scope_adapter="period_summary",
+        scope_draft={
+            "adapter_kind": "period_summary",
+            "skill_ids": ["skill-running"],
+            "missing_dimensions": ["time_range"],
+        },
+        scope_revision=0,
+        plan_options=[],
+        resolved_asset_ids=[],
+        generation_context={},
+        usage_json={},
+    )
+    session.add(run)
+    await session.flush()
+
+    with pytest.raises(RunConflict, match="required dimensions"):
+        await prepare_scope_plan(
+            session,
+            user_id="user-1",
+            run_id=run.id,
+            expected_revision=0,
+        )
 
 
 async def test_only_current_job_can_write_back(session):

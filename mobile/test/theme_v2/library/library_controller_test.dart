@@ -161,6 +161,24 @@ void main() {
       expect(offline.status, LibraryStatus.ready);
     });
 
+    test('background refresh failure retains the last good overview', () async {
+      final original = _overview();
+      final controller = LibraryController(
+        repository: _SequenceRepository([
+          original,
+          const LibraryLoadFailure('刷新超时'),
+        ]),
+        pinnedStore: _PinnedStore(),
+      );
+      await controller.load();
+
+      await controller.retry();
+
+      expect(controller.overview, same(original));
+      expect(controller.status, LibraryStatus.ready);
+      expect(controller.errorMessage, contains('刷新超时'));
+    });
+
     test('failed pinned save restores the latest confirmed order', () async {
       final store = _PinnedStore(initial: ['todo', 'notes'])..failNext = true;
       final controller = await _loadedController(store: store);
@@ -256,7 +274,7 @@ void main() {
       expect(controller.pinSaveError, contains('最多'));
     });
 
-    test('a stale load cannot replace a newer retry', () async {
+    test('concurrent refreshes coalesce to one queued rerun', () async {
       final repository = _OverlappingRepository();
       final controller = LibraryController(
         repository: repository,
@@ -265,14 +283,46 @@ void main() {
 
       final first = controller.load();
       final second = controller.retry();
-      repository.second.complete(_overview());
-      await second;
+      final third = controller.load();
+      expect(repository.loadCount, 1);
       repository.first.complete(_emptyOverview());
-      await first;
+      await Future<void>.delayed(Duration.zero);
+      expect(repository.loadCount, 2);
+      repository.second.complete(_overview());
+      await Future.wait([first, second, third]);
 
       expect(controller.status, LibraryStatus.ready);
       expect(controller.overview?.customContainers, hasLength(1));
+      expect(repository.loadCount, 2);
     });
+
+    test(
+      'refresh requested during a queued rerun is handled by one latest rerun',
+      () async {
+        final repository = _OverlappingRepository();
+        final controller = LibraryController(
+          repository: repository,
+          pinnedStore: _PinnedStore(),
+        );
+
+        final first = controller.load();
+        controller.retry();
+        repository.first.complete(_emptyOverview());
+        await Future<void>.delayed(Duration.zero);
+        expect(repository.loadCount, 2);
+
+        final latest = controller.load();
+        controller.retry();
+        repository.second.complete(_overview());
+        await Future<void>.delayed(Duration.zero);
+        expect(repository.loadCount, 3);
+        repository.third.complete(_emptyOverview());
+        await Future.wait([first, latest]);
+
+        expect(repository.loadCount, 3);
+        expect(controller.status, LibraryStatus.empty);
+      },
+    );
 
     test('dispose invalidates pending loads and saves', () async {
       final repository = _OverlappingRepository();
@@ -325,12 +375,18 @@ class _SequenceRepository implements LibraryRepository {
 class _OverlappingRepository implements LibraryRepository {
   final first = Completer<LibraryOverview>();
   final second = Completer<LibraryOverview>();
+  final third = Completer<LibraryOverview>();
   var loadCount = 0;
 
   @override
   Future<LibraryOverview> loadOverview() {
     loadCount++;
-    return loadCount == 1 ? first.future : second.future;
+    return switch (loadCount) {
+      1 => first.future,
+      2 => second.future,
+      3 => third.future,
+      _ => throw StateError('unexpected load $loadCount'),
+    };
   }
 }
 

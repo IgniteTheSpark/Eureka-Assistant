@@ -71,6 +71,7 @@ from api.export import router as export_router                # 资产库导出 
 from api.connected_apps import router as connected_apps_router  # §1.7.1 Connected Apps
 from api.pet import router as pet_router                          # §9 球球 Pet
 from api.demo import router as demo_router
+from api.asr_stream import router as asr_stream_router
 
 
 @asynccontextmanager
@@ -151,6 +152,7 @@ app.include_router(pet_router,            prefix="/api", tags=["pet"])          
 app.include_router(nudges_router,         prefix="/api", tags=["nudges"])          # §14 主动 REKA (Phase 2)
 app.include_router(offers_router,         prefix="/api", tags=["offers"])          # §14.5a PULL comprehensive offer set
 app.include_router(demo_router,           prefix="/api", tags=["demo"])
+app.include_router(asr_stream_router,      prefix="/api", tags=["asr"])
 
 
 @app.get("/health")

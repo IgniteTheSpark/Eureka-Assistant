@@ -162,6 +162,9 @@ class CalendarRecordRow extends StatelessWidget {
     required this.onTap,
     required this.ditherSourceId,
     this.muted = false,
+    this.displayAtOverride,
+    this.continuationLabel,
+    this.rowKey,
   });
 
   final CalendarRecord record;
@@ -169,23 +172,28 @@ class CalendarRecordRow extends StatelessWidget {
   final VoidCallback onTap;
   final String? ditherSourceId;
   final bool muted;
+  final DateTime? displayAtOverride;
+  final String? continuationLabel;
+  final Key? rowKey;
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
     final item = record.item;
+    final displayAt = displayAtOverride ?? record.displayAt;
     final meta = item.kind == 'input_turn'
         ? null
         : resolveTimelineItemMeta(item, skills);
     final content = Semantics(
       label:
-          '${record.isTimed ? calendarTimeLabel(record.displayAt) : '未指定时间'} ${item.title}',
+          '${record.isTimed ? calendarTimeLabel(displayAt) : '未指定时间'} '
+          '${item.title}${continuationLabel == null ? '' : ' $continuationLabel'}',
       button: true,
       onTap: onTap,
       child: ExcludeSemantics(
         child: ThemeV2HitTarget(
           child: InkWell(
-            key: ValueKey('calendar-record-${record.id}'),
+            key: rowKey ?? ValueKey('calendar-record-${record.id}'),
             onTap: onTap,
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: ThemeV2Spacing.xs),
@@ -194,9 +202,7 @@ class CalendarRecordRow extends StatelessWidget {
                   SizedBox(
                     width: 48,
                     child: Text(
-                      record.isTimed
-                          ? calendarTimeLabel(record.displayAt)
-                          : '—',
+                      record.isTimed ? calendarTimeLabel(displayAt) : '—',
                       style: ThemeV2Typography.mono(
                         fontSize: 9,
                         color: tokens.muted,
@@ -214,14 +220,35 @@ class CalendarRecordRow extends StatelessWidget {
                     Text(meta.icon, style: const TextStyle(fontSize: 16)),
                   const SizedBox(width: ThemeV2Spacing.sm),
                   Expanded(
-                    child: Text(
-                      item.title.isEmpty ? '记录' : item.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: muted ? tokens.muted : tokens.foreground,
-                        fontWeight: FontWeight.w600,
-                      ),
+                    child: Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            item.title.isEmpty ? '记录' : item.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
+                                  color: muted
+                                      ? tokens.muted
+                                      : tokens.foreground,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                        ),
+                        if (continuationLabel case final label?) ...[
+                          const SizedBox(width: ThemeV2Spacing.xs),
+                          Text(
+                            label,
+                            style: ThemeV2Typography.mono(
+                              fontSize: 8,
+                              color: tokens.muted,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: .4,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                 ],

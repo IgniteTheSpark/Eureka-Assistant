@@ -3,6 +3,10 @@ package com.eureka.chiplet_ring
 import android.app.Application
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
+import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanFilter
+import android.bluetooth.le.ScanResult
+import android.bluetooth.le.ScanSettings
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -198,11 +202,12 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private val lastRssi = HashMap<String, Int>()
     private var receiverRegistered = false
     @Volatile private var scanning = false
+    @Volatile private var filteredScanning = false
+    @Volatile private var savedMac: String? = null
 
-    // FIX 1: All access to found/lastRssi maps happens on main thread inside main.post{}
-    private val leScanCallback = BluetoothAdapter.LeScanCallback { device, rssi, bytes ->
-        if (!scanning) return@LeScanCallback // ignore stray callbacks once we stop/connect
-        val info = LogicalApi.getBleDeviceInfoWhenBleScan(device, rssi, bytes, false) ?: return@LeScanCallback
+    private fun handleScanResult(device: BluetoothDevice, rssi: Int, bytes: ByteArray) {
+        if (!scanning) return
+        val info = LogicalApi.getBleDeviceInfoWhenBleScan(device, rssi, bytes, false) ?: return
         main.post {
             if (!scanning) return@post
             found[device.address] = device
@@ -212,6 +217,41 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             }
             stateSink?.success(mapOf("conn" to "scanning", "devices" to devices))
         }
+    }
+
+    // FIX 1: All access to found/lastRssi maps happens on main thread inside main.post{}
+    private val leScanCallback = BluetoothAdapter.LeScanCallback { device, rssi, bytes ->
+        handleScanResult(device, rssi, bytes)
+    }
+
+    private val filteredScanCallback = object : ScanCallback() {
+        override fun onScanResult(callbackType: Int, result: ScanResult) {
+            handleScanResult(
+                result.device,
+                result.rssi,
+                result.scanRecord?.bytes ?: ByteArray(0),
+            )
+        }
+
+        override fun onBatchScanResults(results: MutableList<ScanResult>) {
+            results.forEach { onScanResult(ScanSettings.CALLBACK_TYPE_ALL_MATCHES, it) }
+        }
+
+        override fun onScanFailed(errorCode: Int) {
+            main.post {
+                stateSink?.success(mapOf("conn" to "error", "devices" to emptyList<Any>()))
+            }
+        }
+    }
+
+    private fun stopActiveScan() {
+        scanning = false
+        if (filteredScanning) {
+            BluetoothAdapter.getDefaultAdapter()?.bluetoothLeScanner
+                ?.stopScan(filteredScanCallback)
+            filteredScanning = false
+        }
+        BLEUtils.stopLeScan(appContext, leScanCallback)
     }
 
     private var wlsRegistered = false
@@ -323,7 +363,23 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 // FIX 2: Guard BLEUtils call with try/catch
                 try {
                     scanning = true
-                    BLEUtils.startLeScan(appContext, leScanCallback)
+                    val targetId = call.argument<String>("targetId")
+                        ?.trim()
+                        ?.takeIf { it.isNotEmpty() }
+                    if (targetId != null) {
+                        val scanner = BluetoothAdapter.getDefaultAdapter()?.bluetoothLeScanner
+                            ?: throw IllegalStateException("Bluetooth LE scanner unavailable")
+                        val filter = ScanFilter.Builder().setDeviceAddress(targetId).build()
+                        val settings = ScanSettings.Builder()
+                            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+                            .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
+                            .build()
+                        filteredScanning = true
+                        scanner.startScan(listOf(filter), settings, filteredScanCallback)
+                    } else {
+                        filteredScanning = false
+                        BLEUtils.startLeScan(appContext, leScanCallback)
+                    }
                     main.post { stateSink?.success(mapOf("conn" to "scanning", "devices" to emptyList<Any>())) }
                     result.success(null)
                 } catch (e: Throwable) { result.error("ring_error", e.message, null) }
@@ -331,8 +387,7 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             "stopScan" -> {
                 // FIX 2: Guard BLEUtils call with try/catch
                 try {
-                    scanning = false
-                    BLEUtils.stopLeScan(appContext, leScanCallback)
+                    stopActiveScan()
                     result.success(null)
                 } catch (e: Throwable) { result.error("ring_error", e.message, null) }
             }
@@ -345,8 +400,7 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 try {
                     // Stop scanning before connecting — concurrent LE scan destabilizes GATT
                     // and stray scan callbacks would clobber the connection state in the UI.
-                    scanning = false
-                    BLEUtils.stopLeScan(appContext, leScanCallback)
+                    stopActiveScan()
                     BLEUtils.isHIDDevice = false
                     main.post { stateSink?.success(mapOf("conn" to "connecting", "devices" to emptyList<Any>())) }
                     BLEUtils.connectLockByBLE(appContext, dev)
@@ -373,6 +427,25 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 // FIX 2: Guard LmAPILite call with try/catch
                 try {
                     LmAPILite.CONTROL_AUDIO_ADPCM(0, audioListener)
+                    result.success(null)
+                } catch (e: Throwable) { result.error("ring_error", e.message, null) }
+            }
+            "startBackgroundSession" -> {
+                try {
+                    RingBackgroundService.start(appContext)
+                    result.success(null)
+                } catch (e: Throwable) { result.error("ring_error", e.message, null) }
+            }
+            "stopBackgroundSession" -> {
+                try {
+                    RingBackgroundService.stop(appContext)
+                    result.success(null)
+                } catch (e: Throwable) { result.error("ring_error", e.message, null) }
+            }
+            "setCaptureActive" -> {
+                val active = call.argument<Boolean>("active") ?: false
+                try {
+                    RingBackgroundService.setCaptureActive(active)
                     result.success(null)
                 } catch (e: Throwable) { result.error("ring_error", e.message, null) }
             }
@@ -450,6 +523,7 @@ class ChipletRingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             "setSavedMac" -> {
                 val mac = call.argument<String>("mac")
                 try {
+                    savedMac = mac
                     if (mac != null) BLEUtils.setMac(mac)
                     result.success(null)
                 } catch (e: Throwable) { result.error("ring_error", e.message, null) }

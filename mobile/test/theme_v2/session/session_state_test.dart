@@ -296,10 +296,10 @@ void main() {
     );
 
     await _pumpSession(tester, controller: controller, brightness: brightness);
-    await tester.enterText(
-      find.byKey(const ValueKey('session-composer-field')),
-      '保留草稿',
-    );
+    final field = find.byKey(const ValueKey('session-composer-field'));
+    await tester.tap(field);
+    await tester.pump();
+    await tester.enterText(field, '保留草稿');
 
     brightness.value = Brightness.dark;
     await tester.pump();
@@ -325,7 +325,11 @@ void main() {
     await _pumpSession(tester, controller: controller);
 
     final field = find.byKey(const ValueKey('session-composer-field'));
+    await tester.tap(field);
+    await tester.pump();
     await tester.enterText(field, '不应串到其他会话的草稿');
+    await tester.pump();
+    expect(tester.widget<TextField>(field).controller!.text, isNotEmpty);
     await tester.tap(find.bySemanticsLabel('历史会话'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('其他会话'));
@@ -357,13 +361,17 @@ void main() {
 
     final field = find.byKey(const ValueKey('session-composer-field'));
     await tester.tap(field);
+    await tester.pump();
     await tester.enterText(field, '今天有什么待办？');
     await tester.pump();
     expect(tester.widget<TextField>(field).focusNode!.hasFocus, isTrue);
 
-    await tester.tap(find.byKey(const ValueKey('session-send')));
+    final send = find.byKey(const ValueKey('session-send'));
+    expect(tester.widget<IconButton>(send).onPressed, isNotNull);
+    await tester.tap(send);
     await tester.pump();
 
+    expect(tester.widget<TextField>(field).controller!.text, isEmpty);
     expect(tester.widget<TextField>(field).focusNode!.hasFocus, isFalse);
     pending.complete();
     await tester.pump();

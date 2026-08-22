@@ -238,7 +238,223 @@ void main() {
     );
   });
 
-  testWidgets('report adjustment uses three distinct stepper screens', (
+  testWidgets('vague running scope requires time before selecting records', (
+    tester,
+  ) async {
+    final api = ApiClient(
+      baseUrl: 'https://reports.test',
+      enableLogging: false,
+      client: MockClient((request) async {
+        if (request.url.path.endsWith('/scope-candidates')) {
+          return _json(_vagueRunningCandidates());
+        }
+        return _json(_vagueRunningScopeRun());
+      }),
+    );
+    addTearDown(api.close);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildThemeV2Theme(Brightness.light),
+        home: ReportRunPage(runId: 'run-running', api: api),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('report-time-range-last_7_days')),
+      findsOneWidget,
+    );
+    expect(find.text('选择时间后，Reka 会筛出对应资产'), findsOneWidget);
+    expect(find.text('手动添加资产'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey('report-time-range-last_7_days')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('跑步记录 × 1'), findsOneWidget);
+    expect(find.text('消费'), findsNothing);
+    expect(find.text('喝水记录'), findsNothing);
+    expect(find.text('跳舞记录'), findsNothing);
+    await tester.scrollUntilVisible(
+      find.text('补充信息（选填）'),
+      240,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(find.text('呈现方式（选填）'), findsOneWidget);
+    expect(find.text('数据复盘'), findsOneWidget);
+    expect(find.text('补充信息（选填）'), findsOneWidget);
+  });
+
+  testWidgets(
+    'vague recent skill scope shows provisional time and selected group summary',
+    (tester) async {
+      final api = ApiClient(
+        baseUrl: 'https://reports.test',
+        enableLogging: false,
+        client: MockClient((request) async {
+          if (request.url.path.endsWith('/scope-candidates')) {
+            return _json({
+              'adapter_kind': 'period_summary',
+              'events': [],
+              'record_groups': [
+                {
+                  'skill_id': 'dance',
+                  'label': '跳舞',
+                  'count': 2,
+                  'default_selected': true,
+                  'records': [
+                    {
+                      'reference': {'kind': 'asset', 'id': 'dance-1'},
+                      'title': '爵士训练',
+                    },
+                    {
+                      'reference': {'kind': 'asset', 'id': 'dance-2'},
+                      'title': '编舞课',
+                    },
+                  ],
+                },
+              ],
+              'time_range_options': [
+                {
+                  'id': 'last_7_days',
+                  'label': '最近 7 天',
+                  'time_range': {
+                    'from': '2026-08-12T00:00:00+08:00',
+                    'to': '2026-08-19T00:00:00+08:00',
+                  },
+                },
+                {
+                  'id': 'last_14_days',
+                  'label': '最近 14 天',
+                  'time_range': {
+                    'from': '2026-08-05T00:00:00+08:00',
+                    'to': '2026-08-19T00:00:00+08:00',
+                  },
+                },
+                {
+                  'id': 'last_30_days',
+                  'label': '最近 30 天',
+                  'time_range': {
+                    'from': '2026-07-20T00:00:00+08:00',
+                    'to': '2026-08-19T00:00:00+08:00',
+                  },
+                },
+                {'id': 'custom', 'label': '其他'},
+              ],
+              'default_scope': {
+                'adapter_kind': 'period_summary',
+                'skill_ids': ['dance'],
+                'supporting_references': [
+                  {'kind': 'asset', 'id': 'dance-1'},
+                  {'kind': 'asset', 'id': 'dance-2'},
+                ],
+                'time_range': {
+                  'from': '2026-07-20T00:00:00+08:00',
+                  'to': '2026-08-19T00:00:00+08:00',
+                },
+                'missing_dimensions': ['time_range'],
+                'selection': {
+                  'auto_references': [
+                    {'kind': 'asset', 'id': 'dance-1'},
+                    {'kind': 'asset', 'id': 'dance-2'},
+                  ],
+                },
+              },
+            });
+          }
+          return _json({
+            'id': 'run-dance',
+            'state': 'awaiting_selection',
+            'scope_revision': 0,
+            'pending_decision': {
+              'type': 'scope_confirmation',
+              'adapter_kind': 'period_summary',
+            },
+            'scope_draft': {'adapter_kind': 'period_summary'},
+          });
+        }),
+      );
+      addTearDown(api.close);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildThemeV2Theme(Brightness.light),
+          home: ReportRunPage(runId: 'run-dance', api: api),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('最近 30 天'), findsOneWidget);
+      expect(find.text('已选择 2 项资产'), findsOneWidget);
+      expect(find.text('跳舞 × 2'), findsOneWidget);
+      expect(find.text('爵士训练'), findsNothing);
+      expect(find.text('编舞课'), findsNothing);
+      expect(find.text('手动添加资产'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.text('补充信息（选填）'),
+        240,
+        scrollable: find.byType(Scrollable).last,
+      );
+      expect(find.text('呈现方式（选填）'), findsOneWidget);
+      expect(find.text('补充信息（选填）'), findsOneWidget);
+    },
+  );
+
+  testWidgets('exact single asset remains visible with manual add available', (
+    tester,
+  ) async {
+    final api = ApiClient(
+      baseUrl: 'https://reports.test',
+      enableLogging: false,
+      client: MockClient((request) async {
+        if (request.url.path.endsWith('/scope-candidates')) {
+          return _json({
+            'adapter_kind': 'generic',
+            'events': [],
+            'record_groups': [],
+            'default_scope': {
+              'adapter_kind': 'generic',
+              'supporting_references': [
+                {'kind': 'asset', 'id': 'asset-exact'},
+              ],
+            },
+          });
+        }
+        return _json({
+          'id': 'run-exact',
+          'state': 'awaiting_selection',
+          'scope_revision': 0,
+          'pending_decision': {
+            'type': 'scope_confirmation',
+            'adapter_kind': 'generic',
+          },
+          'scope_draft': {
+            'adapter_kind': 'generic',
+            'supporting_references': [
+              {'kind': 'asset', 'id': 'asset-exact'},
+            ],
+          },
+        });
+      }),
+    );
+    addTearDown(api.close);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildThemeV2Theme(Brightness.light),
+        home: ReportRunPage(runId: 'run-exact', api: api),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('已选择 1 项资产'), findsOneWidget);
+    expect(find.text('已定位到这项资产；如果需要，可以继续关联其他资产。'), findsOneWidget);
+    expect(find.text('手动添加资产'), findsOneWidget);
+  });
+
+  testWidgets('report demand confirmation keeps all inputs on one screen', (
     tester,
   ) async {
     final api = ApiClient(
@@ -279,11 +495,16 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('report-plan-stepper')), findsOneWidget);
-    expect(find.text('范围'), findsOneWidget);
-    expect(find.text('方案'), findsOneWidget);
-    expect(find.text('生成'), findsOneWidget);
+    expect(find.byKey(const ValueKey('report-plan-stepper')), findsNothing);
+    expect(find.text('你的需求'), findsOneWidget);
+    expect(find.text('为球队建设会议准备会前调研'), findsOneWidget);
     expect(find.byKey(const ValueKey('report-step-scope')), findsOneWidget);
+    expect(find.text('确认报告输入'), findsOneWidget);
+    expect(find.text('资产范围'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('report-open-evidence-picker')),
+      findsOneWidget,
+    );
     expect(
       find.byKey(const ValueKey('report-scope-event-event-1')),
       findsOneWidget,
@@ -324,12 +545,13 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('report-open-evidence-picker')));
     await tester.pumpAndSettle();
 
-    expect(find.byType(BottomSheet), findsOneWidget);
+    expect(find.byType(BottomSheet), findsNothing);
+    expect(find.text('参考资产'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('report-evidence-confirm')),
       findsOneWidget,
     );
-    expect(find.byType(ReportRunPage), findsOneWidget);
+    expect(find.byType(ReportRunPage, skipOffstage: false), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('report-evidence-cancel')));
     await tester.pumpAndSettle();
@@ -347,7 +569,7 @@ void main() {
     expect(find.byKey(const ValueKey('report-additional-focus')), findsNothing);
   });
 
-  testWidgets('stepper preserves edits and submits only from final step', (
+  testWidgets('plan stages preserve edits and submit only after confirmation', (
     tester,
   ) async {
     final requests = <String>[];
@@ -464,6 +686,7 @@ Map<String, dynamic> _scopeRun({
   Map<String, dynamic>? draft,
 }) => {
   'id': 'run-plan',
+  'intent': '为球队建设会议准备会前调研',
   'state': 'awaiting_selection',
   'scope_revision': revision,
   'pending_decision': {
@@ -492,6 +715,59 @@ Map<String, dynamic> _preEventCandidates() => {
   'default_scope': {
     'adapter_kind': 'pre_event_briefing',
     'supporting_references': [],
+  },
+};
+
+Map<String, dynamic> _vagueRunningScopeRun() => {
+  'id': 'run-running',
+  'state': 'awaiting_selection',
+  'scope_revision': 0,
+  'pending_decision': {
+    'type': 'scope_confirmation',
+    'adapter_kind': 'period_summary',
+  },
+  'scope_draft': {
+    'adapter_kind': 'period_summary',
+    'skill_ids': ['skill-running'],
+    'supporting_references': [],
+    'missing_dimensions': ['time_range'],
+  },
+};
+
+Map<String, dynamic> _vagueRunningCandidates() => {
+  'adapter_kind': 'period_summary',
+  'events': [],
+  'record_groups': [
+    {
+      'skill_id': 'skill-running',
+      'label': '跑步记录',
+      'count': 1,
+      'default_selected': true,
+      'records': [
+        {
+          'reference': {'kind': 'asset', 'id': 'run-1'},
+          'title': '跑步记录',
+          'effective_at': '2026-08-10T09:00:00+08:00',
+        },
+      ],
+    },
+  ],
+  'time_range_options': [
+    {
+      'id': 'last_7_days',
+      'label': '过去 7 天',
+      'time_range': {
+        'from': '2026-08-05T20:00:00+08:00',
+        'to': '2026-08-12T20:00:00+08:00',
+      },
+    },
+  ],
+  'default_scope': {
+    'adapter_kind': 'period_summary',
+    'skill_ids': ['skill-running'],
+    'supporting_references': [],
+    'missing_dimensions': ['time_range'],
+    'selection': {'auto_references': []},
   },
 };
 

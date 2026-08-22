@@ -56,6 +56,21 @@ void main() {
     );
     expect(field.sources, hasLength(items.length));
     expect(field.config.opacity, greaterThanOrEqualTo(.30));
+    final stack = tester.widget<Stack>(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is Stack &&
+            widget.children.any((child) => child is TodayRegionWatermark),
+      ),
+    );
+    final watermarkIndex = stack.children.indexWhere(
+      (child) => child is TodayRegionWatermark,
+    );
+    final firstLaneIndex = stack.children.indexWhere(
+      (child) => child.key == const ValueKey('today-signal-lane-0'),
+    );
+    expect(watermarkIndex, greaterThan(0));
+    expect(watermarkIndex, lessThan(firstLaneIndex));
   });
 
   testWidgets(
@@ -224,16 +239,33 @@ void main() {
     );
 
     expect(find.bySemanticsLabel('查看全部 Reka 发现'), findsOneWidget);
-    await tester.tap(find.text('1'));
     await tester.tap(find.text('Reka 发现'));
-    expect(openAllCalls, 2);
+    expect(openAllCalls, 1);
     expect(openSignalCalls, 0);
 
     final strip = find.byKey(const ValueKey('today-signal-signal-0'));
     await tester.tapAt(tester.getCenter(strip) + const Offset(90, 0));
     await tester.pump();
-    expect(openAllCalls, 2);
+    expect(openAllCalls, 1);
     expect(openSignalCalls, 1);
+  });
+
+  testWidgets('empty discovery keeps a visible, actionable watermark', (
+    tester,
+  ) async {
+    var openAllCalls = 0;
+    await tester.pumpWidget(
+      _host(
+        TodaySignalBand(items: const [], onOpenAll: () => openAllCalls++),
+        reduceMotion: true,
+      ),
+    );
+
+    expect(find.text('0'), findsOneWidget);
+    expect(find.text('Reka 发现'), findsOneWidget);
+    expect(find.bySemanticsLabel('查看全部 Reka 发现'), findsOneWidget);
+    await tester.tap(find.text('Reka 发现'));
+    expect(openAllCalls, 1);
   });
 
   testWidgets('Signal dither and watermark use brightness-specific contrast', (
@@ -258,8 +290,10 @@ void main() {
       final dark = brightness == Brightness.dark;
 
       expect(field.config.opacity, dark ? .32 : .40);
-      expect(count.style!.color!.a, closeTo(dark ? .14 : .07, .01));
-      expect(label.style!.color!.a, closeTo(dark ? .68 : .44, .01));
+      expect(count.style!.color!.a, closeTo(dark ? .18 : .10, .01));
+      expect(label.style!.fontSize, greaterThanOrEqualTo(14));
+      expect(label.style!.fontWeight, FontWeight.w700);
+      expect(label.style!.color!.a, greaterThanOrEqualTo(dark ? .72 : .56));
       expect(watermark.padding.bottom, 8);
       expect(watermark.labelFirst, isFalse);
     }

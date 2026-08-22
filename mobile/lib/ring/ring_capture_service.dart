@@ -139,6 +139,7 @@ Future<void> _startRingCapture(String userId) async {
     ),
     startRecording: ring.startRecording,
     stopRecording: ring.stopRecording,
+    setCaptureActive: Platform.isAndroid ? ring.setCaptureActive : null,
     persistBegin: (taskId, startedAt) async {
       final activeWorkflow = await ensureWorkflow();
       await activeWorkflow.beginRealtimeCapture(taskId, startedAt: startedAt);

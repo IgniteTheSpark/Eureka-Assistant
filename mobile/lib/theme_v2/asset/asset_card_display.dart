@@ -148,7 +148,7 @@ class AssetCardViewData {
     return AssetCardViewData(
       mark: icon == null || icon.isEmpty ? '•' : icon,
       skillLabel: normalizedSkillLabel,
-      primaryValue: primary.isEmpty ? normalizedSkillLabel : primary,
+      primaryValue: primary,
       secondaryValues: List.unmodifiable([
         for (final field in display.secondaryFieldIds)
           if (formatted(field) case final value when value.isNotEmpty) value,

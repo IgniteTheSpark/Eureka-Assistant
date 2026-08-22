@@ -28,6 +28,20 @@ final listeningNotifier = ValueNotifier<bool>(false);
 /// Root navigator — lets [AppEvents] push routes + insert the toast overlay.
 final navigatorKey = GlobalKey<NavigatorState>();
 
+/// Publishes the appropriate refresh signal for an app SSE event. Kept outside
+/// [AppEvents] so the notification persistence contract is directly testable.
+void publishRefreshForAppEvent(String eventType, Map<String, dynamic> payload) {
+  final receipt = payload['mutation_receipt'];
+  final confirmsMutation =
+      payload['confirmed_mutation'] == true ||
+      (receipt is Map && receipt['confirmed_mutation'] == true);
+  if (confirmsMutation) {
+    bumpData();
+  } else {
+    requestDataRefresh();
+  }
+}
+
 /// App-level SSE bridge to /api/notifications/stream. Drives the listening
 /// overlay (`listening`), live session refresh (`capture`), and the top toast +
 /// refresh (`notification`). Auto-reconnects; one connection for the whole app.
@@ -69,6 +83,7 @@ class AppEvents {
         await for (final ev in getSse(
           '/api/notifications/stream',
           client: client,
+          onSubscribed: requestLibraryCatchUp,
         )) {
           if (!_started || runId != _runId) break;
           _handle(ev);
@@ -96,14 +111,14 @@ class AppEvents {
         // Input turn persisted → refresh so the flash session shows it +「正在整理」.
         _flashLog('capture event session=${ev.json['session_id']}');
         FlashProcessingStatus.instance.applyCapture(ev.json);
-        bumpData();
+        publishRefreshForAppEvent(ev.type, ev.json);
       case 'session_changed':
         _flashLog(
           'session_changed session=${ev.json['session_id']} '
           'revision=${ev.json['revision']} reason=${ev.json['reason']}',
         );
         SessionInvalidations.instance.apply(ev.json);
-        bumpData();
+        publishRefreshForAppEvent(ev.type, ev.json);
       case 'flash_file_status':
         _flashLog(
           'flash_file_status recording=${ev.json['recording_id']} '
@@ -115,10 +130,10 @@ class AppEvents {
         FlashFileWorkflow.instance.applyServerStatus(ev.json);
         final activity = CaptureActivityEvent.fromServerPayload(ev.json);
         if (activity != null) CaptureActivityBus.instance.publish(activity);
-        bumpData();
+        publishRefreshForAppEvent(ev.type, ev.json);
       case 'notification':
-        bumpData();
         final j = ev.json;
+        publishRefreshForAppEvent(ev.type, j);
         final type = j['type'] as String? ?? '';
         // §14.7 nudge = 拍肩, not an alert: it surfaces as a REKA peek bubble
         // (light bob) handled by the FloatingMascot — NOT the standard toast.

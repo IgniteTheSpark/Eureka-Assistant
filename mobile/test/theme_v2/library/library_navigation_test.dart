@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:eureka/api/api_client.dart';
+import 'package:eureka/data_revision.dart';
 import 'package:eureka/pages/category_detail_page.dart';
 import 'package:eureka/pages/library_page.dart';
 import 'package:eureka/render/skill_card.dart';
@@ -8,7 +9,6 @@ import 'package:eureka/theme/app_theme.dart';
 import 'package:eureka/theme/eureka_colors.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_theme.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_tokens.dart';
-import 'package:eureka/theme_v2/foundation/theme_v2_dither_field.dart';
 import 'package:eureka/theme_v2/foundation/theme_v2_dither_surface.dart';
 import 'package:eureka/theme_v2/asset/asset_card.dart';
 import 'package:eureka/theme_v2/library/asset/asset_list_page.dart';
@@ -37,43 +37,32 @@ import 'package:http/testing.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('one Library dither field survives local surface navigation', (
-    tester,
-  ) async {
-    final controller = await _controller();
-    final navigation = LibraryNavigationController();
-    addTearDown(navigation.dispose);
-    await _pumpHost(
-      tester,
-      ThemeV2LibraryPage(
-        controller: controller,
-        navigation: navigation,
-        autoLoad: false,
-      ),
-    );
-    await tester.pump();
+  testWidgets(
+    'Library navigation does not mount the removed global dither field',
+    (tester) async {
+      final controller = await _controller();
+      final navigation = LibraryNavigationController();
+      addTearDown(navigation.dispose);
+      await _pumpHost(
+        tester,
+        ThemeV2LibraryPage(
+          controller: controller,
+          navigation: navigation,
+          autoLoad: false,
+        ),
+      );
+      await tester.pump();
 
-    expect(find.byType(ThemeV2DitherSurface), findsOneWidget);
-    final surface = tester.widget<ThemeV2DitherSurface>(
-      find.byType(ThemeV2DitherSurface),
-    );
-    expect(surface.config.flowDirection, const Offset(.1, 1));
-    final initialState = tester.state(find.byType(ThemeV2DitherField));
-    final sources = tester
-        .widget<ThemeV2DitherField>(find.byType(ThemeV2DitherField))
-        .sources;
-    expect(sources, isNotEmpty);
-    expect(sources.length, lessThanOrEqualTo(24));
-    expect(sources.every((source) => source.energy == 0), isTrue);
+      expect(find.byType(ThemeV2DitherSurface), findsNothing);
 
-    navigation.open(LibrarySurface.containerIndex);
-    await tester.pump();
-    expect(tester.state(find.byType(ThemeV2DitherField)), same(initialState));
-    navigation.open(LibrarySurface.pinnedConfiguration);
-    await tester.pump();
-    expect(tester.state(find.byType(ThemeV2DitherField)), same(initialState));
-    expect(find.byType(ThemeV2DitherField), findsOneWidget);
-  });
+      navigation.open(LibrarySurface.containerIndex);
+      await tester.pump();
+      expect(find.byType(ThemeV2DitherSurface), findsNothing);
+      navigation.open(LibrarySurface.pinnedConfiguration);
+      await tester.pump();
+      expect(find.byType(ThemeV2DitherSurface), findsNothing);
+    },
+  );
 
   test('surface stack preserves origin and exposes canonical chrome', () {
     final navigation = LibraryNavigationController();
@@ -358,7 +347,7 @@ void main() {
     },
   );
 
-  testWidgets('all four persistent asset containers expose display settings', (
+  testWidgets('built-in persistent containers expose only display settings', (
     tester,
   ) async {
     final controller = await _controller();
@@ -384,8 +373,58 @@ void main() {
         find.byType(ThemeV2AssetListPage),
       );
       expect(page.onConfigureCard, isNotNull, reason: id);
+      expect(page.onManageSkill, isNull, reason: id);
     }
   });
+
+  testWidgets('custom containers expose card display and field settings', (
+    tester,
+  ) async {
+    final controller = await _controller();
+    await _pumpHost(
+      tester,
+      ThemeV2LibraryPage(
+        controller: controller,
+        autoLoad: false,
+        onCreateSkill: () {},
+      ),
+    );
+
+    await tester.tap(find.bySemanticsLabel('打开网球记录，3 条'));
+    await tester.pumpAndSettle();
+
+    final page = tester.widget<ThemeV2AssetListPage>(
+      find.byType(ThemeV2AssetListPage),
+    );
+    expect(page.onConfigureCard, isNotNull);
+    expect(page.onManageSkill, isNotNull);
+    expect(find.byKey(const ValueKey('custom-skill-fields')), findsOneWidget);
+    expect(find.bySemanticsLabel('Card Display Settings'), findsOneWidget);
+  });
+
+  testWidgets(
+    'authoritative system provenance overrides custom container type',
+    (tester) async {
+      final controller = await _controller();
+      await _pumpHost(
+        tester,
+        ThemeV2LibraryPage(
+          controller: controller,
+          autoLoad: false,
+          onCreateSkill: () {},
+        ),
+      );
+
+      await tester.tap(find.bySemanticsLabel('打开消费账本，2 条'));
+      await tester.pumpAndSettle();
+
+      final page = tester.widget<ThemeV2AssetListPage>(
+        find.byType(ThemeV2AssetListPage),
+      );
+      expect(page.onConfigureCard, isNotNull);
+      expect(page.onManageSkill, isNull);
+    },
+  );
 
   testWidgets('Theme V2 contact container reads first-class contacts', (
     tester,
@@ -1187,6 +1226,42 @@ void main() {
     expect(find.byKey(const ValueKey('library-create-skill')), findsOneWidget);
   });
 
+  testWidgets('cached refresh failure exposes retry on a non-hub surface', (
+    tester,
+  ) async {
+    final repository = _SequenceRepository([
+      (await _controller()).overview!,
+      const LibraryLoadFailure('刷新超时'),
+    ]);
+    final controller = LibraryController(
+      repository: repository,
+      pinnedStore: _Store(),
+    );
+    await controller.load();
+    final navigation = LibraryNavigationController()
+      ..open(LibrarySurface.containerIndex);
+    addTearDown(navigation.dispose);
+    await _pumpHost(
+      tester,
+      ThemeV2LibraryPage(
+        controller: controller,
+        navigation: navigation,
+        autoLoad: false,
+      ),
+    );
+
+    await controller.retry();
+    await tester.pump();
+
+    expect(find.byType(ContainerIndex), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('library-partial-banner')),
+      findsOneWidget,
+    );
+    expect(find.text('刷新失败，正在显示上次加载的内容'), findsOneWidget);
+    expect(find.text('重试'), findsOneWidget);
+  });
+
   testWidgets('refresh keeps the populated hub interactive', (tester) async {
     final pending = Completer<LibraryOverview>();
     final repository = _RefreshRepository(
@@ -1218,6 +1293,43 @@ void main() {
     pending.complete(repository.initial);
     await tester.pumpAndSettle();
     expect(find.bySemanticsLabel('正在刷新资产库'), findsNothing);
+  });
+
+  testWidgets('navigation-only refresh does not reload a populated library', (
+    tester,
+  ) async {
+    final dataBefore = dataRevision.value;
+    final mutationBefore = dataMutationRevision.value;
+    final catchUpBefore = dataLibraryCatchUpRevision.value;
+    final repository = _CountingRepository((await _controller()).overview!);
+    final controller = LibraryController(
+      repository: repository,
+      pinnedStore: _Store(),
+    );
+    await _pumpHost(tester, ThemeV2LibraryPage(controller: controller));
+    await tester.pumpAndSettle();
+    expect(repository.loadCount, 1);
+
+    requestDataRefresh();
+    await tester.pump();
+    expect(repository.loadCount, 1);
+
+    requestLibraryCatchUp();
+    requestLibraryCatchUp();
+    requestLibraryCatchUp();
+    await tester.pump();
+    expect(repository.loadCount, 2);
+    expect(dataLibraryCatchUpRevision.value, catchUpBefore + 1);
+
+    bumpData();
+    await tester.pump();
+    expect(repository.loadCount, 3);
+    expect(find.byType(LibraryHub), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    dataRevision.value = dataBefore;
+    dataMutationRevision.value = mutationBefore;
+    dataLibraryCatchUpRevision.value = catchUpBefore;
   });
 
   testWidgets('zero-container state still exposes the independent AI action', (
@@ -1392,7 +1504,7 @@ Future<LibraryController> _controller({
             mark: '¥',
             type: LibraryContainerType.custom,
             totalCount: 2,
-            isSystem: false,
+            isSystem: true,
             userSkillId: 's-expense',
           ),
           LibraryContainerSummary(
@@ -1502,6 +1614,19 @@ class _Repository implements LibraryRepository {
 
   @override
   Future<LibraryOverview> loadOverview() async => overview;
+}
+
+class _CountingRepository implements LibraryRepository {
+  _CountingRepository(this.overview);
+
+  final LibraryOverview overview;
+  var loadCount = 0;
+
+  @override
+  Future<LibraryOverview> loadOverview() async {
+    loadCount += 1;
+    return overview;
+  }
 }
 
 class _PendingRepository implements LibraryRepository {

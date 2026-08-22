@@ -57,10 +57,6 @@ class LibraryHub extends StatelessWidget {
               onOpenContainerIndex: onOpenContainerIndex,
               onOpenAllContainers: onOpenAllContainers,
             ),
-            if (controller.statusMessage case final message?) ...[
-              const SizedBox(height: ThemeV2Spacing.sm),
-              LibraryPartialBanner(message: message, onRetry: controller.retry),
-            ],
             const SizedBox(height: ThemeV2Spacing.xl),
             LibrarySectionLabel(
               label:

@@ -11,6 +11,20 @@ class Settings(BaseSettings):
     openrouter_api_key: str = ""
     openai_api_key:     str = ""   # Whisper ASR (audio path deferred)
 
+    # Mobile cloud voice input. The app connects only to Eureka; these values
+    # never leave the backend. The workspace-scoped URL must be the realtime
+    # inference WebSocket shown beside the Alibaba Cloud Model Studio API key.
+    dashscope_api_key:             str = ""
+    dashscope_asr_ws_url:          str = ""
+    ali_asr_model:                 str = "qwen-audio-3.0-asr-flash-streaming"
+    asr_rate_limit_per_minute:     int = 10
+    asr_provider_start_timeout_seconds:    float = 8.0
+    asr_provider_send_timeout_seconds:     float = 3.0
+    asr_provider_finalize_timeout_seconds: float = 10.0
+    asr_provider_cleanup_timeout_seconds:  float = 2.0
+    asr_client_send_timeout_seconds:        float = 2.0
+    asr_client_ready_timeout_seconds:      float = 10.0
+
     # §6.6.2 AI 配图 — OPTIONAL dedicated image key/model. Lets a fresh image key
     # land WITHOUT touching the working DeepSeek text key (which is on a
     # gemini/claude/gpt-TOS-blocked account). Both empty → falls back to
@@ -60,11 +74,75 @@ settings = Settings()
 
 _DEV_JWT_SECRET = "dev-insecure-change-me"
 _MIN_JWT_SECRET_LENGTH = 32
+_QWEN_STREAMING_MODEL = "qwen-audio-3.0-asr-flash-streaming"
 
 
 def _jwt_secret_is_weak(secret: str) -> bool:
     value = secret.strip()
     return value == _DEV_JWT_SECRET or len(value) < _MIN_JWT_SECRET_LENGTH
+
+
+def validate_asr_settings() -> None:
+    """Fail closed before allocating a paid provider stream."""
+    import math
+    from urllib.parse import urlsplit
+
+    if not settings.dashscope_api_key.strip():
+        raise RuntimeError("DASHSCOPE_API_KEY is not configured")
+
+    url = settings.dashscope_asr_ws_url.strip()
+    parsed = urlsplit(url)
+    if (
+        parsed.scheme != "wss"
+        or not parsed.hostname
+        or not parsed.hostname.endswith(".maas.aliyuncs.com")
+        or parsed.path != "/api-ws/v1/inference"
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise RuntimeError(
+            "DASHSCOPE_ASR_WS_URL must be the secure workspace WebSocket "
+            "ending in /api-ws/v1/inference"
+        )
+
+    if settings.ali_asr_model != _QWEN_STREAMING_MODEL:
+        raise RuntimeError(
+            f"ALI_ASR_MODEL must be {_QWEN_STREAMING_MODEL}"
+        )
+    if settings.asr_rate_limit_per_minute < 1:
+        raise RuntimeError("ASR_RATE_LIMIT_PER_MINUTE must be positive")
+
+    deadlines = {
+        "ASR_PROVIDER_START_TIMEOUT_SECONDS": (
+            settings.asr_provider_start_timeout_seconds
+        ),
+        "ASR_PROVIDER_SEND_TIMEOUT_SECONDS": (
+            settings.asr_provider_send_timeout_seconds
+        ),
+        "ASR_PROVIDER_FINALIZE_TIMEOUT_SECONDS": (
+            settings.asr_provider_finalize_timeout_seconds
+        ),
+        "ASR_PROVIDER_CLEANUP_TIMEOUT_SECONDS": (
+            settings.asr_provider_cleanup_timeout_seconds
+        ),
+        "ASR_CLIENT_SEND_TIMEOUT_SECONDS": (
+            settings.asr_client_send_timeout_seconds
+        ),
+        "ASR_CLIENT_READY_TIMEOUT_SECONDS": (
+            settings.asr_client_ready_timeout_seconds
+        ),
+    }
+    for name, value in deadlines.items():
+        if not math.isfinite(value) or value <= 0:
+            raise RuntimeError(f"{name} must be a positive finite number")
+    if (
+        settings.asr_client_ready_timeout_seconds
+        <= settings.asr_provider_start_timeout_seconds + 1.0
+    ):
+        raise RuntimeError(
+            "ASR_CLIENT_READY_TIMEOUT_SECONDS must exceed "
+            "ASR_PROVIDER_START_TIMEOUT_SECONDS by more than 1 second"
+        )
 
 
 def validate_prod_secrets() -> None:

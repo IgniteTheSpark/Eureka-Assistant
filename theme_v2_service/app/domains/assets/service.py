@@ -3,7 +3,7 @@ import re
 from copy import deepcopy
 from datetime import datetime, timezone
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -16,8 +16,18 @@ from app.domains.assets.schemas import (
     AssetUpdate,
     EventCreate,
     EventUpdate,
+    SkillDeletionImpact,
+    SkillDeletionResult,
     UserSkillCreate,
     UserSkillUpdate,
+)
+from app.domains.assets.skill_schema import (
+    PROTECTED_SYSTEM_SKILL_NAMES,
+    SkillUpdateConflict,
+    is_system_skill,
+    normalized_custom_skill_schema,
+    validate_custom_skill_create_schema,
+    validate_custom_skill_update,
 )
 from app.domains.assets.persistence import persist_asset
 from app.domains.assets.indexing import rebuild_asset_fields
@@ -320,6 +330,12 @@ async def create_user_skill(
     user_id: str,
     command: UserSkillCreate,
 ) -> UserSkill:
+    if command.machine_name.strip().lower() in PROTECTED_SYSTEM_SKILL_NAMES:
+        raise SkillUpdateConflict(
+            "system_skill_protected",
+            "系统 Skill 名称不可用于自定义 Skill",
+        )
+    validate_custom_skill_create_schema(command.schema_definition)
     global_skill = await session.scalar(
         select(GlobalSkill).where(
             GlobalSkill.machine_name == command.machine_name,
@@ -377,9 +393,16 @@ async def update_user_skill(
     skill_id: str,
     command: UserSkillUpdate,
 ) -> UserSkill | None:
-    skill = await get_user_skill(session, user_id, skill_id)
+    # Serialize revision validation with the write so two stale writers cannot
+    # both pass the optimistic-concurrency check.
+    skill = await session.scalar(
+        select(UserSkill)
+        .where(UserSkill.id == skill_id, UserSkill.user_id == user_id)
+        .with_for_update()
+    )
     if skill is None:
         return None
+    validate_custom_skill_update(skill, command)
     for field in ("display_name", "description", "domain"):
         if field in command.model_fields_set:
             setattr(skill, field, getattr(command, field))
@@ -387,7 +410,7 @@ async def update_user_skill(
         "schema_definition" in command.model_fields_set
         and command.schema_definition is not None
     ):
-        skill.schema_json = command.schema_definition
+        skill.schema_json = normalized_custom_skill_schema(command.schema_definition)
     if "render_spec" in command.model_fields_set and command.render_spec is not None:
         skill.render_spec_json = command.render_spec
     if "chat_starters" in command.model_fields_set and command.chat_starters is not None:
@@ -404,6 +427,83 @@ async def update_user_skill(
     skill.updated_at = utc_now()
     await session.flush()
     return skill
+
+
+def _require_custom_skill(skill: UserSkill) -> None:
+    if is_system_skill(skill):
+        raise SkillUpdateConflict(
+            "system_skill_protected",
+            "系统 Skill 不能删除",
+        )
+
+
+def _deletion_confirmation_token(skill: UserSkill, asset_count: int) -> str:
+    updated_at = _utc_naive(getattr(skill, "updated_at", None))
+    revision = updated_at.isoformat(timespec="microseconds") if updated_at else ""
+    payload = f"{skill.id}:{revision}:{asset_count}".encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+async def skill_deletion_impact(
+    session: AsyncSession,
+    user_id: str,
+    skill_id: str,
+) -> SkillDeletionImpact | None:
+    skill = await get_user_skill(session, user_id, skill_id)
+    if skill is None:
+        return None
+    _require_custom_skill(skill)
+    asset_count = await session.scalar(
+        select(func.count(Asset.id)).where(
+            Asset.user_id == user_id,
+            Asset.user_skill_id == skill_id,
+        )
+    )
+    return SkillDeletionImpact(
+        skill_id=skill_id,
+        asset_count=int(asset_count or 0),
+        confirmation_token=_deletion_confirmation_token(
+            skill, int(asset_count or 0)
+        ),
+        revision=_deletion_confirmation_token(skill, int(asset_count or 0)),
+    )
+
+
+async def delete_user_skill(
+    session: AsyncSession,
+    user_id: str,
+    skill_id: str,
+    confirmation_token: str,
+) -> SkillDeletionResult | None:
+    skill = await session.scalar(
+        select(UserSkill)
+        .where(UserSkill.id == skill_id, UserSkill.user_id == user_id)
+        .with_for_update()
+    )
+    if skill is None:
+        return None
+    _require_custom_skill(skill)
+    asset_count = int(
+        await session.scalar(
+            select(func.count(Asset.id)).where(
+                Asset.user_id == user_id,
+                Asset.user_skill_id == skill_id,
+            )
+        )
+        or 0
+    )
+    actual_token = _deletion_confirmation_token(skill, asset_count)
+    if confirmation_token != actual_token:
+        raise SkillUpdateConflict(
+            "stale_delete_confirmation",
+            "Skill 删除影响已变化，请重新确认",
+        )
+    await session.delete(skill)
+    await session.flush()
+    return SkillDeletionResult(
+        skill_id=skill_id,
+        deleted_asset_count=asset_count,
+    )
 
 
 async def list_recent_manual_skill_names(

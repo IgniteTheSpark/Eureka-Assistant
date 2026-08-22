@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from pydantic import Field
@@ -12,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import Asset, Event, UserSkill
 from app.domains.reports.schemas import (
     EvidenceReference,
+    ReportAssetSelection,
     ReportScopeDraft,
     ScopeAdapterKind,
     StrictModel,
@@ -37,19 +41,188 @@ class ScopeRecordCandidate(StrictModel):
     default_selected: bool = True
 
 
+class ScopeMatchTerm(StrictModel):
+    value: str
+    provenance: Literal["identity", "broad"]
+    is_alias: bool = False
+
+
 class ScopeRecordGroup(StrictModel):
     skill_id: str
+    machine_name: str = Field(default="", exclude=True)
+    match_terms: list[str] = Field(default_factory=list, exclude=True)
+    identity_match_terms: list[str] = Field(default_factory=list, exclude=True)
+    match_specs: list[ScopeMatchTerm] = Field(default_factory=list, exclude=True)
     label: str
     count: int
     default_selected: bool = True
     records: list[ScopeRecordCandidate] = Field(default_factory=list)
 
 
+class TimeRangeOption(StrictModel):
+    id: str
+    label: str
+    time_range: TimeRange | None = None
+
+
 class ReportScopeCandidateResponse(StrictModel):
     adapter_kind: ScopeAdapterKind
     events: list[ScopeEventCandidate] = Field(default_factory=list)
     record_groups: list[ScopeRecordGroup] = Field(default_factory=list)
+    time_range_options: list[TimeRangeOption] = Field(default_factory=list)
     default_scope: ReportScopeDraft
+
+
+_GENERIC_SKILL_TERMS = {
+    "记录",
+    "日志",
+    "数据",
+    "情况",
+    "总结",
+    "统计",
+    "log",
+    "record",
+    "records",
+    "data",
+    "tracker",
+    "tracking",
+    "training",
+}
+_SKILL_ALIASES = {
+    "expense": {"消费", "支出", "花费", "账单", "expense", "spend"},
+    "running": {"跑步", "晨跑", "夜跑", "running", "run"},
+    "water": {"喝水", "饮水", "water", "hydration"},
+    "dance": {"跳舞", "舞蹈", "dance"},
+}
+_ALIAS_LEXICALIZED_TERMS = {
+    "消费": {"消费者", "消费品"},
+}
+_ADDITIVE_RELATION = re.compile(r"(?:以及|还有|和|与|及|跟|、)")
+
+
+def _normalize_term(value: str | None) -> str:
+    return re.sub(r"[\s_\-/]+", "", (value or "").casefold())
+
+
+def _term_match_spans(term: str, value: str | None) -> list[tuple[int, int]]:
+    if term.isascii() and term.isalnum():
+        raw = (value or "").casefold()
+        words = list(re.finditer(r"[a-z0-9]+", raw))
+        spans: list[tuple[int, int]] = []
+        for start_index, first in enumerate(words):
+            phrase = ""
+            for last in words[start_index:]:
+                phrase += last.group()
+                if phrase == term:
+                    spans.append(
+                        (
+                            len(_normalize_term(raw[: first.start()])),
+                            len(_normalize_term(raw[: last.end()])),
+                        )
+                    )
+                    break
+                if len(phrase) >= len(term):
+                    break
+        return spans
+    normalized = _normalize_term(value)
+    spans: list[tuple[int, int]] = []
+    start = normalized.find(term)
+    while start >= 0:
+        end = start + len(term)
+        spans.append((start, end))
+        start = normalized.find(term, start + 1)
+    return spans
+
+
+def _metadata_value_supports_alias(alias: str, value: str | None) -> bool:
+    spans = _term_match_spans(alias, value)
+    if not spans:
+        return False
+    if alias.isascii() and alias.isalnum():
+        return True
+    lexicalized_terms = _ALIAS_LEXICALIZED_TERMS.get(alias, set())
+    if not lexicalized_terms:
+        return True
+    normalized = _normalize_term(value)
+    return any(
+        not any(
+            normalized.startswith(lexicalized_term, start)
+            for lexicalized_term in lexicalized_terms
+        )
+        for start, _ in spans
+    )
+
+
+def _skill_match_terms(
+    skill: UserSkill,
+) -> tuple[list[str], list[str], list[ScopeMatchTerm]]:
+    identity_values = [skill.machine_name, skill.display_name]
+    broad_values = [skill.description, skill.domain]
+    display = _normalize_term(skill.display_name)
+    identity_literals = {
+        _normalize_term(skill.machine_name),
+        display,
+    }
+    broad_literals = {
+        _normalize_term(skill.description),
+        _normalize_term(skill.domain),
+    }
+    for suffix in ("记录", "日志", "数据", "训练"):
+        if display.endswith(suffix) and len(display) > len(suffix):
+            identity_literals.add(display[: -len(suffix)])
+    for value in identity_values:
+        words = re.findall(r"[a-z0-9]+", (value or "").casefold())
+        if len(words) > 1 and words[-1] in _GENERIC_SKILL_TERMS:
+            identity_literals.add("".join(words[:-1]))
+    identity_aliases: set[str] = set()
+    broad_aliases: set[str] = set()
+    for aliases in _SKILL_ALIASES.values():
+        normalized_aliases = {_normalize_term(alias) for alias in aliases}
+        if any(
+            _metadata_value_supports_alias(alias, value)
+            for alias in normalized_aliases
+            for value in identity_values
+        ):
+            identity_aliases.update(normalized_aliases)
+        if any(
+            _metadata_value_supports_alias(alias, value)
+            for alias in normalized_aliases
+            for value in broad_values
+        ):
+            broad_aliases.update(normalized_aliases)
+    identity = {
+        term
+        for term in identity_literals | identity_aliases
+        if term and term not in _GENERIC_SKILL_TERMS
+    }
+    broad = {
+        term
+        for term in broad_literals | broad_aliases
+        if term and term not in _GENERIC_SKILL_TERMS
+    }
+    specs = {
+        (term, provenance, is_alias)
+        for terms, provenance, is_alias in (
+            (identity_literals, "identity", False),
+            (identity_aliases, "identity", True),
+            (broad_literals, "broad", False),
+            (broad_aliases, "broad", True),
+        )
+        for term in terms
+        if term and term not in _GENERIC_SKILL_TERMS
+    }
+    return (
+        sorted(identity | broad),
+        sorted(identity),
+        [
+            ScopeMatchTerm(
+                value=term,
+                provenance=provenance,
+                is_alias=is_alias,
+            )
+            for term, provenance, is_alias in sorted(specs)
+        ],
+    )
 
 
 def _aware_utc(value: datetime) -> datetime:
@@ -95,7 +268,7 @@ def resolve_report_period(
     *,
     now: datetime,
     timezone_name: str,
-) -> TimeRange:
+) -> TimeRange | None:
     zone = ZoneInfo(timezone_name)
     local_now = _aware_utc(now).astimezone(zone)
     normalized = intent.casefold()
@@ -105,17 +278,36 @@ def resolve_report_period(
             time.min,
             tzinfo=zone,
         )
-        if start.month == 12:
-            end = start.replace(year=start.year + 1, month=1)
-        else:
-            end = start.replace(month=start.month + 1)
-        return TimeRange(from_at=start, to_at=end)
+        return TimeRange(from_at=start, to_at=local_now)
     if any(marker in normalized for marker in ("这周", "本周", "这个星期")):
         monday = local_now.date() - timedelta(days=local_now.weekday())
         start = datetime.combine(monday, time.min, tzinfo=zone)
         return TimeRange(from_at=start, to_at=start + timedelta(days=7))
-    end = local_now
-    return TimeRange(from_at=end - timedelta(days=7), to_at=end)
+    day_match = re.search(r"(?:最近|近|过去)\s*(7|14|30)\s*天", normalized)
+    if day_match is not None:
+        days = int(day_match.group(1))
+        return TimeRange(from_at=local_now - timedelta(days=days), to_at=local_now)
+    return None
+
+
+def time_range_options(
+    *,
+    now: datetime,
+    timezone_name: str,
+) -> list[TimeRangeOption]:
+    zone = ZoneInfo(timezone_name)
+    local_now = _aware_utc(now).astimezone(zone)
+    return [
+        TimeRangeOption(
+            id=f"last_{days}_days",
+            label=f"最近 {days} 天",
+            time_range=TimeRange(
+                from_at=local_now - timedelta(days=days),
+                to_at=local_now,
+            ),
+        )
+        for days in (7, 14, 30)
+    ] + [TimeRangeOption(id="custom", label="其他")]
 
 
 def initial_scope(
@@ -130,6 +322,11 @@ def initial_scope(
         if trigger_event_id is not None
         else infer_scope_adapter(intent)
     )
+    period = (
+        resolve_report_period(intent, now=now, timezone_name=timezone_name)
+        if adapter_kind == "period_summary"
+        else None
+    )
     return ReportScopeDraft(
         adapter_kind=adapter_kind,
         primary_reference=(
@@ -137,10 +334,11 @@ def initial_scope(
             if trigger_event_id is not None
             else None
         ),
-        time_range=(
-            resolve_report_period(intent, now=now, timezone_name=timezone_name)
-            if adapter_kind == "period_summary"
-            else None
+        time_range=period,
+        missing_dimensions=(
+            ["time_range"]
+            if adapter_kind == "period_summary" and period is None
+            else []
         ),
     )
 
@@ -256,8 +454,13 @@ async def _period_records(
             continue
         group = grouped.get(skill.id)
         if group is None:
+            match_terms, identity_match_terms, match_specs = _skill_match_terms(skill)
             group = ScopeRecordGroup(
                 skill_id=skill.id,
+                machine_name=skill.machine_name,
+                match_terms=match_terms,
+                identity_match_terms=identity_match_terms,
+                match_specs=match_specs,
                 label=skill.display_name,
                 count=0,
                 records=[],
@@ -276,6 +479,105 @@ async def _period_records(
     return list(grouped.values())
 
 
+@dataclass(frozen=True)
+class _GroupTermMatch:
+    skill_id: str
+    term: str
+    provenance: Literal["identity", "broad"]
+    is_alias: bool
+    start: int
+    end: int
+
+
+def _group_term_matches(
+    groups: list[ScopeRecordGroup],
+    intent: str,
+) -> tuple[str, list[_GroupTermMatch]]:
+    normalized_intent = _normalize_term(intent)
+    matches = [
+        _GroupTermMatch(
+            skill_id=group.skill_id,
+            term=spec.value,
+            provenance=spec.provenance,
+            is_alias=spec.is_alias,
+            start=start,
+            end=end,
+        )
+        for group in groups
+        for spec in group.match_specs
+        for start, end in _term_match_spans(spec.value, intent)
+    ]
+    explicit_identity_spans = [
+        match
+        for match in matches
+        if match.provenance == "identity" and not match.is_alias
+    ]
+    return normalized_intent, [
+        match
+        for match in matches
+        if not any(
+            explicit.start <= match.start
+            and match.end <= explicit.end
+            and (explicit.end - explicit.start) > (match.end - match.start)
+            for explicit in explicit_identity_spans
+        )
+    ]
+
+
+def _additively_related(
+    first: _GroupTermMatch,
+    second: _GroupTermMatch,
+    normalized_intent: str,
+    span_positions: dict[tuple[int, int], int],
+) -> bool:
+    first_position = span_positions[(first.start, first.end)]
+    second_position = span_positions[(second.start, second.end)]
+    if abs(first_position - second_position) != 1:
+        return False
+    if first.end <= second.start:
+        between = normalized_intent[first.end : second.start]
+    elif second.end <= first.start:
+        between = normalized_intent[second.end : first.start]
+    else:
+        return False
+    return _ADDITIVE_RELATION.search(between) is not None
+
+
+def _filter_record_groups_for_intent(
+    groups: list[ScopeRecordGroup],
+    intent: str,
+) -> list[ScopeRecordGroup]:
+    normalized_intent, matches = _group_term_matches(groups, intent)
+    identity_matches = [
+        match for match in matches if match.provenance == "identity"
+    ]
+    broad_matches = [match for match in matches if match.provenance == "broad"]
+    if identity_matches:
+        span_positions = {
+            span: index
+            for index, span in enumerate(
+                sorted({(match.start, match.end) for match in matches})
+            )
+        }
+        selected_ids = {match.skill_id for match in identity_matches}
+        selected_ids.update(
+            broad.skill_id
+            for broad in broad_matches
+            if any(
+                _additively_related(
+                    broad,
+                    identity,
+                    normalized_intent,
+                    span_positions,
+                )
+                for identity in identity_matches
+            )
+        )
+    else:
+        selected_ids = {match.skill_id for match in broad_matches}
+    return [group for group in groups if group.skill_id in selected_ids] or groups
+
+
 async def list_scope_candidates(
     session: AsyncSession,
     *,
@@ -284,14 +586,25 @@ async def list_scope_candidates(
     intent: str,
     now: datetime,
     timezone_name: str,
+    time_range: TimeRange | None = None,
 ) -> ReportScopeCandidateResponse:
     draft = initial_scope(
         intent,
         now=now,
         timezone_name=timezone_name,
-    ).model_copy(update={"adapter_kind": adapter_kind})
+    ).model_copy(
+        update={
+            "adapter_kind": adapter_kind,
+            **(
+                {"time_range": time_range, "missing_dimensions": []}
+                if time_range is not None
+                else {}
+            ),
+        }
+    )
     events: list[ScopeEventCandidate] = []
     record_groups: list[ScopeRecordGroup] = []
+    options: list[TimeRangeOption] = []
     if adapter_kind == "pre_event_briefing":
         events = await _future_events(
             session,
@@ -300,30 +613,48 @@ async def list_scope_candidates(
             timezone_name=timezone_name,
         )
     elif adapter_kind == "period_summary":
-        period = draft.time_range or resolve_report_period(
-            intent,
+        options = time_range_options(
             now=now,
             timezone_name=timezone_name,
         )
+        period = draft.time_range or next(
+            option.time_range
+            for option in options
+            if option.id == "last_30_days"
+        )
+        assert period is not None
         record_groups = await _period_records(
             session,
             user_id=user_id,
             period=period,
             timezone_name=timezone_name,
         )
+        _, type_matches = _group_term_matches(record_groups, intent)
+        needs_asset_type = not type_matches and len(record_groups) > 1
+        record_groups = _filter_record_groups_for_intent(record_groups, intent)
+        auto_references = [
+            record.reference
+            for group in record_groups
+            for record in group.records
+        ]
         draft = draft.model_copy(
             update={
+                "time_range": period,
                 "skill_ids": [group.skill_id for group in record_groups],
-                "supporting_references": [
-                    record.reference
-                    for group in record_groups
-                    for record in group.records
+                "missing_dimensions": [
+                    *draft.missing_dimensions,
+                    *(["asset_type"] if needs_asset_type else []),
                 ],
+                "supporting_references": auto_references,
+                "selection": ReportAssetSelection(
+                    auto_references=auto_references,
+                ),
             }
         )
     return ReportScopeCandidateResponse(
         adapter_kind=adapter_kind,
         events=events,
         record_groups=record_groups,
+        time_range_options=options,
         default_scope=draft,
     )

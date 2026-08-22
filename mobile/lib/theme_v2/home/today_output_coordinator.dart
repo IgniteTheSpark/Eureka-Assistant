@@ -168,7 +168,9 @@ class TodayOutputCoordinator extends ChangeNotifier {
 
   List<String> stableAssetIds(Iterable<String> all) => [
     for (final id in all)
-      if (_knownAssets.contains(id) && !_isOwned(TodayOutputKind.asset, id)) id,
+      if ((_knownAssets.contains(id) && !_isOwned(TodayOutputKind.asset, id)) ||
+          _isHandedOffAsset(id))
+        id,
   ];
 
   List<String> stableSignalIds(Iterable<String> all) => [
@@ -225,6 +227,11 @@ class TodayOutputCoordinator extends ChangeNotifier {
   bool _isOwned(TodayOutputKind kind, String id) =>
       (_producing?.kind == kind && _producing?.id == id) ||
       _queue.any((item) => item.kind == kind && item.id == id);
+
+  bool _isHandedOffAsset(String id) =>
+      _producing?.kind == TodayOutputKind.asset &&
+      _producing?.id == id &&
+      _phase.index >= TodayOutputPhase.handoff.index;
 
   void _startNext() {
     while (_producing == null && _queue.isNotEmpty) {

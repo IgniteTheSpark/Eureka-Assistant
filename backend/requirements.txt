@@ -1,6 +1,9 @@
 # Web
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
+# Imported directly by the Qwen streaming ASR adapter; keep it explicit rather
+# than relying on Uvicorn's transitive optional dependency.
+websockets>=14.0,<16
 
 # Database — MySQL is the relational store (aiomysql async / pymysql sync).
 sqlalchemy>=2.0.36

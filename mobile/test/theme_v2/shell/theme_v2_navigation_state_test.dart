@@ -9,6 +9,8 @@ import 'package:eureka/theme_v2/home/theme_v2_home_page.dart';
 import 'package:eureka/theme_v2/home/home_agenda_panel.dart';
 import 'package:eureka/theme_v2/home/home_repository.dart';
 import 'package:eureka/theme_v2/home/today_dot_experiment_page.dart';
+import 'package:eureka/theme_v2/home/today_dithered_reka.dart';
+import 'package:eureka/theme_v2/home/today_reka_scene.dart';
 import 'package:eureka/theme_v2/reka/reka_signal_repository.dart';
 import 'package:eureka/theme_v2/reka/reka_signals_page.dart';
 import 'package:eureka/today/today_data.dart';
@@ -18,6 +20,7 @@ import 'package:eureka/theme_v2/library/theme_v2_library_page.dart';
 import 'package:eureka/theme_v2/device/theme_v2_card_device_detail_page.dart';
 import 'package:eureka/theme_v2/device/theme_v2_ring_device_detail_page.dart';
 import 'package:eureka/theme_v2/shell/device_status_summary.dart';
+import 'package:eureka/theme_v2/shell/shell_dithered_reka.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_app_shell.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_floating_dock.dart';
 import 'package:eureka/theme_v2/shell/theme_v2_global_top_nav.dart';
@@ -165,6 +168,40 @@ void main() {
     expect(find.text('calendar state 1 controller 1'), findsOneWidget);
   });
 
+  testWidgets('root page states survive immersive and standard Tab switches', (
+    tester,
+  ) async {
+    final keys = List.generate(3, (_) => GlobalKey<_MountedProbeState>());
+    await tester.pumpWidget(
+      _ThemeHost(
+        child: ThemeV2AppShell(
+          showStartupOverlays: false,
+          deviceStatus: const DeviceStatusSummary.disconnected(),
+          pages: [
+            ThemeV2PageScaffold(
+              extendBodyBehindChrome: true,
+              body: _MountedProbe(key: keys[0]),
+            ),
+            ThemeV2PageScaffold(body: _MountedProbe(key: keys[1])),
+            ThemeV2PageScaffold(body: _MountedProbe(key: keys[2])),
+          ],
+        ),
+      ),
+    );
+    final states = keys.map((key) => key.currentState).toList();
+
+    await tester.tap(find.bySemanticsLabel('日历'));
+    await tester.pump();
+    await tester.tap(find.bySemanticsLabel('资产'));
+    await tester.pump();
+    await tester.tap(find.bySemanticsLabel('今日'));
+    await tester.pump();
+
+    expect(keys.map((key) => key.currentState), orderedEquals(states));
+    expect(states.map((state) => state!.disposeCount), everyElement(0));
+    expect(states.map((state) => state!.deactivateCount), everyElement(0));
+  });
+
   testWidgets('page scaffold declares nav dock and keyboard inset policy', (
     tester,
   ) async {
@@ -292,13 +329,12 @@ void main() {
   });
 
   testWidgets(
-    'Today dot experiment replaces only Home and wires Reka actions',
+    'Today dot experiment replaces only Home and opens Session directly',
     (tester) async {
       tester.view.physicalSize = const Size(411, 960);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
-      var manualRecordCount = 0;
       var createReportCount = 0;
       var startChatCount = 0;
       await tester.pumpWidget(
@@ -308,7 +344,6 @@ void main() {
             deviceStatus: const DeviceStatusSummary.disconnected(),
             homeRepository: const _HomeRepository(),
             todayDotExperimentOverride: true,
-            onManualRecord: () => manualRecordCount++,
             onCreateReport: () => createReportCount++,
             onStartChat: () => startChatCount++,
           ),
@@ -321,19 +356,123 @@ void main() {
       expect(find.byType(ThemeV2GlobalTopNav), findsOneWidget);
       expect(find.byKey(ThemeV2FloatingDock.dockKey), findsOneWidget);
 
-      for (final label in ['手动记录', '创建报告', '开始新聊天']) {
-        await tester.tap(find.bySemanticsLabel('Reka 快捷操作，可拖动'));
-        await tester.pumpAndSettle();
-        await tester.tap(find.text(label));
-        await tester.pumpAndSettle();
-      }
+      await tester.tap(find.byKey(TodayRekaScene.rekaTargetKey));
+      await tester.pump();
 
-      expect(manualRecordCount, 1);
-      expect(createReportCount, 1);
+      expect(createReportCount, 0);
       expect(startChatCount, 1);
+      expect(find.byType(PopupMenuItem), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('Today to Calendar moves one dither renderer for 260ms', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const _ThemeHost(
+        disableAnimations: false,
+        child: ThemeV2AppShell(
+          showStartupOverlays: false,
+          deviceStatus: DeviceStatusSummary.disconnected(),
+          homeRepository: _HomeRepository(),
+          todayDotExperimentOverride: true,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byKey(TodayRekaScene.rekaTargetKey), findsOneWidget);
+    expect(find.byKey(ShellDitheredReka.targetKey), findsNothing);
+    expect(find.byType(TodayDitheredReka), findsOneWidget);
+    final todayCenter = tester.getCenter(
+      find.byKey(ShellDitheredReka.visualKey),
+    );
+
+    await tester.tap(find.bySemanticsLabel('日历'));
+    await tester.pump();
+    expect(find.byKey(TodayRekaScene.rekaTargetKey), findsNothing);
+    expect(find.byKey(ShellDitheredReka.targetKey), findsNothing);
+    expect(find.byType(TodayDitheredReka), findsOneWidget);
+
+    await tester.pump(const Duration(milliseconds: 259));
+    expect(find.byType(TodayDitheredReka), findsOneWidget);
+    expect(
+      tester.getCenter(find.byKey(ShellDitheredReka.visualKey)),
+      isNot(todayCenter),
+    );
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(find.byKey(ShellDitheredReka.targetKey), findsOneWidget);
+
+    await tester.tap(find.bySemanticsLabel('今日'));
+    await tester.pump();
+    expect(find.byKey(TodayRekaScene.rekaTargetKey), findsNothing);
+    expect(find.byKey(ShellDitheredReka.targetKey), findsNothing);
+    expect(find.byType(TodayDitheredReka), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 260));
+    expect(find.byKey(TodayRekaScene.rekaTargetKey), findsOneWidget);
+    expect(find.byKey(ShellDitheredReka.targetKey), findsNothing);
+  });
+
+  testWidgets('one dither renderer survives every root destination', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const _ThemeHost(
+        disableAnimations: false,
+        child: ThemeV2AppShell(
+          showStartupOverlays: false,
+          deviceStatus: DeviceStatusSummary.disconnected(),
+          homeRepository: _HomeRepository(),
+          todayDotExperimentOverride: true,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byType(TodayDitheredReka), findsOneWidget);
+
+    await tester.tap(find.bySemanticsLabel('日历'));
+    await tester.pump(const Duration(milliseconds: 260));
+    expect(find.byType(TodayDitheredReka), findsOneWidget);
+
+    await tester.tap(find.bySemanticsLabel('资产'));
+    await tester.pump(const Duration(milliseconds: 260));
+    expect(find.byType(TodayDitheredReka), findsOneWidget);
+  });
+
+  testWidgets('reduced motion handoff snaps one renderer without duplication', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const _ThemeHost(
+        child: ThemeV2AppShell(
+          showStartupOverlays: false,
+          deviceStatus: DeviceStatusSummary.disconnected(),
+          homeRepository: _HomeRepository(),
+          todayDotExperimentOverride: true,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.bySemanticsLabel('日历'));
+    await tester.pump();
+    expect(find.byType(TodayDitheredReka), findsOneWidget);
+    final initialCenter = tester.getCenter(
+      find.byKey(ShellDitheredReka.visualKey),
+    );
+    await tester.pump(const Duration(milliseconds: 130));
+    expect(
+      tester.getCenter(find.byKey(ShellDitheredReka.visualKey)),
+      initialCenter,
+    );
+    expect(find.byKey(TodayRekaScene.rekaTargetKey), findsNothing);
+    expect(find.byKey(ShellDitheredReka.targetKey), findsNothing);
+
+    await tester.pump(const Duration(milliseconds: 130));
+    expect(find.byKey(ShellDitheredReka.targetKey), findsOneWidget);
+  });
 
   testWidgets('root pages share the floating Top Dock', (tester) async {
     await tester.pumpWidget(
@@ -625,17 +764,18 @@ void main() {
 }
 
 class _ThemeHost extends StatelessWidget {
-  const _ThemeHost({required this.child});
+  const _ThemeHost({required this.child, this.disableAnimations = true});
 
   final Widget child;
+  final bool disableAnimations;
 
   @override
   Widget build(BuildContext context) {
     return MediaQuery(
-      data: const MediaQueryData(
-        size: Size(411, 960),
+      data: MediaQueryData(
+        size: const Size(411, 960),
         devicePixelRatio: 1,
-        disableAnimations: true,
+        disableAnimations: disableAnimations,
         textScaler: TextScaler.noScaling,
       ),
       child: ValueListenableBuilder<ThemeMode>(
@@ -687,6 +827,33 @@ class _StateProbeState extends State<_StateProbe> {
       ),
     );
   }
+}
+
+class _MountedProbe extends StatefulWidget {
+  const _MountedProbe({super.key});
+
+  @override
+  State<_MountedProbe> createState() => _MountedProbeState();
+}
+
+class _MountedProbeState extends State<_MountedProbe> {
+  var disposeCount = 0;
+  var deactivateCount = 0;
+
+  @override
+  void deactivate() {
+    deactivateCount++;
+    super.deactivate();
+  }
+
+  @override
+  void dispose() {
+    disposeCount++;
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.expand();
 }
 
 class _ThemeProbe extends StatelessWidget {

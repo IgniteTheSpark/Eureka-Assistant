@@ -180,7 +180,6 @@ class _ThemeV2DitherSurfaceState extends State<ThemeV2DitherSurface>
   @override
   Widget build(BuildContext context) {
     final tokens = context.themeV2;
-    final brightness = Theme.of(context).brightness;
     return LayoutBuilder(
       builder: (context, constraints) {
         final viewport = Size(constraints.maxWidth, constraints.maxHeight);
@@ -193,10 +192,7 @@ class _ThemeV2DitherSurfaceState extends State<ThemeV2DitherSurface>
               AnimatedBuilder(
                 animation: _sources,
                 builder: (context, _) => ThemeV2DitherField(
-                  config: widget.config.copyWith(
-                    waveColor: tokens.foreground,
-                    opacity: brightness == Brightness.dark ? .26 : .28,
-                  ),
+                  config: widget.config.copyWith(waveColor: tokens.foreground),
                   sources: _sources.sourcesFor(Offset.zero & viewport),
                   motion: _motion,
                   reduceMotion: _reduceMotion,

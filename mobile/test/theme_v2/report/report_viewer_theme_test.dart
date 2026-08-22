@@ -1,8 +1,30 @@
 import 'package:eureka/pages/report_viewer_page.dart';
+import 'package:eureka/api/api_client.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test(
+    'private report illustrations are inlined before WebView load',
+    () async {
+      const html =
+          '<figure id="reka-report-illustration" class="r-illustration" '
+          'data-illustration-status="ready"><img '
+          'src="/api/files/file-1" alt="报告插图" loading="lazy"></figure>';
+
+      final prepared = await inlinePrivateReportImages(
+        html,
+        (_) async => const ApiBinaryResponse(
+          bytes: [0xff, 0xd8, 0xff],
+          contentType: 'image/jpeg',
+        ),
+      );
+
+      expect(prepared, contains('src="data:image/jpeg;base64,/9j/"'));
+      expect(prepared, isNot(contains('/api/files/file-1')));
+    },
+  );
+
   test('Theme V2 viewer leaves report-owned palette CSS untouched', () {
     const html =
         '<html><head><title>Report</title></head><body>Body</body></html>';

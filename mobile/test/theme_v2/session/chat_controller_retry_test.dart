@@ -5,11 +5,212 @@ import 'package:eureka/api/api_client.dart';
 import 'package:eureka/api/sse_client.dart';
 import 'package:eureka/chat/chat_controller.dart';
 import 'package:eureka/chat/chat_models.dart';
+import 'package:eureka/data_revision.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 void main() {
+  void restoreRevisions() {
+    final dataBefore = dataRevision.value;
+    final mutationBefore = dataMutationRevision.value;
+    addTearDown(() {
+      dataRevision.value = dataBefore;
+      dataMutationRevision.value = mutationBefore;
+    });
+  }
+
+  test(
+    'successful structured mutation tool result publishes a mutation',
+    () async {
+      restoreRevisions();
+      final dataBefore = dataRevision.value;
+      final mutationBefore = dataMutationRevision.value;
+      final controller = ChatController(
+        turnStream: (_, _) => Stream<SseEvent>.fromIterable([
+          SseEvent('tool_result', {
+            'name': 'tool_update_asset',
+            'response': {
+              'structuredContent': {
+                'result': '{"ok":true,"asset_id":"asset-1"}',
+              },
+            },
+          }),
+          SseEvent('done', const {}),
+        ]),
+      );
+      addTearDown(controller.dispose);
+
+      await controller.send('把记录改成已完成');
+
+      expect(dataRevision.value, dataBefore + 1);
+      expect(dataMutationRevision.value, mutationBefore + 1);
+    },
+  );
+
+  test('non-mutating chat turn requests only a legacy refresh', () async {
+    restoreRevisions();
+    final dataBefore = dataRevision.value;
+    final mutationBefore = dataMutationRevision.value;
+    final controller = ChatController(
+      turnStream: (_, _) => Stream<SseEvent>.fromIterable([
+        SseEvent('tool_result', {
+          'name': 'tool_query_asset',
+          'response': {'ok': true, 'assets': const []},
+        }),
+        SseEvent('done', const {}),
+      ]),
+    );
+    addTearDown(controller.dispose);
+
+    await controller.send('查一下我的记录');
+
+    expect(dataRevision.value, dataBefore + 1);
+    expect(dataMutationRevision.value, mutationBefore);
+  });
+
+  test('confirmed bulk asset import publishes a mutation', () async {
+    restoreRevisions();
+    final dataBefore = dataRevision.value;
+    final mutationBefore = dataMutationRevision.value;
+    final controller = ChatController(
+      turnStream: (_, _) => Stream<SseEvent>.fromIterable([
+        SseEvent('tool_result', {
+          'name': 'bulk_import',
+          'response': {
+            'confirmed_mutation': true,
+            'assets': [
+              {'asset_id': 'asset-1', 'payload': <String, dynamic>{}},
+            ],
+          },
+        }),
+        SseEvent('done', const {}),
+      ]),
+    );
+    addTearDown(controller.dispose);
+
+    await controller.send('批量导入');
+
+    expect(dataRevision.value, dataBefore + 1);
+    expect(dataMutationRevision.value, mutationBefore + 1);
+  });
+
+  test('confirmed event-only bulk import publishes a mutation', () async {
+    restoreRevisions();
+    final dataBefore = dataRevision.value;
+    final mutationBefore = dataMutationRevision.value;
+    final controller = ChatController(
+      turnStream: (_, _) => Stream<SseEvent>.fromIterable([
+        SseEvent('tool_result', {
+          'name': 'bulk_import',
+          'response': {
+            'confirmed_mutation': true,
+            'events': [
+              {'event_id': 'event-1', 'title': '日程'},
+            ],
+          },
+        }),
+        SseEvent('done', const {}),
+      ]),
+    );
+    addTearDown(controller.dispose);
+
+    await controller.send('批量导入日程');
+
+    expect(dataRevision.value, dataBefore + 1);
+    expect(dataMutationRevision.value, mutationBefore + 1);
+  });
+
+  test('confirmation-only bulk import publishes a mutation', () async {
+    restoreRevisions();
+    final dataBefore = dataRevision.value;
+    final mutationBefore = dataMutationRevision.value;
+    final controller = ChatController(
+      turnStream: (_, _) => Stream<SseEvent>.fromIterable([
+        SseEvent('tool_result', {
+          'name': 'bulk_import',
+          'response': {'confirmed_mutation': true},
+        }),
+        SseEvent('done', const {}),
+      ]),
+    );
+    addTearDown(controller.dispose);
+
+    await controller.send('批量导入已确认记录');
+
+    expect(dataRevision.value, dataBefore + 1);
+    expect(dataMutationRevision.value, mutationBefore + 1);
+  });
+
+  test(
+    'failed bulk cards with a false receipt only request a legacy refresh',
+    () async {
+      restoreRevisions();
+      final dataBefore = dataRevision.value;
+      final mutationBefore = dataMutationRevision.value;
+      final controller = ChatController(
+        turnStream: (_, _) => Stream<SseEvent>.fromIterable([
+          SseEvent('tool_result', {
+            'name': 'bulk_import',
+            'response': {
+              'confirmed_mutation': false,
+              'assets': [
+                {'asset_id': 'pending-asset', 'payload': <String, dynamic>{}},
+              ],
+            },
+          }),
+          SseEvent('done', const {}),
+        ]),
+      );
+      addTearDown(controller.dispose);
+
+      await controller.send('批量导入仍在处理中');
+
+      expect(dataRevision.value, dataBefore + 1);
+      expect(dataMutationRevision.value, mutationBefore);
+    },
+  );
+
+  test('legacy card-only bulk payload does not assert a mutation', () async {
+    restoreRevisions();
+    final dataBefore = dataRevision.value;
+    final mutationBefore = dataMutationRevision.value;
+    final controller = ChatController(
+      turnStream: (_, _) => Stream<SseEvent>.fromIterable([
+        SseEvent('tool_result', {
+          'name': 'bulk_import',
+          'response': {
+            'assets': [
+              {'asset_id': 'legacy-asset', 'payload': <String, dynamic>{}},
+            ],
+          },
+        }),
+        SseEvent('done', const {}),
+      ]),
+    );
+    addTearDown(controller.dispose);
+
+    await controller.send('旧版批量卡片');
+
+    expect(dataRevision.value, dataBefore + 1);
+    expect(dataMutationRevision.value, mutationBefore);
+  });
+
+  test('failed chat turn requests only a legacy refresh', () async {
+    restoreRevisions();
+    final dataBefore = dataRevision.value;
+    final mutationBefore = dataMutationRevision.value;
+    final controller = ChatController(
+      turnStream: (_, _) => Stream<SseEvent>.error(StateError('offline')),
+    );
+    addTearDown(controller.dispose);
+
+    await controller.send('帮我记一下');
+
+    expect(dataRevision.value, dataBefore + 1);
+    expect(dataMutationRevision.value, mutationBefore);
+  });
+
   test(
     'ordinary chat starts locally and settles to server elapsed time',
     () async {
@@ -561,6 +762,168 @@ void main() {
 
     expect(turnAttempts, 0);
   });
+
+  test('durable reconciliation honors a persisted mutation receipt', () async {
+    restoreRevisions();
+    final dataBefore = dataRevision.value;
+    final mutationBefore = dataMutationRevision.value;
+    var messageLoads = 0;
+    final api = ApiClient(
+      client: MockClient((request) async {
+        if (request.url.path.endsWith('/messages')) {
+          messageLoads++;
+          return http.Response.bytes(
+            utf8.encode(
+              jsonEncode({
+                'messages': [
+                  {
+                    'id': 'a1',
+                    'role': 'agent',
+                    'status': messageLoads == 1 ? 'running' : 'done',
+                    'tool_result': messageLoads == 1
+                        ? null
+                        : {'confirmed_mutation': true, 'results': const []},
+                  },
+                ],
+              }),
+            ),
+            200,
+          );
+        }
+        return http.Response(jsonEncode({'session': {}}), 200);
+      }),
+      baseUrl: 'http://test',
+      enableLogging: false,
+    );
+    final controller = ChatController(
+      api: api,
+      reconcileInterval: const Duration(milliseconds: 1),
+      reconcileTimeout: const Duration(milliseconds: 100),
+    );
+    addTearDown(() {
+      controller.dispose();
+      api.close();
+    });
+
+    await controller.loadSession('durable-mutation');
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+
+    expect(dataRevision.value, dataBefore + 1);
+    expect(dataMutationRevision.value, mutationBefore + 1);
+  });
+
+  test(
+    'durable reconciliation without a mutation receipt is legacy-only',
+    () async {
+      restoreRevisions();
+      final dataBefore = dataRevision.value;
+      final mutationBefore = dataMutationRevision.value;
+      var messageLoads = 0;
+      final api = ApiClient(
+        client: MockClient((request) async {
+          if (request.url.path.endsWith('/messages')) {
+            messageLoads++;
+            return http.Response.bytes(
+              utf8.encode(
+                jsonEncode({
+                  'messages': [
+                    {
+                      'id': 'a1',
+                      'role': 'agent',
+                      'status': messageLoads == 1 ? 'running' : 'failed',
+                      'tool_result': messageLoads == 1
+                          ? null
+                          : {'confirmed_mutation': false, 'results': const []},
+                    },
+                  ],
+                }),
+              ),
+              200,
+            );
+          }
+          return http.Response(jsonEncode({'session': {}}), 200);
+        }),
+        baseUrl: 'http://test',
+        enableLogging: false,
+      );
+      final controller = ChatController(
+        api: api,
+        reconcileInterval: const Duration(milliseconds: 1),
+        reconcileTimeout: const Duration(milliseconds: 100),
+      );
+      addTearDown(() {
+        controller.dispose();
+        api.close();
+      });
+
+      await controller.loadSession('durable-failure');
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(dataRevision.value, dataBefore + 1);
+      expect(dataMutationRevision.value, mutationBefore);
+    },
+  );
+
+  test(
+    'durable reconciliation ignores receipts outside its pending turn IDs',
+    () async {
+      restoreRevisions();
+      final dataBefore = dataRevision.value;
+      final mutationBefore = dataMutationRevision.value;
+      var messageLoads = 0;
+      final api = ApiClient(
+        client: MockClient((request) async {
+          if (request.url.path.endsWith('/messages')) {
+            messageLoads++;
+            return http.Response.bytes(
+              utf8.encode(
+                jsonEncode({
+                  'messages': [
+                    {
+                      'id': 'old-write',
+                      'role': 'agent',
+                      'status': 'done',
+                      'tool_result': {
+                        'confirmed_mutation': true,
+                        'results': const [],
+                      },
+                    },
+                    {
+                      'id': 'pending-read',
+                      'role': 'agent',
+                      'status': messageLoads == 1 ? 'running' : 'done',
+                      'tool_result': messageLoads == 1
+                          ? null
+                          : {'confirmed_mutation': false, 'results': const []},
+                    },
+                  ],
+                }),
+              ),
+              200,
+            );
+          }
+          return http.Response(jsonEncode({'session': {}}), 200);
+        }),
+        baseUrl: 'http://test',
+        enableLogging: false,
+      );
+      final controller = ChatController(
+        api: api,
+        reconcileInterval: const Duration(milliseconds: 1),
+        reconcileTimeout: const Duration(milliseconds: 100),
+      );
+      addTearDown(() {
+        controller.dispose();
+        api.close();
+      });
+
+      await controller.loadSession('durable-multiple');
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(dataRevision.value, dataBefore + 1);
+      expect(dataMutationRevision.value, mutationBefore);
+    },
+  );
 
   test('failed durable reconciliation unlocks with a reload retry', () async {
     var messageLoads = 0;

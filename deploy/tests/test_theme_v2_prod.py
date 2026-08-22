@@ -57,6 +57,10 @@ PLACEHOLDER_ENV: dict[str, str] = {
     "TERMS_URL": "https://example.com/terms",
     "PRIVACY_URL": "https://example.com/privacy",
     "TERMS_VERSION_CURRENT": "prelaunch-v0",
+    "DASHSCOPE_API_KEY": "replace-with-dashscope-api-key",
+    "DASHSCOPE_ASR_WS_URL": (
+        "wss://replace-with-workspace-id.cn-beijing.maas.aliyuncs.com/api-ws/v1/inference"
+    ),
     "TENCENT_ASR_SERVICE_BASE_URL": "https://pre.card.biz",
     "REPORT_PUBLIC_BASE_URL": "https://api.example.com",
 }
@@ -127,6 +131,12 @@ class ThemeV2ProductionDeploymentTest(unittest.TestCase):
         self.assertNotEqual("dev-insecure-change-me", environment["JWT_SECRET"])
         self.assertIn("mysql", environment["DATABASE_URL"])
         self.assertIn("/ready", " ".join(api["healthcheck"]["test"]))
+        self.assertEqual(
+            "qwen-audio-3.0-asr-flash-streaming",
+            environment["ALI_ASR_MODEL"],
+        )
+        self.assertTrue(environment["DASHSCOPE_API_KEY"])
+        self.assertTrue(environment["DASHSCOPE_ASR_WS_URL"])
 
     def test_runtime_image_excludes_test_dependencies_and_runs_non_root(self) -> None:
         dockerfile = DOCKERFILE.read_text()
@@ -183,6 +193,9 @@ class ThemeV2ProductionDeploymentTest(unittest.TestCase):
                 "TERMS_URL",
                 "PRIVACY_URL",
                 "TERMS_VERSION_CURRENT",
+                "DASHSCOPE_API_KEY",
+                "DASHSCOPE_ASR_WS_URL",
+                "ALI_ASR_MODEL",
                 "CAPTURE_AGENT_ENABLED",
                 "CHAT_AGENT_ENABLED",
                 "REPORT_PIPELINE_ENABLED",

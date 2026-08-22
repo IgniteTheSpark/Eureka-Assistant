@@ -77,9 +77,9 @@ class _AppShellState extends State<AppShell>
   void initState() {
     super.initState();
     // Final refresh safety net: data may have changed while the app was
-    // backgrounded (another device, a background flash capture, a push). Bump
-    // on resume so every list re-fetches the moment the user comes back —
-    // complements the per-pop DataRefreshObserver and the SSE bumps.
+    // backgrounded (another device, a background flash capture, a push). Resume
+    // refreshes legacy lists and separately reconciles cached Theme V2 Library
+    // surfaces without claiming that the lifecycle event itself was a write.
     WidgetsBinding.instance.addObserver(this);
     // START_OVERLAY lets a build boot straight into a tap-gated surface for
     // screenshot verification (notifications | flash). With no explicit
@@ -110,7 +110,10 @@ class _AppShellState extends State<AppShell>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) bumpData();
+    if (state == AppLifecycleState.resumed) {
+      requestDataRefresh();
+      requestLibraryCatchUp();
+    }
   }
 
   void _go(int i) {

@@ -3,6 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../render/render_spec.dart';
+import '../../../voice_input/voice_input_controller.dart';
+import '../../../voice_input/voice_input_field.dart';
+import '../../../voice_input/voice_input_scope.dart';
 import '../../asset/asset_card.dart';
 import '../../asset/asset_card_display.dart';
 import '../../asset/card_field_selection.dart';
@@ -44,9 +47,12 @@ class ThemeV2SkillWizardSheet extends StatefulWidget {
 }
 
 class _ThemeV2SkillWizardSheetState extends State<ThemeV2SkillWizardSheet> {
-  late final TextEditingController _description = TextEditingController(
+  late final VoiceInputTextController _description = VoiceInputTextController(
     text: widget.controller?.description ?? '',
   );
+  late final VoiceInputController _descriptionVoice;
+  bool _voiceBound = false;
+  final Set<String> _activeQuestionVoice = {};
 
   Listenable get _listenable =>
       widget.configurationController ?? widget.controller!;
@@ -54,13 +60,46 @@ class _ThemeV2SkillWizardSheetState extends State<ThemeV2SkillWizardSheet> {
   @override
   void initState() {
     super.initState();
+    _description.addListener(_syncDescription);
     if (widget.configurationController != null) {
       unawaited(widget.configurationController!.load());
     }
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_voiceBound) return;
+    _voiceBound = true;
+    _descriptionVoice = VoiceInputController(
+      textController: _description,
+      coordinator: VoiceInputScope.coordinatorOf(context),
+    )..addListener(_voiceChanged);
+  }
+
+  void _voiceChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _syncDescription() {
+    widget.controller?.setDescription(_description.text);
+  }
+
+  void _questionVoiceChanged(String key, bool busy) {
+    if (busy) {
+      _activeQuestionVoice.add(key);
+    } else {
+      _activeQuestionVoice.remove(key);
+    }
+    if (mounted) setState(() {});
+  }
+
+  @override
   void dispose() {
+    _description.removeListener(_syncDescription);
+    _descriptionVoice.removeListener(_voiceChanged);
+    unawaited(_descriptionVoice.close());
+    _descriptionVoice.dispose();
     _description.dispose();
     super.dispose();
   }
@@ -126,8 +165,10 @@ class _ThemeV2SkillWizardSheetState extends State<ThemeV2SkillWizardSheet> {
                       onBack: widget.controller?.goBack,
                       onClose: _close,
                     ),
-                    _WizardProgress(stage: stage),
-                    const SizedBox(height: ThemeV2Spacing.md),
+                    if (!widget.isConfiguration) ...[
+                      _WizardProgress(stage: stage),
+                      const SizedBox(height: ThemeV2Spacing.md),
+                    ],
                     Expanded(child: _buildBody(stage)),
                     _buildFooter(stage),
                   ],
@@ -177,14 +218,21 @@ class _ThemeV2SkillWizardSheetState extends State<ThemeV2SkillWizardSheet> {
             ).textTheme.bodyMedium?.copyWith(color: tokens.muted),
           ),
           const SizedBox(height: ThemeV2Spacing.lg),
-          TextField(
-            key: const ValueKey('skill-wizard-description'),
-            controller: _description,
-            autofocus: true,
-            minLines: 4,
-            maxLines: 7,
-            onChanged: controller.setDescription,
-            decoration: _inputDecoration('例如：记录每次跑步的距离、配速、地点和感受'),
+          VoiceInputField(
+            key: const ValueKey('skill-description-voice'),
+            controller: _descriptionVoice,
+            enabled: !controller.busy,
+            builder: (context, voice) => TextField(
+              key: const ValueKey('skill-wizard-description'),
+              controller: _description,
+              readOnly: voice.isBusy,
+              autofocus: true,
+              minLines: 4,
+              maxLines: 7,
+              decoration: _inputDecoration(
+                '例如：记录每次跑步的距离、配速、地点和感受',
+              ).copyWith(suffixIcon: voice.statusIcon(color: tokens.accent)),
+            ),
           ),
           const SizedBox(height: ThemeV2Spacing.md),
           Wrap(
@@ -222,8 +270,11 @@ class _ThemeV2SkillWizardSheetState extends State<ThemeV2SkillWizardSheet> {
             const SizedBox(height: ThemeV2Spacing.md),
             for (final question in controller.questions)
               _ClarificationQuestion(
+                key: ValueKey('skill-question-${question.key}'),
                 question: question,
                 controller: controller,
+                onVoiceBusyChanged: (busy) =>
+                    _questionVoiceChanged(question.key, busy),
               ),
           ],
           const SizedBox(height: ThemeV2Spacing.xl),
@@ -490,7 +541,10 @@ class _ThemeV2SkillWizardSheetState extends State<ThemeV2SkillWizardSheet> {
           width: double.infinity,
           child: FilledButton.icon(
             key: const ValueKey('skill-describe-generate'),
-            onPressed: controller.busy
+            onPressed:
+                controller.busy ||
+                    _descriptionVoice.isBusy ||
+                    _activeQuestionVoice.isNotEmpty
                 ? null
                 : () => unawaited(controller.generate()),
             icon: controller.busy
@@ -694,17 +748,43 @@ class _WizardProgress extends StatelessWidget {
   }
 }
 
-class _ClarificationQuestion extends StatelessWidget {
+class _ClarificationQuestion extends StatefulWidget {
   const _ClarificationQuestion({
+    super.key,
     required this.question,
     required this.controller,
+    required this.onVoiceBusyChanged,
   });
 
   final SkillWizardQuestion question;
   final SkillWizardController controller;
+  final ValueChanged<bool> onVoiceBusyChanged;
+
+  @override
+  State<_ClarificationQuestion> createState() => _ClarificationQuestionState();
+}
+
+class _ClarificationQuestionState extends State<_ClarificationQuestion> {
+  late final TextEditingController _other = TextEditingController(
+    text: widget.controller.otherTextFor(widget.question.key),
+  )..addListener(_syncOther);
+
+  void _syncOther() {
+    widget.controller.setQuestionOtherText(widget.question.key, _other.text);
+  }
+
+  @override
+  void dispose() {
+    _other
+      ..removeListener(_syncOther)
+      ..dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final question = widget.question;
+    final controller = widget.controller;
     return Padding(
       padding: const EdgeInsets.only(bottom: ThemeV2Spacing.lg),
       child: Column(
@@ -740,12 +820,20 @@ class _ClarificationQuestion extends StatelessWidget {
           ),
           if (controller.isOtherSelected(question.key)) ...[
             const SizedBox(height: ThemeV2Spacing.sm),
-            TextFormField(
-              key: ValueKey('skill-question-other-input-${question.key}'),
-              initialValue: controller.otherTextFor(question.key),
-              onChanged: (value) =>
-                  controller.setQuestionOtherText(question.key, value),
-              decoration: InputDecoration(hintText: question.placeholder),
+            VoiceInputTextAdapter(
+              key: ValueKey('skill-question-other-voice-${question.key}'),
+              controller: _other,
+              enabled: !controller.busy,
+              onBusyChanged: widget.onVoiceBusyChanged,
+              builder: (context, textController, voice) => TextFormField(
+                key: ValueKey('skill-question-other-input-${question.key}'),
+                controller: textController,
+                readOnly: voice.isBusy,
+                decoration: InputDecoration(
+                  hintText: question.placeholder,
+                  suffixIcon: voice.statusIcon(color: context.themeV2.accent),
+                ),
+              ),
             ),
           ],
         ],

@@ -48,3 +48,23 @@ def test_payload_serializes_utc_suffix_and_empty_body():
         "read": False,
         "created_at": "2026-07-31T10:00:00Z",
     }
+
+
+def test_payload_serializes_only_confirmed_mutation_evidence():
+    common = {
+        "id": "n1",
+        "type": "flash_done",
+        "title": "done",
+        "body": "saved",
+        "link": None,
+        "read": False,
+        "created_at": datetime(2026, 7, 31, 10, 0, 0),
+    }
+
+    assert "confirmed_mutation" not in NotificationPayload(
+        **common
+    ).model_dump(mode="json")
+    assert NotificationPayload(
+        **common,
+        confirmed_mutation=True,
+    ).model_dump(mode="json")["confirmed_mutation"] is True

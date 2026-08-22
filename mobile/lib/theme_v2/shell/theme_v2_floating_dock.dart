@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../foundation/theme_v2_semantics.dart';
 import '../foundation/theme_v2_theme.dart';
+import 'theme_v2_glass_chrome.dart';
 
 class ThemeV2FloatingDock extends StatelessWidget {
   const ThemeV2FloatingDock({
@@ -13,12 +14,17 @@ class ThemeV2FloatingDock extends StatelessWidget {
   }) : assert(selectedIndex >= 0 && selectedIndex < 3);
 
   static const safeAreaPaddingKey = Key('theme-v2-dock-safe-area');
+  static const compositionKey = Key('theme-v2-dock-composition');
   static const dockKey = Key('theme-v2-floating-dock');
   static const double elevation = 8;
   static const double lightRadius = 18;
   static Color get lightShadowColor => Colors.black.withValues(alpha: 0.12);
-  static const double contentClearance = 80;
+  static const Size shellSize = Size(169, 60);
+  static const double compositionHeight = 60;
+  static const double contentGap = 12;
+  static const double contentClearance = compositionHeight + contentGap;
   static const double viewportBottomPadding = 35;
+  static const double dockHeight = 60;
 
   final int selectedIndex;
   final ValueChanged<int> onDestinationSelected;
@@ -46,7 +52,6 @@ class ThemeV2FloatingDock extends StatelessWidget {
   Widget build(BuildContext context) {
     final bottom = MediaQuery.paddingOf(context).bottom;
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final tokens = context.themeV2;
     return Align(
       alignment: Alignment.bottomCenter,
       child: Padding(
@@ -55,44 +60,36 @@ class ThemeV2FloatingDock extends StatelessWidget {
           bottom: math.max(bottom, viewportBottomPadding),
         ),
         child: SizedBox(
-          width: 169,
-          child: Material(
-            key: dockKey,
+          key: compositionKey,
+          width: shellSize.width,
+          height: compositionHeight,
+          child: ThemeV2GlassChrome(
+            materialKey: dockKey,
             elevation: elevation,
             shadowColor: dark
                 ? Colors.black.withValues(alpha: 0.22)
                 : lightShadowColor,
-            color: dark ? const Color(0xE8191E29) : tokens.surface,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(dark ? 20 : lightRadius),
-              side: dark
-                  ? const BorderSide(color: Color(0xFF343B4A))
-                  : BorderSide(color: tokens.border),
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: SizedBox(
-              height: 60,
-              child: Row(
-                children: [
-                  for (var index = 0; index < _destinations.length; index++)
-                    Expanded(
-                      child: _DockDestination(
-                        icon: selectedIndex == index
-                            ? _destinations[index].selectedIcon
-                            : _destinations[index].icon,
-                        label: _destinations[index].label,
-                        selected: selectedIndex == index,
-                        onPressed: () => onDestinationSelected(index),
-                      ),
-                    ),
-                ],
-              ),
+            borderRadius: BorderRadius.circular(dark ? 20 : lightRadius),
+            child: Row(
+              children: [
+                for (var index = 0; index < _destinations.length; index++)
+                  Expanded(child: _destination(index)),
+              ],
             ),
           ),
         ),
       ),
     );
   }
+
+  Widget _destination(int index) => _DockDestination(
+    icon: selectedIndex == index
+        ? _destinations[index].selectedIcon
+        : _destinations[index].icon,
+    label: _destinations[index].label,
+    selected: selectedIndex == index,
+    onPressed: () => onDestinationSelected(index),
+  );
 }
 
 class _DockDestination extends StatelessWidget {

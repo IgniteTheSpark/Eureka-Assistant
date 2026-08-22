@@ -4,7 +4,11 @@ import 'package:flutter/material.dart';
 
 import '../../api/api_client.dart';
 import '../../pages/report_viewer_page.dart';
+import '../../voice_input/voice_input_controller.dart';
+import '../../voice_input/voice_input_field.dart';
+import '../../voice_input/voice_input_scope.dart';
 import '../foundation/theme_v2_theme.dart';
+import '../foundation/theme_v2_content_surface.dart';
 import '../foundation/theme_v2_tokens.dart';
 import 'report_evidence_picker_page.dart';
 import 'report_plan_models.dart';
@@ -34,7 +38,12 @@ class _ReportRunPageState extends State<ReportRunPage> {
   )..addListener(_changed);
   var _openingReport = false;
   String? _openReportError;
-  final _focusController = TextEditingController();
+  final _focusController = VoiceInputTextController();
+  final _presentationController = TextEditingController();
+  late final VoiceInputController _focusVoiceController;
+  bool _voiceBound = false;
+  final Map<String, TextEditingController> _clarificationTextControllers = {};
+  final Set<String> _activeClarificationVoice = {};
   ReportPlanDraftView? _draft;
   int _planStep = 0;
   bool _generateAfterScopeResolution = false;
@@ -42,6 +51,18 @@ class _ReportRunPageState extends State<ReportRunPage> {
   @override
   void initState() {
     super.initState();
+    _focusController.addListener(_syncAdditionalFocus);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_voiceBound) return;
+    _voiceBound = true;
+    _focusVoiceController = VoiceInputController(
+      textController: _focusController,
+      coordinator: VoiceInputScope.coordinatorOf(context),
+    )..addListener(_voiceChanged);
     final runId = widget.runId;
     if (runId != null) {
       unawaited(_controller.loadRun(runId));
@@ -50,6 +71,34 @@ class _ReportRunPageState extends State<ReportRunPage> {
     } else {
       unawaited(_controller.startUserInitiated(widget.intent!));
     }
+  }
+
+  void _voiceChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _syncAdditionalFocus() {
+    _controller.updateScopeAdditionalFocus(_focusController.text);
+  }
+
+  TextEditingController _clarificationController(String id) {
+    return _clarificationTextControllers.putIfAbsent(id, () {
+      final current = _controller.clarificationAnswers[id]?.toString() ?? '';
+      final controller = TextEditingController(text: current);
+      controller.addListener(() {
+        _controller.answerQuestion(id, controller.text);
+      });
+      return controller;
+    });
+  }
+
+  void _clarificationVoiceChanged(String id, bool busy) {
+    if (busy) {
+      _activeClarificationVoice.add(id);
+    } else {
+      _activeClarificationVoice.remove(id);
+    }
+    if (mounted) setState(() {});
   }
 
   void _changed() {
@@ -64,8 +113,15 @@ class _ReportRunPageState extends State<ReportRunPage> {
       _draft = serverDraft;
     }
     final scopeFocus = _controller.scopeDraft?.additionalFocus ?? '';
-    if (_planStep == 0 && _focusController.text != scopeFocus) {
+    if (_planStep == 0 &&
+        !_focusVoiceController.isBusy &&
+        _focusController.text != scopeFocus) {
       _focusController.text = scopeFocus;
+    }
+    final presentationText =
+        _controller.scopeDraft?.presentationPreference.customText ?? '';
+    if (_planStep == 0 && _presentationController.text != presentationText) {
+      _presentationController.text = presentationText;
     }
     if (!_controller.needsScopeConfirmation &&
         serverDraft != null &&
@@ -135,7 +191,15 @@ class _ReportRunPageState extends State<ReportRunPage> {
 
   @override
   void dispose() {
+    for (final controller in _clarificationTextControllers.values) {
+      controller.dispose();
+    }
+    _focusController.removeListener(_syncAdditionalFocus);
+    _focusVoiceController.removeListener(_voiceChanged);
+    unawaited(_focusVoiceController.close());
+    _focusVoiceController.dispose();
     _focusController.dispose();
+    _presentationController.dispose();
     _controller
       ..removeListener(_changed)
       ..dispose();
@@ -146,6 +210,49 @@ class _ReportRunPageState extends State<ReportRunPage> {
   Widget build(BuildContext context) {
     final state = _controller.state;
     final cancellationError = _controller.cancellationError;
+    final content = cancellationError != null
+        ? _message(
+            cancellationError,
+            actionLabel: '重试取消',
+            actionKey: const ValueKey('report-run-cancel-retry'),
+            onAction: _cancel,
+          )
+        : switch (state) {
+            'awaiting_selection' =>
+              _controller.needsClarification
+                  ? _clarification()
+                  : _planSelection(),
+            'failed' => _message(
+              _controller.error ?? _controller.failureMessage ?? '报告生成没有完成',
+              actionLabel: '重试',
+              actionKey: const ValueKey('report-run-retry'),
+              onAction: _controller.retry,
+            ),
+            'cancelled' => _message('报告任务已取消'),
+            'completed' =>
+              _openReportError == null
+                  ? _message('报告已完成，正在打开…')
+                  : _message(
+                      _openReportError!,
+                      actionLabel: '重试打开',
+                      actionKey: const ValueKey('report-run-open-retry'),
+                      onAction: _openCompletedReport,
+                    ),
+            'illustration_pending' => _message('报告正文已完成，正在打开…'),
+            'generating' => _progress('正在生成报告…'),
+            _ when _controller.error != null => _message(
+              _controller.error!,
+              actionLabel: '重试',
+              actionKey: const ValueKey('report-run-retry'),
+              onAction: widget.runId != null
+                  ? () => _controller.loadRun(widget.runId!)
+                  : widget.triggerExecutionId != null
+                  ? () =>
+                        _controller.startFromTrigger(widget.triggerExecutionId!)
+                  : () => _controller.startUserInitiated(widget.intent!),
+            ),
+            _ => _progress('正在准备报告方案…'),
+          };
     return Scaffold(
       backgroundColor: context.themeV2.background,
       appBar: AppBar(
@@ -167,52 +274,17 @@ class _ReportRunPageState extends State<ReportRunPage> {
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(ThemeV2Spacing.xl),
-          child: cancellationError != null
-              ? _message(
-                  cancellationError,
-                  actionLabel: '重试取消',
-                  actionKey: const ValueKey('report-run-cancel-retry'),
-                  onAction: _cancel,
-                )
-              : switch (state) {
-                  'awaiting_selection' =>
-                    _controller.needsClarification
-                        ? _clarification()
-                        : _planSelection(),
-                  'failed' => _message(
-                    _controller.error ??
-                        _controller.failureMessage ??
-                        '报告生成没有完成',
-                    actionLabel: '重试',
-                    actionKey: const ValueKey('report-run-retry'),
-                    onAction: _controller.retry,
-                  ),
-                  'cancelled' => _message('报告任务已取消'),
-                  'completed' =>
-                    _openReportError == null
-                        ? _message('报告已完成，正在打开…')
-                        : _message(
-                            _openReportError!,
-                            actionLabel: '重试打开',
-                            actionKey: const ValueKey('report-run-open-retry'),
-                            onAction: _openCompletedReport,
-                          ),
-                  'illustration_pending' => _message('报告正文已完成，正在打开…'),
-                  'generating' => _progress('正在生成报告…'),
-                  _ when _controller.error != null => _message(
-                    _controller.error!,
-                    actionLabel: '重试',
-                    actionKey: const ValueKey('report-run-retry'),
-                    onAction: widget.runId != null
-                        ? () => _controller.loadRun(widget.runId!)
-                        : widget.triggerExecutionId != null
-                        ? () => _controller.startFromTrigger(
-                            widget.triggerExecutionId!,
-                          )
-                        : () => _controller.startUserInitiated(widget.intent!),
-                  ),
-                  _ => _progress('正在准备报告方案…'),
-                },
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(ThemeV2Radii.lg),
+            child: ThemeV2ContentSurface(
+              key: const ValueKey('report-run-content-surface'),
+              opacity: ThemeV2ContentOpacity.dense,
+              child: Padding(
+                padding: const EdgeInsets.all(ThemeV2Spacing.md),
+                child: content,
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -281,11 +353,6 @@ class _ReportRunPageState extends State<ReportRunPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _ReportPlanStepper(
-          key: const ValueKey('report-plan-stepper'),
-          currentStep: _planStep,
-        ),
-        const SizedBox(height: ThemeV2Spacing.xl),
         Expanded(
           child: AnimatedSwitcher(
             duration: const Duration(milliseconds: 180),
@@ -321,6 +388,13 @@ class _ReportRunPageState extends State<ReportRunPage> {
         ),
         const SizedBox(height: ThemeV2Spacing.sm),
         const Text('Reka 已根据当前内容准备好推荐方案，你也可以选择其他方向。'),
+        if (_draftNeedsEvidence(draft)) ...[
+          const SizedBox(height: ThemeV2Spacing.sm),
+          Text(
+            '当前方案还没有参考资产，请先选择后再生成。',
+            style: TextStyle(color: context.themeV2.critical),
+          ),
+        ],
         const SizedBox(height: ThemeV2Spacing.xl),
         for (final option in options) ...[
           _planOptionCard(
@@ -346,11 +420,6 @@ class _ReportRunPageState extends State<ReportRunPage> {
           ),
           const SizedBox(height: ThemeV2Spacing.md),
         ],
-        if (_draftNeedsEvidence(draft))
-          Text(
-            '当前方案还没有参考资产，请先选择后再生成。',
-            style: TextStyle(color: context.themeV2.critical),
-          ),
       ],
     );
   }
@@ -435,20 +504,142 @@ class _ReportRunPageState extends State<ReportRunPage> {
   Widget _scopeStepBody(ReportScopeDraftView scope) {
     final candidates = _controller.scopeCandidates!;
     final adapter = scope.adapterKind;
+    final intent = _controller.intent.isNotEmpty
+        ? _controller.intent
+        : widget.intent?.trim() ?? '';
     return ListView(
       key: const ValueKey('report-step-scope'),
       children: [
         const Text(
-          '这份报告要看什么',
+          '确认报告输入',
           style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: ThemeV2Spacing.sm),
-        Text(switch (adapter) {
-          'pre_event_briefing' => '先选择要准备的会议，再补充你最关心的问题。',
-          'period_summary' => '默认纳入这段时间里的全部相关记录，你可以按类型或单条调整。',
-          _ => '选择需要参考的日程、联系人或记录；也可以只补充你的关注点。',
-        }),
+        const Text('先确认使用哪些资产；呈现方式和补充说明都可以留给 Reka 推荐。'),
+        if (intent.isNotEmpty) ...[
+          const SizedBox(height: ThemeV2Spacing.lg),
+          Container(
+            padding: const EdgeInsets.all(ThemeV2Spacing.md),
+            decoration: BoxDecoration(
+              color: context.themeV2.surface,
+              borderRadius: BorderRadius.circular(ThemeV2Radii.lg),
+              border: Border.all(color: context.themeV2.border),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '你的需求',
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: context.themeV2.muted,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: ThemeV2Spacing.xs),
+                Text(intent),
+              ],
+            ),
+          ),
+        ],
         const SizedBox(height: ThemeV2Spacing.xl),
+        const Text(
+          '资产范围',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: ThemeV2Spacing.xs),
+        Text('已选择 ${scope.references.length} 项资产'),
+        if (adapter == 'generic' && scope.references.length == 1) ...[
+          const SizedBox(height: ThemeV2Spacing.xs),
+          const Text('已定位到这项资产；如果需要，可以继续关联其他资产。'),
+        ],
+        if (adapter == 'period_summary' &&
+            candidates.timeRangeOptions.isNotEmpty) ...[
+          const SizedBox(height: ThemeV2Spacing.md),
+          const Text('时间范围'),
+          const SizedBox(height: ThemeV2Spacing.sm),
+          Wrap(
+            spacing: ThemeV2Spacing.sm,
+            runSpacing: ThemeV2Spacing.sm,
+            children: [
+              for (final option in candidates.timeRangeOptions)
+                ChoiceChip(
+                  key: ValueKey('report-time-range-${option.id}'),
+                  label: Text(option.label),
+                  selected: option.id == 'custom'
+                      ? scope.timeRange != null &&
+                            !candidates.timeRangeOptions.any(
+                              (candidate) =>
+                                  candidate.id != 'custom' &&
+                                  _sameTimeRange(
+                                    scope.timeRange,
+                                    candidate.timeRange,
+                                  ),
+                            )
+                      : _sameTimeRange(scope.timeRange, option.timeRange),
+                  onSelected: (_) => unawaited(
+                    option.id == 'custom'
+                        ? _pickCustomTimeRange()
+                        : _controller.selectScopeTimeRange(option),
+                  ),
+                ),
+            ],
+          ),
+        ],
+        if (adapter == 'period_summary' &&
+            scope.missingDimensions.contains('asset_type') &&
+            candidates.recordGroups.isNotEmpty) ...[
+          const SizedBox(height: ThemeV2Spacing.lg),
+          const Text('资产类型'),
+          const SizedBox(height: ThemeV2Spacing.xs),
+          const Text('选择你想纳入报告的记录类型。'),
+          const SizedBox(height: ThemeV2Spacing.sm),
+          Wrap(
+            spacing: ThemeV2Spacing.sm,
+            runSpacing: ThemeV2Spacing.sm,
+            children: [
+              for (final group in candidates.recordGroups)
+                FilterChip(
+                  key: ValueKey('report-scope-type-${group.skillId}'),
+                  label: Text(group.label),
+                  selected: scope.skillIds.contains(group.skillId),
+                  onSelected: (selected) =>
+                      _controller.toggleScopeGroup(group.skillId, selected),
+                ),
+            ],
+          ),
+        ],
+        if (adapter == 'period_summary' &&
+            scope.supportingReferences.isNotEmpty) ...[
+          const SizedBox(height: ThemeV2Spacing.lg),
+          Wrap(
+            spacing: ThemeV2Spacing.sm,
+            runSpacing: ThemeV2Spacing.sm,
+            children: [
+              for (final group in candidates.recordGroups)
+                if (_selectedRecordCount(group, scope) > 0)
+                  ActionChip(
+                    key: ValueKey('report-selected-group-${group.skillId}'),
+                    label: Text(
+                      '${group.label} × ${_selectedRecordCount(group, scope)}',
+                    ),
+                    avatar: const Icon(Icons.inventory_2_outlined, size: 18),
+                    onPressed: () =>
+                        _openEvidencePicker(initialSkillId: group.skillId),
+                  ),
+            ],
+          ),
+        ],
+        const SizedBox(height: ThemeV2Spacing.lg),
+        OutlinedButton.icon(
+          key: const ValueKey('report-open-evidence-picker'),
+          onPressed: () => _openEvidencePicker(),
+          icon: const Icon(Icons.add_rounded),
+          label: const Text('手动添加资产'),
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size.fromHeight(ThemeV2Sizes.minTouchTarget),
+          ),
+        ),
+        const SizedBox(height: ThemeV2Spacing.lg),
         if (adapter == 'pre_event_briefing') ...[
           const Text(
             '选择会议',
@@ -467,40 +658,56 @@ class _ReportRunPageState extends State<ReportRunPage> {
               const SizedBox(height: ThemeV2Spacing.sm),
             ],
         ] else if (adapter == 'period_summary') ...[
-          const Text(
-            '选择记录',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: ThemeV2Spacing.sm),
-          if (candidates.recordGroups.isEmpty)
-            _emptyScopeCard('这段时间内还没有可汇总的记录')
-          else
-            for (final group in candidates.recordGroups)
-              _recordScopeGroup(group, scope),
+          if (scope.timeRange == null)
+            _emptyScopeCard('选择时间后，Reka 会筛出对应资产')
+          else if (candidates.recordGroups.isEmpty)
+            _emptyScopeCard('这段时间内还没有可汇总的记录'),
         ],
-        if (adapter != 'period_summary') ...[
-          if (adapter == 'pre_event_briefing')
-            const SizedBox(height: ThemeV2Spacing.md),
-          const Text(
-            '补充参考资料',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: ThemeV2Spacing.xs),
-          Text('已选择 ${scope.supportingReferences.length} 项，可随时取消。'),
+        const SizedBox(height: ThemeV2Spacing.xl),
+        const Text(
+          '呈现方式（选填）',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: ThemeV2Spacing.xs),
+        const Text('不选择时，Reka 会根据资产内容推荐。'),
+        const SizedBox(height: ThemeV2Spacing.sm),
+        Wrap(
+          spacing: ThemeV2Spacing.sm,
+          runSpacing: ThemeV2Spacing.sm,
+          children: [
+            for (final entry in const {
+              'data_trend': '数据复盘',
+              'theme_synthesis': '主题综合',
+              'professional_evaluation': '专业评估',
+              'briefing_research': '调研简报',
+              'custom': '其他',
+            }.entries)
+              ChoiceChip(
+                key: ValueKey('report-presentation-${entry.key}'),
+                label: Text(entry.value),
+                selected: scope.presentationPreference.family == entry.key,
+                onSelected: (_) =>
+                    _controller.setScopePresentationFamily(entry.key),
+              ),
+          ],
+        ),
+        if (scope.presentationPreference.family == 'custom') ...[
           const SizedBox(height: ThemeV2Spacing.sm),
-          OutlinedButton.icon(
-            key: const ValueKey('report-open-evidence-picker'),
-            onPressed: _openEvidencePicker,
-            icon: const Icon(Icons.add_rounded),
-            label: const Text('选择日程、联系人或记录'),
-            style: OutlinedButton.styleFrom(
-              minimumSize: const Size.fromHeight(ThemeV2Sizes.minTouchTarget),
+          TextField(
+            key: const ValueKey('report-custom-presentation'),
+            controller: _presentationController,
+            maxLength: 240,
+            onChanged: _controller.updateScopeCustomPresentation,
+            decoration: InputDecoration(
+              labelText: '描述你希望的呈现方式',
+              hintText: '例如：做成适合分享的一页卡片',
+              counterText: '',
             ),
           ),
         ],
         const SizedBox(height: ThemeV2Spacing.xl),
         const Text(
-          '关注的问题',
+          '补充信息（选填）',
           style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: ThemeV2Spacing.sm),
@@ -515,15 +722,21 @@ class _ReportRunPageState extends State<ReportRunPage> {
           ),
           const SizedBox(height: ThemeV2Spacing.sm),
         ],
-        TextField(
-          key: const ValueKey('report-additional-focus'),
-          controller: _focusController,
-          maxLength: 500,
-          maxLines: 3,
-          onChanged: _controller.updateScopeAdditionalFocus,
-          decoration: const InputDecoration(
-            labelText: '还想重点了解什么？（选填）',
-            hintText: '例如：补充 Kevin 的公开职业背景，重点比较青训体系',
+        VoiceInputField(
+          key: const ValueKey('report-additional-focus-voice'),
+          controller: _focusVoiceController,
+          enabled: !_controller.busy,
+          builder: (context, voice) => TextField(
+            key: const ValueKey('report-additional-focus'),
+            controller: _focusController,
+            readOnly: voice.isBusy,
+            maxLength: 500,
+            maxLines: 3,
+            decoration: InputDecoration(
+              labelText: '背景、重点或需要排除的内容',
+              hintText: '例如：重点解释周末支出，忽略报销项目',
+              suffixIcon: voice.statusIcon(color: context.themeV2.accent),
+            ),
           ),
         ),
       ],
@@ -596,45 +809,12 @@ class _ReportRunPageState extends State<ReportRunPage> {
     ),
   );
 
-  Widget _recordScopeGroup(
+  int _selectedRecordCount(
     ReportScopeRecordGroupView group,
     ReportScopeDraftView scope,
-  ) {
-    final groupSelected = scope.skillIds.contains(group.skillId);
-    return Card(
-      margin: const EdgeInsets.only(bottom: ThemeV2Spacing.sm),
-      color: context.themeV2.surface,
-      child: ExpansionTile(
-        key: ValueKey('report-scope-group-${group.skillId}'),
-        leading: Checkbox(
-          value: groupSelected,
-          onChanged: (value) =>
-              _controller.toggleScopeGroup(group.skillId, value ?? false),
-        ),
-        title: Text(
-          group.label,
-          style: const TextStyle(fontWeight: FontWeight.w700),
-        ),
-        subtitle: Text('${group.count} 条记录'),
-        children: [
-          for (final record in group.records)
-            CheckboxListTile(
-              key: ValueKey('report-scope-record-${record.reference.id}'),
-              value: scope.supportingReferences.contains(record.reference),
-              onChanged: (value) => _controller.toggleScopeRecord(
-                record.reference,
-                value ?? false,
-              ),
-              title: Text(record.title),
-              subtitle: record.effectiveAt == null
-                  ? null
-                  : Text(_formatScopeRecordTime(record.effectiveAt!)),
-              controlAffinity: ListTileControlAffinity.leading,
-            ),
-        ],
-      ),
-    );
-  }
+  ) => group.records
+      .where((record) => scope.supportingReferences.contains(record.reference))
+      .length;
 
   Widget _emptyScopeCard(String message) => Container(
     padding: const EdgeInsets.all(ThemeV2Spacing.lg),
@@ -649,10 +829,47 @@ class _ReportRunPageState extends State<ReportRunPage> {
   TextStyle _scopeSecondaryStyle() =>
       TextStyle(color: context.themeV2.muted, height: 1.35);
 
-  String _formatScopeRecordTime(DateTime value) {
-    final local = value.toLocal();
-    String two(int number) => number.toString().padLeft(2, '0');
-    return '${local.month}月${local.day}日 ${two(local.hour)}:${two(local.minute)}';
+  bool _sameTimeRange(
+    Map<String, dynamic>? current,
+    Map<String, dynamic>? candidate,
+  ) {
+    if (current == null || candidate == null) return false;
+    return current['from']?.toString() == candidate['from']?.toString() &&
+        current['to']?.toString() == candidate['to']?.toString();
+  }
+
+  Future<void> _pickCustomTimeRange() async {
+    final now = DateTime.now();
+    final selected = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(now.year - 5),
+      lastDate: DateTime(now.year + 1),
+      initialDateRange: DateTimeRange(
+        start: now.subtract(const Duration(days: 7)),
+        end: now,
+      ),
+    );
+    if (!mounted || selected == null) return;
+    final start = DateTime(
+      selected.start.year,
+      selected.start.month,
+      selected.start.day,
+    );
+    final endExclusive = DateTime(
+      selected.end.year,
+      selected.end.month,
+      selected.end.day + 1,
+    );
+    await _controller.selectScopeTimeRange(
+      ReportTimeRangeOptionView(
+        id: 'custom_selected',
+        label: '自定义',
+        timeRange: {
+          'from': reportTimeBoundaryIso(start),
+          'to': reportTimeBoundaryIso(endExclusive),
+        },
+      ),
+    );
   }
 
   Widget _confirmationStepBody(
@@ -791,7 +1008,11 @@ class _ReportRunPageState extends State<ReportRunPage> {
   ) => switch (_planStep) {
     0 => FilledButton(
       key: const ValueKey('report-scope-confirm'),
-      onPressed: _controller.busy || scope == null || !_scopeCanContinue(scope)
+      onPressed:
+          _controller.busy ||
+              _focusVoiceController.isBusy ||
+              scope == null ||
+              !_scopeCanContinue(scope)
           ? null
           : () => _controller.confirmScope(
               scope.copyWith(additionalFocus: _focusController.text.trim()),
@@ -799,7 +1020,7 @@ class _ReportRunPageState extends State<ReportRunPage> {
       style: FilledButton.styleFrom(
         minimumSize: const Size.fromHeight(ThemeV2Sizes.minTouchTarget),
       ),
-      child: Text(_controller.busy ? '确认中…' : '确认范围，生成方案'),
+      child: Text(_controller.busy ? '确认中…' : '确认输入，生成方案'),
     ),
     1 => Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -896,13 +1117,14 @@ class _ReportRunPageState extends State<ReportRunPage> {
         (scope == null || scope.adapterKind != 'generic');
   }
 
-  Future<void> _openEvidencePicker() async {
+  Future<void> _openEvidencePicker({String? initialSkillId}) async {
     final scope = _controller.scopeDraft;
     if (scope == null) return;
     final selected = await showReportEvidencePickerSheet(
       context,
       loadPage: _controller.loadEvidenceOptions,
       initialSelected: scope.supportingReferences,
+      initialSkillId: initialSkillId,
     );
     if (!mounted || selected == null) return;
     _controller.replaceScopeSupportingReferences(selected);
@@ -950,6 +1172,9 @@ class _ReportRunPageState extends State<ReportRunPage> {
                   .map((option) => option.toString())
                   .where((option) => option.isNotEmpty)
                   .toList(growable: false);
+              final answerController = options.isEmpty
+                  ? _clarificationController(id)
+                  : null;
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -959,10 +1184,22 @@ class _ReportRunPageState extends State<ReportRunPage> {
                   ),
                   const SizedBox(height: ThemeV2Spacing.sm),
                   if (options.isEmpty)
-                    TextField(
-                      onChanged: (value) =>
-                          _controller.answerQuestion(id, value),
-                      decoration: const InputDecoration(hintText: '请输入'),
+                    VoiceInputTextAdapter(
+                      key: ValueKey('report-clarification-voice-$id'),
+                      controller: answerController!,
+                      enabled: !_controller.busy,
+                      onBusyChanged: (busy) =>
+                          _clarificationVoiceChanged(id, busy),
+                      builder: (context, controller, voice) => TextField(
+                        controller: controller,
+                        readOnly: voice.isBusy,
+                        decoration: InputDecoration(
+                          hintText: '请输入',
+                          suffixIcon: voice.statusIcon(
+                            color: context.themeV2.accent,
+                          ),
+                        ),
+                      ),
                     )
                   else
                     Wrap(
@@ -986,7 +1223,10 @@ class _ReportRunPageState extends State<ReportRunPage> {
         ),
         FilledButton(
           key: const ValueKey('report-run-clarification-submit'),
-          onPressed: _controller.busy || !_controller.canSubmitClarification
+          onPressed:
+              _controller.busy ||
+                  _activeClarificationVoice.isNotEmpty ||
+                  !_controller.canSubmitClarification
               ? null
               : _controller.submitClarification,
           style: FilledButton.styleFrom(
@@ -995,100 +1235,6 @@ class _ReportRunPageState extends State<ReportRunPage> {
           child: Text(_controller.busy ? '提交中…' : '继续准备方案'),
         ),
       ],
-    );
-  }
-}
-
-class _ReportPlanStepper extends StatelessWidget {
-  const _ReportPlanStepper({super.key, required this.currentStep});
-
-  final int currentStep;
-
-  static const _labels = ['范围', '方案', '生成'];
-
-  @override
-  Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
-    final border = context.themeV2.border;
-    final muted = context.themeV2.muted;
-    return Semantics(
-      label: '报告方案步骤 ${currentStep + 1} / ${_labels.length}',
-      child: Column(
-        children: [
-          Row(
-            children: [
-              for (var index = 0; index < _labels.length; index++) ...[
-                if (index > 0)
-                  Expanded(
-                    child: Container(
-                      height: 2,
-                      color: index <= currentStep ? primary : border,
-                    ),
-                  ),
-                Semantics(
-                  selected: index == currentStep,
-                  label: '第 ${index + 1} 步：${_labels[index]}',
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 160),
-                    width: 30,
-                    height: 30,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: index <= currentStep
-                          ? primary
-                          : Colors.transparent,
-                      border: Border.all(
-                        color: index <= currentStep ? primary : border,
-                      ),
-                    ),
-                    alignment: Alignment.center,
-                    child: index < currentStep
-                        ? Icon(
-                            Icons.check_rounded,
-                            size: 18,
-                            color: Theme.of(context).colorScheme.onPrimary,
-                          )
-                        : Text(
-                            '${index + 1}',
-                            style: TextStyle(
-                              color: index == currentStep
-                                  ? Theme.of(context).colorScheme.onPrimary
-                                  : muted,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-          const SizedBox(height: ThemeV2Spacing.xs),
-          Row(
-            children: [
-              for (var index = 0; index < _labels.length; index++)
-                Expanded(
-                  child: Text(
-                    _labels[index],
-                    textAlign: switch (index) {
-                      0 => TextAlign.left,
-                      2 => TextAlign.right,
-                      _ => TextAlign.center,
-                    },
-                    style: TextStyle(
-                      color: index == currentStep
-                          ? context.themeV2.foreground
-                          : muted,
-                      fontSize: 12,
-                      fontWeight: index == currentStep
-                          ? FontWeight.w700
-                          : FontWeight.w500,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ],
-      ),
     );
   }
 }

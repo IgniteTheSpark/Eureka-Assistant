@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../timeline/timeline.dart';
 import '../foundation/theme_v2_dither_field.dart';
 import '../foundation/theme_v2_dither_surface.dart';
+import '../foundation/theme_v2_content_surface.dart';
 import '../foundation/theme_v2_semantics.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
@@ -32,9 +33,9 @@ class CalendarDayDetail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ColoredBox(
+    return ThemeV2ContentSurface(
       key: const ValueKey('calendar-day-detail'),
-      color: Colors.transparent,
+      opacity: ThemeV2ContentOpacity.dense,
       child: ListView(
         key: ValueKey('calendar-day-detail-${calendarDayKey(dayData.day)}'),
         padding: const EdgeInsets.fromLTRB(

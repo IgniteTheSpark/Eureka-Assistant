@@ -90,4 +90,36 @@ void main() {
 
     expect(requestBody, {'text': '手动输入', 'source': 'typed'});
   });
+
+  test('sendVoiceFlash uses the ASR session as its idempotency key', () async {
+    Map<String, dynamic>? requestBody;
+    final api = ApiClient(
+      baseUrl: 'http://theme-v2.test',
+      enableLogging: false,
+      client: MockClient((request) async {
+        requestBody = (jsonDecode(request.body) as Map).cast<String, dynamic>();
+        return http.Response(
+          jsonEncode({
+            'ok': true,
+            'session_id': '',
+            'recording_id': '',
+            'physical_session_id': '',
+            'input_turn_id': '',
+            'cards': <Object>[],
+            'has_pending': true,
+          }),
+          200,
+        );
+      }),
+    );
+    addTearDown(api.close);
+
+    await sendVoiceFlash(api, '语音闪念', voiceSessionId: 'voice-session-42');
+
+    expect(requestBody, {
+      'text': '语音闪念',
+      'source': 'voice',
+      'client_task_id': 'voice-session-42',
+    });
+  });
 }

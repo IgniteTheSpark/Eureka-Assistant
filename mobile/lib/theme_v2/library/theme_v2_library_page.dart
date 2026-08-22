@@ -8,8 +8,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../asset_detail/asset_detail_repository.dart';
 import '../asset_detail/asset_entity_ref.dart';
 import '../asset_detail/open_asset_detail.dart';
-import '../foundation/theme_v2_dither_field.dart';
-import '../foundation/theme_v2_dither_surface.dart';
 import '../foundation/theme_v2_theme.dart';
 import '../foundation/theme_v2_tokens.dart';
 import '../report/report_container_page.dart';
@@ -80,7 +78,8 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
     _ownsNavigation = widget.navigation == null;
     _navigation = widget.navigation ?? LibraryNavigationController();
     if (widget.autoLoad) {
-      dataRevision.addListener(_refresh);
+      dataMutationRevision.addListener(_refresh);
+      dataLibraryCatchUpRevision.addListener(_refresh);
       if (_controller.status == LibraryStatus.idle) {
         _controller.load();
       }
@@ -89,7 +88,10 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
 
   @override
   void dispose() {
-    if (widget.autoLoad) dataRevision.removeListener(_refresh);
+    if (widget.autoLoad) {
+      dataMutationRevision.removeListener(_refresh);
+      dataLibraryCatchUpRevision.removeListener(_refresh);
+    }
     if (_ownsController) {
       _controller.dispose();
       _ownedApi?.close();
@@ -103,68 +105,81 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
 
   @override
   Widget build(BuildContext context) {
-    return ThemeV2DitherSurface(
-      key: const ValueKey('library-dither-surface'),
-      active: widget.active,
-      config: const ThemeV2DitherFieldConfig.library(),
-      child: AnimatedBuilder(
-        animation: Listenable.merge([_controller, _navigation]),
-        builder: (context, _) {
-          final status = _controller.status;
-          final hasOverview = _controller.overview != null;
-          if (status == LibraryStatus.loading && !hasOverview) {
-            return PopScope(
-              canPop: !_navigation.canPop,
-              onPopInvokedWithResult: _handlePop,
-              child: const ColoredBox(
-                color: Colors.transparent,
-                child: LibraryStateView.loading(),
-              ),
-            );
-          }
-          if (status == LibraryStatus.offline ||
-              status == LibraryStatus.error) {
-            return PopScope(
-              canPop: !_navigation.canPop,
-              onPopInvokedWithResult: _handlePop,
-              child: ColoredBox(
-                color: Colors.transparent,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 16, 18, 112),
-                  child: Align(
-                    alignment: Alignment.topCenter,
-                    child: LibraryStateView.error(
-                      offline: status == LibraryStatus.offline,
-                      message: _controller.errorMessage,
-                      onRetry: _controller.retry,
-                    ),
-                  ),
-                ),
-              ),
-            );
-          }
-
+    return AnimatedBuilder(
+      animation: Listenable.merge([_controller, _navigation]),
+      builder: (context, _) {
+        final status = _controller.status;
+        final hasOverview = _controller.overview != null;
+        if (status == LibraryStatus.loading && !hasOverview) {
           return PopScope(
             canPop: !_navigation.canPop,
             onPopInvokedWithResult: _handlePop,
-            child: PageStorage(
-              bucket: _pageStorageBucket,
-              child: Stack(
-                children: [
-                  Positioned.fill(child: _activeSurface()),
-                  if (status == LibraryStatus.loading)
-                    const Positioned(
-                      top: ThemeV2Spacing.sm,
-                      left: ThemeV2Spacing.xl,
-                      right: ThemeV2Spacing.xl,
-                      child: _LibraryRefreshIndicator(),
-                    ),
-                ],
+            child: const ColoredBox(
+              color: Colors.transparent,
+              child: LibraryStateView.loading(),
+            ),
+          );
+        }
+        if (status == LibraryStatus.offline || status == LibraryStatus.error) {
+          return PopScope(
+            canPop: !_navigation.canPop,
+            onPopInvokedWithResult: _handlePop,
+            child: ColoredBox(
+              color: Colors.transparent,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 16, 18, 112),
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  child: LibraryStateView.error(
+                    offline: status == LibraryStatus.offline,
+                    message: _controller.errorMessage,
+                    onRetry: _controller.retry,
+                  ),
+                ),
               ),
             ),
           );
-        },
-      ),
+        }
+
+        return PopScope(
+          canPop: !_navigation.canPop,
+          onPopInvokedWithResult: _handlePop,
+          child: PageStorage(
+            bucket: _pageStorageBucket,
+            child: Column(
+              children: [
+                if (_controller.statusMessage case final message?)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      ThemeV2Spacing.xl,
+                      ThemeV2Spacing.sm,
+                      ThemeV2Spacing.xl,
+                      0,
+                    ),
+                    child: LibraryPartialBanner(
+                      message: message,
+                      onRetry: _controller.retry,
+                    ),
+                  ),
+                Expanded(
+                  child: Stack(
+                    children: [
+                      Positioned.fill(child: _activeSurface()),
+                      if (status == LibraryStatus.loading)
+                        const Positioned(
+                          top: ThemeV2Spacing.sm,
+                          left: ThemeV2Spacing.xl,
+                          right: ThemeV2Spacing.xl,
+                          child: _LibraryRefreshIndicator(),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -241,11 +256,29 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
         showThemeV2SkillConfigurationLaunch(context, userSkillId: userSkillId);
   }
 
+  VoidCallback? _managementFor(LibraryContainerSummary container) {
+    final userSkillId = container.userSkillId;
+    if (container.isSystem || userSkillId == null) {
+      return null;
+    }
+    return () => showThemeV2SkillManagementLaunch(
+      context,
+      userSkillId: userSkillId,
+      onDeleted: () {
+        _selectedContainer = null;
+        _navigation.back();
+      },
+    );
+  }
+
   Widget _assetContainerSurface() {
     final container = _selectedContainer;
     if (container == null) {
       return const SizedBox.shrink();
     }
+    final custom = !container.isSystem;
+    final configureCard = _displayConfigurationFor(container);
+    final manageSkill = custom ? _managementFor(container) : null;
     switch (container.type) {
       case LibraryContainerType.event:
         return ThemeV2AssetListPage.entities(
@@ -254,7 +287,8 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
           initialEntities: const [],
           api: _detailApi,
           coreRecordsOnly: true,
-          onConfigureCard: _displayConfigurationFor(container),
+          onConfigureCard: configureCard,
+          onManageSkill: manageSkill,
           onBack: _navigation.back,
           contentBottomPadding: ThemeV2Spacing.lg,
         );
@@ -265,7 +299,8 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
           initialEntities: const [],
           api: _detailApi,
           coreRecordsOnly: true,
-          onConfigureCard: _displayConfigurationFor(container),
+          onConfigureCard: configureCard,
+          onManageSkill: manageSkill,
           onBack: _navigation.back,
           contentBottomPadding: ThemeV2Spacing.lg,
         );
@@ -289,7 +324,8 @@ class _ThemeV2LibraryPageState extends ConsumerState<ThemeV2LibraryPage> {
           coreRecordsOnly: true,
           onBack: _navigation.back,
           contentBottomPadding: ThemeV2Spacing.lg,
-          onConfigureCard: _displayConfigurationFor(container),
+          onConfigureCard: configureCard,
+          onManageSkill: manageSkill,
         );
     }
   }

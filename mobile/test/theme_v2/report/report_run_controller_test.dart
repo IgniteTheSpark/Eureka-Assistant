@@ -146,6 +146,388 @@ void main() {
   });
 
   test(
+    'report input keeps time, presentation, and supplemental text separate',
+    () async {
+      final api = _api((request) async {
+        if (request.url.path.endsWith('/scope-candidates')) {
+          return _json({
+            'adapter_kind': 'period_summary',
+            'events': [],
+            'time_range_options': [
+              {
+                'id': 'last_30_days',
+                'label': '过去 30 天',
+                'time_range': {
+                  'from': '2026-07-20T00:00:00+08:00',
+                  'to': '2026-08-19T00:00:00+08:00',
+                },
+              },
+            ],
+            'record_groups': [
+              {
+                'skill_id': 'expense',
+                'label': '消费',
+                'count': 1,
+                'records': [
+                  {
+                    'reference': {'kind': 'asset', 'id': 'expense-1'},
+                    'title': '午餐',
+                    'effective_at': '2026-08-18T12:00:00+08:00',
+                  },
+                ],
+              },
+            ],
+            'default_scope': {
+              'adapter_kind': 'period_summary',
+              'skill_ids': ['expense'],
+              'missing_dimensions': ['time_range'],
+            },
+          });
+        }
+        return _json({
+          'id': 'run-input',
+          'state': 'awaiting_selection',
+          'scope_revision': 0,
+          'pending_decision': {
+            'type': 'scope_confirmation',
+            'adapter_kind': 'period_summary',
+          },
+          'scope_draft': {'adapter_kind': 'period_summary'},
+        });
+      });
+      final controller = ReportRunController(api: api, autoPoll: false);
+      addTearDown(() {
+        controller.dispose();
+        api.close();
+      });
+
+      await controller.loadRun('run-input');
+      await controller.loadScopeCandidates();
+      await controller.selectScopeTimeRange(
+        controller.scopeCandidates!.timeRangeOptions.single,
+      );
+      controller.setScopePresentationFamily('data_trend');
+      controller.updateScopeAdditionalFocus('忽略报销项目');
+
+      final draft = controller.scopeDraft!;
+      expect(draft.supportingReferences.single.id, 'expense-1');
+      expect(draft.missingDimensions, isEmpty);
+      expect(draft.presentationPreference.family, 'data_trend');
+      expect(draft.additionalFocus, '忽略报销项目');
+      expect(draft.toJson()['presentation_preference'], {
+        'family': 'data_trend',
+        'custom_text': '',
+      });
+    },
+  );
+
+  test(
+    'time range refetches server candidates outside the preview window',
+    () async {
+      final candidateRequests = <Uri>[];
+      final api = _api((request) async {
+        if (request.url.path.endsWith('/scope-candidates')) {
+          candidateRequests.add(request.url);
+          final expanded = request.url.queryParameters.containsKey('from');
+          return _json({
+            'adapter_kind': 'period_summary',
+            'events': [],
+            'record_groups': [
+              {
+                'skill_id': 'running',
+                'label': '跑步',
+                'count': expanded ? 2 : 1,
+                'records': [
+                  if (expanded)
+                    {
+                      'reference': {'kind': 'asset', 'id': 'run-old'},
+                      'title': '旧记录',
+                      'effective_at': '2026-06-10T08:00:00+08:00',
+                    },
+                  {
+                    'reference': {'kind': 'asset', 'id': 'run-new'},
+                    'title': '新记录',
+                    'effective_at': '2026-08-10T08:00:00+08:00',
+                  },
+                ],
+              },
+            ],
+            'default_scope': {
+              'adapter_kind': 'period_summary',
+              'skill_ids': ['running'],
+              'time_range': expanded
+                  ? {
+                      'from': '2026-06-01T00:00:00+08:00',
+                      'to': '2026-09-01T00:00:00+08:00',
+                    }
+                  : null,
+              'supporting_references': [
+                if (expanded) {'kind': 'asset', 'id': 'run-old'},
+                {'kind': 'asset', 'id': 'run-new'},
+              ],
+            },
+          });
+        }
+        return _json({
+          'id': 'run-range',
+          'state': 'awaiting_selection',
+          'scope_revision': 0,
+          'pending_decision': {'type': 'scope_confirmation'},
+          'scope_draft': {'adapter_kind': 'period_summary'},
+        });
+      });
+      final controller = ReportRunController(api: api, autoPoll: false);
+      addTearDown(() {
+        controller.dispose();
+        api.close();
+      });
+      await controller.loadRun('run-range');
+      await controller.loadScopeCandidates();
+
+      await controller.selectScopeTimeRange(
+        const ReportTimeRangeOptionView(
+          id: 'custom',
+          label: '自定义',
+          timeRange: {
+            'from': '2026-06-01T00:00:00+08:00',
+            'to': '2026-09-01T00:00:00+08:00',
+          },
+        ),
+      );
+
+      expect(candidateRequests, hasLength(2));
+      expect(candidateRequests.last.queryParameters, {
+        'from': '2026-06-01T00:00:00+08:00',
+        'to': '2026-09-01T00:00:00+08:00',
+      });
+      expect(
+        controller.scopeDraft!.supportingReferences.map((item) => item.id),
+        ['run-old', 'run-new'],
+      );
+    },
+  );
+
+  test(
+    'group and full-list edits preserve exclusions until reselected',
+    () async {
+      final api = _api((request) async {
+        if (request.url.path.endsWith('/scope-candidates')) {
+          return _json({
+            'adapter_kind': 'period_summary',
+            'record_groups': [
+              {
+                'skill_id': 'water',
+                'label': '喝水',
+                'count': 2,
+                'records': [
+                  for (final id in ['water-1', 'water-2'])
+                    {
+                      'reference': {'kind': 'asset', 'id': id},
+                      'title': id,
+                      'effective_at': '2026-08-10T08:00:00+08:00',
+                    },
+                ],
+              },
+              {
+                'skill_id': 'run',
+                'label': '跑步',
+                'count': 1,
+                'records': [
+                  {
+                    'reference': {'kind': 'asset', 'id': 'run-1'},
+                    'title': 'run-1',
+                    'effective_at': '2026-08-10T09:00:00+08:00',
+                  },
+                ],
+              },
+            ],
+            'default_scope': {
+              'adapter_kind': 'period_summary',
+              'skill_ids': ['water', 'run'],
+              'supporting_references': [
+                {'kind': 'asset', 'id': 'water-1'},
+                {'kind': 'asset', 'id': 'water-2'},
+                {'kind': 'asset', 'id': 'run-1'},
+              ],
+            },
+          });
+        }
+        return _json({
+          'id': 'run-exclusions',
+          'state': 'awaiting_selection',
+          'scope_revision': 0,
+          'pending_decision': {'type': 'scope_confirmation'},
+          'scope_draft': {'adapter_kind': 'period_summary'},
+        });
+      });
+      final controller = ReportRunController(api: api, autoPoll: false);
+      addTearDown(() {
+        controller.dispose();
+        api.close();
+      });
+      await controller.loadRun('run-exclusions');
+      await controller.loadScopeCandidates();
+
+      controller.toggleScopeRecord(
+        const EvidenceReferenceView(kind: 'asset', id: 'water-1'),
+        false,
+      );
+      controller.toggleScopeGroup('run', false);
+      expect(controller.scopeDraft!.selection.excludedReferenceIds.toSet(), {
+        'water-1',
+        'run-1',
+      });
+      controller.toggleScopeGroup('run', true);
+      expect(controller.scopeDraft!.selection.excludedReferenceIds, [
+        'water-1',
+      ]);
+      controller.replaceScopeSupportingReferences(const [
+        EvidenceReferenceView(kind: 'asset', id: 'water-2'),
+        EvidenceReferenceView(kind: 'asset', id: 'run-1'),
+      ]);
+      expect(controller.scopeDraft!.selection.excludedReferenceIds, [
+        'water-1',
+      ]);
+    },
+  );
+
+  test(
+    'manual reselection clears an exclusion left by an older range',
+    () async {
+      final api = _api((request) async {
+        if (request.url.path.endsWith('/scope-candidates')) {
+          return _json({
+            'adapter_kind': 'period_summary',
+            'record_groups': [
+              {
+                'skill_id': 'running',
+                'label': '跑步',
+                'count': 1,
+                'records': [
+                  {
+                    'reference': {'kind': 'asset', 'id': 'current'},
+                    'title': 'current',
+                    'effective_at': '2026-08-10T08:00:00+08:00',
+                  },
+                ],
+              },
+            ],
+            'default_scope': {
+              'adapter_kind': 'period_summary',
+              'skill_ids': ['running'],
+            },
+          });
+        }
+        return _json({
+          'id': 'run-old-exclusion',
+          'state': 'awaiting_selection',
+          'scope_revision': 0,
+          'pending_decision': {'type': 'scope_confirmation'},
+          'scope_draft': {
+            'adapter_kind': 'period_summary',
+            'skill_ids': ['running'],
+            'selection': {
+              'auto_references': [
+                {'kind': 'asset', 'id': 'retired'},
+              ],
+              'excluded_reference_ids': ['retired'],
+            },
+          },
+        });
+      });
+      final controller = ReportRunController(api: api, autoPoll: false);
+      addTearDown(() {
+        controller.dispose();
+        api.close();
+      });
+      await controller.loadRun('run-old-exclusion');
+      await controller.selectScopeTimeRange(
+        const ReportTimeRangeOptionView(
+          id: 'custom',
+          label: '自定义',
+          timeRange: {
+            'from': '2026-08-01T00:00:00+08:00',
+            'to': '2026-09-01T00:00:00+08:00',
+          },
+        ),
+      );
+
+      controller.replaceScopeSupportingReferences(const [
+        EvidenceReferenceView(kind: 'asset', id: 'current'),
+        EvidenceReferenceView(kind: 'asset', id: 'retired'),
+      ]);
+
+      expect(controller.scopeDraft!.selection.excludedReferenceIds, isEmpty);
+      expect(
+        controller.scopeDraft!.supportingReferences.map((item) => item.id),
+        ['current', 'retired'],
+      );
+    },
+  );
+
+  test('server-expanded final scope requires a second confirmation', () async {
+    final requested = <String>[];
+    var puts = 0;
+    final api = _api((request) async {
+      requested.add('${request.method} ${request.url.path}');
+      if (request.method == 'GET') {
+        return _json({
+          'id': 'run-confirm',
+          'state': 'awaiting_selection',
+          'scope_revision': 0,
+          'pending_decision': {'type': 'scope_confirmation'},
+          'scope_draft': {'adapter_kind': 'period_summary'},
+        });
+      }
+      if (request.method == 'PUT') {
+        puts++;
+        final draft = (jsonDecode(request.body) as Map)['draft'];
+        return _json({
+          'id': 'run-confirm',
+          'state': 'awaiting_selection',
+          'scope_revision': puts,
+          'pending_decision': {
+            'type': 'scope_confirmation',
+            if (puts == 1) 'requires_reconfirmation': true,
+          },
+          'scope_draft': draft,
+        });
+      }
+      return _json({
+        'id': 'run-confirm',
+        'state': 'planning',
+        'scope_revision': 2,
+      });
+    });
+    final controller = ReportRunController(api: api, autoPoll: false);
+    addTearDown(() {
+      controller.dispose();
+      api.close();
+    });
+    await controller.loadRun('run-confirm');
+    const draft = ReportScopeDraftView(adapterKind: 'period_summary');
+
+    await controller.confirmScope(draft);
+    expect(controller.state, 'awaiting_selection');
+    expect(controller.error, contains('再次确认'));
+    expect(requested.where((item) => item.contains('prepare-plan')), isEmpty);
+
+    await controller.confirmScope(controller.scopeDraft!);
+    expect(controller.state, 'planning');
+    expect(
+      requested.where((item) => item.contains('prepare-plan')),
+      hasLength(1),
+    );
+  });
+
+  test('custom range boundaries serialize with an explicit UTC offset', () {
+    expect(
+      reportTimeBoundaryIso(DateTime.parse('2026-08-19T00:00:00+08:00')),
+      '2026-08-18T16:00:00.000Z',
+    );
+  });
+
+  test(
     'confirming scope saves its revision before preparing the plan',
     () async {
       final requested = <String>[];

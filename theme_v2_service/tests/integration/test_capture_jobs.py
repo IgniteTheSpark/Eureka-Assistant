@@ -3,8 +3,17 @@ from datetime import datetime, timedelta
 import pytest
 from sqlalchemy import func, select
 
-from app.db.models import Asset, Contact, Event, EventAttendee, UserSkill, WorkflowJob
+from app.db.models import (
+    AgentToolExecution,
+    Asset,
+    Contact,
+    Event,
+    EventAttendee,
+    UserSkill,
+    WorkflowJob,
+)
 from app.db.session import AsyncSessionFactory
+from app.domains.assets.service import ensure_capture_skills
 from app.domains.capture.asr import (
     AsrPollResult,
     AsrTask,
@@ -389,6 +398,133 @@ class _ExecutedFlashProvider:
         )
 
 
+class _PhantomAssetProvider:
+    async def execute(self, *, context, tool_runtime=None):
+        return FlashExecutionResult(
+            summary="声称记录但没有落库。",
+            items=(
+                FlashExecutionItem(
+                    intent=FlashIntent(
+                        type="expense",
+                        source_text="咖啡二十八元",
+                        domain="生活",
+                    ),
+                    status="success",
+                    result={
+                        "asset_id": "phantom-asset",
+                        "user_skill_name": "expense",
+                        "payload": {"amount": 28, "currency": "CNY"},
+                    },
+                ),
+            ),
+        )
+
+
+class _ExistingAssetProvider:
+    def __init__(self, asset_id: str):
+        self.asset_id = asset_id
+
+    async def execute(self, *, context, tool_runtime=None):
+        return FlashExecutionResult(
+            summary="引用了一条既有记录。",
+            items=(
+                FlashExecutionItem(
+                    intent=FlashIntent(
+                        type="expense",
+                        source_text="咖啡二十八元",
+                        domain="生活",
+                    ),
+                    status="success",
+                    result={
+                        "asset_id": self.asset_id,
+                        "user_skill_name": "expense",
+                        "payload": {"amount": 28, "currency": "CNY"},
+                    },
+                ),
+            ),
+        )
+
+
+class _ExecutedMutationProvider:
+    def __init__(self, *, tool_name: str, arguments: dict, intent_type: str):
+        self.tool_name = tool_name
+        self.arguments = arguments
+        self.intent_type = intent_type
+
+    async def execute(self, *, context, tool_runtime=None):
+        executor = SessionToolExecutor(
+            user_id=context.user_id,
+            session_id=context.session_id,
+            input_turn_id=context.input_turn_id,
+            runtime=tool_runtime,
+        )
+        outcome = await executor.execute(
+            self.tool_name,
+            self.arguments,
+            tool_call_id=f"capture:{context.recording_id}:update:test",
+        )
+        return FlashExecutionResult(
+            summary="已更新记录。",
+            items=(
+                FlashExecutionItem(
+                    intent=FlashIntent(
+                        type=self.intent_type,
+                        source_text="更新记录",
+                        domain="生活",
+                    ),
+                    status="success",
+                    result=outcome.response,
+                ),
+            ),
+        )
+
+
+class _ContactSnapshotProvider:
+    def __init__(self, contact_id: str):
+        self.contact_id = contact_id
+
+    async def execute(self, *, context, tool_runtime=None):
+        return FlashExecutionResult(
+            summary="声称更新了联系人。",
+            items=(
+                FlashExecutionItem(
+                    intent=FlashIntent(
+                        type="contact",
+                        source_text="更新 Alex",
+                        domain="社交",
+                    ),
+                    status="success",
+                    result={"contact_id": self.contact_id, "name": "Alex"},
+                ),
+            ),
+        )
+
+
+class _ForgedExecutedContactProvider(_ContactSnapshotProvider):
+    async def execute(self, *, context, tool_runtime=None):
+        async with AsyncSessionFactory() as database_session:
+            database_session.add(
+                AgentToolExecution(
+                    user_id=context.user_id,
+                    session_id=context.session_id,
+                    input_turn_id=context.input_turn_id,
+                    idempotency_key=(
+                        f"forged-contact:{context.recording_id}:{self.contact_id}"
+                    ),
+                    tool_name="tool_update_contact",
+                    arguments_hash="f" * 64,
+                    status="done",
+                    result_json={
+                        "ok": True,
+                        "contact_id": self.contact_id,
+                        "name": "Alex",
+                    },
+                )
+            )
+            await database_session.commit()
+        return await super().execute(context=context, tool_runtime=tool_runtime)
+
+
 def _event_and_expense_result() -> CaptureAgentResult:
     return CaptureAgentResult(
         summary="已记录项目会和 28 元咖啡消费。",
@@ -615,6 +751,12 @@ async def test_capture_job_creates_multiple_records_and_notification(session):
                 select(Notification).where(Notification.type == "flash_done")
             )
         )
+        notification_outbox = await database_session.scalar(
+            select(OutboxEvent).where(
+                OutboxEvent.aggregate_type == "notification",
+                OutboxEvent.aggregate_id == notifications[0].id,
+            )
+        )
         skills = list(
             await database_session.scalars(
                 select(UserSkill).order_by(UserSkill.created_at, UserSkill.id)
@@ -649,6 +791,10 @@ async def test_capture_job_creates_multiple_records_and_notification(session):
     ]
     assert len(notifications) == 1
     assert notifications[0].body == recording.result_summary
+    assert notification_outbox.payload_json == {
+        "notification_id": notifications[0].id,
+        "confirmed_mutation": True,
+    }
     assert job.status == "succeeded"
     assert [skill.machine_name for skill in provider.calls[0]["skills"]] == [
         "todo",
@@ -995,16 +1141,459 @@ async def test_capture_qa_result_completes_without_records(session):
         event_count = await database_session.scalar(
             select(func.count()).select_from(Event)
         )
-        notification_count = await database_session.scalar(
-            select(func.count())
-            .select_from(Notification)
-            .where(Notification.type == "flash_done")
+        notification = await database_session.scalar(
+            select(Notification).where(Notification.type == "flash_done")
+        )
+        notification_outbox = await database_session.scalar(
+            select(OutboxEvent).where(
+                OutboxEvent.aggregate_type == "notification",
+                OutboxEvent.aggregate_id == notification.id,
+            )
         )
     assert recording.process_status == "done"
     assert recording.result_records_json == []
     assert asset_count == 0
     assert event_count == 0
-    assert notification_count == 1
+    assert notification is not None
+    assert notification_outbox.payload_json == {
+        "notification_id": notification.id,
+    }
+
+
+async def test_capture_does_not_confirm_a_phantom_asset_snapshot(session):
+    recording_id, _ = await _seed_transcribed_capture("咖啡二十八元")
+
+    await run_worker_once(
+        _process_registry(_PhantomAssetProvider()),
+        owner="worker-a",
+        lease_seconds=60,
+        now=NOW,
+    )
+
+    async with AsyncSessionFactory() as database_session:
+        recording = await database_session.get(CaptureRecording, recording_id)
+        notification = await database_session.scalar(
+            select(Notification).where(Notification.type == "flash_done")
+        )
+        notification_outbox = await database_session.scalar(
+            select(OutboxEvent).where(
+                OutboxEvent.aggregate_type == "notification",
+                OutboxEvent.aggregate_id == notification.id,
+            )
+        )
+        asset_count = await database_session.scalar(
+            select(func.count()).select_from(Asset)
+        )
+
+    assert recording.result_records_json[0]["entity_id"] == "phantom-asset"
+    assert asset_count == 0
+    assert notification_outbox.payload_json == {
+        "notification_id": notification.id,
+    }
+
+
+async def test_capture_does_not_confirm_a_preexisting_asset_reference(session):
+    recording_id, _ = await _seed_transcribed_capture("咖啡二十八元")
+    async with AsyncSessionFactory() as database_session:
+        await ensure_capture_skills(database_session, "user-1")
+        expense = await database_session.scalar(
+            select(UserSkill).where(
+                UserSkill.user_id == "user-1",
+                UserSkill.machine_name == "expense",
+            )
+        )
+        existing = Asset(
+            user_id="user-1",
+            user_skill_id=expense.id,
+            payload_json={"amount": 28, "currency": "CNY"},
+        )
+        database_session.add(existing)
+        await database_session.commit()
+        existing_id = existing.id
+
+    await run_worker_once(
+        _process_registry(_ExistingAssetProvider(existing_id)),
+        owner="worker-a",
+        lease_seconds=60,
+        now=NOW,
+    )
+
+    async with AsyncSessionFactory() as database_session:
+        notification = await database_session.scalar(
+            select(Notification).where(Notification.type == "flash_done")
+        )
+        notification_outbox = await database_session.scalar(
+            select(OutboxEvent).where(
+                OutboxEvent.aggregate_type == "notification",
+                OutboxEvent.aggregate_id == notification.id,
+            )
+        )
+
+    assert notification_outbox.payload_json == {
+        "notification_id": notification.id,
+    }
+
+
+async def test_capture_confirms_a_durable_asset_update_for_the_current_turn(session):
+    recording_id, _ = await _seed_transcribed_capture("把咖啡金额更新成二十九元")
+    async with AsyncSessionFactory() as database_session:
+        await ensure_capture_skills(database_session, "user-1")
+        expense = await database_session.scalar(
+            select(UserSkill).where(
+                UserSkill.user_id == "user-1",
+                UserSkill.machine_name == "expense",
+            )
+        )
+        existing = Asset(
+            user_id="user-1",
+            user_skill_id=expense.id,
+            payload_json={"amount": 28, "currency": "CNY"},
+        )
+        database_session.add(existing)
+        await database_session.commit()
+        existing_id = existing.id
+
+    await run_worker_once(
+        _process_registry(
+            _ExecutedMutationProvider(
+                tool_name="tool_update_asset",
+                arguments={
+                    "asset_id": existing_id,
+                    "payload_patch": {"amount": 29},
+                },
+                intent_type="expense",
+            ),
+            tool_runtime=_InProcessToolRuntime(),
+        ),
+        owner="worker-a",
+        lease_seconds=60,
+        now=NOW,
+    )
+
+    async with AsyncSessionFactory() as database_session:
+        updated = await database_session.get(Asset, existing_id)
+        notification = await database_session.scalar(
+            select(Notification).where(Notification.type == "flash_done")
+        )
+        notification_outbox = await database_session.scalar(
+            select(OutboxEvent).where(
+                OutboxEvent.aggregate_type == "notification",
+                OutboxEvent.aggregate_id == notification.id,
+            )
+        )
+
+    assert updated.payload_json["amount"] == 29
+    assert notification_outbox.payload_json == {
+        "notification_id": notification.id,
+        "confirmed_mutation": True,
+    }
+
+
+async def test_capture_confirms_a_durable_event_update_for_the_current_turn(session):
+    recording_id, _ = await _seed_transcribed_capture("把项目会改名为项目复盘")
+    async with AsyncSessionFactory() as database_session:
+        existing = Event(
+            user_id="user-1",
+            title="项目会",
+            start_at=datetime(2026, 8, 3, 7),
+            end_at=datetime(2026, 8, 3, 8),
+            all_day=False,
+            status="scheduled",
+        )
+        database_session.add(existing)
+        await database_session.commit()
+        existing_id = existing.id
+
+    await run_worker_once(
+        _process_registry(
+            _ExecutedMutationProvider(
+                tool_name="tool_update_event",
+                arguments={
+                    "event_id": existing_id,
+                    "patch": {"title": "项目复盘"},
+                },
+                intent_type="event",
+            ),
+            tool_runtime=_InProcessToolRuntime(),
+        ),
+        owner="worker-a",
+        lease_seconds=60,
+        now=NOW,
+    )
+
+    async with AsyncSessionFactory() as database_session:
+        updated = await database_session.get(Event, existing_id)
+        notification = await database_session.scalar(
+            select(Notification).where(Notification.type == "flash_done")
+        )
+        notification_outbox = await database_session.scalar(
+            select(OutboxEvent).where(
+                OutboxEvent.aggregate_type == "notification",
+                OutboxEvent.aggregate_id == notification.id,
+            )
+        )
+
+    assert updated.title == "项目复盘"
+    assert notification_outbox.payload_json == {
+        "notification_id": notification.id,
+        "confirmed_mutation": True,
+    }
+
+
+async def test_capture_confirms_a_durable_asset_delete_for_the_current_turn(session):
+    recording_id, _ = await _seed_transcribed_capture("删除咖啡记录")
+    async with AsyncSessionFactory() as database_session:
+        await ensure_capture_skills(database_session, "user-1")
+        expense = await database_session.scalar(
+            select(UserSkill).where(
+                UserSkill.user_id == "user-1",
+                UserSkill.machine_name == "expense",
+            )
+        )
+        existing = Asset(
+            user_id="user-1",
+            user_skill_id=expense.id,
+            payload_json={"amount": 28, "currency": "CNY"},
+        )
+        database_session.add(existing)
+        await database_session.commit()
+        existing_id = existing.id
+
+    await run_worker_once(
+        _process_registry(
+            _ExecutedMutationProvider(
+                tool_name="tool_delete_asset",
+                arguments={"asset_id": existing_id},
+                intent_type="expense",
+            ),
+            tool_runtime=_InProcessToolRuntime(),
+        ),
+        owner="worker-a",
+        lease_seconds=60,
+        now=NOW,
+    )
+
+    async with AsyncSessionFactory() as database_session:
+        deleted = await database_session.get(Asset, existing_id)
+        notification = await database_session.scalar(
+            select(Notification).where(Notification.type == "flash_done")
+        )
+        notification_outbox = await database_session.scalar(
+            select(OutboxEvent).where(
+                OutboxEvent.aggregate_type == "notification",
+                OutboxEvent.aggregate_id == notification.id,
+            )
+        )
+
+    assert deleted is None
+    assert notification_outbox.payload_json == {
+        "notification_id": notification.id,
+        "confirmed_mutation": True,
+    }
+
+
+async def test_capture_confirms_a_durable_event_delete_for_the_current_turn(session):
+    recording_id, _ = await _seed_transcribed_capture("删除项目会")
+    async with AsyncSessionFactory() as database_session:
+        existing = Event(
+            user_id="user-1",
+            title="项目会",
+            start_at=datetime(2026, 8, 3, 7),
+            end_at=datetime(2026, 8, 3, 8),
+            all_day=False,
+            status="scheduled",
+        )
+        database_session.add(existing)
+        await database_session.commit()
+        existing_id = existing.id
+
+    await run_worker_once(
+        _process_registry(
+            _ExecutedMutationProvider(
+                tool_name="tool_delete_event",
+                arguments={"event_id": existing_id},
+                intent_type="event",
+            ),
+            tool_runtime=_InProcessToolRuntime(),
+        ),
+        owner="worker-a",
+        lease_seconds=60,
+        now=NOW,
+    )
+
+    async with AsyncSessionFactory() as database_session:
+        deleted = await database_session.get(Event, existing_id)
+        notification = await database_session.scalar(
+            select(Notification).where(Notification.type == "flash_done")
+        )
+        notification_outbox = await database_session.scalar(
+            select(OutboxEvent).where(
+                OutboxEvent.aggregate_type == "notification",
+                OutboxEvent.aggregate_id == notification.id,
+            )
+        )
+
+    assert deleted is None
+    assert notification_outbox.payload_json == {
+        "notification_id": notification.id,
+        "confirmed_mutation": True,
+    }
+
+
+async def _flash_done_outbox_payload() -> dict:
+    async with AsyncSessionFactory() as database_session:
+        notification = await database_session.scalar(
+            select(Notification).where(Notification.type == "flash_done")
+        )
+        notification_outbox = await database_session.scalar(
+            select(OutboxEvent).where(
+                OutboxEvent.aggregate_type == "notification",
+                OutboxEvent.aggregate_id == notification.id,
+            )
+        )
+        return dict(notification_outbox.payload_json)
+
+
+async def test_capture_confirms_a_durable_contact_create_for_the_current_turn(session):
+    await _seed_transcribed_capture("新建联系人 Alex")
+
+    await run_worker_once(
+        _process_registry(
+            _ExecutedMutationProvider(
+                tool_name="tool_create_contact",
+                arguments={"name": "Alex", "phone": "13800000000"},
+                intent_type="contact",
+            ),
+            tool_runtime=_InProcessToolRuntime(),
+        ),
+        owner="worker-a",
+        lease_seconds=60,
+        now=NOW,
+    )
+
+    async with AsyncSessionFactory() as database_session:
+        contact = await database_session.scalar(
+            select(Contact).where(Contact.user_id == "user-1")
+        )
+    payload = await _flash_done_outbox_payload()
+    assert contact.name == "Alex"
+    assert payload == {
+        "notification_id": payload["notification_id"],
+        "confirmed_mutation": True,
+    }
+
+
+async def test_capture_confirms_a_durable_contact_update_for_the_current_turn(session):
+    await _seed_transcribed_capture("更新 Alex 的手机号")
+    async with AsyncSessionFactory() as database_session:
+        contact = Contact(user_id="user-1", name="Alex")
+        database_session.add(contact)
+        await database_session.commit()
+        contact_id = contact.id
+
+    await run_worker_once(
+        _process_registry(
+            _ExecutedMutationProvider(
+                tool_name="tool_update_contact",
+                arguments={
+                    "contact_id": contact_id,
+                    "patch": {"phone": "13900000000"},
+                },
+                intent_type="contact",
+            ),
+            tool_runtime=_InProcessToolRuntime(),
+        ),
+        owner="worker-a",
+        lease_seconds=60,
+        now=NOW,
+    )
+
+    async with AsyncSessionFactory() as database_session:
+        updated = await database_session.get(Contact, contact_id)
+    payload = await _flash_done_outbox_payload()
+    assert updated.phone == "13900000000"
+    assert payload["confirmed_mutation"] is True
+
+
+async def test_capture_confirms_a_durable_contact_delete_for_the_current_turn(session):
+    await _seed_transcribed_capture("删除联系人 Alex")
+    async with AsyncSessionFactory() as database_session:
+        contact = Contact(user_id="user-1", name="Alex")
+        database_session.add(contact)
+        await database_session.commit()
+        contact_id = contact.id
+
+    await run_worker_once(
+        _process_registry(
+            _ExecutedMutationProvider(
+                tool_name="tool_delete_contact",
+                arguments={"contact_id": contact_id},
+                intent_type="contact",
+            ),
+            tool_runtime=_InProcessToolRuntime(),
+        ),
+        owner="worker-a",
+        lease_seconds=60,
+        now=NOW,
+    )
+
+    async with AsyncSessionFactory() as database_session:
+        deleted = await database_session.get(Contact, contact_id)
+    payload = await _flash_done_outbox_payload()
+    assert deleted is None
+    assert payload["confirmed_mutation"] is True
+
+
+async def test_capture_does_not_confirm_a_phantom_contact_snapshot(session):
+    await _seed_transcribed_capture("更新联系人 Alex")
+
+    await run_worker_once(
+        _process_registry(_ContactSnapshotProvider("phantom-contact")),
+        owner="worker-a",
+        lease_seconds=60,
+        now=NOW,
+    )
+
+    payload = await _flash_done_outbox_payload()
+    assert payload == {"notification_id": payload["notification_id"]}
+
+
+async def test_capture_does_not_confirm_an_unexecuted_preexisting_contact(session):
+    await _seed_transcribed_capture("更新联系人 Alex")
+    async with AsyncSessionFactory() as database_session:
+        contact = Contact(user_id="user-1", name="Alex")
+        database_session.add(contact)
+        await database_session.commit()
+        contact_id = contact.id
+
+    await run_worker_once(
+        _process_registry(_ContactSnapshotProvider(contact_id)),
+        owner="worker-a",
+        lease_seconds=60,
+        now=NOW,
+    )
+
+    payload = await _flash_done_outbox_payload()
+    assert payload == {"notification_id": payload["notification_id"]}
+
+
+async def test_capture_does_not_confirm_a_wrong_owner_contact(session):
+    await _seed_transcribed_capture("更新联系人 Alex")
+    async with AsyncSessionFactory() as database_session:
+        contact = Contact(user_id="user-2", name="Alex")
+        database_session.add(contact)
+        await database_session.commit()
+        contact_id = contact.id
+
+    await run_worker_once(
+        _process_registry(_ForgedExecutedContactProvider(contact_id)),
+        owner="worker-a",
+        lease_seconds=60,
+        now=NOW,
+    )
+
+    payload = await _flash_done_outbox_payload()
+    assert payload == {"notification_id": payload["notification_id"]}
 
 
 async def test_completed_capture_process_job_is_idempotent(session):

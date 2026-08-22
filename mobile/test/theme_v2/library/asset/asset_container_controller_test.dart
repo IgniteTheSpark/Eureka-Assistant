@@ -60,6 +60,109 @@ void main() {
   });
 
   test(
+    'refresh requested during refresh runs once more with latest data',
+    () async {
+      final repository = _ControlledAssetContainerRepository();
+      final controller = AssetContainerController(
+        repository: repository,
+        containerId: 'notes',
+        initialRecords: [_todo('cached', dueAt: null)],
+      );
+      addTearDown(controller.dispose);
+
+      final catchUp = controller.refresh();
+      final mutation = controller.refresh();
+      expect(repository.requests, hasLength(1));
+
+      repository.complete(0, [_todo('before-mutation', dueAt: null)]);
+      await Future<void>.delayed(Duration.zero);
+      expect(repository.requests, hasLength(2));
+      repository.complete(1, [_todo('after-mutation', dueAt: null)]);
+
+      await Future.wait([catchUp, mutation]);
+      expect(controller.records.single.id, 'after-mutation');
+    },
+  );
+
+  test(
+    'refresh waits for initial load before reconciling newer data',
+    () async {
+      final repository = _ControlledAssetContainerRepository();
+      final controller = AssetContainerController(
+        repository: repository,
+        containerId: 'notes',
+      );
+      addTearDown(controller.dispose);
+
+      final initialLoad = controller.load();
+      final catchUp = controller.refresh();
+      expect(repository.requests, hasLength(1));
+
+      repository.complete(0, [_todo('initial-snapshot', dueAt: null)]);
+      await Future<void>.delayed(Duration.zero);
+      expect(repository.requests, hasLength(2));
+      repository.complete(1, [_todo('reconciled-snapshot', dueAt: null)]);
+
+      await Future.wait([initialLoad, catchUp]);
+      expect(controller.records.single.id, 'reconciled-snapshot');
+    },
+  );
+
+  test('refresh invalidates an older in-flight pagination response', () async {
+    final repository = _ControlledAssetContainerRepository();
+    final controller = AssetContainerController(
+      repository: repository,
+      containerId: 'notes',
+    );
+    addTearDown(controller.dispose);
+
+    final initialLoad = controller.load();
+    repository.complete(0, [_todo('initial', dueAt: null)], nextCursor: 'next');
+    await initialLoad;
+
+    final pagination = controller.loadMore();
+    expect(repository.requests[1].cursor, 'next');
+    final catchUp = controller.refresh();
+    expect(repository.requests[2].cursor, isNull);
+    repository.complete(2, [_todo('reconciled', dueAt: null)]);
+    await catchUp;
+
+    repository.complete(1, [
+      _todo('stale-page', dueAt: null),
+    ], nextCursor: 'stale-next');
+    await pagination;
+
+    expect(controller.records.map((record) => record.id), ['reconciled']);
+    expect(controller.canLoadMore, isFalse);
+  });
+
+  test(
+    'replacement completion notifies when pagination becomes available',
+    () async {
+      final repository = _ControlledAssetContainerRepository();
+      final controller = AssetContainerController(
+        repository: repository,
+        containerId: 'notes',
+      );
+      addTearDown(controller.dispose);
+      final observedCanLoadMore = <bool>[];
+      controller.addListener(
+        () => observedCanLoadMore.add(controller.canLoadMore),
+      );
+
+      final load = controller.load();
+      repository.complete(0, [
+        _todo('initial', dueAt: null),
+      ], nextCursor: 'next');
+      await load;
+      await Future<void>.delayed(Duration.zero);
+
+      expect(observedCanLoadMore, isNotEmpty);
+      expect(observedCanLoadMore.last, isTrue);
+    },
+  );
+
+  test(
     'failed optimistic completion restores only the changed record',
     () async {
       final repository = _FakeAssetContainerRepository([
@@ -142,6 +245,37 @@ class _FakeAssetContainerRepository implements AssetContainerRepository {
   Future<void> setTodoCompleted(String id, bool completed) async {
     if (completeError != null) throw completeError!;
   }
+}
+
+class _ControlledAssetContainerRepository implements AssetContainerRepository {
+  final requests = <_ControlledLoad>[];
+
+  void complete(
+    int index,
+    List<AssetRecordViewModel> records, {
+    String? nextCursor,
+  }) {
+    requests[index].completer.complete(
+      AssetContainerPage(records: records, nextCursor: nextCursor),
+    );
+  }
+
+  @override
+  Future<AssetContainerPage> load({String? cursor}) {
+    final request = _ControlledLoad(cursor);
+    requests.add(request);
+    return request.completer.future;
+  }
+
+  @override
+  Future<void> setTodoCompleted(String id, bool completed) async {}
+}
+
+class _ControlledLoad {
+  _ControlledLoad(this.cursor);
+
+  final String? cursor;
+  final completer = Completer<AssetContainerPage>();
 }
 
 AssetRecordViewModel _todo(

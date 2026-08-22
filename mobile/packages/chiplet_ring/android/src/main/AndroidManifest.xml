@@ -5,7 +5,13 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <application tools:remove="android:persistent">
+        <service
+            android:name="com.eureka.chiplet_ring.RingBackgroundService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
         <service android:name="com.lm.sdk.BLEService"
             android:foregroundServiceType="mediaPlayback"
             android:exported="false"

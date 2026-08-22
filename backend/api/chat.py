@@ -122,6 +122,18 @@ _QUERY_TOOLS = {
     "query_digest", "get_event", "get_asset", "get_contact", "get_input_turn",
 }
 
+# Only these Assistant MCP tools can alter a persisted Library record. The
+# durable receipt below deliberately names this fixed contract rather than
+# guessing from prose, cards, or arbitrary tool-name substrings.
+_PERSISTED_MUTATION_TOOLS = {
+    "tool_create_asset", "tool_create_todo", "tool_create_note",
+    "tool_update_asset", "tool_delete_asset",
+    "tool_create_contact", "tool_update_contact", "tool_delete_contact",
+    "tool_create_event", "tool_update_event", "tool_delete_event",
+    "tool_add_event_attendee", "tool_update_event_attendee",
+    "tool_delete_event_attendee", "tool_link_event_file", "tool_create_task",
+}
+
 
 def _unwrap_tool_payloads(response) -> list[dict]:
     """FastMCP envelope → candidate payload dicts (top-level / structuredContent
@@ -133,6 +145,14 @@ def _unwrap_tool_payloads(response) -> list[dict]:
     sc = response.get("structuredContent")
     if isinstance(sc, dict):
         out.append(sc)
+        result = sc.get("result")
+        if isinstance(result, str):
+            try:
+                parsed = json.loads(result)
+                if isinstance(parsed, dict):
+                    out.append(parsed)
+            except (ValueError, TypeError):
+                pass
     content = response.get("content")
     if isinstance(content, list) and content and isinstance(content[0], dict):
         text = content[0].get("text")
@@ -144,6 +164,47 @@ def _unwrap_tool_payloads(response) -> list[dict]:
             except (ValueError, TypeError):
                 pass
     return out
+
+
+def _is_successful_persisted_mutation(name: str, response) -> bool:
+    return (
+        name in _PERSISTED_MUTATION_TOOLS
+        and any(
+            payload.get("ok") is True
+            for payload in _unwrap_tool_payloads(response)
+        )
+    )
+
+
+def build_durable_tool_result(
+    tool_results: list[dict],
+    *,
+    bulk_mutation: bool = False,
+) -> dict:
+    """Stable receipt for a durable agent message.
+
+    `results` preserves the existing replay shape. `confirmed_mutation` is an
+    additive, explicit statement that one allowlisted write acknowledged
+    persistence; clients must not infer it from render cards (deletes have no
+    card). `bulk_mutation` is supplied only by the Flash pipeline's explicit
+    successful non-empty `derived_assets` or `derived_events` contract.
+    """
+    results = [
+        {
+            "name": str(result.get("name", "")),
+            "response": result.get("response", {}),
+        }
+        for result in tool_results
+        if isinstance(result, dict)
+    ]
+    return {
+        "results": results,
+        "confirmed_mutation": bulk_mutation
+        or any(
+            _is_successful_persisted_mutation(result["name"], result["response"])
+            for result in results
+        ),
+    }
 
 
 def _tag_card(d) -> dict | None:
@@ -387,6 +448,8 @@ async def _run_chat_turn(
     left mid-generation. Publishes live events to the turn channel for any viewer."""
     agent_text_parts: list[str] = []
     persist_cards: list = []
+    persist_tool_results: list[dict] = []
+    bulk_mutation = False
     usage_total = 0
     status = "done"
     try:
@@ -399,6 +462,10 @@ async def _run_chat_turn(
                 input_turn_id=input_turn_id, today_str=today_str, user_id=user_id,
             )
             persist_cards = result.get("cards", []) or []
+            bulk_mutation = bool(
+                result.get("ok", True)
+                and (result.get("derived_assets") or result.get("derived_events"))
+            )
             n = len(persist_cards)
             summary = (result.get("summary") or result.get("reply") or "").strip()
             # Faithful receipt: prefer Flash's own count line, else state the truth.
@@ -407,9 +474,15 @@ async def _run_chat_turn(
             )
             agent_text_parts = [agent_text]
             chat_turns.publish(turn_id, ("token", {"text": agent_text}))
-            if persist_cards:   # one synthetic tool_result → live viewer renders ALL cards
+            # Send an explicit mutation receipt even for event-only imports,
+            # which have no render card. Failed/pending card groups carry false.
+            if persist_cards or bulk_mutation:
+                live_bulk_response = {
+                    **_group_cards(persist_cards),
+                    "confirmed_mutation": bulk_mutation,
+                }
                 chat_turns.publish(turn_id, ("tool_result", {
-                    "name": "bulk_import", "response": _group_cards(persist_cards),
+                    "name": "bulk_import", "response": live_bulk_response,
                 }))
         else:
             async for evt_type, payload in _stream_assistant(
@@ -429,6 +502,7 @@ async def _run_chat_turn(
                 if evt_type == "token":
                     agent_text_parts.append(payload.get("text", ""))
                 elif evt_type == "tool_result":
+                    persist_tool_results.append(payload)
                     persist_cards.extend(
                         _cards_from_tool_result(payload.get("name", ""), payload.get("response", {}))
                     )
@@ -448,6 +522,10 @@ async def _run_chat_turn(
                 db, turn_id,
                 agent_text=agent_text,
                 cards=persist_cards,
+                tool_result=build_durable_tool_result(
+                    persist_tool_results,
+                    bulk_mutation=bulk_mutation,
+                ),
                 elapsed_ms=elapsed_ms,
                 status=status,
             )
