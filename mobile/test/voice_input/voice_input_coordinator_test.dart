@@ -252,6 +252,36 @@ void main() {
     expect(await recovered.start(), isTrue);
   });
 
+  test('hung old-session cleanup cannot block a new target', () async {
+    final firstSession = _FakeSession('first', blockCancel: true);
+    final secondSession = _FakeSession('second');
+    final service = _QueueService([
+      () async => firstSession,
+      () async => secondSession,
+    ]);
+    final coordinator = VoiceInputCoordinator(
+      service: service,
+      cleanupTimeout: const Duration(milliseconds: 10),
+    );
+    final first = coordinator.bind(
+      targetId: 'first',
+      mode: VoiceInputMode.ordinary,
+      callbacks: _TargetEvents().callbacks,
+    );
+    final second = coordinator.bind(
+      targetId: 'second',
+      mode: VoiceInputMode.ordinary,
+      callbacks: _TargetEvents().callbacks,
+    );
+
+    expect(await first.start(), isTrue);
+    expect(
+      await second.start().timeout(const Duration(milliseconds: 100)),
+      isTrue,
+    );
+    expect(second.state, VoiceInputCoordinatorState.listening);
+  });
+
   testWidgets('root host cancels on lifecycle and auth identity changes', (
     tester,
   ) async {
@@ -377,11 +407,16 @@ final class _QueueService
 }
 
 final class _FakeSession implements VoiceInputSessionHandle {
-  _FakeSession(this.voiceSessionId, {this.blockStop = false});
+  _FakeSession(
+    this.voiceSessionId, {
+    this.blockStop = false,
+    this.blockCancel = false,
+  });
 
   @override
   final String voiceSessionId;
   final bool blockStop;
+  final bool blockCancel;
   final StreamController<VoiceInputEvent> _events =
       StreamController<VoiceInputEvent>();
   final Completer<void> _stopCompleter = Completer<void>();
@@ -409,6 +444,7 @@ final class _FakeSession implements VoiceInputSessionHandle {
   Future<void> cancel() async {
     cancelCount += 1;
     if (!_stopCompleter.isCompleted) _stopCompleter.complete();
+    if (blockCancel) await Completer<void>().future;
   }
 
   @override

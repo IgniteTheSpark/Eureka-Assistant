@@ -74,6 +74,8 @@ final class VoiceInputService
     VoiceTokenProvider? tokenProvider,
     VoiceSessionIdFactory? sessionIdFactory,
     this.readyTimeout = const Duration(seconds: 10),
+    this.connectionTimeout = const Duration(seconds: 10),
+    this.cleanupTimeout = const Duration(seconds: 2),
   }) : _captureFactory = captureFactory ?? RecordVoiceAudioCapture.new,
        _connector = connector ?? connectVoiceGateway,
        _apiBase = apiBase ?? AppConfig.apiBase,
@@ -86,14 +88,26 @@ final class VoiceInputService
   final VoiceTokenProvider _tokenProvider;
   final VoiceSessionIdFactory _sessionIdFactory;
   final Duration readyTimeout;
+  final Duration connectionTimeout;
+  final Duration cleanupTimeout;
 
   VoiceInputSession? _active;
   bool _starting = false;
+  Completer<void>? _pendingStartCancellation;
+  Completer<void>? _pendingStartDone;
 
   @override
   Future<void> cancelActive() async {
+    final pendingCancellation = _pendingStartCancellation;
+    final pendingDone = _pendingStartDone;
+    if (pendingCancellation != null && !pendingCancellation.isCompleted) {
+      pendingCancellation.complete();
+    }
     final active = _active;
     if (active != null) await active.cancel();
+    if (pendingDone != null && !pendingDone.isCompleted) {
+      await _ignoreWithin(pendingDone.future, cleanupTimeout);
+    }
   }
 
   @override
@@ -102,10 +116,18 @@ final class VoiceInputService
       throw const VoiceInputException(VoiceInputErrorCode.busy);
     }
     _starting = true;
+    final pendingCancellation = Completer<void>();
+    final pendingDone = Completer<void>();
+    _pendingStartCancellation = pendingCancellation;
+    _pendingStartDone = pendingDone;
     final capture = _captureFactory();
     VoiceGatewayConnection? gateway;
     try {
-      final permitted = await capture.hasPermission();
+      final permitted = await _awaitPendingStartPhase<bool>(
+        Future<bool>.sync(capture.hasPermission),
+        pendingCancellation.future,
+        connectionTimeout,
+      );
       if (!permitted) {
         throw const VoiceInputException(VoiceInputErrorCode.permissionDenied);
       }
@@ -116,9 +138,30 @@ final class VoiceInputService
       }
 
       final uri = voiceGatewayUri(_apiBase);
+      final connectionFuture = Future<VoiceGatewayConnection>.sync(
+        () => _connector(uri, {'Authorization': 'Bearer $token'}),
+      );
       try {
-        gateway = await _connector(uri, {'Authorization': 'Bearer $token'});
+        gateway = await Future.any<VoiceGatewayConnection>([
+          connectionFuture,
+          pendingCancellation.future.then<VoiceGatewayConnection>(
+            (_) => throw const _PendingStartCancelled(),
+          ),
+        ]).timeout(connectionTimeout);
+      } on _PendingStartCancelled {
+        _closeLateGateway(connectionFuture, cleanupTimeout);
+        throw const VoiceInputException(
+          VoiceInputErrorCode.connectionFailed,
+          retryable: true,
+        );
+      } on TimeoutException {
+        _closeLateGateway(connectionFuture, cleanupTimeout);
+        throw const VoiceInputException(
+          VoiceInputErrorCode.connectionFailed,
+          retryable: true,
+        );
       } catch (_) {
+        _closeLateGateway(connectionFuture, cleanupTimeout);
         throw const VoiceInputException(
           VoiceInputErrorCode.connectionFailed,
           retryable: true,
@@ -132,6 +175,8 @@ final class VoiceInputService
         capture: capture,
         gateway: gateway,
         readyTimeout: readyTimeout,
+        captureStartTimeout: connectionTimeout,
+        cleanupTimeout: cleanupTimeout,
         onTerminal: () {
           if (identical(_active, session)) _active = null;
         },
@@ -141,12 +186,12 @@ final class VoiceInputService
       return session;
     } on VoiceInputException {
       if (gateway == null) {
-        await capture.dispose();
+        await _ignoreWithin(capture.dispose(), cleanupTimeout);
       }
       rethrow;
     } catch (_) {
       if (gateway == null) {
-        await capture.dispose();
+        await _ignoreWithin(capture.dispose(), cleanupTimeout);
       }
       throw const VoiceInputException(
         VoiceInputErrorCode.connectionFailed,
@@ -154,6 +199,13 @@ final class VoiceInputService
       );
     } finally {
       _starting = false;
+      if (identical(_pendingStartCancellation, pendingCancellation)) {
+        _pendingStartCancellation = null;
+      }
+      if (identical(_pendingStartDone, pendingDone)) {
+        _pendingStartDone = null;
+      }
+      if (!pendingDone.isCompleted) pendingDone.complete();
     }
   }
 }
@@ -165,10 +217,14 @@ final class VoiceInputSession implements VoiceInputSessionHandle {
     required VoiceAudioCapture capture,
     required VoiceGatewayConnection gateway,
     required Duration readyTimeout,
+    required Duration captureStartTimeout,
+    required Duration cleanupTimeout,
     required void Function() onTerminal,
   }) : _capture = capture,
        _gateway = gateway,
        _readyTimeout = readyTimeout,
+       _captureStartTimeout = captureStartTimeout,
+       _cleanupTimeout = cleanupTimeout,
        _onTerminal = onTerminal;
 
   @override
@@ -178,12 +234,15 @@ final class VoiceInputSession implements VoiceInputSessionHandle {
   final VoiceAudioCapture _capture;
   final VoiceGatewayConnection _gateway;
   final Duration _readyTimeout;
+  final Duration _captureStartTimeout;
+  final Duration _cleanupTimeout;
   final void Function() _onTerminal;
   final PcmFrameChunker _chunker = PcmFrameChunker();
   final StreamController<VoiceInputEvent> _events =
       StreamController<VoiceInputEvent>();
   final Completer<void> _ready = Completer<void>();
   final Completer<void> _audioDone = Completer<void>();
+  final Completer<void> _startCancellation = Completer<void>();
 
   StreamSubscription<Object?>? _gatewaySubscription;
   StreamSubscription<Uint8List>? _audioSubscription;
@@ -233,7 +292,22 @@ final class VoiceInputSession implements VoiceInputSessionHandle {
           retryable: true,
         );
       }
-      final audio = await _capture.startPcm16();
+      final audioStart = Future<Stream<Uint8List>>.sync(_capture.startPcm16);
+      late final Stream<Uint8List> audio;
+      try {
+        audio = await _awaitPendingStartPhase<Stream<Uint8List>>(
+          audioStart,
+          _startCancellation.future,
+          _captureStartTimeout,
+        );
+      } on _PendingStartCancelled {
+        _cancelLateAudioStream(audioStart, _cleanupTimeout);
+        rethrow;
+      } on TimeoutException {
+        _cancelLateAudioStream(audioStart, _cleanupTimeout);
+        rethrow;
+      }
+      if (_terminal) throw const _PendingStartCancelled();
       _recording = true;
       _audioSubscription = audio.listen(
         _onAudio,
@@ -247,6 +321,12 @@ final class VoiceInputSession implements VoiceInputSessionHandle {
           if (!_audioDone.isCompleted) _audioDone.complete();
         },
         cancelOnError: false,
+      );
+    } on _PendingStartCancelled {
+      await _cleanup();
+      throw const VoiceInputException(
+        VoiceInputErrorCode.connectionFailed,
+        retryable: true,
       );
     } on VoiceInputException {
       await _cleanup();
@@ -274,8 +354,8 @@ final class VoiceInputSession implements VoiceInputSessionHandle {
     if (_terminal || _stopping) return;
     _stopping = true;
     try {
-      await _stopCaptureOnce();
-      await _audioDone.future;
+      await _stopCaptureOnce().timeout(_cleanupTimeout);
+      await _audioDone.future.timeout(_cleanupTimeout);
       if (_terminal) return;
       final trailing = _chunker.flush();
       if (trailing != null) _gateway.sendBytes(trailing);
@@ -294,6 +374,7 @@ final class VoiceInputSession implements VoiceInputSessionHandle {
       return;
     }
     _terminal = true;
+    _cancelPendingSessionStart();
     _chunker.clear();
     if (!_ready.isCompleted) {
       _ready.completeError(
@@ -304,7 +385,7 @@ final class VoiceInputSession implements VoiceInputSessionHandle {
       );
     }
     try {
-      await _stopCaptureOnce();
+      await _ignoreWithin(_stopCaptureOnce(), _cleanupTimeout);
       _gateway.sendText(
         jsonEncode({'type': 'cancel', 'voiceSessionId': voiceSessionId}),
       );
@@ -345,7 +426,6 @@ final class VoiceInputSession implements VoiceInputSessionHandle {
         _ready.complete();
         return;
       }
-      if (!_ready.isCompleted) throw const FormatException();
       if (type == 'error') {
         final code = _parseErrorCode(event['code']);
         final retryable = event['retryable'];
@@ -353,6 +433,7 @@ final class VoiceInputSession implements VoiceInputSessionHandle {
         unawaited(_fail(code, retryable: retryable));
         return;
       }
+      if (!_ready.isCompleted) throw const FormatException();
 
       final sequence = event['sequence'];
       final text = event['text'];
@@ -397,6 +478,7 @@ final class VoiceInputSession implements VoiceInputSessionHandle {
   Future<void> _complete() async {
     if (_terminal) return;
     _terminal = true;
+    _cancelPendingSessionStart();
     await _cleanup();
     await _closeEvents();
     _onTerminal();
@@ -408,6 +490,7 @@ final class VoiceInputSession implements VoiceInputSessionHandle {
   }) async {
     if (_terminal) return;
     _terminal = true;
+    _cancelPendingSessionStart();
     if (!_ready.isCompleted) {
       _ready.completeError(VoiceInputException(code, retryable: retryable));
     } else if (!_events.isClosed) {
@@ -435,26 +518,25 @@ final class VoiceInputSession implements VoiceInputSessionHandle {
   }
 
   Future<void> _performCleanup() async {
-    try {
-      await _stopCaptureOnce();
-    } catch (_) {}
-    try {
-      await _audioSubscription?.cancel();
-    } catch (_) {}
     if (!_audioDone.isCompleted) _audioDone.complete();
-    try {
-      await _gatewaySubscription?.cancel();
-    } catch (_) {}
-    try {
-      await _capture.dispose();
-    } catch (_) {}
-    try {
-      await _gateway.close();
-    } catch (_) {}
+    await Future.wait<void>([
+      _ignoreWithin(_stopCaptureOnce(), _cleanupTimeout),
+      _ignoreWithin(
+        _audioSubscription?.cancel() ?? Future<void>.value(),
+        _cleanupTimeout,
+      ),
+      _ignoreWithin(
+        _gatewaySubscription?.cancel() ?? Future<void>.value(),
+        _cleanupTimeout,
+      ),
+      _ignoreWithin(_capture.dispose(), _cleanupTimeout),
+      _ignoreWithin(_gateway.close(), _cleanupTimeout),
+    ]);
   }
 
   Future<void> _abortStart() async {
     if (!_terminal) _terminal = true;
+    _cancelPendingSessionStart();
     await _cleanup();
     await _closeEvents();
     _onTerminal();
@@ -465,6 +547,59 @@ final class VoiceInputSession implements VoiceInputSessionHandle {
     // UI attaches. Awaiting close before that first listen would never finish.
     if (!_events.isClosed) unawaited(_events.close());
   }
+
+  void _cancelPendingSessionStart() {
+    if (!_startCancellation.isCompleted) {
+      _startCancellation.complete();
+    }
+  }
+}
+
+final class _PendingStartCancelled implements Exception {
+  const _PendingStartCancelled();
+}
+
+Future<T> _awaitPendingStartPhase<T>(
+  Future<T> operation,
+  Future<void> cancellation,
+  Duration timeout,
+) {
+  return Future.any<T>([
+    operation,
+    cancellation.then<T>((_) => throw const _PendingStartCancelled()),
+  ]).timeout(timeout);
+}
+
+void _closeLateGateway(
+  Future<VoiceGatewayConnection> connection,
+  Duration timeout,
+) {
+  unawaited(
+    connection.then<void>(
+      (gateway) => unawaited(_ignoreWithin(gateway.close(), timeout)),
+      onError: (Object _, StackTrace _) {},
+    ),
+  );
+}
+
+void _cancelLateAudioStream(
+  Future<Stream<Uint8List>> audioStart,
+  Duration timeout,
+) {
+  unawaited(
+    audioStart.then<void>((audio) async {
+      try {
+        final subscription = audio.listen((_) {});
+        await _ignoreWithin(subscription.cancel(), timeout);
+      } catch (_) {}
+    }, onError: (Object _, StackTrace _) {}),
+  );
+}
+
+Future<void> _ignoreWithin(Future<void> future, Duration timeout) async {
+  try {
+    await future.timeout(timeout);
+  } catch (_) {}
 }
 
 VoiceInputErrorCode? _parseErrorCode(Object? value) => switch (value) {

@@ -17,6 +17,16 @@ class Settings(BaseSettings):
     job_lease_seconds: int = 60
     media_root: str = "/data/media"
     default_user_timezone: str = "Asia/Shanghai"
+    streaming_asr_enabled: bool = False
+    dashscope_api_key: str | None = None
+    dashscope_asr_ws_url: str = ""
+    ali_asr_model: str = "qwen-audio-3.0-asr-flash-streaming"
+    asr_rate_limit_per_minute: int = Field(default=10, ge=1)
+    asr_provider_start_timeout_seconds: float = Field(default=8, gt=0)
+    asr_provider_send_timeout_seconds: float = Field(default=3, gt=0)
+    asr_provider_finalize_timeout_seconds: float = Field(default=10, gt=0)
+    asr_provider_cleanup_timeout_seconds: float = Field(default=2, gt=0)
+    asr_client_send_timeout_seconds: float = Field(default=2, gt=0)
     tencent_asr_service_base_url: str = "https://pre.card.biz"
     capture_asr_poll_interval_seconds: float = Field(default=5, gt=0)
     capture_asr_poll_timeout_seconds: float = Field(default=1800, gt=0)
@@ -74,6 +84,7 @@ class Settings(BaseSettings):
 
     def provider_readiness_errors(self) -> list[str]:
         errors = []
+        errors.extend(self.asr_readiness_errors())
         if self.report_planner_enabled and not self.report_planner_model:
             errors.append("REPORT_PLANNER_MODEL is required")
         if self.report_pipeline_enabled and not self.report_generator_model:
@@ -112,6 +123,38 @@ class Settings(BaseSettings):
         if self.chat_agent_enabled and not self.chat_agent_model:
             errors.append("CHAT_AGENT_MODEL is required")
         return errors
+
+    def asr_readiness_errors(self) -> list[str]:
+        if not self.streaming_asr_enabled:
+            return []
+        errors: list[str] = []
+        if not (self.dashscope_api_key or "").strip():
+            errors.append("DASHSCOPE_API_KEY is required")
+        parsed = urlparse(self.dashscope_asr_ws_url.strip())
+        if (
+            parsed.scheme != "wss"
+            or not parsed.hostname
+            or not parsed.hostname.endswith(".maas.aliyuncs.com")
+            or parsed.path != "/api-ws/v1/inference"
+            or parsed.query
+            or parsed.fragment
+        ):
+            errors.append(
+                "DASHSCOPE_ASR_WS_URL must be a secure workspace WebSocket "
+                "ending in /api-ws/v1/inference"
+            )
+        if self.ali_asr_model != "qwen-audio-3.0-asr-flash-streaming":
+            errors.append(
+                "ALI_ASR_MODEL must be qwen-audio-3.0-asr-flash-streaming"
+            )
+        return errors
+
+    def validate_asr(self) -> None:
+        errors = self.asr_readiness_errors()
+        if not self.streaming_asr_enabled:
+            raise RuntimeError("streaming ASR is disabled")
+        if errors:
+            raise RuntimeError("; ".join(errors))
 
     def report_planner_available(self) -> bool:
         return self.env == "test" or bool(

@@ -90,6 +90,12 @@ class ThemeV2ProductionDeploymentTest(unittest.TestCase):
         self.assertNotEqual("dev-insecure-change-me", environment["JWT_SECRET"])
         self.assertIn("mysql", environment["DATABASE_URL"])
         self.assertIn("/ready", " ".join(api["healthcheck"]["test"]))
+        self.assertEqual(
+            "qwen-audio-3.0-asr-flash-streaming",
+            environment["ALI_ASR_MODEL"],
+        )
+        self.assertTrue(environment["DASHSCOPE_API_KEY"])
+        self.assertTrue(environment["DASHSCOPE_ASR_WS_URL"])
 
     def test_runtime_image_excludes_test_dependencies_and_runs_non_root(self) -> None:
         dockerfile = DOCKERFILE.read_text()
@@ -137,6 +143,9 @@ class ThemeV2ProductionDeploymentTest(unittest.TestCase):
                 "THEME_V2_DB_PASSWORD",
                 "THEME_V2_DB_ROOT_PASSWORD",
                 "THEME_V2_JWT_SECRET",
+                "DASHSCOPE_API_KEY",
+                "DASHSCOPE_ASR_WS_URL",
+                "ALI_ASR_MODEL",
                 "CAPTURE_AGENT_ENABLED",
                 "CHAT_AGENT_ENABLED",
                 "REPORT_PIPELINE_ENABLED",

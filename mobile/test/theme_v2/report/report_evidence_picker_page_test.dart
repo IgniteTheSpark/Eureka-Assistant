@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:eureka/theme_v2/report/report_evidence_picker_page.dart';
 import 'package:eureka/theme_v2/report/report_plan_models.dart';
 import 'package:flutter/material.dart';
@@ -238,4 +240,99 @@ void main() {
 
     expect(returned, isTrue);
   });
+
+  testWidgets('a stale search response cannot replace the latest results', (
+    tester,
+  ) async {
+    final requests = <Completer<ReportEvidenceOptionPage>>[];
+    Future<ReportEvidenceOptionPage> loader({
+      String query = '',
+      String type = 'all',
+      String? skill,
+      String? cursor,
+    }) {
+      final request = Completer<ReportEvidenceOptionPage>();
+      requests.add(request);
+      return request.future;
+    }
+
+    await tester.pumpWidget(
+      MaterialApp(home: ReportEvidencePickerPage(loadPage: loader)),
+    );
+    expect(requests, hasLength(1));
+
+    await tester.enterText(
+      find.byKey(const ValueKey('report-evidence-search')),
+      'latest',
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(requests, hasLength(2));
+
+    requests[1].complete(_evidencePage(id: 'new', title: '最新结果'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('最新结果'), findsOneWidget);
+
+    requests[0].complete(_evidencePage(id: 'old', title: '过期结果'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('最新结果'), findsOneWidget);
+    expect(find.text('过期结果'), findsNothing);
+  });
+
+  testWidgets('load more admits only one request for the current cursor', (
+    tester,
+  ) async {
+    final loadMore = Completer<ReportEvidenceOptionPage>();
+    var calls = 0;
+    Future<ReportEvidenceOptionPage> loader({
+      String query = '',
+      String type = 'all',
+      String? skill,
+      String? cursor,
+    }) {
+      calls += 1;
+      if (cursor == null) {
+        return Future.value(
+          _evidencePage(id: 'first', title: '第一页', nextCursor: 'cursor-2'),
+        );
+      }
+      return loadMore.future;
+    }
+
+    await tester.pumpWidget(
+      MaterialApp(home: ReportEvidencePickerPage(loadPage: loader)),
+    );
+    await tester.pumpAndSettle();
+
+    final button = find.byKey(const ValueKey('report-evidence-load-more'));
+    await tester.tap(button);
+    await tester.tap(button);
+    expect(calls, 2);
+
+    loadMore.complete(_evidencePage(id: 'second', title: '第二页'));
+    await tester.pumpAndSettle();
+    expect(find.text('第二页'), findsOneWidget);
+  });
 }
+
+ReportEvidenceOptionPage _evidencePage({
+  required String id,
+  required String title,
+  String? nextCursor,
+}) => ReportEvidenceOptionPage(
+  items: [
+    ReportEvidenceOption(
+      reference: EvidenceReferenceView(kind: 'asset', id: id),
+      title: title,
+      typeLabel: '记录',
+      filterId: 'all',
+      filterLabel: '全部',
+      icon: '•',
+    ),
+  ],
+  filters: const [
+    {'id': 'all', 'label': '全部'},
+  ],
+  nextCursor: nextCursor,
+);

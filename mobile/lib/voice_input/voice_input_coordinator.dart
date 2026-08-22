@@ -122,10 +122,12 @@ final class VoiceInputCoordinator {
   VoiceInputCoordinator({
     required VoiceInputServiceClient service,
     this.finalTimeout = const Duration(seconds: 10),
+    this.cleanupTimeout = const Duration(seconds: 2),
   }) : _service = service;
 
   final VoiceInputServiceClient _service;
   final Duration finalTimeout;
+  final Duration cleanupTimeout;
 
   VoiceInputTargetBinding? _activeBinding;
   VoiceInputSessionHandle? _activeSession;
@@ -197,7 +199,7 @@ final class VoiceInputCoordinator {
       }
 
       if (!_matches(binding, generation) || request != _latestStartRequest) {
-        await _cancelSession(session);
+        await _cancelSession(session, timeout: cleanupTimeout);
         return false;
       }
 
@@ -362,24 +364,31 @@ final class VoiceInputCoordinator {
     _VoiceInputResources resources, {
     required bool cancel,
   }) async {
+    final cleanup = <Future<void>>[];
     final session = resources.session;
     if (session != null) {
-      try {
-        if (cancel) {
-          await session.cancel();
-        } else {
-          await session.dispose();
-        }
-      } catch (_) {}
+      cleanup.add(
+        _ignoreWithin(
+          cancel ? session.cancel() : session.dispose(),
+          cleanupTimeout,
+        ),
+      );
     } else if (resources.interruptServiceStart &&
         _service is VoiceInputServiceCancellation) {
-      try {
-        await (_service as VoiceInputServiceCancellation).cancelActive();
-      } catch (_) {}
+      cleanup.add(
+        _ignoreWithin(
+          (_service as VoiceInputServiceCancellation).cancelActive(),
+          cleanupTimeout,
+        ),
+      );
     }
-    try {
-      await resources.subscription?.cancel();
-    } catch (_) {}
+    cleanup.add(
+      _ignoreWithin(
+        resources.subscription?.cancel() ?? Future<void>.value(),
+        cleanupTimeout,
+      ),
+    );
+    await Future.wait(cleanup);
   }
 
   Future<T> _serialize<T>(Future<T> Function() action) {
@@ -407,9 +416,14 @@ final class _VoiceInputResources {
   final bool interruptServiceStart;
 }
 
-Future<void> _cancelSession(VoiceInputSessionHandle session) async {
+Future<void> _cancelSession(
+  VoiceInputSessionHandle session, {
+  required Duration timeout,
+}) => _ignoreWithin(session.cancel(), timeout);
+
+Future<void> _ignoreWithin(Future<void> future, Duration timeout) async {
   try {
-    await session.cancel();
+    await future.timeout(timeout);
   } catch (_) {}
 }
 

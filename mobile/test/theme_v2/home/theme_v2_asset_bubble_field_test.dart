@@ -638,48 +638,47 @@ void main() {
     expect(tester.getCenter(bubble), before);
   });
 
-  testWidgets(
-    'returning Home keeps physics paced by elapsed time during a slow frame',
-    (tester) async {
-      Future<double> descentAfterResume(List<Duration> frames) async {
-        await _pumpField(
-          tester,
-          assets: [asset],
-          active: false,
-          disableAnimations: false,
-          gravityStream: const Stream<Offset>.empty(),
-        );
-        final bubble = find.byKey(
-          const ValueKey('theme-v2-asset-bubble-asset-1'),
-        );
-        final before = tester.getCenter(bubble).dy;
-
-        await _pumpField(
-          tester,
-          assets: [asset],
-          active: true,
-          disableAnimations: false,
-          gravityStream: const Stream<Offset>.empty(),
-        );
-        for (final frame in frames) {
-          await tester.pump(frame);
-        }
-        return tester.getCenter(bubble).dy - before;
-      }
-
-      final smooth = await descentAfterResume(
-        List.filled(10, const Duration(milliseconds: 16)),
+  testWidgets('returning Home caps physics catch-up work during a slow frame', (
+    tester,
+  ) async {
+    Future<double> descentAfterResume(List<Duration> frames) async {
+      await _pumpField(
+        tester,
+        assets: [asset],
+        active: false,
+        disableAnimations: false,
+        gravityStream: const Stream<Offset>.empty(),
       );
-      await tester.pumpWidget(const SizedBox.shrink());
-      await tester.pump();
-      final slowFrame = await descentAfterResume(const [
-        Duration(milliseconds: 160),
-      ]);
+      final bubble = find.byKey(
+        const ValueKey('theme-v2-asset-bubble-asset-1'),
+      );
+      final before = tester.getCenter(bubble).dy;
 
-      expect(smooth, greaterThan(4));
-      expect(slowFrame, closeTo(smooth, 2));
-    },
-  );
+      await _pumpField(
+        tester,
+        assets: [asset],
+        active: true,
+        disableAnimations: false,
+        gravityStream: const Stream<Offset>.empty(),
+      );
+      for (final frame in frames) {
+        await tester.pump(frame);
+      }
+      return tester.getCenter(bubble).dy - before;
+    }
+
+    final boundedBudget = await descentAfterResume(
+      List.filled(4, const Duration(milliseconds: 16)),
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    final slowFrame = await descentAfterResume(const [
+      Duration(milliseconds: 160),
+    ]);
+
+    expect(boundedBudget, greaterThan(0));
+    expect(slowFrame, closeTo(boundedBudget, 2));
+  });
 
   testWidgets('gravity stream redirects active bubble motion', (tester) async {
     final gravity = StreamController<Offset>();

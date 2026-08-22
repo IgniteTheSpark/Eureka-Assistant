@@ -157,7 +157,7 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
   static const _compactDiameter = 36.0;
   static const _minimumTargetSize = 44.0;
   static const _physicsStepSeconds = 1 / 60;
-  static const _maximumCatchUpSeconds = .2;
+  static const _maximumCatchUpSteps = 4;
 
   bool get _usesCompactGrid =>
       _reduceMotion && widget.assets.length > _settledSlotCount;
@@ -557,7 +557,10 @@ class _ThemeV2AssetBubbleFieldState extends State<ThemeV2AssetBubbleField>
     var remainingSeconds =
         (elapsed - previousElapsed).inMicroseconds /
         Duration.microsecondsPerSecond;
-    remainingSeconds = remainingSeconds.clamp(0, _maximumCatchUpSeconds);
+    remainingSeconds = remainingSeconds.clamp(
+      0,
+      _physicsStepSeconds * _maximumCatchUpSteps,
+    );
     if (remainingSeconds <= 0) return;
     while (remainingSeconds > 1e-9) {
       final stepSeconds = math.min(remainingSeconds, _physicsStepSeconds);

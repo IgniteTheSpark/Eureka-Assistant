@@ -19,8 +19,10 @@ class Settings(BaseSettings):
     ali_asr_model:                 str = "qwen-audio-3.0-asr-flash-streaming"
     asr_rate_limit_per_minute:     int = 10
     asr_provider_start_timeout_seconds:    float = 8.0
+    asr_provider_send_timeout_seconds:     float = 3.0
     asr_provider_finalize_timeout_seconds: float = 10.0
     asr_provider_cleanup_timeout_seconds:  float = 2.0
+    asr_client_send_timeout_seconds:        float = 2.0
     asr_client_ready_timeout_seconds:      float = 10.0
 
     # §6.6.2 AI 配图 — OPTIONAL dedicated image key/model. Lets a fresh image key
@@ -129,11 +131,17 @@ def validate_asr_settings() -> None:
         "ASR_PROVIDER_START_TIMEOUT_SECONDS": (
             settings.asr_provider_start_timeout_seconds
         ),
+        "ASR_PROVIDER_SEND_TIMEOUT_SECONDS": (
+            settings.asr_provider_send_timeout_seconds
+        ),
         "ASR_PROVIDER_FINALIZE_TIMEOUT_SECONDS": (
             settings.asr_provider_finalize_timeout_seconds
         ),
         "ASR_PROVIDER_CLEANUP_TIMEOUT_SECONDS": (
             settings.asr_provider_cleanup_timeout_seconds
+        ),
+        "ASR_CLIENT_SEND_TIMEOUT_SECONDS": (
+            settings.asr_client_send_timeout_seconds
         ),
         "ASR_CLIENT_READY_TIMEOUT_SECONDS": (
             settings.asr_client_ready_timeout_seconds

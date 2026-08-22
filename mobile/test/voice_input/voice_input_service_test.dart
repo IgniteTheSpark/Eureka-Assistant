@@ -125,6 +125,218 @@ void main() {
     },
   );
 
+  test('pre-ready gateway errors retain their normalized code', () async {
+    final capture = _FakeCapture();
+    late _FakeGatewayConnection gateway;
+    gateway = _FakeGatewayConnection(
+      onText: (value) {
+        if (value['type'] == 'start') {
+          scheduleMicrotask(
+            () => gateway.emit({
+              'type': 'error',
+              'voiceSessionId': 'session-1',
+              'code': 'rate_limited',
+              'retryable': true,
+            }),
+          );
+        }
+      },
+    );
+
+    await expectLater(
+      _service(
+        capture: capture,
+        connector: (_, _) async => gateway,
+      ).start(VoiceInputMode.ordinary),
+      throwsA(
+        isA<VoiceInputException>().having(
+          (error) => error.code,
+          'code',
+          VoiceInputErrorCode.rateLimited,
+        ),
+      ),
+    );
+  });
+
+  test(
+    'cancel interrupts a pending connector and closes a late socket',
+    () async {
+      final firstCapture = _FakeCapture();
+      final secondCapture = _FakeCapture();
+      final captures = <_FakeCapture>[firstCapture, secondCapture];
+      final pending = Completer<VoiceGatewayConnection>();
+      final lateGateway = _FakeGatewayConnection();
+      final recoveredGateway = _FakeGatewayConnection(onText: _readyOnStart);
+      var connectionCount = 0;
+      final service = VoiceInputService(
+        captureFactory: () => captures.removeAt(0),
+        connector: (_, _) {
+          connectionCount += 1;
+          return connectionCount == 1
+              ? pending.future
+              : Future.value(recoveredGateway);
+        },
+        apiBase: 'https://api.example.test',
+        tokenProvider: () => 'test-token',
+        sessionIdFactory: () => 'session-1',
+        connectionTimeout: const Duration(seconds: 1),
+        cleanupTimeout: const Duration(milliseconds: 10),
+      );
+
+      final firstExpectation = expectLater(
+        service.start(VoiceInputMode.ordinary),
+        throwsA(
+          isA<VoiceInputException>().having(
+            (error) => error.code,
+            'code',
+            VoiceInputErrorCode.connectionFailed,
+          ),
+        ),
+      );
+      await pumpEventQueue();
+      await service.cancelActive();
+      await firstExpectation;
+
+      final recovered = await service.start(VoiceInputMode.ordinary);
+      expect(secondCapture.startCount, 1);
+      await recovered.cancel();
+
+      pending.complete(lateGateway);
+      await pumpEventQueue();
+      expect(lateGateway.closeCount, 1);
+      expect(firstCapture.disposeCount, 1);
+    },
+  );
+
+  test('cancel interrupts a pending microphone permission check', () async {
+    final pendingPermission = Completer<bool>();
+    final firstCapture = _FakeCapture(permissionCompleter: pendingPermission);
+    final secondCapture = _FakeCapture();
+    final captures = <_FakeCapture>[firstCapture, secondCapture];
+    final gateway = _FakeGatewayConnection(onText: _readyOnStart);
+    final service = VoiceInputService(
+      captureFactory: () => captures.removeAt(0),
+      connector: (_, _) async => gateway,
+      apiBase: 'https://api.example.test',
+      tokenProvider: () => 'test-token',
+      sessionIdFactory: () => 'session-1',
+      connectionTimeout: const Duration(seconds: 1),
+      cleanupTimeout: const Duration(milliseconds: 10),
+    );
+
+    final firstExpectation = expectLater(
+      service.start(VoiceInputMode.ordinary),
+      throwsA(
+        isA<VoiceInputException>().having(
+          (error) => error.code,
+          'code',
+          VoiceInputErrorCode.connectionFailed,
+        ),
+      ),
+    );
+    await pumpEventQueue();
+    await service.cancelActive();
+    await firstExpectation;
+
+    final recovered = await service.start(VoiceInputMode.ordinary);
+    expect(secondCapture.startCount, 1);
+    await recovered.cancel();
+    pendingPermission.complete(true);
+    await pumpEventQueue();
+    expect(firstCapture.disposeCount, 1);
+  });
+
+  test('cancel interrupts a recorder start that never returns', () async {
+    final pendingAudio = Completer<Stream<Uint8List>>();
+    final firstCapture = _FakeCapture(startCompleter: pendingAudio);
+    final secondCapture = _FakeCapture();
+    final captures = <_FakeCapture>[firstCapture, secondCapture];
+    late _FakeGatewayConnection firstGateway;
+    firstGateway = _FakeGatewayConnection(
+      onText: (value) {
+        if (value['type'] == 'start') {
+          scheduleMicrotask(() => firstGateway.emit(_ready(value)));
+        }
+      },
+    );
+    late _FakeGatewayConnection secondGateway;
+    secondGateway = _FakeGatewayConnection(
+      onText: (value) {
+        if (value['type'] == 'start') {
+          scheduleMicrotask(() => secondGateway.emit(_ready(value)));
+        }
+      },
+    );
+    var connectionCount = 0;
+    final service = VoiceInputService(
+      captureFactory: () => captures.removeAt(0),
+      connector: (_, _) async =>
+          connectionCount++ == 0 ? firstGateway : secondGateway,
+      apiBase: 'https://api.example.test',
+      tokenProvider: () => 'test-token',
+      sessionIdFactory: () => 'session-1',
+      connectionTimeout: const Duration(seconds: 1),
+      cleanupTimeout: const Duration(milliseconds: 10),
+    );
+
+    final firstExpectation = expectLater(
+      service.start(VoiceInputMode.ordinary),
+      throwsA(
+        isA<VoiceInputException>().having(
+          (error) => error.code,
+          'code',
+          VoiceInputErrorCode.connectionFailed,
+        ),
+      ),
+    );
+    await pumpEventQueue();
+    expect(firstCapture.startCount, 1);
+    await service.cancelActive();
+    await firstExpectation;
+
+    final recovered = await service.start(VoiceInputMode.ordinary);
+    expect(secondCapture.startCount, 1);
+    await recovered.cancel();
+    var lateListenCount = 0;
+    var lateCancelCount = 0;
+    final lateAudio = StreamController<Uint8List>(
+      onListen: () => lateListenCount += 1,
+      onCancel: () => lateCancelCount += 1,
+    );
+    pendingAudio.complete(lateAudio.stream);
+    await pumpEventQueue();
+    expect(lateListenCount, 1);
+    expect(lateCancelCount, 1);
+    expect(firstCapture.disposeCount, 1);
+    expect(firstGateway.closeCount, 1);
+    await lateAudio.close();
+  });
+
+  test('stop fails closed when native recorder stop never returns', () async {
+    final capture = _FakeCapture(stopCompleter: Completer<void>());
+    final gateway = _FakeGatewayConnection(onText: _readyOnStart);
+    final session = await VoiceInputService(
+      captureFactory: () => capture,
+      connector: (_, _) async => gateway,
+      apiBase: 'https://api.example.test',
+      tokenProvider: () => 'test-token',
+      sessionIdFactory: () => 'session-1',
+      cleanupTimeout: const Duration(milliseconds: 10),
+    ).start(VoiceInputMode.ordinary);
+    final events = session.events.toList();
+
+    await session.stop();
+
+    expect(await events, const [
+      VoiceInputFailure(
+        code: VoiceInputErrorCode.unsupportedAudio,
+        retryable: false,
+      ),
+    ]);
+    expect(capture.disposeCount, 1);
+    expect(gateway.closeCount, 1);
+  });
+
   test(
     'waits for ready before recording and forwards ordered PCM frames',
     () async {
@@ -378,9 +590,18 @@ void _readyOnStart(Map<String, Object?> value) {
 }
 
 class _FakeCapture implements VoiceAudioCapture {
-  _FakeCapture({this.permission = true, this.bytesOnStop});
+  _FakeCapture({
+    this.permission = true,
+    this.permissionCompleter,
+    this.startCompleter,
+    this.stopCompleter,
+    this.bytesOnStop,
+  });
 
   final bool permission;
+  final Completer<bool>? permissionCompleter;
+  final Completer<Stream<Uint8List>>? startCompleter;
+  final Completer<void>? stopCompleter;
   final List<int>? bytesOnStop;
   final StreamController<Uint8List> _audio = StreamController<Uint8List>();
   int permissionChecks = 0;
@@ -393,18 +614,24 @@ class _FakeCapture implements VoiceAudioCapture {
   @override
   Future<bool> hasPermission() async {
     permissionChecks += 1;
+    final pending = permissionCompleter;
+    if (pending != null) return pending.future;
     return permission;
   }
 
   @override
   Future<Stream<Uint8List>> startPcm16() async {
     startCount += 1;
+    final pending = startCompleter;
+    if (pending != null) return pending.future;
     return _audio.stream;
   }
 
   @override
   Future<void> stop() async {
     stopCount += 1;
+    final pending = stopCompleter;
+    if (pending != null) return pending.future;
     final trailing = bytesOnStop;
     if (trailing != null && !_audio.isClosed) add(trailing);
     if (!_audio.isClosed) {

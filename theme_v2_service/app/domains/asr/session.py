@@ -1,5 +1,3 @@
-"""Bounded lifecycle for one provider-neutral streaming ASR connection."""
-
 from __future__ import annotations
 
 import asyncio
@@ -8,7 +6,7 @@ from collections.abc import Awaitable, Callable
 from enum import Enum
 from typing import Any
 
-from core.asr.provider import (
+from app.domains.asr.provider import (
     ProviderEventKind,
     StreamingAsrProvider,
     StreamingAsrProviderError,
@@ -26,7 +24,6 @@ _RETRYABLE_CODES = {
 
 class SessionPhase(str, Enum):
     ACCEPTED = "accepted"
-    VALIDATING = "validating"
     PROVIDER_STARTING = "provider_starting"
     READY = "ready"
     STREAMING = "streaming"
@@ -36,7 +33,7 @@ class SessionPhase(str, Enum):
 
 
 class StreamingAsrSession:
-    """Own every task and resource created for one client connection."""
+    """Own all provider and client resources for one bounded ASR session."""
 
     def __init__(
         self,
@@ -80,55 +77,34 @@ class StreamingAsrSession:
         self._received_pcm_bytes = 0
         self._maximum_pcm_bytes = duration_limit_seconds * 16_000 * 2
 
-    @property
-    def phase(self) -> SessionPhase:
-        return self._phase
-
     async def run(self) -> None:
-        """Run until the client, provider, or deadline reaches a terminal state."""
-
-        self._phase = SessionPhase.VALIDATING
         pending_message = await self._start_provider()
-        if self._closed or self._phase in {
-            SessionPhase.TERMINAL,
-            SessionPhase.CLOSED,
-        }:
+        if self._closed or self._phase in {SessionPhase.TERMINAL, SessionPhase.CLOSED}:
             return
-
         self._phase = SessionPhase.READY
         if not await self._send_json(
             {"type": "ready", "voiceSessionId": self._voice_session_id}
         ):
             self._phase = SessionPhase.TERMINAL
             return
-
         self._phase = SessionPhase.STREAMING
-        self._provider_events_task = asyncio.create_task(
-            self._forward_provider_events()
-        )
-        self._timer_task = asyncio.create_task(
-            self._sleep(self._duration_limit_seconds)
-        )
+        self._provider_events_task = asyncio.create_task(self._forward_provider_events())
+        self._timer_task = asyncio.create_task(self._sleep(self._duration_limit_seconds))
         await self._stream(pending_message)
         self._phase = SessionPhase.TERMINAL
 
     async def supersede(self) -> None:
-        """Cancel this session because a newer same-user session won ownership."""
-
         self._superseded = True
         self._client_cancelled.set()
         self._phase = SessionPhase.TERMINAL
         await self.close()
 
     async def close(self) -> None:
-        """Idempotently drain tasks and close provider/client within one deadline."""
-
         async with self._close_lock:
             if self._closed:
                 return
             self._closed = True
             self._phase = SessionPhase.TERMINAL
-
             current = asyncio.current_task()
             tasks = (
                 self._provider_start_task,
@@ -147,7 +123,6 @@ class StreamingAsrSession:
                     asyncio.gather(*drainable, return_exceptions=True),
                     timeout=self._provider_cleanup_timeout_seconds,
                 )
-
             if not self._provider_terminal:
                 await _bounded_cleanup(
                     self._provider.cancel(),
@@ -164,7 +139,6 @@ class StreamingAsrSession:
         self._phase = SessionPhase.PROVIDER_STARTING
         self._provider_start_task = asyncio.create_task(self._provider.start())
         self._client_receive_task = asyncio.create_task(self._socket.receive())
-
         done, _ = await asyncio.wait(
             {self._provider_start_task, self._client_receive_task},
             timeout=self._provider_start_timeout_seconds,
@@ -226,7 +200,6 @@ class StreamingAsrSession:
     async def _stream(self, pending_message: dict[str, Any] | None) -> None:
         assert self._provider_events_task is not None
         assert self._timer_task is not None
-
         while True:
             if pending_message is None:
                 self._client_receive_task = asyncio.create_task(self._socket.receive())
@@ -285,11 +258,10 @@ class StreamingAsrSession:
             if control is None:
                 await self._send_error("unsupported_audio")
                 return
-            control_type = control.get("type")
-            if control_type == "cancel":
+            if control.get("type") == "cancel":
                 self._client_cancelled.set()
                 return
-            if control_type == "stop":
+            if control.get("type") == "stop":
                 await self._finalize()
                 return
             await self._send_error("unsupported_audio")
@@ -305,8 +277,7 @@ class StreamingAsrSession:
 
         try:
             self._provider_terminal = await asyncio.wait_for(
-                finish_and_wait(),
-                timeout=self._provider_final_timeout_seconds,
+                finish_and_wait(), timeout=self._provider_final_timeout_seconds
             )
         except asyncio.TimeoutError:
             await self._send_error("service_unavailable")
@@ -361,7 +332,6 @@ class StreamingAsrSession:
             if not self._client_cancelled.is_set():
                 await self._send_error("connection_lost")
             return True
-
         if not self._client_cancelled.is_set():
             await self._send_error("connection_lost")
         return True
@@ -417,10 +387,7 @@ class StreamingAsrSession:
             value = json.loads(raw) if isinstance(raw, str) else None
         except ValueError:
             return None
-        if (
-            not isinstance(value, dict)
-            or value.get("voiceSessionId") != self._voice_session_id
-        ):
+        if not isinstance(value, dict) or value.get("voiceSessionId") != self._voice_session_id:
             return None
         return value
 

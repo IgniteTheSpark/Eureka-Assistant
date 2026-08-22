@@ -162,6 +162,16 @@ class _HangingFinishProvider(_FakeProvider):
         await self._never_finishes.wait()
 
 
+class _HangingSendProvider(_FakeProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.send_entered = asyncio.Event()
+
+    async def send_audio(self, frame: bytes) -> None:
+        self.send_entered.set()
+        await asyncio.Event().wait()
+
+
 class _HangingCleanupProvider(_HangingStartProvider):
     def __init__(self) -> None:
         super().__init__()
@@ -369,6 +379,9 @@ async def test_registry_and_rate_limiter_fail_closed() -> None:
     assert await limiter.allow("user-1") is False
     now[0] += 61
     assert await limiter.allow("user-1") is True
+    now[0] += 61
+    assert await limiter.allow("current-user") is True
+    assert set(limiter._starts) == {"current-user"}
 
 
 async def test_provider_start_timeout_cleans_up_and_releases_user() -> None:
@@ -615,6 +628,25 @@ async def test_finalization_timeout_is_bounded_and_releases_user() -> None:
     assert not await registry.is_active("user-1")
 
 
+async def test_provider_audio_send_timeout_is_bounded_and_releases_user() -> None:
+    provider = _HangingSendProvider()
+    registry = AsrSessionRegistry()
+    socket = _FakeClientSocket([_start(), _bytes(b"\x00\x00")])
+    gateway = StreamingAsrGateway(
+        provider_factory=lambda: provider,
+        registry=registry,
+        provider_send_timeout_seconds=0.01,
+        provider_cleanup_timeout_seconds=0.01,
+    )
+
+    await asyncio.wait_for(gateway.handle(socket, user_id="user-1"), timeout=0.2)
+
+    assert provider.send_entered.is_set()
+    assert socket.sent[-1]["code"] == "service_unavailable"
+    assert provider.cancel_count == 1
+    assert not await registry.is_active("user-1")
+
+
 async def test_cleanup_timeout_is_bounded_and_releases_user() -> None:
     provider = _HangingCleanupProvider()
     registry = AsrSessionRegistry()
@@ -727,6 +759,7 @@ async def _run() -> None:
     await test_stalled_user_does_not_delay_another_user()
     await test_replacement_start_does_not_wait_for_old_cleanup()
     await test_finalization_timeout_is_bounded_and_releases_user()
+    await test_provider_audio_send_timeout_is_bounded_and_releases_user()
     await test_cleanup_timeout_is_bounded_and_releases_user()
     await test_client_send_failure_cleans_provider_and_releases_user()
     await test_cumulative_pcm_bytes_cannot_exceed_mode_limit()

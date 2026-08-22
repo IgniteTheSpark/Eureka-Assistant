@@ -120,10 +120,12 @@ There is one app-wide active voice session. A second entry point cannot acquire 
 
 The gateway is organized under the backend ASR boundary:
 
-- `backend/api/asr_stream.py`: authenticated WebSocket endpoint and application protocol.
-- `backend/core/asr/streaming.py`: session orchestration, frame forwarding, cancellation, and normalized events.
-- `backend/core/asr/provider.py`: provider interface and normalized provider errors.
-- `backend/core/asr/qwen_streaming.py`: direct Alibaba Cloud Model Studio WebSocket adapter.
+- `theme_v2_service/app/domains/asr/api.py`: production authenticated WebSocket endpoint and application protocol, using the same JWT authority as the rest of Theme V2.
+- `theme_v2_service/app/domains/asr/streaming.py`: session orchestration, per-user ownership, rate limiting, and normalized failures.
+- `theme_v2_service/app/domains/asr/session.py`: bounded provider start, audio send, finalize, cancel, and cleanup lifecycle.
+- `theme_v2_service/app/domains/asr/provider.py`: provider interface and normalized provider errors.
+- `theme_v2_service/app/domains/asr/qwen_streaming.py`: direct Alibaba Cloud Model Studio WebSocket adapter.
+- The legacy `backend/core/asr` implementation may remain for old development stacks, but it is not the production route and must not be treated as the canonical implementation.
 
 The gateway enforces authentication, per-user concurrency, maximum duration, input format, frame-size bounds, and rate limits before or while forwarding audio.
 
@@ -141,7 +143,7 @@ Provider-side data retention and diagnostic settings remain a production release
 
 ### 4.5 Existing ASR compatibility
 
-The current `https://pre.card.biz/api/platform/speech/asr` path accepts a completed WAV file via multipart upload and returns final text. It is not the streaming path required by this design. Existing hardware callers and the existing Tencent S3 asynchronous flow remain unchanged.
+The current `https://pre.card.biz/api/platform/speech/asr` path accepts a completed WAV file via multipart upload and returns final text. It is not the streaming path required by this design. Existing hardware callers and the existing Tencent S3 asynchronous flow remain unchanged in this implementation. A possible Alibaba migration is tracked separately in `2026-08-22-hardware-asr-qwen-migration-note.md` and must use a completed-file transcription product rather than assuming the Qwen streaming model supports batch files.
 
 ## 5. Streaming Protocol
 
@@ -293,7 +295,7 @@ These are end-to-end objectives, not claims about the current file-upload endpoi
 
 ## 10. Delivery Sequence
 
-1. Implement the Qwen provider interface and authenticated Eureka WebSocket gateway.
+1. Implement the Qwen provider interface and authenticated Theme V2 WebSocket gateway.
 2. Verify the configured Alibaba Cloud workspace with an opt-in live smoke test.
 3. Implement `VoiceInputService`, the shared controller, session state, and audio capture.
 4. Build the reusable ordinary free-text input component.
@@ -314,7 +316,7 @@ The design is implemented when:
 - Audio is streamed in memory and is not retained by Eureka-controlled systems; provider retention requirements are verified.
 - Offline, cancelled, interrupted, empty, and failed sessions create no business entity.
 - The one-minute and five-minute caps are enforced by both app and gateway.
-- The streaming provider route is Alibaba Cloud Model Studio `qwen-audio-3.0-asr-flash-streaming` through the Eureka backend.
+- The streaming provider route is Alibaba Cloud Model Studio `qwen-audio-3.0-asr-flash-streaming` through the production Theme V2 API.
 - Existing hardware ASR paths continue to behave as before.
 
 ## 12. References

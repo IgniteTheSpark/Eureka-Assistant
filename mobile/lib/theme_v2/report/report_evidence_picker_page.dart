@@ -74,6 +74,8 @@ class _ReportEvidencePickerPageState extends State<ReportEvidencePickerPage> {
   String? _nextCursor;
   Object? _error;
   bool _loading = true;
+  bool _loadingMore = false;
+  int _requestGeneration = 0;
   Timer? _searchDebounce;
 
   @override
@@ -101,21 +103,28 @@ class _ReportEvidencePickerPageState extends State<ReportEvidencePickerPage> {
   };
 
   Future<void> _load({required bool reset}) async {
+    if (!reset && (_loadingMore || _nextCursor == null)) return;
+    final generation = reset ? ++_requestGeneration : _requestGeneration;
+    final query = _searchController.text.trim();
+    final filter = _requestFilter;
+    final cursor = reset ? null : _nextCursor;
     if (reset) {
       setState(() {
         _loading = true;
+        _loadingMore = false;
         _error = null;
       });
+    } else {
+      setState(() => _loadingMore = true);
     }
     try {
-      final filter = _requestFilter;
       final page = await widget.loadPage(
-        query: _searchController.text.trim(),
+        query: query,
         type: filter.type,
         skill: filter.skill,
-        cursor: reset ? null : _nextCursor,
+        cursor: cursor,
       );
-      if (!mounted) return;
+      if (!mounted || generation != _requestGeneration) return;
       setState(() {
         _items = reset ? page.items : [..._items, ...page.items];
         for (final item in page.items) {
@@ -124,12 +133,14 @@ class _ReportEvidencePickerPageState extends State<ReportEvidencePickerPage> {
         if (page.filters.isNotEmpty) _filters = page.filters;
         _nextCursor = page.nextCursor;
         _loading = false;
+        _loadingMore = false;
         _error = null;
       });
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || generation != _requestGeneration) return;
       setState(() {
         _loading = false;
+        _loadingMore = false;
         _error = error;
       });
     }
@@ -291,8 +302,10 @@ class _ReportEvidencePickerPageState extends State<ReportEvidencePickerPage> {
             padding: const EdgeInsets.all(ThemeV2Spacing.lg),
             child: OutlinedButton(
               key: const ValueKey('report-evidence-load-more'),
-              onPressed: () => unawaited(_load(reset: false)),
-              child: const Text('加载更多'),
+              onPressed: _loadingMore
+                  ? null
+                  : () => unawaited(_load(reset: false)),
+              child: Text(_loadingMore ? '加载中…' : '加载更多'),
             ),
           );
         }

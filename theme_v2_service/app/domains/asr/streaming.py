@@ -1,5 +1,3 @@
-"""Authenticated, provider-neutral streaming ASR session orchestration."""
-
 from __future__ import annotations
 
 import asyncio
@@ -11,13 +9,13 @@ from dataclasses import dataclass
 from itertools import count
 from typing import Any
 
-from config import settings, validate_asr_settings
-from core.asr.provider import (
+from app.config import get_settings
+from app.domains.asr.provider import (
     StreamingAsrProvider,
     StreamingAsrProviderError,
 )
-from core.asr.qwen_streaming import QwenStreamingAsrProvider
-from core.asr.session import StreamingAsrSession
+from app.domains.asr.qwen_streaming import QwenStreamingAsrProvider
+from app.domains.asr.session import StreamingAsrSession
 
 
 _MAX_AUDIO_FRAME_BYTES = 32_000
@@ -51,7 +49,7 @@ class _RegistryEntry:
 
 
 class AsrSessionRegistry:
-    """Atomically replace same-user sessions and release only exact leases."""
+    """Replace same-user sessions atomically and release exact leases only."""
 
     def __init__(self) -> None:
         self._active: dict[str, _RegistryEntry] = {}
@@ -59,14 +57,12 @@ class AsrSessionRegistry:
         self._lock = asyncio.Lock()
 
     async def install(
-        self,
-        user_id: str,
-        session: Any,
+        self, user_id: str, session: Any
     ) -> tuple[AsrSessionLease, Any | None]:
         async with self._lock:
             previous = self._active.get(user_id)
-            lease = AsrSessionLease(user_id=user_id, token=next(self._tokens))
-            self._active[user_id] = _RegistryEntry(lease=lease, session=session)
+            lease = AsrSessionLease(user_id, next(self._tokens))
+            self._active[user_id] = _RegistryEntry(lease, session)
             return lease, previous.session if previous is not None else None
 
     async def release(self, lease: AsrSessionLease) -> bool:
@@ -139,7 +135,6 @@ def parse_start_message(raw: str) -> ClientStart:
         raise ValueError("start message is not JSON") from exc
     if not isinstance(value, dict) or value.get("type") != "start":
         raise ValueError("first message must be start")
-
     voice_session_id = value.get("voiceSessionId")
     if (
         not isinstance(voice_session_id, str)
@@ -147,13 +142,9 @@ def parse_start_message(raw: str) -> ClientStart:
         or len(voice_session_id) > 128
     ):
         raise ValueError("invalid voiceSessionId")
-    voice_session_id = voice_session_id.strip()
-
     mode = value.get("mode")
     if not isinstance(mode, str):
         raise ValueError("invalid mode")
-    duration_limit = duration_limit_for(mode)
-
     audio = value.get("audio")
     if not isinstance(audio, dict) or audio != {
         "encoding": "pcm_s16le",
@@ -161,7 +152,7 @@ def parse_start_message(raw: str) -> ClientStart:
         "channels": 1,
     }:
         raise ValueError("unsupported audio contract")
-    return ClientStart(voice_session_id, mode, duration_limit)
+    return ClientStart(voice_session_id.strip(), mode, duration_limit_for(mode))
 
 
 class StreamingAsrGateway:
@@ -178,9 +169,10 @@ class StreamingAsrGateway:
         provider_cleanup_timeout_seconds: float | None = None,
         client_send_timeout_seconds: float | None = None,
     ) -> None:
+        settings = get_settings()
         if provider_factory is None:
             self._provider_factory = QwenStreamingAsrProvider
-            self._settings_validator: Callable[[], None] = validate_asr_settings
+            self._settings_validator: Callable[[], None] = settings.validate_asr
         else:
             self._provider_factory = provider_factory
             self._settings_validator = lambda: None
@@ -220,7 +212,6 @@ class StreamingAsrGateway:
         supersede_task: asyncio.Task[None] | None = None
         lease: AsrSessionLease | None = None
         voice_session_id = ""
-
         try:
             try:
                 first = await asyncio.wait_for(
@@ -234,9 +225,7 @@ class StreamingAsrGateway:
                 start = parse_start_message(first_text)
                 voice_session_id = start.voice_session_id
             except (asyncio.TimeoutError, ValueError, AttributeError):
-                await self._send_error(
-                    socket, voice_session_id, "unsupported_audio"
-                )
+                await self._send_error(socket, voice_session_id, "unsupported_audio")
                 return
 
             if not await self._rate_limiter.allow(user_id):
@@ -244,26 +233,17 @@ class StreamingAsrGateway:
                 return
             try:
                 self._settings_validator()
-                provider = self._provider_factory()
                 session = StreamingAsrSession(
                     socket=socket,
-                    provider=provider,
+                    provider=self._provider_factory(),
                     voice_session_id=voice_session_id,
                     duration_limit_seconds=start.duration_limit_seconds,
                     validate_audio_frame=validate_audio_frame,
                     sleep=self._sleep,
-                    provider_start_timeout_seconds=(
-                        self._provider_start_timeout_seconds
-                    ),
-                    provider_send_timeout_seconds=(
-                        self._provider_send_timeout_seconds
-                    ),
-                    provider_final_timeout_seconds=(
-                        self._provider_final_timeout_seconds
-                    ),
-                    provider_cleanup_timeout_seconds=(
-                        self._provider_cleanup_timeout_seconds
-                    ),
+                    provider_start_timeout_seconds=self._provider_start_timeout_seconds,
+                    provider_send_timeout_seconds=self._provider_send_timeout_seconds,
+                    provider_final_timeout_seconds=self._provider_final_timeout_seconds,
+                    provider_cleanup_timeout_seconds=self._provider_cleanup_timeout_seconds,
                     client_send_timeout_seconds=self._client_send_timeout_seconds,
                 )
             except (RuntimeError, StreamingAsrProviderError):

@@ -78,11 +78,42 @@ def _asset_card_text(asset: Asset, skill: UserSkill) -> tuple[str, str | None]:
     payload = asset.payload_json or {}
     primary, secondary = _card_fields(skill)
     title = _text(payload.get(primary))[:120] if primary else ""
-    subtitle = " · ".join(
+    subtitle_values = [
         value
         for field in secondary
         if (value := _text(payload.get(field)))
-    )
+    ]
+
+    if not title:
+        preferred_fields = (
+            "title",
+            "name",
+            "content",
+            "summary",
+            "description",
+            "merchant",
+            "category",
+            "amount",
+        )
+        fallback_values: list[str] = []
+        inspected_fields: set[str] = {primary, *secondary}
+        for field in (*preferred_fields, *payload.keys()):
+            if field in inspected_fields:
+                continue
+            inspected_fields.add(field)
+            value = _text(payload.get(field))
+            if value:
+                fallback_values.append(value)
+        if fallback_values:
+            title = fallback_values.pop(0)[:120]
+            subtitle_values.extend(fallback_values[:3])
+
+    skill_name = _text(getattr(skill, "display_name", ""))
+    if not title:
+        title = skill_name or "未命名资产"
+    if not subtitle_values and title != skill_name and skill_name:
+        subtitle_values.append(skill_name)
+    subtitle = " · ".join(subtitle_values)
     return title, subtitle[:120] or None
 
 
