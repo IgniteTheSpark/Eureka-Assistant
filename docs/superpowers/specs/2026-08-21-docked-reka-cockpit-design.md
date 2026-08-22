@@ -1,7 +1,7 @@
 # Docked Reka Cockpit Design
 
-**Date:** 2026-08-21  
-**Status:** Approved in conversation; awaiting written-spec review  
+**Date:** 2026-08-21
+**Status:** Approved in conversation; awaiting written-spec review
 **Branch:** `codex/skill-dither-report-revamp`
 
 ## Summary
