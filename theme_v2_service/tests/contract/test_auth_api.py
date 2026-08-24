@@ -7,7 +7,12 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
 from app.auth.email_sender import EmailDeliveryError, get_verification_sender
-from app.auth.models import UserAccount
+from app.auth.models import (
+    CHALLENGE_PASSWORD_RESET,
+    CHALLENGE_REGISTER,
+    EmailVerificationChallenge,
+    UserAccount,
+)
 from app.config import get_settings
 from app.db.models import UserSkill
 from app.db.session import AsyncSessionFactory
@@ -146,6 +151,50 @@ async def test_register_normalizes_email_and_creates_verified_account(client):
     assert {skill.machine_name for skill in skills} == {
         item["machine_name"] for item in BASELINE_CAPTURE_SKILLS
     }
+
+
+async def test_register_failure_rolls_back_code_consumption_and_account(
+    client, monkeypatch
+):
+    from app.auth import api as auth_api
+
+    email = "register-rollback@example.com"
+    assert (await _request_register_code(client, email)).status_code == 200
+    code = _last_sent_code(email)
+
+    async def failing_ensure_capture_skills(session, user_id):
+        raise RuntimeError("baseline failed")
+
+    monkeypatch.setattr(
+        auth_api, "ensure_capture_skills", failing_ensure_capture_skills
+    )
+    with pytest.raises(RuntimeError, match="baseline failed"):
+        await client.post(
+            "/api/auth/register",
+            json={
+                "email": email,
+                "verification_code": code,
+                "password": "Secret123!",
+                "terms_version": _current_terms_version(),
+                "terms_accepted": True,
+            },
+        )
+
+    async with AsyncSessionFactory() as database:
+        user = await database.scalar(
+            select(UserAccount).where(UserAccount.email == email)
+        )
+        challenge = await database.scalar(
+            select(EmailVerificationChallenge)
+            .where(
+                EmailVerificationChallenge.email == email,
+                EmailVerificationChallenge.purpose == CHALLENGE_REGISTER,
+            )
+            .order_by(EmailVerificationChallenge.created_at.desc())
+        )
+    assert user is None
+    assert challenge is not None
+    assert challenge.consumed_at is None
 
 
 async def test_register_without_terms_rejected(client):
@@ -326,6 +375,49 @@ async def test_password_reset_replaces_password_and_invalidates_old_token(client
         headers={"Authorization": f"Bearer {old_token}"},
     )
     assert old_token_me.status_code == 401
+
+
+async def test_password_reset_failure_rolls_back_code_consumption_and_password(
+    client, monkeypatch
+):
+    from app.auth import api as auth_api
+
+    email = "reset-rollback@example.com"
+    assert (await _register_with_code(client, email)).status_code == 200
+    assert (await _request_reset_code(client, email)).status_code == 200
+    code = _last_sent_code(email)
+
+    def failing_hash_password(password):
+        raise RuntimeError("hash failed")
+
+    monkeypatch.setattr(auth_api, "hash_password", failing_hash_password)
+    with pytest.raises(RuntimeError, match="hash failed"):
+        await client.post(
+            "/api/auth/password-reset",
+            json={
+                "email": email,
+                "verification_code": code,
+                "new_password": "Newpass456!",
+            },
+        )
+
+    async with AsyncSessionFactory() as database:
+        challenge = await database.scalar(
+            select(EmailVerificationChallenge)
+            .where(
+                EmailVerificationChallenge.email == email,
+                EmailVerificationChallenge.purpose == CHALLENGE_PASSWORD_RESET,
+            )
+            .order_by(EmailVerificationChallenge.created_at.desc())
+        )
+    assert challenge is not None
+    assert challenge.consumed_at is None
+
+    old_login = await client.post(
+        "/api/auth/login",
+        json={"email": email, "password": "Secret123!"},
+    )
+    assert old_login.status_code == 200
 
 
 async def test_change_password_revokes_session_and_requires_relogin(client):

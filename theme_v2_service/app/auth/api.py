@@ -201,7 +201,6 @@ async def register(
         raise HTTPException(status_code=400, detail="验证码已失效，请重新获取") from exc
     except ChallengeLockedError as exc:
         raise HTTPException(status_code=429, detail=str(exc)) from exc
-    await session.commit()
 
     existing = await session.scalar(
         select(UserAccount).where(UserAccount.email == email)
@@ -292,7 +291,6 @@ async def password_reset(
         raise HTTPException(status_code=400, detail="验证码已失效，请重新获取") from exc
     except ChallengeLockedError as exc:
         raise HTTPException(status_code=429, detail=str(exc)) from exc
-    await session.commit()
 
     user = await session.scalar(
         select(UserAccount).where(UserAccount.email == email)

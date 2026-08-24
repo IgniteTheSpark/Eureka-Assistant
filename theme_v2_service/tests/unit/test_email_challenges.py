@@ -18,7 +18,11 @@ from app.auth.challenges import (
     verify_code,
     _bucket_key,
 )
-from app.auth.models import CHALLENGE_REGISTER, EmailRateLimitBucket
+from app.auth.models import (
+    CHALLENGE_REGISTER,
+    EmailRateLimitBucket,
+    EmailVerificationChallenge,
+)
 from app.config import get_settings
 
 
@@ -118,6 +122,52 @@ async def test_find_active_challenge_picks_newest(session):
         session, email="a@x.com", purpose=CHALLENGE_REGISTER
     )
     assert found.id == c2.id
+
+
+async def test_issuing_new_challenge_invalidates_older_unconsumed_code(session):
+    first, first_code = await issue_challenge(
+        session,
+        email="newest@example.com",
+        purpose=CHALLENGE_REGISTER,
+        request_ip="1.2.3.4",
+    )
+    first.sent_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
+        seconds=120
+    )
+    scope_type, scope_hash = _bucket_key("email-cooldown", "newest@example.com")
+    await session.execute(
+        update(EmailRateLimitBucket)
+        .where(
+            EmailRateLimitBucket.scope_type == scope_type,
+            EmailRateLimitBucket.scope_hash == scope_hash,
+        )
+        .values(last_request_at=first.sent_at)
+    )
+    second, second_code = await issue_challenge(
+        session,
+        email="newest@example.com",
+        purpose=CHALLENGE_REGISTER,
+        request_ip="1.2.3.4",
+    )
+
+    await session.refresh(first)
+    assert first.consumed_at is not None
+    found = await find_active_challenge(
+        session,
+        email="newest@example.com",
+        purpose=CHALLENGE_REGISTER,
+    )
+    assert found is not None
+    assert found.id == second.id
+    with pytest.raises(ChallengeConsumedError):
+        await verify_code(session, challenge=first, code=first_code)
+    assert await verify_code(session, challenge=second, code=second_code) is True
+
+    await session.commit()
+    async with AsyncSessionFactory() as fresh:
+        persisted_first = await fresh.get(EmailVerificationChallenge, first.id)
+        assert persisted_first is not None
+        assert persisted_first.consumed_at is not None
 
 
 async def test_cleanup_removes_old_rows(session):

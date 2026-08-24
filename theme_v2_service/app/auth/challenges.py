@@ -16,7 +16,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.models import EmailRateLimitBucket, EmailVerificationChallenge
@@ -93,6 +93,19 @@ async def issue_challenge(
             email=email,
             ip_hash=_hash_ip(request_ip) if request_ip is not None else None,
         )
+
+    # Only the newest successfully issued challenge may remain usable. This
+    # update stays in the caller's transaction so a later delivery failure
+    # rolls it back and leaves the previous code valid.
+    await session.execute(
+        update(EmailVerificationChallenge)
+        .where(
+            EmailVerificationChallenge.email == email,
+            EmailVerificationChallenge.purpose == purpose,
+            EmailVerificationChallenge.consumed_at.is_(None),
+        )
+        .values(consumed_at=now)
+    )
 
     code = (
         settings.email_fixed_code
@@ -323,8 +336,13 @@ async def verify_code(
     challenge: EmailVerificationChallenge,
     code: str,
 ) -> bool:
-    """Consume-verify one challenge. Returns True only on a fresh successful
-    match; raises on lockout/expiry/consumed, records failures otherwise."""
+    """Consume-verify one challenge.
+
+    A successful match is only flushed, so challenge consumption commits with
+    the protected account mutation. An invalid match commits its locked counter
+    before raising; callers must therefore verify before making business
+    writes.
+    """
     settings = get_settings()
     now = _now()
 
