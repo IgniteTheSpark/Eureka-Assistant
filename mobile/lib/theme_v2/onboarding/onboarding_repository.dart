@@ -15,14 +15,14 @@ class OnboardingRepository {
     return (res as Map).cast<String, dynamic>();
   }
 
-  /// Creates (or idempotently returns) a UserSkill from a category + fields.
+  /// Creates (or idempotently returns) a UserSkill from curated field keys.
   Future<Map<String, dynamic>> createSkill({
     required String category,
-    required List<Map<String, dynamic>> fields,
+    required List<String> fieldKeys,
   }) async {
     final res = await _client.postJson('/api/onboarding/skills', {
       'category': category,
-      'fields': fields,
+      'field_keys': fieldKeys,
     });
     return (res as Map).cast<String, dynamic>();
   }

@@ -47,6 +47,8 @@ dependencies:
   # HTTP + SSE for the FastAPI backend.
   http: ^1.2.2
   crypto: ^3.0.3
+  # UUID v4 idempotency keys for safe onboarding retries.
+  uuid: ^4.5.3
   # Manrope (sans/display) + JetBrains Mono (mono) to match the web demo.
   google_fonts: ^6.2.1
   # Raw mono PCM16 microphone stream for the authenticated cloud ASR gateway.

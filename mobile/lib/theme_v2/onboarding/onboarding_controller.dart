@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
+import 'package:uuid/uuid.dart';
 
 import 'onboarding_repository.dart';
 
@@ -12,18 +15,42 @@ const _fallbackCategories = <Map<String, dynamic>>[
       {'key': 'duration_min', 'label': '时长(分钟)', 'type': 'duration'},
       {'key': 'location', 'label': '地点', 'type': 'text'},
     ],
+    'hint': '我今天沿着河边跑了 5 公里，用了 32 分钟。',
   },
-  _customCategoryEntry,
+  {
+    'id': 'drinking_water',
+    'label': '喝水',
+    'description': '记录每天的饮水量与方式',
+    'fields': [
+      {'key': 'amount_ml', 'label': '水量(毫升)', 'type': 'number'},
+      {'key': 'time', 'label': '时间', 'type': 'time'},
+      {'key': 'container', 'label': '容器', 'type': 'text'},
+    ],
+    'hint': '下午我在办公室用保温杯喝了 500 毫升水。',
+  },
+  {
+    'id': 'baby_feeding',
+    'label': '宝宝喂养',
+    'description': '记录宝宝每次喂养的方式与奶量',
+    'fields': [
+      {'key': 'method', 'label': '喂养方式', 'type': 'text'},
+      {'key': 'amount_ml', 'label': '奶量(毫升)', 'type': 'number'},
+      {'key': 'time', 'label': '时间', 'type': 'time'},
+    ],
+    'hint': '早上八点我用奶瓶喂了宝宝 120 毫升。',
+  },
+  {
+    'id': 'dancing',
+    'label': '跳舞',
+    'description': '记录舞蹈练习的舞种与时长',
+    'fields': [
+      {'key': 'style', 'label': '舞种', 'type': 'text'},
+      {'key': 'studio', 'label': '舞室', 'type': 'text'},
+      {'key': 'duration_min', 'label': '时长(分钟)', 'type': 'duration'},
+    ],
+    'hint': '今晚我在星梦舞蹈室练了 60 分钟嘻哈。',
+  },
 ];
-
-const _customCategoryEntry = <String, dynamic>{
-  'id': 'custom',
-  'label': '自定义记录',
-  'description': '用自己的字段记录一件重要的事',
-  'fields': <Map<String, dynamic>>[],
-};
-
-const _customCategoryId = 'custom';
 
 /// In-memory onboarding state machine (§6.1). Durable server state is only
 /// `pending | skipped | completed` on UserAccount; everything here is discarded
@@ -38,27 +65,35 @@ class OnboardingController extends ChangeNotifier {
   String? _error;
   List<Map<String, dynamic>> _categories = const [];
   String? _selectedCategory;
-  String _customCategoryName = '';
   List<Map<String, dynamic>> _selectedFields = const [];
   String? _skillId;
   Map<String, dynamic>? _previewPayload;
   List<String> _fieldWarnings = const [];
   List<Map<String, dynamic>> _manualFields = const [];
   String? _createdAssetId;
-  final String _skipIdempotencyKey =
-      'onb-skip-${DateTime.now().microsecondsSinceEpoch}';
+  bool _creatingSkill = false;
+  bool _previewing = false;
+  bool _confirming = false;
+  bool _skipping = false;
+  String? _lastConfirmationSignature;
+  String? _lastConfirmationKey;
+  final Uuid _uuid = const Uuid();
+  late final String _skipIdempotencyKey = _uuid.v4();
 
   bool get loadingCatalog => _loadingCatalog;
   String? get error => _error;
   List<Map<String, dynamic>> get categories => _categories;
   String? get selectedCategory => _selectedCategory;
-  String get customCategoryName => _customCategoryName;
   List<Map<String, dynamic>> get selectedFields => _selectedFields;
   String? get skillId => _skillId;
   Map<String, dynamic>? get previewPayload => _previewPayload;
   List<String> get fieldWarnings => _fieldWarnings;
   List<Map<String, dynamic>> get manualFields => _manualFields;
   String? get createdAssetId => _createdAssetId;
+  bool get creatingSkill => _creatingSkill;
+  bool get previewing => _previewing;
+  bool get confirming => _confirming;
+  bool get skipping => _skipping;
 
   List<Map<String, dynamic>> get previewFields {
     if (_previewPayload != null) {
@@ -66,10 +101,9 @@ class OnboardingController extends ChangeNotifier {
         for (final field in _selectedFields)
           {
             ...field,
-            'value':
-                _previewPayload![field['key']] == null
-                    ? ''
-                    : '${_previewPayload![field['key']]}',
+            'value': _previewPayload![field['key']] == null
+                ? ''
+                : '${_previewPayload![field['key']]}',
             'extracted': _previewPayload!.containsKey(field['key']),
           },
       ];
@@ -82,8 +116,6 @@ class OnboardingController extends ChangeNotifier {
 
   bool get hasSkill => _skillId != null;
 
-  bool get isCustomCategory => _selectedCategory == _customCategoryId;
-
   Future<void> loadCatalog() async {
     _loadingCatalog = true;
     _error = null;
@@ -92,7 +124,7 @@ class OnboardingController extends ChangeNotifier {
       final data = await repository.fetchCatalog();
       final categories = (data['categories'] as List?)
           ?.cast<Map<String, dynamic>>();
-      _categories = _withCustomCategory(categories ?? const []);
+      _categories = categories ?? const [];
     } catch (e) {
       _categories = _fallbackCategories;
       _error = '分类目录暂不可用，已切换到本地分类';
@@ -102,22 +134,10 @@ class OnboardingController extends ChangeNotifier {
     }
   }
 
-  List<Map<String, dynamic>> _withCustomCategory(
-    List<Map<String, dynamic>> categories,
-  ) {
-    if (categories.any((c) => c['id'] == _customCategoryId)) return categories;
-    return [...categories, _customCategoryEntry];
-  }
-
   void selectCategory(String? categoryId) {
     _selectedCategory = categoryId;
     _selectedFields = const [];
-    _error = null;
-    notifyListeners();
-  }
-
-  void setCustomCategoryName(String name) {
-    _customCategoryName = name;
+    _skillId = null;
     _error = null;
     notifyListeners();
   }
@@ -143,75 +163,45 @@ class OnboardingController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void addCustomField(String label) {
-    final trimmed = label.trim();
-    if (trimmed.isEmpty) {
-      _error = '字段名称不能为空';
-      notifyListeners();
-      return;
-    }
-    final key = _keyFromLabel(trimmed);
-    final field = <String, dynamic>{
-      'key': key,
-      'label': trimmed,
-      'type': 'text',
-    };
-    final exists = _selectedFields.any((f) => f['key'] == key);
-    _selectedFields = [
-      for (final f in _selectedFields)
-        if (f['key'] == key) field else f,
-      if (!exists) field,
-    ];
-    _error = null;
-    notifyListeners();
-  }
-
-  String _keyFromLabel(String label) {
-    final cleaned = label
-        .trim()
-        .toLowerCase()
-        .replaceAll(RegExp(r'\s+'), '_')
-        .replaceAll(RegExp(r'[^a-z0-9_\u4e00-\u9fff]'), '');
-    return cleaned.isEmpty ? 'field_${_selectedFields.length + 1}' : cleaned;
-  }
-
   Future<bool> createSkill() async {
+    if (_creatingSkill) return false;
     final category = _selectedCategory;
     if (category == null || _selectedFields.isEmpty) {
-      _error = '请选择分类和至少一个字段';
+      _error = category == null ? '请选择记录类型' : '请至少选择一个记录字段';
       notifyListeners();
       return false;
     }
-    final effectiveCategory = isCustomCategory
-        ? _customCategoryName.trim()
-        : category;
-    if (effectiveCategory.isEmpty) {
-      _error = '请填写自定义记录名称';
-      notifyListeners();
-      return false;
-    }
+    _creatingSkill = true;
     _error = null;
+    notifyListeners();
     try {
       final data = await repository.createSkill(
-        category: effectiveCategory,
-        fields: _selectedFields,
+        category: category,
+        fieldKeys: [
+          for (final field in _selectedFields) field['key'] as String,
+        ],
       );
       final skill = (data['skill'] as Map?)?.cast<String, dynamic>();
       _skillId = skill?['id'] as String?;
-      notifyListeners();
       return _skillId != null;
-    } catch (e) {
+    } catch (_) {
       _error = '创建记录类型失败，请重试';
       return false;
+    } finally {
+      _creatingSkill = false;
+      notifyListeners();
     }
   }
 
   Future<bool> runPreview(String sourceText) async {
+    if (_previewing) return false;
     final skillId = _skillId;
     if (skillId == null) {
       _error = '请先创建记录类型';
+      notifyListeners();
       return false;
     }
+    _previewing = true;
     _error = null;
     _previewPayload = null;
     _fieldWarnings = const [];
@@ -228,24 +218,33 @@ class OnboardingController extends ChangeNotifier {
       _manualFields =
           (data['manual_fields'] as List?)?.cast<Map<String, dynamic>>() ??
           const [];
-      notifyListeners();
       return true;
-    } catch (e) {
+    } catch (_) {
       _error = '提取失败，请重试或直接手动填写';
       return false;
+    } finally {
+      _previewing = false;
+      notifyListeners();
     }
   }
 
-  Future<bool> confirm({
-    required Map<String, dynamic> payload,
-    required String idempotencyKey,
-  }) async {
+  Future<bool> confirm({required Map<String, dynamic> payload}) async {
+    if (_confirming) return false;
     final skillId = _skillId;
     if (skillId == null) {
       _error = '请先创建记录类型';
+      notifyListeners();
       return false;
     }
+    final signature = _confirmationSignature(skillId, payload);
+    final idempotencyKey = signature == _lastConfirmationSignature
+        ? _lastConfirmationKey!
+        : _uuid.v4();
+    _lastConfirmationSignature = signature;
+    _lastConfirmationKey = idempotencyKey;
+    _confirming = true;
     _error = null;
+    notifyListeners();
     try {
       final data = await repository.confirm(
         skillId: skillId,
@@ -253,11 +252,17 @@ class OnboardingController extends ChangeNotifier {
         idempotencyKey: idempotencyKey,
       );
       _createdAssetId = data['asset_id'] as String?;
-      notifyListeners();
+      if (_createdAssetId != null) {
+        _lastConfirmationSignature = null;
+        _lastConfirmationKey = null;
+      }
       return _createdAssetId != null;
-    } catch (e) {
+    } catch (_) {
       _error = '确认失败，请重试';
       return false;
+    } finally {
+      _confirming = false;
+      notifyListeners();
     }
   }
 
@@ -265,7 +270,6 @@ class OnboardingController extends ChangeNotifier {
   /// client-side before any request is sent (§6).
   Future<bool> confirmFromEdits({
     required Map<String, String> rawValues,
-    required String idempotencyKey,
   }) async {
     final skillId = _skillId;
     if (skillId == null) {
@@ -278,7 +282,22 @@ class OnboardingController extends ChangeNotifier {
       notifyListeners();
       return false;
     }
-    return confirm(payload: payload, idempotencyKey: idempotencyKey);
+    return confirm(payload: payload);
+  }
+
+  String _confirmationSignature(String skillId, Map<String, dynamic> payload) {
+    return jsonEncode({'skill_id': skillId, 'payload': _canonicalize(payload)});
+  }
+
+  dynamic _canonicalize(dynamic value) {
+    if (value is Map) {
+      final keys = value.keys.map((key) => key.toString()).toList()..sort();
+      return <String, dynamic>{
+        for (final key in keys) key: _canonicalize(value[key]),
+      };
+    }
+    if (value is List) return [for (final item in value) _canonicalize(item)];
+    return value;
   }
 
   Map<String, dynamic> _coercePayload(Map<String, String> rawValues) {
@@ -300,25 +319,33 @@ class OnboardingController extends ChangeNotifier {
   }
 
   Future<bool> skip() async {
+    if (_skipping) return false;
+    _skipping = true;
+    _error = null;
+    notifyListeners();
     try {
       await repository.skip(idempotencyKey: _skipIdempotencyKey);
       return true;
     } catch (_) {
       _error = '跳过失败，请重试';
       return false;
+    } finally {
+      _skipping = false;
+      notifyListeners();
     }
   }
 
   void clear() {
     _categories = const [];
     _selectedCategory = null;
-    _customCategoryName = '';
     _selectedFields = const [];
     _skillId = null;
     _previewPayload = null;
     _fieldWarnings = const [];
     _manualFields = const [];
     _createdAssetId = null;
+    _lastConfirmationSignature = null;
+    _lastConfirmationKey = null;
     _error = null;
     notifyListeners();
   }
