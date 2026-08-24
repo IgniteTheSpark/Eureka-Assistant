@@ -104,6 +104,8 @@ class Settings(BaseSettings):
     email_send_per_day_per_ip: int = 100
     email_max_failed_attempts: int = 5
     email_lockout_seconds: int = 900  # 15 minutes
+    login_attempts_per_email_15_min: int = Field(default=10, ge=1)
+    login_attempts_per_ip_15_min: int = Field(default=50, ge=1)
     # Aliyun DirectMail (production mainland-China provider)
     directmail_access_key_id: str = ""
     directmail_access_key_secret: str = ""

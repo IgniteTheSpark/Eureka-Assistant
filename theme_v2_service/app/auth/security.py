@@ -1,5 +1,8 @@
 import base64
+import asyncio
 import binascii
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 import hashlib
 import hmac
 import json
@@ -10,6 +13,14 @@ from app.config import get_settings
 
 
 _PBKDF2_ITERATIONS = 200_000
+_PASSWORD_EXECUTOR = ThreadPoolExecutor(
+    max_workers=8,
+    thread_name_prefix="eureka-password",
+)
+DUMMY_PASSWORD_HASH = (
+    "pbkdf2_sha256$200000$ZXVyZWthLWR1bW15LXNhbHQ"
+    "$h60lRkvGhKjfvt8kpmQVMOEAgBd7I_lg4poYP-pUQu0"
+)
 
 
 def _b64u(value: bytes) -> str:
@@ -48,6 +59,21 @@ def verify_password(password: str, stored: str) -> bool:
         return hmac.compare_digest(digest, _b64u_dec(digest_text))
     except (ValueError, TypeError, binascii.Error):
         return False
+
+
+async def hash_password_async(password: str) -> str:
+    """Run CPU-bound PBKDF2 in the bounded password worker pool."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_PASSWORD_EXECUTOR, hash_password, password)
+
+
+async def verify_password_async(password: str, stored: str) -> bool:
+    """Verify without blocking the application's async event loop."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        _PASSWORD_EXECUTOR,
+        partial(verify_password, password, stored),
+    )
 
 
 def create_token(

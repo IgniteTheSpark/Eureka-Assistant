@@ -8,10 +8,11 @@ self-service restore. No rows are deleted and no physical cleanup is enqueued.
 """
 from __future__ import annotations
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.models import UserAccount
-from app.auth.security import verify_password
+from app.auth.security import verify_password_async
 from app.db.base import utc_now
 
 class DeletePasswordError(Exception):
@@ -24,10 +25,14 @@ async def delete_account(
     *,
     password: str,
 ) -> None:
-    user = await session.get(UserAccount, user_id)
+    user = await session.scalar(
+        select(UserAccount)
+        .where(UserAccount.id == user_id)
+        .with_for_update()
+    )
     if user is None or user.password_hash is None:
         raise DeletePasswordError("账号不存在或未设置密码")
-    if not verify_password(password, user.password_hash):
+    if not await verify_password_async(password, user.password_hash):
         raise DeletePasswordError("密码不正确，无法停用账户")
 
     # Deactivation is intentionally soft: preserve business data while making

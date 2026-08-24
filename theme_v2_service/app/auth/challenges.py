@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.models import EmailRateLimitBucket, EmailVerificationChallenge
 from app.config import get_settings
+from app.db.session import AsyncSessionFactory
 
 
 def _now() -> datetime:
@@ -73,6 +74,38 @@ class ChallengeExpiredError(Exception):
 
 class ChallengeConsumedError(Exception):
     pass
+
+
+class LoginRateLimitError(Exception):
+    def __init__(self, retry_after_seconds: int):
+        super().__init__("登录尝试过于频繁，请稍后再试")
+        self.retry_after_seconds = retry_after_seconds
+
+
+async def reserve_login_attempt(*, email: str, request_ip: str | None) -> None:
+    """Atomically count every login attempt before credential verification."""
+    settings = get_settings()
+    window_seconds = 15 * 60
+    now = _now()
+    async with AsyncSessionFactory.begin() as session:
+        email_ok = await _reserve_bucket(
+            session,
+            key=_bucket_key("login-email-15m", email),
+            window_seconds=window_seconds,
+            limit=settings.login_attempts_per_email_15_min,
+            now=now,
+        )
+        ip_ok = True
+        if request_ip is not None:
+            ip_ok = await _reserve_bucket(
+                session,
+                key=_bucket_key("login-ip-15m", request_ip),
+                window_seconds=window_seconds,
+                limit=settings.login_attempts_per_ip_15_min,
+                now=now,
+            )
+    if not email_ok or not ip_ok:
+        raise LoginRateLimitError(retry_after_seconds=window_seconds)
 
 
 async def issue_challenge(

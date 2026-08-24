@@ -2,7 +2,7 @@ import re
 from app.db.base import utc_now
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,8 +13,10 @@ from app.auth.challenges import (
     ChallengeInvalidError,
     ChallengeLockedError,
     ChallengeRateLimitError,
+    LoginRateLimitError,
     find_active_challenge,
     issue_challenge,
+    reserve_login_attempt,
     verify_code,
 )
 from app.auth.dependencies import get_current_user_id
@@ -25,7 +27,12 @@ from app.auth.models import (
     ONBOARDING_PENDING,
     UserAccount,
 )
-from app.auth.security import create_token, hash_password, verify_password
+from app.auth.security import (
+    DUMMY_PASSWORD_HASH,
+    create_token,
+    hash_password_async,
+    verify_password_async,
+)
 from app.config import get_settings
 from app.db.session import get_session
 from app.domains.assets.service import ensure_capture_skills
@@ -44,32 +51,32 @@ _MAX_PASSWORD = 128
 
 
 class AuthRequest(BaseModel):
-    email: str
-    password: str
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=1, max_length=_MAX_PASSWORD)
 
 
 class VerificationCodeRequest(BaseModel):
-    email: str
-    purpose: str
+    email: str = Field(min_length=3, max_length=320)
+    purpose: str = Field(min_length=1, max_length=24)
 
 
 class RegisterRequest(BaseModel):
-    email: str
-    verification_code: str
-    password: str
-    terms_version: str
+    email: str = Field(min_length=3, max_length=320)
+    verification_code: str = Field(pattern=r"^\d{6}$")
+    password: str = Field(min_length=1, max_length=_MAX_PASSWORD)
+    terms_version: str = Field(max_length=64)
     terms_accepted: bool
 
 
 class PasswordResetRequest(BaseModel):
-    email: str
-    verification_code: str
-    new_password: str
+    email: str = Field(min_length=3, max_length=320)
+    verification_code: str = Field(pattern=r"^\d{6}$")
+    new_password: str = Field(min_length=1, max_length=_MAX_PASSWORD)
 
 
 class ChangePasswordRequest(BaseModel):
-    current_password: str
-    new_password: str
+    current_password: str = Field(min_length=1, max_length=_MAX_PASSWORD)
+    new_password: str = Field(min_length=1, max_length=_MAX_PASSWORD)
 
     @field_validator("new_password")
     @classmethod
@@ -211,7 +218,7 @@ async def register(
     now = utc_now()
     user = UserAccount(
         email=email,
-        password_hash=hash_password(body.password),
+        password_hash=await hash_password_async(body.password),
         email_verified_at=now,
         onboarding_status=ONBOARDING_PENDING,
         terms_accepted_at=now,
@@ -235,18 +242,37 @@ async def register(
 
 @router.post("/login")
 async def login(
+    request: Request,
     body: AuthRequest,
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     email = _normalize_email(body.email)
+    try:
+        await reserve_login_attempt(email=email, request_ip=_client_ip(request))
+    except LoginRateLimitError as exc:
+        raise HTTPException(
+            status_code=429,
+            detail=str(exc),
+            headers={"Retry-After": str(exc.retry_after_seconds)},
+        ) from exc
+
     user = await session.scalar(
         select(UserAccount).where(UserAccount.email == email)
     )
-    if user is None or user.password_hash is None or not verify_password(
-        body.password, user.password_hash
+    stored_hash = (
+        user.password_hash
+        if user is not None
+        and user.deleted_at is None
+        and user.password_hash is not None
+        else DUMMY_PASSWORD_HASH
+    )
+    password_matches = await verify_password_async(body.password, stored_hash)
+    if (
+        user is None
+        or user.deleted_at is not None
+        or user.password_hash is None
+        or not password_matches
     ):
-        raise HTTPException(status_code=401, detail="邮箱或密码错误")
-    if user.deleted_at is not None:
         raise HTTPException(status_code=401, detail="邮箱或密码错误")
 
     return {
@@ -293,12 +319,14 @@ async def password_reset(
         raise HTTPException(status_code=429, detail=str(exc)) from exc
 
     user = await session.scalar(
-        select(UserAccount).where(UserAccount.email == email)
+        select(UserAccount)
+        .where(UserAccount.email == email)
+        .with_for_update()
     )
     if user is None or user.deleted_at is not None:
         # Uniform response — never reveal whether the address exists.
         return {"ok": True}
-    user.password_hash = hash_password(body.new_password)
+    user.password_hash = await hash_password_async(body.new_password)
     user.auth_version += 1
     user.password_updated_at = utc_now()
     await session.flush()

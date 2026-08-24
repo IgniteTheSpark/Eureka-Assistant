@@ -7,6 +7,10 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select, text
 
 from app.auth.models import UserAccount
+from app.auth.api import ChangePasswordRequest
+from app.auth.security import hash_password
+from app.account.api import change_password
+from app.account.deletion import delete_account
 from app.db.models import Asset, UserSkill
 from app.db.session import AsyncSessionFactory
 from app.main import app
@@ -24,6 +28,59 @@ async def client(session):
 
 def _headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
+
+
+class _LockRecordingSession:
+    def __init__(self, user: UserAccount):
+        self.user = user
+        self.used_for_update = False
+
+    async def scalar(self, statement):
+        self.used_for_update = statement._for_update_arg is not None
+        return self.user
+
+    async def get(self, model, user_id):
+        return self.user
+
+    async def flush(self):
+        return None
+
+
+async def test_change_password_locks_account_before_mutation():
+    user = UserAccount(
+        id="lock-change-user",
+        email="lock-change@example.com",
+        password_hash=hash_password("Secret123!"),
+        auth_version=1,
+        onboarding_status="pending",
+    )
+    session = _LockRecordingSession(user)
+
+    await change_password(
+        ChangePasswordRequest(
+            current_password="Secret123!",
+            new_password="Changed789!",
+        ),
+        user_id=user.id,
+        session=session,
+    )
+
+    assert session.used_for_update is True
+
+
+async def test_soft_delete_locks_account_before_mutation():
+    user = UserAccount(
+        id="lock-delete-user",
+        email="lock-delete@example.com",
+        password_hash=hash_password("Secret123!"),
+        auth_version=1,
+        onboarding_status="pending",
+    )
+    session = _LockRecordingSession(user)
+
+    await delete_account(session, user.id, password="Secret123!")
+
+    assert session.used_for_update is True
 
 
 async def _user_with_asset(

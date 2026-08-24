@@ -1,5 +1,6 @@
 """Theme V2 auth API contract tests (§5.5)."""
 import json
+from datetime import datetime, timezone
 
 import pytest
 import pytest_asyncio
@@ -14,6 +15,7 @@ from app.auth.models import (
     UserAccount,
 )
 from app.config import get_settings
+from app.auth.security import hash_password
 from app.db.models import UserSkill
 from app.db.session import AsyncSessionFactory
 from app.domains.assets.service import BASELINE_CAPTURE_SKILLS
@@ -308,6 +310,94 @@ async def test_login_rejects_invalid_credentials(client):
     assert response.status_code == 401
 
 
+@pytest.mark.parametrize(
+    ("path", "body"),
+    [
+        (
+            "/api/auth/login",
+            {"email": f"{'x' * 309}@example.com", "password": "Secret123!"},
+        ),
+        (
+            "/api/auth/register",
+            {
+                "email": "person@example.com",
+                "verification_code": "12345",
+                "password": "Secret123!",
+                "terms_version": "2026-08-v1",
+                "terms_accepted": True,
+            },
+        ),
+        (
+            "/api/auth/password-reset",
+            {
+                "email": "person@example.com",
+                "verification_code": "123456",
+                "new_password": "X" * 129,
+            },
+        ),
+    ],
+)
+async def test_auth_request_limits_reject_before_handler(client, path, body):
+    response = await client.post(path, json=body)
+
+    assert response.status_code == 422
+    assert isinstance(response.json()["detail"], list)
+
+
+async def test_login_rate_limit_counts_failed_attempts(client, monkeypatch):
+    monkeypatch.setenv("LOGIN_ATTEMPTS_PER_EMAIL_15_MIN", "2")
+    get_settings.cache_clear()
+    try:
+        payload = {
+            "email": "limited@example.com",
+            "password": "Wrong123!",
+        }
+        assert (await client.post("/api/auth/login", json=payload)).status_code == 401
+        assert (await client.post("/api/auth/login", json=payload)).status_code == 401
+        blocked = await client.post("/api/auth/login", json=payload)
+    finally:
+        get_settings.cache_clear()
+
+    assert blocked.status_code == 429
+    assert int(blocked.headers["retry-after"]) > 0
+
+
+async def test_unknown_and_deleted_login_use_dummy_verification(client, monkeypatch):
+    from app.auth import api as auth_api
+
+    async with AsyncSessionFactory.begin() as database:
+        database.add(
+            UserAccount(
+                email="deleted-timing@example.com",
+                password_hash=hash_password("Secret123!"),
+                deleted_at=datetime.now(timezone.utc).replace(tzinfo=None),
+                auth_version=2,
+            )
+        )
+
+    calls: list[tuple[str, str]] = []
+
+    async def recording_verify(password: str, stored: str) -> bool:
+        calls.append((password, stored))
+        return False
+
+    monkeypatch.setattr(
+        auth_api,
+        "verify_password_async",
+        recording_verify,
+        raising=False,
+    )
+    for email in ("unknown-timing@example.com", "deleted-timing@example.com"):
+        response = await client.post(
+            "/api/auth/login",
+            json={"email": email, "password": "Wrong123!"},
+        )
+        assert response.status_code == 401
+
+    assert len(calls) == 2
+    assert all(stored.startswith("pbkdf2_sha256$") for _, stored in calls)
+
+
 async def test_password_reset_does_not_enumerate(client):
     await _request_register_code(client, "known@example.com")
     await _register_with_code(client, "known@example.com")
@@ -390,7 +480,12 @@ async def test_password_reset_failure_rolls_back_code_consumption_and_password(
     def failing_hash_password(password):
         raise RuntimeError("hash failed")
 
-    monkeypatch.setattr(auth_api, "hash_password", failing_hash_password)
+    async def failing_hash_password_async(password):
+        return failing_hash_password(password)
+
+    monkeypatch.setattr(
+        auth_api, "hash_password_async", failing_hash_password_async
+    )
     with pytest.raises(RuntimeError, match="hash failed"):
         await client.post(
             "/api/auth/password-reset",

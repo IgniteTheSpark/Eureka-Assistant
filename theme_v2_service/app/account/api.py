@@ -7,7 +7,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.api import ChangePasswordRequest
 from app.auth.dependencies import get_current_user_id
 from app.auth.models import UserAccount
-from app.auth.security import create_token, hash_password, verify_password
+from app.auth.security import (
+    create_token,
+    hash_password_async,
+    verify_password_async,
+)
 from app.db.session import get_session
 
 
@@ -21,14 +25,16 @@ async def change_password(
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     user = await session.scalar(
-        select(UserAccount).where(UserAccount.id == user_id)
+        select(UserAccount)
+        .where(UserAccount.id == user_id)
+        .with_for_update()
     )
     if user is None or user.password_hash is None:
         raise HTTPException(status_code=401, detail="账号不存在或未设置密码")
-    if not verify_password(body.current_password, user.password_hash):
+    if not await verify_password_async(body.current_password, user.password_hash):
         raise HTTPException(status_code=400, detail="当前密码不正确")
 
-    user.password_hash = hash_password(body.new_password)
+    user.password_hash = await hash_password_async(body.new_password)
     user.auth_version += 1
     user.password_updated_at = utc_now()
     await session.flush()
@@ -63,7 +69,7 @@ class ExportRequest(BaseModel):
 
 
 class DeleteRequest(BaseModel):
-    password: str
+    password: str = Field(min_length=1, max_length=128)
 
 
 @router.get("/export-options")
