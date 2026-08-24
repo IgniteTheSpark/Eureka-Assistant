@@ -429,4 +429,3 @@ class AgentToolExecution(Base):
         onupdate=utc_now,
         nullable=False,
     )
-

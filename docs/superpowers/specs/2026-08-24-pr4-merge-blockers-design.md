@@ -1,7 +1,7 @@
 # PR #4 Merge Blockers 修复设计
 
-日期：2026-08-24  
-目标分支：`codex/pr4-merge-blockers`  
+日期：2026-08-24
+目标分支：`codex/pr4-merge-blockers`
 基线：PR #4 head `589ae76334f59fdbca3fe4e40c038b6602776afe`
 
 ## 1. 目标
