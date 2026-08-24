@@ -1,3 +1,4 @@
+import pytest
 from pydantic import ValidationError
 
 from app.config import Settings
@@ -35,6 +36,21 @@ def test_prod_rejects_dev_secret():
     except ValidationError:
         return
     raise AssertionError("prod must reject the development JWT secret")
+
+
+@pytest.mark.parametrize(
+    "secret",
+    [
+        "short",
+        "x" * 31,
+        "replace-with-real-secret-that-is-long-enough",
+        "example-secret-that-is-long-enough",
+        "change-me-change-me-change-me-change-me",
+        "test-secret-test-secret-test-secret-test",
+    ],
+)
+def test_prod_rejects_short_or_placeholder_jwt_secret(secret):
+    _assert_prod_rejects({"jwt_secret": secret})
 
 
 def test_prod_requires_directmail_and_https_legal_links():

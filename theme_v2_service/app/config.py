@@ -7,11 +7,19 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _PRODUCTION_SENDER = "verify@mail.ureka.chat"
 _EXAMPLE_SECRET_MARKERS = ("replace-with", "example.com")
+_JWT_SECRET_MARKERS = ("replace-with", "example", "change-me", "test-secret")
 
 
 def _is_example_placeholder(value: str) -> bool:
     lowered = value.strip().lower()
     return any(marker in lowered for marker in _EXAMPLE_SECRET_MARKERS)
+
+
+def _is_unsafe_jwt_secret(value: str) -> bool:
+    lowered = value.strip().lower()
+    return len(value.encode("utf-8")) < 32 or any(
+        marker in lowered for marker in _JWT_SECRET_MARKERS
+    )
 
 
 def _is_absolute_https_url(value: str) -> bool:
@@ -117,9 +125,12 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def reject_insecure_prod(self) -> "Settings":
-        if self.env in {"prod", "production"} and self.jwt_secret == "dev-insecure-change-me":
-            raise ValueError("JWT_SECRET must be changed in production")
         if self.env in {"prod", "production"}:
+            if _is_unsafe_jwt_secret(self.jwt_secret):
+                raise ValueError(
+                    "JWT_SECRET must be at least 32 UTF-8 bytes and must not "
+                    "contain placeholder markers in production"
+                )
             if self.email_fixed_code is not None:
                 raise ValueError("EMAIL_FIXED_CODE is forbidden in production")
             if self.email_provider != "aliyun_directmail":
