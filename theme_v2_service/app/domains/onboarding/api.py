@@ -5,7 +5,7 @@ Typed-only for M2; the hardware capture intent endpoint is a 501 stub.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user_id
@@ -16,6 +16,7 @@ from app.domains.onboarding.service import (
     OnboardingError,
     PreviewResult,
     SkillNotOwned,
+    IdempotencyConflict,
     confirm_onboarding_asset,
     create_onboarding_skill,
     extract_preview,
@@ -27,8 +28,10 @@ router = APIRouter(prefix="/api/onboarding", tags=["onboarding"])
 
 
 class SkillFieldsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     category: str = Field(min_length=1, max_length=100)
-    fields: list[dict] = Field(default_factory=list, min_length=1, max_length=30)
+    field_keys: list[str] = Field(min_length=1, max_length=30)
 
 
 class SuggestFieldsRequest(BaseModel):
@@ -80,7 +83,7 @@ async def create_skill(
             session,
             user_id,
             category=body.category,
-            fields=body.fields,
+            field_keys=body.field_keys,
         )
     except OnboardingError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -136,6 +139,8 @@ async def confirm(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except AssetPayloadInvalid as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except IdempotencyConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     return {
         "ok": True,

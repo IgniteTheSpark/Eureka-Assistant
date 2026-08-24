@@ -421,7 +421,7 @@ Add three concrete contract cases. Reuse the existing `confirm` request shape:
    `request_fingerprint` to null through `AsyncSessionFactory`, then assert an
    identical retry backfills and succeeds while a changed retry is HTTP 409.
 
-Update the migration round-trip assertion to expect `0032_onboarding_request_fingerprint` and a nullable `request_fingerprint VARCHAR(64)` column.
+Update the migration round-trip assertion to expect `0032_onboarding_request_fp` and a nullable `request_fingerprint VARCHAR(64)` column.
 
 **Step 3: Run RED tests**
 
@@ -466,7 +466,7 @@ Delete custom-category field validation and update the module contract. In `extr
 
 **Step 5: Add fingerprint migration and model field**
 
-Create forward migration `0032_onboarding_request_fingerprint` from `0031_challenge_indexes`:
+Create forward migration file `0032_onboarding_request_fingerprint.py` with Alembic revision `0032_onboarding_request_fp` from `0031_challenge_indexes`:
 
 ```python
 def upgrade() -> None:
@@ -518,7 +518,7 @@ docker compose -f docker-compose.theme-v2.yml run --rm test \
   -k foundation_migration_round_trip_and_physical_types
 ```
 
-Expected: both commands pass and Alembic head is `0032_onboarding_request_fingerprint`.
+Expected: both commands pass and Alembic head is `0032_onboarding_request_fp`.
 
 **Step 8: Commit**
 
@@ -798,7 +798,7 @@ docker compose -f docker-compose.theme-v2.yml run --rm test \
   -k foundation_migration_round_trip_and_physical_types
 ```
 
-Expected: pass at revision `0032_onboarding_request_fingerprint`.
+Expected: pass at revision `0032_onboarding_request_fp`.
 
 **Step 3: Run Flutter focused matrix**
 

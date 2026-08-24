@@ -29,6 +29,7 @@ def test_foundation_migration_round_trip_and_physical_types():
     with engine.begin() as connection:
         connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
         connection.execute(text("DROP TABLE IF EXISTS onboarding_asset_results"))
+        connection.execute(text("DROP TABLE IF EXISTS deletion_cleanup_items"))
 
     config = Config("alembic.ini")
     command.upgrade(config, "head")
@@ -193,7 +194,14 @@ def test_foundation_migration_round_trip_and_physical_types():
     assert isinstance(rhythm_columns["patterns_json"]["type"], mysql.JSON)
     assert rhythm_columns["timezone_name"]["type"].length == 64
 
-    assert revision == "0031_challenge_indexes"
+    onboarding_marker_columns = {
+        column["name"]: column
+        for column in inspector.get_columns("onboarding_asset_results")
+    }
+    assert onboarding_marker_columns["request_fingerprint"]["type"].length == 64
+    assert onboarding_marker_columns["request_fingerprint"]["nullable"] is True
+
+    assert revision == "0032_onboarding_request_fp"
     assert not inspector.has_table("deletion_cleanup_items")
     assert inspector.has_table("email_rate_limit_buckets")
     engine.dispose()
@@ -205,6 +213,7 @@ def test_internal_mcp_migration_backfills_existing_domain_data():
     with engine.begin() as connection:
         connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
         connection.execute(text("DROP TABLE IF EXISTS onboarding_asset_results"))
+        connection.execute(text("DROP TABLE IF EXISTS deletion_cleanup_items"))
 
     config = Config("alembic.ini")
     command.upgrade(config, "0014_agent_session_foundation")

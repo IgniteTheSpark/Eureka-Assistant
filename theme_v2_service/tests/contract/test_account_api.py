@@ -95,10 +95,7 @@ async def _user_with_asset(
         headers=_headers(token),
         json={
             "category": "running",
-            "fields": [
-                {"key": "distance_km", "label": "距离(公里)", "type": "number"},
-                {"key": "duration_min", "label": "时长(分钟)", "type": "duration"},
-            ],
+            "field_keys": ["distance_km", "duration_min"],
         },
     )
     skill_id = response.json()["skill"]["id"]

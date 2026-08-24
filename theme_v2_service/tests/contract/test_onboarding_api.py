@@ -2,11 +2,13 @@
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 
 from app.auth.email_sender import get_verification_sender
 from app.auth.models import ONBOARDING_COMPLETED, ONBOARDING_SKIPPED, UserAccount
 from app.db.models import Asset, UserSkill
 from app.db.session import AsyncSessionFactory
+from app.domains.onboarding.service import AssetResultMarker
 from app.main import app
 from tests.fakes.auth_helpers import register_user
 
@@ -35,10 +37,7 @@ async def _create_running_skill(client, token: str) -> str:
         headers=_headers(token),
         json={
             "category": "running",
-            "fields": [
-                {"key": "distance_km", "label": "距离(公里)", "type": "number"},
-                {"key": "duration_min", "label": "时长(分钟)", "type": "duration"},
-            ],
+            "field_keys": ["distance_km", "duration_min"],
         },
     )
     assert response.status_code == 200, response.text
@@ -78,6 +77,57 @@ async def test_suggest_fields_unknown_category_returns_empty(client):
     assert response.json()["fields"] == []
 
 
+async def test_skill_creation_accepts_only_curated_category_and_field_keys(client):
+    token, _ = await _authed_user(client, "curated@example.com")
+
+    response = await client.post(
+        "/api/onboarding/skills",
+        headers=_headers(token),
+        json={
+            "category": "running",
+            "field_keys": ["distance_km", "duration_min"],
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    properties = response.json()["skill"]["schema"]["properties"]
+    assert list(properties) == ["distance_km", "duration_min"]
+    assert properties["distance_km"]["type"] == "number"
+    assert properties["duration_min"]["x-type"] == "duration"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"category": "sleep", "field_keys": ["hours"]},
+        {"category": "running", "field_keys": []},
+        {
+            "category": "running",
+            "field_keys": ["distance_km", "distance_km"],
+        },
+        {"category": "running", "field_keys": ["unknown"]},
+        {
+            "category": "running",
+            "fields": [
+                {"key": "distance_km", "label": "伪造距离", "type": "text"}
+            ],
+        },
+    ],
+)
+async def test_skill_creation_rejects_non_catalog_schema_input(client, body):
+    token, _ = await _authed_user(
+        client, f"curated-reject-{abs(hash(str(body)))}@example.com"
+    )
+
+    response = await client.post(
+        "/api/onboarding/skills",
+        headers=_headers(token),
+        json=body,
+    )
+
+    assert response.status_code in {400, 422}
+
+
 async def test_skill_creation_is_idempotent(client):
     token, _ = await _authed_user(client, "idem@example.com")
     skill_id = await _create_running_skill(client, token)
@@ -87,10 +137,7 @@ async def test_skill_creation_is_idempotent(client):
         headers=_headers(token),
         json={
             "category": "running",
-            "fields": [
-                {"key": "distance_km", "label": "距离(公里)", "type": "number"},
-                {"key": "duration_min", "label": "时长(分钟)", "type": "duration"},
-            ],
+            "field_keys": ["distance_km", "duration_min"],
         },
     )
     assert response.status_code == 200
@@ -101,7 +148,7 @@ async def test_skill_creation_is_idempotent(client):
 async def test_skill_creation_requires_auth(client):
     response = await client.post(
         "/api/onboarding/skills",
-        json={"category": "running", "fields": []},
+        json={"category": "running", "field_keys": ["distance_km"]},
     )
     assert response.status_code == 401
 
@@ -146,6 +193,11 @@ async def test_preview_fallback_to_manual_fields(client):
     assert body["payload"] is None
     assert len(body["manual_fields"]) >= 2
     assert body["field_warnings"]
+    manual_types = {
+        field["key"]: field["type"] for field in body["manual_fields"]
+    }
+    assert manual_types["distance_km"] == "number"
+    assert manual_types["duration_min"] == "duration"
 
 
 async def test_preview_unknown_skill_returns_404(client):
@@ -199,6 +251,83 @@ async def test_confirm_creates_one_asset_and_is_idempotent(client):
     assert len(list(count)) == 1
 
 
+async def test_confirm_same_key_with_different_payload_returns_conflict(client):
+    token, _ = await _authed_user(client, "conflict@example.com")
+    skill_id = await _create_running_skill(client, token)
+
+    first = await client.post(
+        "/api/onboarding/confirm",
+        headers=_headers(token),
+        json={
+            "skill_id": skill_id,
+            "payload": {"distance_km": 5},
+            "idempotency_key": "conflict-key-1",
+        },
+    )
+    second = await client.post(
+        "/api/onboarding/confirm",
+        headers=_headers(token),
+        json={
+            "skill_id": skill_id,
+            "payload": {"distance_km": 6},
+            "idempotency_key": "conflict-key-1",
+        },
+    )
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 409
+
+
+async def test_legacy_null_fingerprint_replays_only_matching_asset(client):
+    token, _ = await _authed_user(client, "legacy-marker@example.com")
+    skill_id = await _create_running_skill(client, token)
+    request = {
+        "skill_id": skill_id,
+        "payload": {"distance_km": 5, "duration_min": 32},
+        "idempotency_key": "legacy-key-1",
+    }
+    created = await client.post(
+        "/api/onboarding/confirm",
+        headers=_headers(token),
+        json=request,
+    )
+    assert created.status_code == 200, created.text
+
+    async with AsyncSessionFactory.begin() as database:
+        marker = await database.scalar(
+            select(AssetResultMarker).where(
+                AssetResultMarker.idempotency_key == "legacy-key-1"
+            )
+        )
+        assert marker is not None
+        marker.request_fingerprint = None
+
+    replay = await client.post(
+        "/api/onboarding/confirm",
+        headers=_headers(token),
+        json=request,
+    )
+    assert replay.status_code == 200
+    assert replay.json()["asset_id"] == created.json()["asset_id"]
+    assert replay.json()["created"] is False
+
+    changed = await client.post(
+        "/api/onboarding/confirm",
+        headers=_headers(token),
+        json={**request, "payload": {"distance_km": 6}},
+    )
+    assert changed.status_code == 409
+
+    async with AsyncSessionFactory() as database:
+        marker = await database.scalar(
+            select(AssetResultMarker).where(
+                AssetResultMarker.idempotency_key == "legacy-key-1"
+            )
+        )
+    assert marker is not None
+    assert marker.request_fingerprint is not None
+
+
 async def test_skip_marks_onboarding_skipped(client):
     token, _ = await _authed_user(client, "skip@example.com")
 
@@ -240,47 +369,6 @@ async def test_confirm_marks_onboarding_completed(client):
             select(UserAccount).where(UserAccount.email == "keep@example.com")
         )
     assert user.onboarding_status == ONBOARDING_COMPLETED
-
-
-async def test_custom_category_and_fields_round_trip(client):
-    token, _ = await _authed_user(client, "custom@example.com")
-
-    response = await client.post(
-        "/api/onboarding/skills",
-        headers=_headers(token),
-        json={
-            "category": "睡眠",
-            "fields": [
-                {"key": "wake_time", "label": "起床时间", "type": "text"},
-                {"key": "hours", "label": "睡眠时长", "type": "duration"},
-            ],
-        },
-    )
-    assert response.status_code == 200, response.text
-    body = response.json()
-    skill = body["skill"]
-    assert body["created"] is True
-    assert skill["display_name"] == "睡眠"
-    assert skill["machine_name"].startswith("onb_")
-    properties = skill["schema"]["properties"]
-    assert properties["wake_time"]["x-type"] == "text"
-    assert properties["hours"]["x-type"] == "duration"
-    assert properties["hours"]["type"] == "number"
-
-
-async def test_blank_custom_field_names_rejected(client):
-    token, _ = await _authed_user(client, "blank@example.com")
-
-    for fields in (
-        [{"key": "", "label": "备注", "type": "text"}],
-        [{"key": "note", "label": "  ", "type": "text"}],
-    ):
-        response = await client.post(
-            "/api/onboarding/skills",
-            headers=_headers(token),
-            json={"category": "自定义", "fields": fields},
-        )
-        assert response.status_code == 400, response.text
 
 
 async def test_empty_payload_confirm_rejected_and_no_asset_created(client):
@@ -370,31 +458,3 @@ async def test_completed_skip_leaves_completed(client):
             select(UserAccount).where(UserAccount.email == "noskip@example.com")
         )
     assert user.onboarding_status == ONBOARDING_COMPLETED
-
-
-async def test_same_keys_different_type_or_label_produce_distinct_skills(client):
-    token, _ = await _authed_user(client, "finger@example.com")
-
-    async def create(fields):
-        response = await client.post(
-            "/api/onboarding/skills",
-            headers=_headers(token),
-            json={"category": "跑步", "fields": fields},
-        )
-        assert response.status_code == 200, response.text
-        return response.json()["skill"]
-
-    duration_skill = await create(
-        [{"key": "duration_min", "label": "时长", "type": "duration"}]
-    )
-    number_skill = await create(
-        [{"key": "duration_min", "label": "时长", "type": "number"}]
-    )
-    assert duration_skill["machine_name"] != number_skill["machine_name"]
-    assert duration_skill["id"] != number_skill["id"]
-
-    relabeled = await create(
-        [{"key": "duration_min", "label": "时长(分钟)", "type": "duration"}]
-    )
-    assert duration_skill["machine_name"] != relabeled["machine_name"]
-    assert duration_skill["id"] != relabeled["id"]

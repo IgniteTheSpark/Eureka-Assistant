@@ -1,12 +1,13 @@
 """Onboarding backend service (§6).
 
-Implements idempotent Skill creation from a curated/custom category, an
+Implements idempotent Skill creation from a curated category, an
 extraction-only preview that never persists, and idempotent first-Asset
 confirmation plus Skip. The hardware capture path is stubbed (typed-only for M2).
 """
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -19,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, new_uuid, utc_now
-from app.db.models import UserSkill
+from app.db.models import Asset, UserSkill
 from app.domains.assets.schemas import AssetCreate, UserSkillCreate
 from app.domains.assets.service import create_asset, create_user_skill
 from app.domains.assets.validation import AssetPayloadInvalid, AssetWriteProfile
@@ -31,6 +32,10 @@ class OnboardingError(Exception):
 
 
 class SkillNotOwned(OnboardingError):
+    pass
+
+
+class IdempotencyConflict(OnboardingError):
     pass
 
 
@@ -48,6 +53,9 @@ class AssetResultMarker(Base):
     user_id: Mapped[str] = mapped_column(CHAR(36), nullable=False)
     idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
     asset_id: Mapped[str] = mapped_column(CHAR(36), nullable=False)
+    request_fingerprint: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         mysql.DATETIME(fsp=6), default=utc_now, nullable=False
     )
@@ -113,15 +121,21 @@ def _schema_from_fields(fields: list[dict]) -> dict:
     }
 
 
-def _validate_custom_fields(fields: list[dict]) -> None:
-    """Reject blank user-entered field names before any skill is created."""
-    for index, field in enumerate(fields):
-        key = _normalize(str(field.get("key", "")))
-        label = _normalize(str(field.get("label", "")))
-        if not key:
-            raise OnboardingError(f"字段 {index + 1} 的名称(key)不能为空")
-        if not label:
-            raise OnboardingError(f"字段 {index + 1} 的显示名称(label)不能为空")
+def _catalog_fields(category: str, field_keys: list[str]) -> tuple[dict, list[dict]]:
+    catalog_entry = get_category(category)
+    if catalog_entry is None:
+        raise OnboardingError("记录类型不在预制目录中")
+    if not field_keys:
+        raise OnboardingError("请至少选择一个记录字段")
+    if len(field_keys) != len(set(field_keys)):
+        raise OnboardingError("记录字段不能重复")
+
+    fields_by_key = {field["key"]: field for field in catalog_entry["fields"]}
+    if any(key not in fields_by_key for key in field_keys):
+        raise OnboardingError("记录字段不属于所选类型")
+    selected = set(field_keys)
+    fields = [field for field in catalog_entry["fields"] if field["key"] in selected]
+    return catalog_entry, fields
 
 
 async def create_onboarding_skill(
@@ -129,13 +143,10 @@ async def create_onboarding_skill(
     user_id: str,
     *,
     category: str,
-    fields: list[dict],
+    field_keys: list[str],
 ) -> tuple[UserSkill, bool]:
-    _validate_custom_fields(fields)
-    catalog_entry = get_category(category)
-    display_name = (
-        catalog_entry["label"] if catalog_entry else _normalize(category).capitalize()
-    )
+    catalog_entry, fields = _catalog_fields(category, field_keys)
+    display_name = catalog_entry["label"]
     machine_name = machine_name_for(category, fields)
 
     existing = await session.scalar(
@@ -150,10 +161,8 @@ async def create_onboarding_skill(
     command = UserSkillCreate(
         machine_name=machine_name,
         display_name=display_name,
-        description=(
-            catalog_entry["description"] if catalog_entry else "自定义记录类型"
-        ),
-        domain=catalog_entry["id"] if catalog_entry else "custom",
+        description=catalog_entry["description"],
+        domain=catalog_entry["id"],
         schema_definition=_schema_from_fields(fields),
         render_spec={},
         chat_starters=[],
@@ -244,7 +253,6 @@ async def extract_preview(
             payload[key] = value
         else:
             warnings.append(f"未能从输入中识别「{field['label']}」")
-            field["type"] = "text"
 
     if not payload:
         return PreviewResult(
@@ -268,6 +276,8 @@ async def confirm_onboarding_asset(
     if not isinstance(payload, dict) or not payload:
         raise AssetPayloadInvalid("onboarding payload must not be empty")
 
+    fingerprint = _confirmation_fingerprint(skill_id, payload)
+
     existing = await session.scalar(
         select(AssetResultMarker).where(
             AssetResultMarker.user_id == user_id,
@@ -275,7 +285,12 @@ async def confirm_onboarding_asset(
         )
     )
     if existing is not None:
-        return ConfirmationResult(asset_id=existing.asset_id, created=False)
+        return await _replay_confirmation(
+            session,
+            user_id=user_id,
+            marker=existing,
+            request_fingerprint=fingerprint,
+        )
 
     skill = await session.scalar(
         select(UserSkill).where(
@@ -294,7 +309,10 @@ async def confirm_onboarding_asset(
     )
     session.add(
         AssetResultMarker(
-            idempotency_key=idempotency_key, asset_id=asset.id, user_id=user_id
+            idempotency_key=idempotency_key,
+            asset_id=asset.id,
+            user_id=user_id,
+            request_fingerprint=fingerprint,
         )
     )
     # §4.4: confirming the preview creates the first Asset and marks onboarding
@@ -319,9 +337,54 @@ async def confirm_onboarding_asset(
             )
         )
         if existing is not None:
-            return ConfirmationResult(asset_id=existing.asset_id, created=False)
+            return await _replay_confirmation(
+                session,
+                user_id=user_id,
+                marker=existing,
+                request_fingerprint=fingerprint,
+            )
         raise
     return ConfirmationResult(asset_id=asset.id, created=True)
+
+
+def _confirmation_fingerprint(skill_id: str, payload: dict) -> str:
+    canonical = json.dumps(
+        {"skill_id": skill_id, "payload": payload},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+async def _replay_confirmation(
+    session: AsyncSession,
+    *,
+    user_id: str,
+    marker: AssetResultMarker,
+    request_fingerprint: str,
+) -> ConfirmationResult:
+    stored_fingerprint = marker.request_fingerprint
+    if stored_fingerprint is None:
+        asset = await session.scalar(
+            select(Asset).where(
+                Asset.id == marker.asset_id,
+                Asset.user_id == user_id,
+            )
+        )
+        if asset is None:
+            raise IdempotencyConflict("幂等记录对应的数据不存在")
+        stored_fingerprint = _confirmation_fingerprint(
+            asset.user_skill_id,
+            asset.payload_json,
+        )
+        if stored_fingerprint == request_fingerprint:
+            marker.request_fingerprint = stored_fingerprint
+            await session.flush()
+
+    if stored_fingerprint != request_fingerprint:
+        raise IdempotencyConflict("同一个幂等键不能用于不同的记录内容")
+    return ConfirmationResult(asset_id=marker.asset_id, created=False)
 
 
 async def skip_onboarding(session: AsyncSession, user_id: str) -> str:
